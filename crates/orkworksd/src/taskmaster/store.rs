@@ -93,7 +93,10 @@ impl RecommendationStore {
             return Ok(None);
         };
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
-            || recommendation.status != RecommendationStatus::Proposed
+            || !matches!(
+                recommendation.status,
+                RecommendationStatus::Proposed | RecommendationStatus::Executing
+            )
         {
             return Err(StoreError::InvalidTransition);
         }
@@ -120,6 +123,76 @@ impl RecommendationStore {
         recommendation.status = RecommendationStatus::Dismissed;
         recommendation.updated_at = dismissed_at;
         recommendation.workflow_improvement.dismissal_watermark = Some(watermark);
+        self.put(&recommendation)?;
+        Ok(Some(recommendation))
+    }
+
+    /// Reserves a `Proposed` recommendation for execution, synchronously
+    /// (within the caller's single lock acquisition) and *before* any PTY
+    /// write is attempted. This is the guard against two concurrent accept
+    /// requests both reading `Proposed`, both writing to the same session's
+    /// terminal, and only one of them losing the store transition after the
+    /// fact — the second caller now sees `Executing` here and is rejected
+    /// with `InvalidTransition` up front.
+    pub(crate) fn begin_execution(
+        &self,
+        id: &str,
+        target_session_id: String,
+        started_at: String,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        let Some(mut recommendation) = self.get(id)? else {
+            return Ok(None);
+        };
+        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+            || recommendation.status != RecommendationStatus::Proposed
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        recommendation.status = RecommendationStatus::Executing;
+        recommendation.target_session_id = Some(target_session_id);
+        recommendation.updated_at = started_at;
+        self.put(&recommendation)?;
+        Ok(Some(recommendation))
+    }
+
+    /// Finalizes a reservation after the PTY write succeeds.
+    pub(crate) fn complete_execution(
+        &self,
+        id: &str,
+        completed_at: String,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        let Some(mut recommendation) = self.get(id)? else {
+            return Ok(None);
+        };
+        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+            || recommendation.status != RecommendationStatus::Executing
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        recommendation.status = RecommendationStatus::Accepted;
+        recommendation.updated_at = completed_at;
+        self.put(&recommendation)?;
+        Ok(Some(recommendation))
+    }
+
+    /// Rolls a reservation back to `Proposed` after the PTY write fails, so
+    /// the user can retry rather than being stuck.
+    pub(crate) fn cancel_execution(
+        &self,
+        id: &str,
+        cancelled_at: String,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        let Some(mut recommendation) = self.get(id)? else {
+            return Ok(None);
+        };
+        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+            || recommendation.status != RecommendationStatus::Executing
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        recommendation.status = RecommendationStatus::Proposed;
+        recommendation.target_session_id = None;
+        recommendation.updated_at = cancelled_at;
         self.put(&recommendation)?;
         Ok(Some(recommendation))
     }
@@ -319,6 +392,172 @@ mod tests {
                 .dismissed_through_sequence,
             4
         );
+    }
+
+    #[test]
+    fn begin_execution_reserves_in_place_and_sets_target_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+
+        let reserved = store
+            .begin_execution(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(reserved.status, RecommendationStatus::Executing);
+        assert_eq!(reserved.target_session_id, Some("session-active".into()));
+        assert_eq!(reserved.updated_at, "2026-08-21T12:00:00Z");
+    }
+
+    #[test]
+    fn begin_execution_rejects_non_proposed_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+        store
+            .begin_execution(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap();
+
+        // A second, concurrent accept request must be rejected here, before
+        // any second PTY write could ever be attempted — this is the guard
+        // that prevents duplicate terminal injection.
+        let result = store.begin_execution(
+            "recommendation-1",
+            "session-other".into(),
+            "2026-08-21T12:00:01Z".into(),
+        );
+
+        assert!(matches!(result, Err(StoreError::InvalidTransition)));
+    }
+
+    #[test]
+    fn begin_execution_returns_none_for_unknown_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+
+        let result = store
+            .begin_execution(
+                "missing",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn complete_execution_transitions_executing_to_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+        store
+            .begin_execution(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap();
+
+        let completed = store
+            .complete_execution("recommendation-1", "2026-08-21T12:00:05Z".into())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(completed.status, RecommendationStatus::Accepted);
+        assert_eq!(completed.target_session_id, Some("session-active".into()));
+        assert_eq!(completed.updated_at, "2026-08-21T12:00:05Z");
+    }
+
+    #[test]
+    fn complete_execution_rejects_non_executing_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+
+        let result = store.complete_execution("recommendation-1", "2026-08-21T12:00:00Z".into());
+
+        assert!(matches!(result, Err(StoreError::InvalidTransition)));
+    }
+
+    #[test]
+    fn cancel_execution_rolls_back_to_proposed_for_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+        store
+            .begin_execution(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap();
+
+        let cancelled = store
+            .cancel_execution("recommendation-1", "2026-08-21T12:00:05Z".into())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(cancelled.status, RecommendationStatus::Proposed);
+        assert_eq!(cancelled.target_session_id, None);
+        assert_eq!(cancelled.updated_at, "2026-08-21T12:00:05Z");
+
+        // Retrying after cancellation must succeed.
+        assert!(store
+            .begin_execution(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:10Z".into(),
+            )
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn dismiss_also_provides_an_escape_hatch_from_a_stuck_execution() {
+        // If the sidecar crashes between begin_execution and its matching
+        // complete_execution/cancel_execution, the recommendation is
+        // permanently stuck at Executing (the evaluator's terminal-status
+        // guard leaves anything but proposed/dismissed alone). Dismiss must
+        // still work from Executing so the user always has a manual way out.
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store
+            .put(&recommendation("recommendation-1", "session-1"))
+            .unwrap();
+        store
+            .begin_execution(
+                "recommendation-1",
+                "session-active".into(),
+                "2026-08-21T12:00:00Z".into(),
+            )
+            .unwrap();
+
+        let dismissed = store
+            .dismiss("recommendation-1", "2026-08-21T12:05:00Z".into())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(dismissed.status, RecommendationStatus::Dismissed);
     }
 
     #[test]

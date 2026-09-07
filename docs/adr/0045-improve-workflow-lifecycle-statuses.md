@@ -1,6 +1,6 @@
 # improve_workflow recommendation lifecycle statuses
 
-- Status: accepted
+- Status: superseded by [ADR 0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md)
 - Deciders: Rambolarsen
 - Date: 2026-08-31
 

@@ -8,7 +8,7 @@ import {
   type IDockviewPanelHeaderProps,
 } from "dockview-react";
 import { RotateCw } from "lucide-react";
-import type { SessionAttention, SessionInfo, WorkspaceInfo } from "../api";
+import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
 import SessionListPanel from "./SessionListPanel";
@@ -30,6 +30,7 @@ interface DockviewAppData {
   resumeTick: number;
   reviewTick: number;
   onSelectSession: (id: string) => void;
+  onFixWithAi: (recommendation: WorkflowRecommendation) => void;
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
@@ -144,10 +145,13 @@ function CapPanel() {
 
 function RecPanel() {
   const ctx = useContext(DockviewContext);
+  const activeSession = ctx.sessions.find((s) => s.id === ctx.activeSessionId);
   return (
     <RecommendationsPanel
       hasWorkspace={!!ctx.workspace && !ctx.isSwitchingWorkspace}
+      canFixWithAi={activeSession?.lifecycle === "alive"}
       onSelectSession={ctx.onSelectSession}
+      onFixWithAi={ctx.onFixWithAi}
     />
   );
 }

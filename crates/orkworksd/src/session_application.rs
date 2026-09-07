@@ -43,6 +43,13 @@ pub(crate) enum RecommendationQueryError {
     Store(crate::taskmaster::store::StoreError),
 }
 
+#[derive(Debug)]
+pub(crate) enum RecommendationAcceptError {
+    Conflict,
+    SessionNotFound,
+    Store(crate::taskmaster::store::StoreError),
+}
+
 pub(crate) struct WorkspaceSnapshot {
     pub(crate) path: String,
     pub(crate) repo_root: Option<String>,
@@ -246,6 +253,102 @@ impl SessionApplication {
             .recommendation_store
             .dismiss(id, chrono::Utc::now().to_rfc3339())
             .map_err(RecommendationDismissError::Store)
+    }
+
+    /// Sends a Taskmaster-generated fix prompt into `session_id`'s live PTY
+    /// through the same `submit_approved_input` path `request_plan_review`
+    /// already uses — no session is created, resumed, or reconfigured; the
+    /// prompt is delivered exactly as a keystroke followed by Enter would be.
+    ///
+    /// The recommendation is reserved (`Proposed` → `Executing`) *before*
+    /// the PTY write, synchronously within the same lock acquisition as the
+    /// eligibility checks. Without this, two concurrent accept requests for
+    /// the same recommendation could both observe `Proposed`, both write to
+    /// the terminal, and only one would win the later store transition —
+    /// this reservation makes the second request lose at the eligibility
+    /// check instead, before any write happens.
+    pub(crate) async fn accept_recommendation(
+        &self,
+        id: &str,
+        session_id: &str,
+        prompt_override: Option<String>,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
+        let (prompt, title) = {
+            let workspace_guard = self.state.workspace.lock().unwrap();
+            let workspace = workspace_guard
+                .as_ref()
+                .ok_or(RecommendationAcceptError::Conflict)?;
+            let Some(recommendation) = workspace
+                .recommendation_store
+                .get(id)
+                .map_err(RecommendationAcceptError::Store)?
+            else {
+                return Ok(None);
+            };
+            if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+                || recommendation.status != RecommendationStatus::Proposed
+            {
+                return Err(RecommendationAcceptError::Conflict);
+            }
+            let metadata = workspace
+                .metadata
+                .read_session(session_id)
+                .ok_or(RecommendationAcceptError::SessionNotFound)?;
+            if metadata.lifecycle != "alive" {
+                return Err(RecommendationAcceptError::Conflict);
+            }
+            let prompt = prompt_override
+                .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
+            workspace
+                .recommendation_store
+                .begin_execution(id, session_id.to_string(), chrono::Utc::now().to_rfc3339())
+                .map_err(RecommendationAcceptError::Store)?
+                .ok_or(RecommendationAcceptError::Conflict)?;
+            (prompt, recommendation.title.clone())
+        };
+
+        let delivery = crate::runtime::terminal_runtime::submit_approved_input(
+            &self.state,
+            session_id,
+            prompt,
+        )
+        .await;
+
+        // The lock acquisitions below finalize a reservation already made
+        // above; if the workspace vanished in between (e.g. a mid-request
+        // workspace switch — rare, and an accepted limitation elsewhere in
+        // this call chain too), the recommendation is left `Executing`
+        // rather than corrupted, and `dismiss` accepts `Executing` as a
+        // manual escape hatch for that case.
+        if delivery.is_err() {
+            if let Some(workspace) = self.state.workspace.lock().unwrap().as_ref() {
+                let _ = workspace
+                    .recommendation_store
+                    .cancel_execution(id, chrono::Utc::now().to_rfc3339());
+            }
+            return Err(RecommendationAcceptError::Conflict);
+        }
+
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard
+            .as_ref()
+            .ok_or(RecommendationAcceptError::Conflict)?;
+        workspace.metadata.append_event(
+            session_id,
+            &metadata::Event {
+                event_type: "taskmaster_fix_requested".into(),
+                timestamp: iso_now(),
+                status: "working".into(),
+                observed_status: Some("working".into()),
+                confidence: None,
+                summary: Some(format!("Taskmaster sent a fix prompt for: {title}")),
+                source: Some("user".into()),
+            },
+        );
+        workspace
+            .recommendation_store
+            .complete_execution(id, chrono::Utc::now().to_rfc3339())
+            .map_err(RecommendationAcceptError::Store)
     }
 
     /// Persists one Peon observation under one workspace snapshot.
@@ -7226,6 +7329,255 @@ mod tests {
             crate::taskmaster::RecommendationStatus::Dismissed
         );
         assert!(reloaded.workflow_improvement.dismissal_watermark.is_some());
+    }
+
+    fn proposed_recommendation_id(state: &Arc<AppState>, key_prefix: &str) -> String {
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for key in [
+                format!("{key_prefix}-first"),
+                format!("{key_prefix}-second"),
+            ] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        "workflow-accept-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        &key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        SessionApplication::new(state.clone()).refresh_workflow_recommendations();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap()
+            .pop()
+            .unwrap()
+            .id
+    }
+
+    fn write_alive_session(state: &Arc<AppState>, root: &std::path::Path, id: &str) {
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Active session",
+            &root.display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+    }
+
+    #[tokio::test]
+    async fn accept_recommendation_submits_prompt_and_transitions_status() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "accept-happy");
+        let session_id = "accept-target-session";
+        write_alive_session(&state, root.path(), session_id);
+        let mut handle = attention_test_handle(session_id, root.path());
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        handle.runtime = runtime;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), handle);
+
+        let expected_recommendation = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&recommendation_id)
+            .unwrap()
+            .unwrap();
+        let expected_prompt = crate::taskmaster::build_fix_prompt(&expected_recommendation);
+
+        let application = SessionApplication::new(state.clone());
+        let recommendation_id_for_task = recommendation_id.clone();
+        let mut request = tokio::spawn(async move {
+            application
+                .accept_recommendation(&recommendation_id_for_task, session_id, None)
+                .await
+        });
+        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
+            command = control_rx.recv() => command.unwrap(),
+            response = &mut request => panic!("accept returned {:?} before reaching the PTY", response.unwrap()),
+        }) else {
+            panic!("expected terminal input");
+        };
+        assert_eq!(data, expected_prompt);
+        accepted.unwrap().send(Ok(())).unwrap();
+
+        let accepted_recommendation = request.await.unwrap().unwrap().unwrap();
+        assert_eq!(
+            accepted_recommendation.status,
+            crate::taskmaster::RecommendationStatus::Accepted
+        );
+        assert_eq!(
+            accepted_recommendation.target_session_id,
+            Some(session_id.into())
+        );
+
+        let events = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(session_id);
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "taskmaster_fix_requested"));
+    }
+
+    #[tokio::test]
+    async fn accept_recommendation_honors_client_supplied_prompt_override() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "accept-override");
+        let session_id = "accept-override-session";
+        write_alive_session(&state, root.path(), session_id);
+        let mut handle = attention_test_handle(session_id, root.path());
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        handle.runtime = runtime;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.into(), handle);
+
+        let application = SessionApplication::new(state.clone());
+        let mut request = tokio::spawn(async move {
+            application
+                .accept_recommendation(&recommendation_id, session_id, Some("custom text\r".into()))
+                .await
+        });
+        let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
+            command = control_rx.recv() => command.unwrap(),
+            response = &mut request => panic!("accept returned {:?} before reaching the PTY", response.unwrap()),
+        }) else {
+            panic!("expected terminal input");
+        };
+        assert_eq!(data, "custom text\r");
+        accepted.unwrap().send(Ok(())).unwrap();
+        assert!(request.await.unwrap().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn accept_recommendation_rejects_when_target_session_not_alive() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "accept-not-alive");
+        let session_id = "accept-ended-session";
+        let mut metadata = crate::test_support::test_session_metadata(
+            session_id,
+            "Ended session",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle = "ended".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let application = SessionApplication::new(state.clone());
+        assert!(matches!(
+            application
+                .accept_recommendation(&recommendation_id, session_id, None)
+                .await,
+            Err(RecommendationAcceptError::Conflict)
+        ));
+    }
+
+    #[tokio::test]
+    async fn accept_recommendation_returns_session_not_found_for_unknown_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "accept-missing-session");
+
+        let application = SessionApplication::new(state.clone());
+        assert!(matches!(
+            application
+                .accept_recommendation(&recommendation_id, "no-such-session", None)
+                .await,
+            Err(RecommendationAcceptError::SessionNotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn accept_recommendation_rejects_non_proposed_recommendation() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "accept-non-proposed");
+        let session_id = "accept-dismissed-target";
+        write_alive_session(&state, root.path(), session_id);
+
+        let application = SessionApplication::new(state.clone());
+        application
+            .dismiss_recommendation(&recommendation_id)
+            .unwrap();
+
+        assert!(matches!(
+            application
+                .accept_recommendation(&recommendation_id, session_id, None)
+                .await,
+            Err(RecommendationAcceptError::Conflict)
+        ));
+    }
+
+    #[tokio::test]
+    async fn accept_recommendation_returns_ok_none_for_unknown_recommendation() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let session_id = "accept-unknown-recommendation-session";
+        write_alive_session(&state, root.path(), session_id);
+
+        let application = SessionApplication::new(state.clone());
+        assert_eq!(
+            application
+                .accept_recommendation("missing-recommendation", session_id, None)
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import type { WorkflowRecommendation } from "../src/api.ts";
 import {
+  buildFixPromptDraft,
   formatImpact,
   formatRecurrence,
   formatTargetSurface,
@@ -84,7 +85,59 @@ test("Taskmaster evidence is displayed in observation order without mutating the
   assert.deepEqual(recommendation.evidence.map((item) => item.sequence), [2, 1]);
 });
 
-test("Recommendations panel exposes evidence and dismissal only", () => {
+test("Taskmaster fix prompt is scoped to the target surface and forbids touching other sessions", () => {
+  const prompt = buildFixPromptDraft(recommendation);
+
+  assert.match(prompt, /Add a review handoff step\./);
+  assert.match(prompt, /instructions/);
+  assert.match(prompt, /Do not resume, reopen, or modify any other session/);
+});
+
+test("Fix with AI always presses Enter regardless of dialog edits", () => {
+  // Regression: the dialog's editable draft has no trailing \r (it shouldn't
+  // show one to the user), but the backend's build_fix_prompt convention
+  // ends every submitted prompt in \r so it's delivered as typed text
+  // followed by Enter. Since the desktop always sends an explicit prompt
+  // override, the backend's own \r-terminated default never applies — the
+  // frontend must append \r itself before sending, or nothing ever gets
+  // submitted to the target session.
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const handlerIndex = app.indexOf("const handleConfirmFixWithAi");
+  assert.ok(handlerIndex >= 0, "expected a handleConfirmFixWithAi handler");
+  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRecommendation", handlerIndex));
+
+  assert.match(handlerBlock, /prompt: `\$\{prompt\}\\r`/);
+});
+
+test("Fix with AI surfaces an error instead of silently closing when no session is active", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const handlerIndex = app.indexOf("const handleConfirmFixWithAi");
+  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRecommendation", handlerIndex));
+
+  assert.match(handlerBlock, /if \(!recommendation \|\| !activeSessionId\) \{/);
+  const guardBlock = handlerBlock.slice(handlerBlock.indexOf("if (!recommendation"));
+  assert.match(guardBlock.slice(0, guardBlock.indexOf("return;") + "return;".length), /pushToast\("error"/);
+});
+
+test("Fix with AI is gated on the active session actually being alive, not merely selected", () => {
+  // Regression: a dead session stays selected (activeSessionId survives it
+  // exiting), so gating on the id's mere presence left the button enabled
+  // for a session the backend will unconditionally reject.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const dockview = readFileSync(
+    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /canFixWithAi: boolean/);
+  assert.doesNotMatch(panel, /activeSessionId/);
+  assert.match(dockview, /\.lifecycle === "alive"/);
+});
+
+test("Recommendations panel exposes evidence, dismissal, and an explicit fix-with-ai action only", () => {
   const source = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
@@ -92,6 +145,7 @@ test("Recommendations panel exposes evidence and dismissal only", () => {
 
   assert.match(source, /<details\b/);
   assert.match(source, /Dismiss/);
+  assert.match(source, /Fix with AI/);
   assert.doesNotMatch(source, />Accept</);
   assert.doesNotMatch(source, />Execute</);
   assert.doesNotMatch(source, /Start session/);

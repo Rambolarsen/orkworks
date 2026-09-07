@@ -216,7 +216,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive; losing the renderer terminal attachment alone must not end the session
 - `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. Rendered in the session detail panel as "Task history," distinct from the session's `label` (title), which is a stable, one-shot Peon-authored topic rather than this turn-by-turn activity log (ADR 0029).
-- Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action. The implemented passive `improve_workflow` recommendation requires no approval to *display* — it still cannot start a session, focus a terminal, or edit a file; it can only be dismissed (ADR 0042).
+- Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action. The implemented passive `improve_workflow` recommendation requires no approval to *display* — it still cannot focus a terminal or edit a file on its own, and it never starts a session. It can be dismissed, or explicitly accepted by the user to send a generated fix prompt into the user's currently active session, scoped to the recommended target surface (ADR 0042, ADR 0048).
 
 ## Key conventions from specs
 

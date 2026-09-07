@@ -1,7 +1,9 @@
 # Workflow observations replace summary checkpoints
 
 - Status: accepted (the reachable-status clause of the "Embedded
-  recommendation evidence" decision below is superseded by ADR 0045)
+  recommendation evidence" decision below is superseded by ADR 0045; the
+  "no accept/execute action" and "dismissible only" clauses are superseded
+  by ADR 0048)
 - Deciders: Rambolarsen
 - Date: 2026-08-14
 

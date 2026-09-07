@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import type { PeonDiagnostics, SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import {
+  acceptTaskmasterRecommendation,
   deleteHarness,
   dismissTaskmasterRecommendation,
   duplicateHarness,
@@ -384,6 +385,34 @@ test("Taskmaster dismissal sends an optional reason and accepts a successful res
     assert.equal(init?.method, "POST");
     assert.equal(init?.headers && (init.headers as Record<string, string>)["Content-Type"], "application/json");
     assert.equal(init?.body, JSON.stringify({ reason: "Not actionable" }));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Taskmaster accept sends the session id and prompt and returns the updated recommendation", async () => {
+  const origFetch = globalThis.fetch;
+  let requestUrl = "";
+  let init: RequestInit | undefined;
+  globalThis.fetch = (url: string | URL | Request, requestInit?: RequestInit) => {
+    requestUrl = String(url);
+    init = requestInit;
+    return Promise.resolve(
+      new Response(JSON.stringify({ id: "rec-1", status: "accepted", targetSessionId: "session-active" }), {
+        status: 200,
+      }),
+    );
+  };
+  try {
+    const accepted = await acceptTaskmasterRecommendation("http://localhost:0", "rec/with spaces", {
+      sessionId: "session-active",
+      prompt: "Implement the fix",
+    });
+    assert.match(requestUrl, /rec%2Fwith%20spaces\/accept$/);
+    assert.equal(init?.method, "POST");
+    assert.equal(init?.headers && (init.headers as Record<string, string>)["Content-Type"], "application/json");
+    assert.equal(init?.body, JSON.stringify({ sessionId: "session-active", prompt: "Implement the fix" }));
+    assert.equal((accepted as { targetSessionId: string }).targetSessionId, "session-active");
   } finally {
     globalThis.fetch = origFetch;
   }

@@ -402,7 +402,7 @@ Taskmaster may say that the work is ready for the user. It must not mark the wor
 
 ## Workflow-improvement recommendations
 
-`improve_workflow` is the passive variant of the canonical recommendation contract described above. It never starts, resumes, or focuses a session; it exposes no accept/execute action; and it never edits repository files, instructions, skills, tests, or tooling itself. It is a proposal for the user to act on manually.
+`improve_workflow` is the passive variant of the canonical recommendation contract described above. It never resumes or focuses an existing session, and it never edits repository files, instructions, skills, tests, or tooling itself — the only exception is through the explicit `accept` action described below, which starts no new session but submits a prompt into a session the user is already running. It exposes one explicit, user-confirmed `accept` action that sends a prompt derived from the recommendation into the user's currently active session, scoped to editing the recommended target surface — it never resumes, reopens, or modifies any session that supplied evidence for it.
 
 ### Eligibility
 
@@ -429,7 +429,7 @@ Every observation kind maps to a fixed target surface and recommendation-text te
 
 ### Recommendation shape
 
-`improve_workflow` carries all shared recommendation fields (see "Recommendation contract" below) with `targetSessionId`, `suggestedHarnessId`, `suggestedModel`, `suggestedWorkingDirectory`, and `suggestedPrompt` all `null`, `requiresApproval: false`, and priority derived from the highest cited impact. Confidence is conservative: `high` only when every qualifying cited observation is at least `0.8`; otherwise `medium`. It adds a `workflowImprovement` object:
+`improve_workflow` carries all shared recommendation fields (see "Recommendation contract" below) with `suggestedHarnessId`, `suggestedModel`, `suggestedWorkingDirectory`, and `suggestedPrompt` all `null` (the evaluator does not populate these), `targetSessionId` `null` until the recommendation is accepted (then set to the session the fix prompt was sent to), `requiresApproval: false`, and priority derived from the highest cited impact. Confidence is conservative: `high` only when every qualifying cited observation is at least `0.8`; otherwise `medium`. It adds a `workflowImprovement` object:
 
 ```text
 workflowImprovement
@@ -446,7 +446,7 @@ workflowImprovement
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For this passive variant, only `proposed` and `dismissed` are reachable in the first version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten.
+For this passive variant, `proposed`, `dismissed`, `executing`, and `accepted` are reachable in this version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed); `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. `executing` and `accepted` are both terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
 
 ### Deduplication and dismissal watermark
 
@@ -461,7 +461,7 @@ When either condition holds, Taskmaster creates one new `proposed` recommendatio
 
 ### Presentation
 
-The Taskmaster surface presents one card per active `improve_workflow` recommendation, showing the proposed improvement and target surface, why Taskmaster is suggesting it now, recurrence count and affected sessions, impact/confidence/expected benefit, expandable supporting observations (source and timestamp), and a single `Dismiss` action. The first version presents recommendations only — it does not create a GitHub issue, start an implementation session, or edit repository files.
+The Taskmaster surface presents one card per active `improve_workflow` recommendation, showing the proposed improvement and target surface, why Taskmaster is suggesting it now, recurrence count and affected sessions, impact/confidence/expected benefit, expandable supporting observations (source and timestamp), and two actions: `Dismiss` and `Fix with AI` (sends a generated fix prompt into the user's currently active session, scoped to the recommended target surface; disabled when no session is active). This version does not create a GitHub issue or edit repository files itself — only the explicit `Fix with AI` action submits a prompt that may result in an edit, carried out by the session the user already has open.
 
 ## Review-session handoff
 
@@ -694,7 +694,7 @@ Workflow observations reach Taskmaster through a session-scoped sidecar route ra
 
 - `POST /sessions/:id/workflow-observations` — authenticated, harness-neutral explicit workflow-observation report (see `specs/orkworks-mvp.md`)
 
-`improve_workflow` recommendations use only `GET /taskmaster/recommendations` (list) and `POST /taskmaster/recommendations/:id/dismiss` from the API above — `accept` and `refresh` have no effect for this passive variant, since it exposes no accept/execute action and Taskmaster's five-second correlation debounce drives its own reevaluation.
+`improve_workflow` recommendations use `GET /taskmaster/recommendations` (list), `POST /taskmaster/recommendations/:id/dismiss`, and `POST /taskmaster/recommendations/:id/accept` from the API above — `refresh` has no effect for this passive variant, since Taskmaster's five-second correlation debounce drives its own reevaluation. Unlike the general `accept` contract below (which starts a session), `improve_workflow`'s `accept` takes a caller-supplied `sessionId` identifying the user's currently active session and submits a generated fix prompt into it through the same mechanism as a live keystroke — it starts no session.
 
 Accepting a recommendation that starts a session should use the existing session creation path. The created session records:
 
@@ -874,9 +874,9 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Product decisions, credentials, destructive actions, and merge approval are always routed to the user.
 - [ ] Chain depth and review-count limits prevent indefinite session spawning.
 - [ ] Capacity changes can supersede or rerank a proposed recommendation.
-- [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly.
+- [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly, except through the user-confirmed `improve_workflow` `accept` action, which submits a generated prompt into the user's own active session (never a session Taskmaster chose or started) and never edits files itself.
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
-- [ ] `improve_workflow` recommendations expose no accept/execute action and only ever reach `proposed` or `dismissed` status.
+- [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, or `accepted` status.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
 
 ## Non-goals reaffirmed

@@ -10,7 +10,9 @@ import EmptyState from "./EmptyState";
 
 interface RecommendationsPanelProps {
   hasWorkspace: boolean;
+  canFixWithAi: boolean;
   onSelectSession?: (id: string) => void;
+  onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
 }
 
 function DiagnosticList({ diagnostics }: { diagnostics: ObservationDiagnostic[] }) {
@@ -29,12 +31,16 @@ function RecommendationCard({
   recommendation,
   onDismiss,
   onSelectSession,
+  onFixWithAi,
+  canFixWithAi,
   dismissing,
   error,
 }: {
   recommendation: WorkflowRecommendation;
   onDismiss: (id: string) => void;
   onSelectSession?: (id: string) => void;
+  onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
+  canFixWithAi: boolean;
   dismissing: boolean;
   error?: string;
 }) {
@@ -78,14 +84,25 @@ function RecommendationCard({
         ))}
       </details>
       {error && <p className="recommendation-error" role="alert">{error}</p>}
-      <button className="recommendation-dismiss" type="button" disabled={dismissing} onClick={() => onDismiss(recommendation.id)}>
-        {dismissing ? "Dismissing…" : "Dismiss"}
-      </button>
+      <div className="recommendation-actions">
+        <button
+          className="recommendation-fix"
+          type="button"
+          disabled={dismissing || !canFixWithAi}
+          title={canFixWithAi ? undefined : "Open a session to send this fix to"}
+          onClick={() => onFixWithAi?.(recommendation)}
+        >
+          Fix with AI
+        </button>
+        <button className="recommendation-dismiss" type="button" disabled={dismissing} onClick={() => onDismiss(recommendation.id)}>
+          {dismissing ? "Dismissing…" : "Dismiss"}
+        </button>
+      </div>
     </article>
   );
 }
 
-function RecommendationsPanel({ hasWorkspace, onSelectSession }: RecommendationsPanelProps) {
+function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onFixWithAi }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
   const [error, setError] = useState<string>();
@@ -164,6 +181,8 @@ function RecommendationsPanel({ hasWorkspace, onSelectSession }: Recommendations
             recommendation={recommendation}
             onDismiss={dismiss}
             onSelectSession={onSelectSession}
+            onFixWithAi={onFixWithAi}
+            canFixWithAi={canFixWithAi}
             dismissing={dismissing === recommendation.id}
             error={dismissErrors[recommendation.id] || undefined}
           />
