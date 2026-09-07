@@ -47,7 +47,7 @@ test("pushProviderSettings keeps the last error on non-fatal sidecar failures", 
   assert.match(result.lastApplyError ?? "", /500/);
 });
 
-test("provider settings sync errors are fatal to restoration readiness", () => {
+test("provider settings sync errors are available for restoration failure reporting", () => {
   const error = providerSettingsSyncError({
     appliedRevision: null,
     appliedAt: null,
