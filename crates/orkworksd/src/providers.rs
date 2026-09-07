@@ -4,7 +4,7 @@ use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, RwLock};
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -1986,66 +1986,93 @@ impl ProviderManager {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|error| format!("failed to run {command}: {error}"))?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "Codex app-server stdin was unavailable".to_string())?;
-        let requests = [
-            r#"{"method":"initialize","id":1,"params":{"clientInfo":{"name":"orkworks","title":"OrkWorks","version":"0.1.0"},"capabilities":{}}}"#,
-            r#"{"method":"initialized"}"#,
-            r#"{"method":"model/list","id":2,"params":{}}"#,
-        ];
-        for request in requests {
-            stdin
-                .write_all(request.as_bytes())
-                .and_then(|_| stdin.write_all(b"\n"))
-                .map_err(|error| format!("failed to write Codex app-server request: {error}"))?;
-        }
-        drop(stdin);
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Codex app-server stdout was unavailable".to_string())?;
-        let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<String>>();
-        std::thread::spawn(move || {
-            let mut reader = std::io::BufReader::new(stdout);
-            loop {
-                let mut line = String::new();
-                match reader.read_line(&mut line) {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if tx.send(Ok(line)).is_err() {
+        let result = (|| -> Result<Vec<ProviderModelOption>, String> {
+            let mut stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| "Codex app-server stdin was unavailable".to_string())?;
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| "Codex app-server stdout was unavailable".to_string())?;
+            let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<String>>();
+            std::thread::spawn(move || {
+                let mut reader = std::io::BufReader::new(stdout);
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            if tx.send(Ok(line)).is_err() {
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = tx.send(Err(error));
                             break;
                         }
                     }
-                    Err(error) => {
-                        let _ = tx.send(Err(error));
-                        break;
+                }
+            });
+            let started = Instant::now();
+            let timeout = Duration::from_secs(definition.timeout_secs);
+            let receive_line = || -> Result<String, String> {
+                match rx.recv_timeout(timeout.saturating_sub(started.elapsed())) {
+                    Ok(Ok(line)) => Ok(line),
+                    Ok(Err(error)) => {
+                        Err(format!("failed to read Codex app-server output: {error}"))
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
+                        "{command} timed out after {}s",
+                        definition.timeout_secs
+                    )),
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        Err("Codex app-server exited before returning the expected response".into())
                     }
                 }
+            };
+            let mut write_request = |request: &str| {
+                stdin
+                    .write_all(request.as_bytes())
+                    .and_then(|_| stdin.write_all(b"\n"))
+                    .map_err(|error| format!("failed to write Codex app-server request: {error}"))
+            };
+            write_request(
+                r#"{"method":"initialize","id":1,"params":{"clientInfo":{"name":"orkworks","title":"OrkWorks","version":"0.1.0"},"capabilities":{}}}"#,
+            )?;
+            loop {
+                let line = receive_line()?;
+                let value: serde_json::Value =
+                    serde_json::from_str(line.trim()).map_err(|error| {
+                        format!("failed to parse Codex app-server response: {error}")
+                    })?;
+                if value.get("id").and_then(serde_json::Value::as_i64) != Some(1) {
+                    continue;
+                }
+                if let Some(error) = value.get("error") {
+                    let message = error
+                        .get("message")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("Codex app-server initialization failed");
+                    return Err(message.to_string());
+                }
+                break;
             }
-        });
-        let result = loop {
-            match rx.recv_timeout(Duration::from_secs(definition.timeout_secs)) {
-                Ok(Ok(line)) => match parse_codex_model_list(line.trim()) {
+            write_request(r#"{"method":"initialized"}"#)?;
+            write_request(r#"{"method":"model/list","id":2,"params":{}}"#)?;
+            drop(stdin);
+            loop {
+                let line = match receive_line() {
+                    Ok(line) => line,
+                    Err(error) => break Err(error),
+                };
+                match parse_codex_model_list(line.trim()) {
                     Ok(models) => break Ok(models),
                     Err(_error) if !line.contains("\"error\"") => continue,
                     Err(error) => break Err(error),
-                },
-                Ok(Err(error)) => {
-                    break Err(format!("failed to read Codex app-server output: {error}"))
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    break Err(format!(
-                        "{command} timed out after {}s",
-                        definition.timeout_secs
-                    ))
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    break Err("Codex app-server exited before returning model/list".into())
                 }
             }
-        };
+        })();
         let _ = child.kill();
         let _ = child.wait();
         result
@@ -4176,8 +4203,11 @@ mod tests {
             r#"#!/bin/sh
 while IFS= read -r line; do
   case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"id":1,"result":{}}'
+      ;;
     *'"method":"model/list"'*)
-      printf '%s\n' '{"id":1,"result":{}}' '{"id":2,"result":{"data":[{"id":"gpt-live","displayName":"GPT Live","supportedReasoningEfforts":[{"reasoningEffort":"high","description":"Deep"}],"defaultReasoningEffort":"high"}]}}'
+      printf '%s\n' '{"id":2,"result":{"data":[{"id":"gpt-live","displayName":"GPT Live","supportedReasoningEfforts":[{"reasoningEffort":"high","description":"Deep"}],"defaultReasoningEffort":"high"}]}}'
       break
       ;;
   esac
