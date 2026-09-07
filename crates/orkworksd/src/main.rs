@@ -97,6 +97,7 @@ struct WorkspaceState {
     metadata: metadata::MetadataStore,
     workflow_observations: workflow_observations::WorkflowObservationStore,
     recommendation_store: taskmaster::store::RecommendationStore,
+    lease: Option<Arc<workspace_runtime::WorkspaceLease>>,
     #[allow(dead_code)]
     watcher: watcher::MetadataWatcher,
 }
@@ -523,6 +524,7 @@ pub(crate) mod test_support {
                     metadata_root.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
             })),
             peon: PeonState {
@@ -565,6 +567,7 @@ pub(crate) mod test_support {
                 metadata_root.clone(),
             )
             .expect("open recommendation store"),
+            lease: None,
             watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         state.bump_harness_probe_generation();
