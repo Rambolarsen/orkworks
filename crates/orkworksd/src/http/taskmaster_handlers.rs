@@ -8,6 +8,7 @@ use crate::taskmaster::store::StoreError;
 use crate::taskmaster::Recommendation;
 use crate::AppState;
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -132,7 +133,7 @@ pub(crate) async fn complete_recommendation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     headers: HeaderMap,
-    body: Option<Json<CompleteRequest>>,
+    body: Bytes,
 ) -> Response {
     let Some(token) = bearer_token(&headers) else {
         return StatusCode::UNAUTHORIZED.into_response();
@@ -140,7 +141,14 @@ pub(crate) async fn complete_recommendation(
     let Some(session_id) = workflow_report_session_for_token(token) else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    let summary = body.and_then(|Json(request)| request.summary);
+    let summary = if body.is_empty() {
+        None
+    } else {
+        let Ok(request) = serde_json::from_slice::<CompleteRequest>(&body) else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+        request.summary
+    };
     if summary
         .as_deref()
         .is_some_and(|value| value.chars().count() > MAX_COMPLETION_SUMMARY_CHARS)
@@ -163,6 +171,7 @@ mod tests {
         clear_workflow_report_token, set_workflow_report_token,
     };
     use crate::test_support::test_app_state_with_workspace;
+    use axum::body::Bytes;
     use axum::http::header::AUTHORIZATION;
 
     fn accepted_recommendation(
@@ -238,7 +247,7 @@ mod tests {
                 state.clone(),
                 Path("missing".into()),
                 HeaderMap::new(),
-                None
+                Bytes::new(),
             )
             .await
             .status(),
@@ -249,7 +258,7 @@ mod tests {
                 state,
                 Path("missing".into()),
                 authorization("wrong-token"),
-                None,
+                Bytes::new(),
             )
             .await
             .status(),
@@ -267,13 +276,50 @@ mod tests {
             State(state),
             Path("missing".into()),
             authorization("summary-limit-token"),
-            Some(Json(CompleteRequest {
-                summary: Some("x".repeat(MAX_COMPLETION_SUMMARY_CHARS + 1)),
-            })),
+            Bytes::from(format!(
+                "{{\"summary\":\"{}\"}}",
+                "x".repeat(MAX_COMPLETION_SUMMARY_CHARS + 1)
+            )),
         )
         .await;
         clear_workflow_report_token("summary-limit-session");
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn complete_rejects_malformed_body_before_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let recommendation_id = accepted_recommendation(
+            &state,
+            "malformed-body-session",
+            "malformed-body-session",
+            "malformed-body-token",
+        );
+
+        let response = complete_recommendation(
+            State(state.clone()),
+            Path(recommendation_id.clone()),
+            authorization("malformed-body-token"),
+            Bytes::from_static(br#"{"unknown":true}"#),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&recommendation_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            crate::taskmaster::RecommendationStatus::Accepted
+        );
+        clear_workflow_report_token("malformed-body-session");
     }
 
     #[tokio::test]
@@ -291,7 +337,7 @@ mod tests {
             State(state),
             Path(recommendation_id),
             authorization("complete-token"),
-            None,
+            Bytes::new(),
         )
         .await;
         clear_workflow_report_token("different-session");
@@ -313,9 +359,7 @@ mod tests {
             State(state.clone()),
             Path(recommendation_id.clone()),
             authorization("complete-token-unique"),
-            Some(Json(CompleteRequest {
-                summary: Some("Verified by the agent.".into()),
-            })),
+            Bytes::from_static(br#"{"summary":"Verified by the agent."}"#),
         )
         .await;
         assert_eq!(first.status(), StatusCode::OK);
@@ -324,7 +368,7 @@ mod tests {
             State(state.clone()),
             Path(recommendation_id.clone()),
             authorization("complete-token-unique"),
-            None,
+            Bytes::new(),
         )
         .await;
         assert_eq!(second.status(), StatusCode::OK);
