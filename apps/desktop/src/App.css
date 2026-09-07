@@ -2216,6 +2216,7 @@ html, body, #root {
 
 .source-badge[data-source="agent"] { background: color-mix(in srgb, var(--source-agent) 13%, transparent); color: var(--source-agent); }
 .source-badge[data-source="peon"]  { background: color-mix(in srgb, var(--source-peon) 13%, transparent);  color: var(--source-peon); }
+.source-badge[data-source="codex_hook"] { background: color-mix(in srgb, var(--source-codex) 13%, transparent); color: var(--source-codex); }
 
 .peon-value { color: var(--state-info); }
 

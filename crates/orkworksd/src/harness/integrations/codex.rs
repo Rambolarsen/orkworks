@@ -319,10 +319,20 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::integration::{
+        IntegrationContext, IntegrationHandler, ReporterAssetResolver,
+    };
     use crate::test_support::FakeHome;
 
     fn reporter_path(home: &std::path::Path) -> std::path::PathBuf {
         home.join(".orkworks/hook-scripts/report-harness-event.sh")
+    }
+
+    fn gitignored_workspace() -> tempfile::TempDir {
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        std::fs::write(workspace.path().join(".gitignore"), ".codex/hooks.json\n").unwrap();
+        workspace
     }
 
     #[test]
@@ -563,6 +573,61 @@ mod tests {
             .push(duplicate);
 
         assert_eq!(probe(&document, &script).unwrap(), FragmentState::Ambiguous);
+    }
+
+    #[test]
+    fn probe_reports_ambiguous_when_duplicate_event_replaces_a_missing_event() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let script = reporter_path(home.path());
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        let mut document = Map::new();
+        merge(&mut document, &script).unwrap();
+
+        let hooks = document["hooks"].as_object_mut().unwrap();
+        hooks.remove("Stop");
+        let duplicate = hooks["SessionStart"][0].clone();
+        hooks["SessionStart"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+
+        assert_eq!(probe(&document, &script).unwrap(), FragmentState::Ambiguous);
+    }
+
+    #[test]
+    fn install_reconciles_a_stale_reporter_even_when_the_hook_bundle_is_installed() {
+        let workspace = gitignored_workspace();
+        let source = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let asset_name = ReporterPlatform::current().asset_name();
+        let source_asset = source.path().join(asset_name);
+        std::fs::write(&source_asset, "current reporter\n").unwrap();
+        let resolver = ReporterAssetResolver {
+            source_dir: source.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks/hook-scripts"),
+        };
+        let ctx = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &resolver,
+        };
+
+        HANDLER.install(&ctx).unwrap();
+        let stable_asset = resolver.stable_path(asset_name).unwrap();
+        std::fs::write(&stable_asset, "stale reporter\n").unwrap();
+
+        HANDLER.install(&ctx).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(stable_asset).unwrap(),
+            "current reporter\n"
+        );
     }
 
     #[test]

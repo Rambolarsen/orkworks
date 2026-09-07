@@ -3350,6 +3350,7 @@ mod tests {
         );
         meta.harness = "codex".into();
         meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
         state
             .workspace
             .lock()

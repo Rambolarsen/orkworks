@@ -345,7 +345,12 @@ impl IntegrationHandler for JsonHookHandler {
         let (transaction, mut document, reporter) = self.load(ctx)?;
         match (self.probe)(&document, &reporter)? {
             FragmentState::Installed => {
-                return self.status_from_document(ctx, &document, &reporter)
+                // The hook JSON can be tracked and remain byte-identical
+                // while the local stable reporter is stale after an app
+                // update. Refresh that code-owned asset even when the
+                // configuration itself needs no repair.
+                (self.reconcile)(ctx.reporter_assets)?;
+                return self.status_from_document(ctx, &document, &reporter);
             }
             FragmentState::Ambiguous => return Err(IntegrationError::OwnershipAmbiguous),
             FragmentState::Absent | FragmentState::Drifted => {}

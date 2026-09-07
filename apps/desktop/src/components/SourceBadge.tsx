@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 interface SourceBadgeProps {
-  /** Raw metadata source: "agent" (lime) or "peon" (info-blue); anything else renders neutral. */
+  /** Raw metadata source: "agent" (lime), "peon" (info-blue), or "codex_hook" (amber); anything else renders neutral. */
   source: string;
   children: ReactNode;
 }

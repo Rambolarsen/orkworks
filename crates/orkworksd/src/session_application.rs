@@ -1792,6 +1792,9 @@ impl SessionApplication {
                 }
                 Some(_) => {}
             }
+            if signal.source == "codex_hook" && handle.is_none() {
+                return Err(SessionError::Conflict);
+            }
         }
 
         if signal.reject_stale_observed_at
@@ -2155,7 +2158,7 @@ impl SessionApplication {
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
-                require_alive: false,
+                require_alive: codex_hook,
                 debug_hint_mutation: None,
             })
         })
@@ -5490,6 +5493,64 @@ mod tests {
                 .attention
                 .as_deref(),
             Some("needs_you")
+        );
+    }
+
+    #[test]
+    fn attention_merge_application_rejects_codex_hook_without_live_session_handle() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-merge-codex-no-handle";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+
+        let result =
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "waiting_for_input".into(),
+                message: Some("late hook".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                source: "codex_hook".into(),
+                confidence: 1.0,
+                observed_at: None,
+                reject_stale_observed_at: false,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: true,
+                require_alive: true,
+                debug_hint_mutation: None,
+            });
+
+        assert_eq!(result, Err(SessionError::Conflict));
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .observed_status
+                .as_deref(),
+            None
         );
     }
 

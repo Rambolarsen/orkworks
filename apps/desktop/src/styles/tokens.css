@@ -85,6 +85,7 @@
   /* Metadata source */
   --source-agent: var(--ork-lime);
   --source-peon: var(--state-info);
+  --source-codex: var(--state-warn);
   --source-other: var(--text-muted);
 
   /* Accent / focus — vibrant lime is the primary action color */
@@ -228,4 +229,5 @@
   --accent-focus: #5f8a00;            /* darker lime for contrast on white */
 
   --source-agent: #6f9908;
+  --source-codex: #b7791f;
 }
