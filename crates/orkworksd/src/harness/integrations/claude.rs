@@ -17,6 +17,7 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
         relative_path: ".claude/settings.local.json",
         ownership_marker: MARKER,
         coverage: IntegrationCoverage::Limited,
+        reports_attention: true,
         activation: IntegrationActivation::Active,
         // ADR 0038: Claude's PostToolUse Write|Edit hook forwards the
         // written file path to /sessions/:id/plan-path, giving the sidecar

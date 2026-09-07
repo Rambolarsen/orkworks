@@ -16,6 +16,7 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
         relative_path: ".gemini/settings.json",
         ownership_marker: MARKER,
         coverage: IntegrationCoverage::Limited,
+        reports_attention: true,
         activation: IntegrationActivation::Unknown,
         reports_plan_path: false,
     },

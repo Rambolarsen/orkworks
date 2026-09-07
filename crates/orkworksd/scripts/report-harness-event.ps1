@@ -3,6 +3,7 @@ param(
     [string]$Marker = "",
     [string]$Status = "waiting_for_input",
     [string]$HookFingerprint = "",
+    [string]$Event = "",
     # Plan-path mode (ADR 0038): set by Claude's installed PostToolUse
     # Write|Edit hook entry. In this mode the reporter forwards the hook
     # payload's `tool_input.file_path` to `/sessions/:id/plan-path` and
@@ -66,6 +67,7 @@ if ($ReportPlanPath) {
 $reportedCwd = ""
 $harnessSessionId = ""
 $sessionSource = ""
+$codexAttention = $false
 if ($Marker -clike "*:claude-code") {
     try {
         $data = $payload | ConvertFrom-Json
@@ -92,6 +94,20 @@ if ($Marker -clike "*:claude-code") {
         }
     } catch {}
     $sessionSource = "codex_hook"
+    switch ($Event) {
+        "UserPromptSubmit" {
+            $Status = "working"
+            $codexAttention = $true
+        }
+        "PermissionRequest" {
+            $Status = "waiting_for_input"
+            $codexAttention = $true
+        }
+        "Stop" {
+            $Status = "waiting_for_input"
+            $codexAttention = $true
+        }
+    }
 } elseif ($Marker -clike "*:copilot") {
     try {
         $data = $payload | ConvertFrom-Json
@@ -112,16 +128,22 @@ if ($Marker -clike "*:claude-code") {
 # does, so a hung connect (not just a slow response) still costs the full
 # 5 seconds here.
 #
-# Codex's marker is installed on SessionStart, which fires at session
-# start/resume/clear/compact — not a "needs input" signal like every other
-# marker here. Posting the generic attention update for codex would
-# mislabel every freshly launched session as waiting_for_input.
-if ($sessionId -and $port -and $sessionSource -ne "codex_hook") {
+# Codex's SessionStart event captures identity only. Turn events carry their
+# explicit normalized status and provenance so the sidecar can validate the
+# deterministic signal without trusting mutable payload text.
+if ($sessionId -and $port -and ($sessionSource -ne "codex_hook" -or $codexAttention)) {
     try {
         $observedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
         $attention = @{ status = $Status; observedAt = $observedAt }
         if ($reportedCwd) {
             $attention["cwd"] = $reportedCwd
+        }
+        if ($sessionSource -eq "codex_hook") {
+            $attention["source"] = $sessionSource
+            $attention["event"] = $Event
+            if ($HookFingerprint) {
+                $attention["hookFingerprint"] = $HookFingerprint
+            }
         }
         $attentionBody = $attention | ConvertTo-Json -Compress
         Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/attention" `

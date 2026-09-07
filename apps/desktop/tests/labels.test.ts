@@ -186,6 +186,7 @@ test("resumeActionLabel produces button-ready prose for every resume strategy", 
 test("sourceLabel handles the typed sources and falls back for unknowns", () => {
   assert.equal(sourceLabel("agent"), "Agent");
   assert.equal(sourceLabel("peon"), "Peon");
+  assert.equal(sourceLabel("codex_hook"), "Codex hook");
   assert.equal(sourceLabel("process"), "Process");
   assert.equal(sourceLabel(undefined), "Unknown");
 });

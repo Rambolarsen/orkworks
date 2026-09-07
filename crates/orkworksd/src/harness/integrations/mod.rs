@@ -63,6 +63,10 @@ pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationH
     }
 }
 
+pub(crate) fn current_codex_hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+    codex::current_hook_fingerprint(reporter)
+}
+
 #[derive(Clone)]
 pub(crate) struct ToolHookContract {
     pub harness_id: &'static str,
@@ -73,6 +77,9 @@ pub(crate) struct ToolHookContract {
     #[allow(dead_code)]
     pub ownership_marker: &'static str,
     pub coverage: IntegrationCoverage,
+    /// True when the integration owns an event that reports deterministic
+    /// attention in addition to any native session identity.
+    pub reports_attention: bool,
     pub activation: IntegrationActivation,
     /// True when this integration installs at least one owned hook that
     /// reports a written plan/spec path to `/sessions/:id/plan-path`
@@ -138,13 +145,10 @@ impl JsonHookHandler {
         activation: IntegrationActivation,
         diagnostics: Vec<IntegrationDiagnostic>,
     ) -> IntegrationStatus {
-        // Every JsonHookHandler except Codex hooks a genuine "needs input"
-        // event and reports it via the generic attention endpoint (ADR
-        // 0034) — Codex's SessionStart hook only ever reports a session ID.
-        // A per-handler marker-string special case, not a framework field,
-        // for the same reason the reporter script branches on the marker
-        // rather than a declared contract property (see issue #271).
-        let is_attention_signal = self.contract.harness_id != "codex";
+        // The contract declares whether this integration owns a deterministic
+        // attention event. The reporter still owns the event-specific mapping;
+        // this flag only describes the integration to the UI.
+        let is_attention_signal = self.contract.reports_attention;
         let coverage_summary = if is_attention_signal {
             "Limited harness notifications"
         } else {
@@ -341,7 +345,12 @@ impl IntegrationHandler for JsonHookHandler {
         let (transaction, mut document, reporter) = self.load(ctx)?;
         match (self.probe)(&document, &reporter)? {
             FragmentState::Installed => {
-                return self.status_from_document(ctx, &document, &reporter)
+                // The hook JSON can be tracked and remain byte-identical
+                // while the local stable reporter is stale after an app
+                // update. Refresh that code-owned asset even when the
+                // configuration itself needs no repair.
+                (self.reconcile)(ctx.reporter_assets)?;
+                return self.status_from_document(ctx, &document, &reporter);
             }
             FragmentState::Ambiguous => return Err(IntegrationError::OwnershipAmbiguous),
             FragmentState::Absent | FragmentState::Drifted => {}
@@ -577,6 +586,49 @@ mod tests {
             !trace.contains("attention_payload="),
             "codex marker must not post generic attention; trace:\n{trace}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_maps_codex_prompt_submission_to_working_attention() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_123","hook_event_name":"UserPromptSubmit"}"#,
+            &[
+                "--event",
+                "UserPromptSubmit",
+                "--hook-fingerprint",
+                "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            ],
+        );
+        assert!(
+            trace.contains(r#""status": "working""#),
+            "expected a working attention payload for UserPromptSubmit; trace:\n{trace}"
+        );
+        assert!(
+            trace.contains(r#""event": "UserPromptSubmit""#),
+            "expected the Codex event provenance in the attention payload; trace:\n{trace}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_maps_codex_permission_and_stop_to_waiting_attention() {
+        for event in ["PermissionRequest", "Stop"] {
+            let trace = run_report_harness_event_sh_trace_with_args(
+                "orkworks:harness-integration:v2:codex",
+                &format!(r#"{{"session_id":"thr_123","hook_event_name":"{event}"}}"#),
+                &["--event", event, "--hook-fingerprint", "a1a1a1"],
+            );
+            assert!(
+                trace.contains(r#""status": "waiting_for_input""#),
+                "expected {event} to report waiting_for_input; trace:\n{trace}"
+            );
+            assert!(
+                trace.contains(&format!(r#""event": "{event}""#)),
+                "expected {event} provenance in the attention payload; trace:\n{trace}"
+            );
+        }
     }
 
     #[test]
@@ -922,12 +974,11 @@ mod tests {
     }
 
     #[test]
-    fn codex_confirmation_does_not_claim_the_generic_attention_warning() {
-        // base_status hardcodes executable_code_warning: true and a
-        // "Limited harness notifications" summary for every JsonHookHandler —
-        // accurate for Claude/Gemini/Copilot, which all report when the
-        // agent waits for input, but false for Codex, whose SessionStart
-        // hook only ever reports a session ID (ADR 0034).
+    fn codex_confirmation_claims_the_attention_hook_warning() {
+        // Codex now installs deterministic turn hooks in addition to its
+        // SessionStart identity hook, so its confirmation must disclose that
+        // executable hook code is being installed just like the other
+        // notification integrations.
         let workspace = tempfile::tempdir().unwrap();
         let repo = git2::Repository::init(workspace.path()).unwrap();
         // Same guard as error_status_surfaces_the_specific_integration_error_message
@@ -979,7 +1030,7 @@ mod tests {
             .status(&context)
             .unwrap();
         let codex_confirmation = codex_status.confirmation.expect("codex confirmation");
-        assert!(!codex_confirmation.executable_code_warning);
+        assert!(codex_confirmation.executable_code_warning);
 
         let claude_status = handler(&IntegrationBinding::Claude)
             .status(&context)

@@ -111,6 +111,9 @@ pub(crate) struct AttentionSignal {
     pub(crate) plan_path: metadata::PlanPathUpdate,
     pub(crate) observed_at: Option<String>,
     pub(crate) cwd: Option<String>,
+    pub(crate) source: Option<String>,
+    pub(crate) event: Option<String>,
+    pub(crate) hook_fingerprint: Option<String>,
 }
 
 pub(crate) struct DebugAttentionSignal {
@@ -1895,6 +1898,9 @@ impl SessionApplication {
                 }
                 Some(_) => {}
             }
+            if signal.source == "codex_hook" && handle.is_none() {
+                return Err(SessionError::Conflict);
+            }
         }
 
         if signal.reject_stale_observed_at
@@ -1932,6 +1938,9 @@ impl SessionApplication {
                     if let Some(observed_at) = signal.observed_at {
                         handle.runtime.last_hook_attention_at = Some(observed_at);
                     }
+                }
+                if signal.source == "codex_hook" {
+                    handle.active_work_hook = true;
                 }
                 if signal.clear_pending_work_signal {
                     handle.pending_work_signal = None;
@@ -2179,6 +2188,7 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
+        let codex_hook = self.validate_codex_hook_signal(id, &signal)?;
         let observed_at = signal
             .observed_at
             .as_deref()
@@ -2195,7 +2205,8 @@ impl SessionApplication {
             .lock()
             .unwrap()
             .get(id)
-            .is_some_and(|handle| handle.active_work_hook);
+            .is_some_and(|handle| handle.active_work_hook)
+            || codex_hook;
         let status = normalize_hook_attention_status(&signal.status, supports_active_work)
             .ok_or(SessionError::EmptyBadRequest)?;
         if observed_at.is_some_and(|timestamp| {
@@ -2226,6 +2237,11 @@ impl SessionApplication {
         let merge_status = status.clone();
         let message = signal.message;
         let plan_path = signal.plan_path;
+        let merge_source = if codex_hook {
+            "codex_hook".to_string()
+        } else {
+            "agent".to_string()
+        };
         let result = tokio::task::spawn_blocking(move || {
             if observed_at.is_some_and(|timestamp| {
                 state
@@ -2244,13 +2260,13 @@ impl SessionApplication {
                 message,
                 plan_path,
                 timestamp: iso_now(),
-                source: "agent".into(),
+                source: merge_source,
                 confidence: 1.0,
                 observed_at,
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
-                require_alive: false,
+                require_alive: codex_hook,
                 debug_hint_mutation: None,
             })
         })
@@ -2282,6 +2298,61 @@ impl SessionApplication {
                 Err(SessionError::Internal("application operation failed"))
             }
         }
+    }
+
+    fn validate_codex_hook_signal(
+        &self,
+        id: &str,
+        signal: &AttentionSignal,
+    ) -> Result<bool, SessionError> {
+        let Some(source) = signal.source.as_deref() else {
+            return Ok(false);
+        };
+        if source != "codex_hook" {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let event = signal
+            .event
+            .as_deref()
+            .ok_or(SessionError::EmptyBadRequest)?;
+        let expected_status = match event {
+            "UserPromptSubmit" => "working",
+            "PermissionRequest" | "Stop" => "waiting_for_input",
+            "SessionStart" => return Err(SessionError::EmptyBadRequest),
+            _ => return Err(SessionError::EmptyBadRequest),
+        };
+        if signal.status != expected_status || signal.observed_at.is_none() {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let fingerprint = signal
+            .hook_fingerprint
+            .as_deref()
+            .filter(|fingerprint| metadata::valid_hook_fingerprint(fingerprint))
+            .ok_or(SessionError::EmptyBadRequest)?;
+        let expected_fingerprint = dirs::home_dir()
+            .map(|home| {
+                home.join(".orkworks/hook-scripts")
+                    .join(crate::harness::integrations::ReporterPlatform::current().asset_name())
+            })
+            .and_then(|reporter| {
+                crate::harness::integrations::current_codex_hook_fingerprint(&reporter).ok()
+            })
+            .ok_or(SessionError::EmptyBadRequest)?;
+        if fingerprint != expected_fingerprint {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let is_codex = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .is_some_and(|session| session.harness == "codex");
+        if !is_codex {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        Ok(true)
     }
 
     fn workspace_exists(&self) -> bool {
@@ -2706,9 +2777,7 @@ async fn resume_session_workflow(
             .and_then(|id| registry.get(id))
             .or_else(|| registry.get("generic-shell"))
             .expect("generic-shell builtin exists");
-        let active_work_hook = harness
-            .effective_capabilities
-            .contains(&crate::harness::registry::CapabilityName::Attention);
+        let active_work_hook = harness.initial_work_hook_active();
         let strategy = harness.select_resume_strategy(resume);
         if strategy == harness::ResumeStrategy::None {
             return Err(crate::session_application::SessionError::EmptyBadRequest);
@@ -2979,9 +3048,7 @@ pub(crate) fn resolve_session_launch(
         .or_else(|| harness.definition.default_model.clone());
     ResolvedSessionLaunch {
         session_harness_id: Some(harness.definition.id.clone()),
-        active_work_hook: harness
-            .effective_capabilities
-            .contains(&crate::harness::registry::CapabilityName::Attention),
+        active_work_hook: harness.initial_work_hook_active(),
         command: harness.build_launch(&cwd, model.as_deref()),
         provider_id: None,
         provider_label: None,
@@ -5425,6 +5492,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: None,
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await
@@ -5456,6 +5526,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: None,
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await;
@@ -5533,6 +5606,64 @@ mod tests {
                 .attention
                 .as_deref(),
             Some("needs_you")
+        );
+    }
+
+    #[test]
+    fn attention_merge_application_rejects_codex_hook_without_live_session_handle() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "attention-merge-codex-no-handle";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Attention",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+
+        let result =
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "waiting_for_input".into(),
+                message: Some("late hook".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                source: "codex_hook".into(),
+                confidence: 1.0,
+                observed_at: None,
+                reject_stale_observed_at: false,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: true,
+                require_alive: true,
+                debug_hint_mutation: None,
+            });
+
+        assert_eq!(result, Err(SessionError::Conflict));
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .observed_status
+                .as_deref(),
+            None
         );
     }
 
@@ -6000,6 +6131,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: Some("2026-08-22T08:00:00.000000Z".into()),
                     cwd: Some("/stale".into()),
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await
@@ -6055,6 +6189,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: None,
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await;

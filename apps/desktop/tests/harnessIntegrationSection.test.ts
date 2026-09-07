@@ -12,8 +12,8 @@ import type {
   IntegrationStatusResult,
 } from "../src/harnessIntegrationPresentation.ts";
 
-test("isAttentionSignal is false for codex, whose hook only reports a session ID (issue #271)", () => {
-  assert.equal(isAttentionSignal("codex"), false);
+test("isAttentionSignal is true for codex turn hooks while SessionStart remains identity-only", () => {
+  assert.equal(isAttentionSignal("codex"), true);
 });
 
 test("isAttentionSignal is true for opencode, whose plugin reports idle/permission/busy attention events (issue #104)", () => {
@@ -24,6 +24,10 @@ test("isAttentionSignal is true for harnesses whose hook reports needs-input att
   assert.equal(isAttentionSignal("claude-code"), true);
   assert.equal(isAttentionSignal("gemini"), true);
   assert.equal(isAttentionSignal("copilot"), true);
+});
+
+test("isAttentionSignal stays false for unsupported harness identifiers", () => {
+  assert.equal(isAttentionSignal("generic-shell"), false);
 });
 
 test("unsupported tool versions suppress installed confirmation", () => {

@@ -145,6 +145,7 @@ export function resumeActionLabel(strategy: ResumeStrategy): string {
 export function sourceLabel(source: string | undefined): string {
   if (source === "agent") return "Agent";
   if (source === "peon")  return "Peon";
+  if (source === "codex_hook") return "Codex hook";
   if (!source)            return "Unknown";
   return source.charAt(0).toUpperCase() + source.slice(1);
 }

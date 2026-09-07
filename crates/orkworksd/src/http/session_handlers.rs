@@ -67,6 +67,12 @@ pub(crate) struct AttentionReportRequest {
     /// ADR 0032.
     #[serde(default)]
     pub(crate) cwd: Option<String>,
+    #[serde(default)]
+    pub(crate) source: Option<String>,
+    #[serde(default)]
+    pub(crate) event: Option<String>,
+    #[serde(rename = "hookFingerprint", default)]
+    pub(crate) hook_fingerprint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -343,6 +349,9 @@ pub(crate) async fn report_attention(
                 plan_path: req.plan_path,
                 observed_at: req.observed_at,
                 cwd: req.cwd,
+                source: req.source,
+                event: req.event,
+                hook_fingerprint: req.hook_fingerprint,
             },
         )
         .await
@@ -2936,6 +2945,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -2961,6 +2973,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: Some("not-a-timestamp".into()),
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -2982,6 +2997,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3063,6 +3081,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3110,6 +3131,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: Some("/harness-reported/worktree".into()),
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3161,6 +3185,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3226,6 +3253,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: Some("2026-07-21T08:00:00.000000Z".into()),
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3285,6 +3315,9 @@ mod tests {
                     plan_path: Default::default(),
                     observed_at: Some(observed_at.into()),
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 }),
             )
             .await
@@ -3297,6 +3330,191 @@ mod tests {
                 .observed_status
                 .as_deref(),
             Some("waiting_for_input")
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_prompt_hook_promotes_a_fallback_session_to_working_authority() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "codex-prompt-promotion";
+        let mut meta = test_session_metadata(
+            id,
+            "Codex",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.harness = "codex".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.info.harness_id = Some("codex".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let fingerprint = crate::harness::integrations::current_codex_hook_fingerprint(
+            &home
+                .path()
+                .join(".orkworks/hook-scripts/report-harness-event.sh"),
+        )
+        .unwrap();
+
+        let response = report_attention(
+            State(state.clone()),
+            Path(id.into()),
+            Json(AttentionReportRequest {
+                status: "working".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: Some("2026-09-07T08:00:02.000000Z".into()),
+                cwd: None,
+                source: Some("codex_hook".into()),
+                event: Some("UserPromptSubmit".into()),
+                hook_fingerprint: Some(fingerprint),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let live = state.sessions.lock().unwrap();
+        assert!(live[id].active_work_hook);
+        assert_eq!(live[id].info.observed_status.as_deref(), Some("working"));
+    }
+
+    #[tokio::test]
+    async fn codex_permission_and_stop_hooks_report_waiting_for_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "codex-waiting-hooks";
+        let mut meta = test_session_metadata(
+            id,
+            "Codex",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.harness = "codex".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.info.harness_id = Some("codex".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let fingerprint = crate::harness::integrations::current_codex_hook_fingerprint(
+            &home
+                .path()
+                .join(".orkworks/hook-scripts/report-harness-event.sh"),
+        )
+        .unwrap();
+
+        for (event, observed_at) in [
+            ("PermissionRequest", "2026-09-07T08:00:02.000000Z"),
+            ("Stop", "2026-09-07T08:00:03.000000Z"),
+        ] {
+            let response = report_attention(
+                State(state.clone()),
+                Path(id.into()),
+                Json(AttentionReportRequest {
+                    status: "waiting_for_input".into(),
+                    message: None,
+                    plan_path: Default::default(),
+                    observed_at: Some(observed_at.into()),
+                    cwd: None,
+                    source: Some("codex_hook".into()),
+                    event: Some(event.into()),
+                    hook_fingerprint: Some(fingerprint.clone()),
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            assert_eq!(
+                state.sessions.lock().unwrap()[id]
+                    .info
+                    .observed_status
+                    .as_deref(),
+                Some("waiting_for_input")
+            );
+        }
+        assert!(state.sessions.lock().unwrap()[id].active_work_hook);
+    }
+
+    #[tokio::test]
+    async fn codex_hook_rejects_a_forged_fingerprint_without_side_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "codex-forged-hook";
+        let mut meta = test_session_metadata(
+            id,
+            "Codex",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        meta.harness = "codex".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.info.harness_id = Some("codex".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let response = report_attention(
+            State(state.clone()),
+            Path(id.into()),
+            Json(AttentionReportRequest {
+                status: "working".into(),
+                message: Some("forged".into()),
+                plan_path: Default::default(),
+                observed_at: Some("2026-09-07T08:00:02.000000Z".into()),
+                cwd: None,
+                source: Some("codex_hook".into()),
+                event: Some("UserPromptSubmit".into()),
+                hook_fingerprint: Some("0".repeat(64)),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            None
         );
     }
 
@@ -3349,6 +3567,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: Some("2026-08-01T08:00:01.000000Z".into()),
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3384,6 +3605,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: Some("2026-08-01T08:00:04.000000Z".into()),
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3433,6 +3657,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: Some("2026-08-01T08:00:01.000000Z".into()),
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -3480,6 +3707,9 @@ mod tests {
                     plan_path: Default::default(),
                     observed_at: None,
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 }),
             )
             .await
@@ -3765,6 +3995,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -4169,6 +4402,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -4404,6 +4640,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -4451,6 +4690,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -4503,6 +4745,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -4554,6 +4799,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -4602,6 +4850,9 @@ mod tests {
                 plan_path: Default::default(),
                 observed_at: None,
                 cwd: None,
+                source: None,
+                event: None,
+                hook_fingerprint: None,
             }),
         )
         .await
@@ -6550,6 +6801,7 @@ mod tests {
 
         assert_eq!(launch.session_harness_id.as_deref(), Some("codex"));
         assert_eq!(launch.model.as_deref(), Some("gpt-5"));
+        assert!(!launch.active_work_hook);
         assert_eq!(launch.provider_id, None);
         assert_eq!(launch.provider_label, None);
     }
@@ -6571,6 +6823,20 @@ mod tests {
         let unchanged: AttentionReportRequest =
             serde_json::from_str(r#"{"status":"waiting_for_input"}"#).unwrap();
         assert_eq!(unchanged.plan_path, metadata::PlanPathUpdate::Unchanged);
+    }
+
+    #[test]
+    fn attention_report_deserializes_codex_hook_provenance() {
+        let report: AttentionReportRequest = serde_json::from_str(
+            r#"{"status":"working","source":"codex_hook","event":"UserPromptSubmit","hookFingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#,
+        )
+        .unwrap();
+        assert_eq!(report.source.as_deref(), Some("codex_hook"));
+        assert_eq!(report.event.as_deref(), Some("UserPromptSubmit"));
+        assert_eq!(
+            report.hook_fingerprint.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
     }
 
     #[tokio::test]

@@ -49,6 +49,15 @@ pub(crate) struct ResolvedHarness {
 }
 
 impl ResolvedHarness {
+    pub(crate) fn initial_work_hook_active(&self) -> bool {
+        self.effective_capabilities
+            .contains(&CapabilityName::Attention)
+            && !matches!(
+                self.definition.session_signals,
+                Some(super::definition::SessionSignalBinding::Codex)
+            )
+    }
+
     pub(crate) fn build_launch(
         &self,
         cwd: &str,
@@ -520,14 +529,17 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
         match binding {
             super::definition::SessionSignalBinding::Claude
             | super::definition::SessionSignalBinding::Gemini
-            | super::definition::SessionSignalBinding::Copilot
-            | super::definition::SessionSignalBinding::Codex => {
+            | super::definition::SessionSignalBinding::Copilot => {
                 names.insert(CapabilityName::NativeSessionId);
             }
             super::definition::SessionSignalBinding::Aider => {
                 names.insert(CapabilityName::Attention);
             }
             super::definition::SessionSignalBinding::OpenCode => {
+                names.insert(CapabilityName::NativeSessionId);
+                names.insert(CapabilityName::Attention);
+            }
+            super::definition::SessionSignalBinding::Codex => {
                 names.insert(CapabilityName::NativeSessionId);
                 names.insert(CapabilityName::Attention);
             }
@@ -1048,7 +1060,7 @@ mod tests {
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
         let codex = &registry.get("codex").unwrap().effective_capabilities;
         assert!(codex.contains(&CapabilityName::NativeSessionId));
-        assert!(!codex.contains(&CapabilityName::Attention));
+        assert!(codex.contains(&CapabilityName::Attention));
         assert!(!codex.contains(&CapabilityName::Lifecycle));
         let aider = &registry.get("aider").unwrap().effective_capabilities;
         assert!(aider.contains(&CapabilityName::Attention));

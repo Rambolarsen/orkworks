@@ -1,6 +1,6 @@
 # Codex `SessionStart` hook captures session ID, not attention
 
-- Status: accepted
+- Status: superseded by [0051](0051-codex-deterministic-attention-hooks.md)
 - Deciders: Lars-Erik, Claude Sonnet 5
 - Date: 2026-08-02
 

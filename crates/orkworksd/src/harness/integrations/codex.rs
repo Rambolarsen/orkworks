@@ -16,25 +16,60 @@ use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, In
 /// Windows even in the untracked-and-ignored case that worked before this
 /// change, breaking Windows Codex installs entirely rather than just
 /// falling back for the tracked case.
-fn base_platform_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
-    if ReporterPlatform::current() == ReporterPlatform::Posix {
-        portable_reporter_invocation(reporter, MARKER)
+const CODEX_EVENTS: [&str; 4] = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PermissionRequest",
+    "Stop",
+];
+
+fn base_platform_invocation(
+    reporter: &Path,
+    event: &str,
+) -> Result<ReporterInvocation, IntegrationError> {
+    let mut invocation = if ReporterPlatform::current() == ReporterPlatform::Posix {
+        portable_reporter_invocation(reporter, MARKER)?
     } else {
-        Ok(reporter_invocation(reporter, MARKER))
+        reporter_invocation(reporter, MARKER)
+    };
+    let event_flag = if ReporterPlatform::current() == ReporterPlatform::Posix {
+        "--event"
+    } else {
+        "-Event"
+    };
+    invocation.args.extend([event_flag.into(), event.into()]);
+    invocation.shell_command.push(' ');
+    invocation.shell_command.push_str(event_flag);
+    invocation.shell_command.push(' ');
+    invocation
+        .shell_command
+        .push_str(&super::shell_quote(event));
+    Ok(invocation)
+}
+
+fn bundle_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+    let mut canonical = String::new();
+    for event in CODEX_EVENTS {
+        canonical.push_str(&base_platform_invocation(reporter, event)?.shell_command);
+        canonical.push('\n');
     }
+    Ok(format!("{:x}", Sha256::digest(canonical.as_bytes())))
+}
+
+pub(crate) fn current_hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+    bundle_fingerprint(reporter)
 }
 
 pub(crate) fn hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
-    let invocation = base_platform_invocation(reporter)?;
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(invocation.shell_command.as_bytes())
-    ))
+    current_hook_fingerprint(reporter)
 }
 
-fn platform_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
-    let mut invocation = base_platform_invocation(reporter)?;
-    let fingerprint = format!("{:x}", Sha256::digest(invocation.shell_command.as_bytes()));
+fn platform_invocation(
+    reporter: &Path,
+    event: &str,
+) -> Result<ReporterInvocation, IntegrationError> {
+    let mut invocation = base_platform_invocation(reporter, event)?;
+    let fingerprint = current_hook_fingerprint(reporter)?;
     let fingerprint_flag = if ReporterPlatform::current() == ReporterPlatform::Posix {
         "--hook-fingerprint"
     } else {
@@ -91,6 +126,7 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
         // an installed hook definition actually runs (hash-pinned trust).
         // Installing the file is not the same as it being active yet.
         activation: IntegrationActivation::NeedsTrust,
+        reports_attention: true,
         // Codex stays on the terminal-fallback `(printed_plan_path)`
         // because its `apply_patch` hook payload carries patch text rather
         // than a canonical file path — see ADR 0037 / ADR 0038.
@@ -102,21 +138,35 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     reconcile_current,
 );
 
-fn groups(document: &Map<String, Value>) -> Result<Vec<Value>, IntegrationError> {
+fn groups(document: &Map<String, Value>) -> Result<Vec<(String, Value)>, IntegrationError> {
     let Some(hooks) = document.get("hooks") else {
         return Ok(vec![]);
     };
     let hooks = hooks
         .as_object()
         .ok_or_else(|| IntegrationError::InvalidConfig("Codex hooks must be an object.".into()))?;
-    hooks.get("SessionStart").map_or(Ok(vec![]), |value| {
-        value.as_array().cloned().ok_or_else(|| {
-            IntegrationError::InvalidConfig("Codex SessionStart hooks must be an array.".into())
-        })
-    })
+    let mut groups = Vec::new();
+    for event in CODEX_EVENTS {
+        let Some(value) = hooks.get(event) else {
+            continue;
+        };
+        let event_groups = value.as_array().cloned().ok_or_else(|| {
+            IntegrationError::InvalidConfig(format!("Codex {event} hooks must be an array."))
+        })?;
+        groups.extend(
+            event_groups
+                .into_iter()
+                .map(|group| (event.to_owned(), group)),
+        );
+    }
+    Ok(groups)
 }
 
-fn marker_state(group: &Value, expected: Option<&ReporterInvocation>) -> FragmentState {
+fn marker_state(
+    _event: &str,
+    group: &Value,
+    expected: Option<&ReporterInvocation>,
+) -> FragmentState {
     let Some(hooks) = group.get("hooks").and_then(Value::as_array) else {
         return FragmentState::Absent;
     };
@@ -133,10 +183,9 @@ fn marker_state(group: &Value, expected: Option<&ReporterInvocation>) -> Fragmen
         }
         let exact = expected.is_some_and(|invocation| {
             // merge() never sets an outer "matcher" — it intentionally
-            // matches every SessionStart source. A group edited to add one
-            // (e.g. narrowing to "resume") stops firing on startup/clear/
-            // compact even though the inner command is untouched, so that
-            // must not read as Installed.
+            // matches every source for this event. A group edited to add one
+            // no longer fires for the complete event contract, so it must
+            // not read as Installed.
             group.get("matcher").is_none()
                 && hook.get("type").and_then(Value::as_str) == Some("command")
                 && command == invocation.shell_command.as_str()
@@ -157,7 +206,6 @@ fn probe(
     document: &Map<String, Value>,
     reporter: &Path,
 ) -> Result<FragmentState, IntegrationError> {
-    let invocation = platform_invocation(reporter)?;
     // A committed fragment can already byte-match this machine's expected
     // command — that's the whole point of the portable rewrite (ADR 0036),
     // since a teammate's tracked .codex/hooks.json can carry a fragment
@@ -171,25 +219,42 @@ fn probe(
     // fresh teammate's probe at Drifted instead of a false Installed, so
     // install() reconciles the missing script instead of leaving a hook
     // that reports installed but can never run.
-    let expected = if reporter.try_exists().unwrap_or(false) {
-        Some(&invocation)
-    } else {
-        None
-    };
-    let mut state = FragmentState::Absent;
-    for group in groups(document)? {
-        let next = marker_state(&group, expected);
-        if state != FragmentState::Absent && next != FragmentState::Absent {
-            return Ok(FragmentState::Ambiguous);
-        }
+    let expected_available = reporter.try_exists().unwrap_or(false);
+    let mut installed_events = 0;
+    let mut saw_owned = false;
+    let mut saw_drifted = false;
+    let mut owned_events = std::collections::HashSet::new();
+    for (event, group) in groups(document)? {
+        let expected = expected_available
+            .then(|| platform_invocation(reporter, &event))
+            .transpose()?;
+        let next = marker_state(&event, &group, expected.as_ref());
         match next {
             FragmentState::Absent => {}
             FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
-            FragmentState::Installed => state = FragmentState::Installed,
-            FragmentState::Drifted => state = FragmentState::Drifted,
+            FragmentState::Installed => {
+                if !owned_events.insert(event) {
+                    return Ok(FragmentState::Ambiguous);
+                }
+                saw_owned = true;
+                installed_events += 1;
+            }
+            FragmentState::Drifted => {
+                if !owned_events.insert(event) {
+                    return Ok(FragmentState::Ambiguous);
+                }
+                saw_owned = true;
+                saw_drifted = true;
+            }
         }
     }
-    Ok(state)
+    if !saw_owned {
+        Ok(FragmentState::Absent)
+    } else if !saw_drifted && installed_events == CODEX_EVENTS.len() {
+        Ok(FragmentState::Installed)
+    } else {
+        Ok(FragmentState::Drifted)
+    }
 }
 
 fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), IntegrationError> {
@@ -201,53 +266,73 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or_else(|| IntegrationError::InvalidConfig("Codex hooks must be an object.".into()))?;
-    let session_start = hooks
-        .entry("SessionStart")
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .ok_or_else(|| {
-            IntegrationError::InvalidConfig("Codex SessionStart hooks must be an array.".into())
-        })?;
-    let invocation = platform_invocation(reporter)?;
-    session_start.push(json!({"hooks":[{"type":"command","command":invocation.shell_command}]}));
+    for event in CODEX_EVENTS {
+        let event_hooks = hooks
+            .entry(event)
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .ok_or_else(|| {
+                IntegrationError::InvalidConfig(format!("Codex {event} hooks must be an array."))
+            })?;
+        let invocation = platform_invocation(reporter, event)?;
+        event_hooks.push(json!({
+            "hooks":[{"type":"command","command":invocation.shell_command}]
+        }));
+    }
     Ok(())
 }
 
 fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, IntegrationError> {
     let existing = groups(document)?;
-    let mut count = 0;
-    for group in &existing {
-        match marker_state(group, None) {
+    let mut owned_events = std::collections::HashSet::new();
+    for (event, group) in &existing {
+        match marker_state(event, group, None) {
             FragmentState::Absent => {}
             FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
-            _ => count += 1,
+            FragmentState::Installed | FragmentState::Drifted => {
+                // One OrkWorks group per event is the owned shape. Multiple
+                // owned groups for the same event are ambiguous, while one
+                // group on each of the four Codex events is the complete
+                // bundle and must be removable as one unit.
+                if !owned_events.insert(event) {
+                    return Ok(FragmentState::Ambiguous);
+                }
+            }
         }
     }
-    if count == 0 {
+    if owned_events.is_empty() {
         return Ok(FragmentState::Absent);
-    }
-    if count > 1 {
-        return Ok(FragmentState::Ambiguous);
     }
     let hooks = document
         .get_mut("hooks")
         .and_then(Value::as_object_mut)
         .expect("validated hooks object");
-    let session_start = hooks
-        .get_mut("SessionStart")
-        .and_then(Value::as_array_mut)
-        .expect("validated SessionStart array");
-    session_start.retain(|group| marker_state(group, None) == FragmentState::Absent);
+    for event in CODEX_EVENTS {
+        let Some(event_hooks) = hooks.get_mut(event).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        event_hooks.retain(|group| marker_state(event, group, None) == FragmentState::Absent);
+    }
     Ok(FragmentState::Drifted)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::integration::{
+        IntegrationContext, IntegrationHandler, ReporterAssetResolver,
+    };
     use crate::test_support::FakeHome;
 
     fn reporter_path(home: &std::path::Path) -> std::path::PathBuf {
         home.join(".orkworks/hook-scripts/report-harness-event.sh")
+    }
+
+    fn gitignored_workspace() -> tempfile::TempDir {
+        let workspace = tempfile::tempdir().unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        std::fs::write(workspace.path().join(".gitignore"), ".codex/hooks.json\n").unwrap();
+        workspace
     }
 
     #[test]
@@ -273,7 +358,7 @@ mod tests {
         };
 
         assert_eq!(
-            marker_state(&group, Some(&invocation)),
+            marker_state("SessionStart", &group, Some(&invocation)),
             FragmentState::Ambiguous
         );
     }
@@ -318,6 +403,49 @@ mod tests {
     }
 
     #[test]
+    fn merge_writes_the_codex_four_event_bundle_without_dropping_foreign_hooks() {
+        let mut document = Map::new();
+        document.insert(
+            "hooks".into(),
+            json!({
+                "Stop": [{
+                    "hooks": [{"type": "command", "command": "user-stop"}]
+                }]
+            }),
+        );
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+
+        merge(&mut document, &reporter_path(home.path())).unwrap();
+
+        let hooks = document["hooks"].as_object().unwrap();
+        for event in [
+            "SessionStart",
+            "UserPromptSubmit",
+            "PermissionRequest",
+            "Stop",
+        ] {
+            let groups = hooks[event].as_array().unwrap();
+            let command = groups
+                .last()
+                .and_then(|group| group["hooks"].as_array())
+                .and_then(|entries| entries.first())
+                .and_then(|entry| entry["command"].as_str())
+                .unwrap();
+            assert!(
+                command.contains("--event"),
+                "missing event in {event}: {command}"
+            );
+            assert!(
+                command.contains("--hook-fingerprint"),
+                "missing fingerprint in {event}: {command}"
+            );
+        }
+        assert_eq!(hooks["Stop"].as_array().unwrap().len(), 2);
+        assert_eq!(hooks["Stop"][0]["hooks"][0]["command"], "user-stop");
+    }
+
+    #[test]
     fn extract_marker_ignores_the_marker_text_appearing_outside_the_marker_flag() {
         // A user's unrelated command that merely mentions the marker string
         // (e.g. in an echo or a comment) must not be claimed as ours.
@@ -334,7 +462,8 @@ mod tests {
         // reported Installed.
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
-        let invocation = portable_reporter_invocation(&reporter_path(home.path()), MARKER).unwrap();
+        let invocation =
+            base_platform_invocation(&reporter_path(home.path()), "SessionStart").unwrap();
         let group = json!({
             "matcher": "resume",
             "hooks": [
@@ -343,7 +472,7 @@ mod tests {
         });
 
         assert_eq!(
-            marker_state(&group, Some(&invocation)),
+            marker_state("SessionStart", &group, Some(&invocation)),
             FragmentState::Drifted
         );
     }
@@ -424,6 +553,80 @@ mod tests {
         assert_eq!(
             probe(&stale, &reporter_path(home.path())).unwrap(),
             FragmentState::Drifted
+        );
+    }
+
+    #[test]
+    fn probe_reports_ambiguous_when_one_event_has_two_owned_groups() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let script = reporter_path(home.path());
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        let mut document = Map::new();
+        merge(&mut document, &script).unwrap();
+
+        let duplicate = document["hooks"]["SessionStart"][0].clone();
+        document["hooks"]["SessionStart"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+
+        assert_eq!(probe(&document, &script).unwrap(), FragmentState::Ambiguous);
+    }
+
+    #[test]
+    fn probe_reports_ambiguous_when_duplicate_event_replaces_a_missing_event() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let script = reporter_path(home.path());
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        let mut document = Map::new();
+        merge(&mut document, &script).unwrap();
+
+        let hooks = document["hooks"].as_object_mut().unwrap();
+        hooks.remove("Stop");
+        let duplicate = hooks["SessionStart"][0].clone();
+        hooks["SessionStart"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+
+        assert_eq!(probe(&document, &script).unwrap(), FragmentState::Ambiguous);
+    }
+
+    #[test]
+    fn install_reconciles_a_stale_reporter_even_when_the_hook_bundle_is_installed() {
+        let workspace = gitignored_workspace();
+        let source = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let asset_name = ReporterPlatform::current().asset_name();
+        let source_asset = source.path().join(asset_name);
+        std::fs::write(&source_asset, "current reporter\n").unwrap();
+        let resolver = ReporterAssetResolver {
+            source_dir: source.path().to_path_buf(),
+            stable_dir: home.path().join(".orkworks/hook-scripts"),
+        };
+        let ctx = IntegrationContext {
+            workspace: workspace.path(),
+            workspace_metadata: None,
+            orkworks_root: home.path(),
+            enabled: true,
+            detected_tool: None,
+            reporter_assets: &resolver,
+        };
+
+        HANDLER.install(&ctx).unwrap();
+        let stable_asset = resolver.stable_path(asset_name).unwrap();
+        std::fs::write(&stable_asset, "stale reporter\n").unwrap();
+
+        HANDLER.install(&ctx).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(stable_asset).unwrap(),
+            "current reporter\n"
         );
     }
 

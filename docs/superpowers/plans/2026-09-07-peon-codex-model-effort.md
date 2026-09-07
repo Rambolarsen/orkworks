@@ -169,4 +169,3 @@
 - [ ] **Step 5: Update issue #482 with implementation and verification evidence.**
 
   Add the changed files, test commands, and any known limitation such as Codex app-server availability on older installed CLI versions.
-
