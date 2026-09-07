@@ -1,5 +1,36 @@
+use fs2::FileExt;
 use sha2::{Digest, Sha256};
+use std::fs::{File, OpenOptions};
+use std::io;
 use std::path::PathBuf;
+
+/// Exclusive OS-level ownership of one workspace's metadata directory.
+///
+/// The lock file is intentionally retained on disk. File existence is not the
+/// ownership signal; the advisory lock held by this open file is. That means a
+/// crashed sidecar cannot leave a stale PID marker blocking the next owner.
+pub(crate) struct WorkspaceLease {
+    file: File,
+}
+
+impl WorkspaceLease {
+    pub(crate) fn acquire(global_dir: &std::path::Path) -> io::Result<Self> {
+        std::fs::create_dir_all(global_dir)?;
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(global_dir.join(".sidecar.lock"))?;
+        file.try_lock_exclusive()?;
+        Ok(Self { file })
+    }
+}
+
+impl Drop for WorkspaceLease {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
 
 pub(crate) fn iso_now() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -39,6 +70,16 @@ pub(crate) fn orkworks_global_dir(workspace_path: &std::path::Path) -> Option<Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_lease_is_exclusive_and_reusable() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = WorkspaceLease::acquire(dir.path()).unwrap();
+        assert!(WorkspaceLease::acquire(dir.path()).is_err());
+
+        drop(first);
+        assert!(WorkspaceLease::acquire(dir.path()).is_ok());
+    }
 
     #[test]
     fn hook_observed_at_requires_utc_microsecond_precision() {

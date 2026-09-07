@@ -10,7 +10,7 @@ use crate::session_types::{MemoryState, PeonDiagnostics, SessionInfo};
 #[cfg(test)]
 use crate::watcher;
 #[cfg(test)]
-use crate::workspace_runtime::orkworks_global_dir;
+use crate::workspace_runtime::{orkworks_global_dir, WorkspaceLease};
 use crate::{git, harness, metadata, peon, AppState, SessionHandle, WorkspaceState};
 use axum::{
     extract::{Path, State},
@@ -241,6 +241,11 @@ pub(crate) async fn set_workspace(
         Err(crate::session_application::SessionError::Internal(message)) => {
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
         }
+        Err(crate::session_application::SessionError::Conflict) => (
+            axum::http::StatusCode::CONFLICT,
+            "workspace is already owned by another sidecar",
+        )
+            .into_response(),
         Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -1288,6 +1293,26 @@ mod tests {
             .read_session("orphaned")
             .unwrap();
         assert_eq!(reloaded.status, "ended");
+    }
+
+    #[tokio::test]
+    async fn set_workspace_reports_conflict_when_workspace_owned_by_another_sidecar() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let _home = FakeHome::set(home_dir.path());
+        let global_dir = orkworks_global_dir(workspace_dir.path()).unwrap();
+        let _existing_lease = WorkspaceLease::acquire(&global_dir).unwrap();
+
+        let response = set_workspace(
+            State(test_app_state_with_workspace(workspace_dir.path())),
+            Json(WorkspaceRequest {
+                path: workspace_dir.path().display().to_string(),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
     }
 
     /// Only the sidecar (`orkworksd`) itself restarting empties
@@ -5004,6 +5029,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -6414,6 +6440,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
