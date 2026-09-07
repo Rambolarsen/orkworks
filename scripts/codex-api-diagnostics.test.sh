@@ -11,6 +11,8 @@ cat > "$fixture/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 if [ "${CODEX_FAKE_OUTPUT:-}" = unsafe ]; then
   printf 'codex-cli 9.9.9 do-not-print-cli-secret\n'
+elif [ "${CODEX_FAKE_OUTPUT:-}" = wrong_prefix ]; then
+  printf 'wrapper 9.9.9\n'
 else
   printf 'codex-cli 9.9.9\n'
 fi
@@ -56,6 +58,14 @@ if grep -Fq 'do-not-print-' <<<"$unsafe_output"; then
   exit 1
 fi
 
+wrong_prefix_output="$(
+  cd "$repo_root"
+  PATH="$fixture/bin:$PATH" \
+    CODEX_FAKE_OUTPUT=wrong_prefix \
+    bash "$helper"
+)"
+grep -Fq 'Codex CLI: available (version output not recognized)' <<<"$wrong_prefix_output"
+
 default_home_output="$(
   cd "$repo_root"
   PATH="$fixture/bin:$PATH" \
@@ -64,6 +74,7 @@ default_home_output="$(
     bash "$helper"
 )"
 grep -Fq "CODEX_HOME: $fixture/home/.codex" <<<"$default_home_output"
+grep -Fq 'Codex auth file: absent' <<<"$default_home_output"
 
 runbook="$repo_root/docs/agents/codex-api-troubleshooting.md"
 grep -Fq 'mktemp' "$runbook"

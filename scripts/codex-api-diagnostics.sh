@@ -7,7 +7,7 @@ codex_home="${CODEX_HOME:-${HOME:-$repo_root}/.codex}"
 if command -v codex >/dev/null 2>&1; then
   codex_version_output="$(codex --version 2>/dev/null || true)"
   codex_version_output="${codex_version_output%%$'\n'*}"
-  if [[ "$codex_version_output" =~ ^[[:alnum:]_-]+[[:space:]]+([0-9]+\.[0-9]+(\.[0-9]+){0,2})$ ]]; then
+  if [[ "$codex_version_output" =~ ^codex-cli[[:space:]]+([0-9]+\.[0-9]+(\.[0-9]+){0,2})$ ]]; then
     codex_version="version ${BASH_REMATCH[1]}"
   else
     codex_version="available (version output not recognized)"
