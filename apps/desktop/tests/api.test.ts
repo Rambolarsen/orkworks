@@ -5,7 +5,6 @@ import { readFileSync } from "node:fs";
 import type { PeonDiagnostics, SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import {
   acceptTaskmasterRecommendation,
-  completeTaskmasterRecommendation,
   deleteHarness,
   dismissTaskmasterRecommendation,
   duplicateHarness,
@@ -419,24 +418,9 @@ test("Taskmaster accept sends the session id and prompt and returns the updated 
   }
 });
 
-test("Taskmaster completion targets the recommendation id and sends the verification summary", async () => {
-  const origFetch = globalThis.fetch;
-  let requestUrl = "";
-  let init: RequestInit | undefined;
-  globalThis.fetch = (url: string | URL | Request, requestInit?: RequestInit) => {
-    requestUrl = String(url);
-    init = requestInit;
-    return Promise.resolve(new Response(JSON.stringify({ id: "rec-1", status: "completed" }), { status: 200 }));
-  };
-  try {
-    const completed = await completeTaskmasterRecommendation("http://localhost:0", "rec/with spaces", "Verified");
-    assert.match(requestUrl, /rec%2Fwith%20spaces\/complete$/);
-    assert.equal(init?.method, "POST");
-    assert.equal(init?.body, JSON.stringify({ summary: "Verified" }));
-    assert.equal((completed as { status: string }).status, "completed");
-  } finally {
-    globalThis.fetch = origFetch;
-  }
+test("renderer API does not expose the unauthenticated recommendation completion endpoint", () => {
+  const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /completeTaskmasterRecommendation/);
 });
 
 test("App routes active harness saves through the combined preload operation", () => {

@@ -427,19 +427,29 @@ impl SessionApplication {
             .complete_accepted(id, chrono::Utc::now().to_rfc3339())
             .map_err(RecommendationCompleteError::Store)?
             .ok_or(RecommendationCompleteError::Conflict)?;
-        workspace.metadata.append_event(
-            session_id,
-            &metadata::Event {
-                event_type: "taskmaster_fix_completed".into(),
-                timestamp: iso_now(),
-                status: "working".into(),
-                observed_status: Some("working".into()),
-                confidence: None,
-                summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
-                source: Some("agent".into()),
-                recommendation_id: Some(id.to_string()),
-            },
-        );
+        let event = metadata::Event {
+            event_type: "taskmaster_fix_completed".into(),
+            timestamp: iso_now(),
+            status: "working".into(),
+            observed_status: Some("working".into()),
+            confidence: None,
+            summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
+            source: Some("agent".into()),
+            recommendation_id: Some(id.to_string()),
+        };
+        if let Err(error) = workspace.metadata.try_append_event(session_id, &event) {
+            if let Err(rollback_error) = workspace.recommendation_store.put(&existing) {
+                tracing::error!(
+                    recommendation_id = %id,
+                    %error,
+                    %rollback_error,
+                    "failed to roll back recommendation after completion event persistence failure"
+                );
+            }
+            return Err(RecommendationCompleteError::Store(
+                crate::taskmaster::store::StoreError::Io(error),
+            ));
+        }
         Ok(Some(completed))
     }
 
@@ -7624,6 +7634,66 @@ mod tests {
         assert_eq!(
             completions[0].summary.as_deref(),
             Some("Verified the fix in the target session.")
+        );
+    }
+
+    #[test]
+    fn complete_recommendation_keeps_accepted_state_when_completion_event_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "complete-event-failure");
+        let session_id = "complete-event-failure-session";
+        write_alive_session(&state, root.path(), session_id);
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().recommendation_store;
+            store
+                .begin_execution(
+                    &recommendation_id,
+                    session_id.into(),
+                    "2026-09-07T10:00:00Z".into(),
+                )
+                .unwrap();
+            store
+                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
+                .unwrap();
+        }
+
+        let events_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .events_dir();
+        std::fs::write(events_dir, "not a directory").unwrap();
+
+        let result = SessionApplication::new(state.clone()).complete_recommendation(
+            &recommendation_id,
+            session_id,
+            Some("The event cannot be persisted.".into()),
+        );
+        assert!(matches!(
+            result,
+            Err(RecommendationCompleteError::Store(
+                crate::taskmaster::store::StoreError::Io(_)
+            ))
+        ));
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&recommendation_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            RecommendationStatus::Accepted
         );
     }
 

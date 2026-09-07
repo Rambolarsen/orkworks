@@ -1323,7 +1323,7 @@ impl MetadataStore {
         }
     }
 
-    fn try_append_event(&self, id: &str, event: &Event) -> std::io::Result<()> {
+    pub(crate) fn try_append_event(&self, id: &str, event: &Event) -> std::io::Result<()> {
         let dir = self.events_dir();
         fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.ndjson", id));

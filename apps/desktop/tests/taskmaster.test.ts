@@ -151,6 +151,26 @@ test("recommendation history links add the panel without requiring an absent ref
   assert.match(handlerBlock, /options\.position = position/);
 });
 
+test("recommendation history labels expose a distinguishing id suffix", () => {
+  const panel = readFileSync(
+    new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /recommendationId\.replace\(\/\^recommendation-\//);
+  assert.doesNotMatch(panel, /recommendationId\.slice\(0, 8\)/);
+});
+
+test("task history refreshes independently of session metadata timestamps", () => {
+  const panel = readFileSync(
+    new URL("../src/components/SessionDetailPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /const summaryLogTimer = window\.setInterval/);
+  assert.match(panel, /window\.clearInterval\(summaryLogTimer\)/);
+});
+
 test("Recommendations panel exposes evidence, dismissal, and an explicit fix-with-ai action only", () => {
   const source = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),

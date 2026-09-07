@@ -635,20 +635,3 @@ export async function acceptTaskmasterRecommendation(
   });
   return response.json();
 }
-
-export async function completeTaskmasterRecommendation(
-  baseUrl: string,
-  id: string,
-  summary?: string,
-): Promise<WorkflowRecommendation> {
-  const response = await taskmasterRequest(
-    baseUrl,
-    `/taskmaster/recommendations/${encodeURIComponent(id)}/complete`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(summary === undefined ? {} : { summary }),
-    },
-  );
-  return response.json();
-}
