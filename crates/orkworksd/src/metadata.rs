@@ -36,7 +36,7 @@ const TERMINAL_OUTPUT_FILE_MARKER: &str = "\u{001e}orkworks-terminal-v1";
 ///
 /// Two deliberate decisions are encoded here:
 ///
-/// - **Peon→agent staleness window: 15 seconds.** Peon reacting to genuinely
+/// - **Peon→agent/hook staleness window: 15 seconds.** Peon reacting to genuinely
 ///   fresh terminal output is exactly the correction a stuck attention
 ///   signal needs, so the window is short: long enough to avoid Peon's
 ///   inference racing/flickering against a hook signal that just landed,
@@ -52,7 +52,8 @@ const TERMINAL_OUTPUT_FILE_MARKER: &str = "\u{001e}orkworks-terminal-v1";
 ///   the two live-signal tiers (`user`, `agent`/`codex_hook`).
 pub mod source_priority {
     /// Seconds Peon must wait before it may overwrite a fresh
-    /// `agent`-sourced status. See the module docs for the rationale.
+    /// `agent`- or `codex_hook`-sourced status. See the module docs for the
+    /// rationale.
     const PEON_AGENT_OVERWRITE_SECS: u64 = 15;
 
     fn rank(source: &str) -> u8 {
@@ -80,7 +81,7 @@ pub mod source_priority {
         if incoming == "debug" {
             return !matches!(existing, "user" | "agent" | "codex_hook");
         }
-        if incoming == "peon" && existing == "agent" {
+        if incoming == "peon" && matches!(existing, "agent" | "codex_hook") {
             return existing_age_secs_ago.is_some_and(|age| age > PEON_AGENT_OVERWRITE_SECS);
         }
         if rank(incoming) < rank(existing) {
@@ -3809,15 +3810,18 @@ mod tests {
     }
 
     #[test]
-    fn source_priority_peon_may_overwrite_agent_only_after_staleness_window() {
+    fn source_priority_peon_may_overwrite_agent_or_codex_hook_only_after_staleness_window() {
         use super::source_priority::can_overwrite;
 
         // Deliberate window (see the source_priority module docs): a fresh
-        // agent signal is protected; a stale one yields to fresh Peon
+        // agent or Codex hook signal is protected; a stale one yields to fresh Peon
         // observation of genuinely new terminal output.
         assert!(!can_overwrite("peon", "agent", Some(15)));
         assert!(!can_overwrite("peon", "agent", None));
         assert!(can_overwrite("peon", "agent", Some(16)));
+        assert!(!can_overwrite("peon", "codex_hook", Some(15)));
+        assert!(!can_overwrite("peon", "codex_hook", None));
+        assert!(can_overwrite("peon", "codex_hook", Some(16)));
     }
 
     #[test]

@@ -223,6 +223,7 @@ fn probe(
     let mut installed_events = 0;
     let mut saw_owned = false;
     let mut saw_drifted = false;
+    let mut owned_events = std::collections::HashSet::new();
     for (event, group) in groups(document)? {
         let expected = expected_available
             .then(|| platform_invocation(reporter, &event))
@@ -232,10 +233,16 @@ fn probe(
             FragmentState::Absent => {}
             FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
             FragmentState::Installed => {
+                if !owned_events.insert(event) {
+                    return Ok(FragmentState::Ambiguous);
+                }
                 saw_owned = true;
                 installed_events += 1;
             }
             FragmentState::Drifted => {
+                if !owned_events.insert(event) {
+                    return Ok(FragmentState::Ambiguous);
+                }
                 saw_owned = true;
                 saw_drifted = true;
             }
@@ -537,6 +544,25 @@ mod tests {
             probe(&stale, &reporter_path(home.path())).unwrap(),
             FragmentState::Drifted
         );
+    }
+
+    #[test]
+    fn probe_reports_ambiguous_when_one_event_has_two_owned_groups() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let script = reporter_path(home.path());
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        let mut document = Map::new();
+        merge(&mut document, &script).unwrap();
+
+        let duplicate = document["hooks"]["SessionStart"][0].clone();
+        document["hooks"]["SessionStart"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+
+        assert_eq!(probe(&document, &script).unwrap(), FragmentState::Ambiguous);
     }
 
     #[test]
