@@ -50,6 +50,11 @@ grep -Fq 'echo mentions superpowers/hooks/run-hook.cmd but is unrelated' <<<"$fi
 grep -Fq 'report-harness-event.sh' <<<"$fixture_commands"
 grep -Fq 'agent-skills/hooks/session-start.sh' <<<"$fixture_commands"
 
+if jq -e '[.hooks.SessionStart[]? | (.hooks? // []) | length] | any(. == 0)' "$fixture_path" >/dev/null; then
+  echo "repair left an empty SessionStart group" >&2
+  exit 1
+fi
+
 before_second_repair="$(shasum -a 256 "$fixture_path")"
 bash scripts/repair-codex-session-start-hooks.sh "$fixture_path"
 after_second_repair="$(shasum -a 256 "$fixture_path")"
