@@ -2189,6 +2189,16 @@ html, body, #root {
   color: var(--text-primary);
 }
 
+.detail-task-history-recommendation {
+  border: 0;
+  padding: 0;
+  color: var(--accent-primary);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
 /* Surface 5 — provenance footer: quiet, dot-separated. */
 .detail-provenance {
   padding: 10px var(--space-5) 14px;
@@ -2548,6 +2558,11 @@ html, body, #root {
 .recommendation-fix { border-color: var(--accent-strong); color: var(--accent-strong); }
 .recommendation-fix:disabled { cursor: not-allowed; opacity: .5; }
 .recommendation-card { margin-bottom: var(--space-4); padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-2); }
+.recommendation-status-row { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); font-size: 0.75rem; }
+.recommendation-status { padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); background: var(--surface-3); color: var(--text-muted); text-transform: capitalize; }
+.recommendation-status--completed { color: var(--state-ok); }
+.recommendation-card--focused { border-color: var(--accent-primary); box-shadow: 0 0 0 1px var(--accent-primary); }
+.recommendation-updated { color: var(--text-muted); }
 .recommendation-target, .recommendation-impact, .recommendation-evidence-row span { font-size: var(--text-sm); color: var(--text-muted); }
 .recommendation-impact { padding: var(--space-1) var(--space-2); border-radius: var(--radius-pill); background: var(--state-warn-bg); }
 .recommendation-impact--high { color: var(--state-error); } .recommendation-impact--medium { color: var(--state-warn); } .recommendation-impact--low { color: var(--state-ok); }

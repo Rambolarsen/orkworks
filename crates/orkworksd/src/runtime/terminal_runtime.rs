@@ -128,6 +128,16 @@ pub(crate) fn verify_workflow_report_token(session_id: &str, candidate: &str) ->
     }
 }
 
+/// Resolves a live report capability back to its owning session. Completion
+/// callbacks authenticate with the capability only, so callers cannot claim
+/// that another session performed the work.
+pub(crate) fn workflow_report_session_for_token(candidate: &str) -> Option<String> {
+    let registry = report_capabilities().lock().unwrap();
+    registry.iter().find_map(|(session_id, capability)| {
+        constant_time_eq(&capability.token, candidate).then(|| session_id.clone())
+    })
+}
+
 fn constant_time_eq(a: &str, b: &str) -> bool {
     let a = a.as_bytes();
     let b = b.as_bytes();
@@ -2380,6 +2390,20 @@ mod tests {
         let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
         set_workflow_report_token(&session_id, "correct-token".to_string());
         assert!(verify_workflow_report_token(&session_id, "correct-token"));
+    }
+
+    #[test]
+    fn workflow_report_session_for_token_returns_the_matching_live_session() {
+        let session_id = format!("cap-test-{}", uuid::Uuid::new_v4());
+        set_workflow_report_token(&session_id, "lookup-token".to_string());
+
+        assert_eq!(
+            workflow_report_session_for_token("lookup-token"),
+            Some(session_id.clone())
+        );
+
+        clear_workflow_report_token(&session_id);
+        assert_eq!(workflow_report_session_for_token("lookup-token"), None);
     }
 
     #[test]

@@ -464,6 +464,7 @@ export interface SummaryLogEntry {
   summary: string;
   source: string;
   confidence: number | null;
+  recommendationId?: string;
 }
 
 export async function getSummaryLog(

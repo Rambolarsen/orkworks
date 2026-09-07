@@ -56,7 +56,8 @@ use crate::http::session_handlers::{
     set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::http::taskmaster_handlers::{
-    accept_recommendation, dismiss_recommendation, get_recommendation, list_recommendations,
+    accept_recommendation, complete_recommendation, dismiss_recommendation, get_recommendation,
+    list_recommendations,
 };
 use crate::http::workflow_observation_handlers::report_workflow_observation;
 use crate::runtime::peon_runtime::peon_loop;
@@ -373,6 +374,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/taskmaster/recommendations/:id/accept",
             post(accept_recommendation),
+        )
+        .route(
+            "/taskmaster/recommendations/:id/complete",
+            post(complete_recommendation),
         )
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:source_id/duplicate", post(duplicate_harness))

@@ -75,6 +75,7 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `starting-work` | Branch/worktree setup and per-checkout workflow for new code changes |
 | `cutting-release` | Version bump, tag push, CI monitoring, and release verification workflow |
 | `adding-harness` | Checklist for adding or changing a harness adapter |
+| `working-on-recommendation` | Resolves a Taskmaster recommendation, scopes the work, and reports verified completion |
 | `writing-skills` | TDD-based skill creation following the Agent Skills standard |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 | `surfacing-blind-spots` | End-of-session self-critique and codebase audit that files scoped quality issues |

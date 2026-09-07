@@ -41,10 +41,11 @@ interface SessionDetailPanelProps {
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
   onReviewPlan: () => void;
+  onOpenRecommendation?: (id: string) => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
@@ -70,11 +71,18 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
   useEffect(() => {
     if (!active) return;
     let current = true;
-    void window.orkworks.getBackendUrl()
-      .then((baseUrl) => getSummaryLog(baseUrl, active.id))
-      .then((entries) => { if (current) setSummaryLog(entries); })
-      .catch(() => { if (current) setSummaryLog([]); });
-    return () => { current = false; };
+    const loadSummaryLog = () => {
+      void window.orkworks.getBackendUrl()
+        .then((baseUrl) => getSummaryLog(baseUrl, active.id))
+        .then((entries) => { if (current) setSummaryLog(entries); })
+        .catch(() => { if (current) setSummaryLog([]); });
+    };
+    loadSummaryLog();
+    const summaryLogTimer = window.setInterval(loadSummaryLog, 5000);
+    return () => {
+      current = false;
+      window.clearInterval(summaryLogTimer);
+    };
     // lastActivityAt advances for every summary-checkpoint source (Peon
     // inference and agent-hook attention reports alike), unlike
     // peonLastInference, which only advances for Peon's own inferences.
@@ -383,6 +391,15 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
                   {relativeTime(entry.timestamp, now) || entry.timestamp}
                 </span>
                 <span className="detail-task-history-summary">{entry.summary}</span>
+                {entry.recommendationId && (
+                  <button
+                    className="detail-task-history-recommendation"
+                    type="button"
+                    onClick={() => onOpenRecommendation?.(entry.recommendationId!)}
+                  >
+                    Recommendation {entry.recommendationId.replace(/^recommendation-/, "").slice(0, 8)}
+                  </button>
+                )}
                 <SourceBadge source={entry.source}>
                   {sourceWithConfidence(entry.source, entry.confidence ?? undefined)}
                 </SourceBadge>

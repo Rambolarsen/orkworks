@@ -418,6 +418,11 @@ test("Taskmaster accept sends the session id and prompt and returns the updated 
   }
 });
 
+test("renderer API does not expose the unauthenticated recommendation completion endpoint", () => {
+  const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /completeTaskmasterRecommendation/);
+});
+
 test("App routes active harness saves through the combined preload operation", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 

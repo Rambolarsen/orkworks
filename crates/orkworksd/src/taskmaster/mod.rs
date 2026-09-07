@@ -313,15 +313,23 @@ pub(crate) fn evaluate_workflow_improvements(
 pub(crate) fn build_fix_prompt(recommendation: &Recommendation) -> String {
     let improvement = &recommendation.workflow_improvement;
     let surface = target_surface_name(improvement.target_surface);
+    let source_sessions = recommendation.source_session_ids.join(", ");
     format!(
-        "Implement the following workflow improvement so future sessions don't hit this recurring issue: {}\n\n\
+        "Work on Taskmaster recommendation {id}.\n\n\
+         Before acting, read the recommendation directly from GET /taskmaster/recommendations/{id}. \
+         It contains the authoritative rationale, evidence, and source sessions ({source_sessions}).\n\n\
+         Start by following the repository skill `working-on-recommendation`; use it to inspect the recommendation and the sessions that spawned it.\n\n\
+         Implement the following workflow improvement so future sessions don't hit this recurring issue: {improvement}\n\n\
          Target surface: {surface} (edit the repository's {surface} accordingly).\n\n\
-         Why: {} Expected benefit: {}\n\n\
+         Why: {reason} Expected benefit: {benefit}\n\n\
          Scope: only modify repository-level instructions, skills, tests, tooling, or documentation to address this recurring issue. \
-         Do not resume, reopen, or modify any other session — this request applies only to the session you are currently running in.\r",
-        improvement.proposed_improvement,
-        recommendation.reason.join(" "),
-        improvement.expected_benefit,
+         Work only in the current session. Do not resume, reopen, or modify any other session.\n\n\
+         After acting, verify the change. When the recommendation is genuinely addressed, report completion by POSTing to /taskmaster/recommendations/{id}/complete \
+         with Authorization: Bearer $ORKWORKS_REPORT_TOKEN and an optional JSON summary. Do not mark it complete before verification.\r",
+        id = recommendation.id,
+        improvement = improvement.proposed_improvement,
+        reason = recommendation.reason.join(" "),
+        benefit = improvement.expected_benefit,
     )
 }
 
@@ -521,6 +529,29 @@ mod tests {
     }
 
     #[test]
+    fn completed_recommendation_is_not_resurfaced_by_reevaluation() {
+        let first = observation("one", 1, "session-a", 0.8, Impact::Low);
+        let second = observation("two", 2, "session-b", 0.8, Impact::Low);
+        let mut existing = evaluate_workflow_improvements(
+            &[first.clone(), second.clone()],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        );
+        assert_eq!(existing.len(), 1);
+        existing[0].status = RecommendationStatus::Completed;
+        existing[0].target_session_id = Some("session-active".into());
+
+        assert!(evaluate_workflow_improvements(
+            &[first, second],
+            &existing,
+            "workspace-1",
+            "2026-08-21T12:01:00Z",
+        )
+        .is_empty());
+    }
+
+    #[test]
     fn build_fix_prompt_includes_proposed_improvement_and_target_surface_and_ends_with_cr() {
         let proposals = evaluate_workflow_improvements(
             &[
@@ -536,6 +567,9 @@ mod tests {
         let prompt = build_fix_prompt(recommendation);
 
         assert!(prompt.contains(&recommendation.workflow_improvement.proposed_improvement));
+        assert!(prompt.contains(&recommendation.id));
+        assert!(prompt.contains("working-on-recommendation"));
+        assert!(prompt.contains("/complete"));
         assert!(prompt.contains(target_surface_name(
             recommendation.workflow_improvement.target_surface
         )));
