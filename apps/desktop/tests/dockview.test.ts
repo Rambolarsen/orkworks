@@ -116,7 +116,7 @@ test("ReviewPanel renders plan content as Markdown rather than raw preformatted 
   const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
 
   assert.match(source, /import ReactMarkdown, \{ type Components \} from "react-markdown"/);
-  assert.match(source, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\} components=\{markdownComponents\}>\{content\}<\/ReactMarkdown>/);
+  assert.match(source, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\} components=\{markdownComponents\}>\{normalizeMarkdownLinkDestinations\(content\)\}<\/ReactMarkdown>/);
   assert.doesNotMatch(source, /<pre className="review-plan-content">\{content\}<\/pre>/);
 });
 
@@ -131,6 +131,13 @@ test("ReviewPanel routes Markdown links through the safe external-link bridge in
   assert.match(source, /event\.preventDefault\(\);/);
   assert.match(source, /window\.orkworks\.openExternalLink\(href\)/);
   assert.match(source, /const markdownComponents: Components = \{ a: ReviewLink \};/);
+});
+
+test("ReviewPanel normalizes multiline Markdown link destinations before rendering", () => {
+  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import \{ normalizeMarkdownLinkDestinations \} from "\.\.\/markdownLinks"/);
+  assert.match(source, /normalizeMarkdownLinkDestinations\(content\)/);
 });
 
 test("ReviewPanel supports reviewTick prop and retains memoization", () => {
