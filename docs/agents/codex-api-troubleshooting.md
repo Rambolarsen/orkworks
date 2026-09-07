@@ -49,8 +49,8 @@ includes a code and message; use those fields when available rather than
 classifying every failure as a generic API error. See the [Responses API
 reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
 For 429s, distinguish temporary rate limits from credits, quota, and spend
-limits using OpenAI's [rate-limit guidance](https://help.openai.com/en/articles/5955604-how-can-i-so)
-and [usage-limit guidance](https://help.openai.com/en/articles/6614457-why-am-i-getting-an-error-message-stating-that-i-ve-reached-my-usage-limi).
+limits using OpenAI's [rate-limit guidance](https://help.openai.com/en/articles/5955604-how-can-i-solve-429-too-many-requests-errors)
+and [usage-limit guidance](https://help.openai.com/en/articles/6614457-why-am-i-getting-an-error-message-stating-that-i-ve-reached-my-usage-limit).
 
 ## Escalation bundle
 

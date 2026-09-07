@@ -45,6 +45,14 @@ function multilineDestination(source: string, start: number): { value: string; e
       const nextLine = character === "\r" && source[index + 1] === "\n" ? index + 2 : index + 1;
       let next = nextLine;
       while (next < source.length && (source[next] === " " || source[next] === "\t")) next += 1;
+      let currentLineStart = source.lastIndexOf("\n", index - 1) + 1;
+      while (currentLineStart < index && (source[currentLineStart] === " " || source[currentLineStart] === "\t")) currentLineStart += 1;
+      if (source[currentLineStart] === ">") {
+        while (source[next] === ">") {
+          next += 1;
+          while (next < source.length && (source[next] === " " || source[next] === "\t")) next += 1;
+        }
+      }
       if (next < source.length && (source[next] === "\r" || source[next] === "\n")) return null;
       // A line break before or inside a link title is whitespace; a break
       // inside a URL is a wrapped destination and should disappear with its
@@ -77,6 +85,9 @@ function multilineDestination(source: string, start: number): { value: string; e
       /[ \t]$/.test(value)
     ) {
       title = { delimiter: character as "\"" | "'" | "(", depth: character === "(" ? 1 : 0 };
+      value += character;
+      index += 1;
+      continue;
     }
 
     if (character === "<" && parentheses === 0) angleDestination = true;

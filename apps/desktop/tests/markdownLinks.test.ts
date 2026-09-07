@@ -96,3 +96,30 @@ test("does not normalize a destination-like sequence after an inline-code label"
 
   assert.equal(normalizeMarkdownLinkDestinations(markdown), markdown);
 });
+
+test("removes blockquote continuation markers from wrapped destinations", () => {
+  const markdown = "> [quote](https://example.com/\n>   wrapped)";
+
+  assert.equal(
+    normalizeMarkdownLinkDestinations(markdown),
+    "> [quote](https://example.com/wrapped)",
+  );
+});
+
+test("removes nested blockquote continuation markers from wrapped destinations", () => {
+  const markdown = "> > [quote](https://example.com/\n> >   wrapped)";
+
+  assert.equal(
+    normalizeMarkdownLinkDestinations(markdown),
+    "> > [quote](https://example.com/wrapped)",
+  );
+});
+
+test("keeps parenthesized link titles separate from balanced URL parentheses", () => {
+  const markdown = "[title](https://example.com/path\n  (A title))";
+
+  assert.equal(
+    normalizeMarkdownLinkDestinations(markdown),
+    "[title](https://example.com/path (A title))",
+  );
+});
