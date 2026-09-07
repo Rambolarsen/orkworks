@@ -238,7 +238,7 @@ These are load-bearing UX decisions. Treat them as constraints on any feature, d
 
 ## APM and agent plugins
 
-Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed by [APM](https://github.com/anthropics/apm) at the repo root (`apm.yml`). Run `apm install` from the repo root to populate skills and hooks for all configured targets (claude, codex, copilot, opencode).
+Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed by [APM](https://github.com/anthropics/apm) at the repo root (`apm.yml`). Run `apm install` from the repo root to populate skills and hooks for all configured targets (claude, codex, copilot, opencode). APM lifecycle commands are trust-gated; run `apm lifecycle trust` once in a new checkout so the post-install/post-update repair can remove Superpowers' incompatible Codex `SessionStart` registration. The repair can also be run directly with `bash scripts/repair-codex-session-start-hooks.sh`.
 
 See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generated path layout, and OpenCode configuration.
 
