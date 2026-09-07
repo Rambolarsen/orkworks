@@ -78,6 +78,9 @@ pub(crate) struct AttentionSignal {
     pub(crate) plan_path: metadata::PlanPathUpdate,
     pub(crate) observed_at: Option<String>,
     pub(crate) cwd: Option<String>,
+    pub(crate) source: Option<String>,
+    pub(crate) event: Option<String>,
+    pub(crate) hook_fingerprint: Option<String>,
 }
 
 pub(crate) struct DebugAttentionSignal {
@@ -1827,6 +1830,9 @@ impl SessionApplication {
                         handle.runtime.last_hook_attention_at = Some(observed_at);
                     }
                 }
+                if signal.source == "codex_hook" {
+                    handle.active_work_hook = true;
+                }
                 if signal.clear_pending_work_signal {
                     handle.pending_work_signal = None;
                 }
@@ -2071,6 +2077,7 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
+        let codex_hook = self.validate_codex_hook_signal(id, &signal)?;
         let observed_at = signal
             .observed_at
             .as_deref()
@@ -2087,7 +2094,8 @@ impl SessionApplication {
             .lock()
             .unwrap()
             .get(id)
-            .is_some_and(|handle| handle.active_work_hook);
+            .is_some_and(|handle| handle.active_work_hook)
+            || codex_hook;
         let status = normalize_hook_attention_status(&signal.status, supports_active_work)
             .ok_or(SessionError::EmptyBadRequest)?;
         if observed_at.is_some_and(|timestamp| {
@@ -2118,6 +2126,11 @@ impl SessionApplication {
         let merge_status = status.clone();
         let message = signal.message;
         let plan_path = signal.plan_path;
+        let merge_source = if codex_hook {
+            "codex_hook".to_string()
+        } else {
+            "agent".to_string()
+        };
         let result = tokio::task::spawn_blocking(move || {
             if observed_at.is_some_and(|timestamp| {
                 state
@@ -2136,7 +2149,7 @@ impl SessionApplication {
                 message,
                 plan_path,
                 timestamp: iso_now(),
-                source: "agent".into(),
+                source: merge_source,
                 confidence: 1.0,
                 observed_at,
                 reject_stale_observed_at: true,
@@ -2174,6 +2187,61 @@ impl SessionApplication {
                 Err(SessionError::Internal("application operation failed"))
             }
         }
+    }
+
+    fn validate_codex_hook_signal(
+        &self,
+        id: &str,
+        signal: &AttentionSignal,
+    ) -> Result<bool, SessionError> {
+        let Some(source) = signal.source.as_deref() else {
+            return Ok(false);
+        };
+        if source != "codex_hook" {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let event = signal
+            .event
+            .as_deref()
+            .ok_or(SessionError::EmptyBadRequest)?;
+        let expected_status = match event {
+            "UserPromptSubmit" => "working",
+            "PermissionRequest" | "Stop" => "waiting_for_input",
+            "SessionStart" => return Err(SessionError::EmptyBadRequest),
+            _ => return Err(SessionError::EmptyBadRequest),
+        };
+        if signal.status != expected_status || signal.observed_at.is_none() {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let fingerprint = signal
+            .hook_fingerprint
+            .as_deref()
+            .filter(|fingerprint| metadata::valid_hook_fingerprint(fingerprint))
+            .ok_or(SessionError::EmptyBadRequest)?;
+        let expected_fingerprint = dirs::home_dir()
+            .map(|home| {
+                home.join(".orkworks/hook-scripts")
+                    .join(crate::harness::integrations::ReporterPlatform::current().asset_name())
+            })
+            .and_then(|reporter| {
+                crate::harness::integrations::current_codex_hook_fingerprint(&reporter).ok()
+            })
+            .ok_or(SessionError::EmptyBadRequest)?;
+        if fingerprint != expected_fingerprint {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let is_codex = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .is_some_and(|session| session.harness == "codex");
+        if !is_codex {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        Ok(true)
     }
 
     fn workspace_exists(&self) -> bool {
@@ -5308,6 +5376,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: None,
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await
@@ -5339,6 +5410,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: None,
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await;
@@ -5883,6 +5957,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: Some("2026-08-22T08:00:00.000000Z".into()),
                     cwd: Some("/stale".into()),
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await
@@ -5938,6 +6015,9 @@ mod tests {
                     plan_path: metadata::PlanPathUpdate::Unchanged,
                     observed_at: None,
                     cwd: None,
+                    source: None,
+                    event: None,
+                    hook_fingerprint: None,
                 },
             )
             .await;

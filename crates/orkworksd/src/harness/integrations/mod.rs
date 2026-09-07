@@ -63,6 +63,10 @@ pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationH
     }
 }
 
+pub(crate) fn current_codex_hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+    codex::current_hook_fingerprint(reporter)
+}
+
 #[derive(Clone)]
 pub(crate) struct ToolHookContract {
     pub harness_id: &'static str,
@@ -602,6 +606,26 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_maps_codex_permission_and_stop_to_waiting_attention() {
+        for event in ["PermissionRequest", "Stop"] {
+            let trace = run_report_harness_event_sh_trace_with_args(
+                "orkworks:harness-integration:v2:codex",
+                &format!(r#"{{"session_id":"thr_123","hook_event_name":"{event}"}}"#),
+                &["--event", event, "--hook-fingerprint", "a1a1a1"],
+            );
+            assert!(
+                trace.contains(r#""status": "waiting_for_input""#),
+                "expected {event} to report waiting_for_input; trace:\n{trace}"
+            );
+            assert!(
+                trace.contains(&format!(r#""event": "{event}""#)),
+                "expected {event} provenance in the attention payload; trace:\n{trace}"
+            );
+        }
+    }
+
     #[test]
     fn report_harness_event_bounds_every_curl_with_a_timeout() {
         let script = include_str!("../../../scripts/report-harness-event.sh");
@@ -945,12 +969,11 @@ mod tests {
     }
 
     #[test]
-    fn codex_confirmation_does_not_claim_the_generic_attention_warning() {
-        // base_status hardcodes executable_code_warning: true and a
-        // "Limited harness notifications" summary for every JsonHookHandler —
-        // accurate for Claude/Gemini/Copilot, which all report when the
-        // agent waits for input, but false for Codex, whose SessionStart
-        // hook only ever reports a session ID (ADR 0034).
+    fn codex_confirmation_claims_the_attention_hook_warning() {
+        // Codex now installs deterministic turn hooks in addition to its
+        // SessionStart identity hook, so its confirmation must disclose that
+        // executable hook code is being installed just like the other
+        // notification integrations.
         let workspace = tempfile::tempdir().unwrap();
         let repo = git2::Repository::init(workspace.path()).unwrap();
         // Same guard as error_status_surfaces_the_specific_integration_error_message
@@ -1002,7 +1025,7 @@ mod tests {
             .status(&context)
             .unwrap();
         let codex_confirmation = codex_status.confirmation.expect("codex confirmation");
-        assert!(!codex_confirmation.executable_code_warning);
+        assert!(codex_confirmation.executable_code_warning);
 
         let claude_status = handler(&IntegrationBinding::Claude)
             .status(&context)

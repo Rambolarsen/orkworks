@@ -277,19 +277,24 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
 
 fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, IntegrationError> {
     let existing = groups(document)?;
-    let mut count = 0;
+    let mut owned_events = std::collections::HashSet::new();
     for (event, group) in &existing {
         match marker_state(event, group, None) {
             FragmentState::Absent => {}
             FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
-            _ => count += 1,
+            FragmentState::Installed | FragmentState::Drifted => {
+                // One OrkWorks group per event is the owned shape. Multiple
+                // owned groups for the same event are ambiguous, while one
+                // group on each of the four Codex events is the complete
+                // bundle and must be removable as one unit.
+                if !owned_events.insert(event) {
+                    return Ok(FragmentState::Ambiguous);
+                }
+            }
         }
     }
-    if count == 0 {
+    if owned_events.is_empty() {
         return Ok(FragmentState::Absent);
-    }
-    if count > 1 {
-        return Ok(FragmentState::Ambiguous);
     }
     let hooks = document
         .get_mut("hooks")

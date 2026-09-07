@@ -7,12 +7,22 @@ import type {
 } from "./harnessTypes.ts";
 
 // TODO(#271): derive this from a backend-declared event-semantics field on
-// the integration status instead of a per-harness special case here — Codex
-// is the only integration today whose hook doesn't mean "needs input" (it
-// reports a session ID only; see issue #110). OpenCode's plugin gained
-// attention reporting (idle/permission/busy events) in issue #104.
+// the integration status instead of duplicating the current integration
+// catalog here. Codex's SessionStart remains identity-only, while its
+// turn-event bundle reports deterministic attention; OpenCode's plugin also
+// reports attention events (idle/permission/busy, issue #104).
 export function isAttentionSignal(harnessId: string): boolean {
-  return harnessId !== "codex";
+  switch (harnessId) {
+    case "aider":
+    case "claude-code":
+    case "codex":
+    case "copilot":
+    case "gemini":
+    case "opencode":
+      return true;
+    default:
+      return false;
+  }
 }
 
 export function shouldShowInstalledConfirmation(

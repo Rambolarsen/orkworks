@@ -49,7 +49,7 @@ const TERMINAL_OUTPUT_FILE_MARKER: &str = "\u{001e}orkworks-terminal-v1";
 ///   injection exists to drive live sessions whose state is `process` or
 ///   `peon`; a spec-literal reading would make the debug endpoint a no-op
 ///   on every real session. Debug therefore overwrites every source except
-///   the two live-signal tiers (`user`, `agent`).
+///   the two live-signal tiers (`user`, `agent`/`codex_hook`).
 pub mod source_priority {
     /// Seconds Peon must wait before it may overwrite a fresh
     /// `agent`-sourced status. See the module docs for the rationale.
@@ -58,7 +58,7 @@ pub mod source_priority {
     fn rank(source: &str) -> u8 {
         match source {
             "user" => 7,
-            "agent" => 6,
+            "agent" | "codex_hook" => 6,
             "peon" => 5,
             "backend_inference" => 4,
             "process" => 3,
@@ -78,7 +78,7 @@ pub mod source_priority {
         existing_age_secs_ago: Option<u64>,
     ) -> bool {
         if incoming == "debug" {
-            return !matches!(existing, "user" | "agent");
+            return !matches!(existing, "user" | "agent" | "codex_hook");
         }
         if incoming == "peon" && existing == "agent" {
             return existing_age_secs_ago.is_some_and(|age| age > PEON_AGENT_OVERWRITE_SECS);
@@ -1552,7 +1552,8 @@ impl MetadataStore {
     /// Writes a deterministic attention signal (e.g. from a Claude Code `Notification`
     /// hook, or a debug injection). Priority-gated through
     /// [`source_priority::can_overwrite`]: it cannot clobber `user` metadata, and a
-    /// `debug`-sourced write additionally cannot clobber `agent` metadata (the
+    /// `debug`-sourced write additionally cannot clobber `agent`/`codex_hook`
+    /// metadata (the
     /// other hook-verified, high-confidence tier) — debug injection is meant for
     /// exercising convergence on otherwise-quiet sessions, not for overwriting a live
     /// coding agent's real signal. Every other source pair overwrites unconditionally,
@@ -3794,6 +3795,8 @@ mod tests {
         // Equal-priority writes are turn boundaries and always apply.
         assert!(can_overwrite("user", "user", Some(0)));
         assert!(can_overwrite("agent", "agent", Some(0)));
+        assert!(can_overwrite("codex_hook", "agent", Some(0)));
+        assert!(can_overwrite("agent", "codex_hook", Some(0)));
         assert!(can_overwrite("peon", "peon", Some(0)));
 
         // Higher-priority sources overwrite lower ones regardless of age.
@@ -3826,6 +3829,7 @@ mod tests {
         // documented exception to its ladder-bottom rank (issue #400).
         assert!(!can_overwrite("debug", "user", None));
         assert!(!can_overwrite("debug", "agent", None));
+        assert!(!can_overwrite("debug", "codex_hook", None));
         assert!(can_overwrite("debug", "peon", None));
         assert!(can_overwrite("debug", "process", None));
         assert!(can_overwrite("debug", "debug", Some(0)));
