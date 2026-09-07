@@ -32,6 +32,16 @@ test("secondary restoration failures are logged without failing backend readines
   assert.match(mainSource, /onStepFailure: \(step, error\) => \{\s*logBackendLifecycleFailure\(`restoration:\$\{step\}`, error\);/);
 });
 
+test("provider startup replay is serialized with settings mutations", () => {
+  const start = mainSource.indexOf("async function syncSavedProviderSettings");
+  const end = mainSource.indexOf("\n  function restorePersistedPeonSelection", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const replay = mainSource.slice(start, end);
+  assert.match(replay, /return enqueueSettingsWrite\(async \(\) => \{/);
+  assert.match(replay, /const settings = currentSettings \?\? readSettings\(app\.getPath\("userData"\)\);/);
+});
+
 test("Electron main logs raw lifecycle failures but publishes only stable copy", () => {
   assert.match(mainSource, /sanitizeBackendLifecycleFailure/);
   assert.match(mainSource, /console\.error\(/);

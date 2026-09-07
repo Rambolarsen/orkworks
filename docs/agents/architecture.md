@@ -34,8 +34,10 @@ Once that succeeds, `get-backend-url` resolves and the renderer receives the
 `ready` lifecycle event; the renderer can therefore adopt the restored
 workspace and recover its sessions even if a secondary settings replay is
 unavailable. Persisted retention and provider settings are then applied as
-abortable best-effort steps in the same generation. Their failures are logged
-without invalidating workspace readiness, and replacement/disposal aborts any
+abortable best-effort steps in the same generation. Provider replay shares the
+Electron settings mutation queue with user saves, so a slow startup catalog
+request cannot overwrite newer settings. Their failures are logged without
+invalidating workspace readiness, and replacement/disposal aborts any
 in-flight step. A restoration timeout or workspace-restoration failure still
 rejects readiness and publishes an unavailable state. Initial startup uses the
 last existing workspace path when available, otherwise the development
