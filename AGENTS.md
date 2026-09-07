@@ -242,6 +242,15 @@ Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed 
 
 See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generated path layout, and OpenCode configuration.
 
+## Codex API failures
+
+When Codex reports a generic API failure such as `Error in Codex API`, use the
+read-only repository helper `bash scripts/codex-api-diagnostics.sh` and follow
+[`docs/agents/codex-api-troubleshooting.md`](docs/agents/codex-api-troubleshooting.md).
+Preserve the exact error, status/code, request ID, timestamp, and timezone
+before retrying. Do not loop blind retries, print credentials or config
+contents, or resume/reopen another session to work around the failure.
+
 ## MCP configuration
 
 Project-scoped MCP servers are declared in `apm.yml` under `dependencies.mcp`.
