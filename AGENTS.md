@@ -80,6 +80,14 @@ Read these before starting any implementation work.
 
 If any authoritative spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
 
+## Assumption discipline
+
+Before acting, make every assumption that could change the scope, target, permissions, or expected behavior explicit. Treat missing context as unknown, not as permission to guess.
+
+- Validate material assumptions against the authoritative source for the task: the user's request, the live OrkWorks recommendation/API when working from a recommendation, applicable specs, and scoped repository instructions.
+- Distinguish facts, inferences, and open questions in the working update or plan. If authoritative evidence is missing or conflicts, stop and ask rather than silently choosing an interpretation.
+- Do not treat a source session, stale metadata, or an inferred status as permission to resume, reopen, or modify that session; follow the task's explicit scope instead.
+
 ## Docs site
 
 Repo markdown is rendered as a docs site at https://rambolarsen.github.io/orkworks/ (VitePress config in `docs/.vitepress/`, deployed by `.github/workflows/docs.yml`). The markdown files in the repo are the single source of truth — the site is a rendering layer only. User-facing documentation lives in `docs/user/`; agents read it like any other repo markdown. The build fails on dead links, so keep links valid when moving or renaming docs.
