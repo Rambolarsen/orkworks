@@ -564,20 +564,20 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         prompt_transport,
         reasoning_effort_args,
     } = harness.definition.peon.as_ref()?.clone();
+    let command = command_override.unwrap_or_else(|| harness.launch_command());
     let (list_models_command, list_models_args, static_models) = match &harness.definition.models {
         Some(ModelCapability::Static { models }) => (None, Vec::new(), models.clone()),
         Some(ModelCapability::Command { command, args }) => {
             (Some(command.clone()), args.clone(), Vec::new())
         }
         Some(ModelCapability::CodexAppServer) => (
-            Some("codex".into()),
+            Some(command.clone()),
             vec!["app-server".into(), "--stdio".into()],
             Vec::new(),
         ),
         Some(ModelCapability::Http) => (None, Vec::new(), Vec::new()),
         None => (None, Vec::new(), Vec::new()),
     };
-    let command = command_override.unwrap_or_else(|| harness.launch_command());
     Some(ProviderDefinition {
         id: harness.definition.id.clone(),
         label: harness.definition.name.clone(),
@@ -972,6 +972,65 @@ mod tests {
             .static_models
             .contains(&"mai-code-1-flash-picker".into()));
         assert_eq!(copilot.list_models_command, None);
+    }
+
+    #[test]
+    fn codex_model_discovery_uses_the_resolved_launch_command() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut definition = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "codex")
+            .expect("embedded Codex definition")
+            .clone();
+        let LaunchCapability::CommandTemplate { command, .. } = &mut definition.launch else {
+            panic!("Codex must use a command template");
+        };
+        *command = "/custom/bin/codex".into();
+        let harness = ResolvedHarness {
+            compatibility: builtin_compatibility_metadata(&definition),
+            definition,
+            origin: DefinitionOrigin::Builtin,
+            effective_capabilities: BTreeSet::new(),
+        };
+
+        let provider = provider_from_harness(&harness).expect("Codex Peon provider");
+
+        assert_eq!(
+            provider.list_models_command.as_deref(),
+            Some("/custom/bin/codex")
+        );
+    }
+
+    #[test]
+    fn codex_model_discovery_uses_a_peon_command_override_for_platform_shells() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let mut definition = builtins
+            .builtins
+            .iter()
+            .find(|definition| definition.id == "codex")
+            .expect("embedded Codex definition")
+            .clone();
+        definition.launch = LaunchCapability::PlatformShell { login: true };
+        definition
+            .peon
+            .as_mut()
+            .expect("Codex Peon capability")
+            .command_override = Some("/custom/bin/codex".into());
+        let harness = ResolvedHarness {
+            compatibility: builtin_compatibility_metadata(&definition),
+            definition,
+            origin: DefinitionOrigin::Builtin,
+            effective_capabilities: BTreeSet::new(),
+        };
+
+        let provider = provider_from_harness(&harness).expect("Codex Peon provider");
+
+        assert_eq!(provider.command, "/custom/bin/codex");
+        assert_eq!(
+            provider.list_models_command.as_deref(),
+            Some("/custom/bin/codex")
+        );
     }
 
     #[test]
