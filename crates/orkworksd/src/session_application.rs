@@ -1,5 +1,6 @@
 use crate::plan_handoff::{
     normalize_reported_plan_path, resolve_openable_plan_reference, resolve_printed_plan_path,
+    resolve_printed_plan_path_with_home,
 };
 use crate::runtime::observed_status::apply_live_attention_fields;
 use crate::session_types::{MemoryState, SessionInfo};
@@ -2094,13 +2095,20 @@ impl SessionApplication {
         session_id: &str,
         printed_path: &str,
     ) -> bool {
+        let home_dir = dirs::home_dir();
+        self.persist_printed_plan_fallback_with_home(session_id, printed_path, home_dir.as_deref())
+    }
+
+    fn persist_printed_plan_fallback_with_home(
+        &self,
+        session_id: &str,
+        printed_path: &str,
+        home_dir: Option<&Path>,
+    ) -> bool {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
             return false;
         };
-        if plan_handoff::resolve_openable_plan(&workspace.path, printed_path).is_err() {
-            return false;
-        }
         let Some(mut metadata) = workspace.metadata.read_session(session_id) else {
             return false;
         };
@@ -2111,9 +2119,14 @@ impl SessionApplication {
         {
             return false;
         }
+        let Ok((worktree_root, relative_path)) =
+            resolve_printed_plan_path_with_home(Path::new(&metadata.cwd), printed_path, home_dir)
+        else {
+            return false;
+        };
         metadata.plan_path = Some(metadata::PlanReference {
-            worktree_root: Some(workspace.path.to_string_lossy().into_owned()),
-            relative_path: printed_path.to_string(),
+            worktree_root: Some(worktree_root.to_string_lossy().into_owned()),
+            relative_path,
             source: metadata::PlanSource::TerminalFallback,
         });
         workspace.metadata.write_session(&metadata);
@@ -4766,6 +4779,7 @@ mod tests {
             "now",
             "now",
         );
+        session.cwd = root.path().display().to_string();
         session.lifecycle = "alive".into();
         session.lifecycle_phase = "active".into();
         state
@@ -4794,12 +4808,146 @@ mod tests {
         );
         assert_eq!(
             reference.worktree_root,
-            Some(root.path().display().to_string())
+            Some(root.path().canonicalize().unwrap().display().to_string())
         );
         assert_eq!(reference.source, metadata::PlanSource::TerminalFallback);
         assert!(
             !application.persist_printed_plan_fallback(id, "docs/superpowers/plans/fallback.md")
         );
+    }
+
+    #[test]
+    fn printed_plan_fallback_persists_shell_home_path_from_its_worktree() {
+        let home = tempfile::tempdir().unwrap();
+        let root = home.path().join("workspace/repo");
+        std::fs::create_dir_all(root.join("docs/superpowers/specs")).unwrap();
+        git2::Repository::init(&root).unwrap();
+        let plan = root.join("docs/superpowers/specs/fallback.md");
+        std::fs::write(&plan, "# fallback\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(&root);
+        let application = SessionApplication::new(state.clone());
+        let id = "printed-home-fallback";
+        let mut session = crate::test_support::test_session_metadata(
+            id,
+            "Fallback",
+            root.display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.cwd = root.display().to_string();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+
+        assert!(application.persist_printed_plan_fallback_with_home(
+            id,
+            "~/workspace/repo/docs/superpowers/specs/fallback.md",
+            Some(home.path()),
+        ));
+        let reference = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .plan_path
+            .unwrap();
+        assert_eq!(
+            reference.worktree_root,
+            Some(root.canonicalize().unwrap().display().to_string())
+        );
+        assert_eq!(
+            reference.relative_path,
+            "docs/superpowers/specs/fallback.md"
+        );
+        assert_eq!(reference.source, metadata::PlanSource::TerminalFallback);
+    }
+
+    #[test]
+    fn printed_plan_fallback_resolves_relative_path_from_session_cwd() {
+        let base = tempfile::tempdir().unwrap();
+        let main = base.path().join("main");
+        let linked = base.path().join("linked");
+        std::fs::create_dir_all(&main).unwrap();
+        let run_git = |cwd: &Path, args: &[&str]| {
+            let mut git_args = vec![
+                "-c",
+                "user.email=orkworks-test@example.invalid",
+                "-c",
+                "user.name=OrkWorks Test",
+                "-c",
+                "commit.gpgsign=false",
+            ];
+            git_args.extend_from_slice(args);
+            let status = std::process::Command::new("git")
+                .args(git_args)
+                .current_dir(cwd)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git command failed: {args:?}");
+        };
+        run_git(&main, &["init", "-q"]);
+        run_git(&main, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(&main, &["branch", "feature"]);
+        run_git(
+            &main,
+            &["worktree", "add", "-q", linked.to_str().unwrap(), "feature"],
+        );
+        let plan = linked.join("specs/fallback.md");
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::write(&plan, "# fallback\n").unwrap();
+
+        let state = crate::test_support::test_app_state_with_workspace(&main);
+        let application = SessionApplication::new(state.clone());
+        let id = "printed-linked-fallback";
+        let mut session = crate::test_support::test_session_metadata(
+            id,
+            "Fallback",
+            linked.display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.cwd = linked.display().to_string();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+
+        assert!(application.persist_printed_plan_fallback_with_home(id, "specs/fallback.md", None,));
+        let reference = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .plan_path
+            .unwrap();
+        assert_eq!(
+            reference.worktree_root,
+            Some(linked.canonicalize().unwrap().display().to_string())
+        );
+        assert_eq!(reference.relative_path, "specs/fallback.md");
     }
 
     #[test]
