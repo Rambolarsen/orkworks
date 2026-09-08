@@ -41,4 +41,3 @@ needed.
   for generic Codex API failures.
 - [Peon timeout troubleshooting](peon-timeout-troubleshooting.md) — Recovery
   and diagnostics for Peon provider timeouts.
-

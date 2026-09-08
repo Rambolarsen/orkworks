@@ -36,9 +36,13 @@ GitHub Actions has six distinct workflow classes:
 - `.github/workflows/release.yml` handles tag-driven release packaging only.
 - `.github/workflows/pr-ci.yml` validates pull requests targeting `main`.
 - `.github/workflows/main-ci.yml` unconditionally reruns the full desktop and
-  Rust test suites against `main` on every push to `main`, daily, and by
-  manual dispatch. This catches bad merges and drift that pull-request-only
-  validation cannot catch.
+  Rust test suites against `main`, without path filters, on every push to
+  `main`, daily by schedule, and by manual dispatch. This exists because
+  `pr-ci.yml` only triggers on `pull_request` and never re-validates `main`
+  after a merge, so a bad merge — including one that bypasses branch
+  protection as an administrator — could sit undetected until the next pull
+  request; the daily schedule also catches drift such as flaky tests and
+  dependency updates without a code change.
 - `.github/workflows/docs.yml` builds the VitePress documentation site and
   deploys it to GitHub Pages when documentation paths change on `main`.
 - `.github/workflows/quality-audit.yml` runs a weekly rotating quality audit
@@ -46,10 +50,16 @@ GitHub Actions has six distinct workflow classes:
   guardrails. It requires the `CLAUDE_CODE_OAUTH_TOKEN` repository secret;
   the workflow header documents the `ANTHROPIC_API_KEY` alternative.
 - `.github/workflows/pr-review.yml` posts an informational automated first-pass
-  review for sufficiently large relevant-code pull requests. It only invokes
-  Claude after the cumulative non-docs change crosses the review threshold,
-  does not run for documentation-only changes, and cannot block a merge. It
-  does not replace the manual `/code-review` gate.
+  review when a relevant-code pull request is opened, reopened, marked ready
+  for review, or synchronized. Relevant code is scoped to changes under
+  `apps/desktop/` or `crates/orkworksd/`; Claude is invoked only after the
+  cumulative non-docs delta since the last completed review exceeds the
+  escalation threshold (roughly more than 8 files or 500 changed lines). A
+  manual workflow dispatch with a pull-request number can intentionally force
+  a relevant-code review below the threshold. The workflow reuses the
+  `CLAUDE_CODE_OAUTH_TOKEN` repository secret, does not run for
+  documentation-only changes, is informational rather than a required check,
+  cannot block a merge, and does not replace the manual `/code-review` gate.
 
 GitHub's native Copilot code review is also enabled as a repository ruleset for
 pull requests targeting `main`. It is not a workflow file, is not a required
@@ -98,4 +108,3 @@ use named volumes rather than host bind mounts because Electron and native
 dependencies are platform-specific. On Windows, Podman runs in a WSL2 VM;
 for bind-mounted paths on NTFS, set `git config core.autocrlf input` so
 in-container shell scripts do not receive incompatible line endings.
-
