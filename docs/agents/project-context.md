@@ -108,3 +108,12 @@ use named volumes rather than host bind mounts because Electron and native
 dependencies are platform-specific. On Windows, Podman runs in a WSL2 VM;
 for bind-mounted paths on NTFS, set `git config core.autocrlf input` so
 in-container shell scripts do not receive incompatible line endings.
+
+## Windows sidecar file replacement
+
+The Rust sidecar uses the target-specific `windows-sys`
+`Win32_Storage_FileSystem` feature only on Windows: `ReplaceFileW` replaces an
+expected existing configuration while preserving Windows replacement semantics,
+and `MoveFileExW` publishes an expected new file without replacing an existing
+one. These operations remain best-effort optimistic concurrency, not portable
+compare-and-swap. It adds no dependency to Unix builds.

@@ -14,43 +14,24 @@ Use **pnpm** for all Node.js package-management tasks in this repository, includ
 
 ## CI routing
 
-GitHub Actions now has six distinct workflow classes:
+CI routing, required checks, and informational automated reviews are repository
+obligations; follow the branch and PR workflow below. For workflow classes,
+path routing, schedules, and review thresholds, read
+[`docs/agents/project-context.md`](docs/agents/project-context.md#ci-routing).
 
-- `.github/workflows/release.yml` for tag-driven release packaging only
-- `.github/workflows/pr-ci.yml` for pull-request validation on `main`
-- `.github/workflows/main-ci.yml` re-runs the full desktop and Rust test suites against `main` itself, unconditionally (no path filtering) — on every push to `main`, on a daily schedule, and via manual dispatch. It exists because `pr-ci.yml` only triggers on `pull_request` and never re-validates `main` after a merge, so a bad merge (including one that bypasses branch protection as an admin) can sit undetected until the next PR; the daily schedule additionally catches drift with no code change (flaky tests, dependency updates).
-- `.github/workflows/docs.yml` builds the VitePress docs site and deploys it to GitHub Pages on doc-path pushes to `main`
-- `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (subscription auth via `claude setup-token`; an `ANTHROPIC_API_KEY` swap is documented in the workflow header)
-- `.github/workflows/pr-review.yml` posts one automated first-pass review comment on opened, reopened, ready-for-review, or synchronized PRs that touch `apps/desktop/` or `crates/orkworksd/` **and whose cumulative non-docs delta since the last completed review exceeds the review gate's escalation threshold** (roughly more than 8 files or 500 changed lines), reusing the same `CLAUDE_CODE_OAUTH_TOKEN` secret. The cheap eligibility job runs on every update, but Claude is only invoked at a threshold crossing; a manual workflow dispatch with a PR number can intentionally force a relevant-code review below the threshold. Documentation-only changes never invoke Claude. It is informational only — excluded from required status checks, cannot block a merge, and does not replace the manual `/code-review` review gate below; it always says so in its own comment.
 
 GitHub's native Copilot code review is also enabled as a repository ruleset (Settings → Rules → Rulesets), scoped to PRs targeting `main` only — it is not a workflow file, so it has no corresponding entry under `.github/workflows/`. Like `pr-review.yml`, it is a second automated reviewer, not a required check, and does not replace the manual `/code-review` review gate below.
 
-PR CI is path-routed: desktop changes run desktop validation, Rust changes run a blocking `cargo fmt --check` gate plus Rust tests, and non-code PRs receive a lightweight passing no-op check. `pr-ci.yml` also runs a `doc-drift` job on every PR — the same drift checks as `scripts/doc-check.sh` (see "Doc currency check" below), run against the PR's diff and surfaced in the Actions run summary. It is intentionally excluded from required status checks and can never block a merge; it exists so the doc-drift nudge also reaches non-Claude-Code harnesses that don't trigger the Stop hook.
 
 ## Containerized dev environment (optional)
 
-A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo root) can build, type-check, lint, and test both `apps/desktop` and `crates/orkworksd` without a host Node/Rust/Electron install. It is an **alternative** to the native pnpm workflow in [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md), never a replacement — the native host workflow and the release pipeline (`.github/workflows/release.yml`) are unchanged. Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and the `packageManager` field so the container and host agree. GUI runs stay on the native flow (issue #80 Tier 2).
+The optional Podman/OCI toolchain is an alternative to the native pnpm workflow,
+never a replacement; GUI runs remain native. Use the documented named-volume
+setup rather than host bind mounts for platform-specific dependencies. For
+commands, provider setup, platform notes, and sidecar behavior, read
+[`docs/agents/project-context.md`](docs/agents/project-context.md#containerized-development-environment-optional).
 
-Substitute `docker compose` for `podman compose` if you use Docker.
 
-`podman compose` requires a compose provider (`podman-compose` or `docker-compose`) on the host; a bare Podman install does not include one. Without it, `podman compose` fails with `looking up compose provider failed` — install `podman-compose` (e.g. `brew install podman-compose`) or point Podman at `docker-compose`.
-
-```bash
-# Build the toolchain image
-podman compose build
-
-# Non-GUI tasks (each runs in a throwaway container)
-podman compose run --rm dev bash -lc "cd apps/desktop && pnpm install"
-podman compose run --rm dev bash -lc "cd apps/desktop && npx tsc --noEmit"
-podman compose run --rm dev bash -lc "cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs"
-podman compose run --rm dev cargo build  --manifest-path crates/orkworksd/Cargo.toml
-podman compose run --rm dev cargo clippy --manifest-path crates/orkworksd/Cargo.toml
-podman compose run --rm dev cargo test   --manifest-path crates/orkworksd/Cargo.toml
-```
-
-`apps/desktop/node_modules`, `crates/orkworksd/target`, and the Cargo registry live in **named volumes** — never bind-mounted from the host, since Electron and native deps are platform-specific and the caches must not corrupt each other. On Windows, Podman runs in a WSL2 VM (bind-mount perf penalty on NTFS paths; set `git config core.autocrlf input` so CRLF endings don't break in-container shell scripts).
-
-The Rust sidecar uses the target-specific `windows-sys` `Win32_Storage_FileSystem` feature only on Windows: `ReplaceFileW` replaces an expected existing configuration while preserving Windows replacement semantics, and `MoveFileExW` publishes an expected new file without replace-existing. These operations remain best-effort optimistic concurrency, not portable compare-and-swap. It adds no dependency to Unix builds.
 
 ## Issue board
 
