@@ -78,7 +78,6 @@ export function isWindowsInstallationRegistered(productName, execFileSync = defa
         "/f",
         productName,
         "/d",
-        "/e",
       ], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],

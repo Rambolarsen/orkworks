@@ -150,7 +150,6 @@ test("registry probe checks both per-user and per-machine uninstall data", () =>
       "/f",
       "OrkWorks",
       "/d",
-      "/e",
     ]);
     assert.deepEqual(calls[0].options, {
       encoding: "utf8",
@@ -159,6 +158,24 @@ test("registry probe checks both per-user and per-machine uninstall data", () =>
       windowsHide: true,
     });
   }
+});
+
+test("registry probe detects electron-builder's versioned uninstall display name", () => {
+  const calls = [];
+  const result = smokeTest.isWindowsInstallationRegistered("OrkWorks", (file, args) => {
+    calls.push({ file, args });
+    if (args.includes("/e")) {
+      const error = new Error("exact bare-name match not found");
+      error.status = 1;
+      throw error;
+    }
+    return "DisplayName    REG_SZ    OrkWorks 0.1.0";
+  });
+
+  assert.equal(result, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, "reg.exe");
+  assert.equal(calls[0].args.includes("/e"), false);
 });
 
 test("successful runs invoke silent install then silent uninstall", async () => {
