@@ -27,7 +27,7 @@ subsequent milestones are tracked as GitHub issues.
 
 Use **pnpm** for Node.js package-management tasks in this repository, including
 `apps/desktop/` and `docs/`; do not use npm or yarn. For desktop-specific
-commands and validation, read [`apps/desktop/AGENTS.md`](../../apps/desktop/AGENTS.md).
+commands and validation, read [`apps/desktop/AGENTS.md`](https://github.com/Rambolarsen/orkworks/blob/main/apps/desktop/AGENTS.md).
 
 ## CI routing
 
@@ -77,7 +77,7 @@ The root `Containerfile` and `compose.yaml` provide an optional Podman/OCI
 toolchain that can build, type-check, lint, and test both `apps/desktop` and
 `crates/orkworksd` without host Node, Rust, or Electron installations. It is
 an alternative to the native pnpm workflow described in
-[`apps/desktop/AGENTS.md`](../../apps/desktop/AGENTS.md), not a replacement;
+[`apps/desktop/AGENTS.md`](https://github.com/Rambolarsen/orkworks/blob/main/apps/desktop/AGENTS.md), not a replacement;
 the native host workflow and release pipeline remain unchanged. Toolchain
 versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and `packageManager`.
 GUI runs remain on the native flow (issue #80 Tier 2).
