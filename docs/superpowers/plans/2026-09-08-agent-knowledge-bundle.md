@@ -49,11 +49,11 @@ status: stable
 ---
 ```
 
-Move the detailed CI workflow descriptions and optional container commands from `AGENTS.md` here. Keep the package-manager rule concise and link to `apps/desktop/AGENTS.md` for desktop-specific commands.
+Create the detailed CI workflow descriptions and optional container commands here from the corresponding root-guide material. Root-guide de-duplication is intentionally owned by Task 2 because Task 1 must not edit the user-owned `AGENTS.md` change. Keep the package-manager rule concise and link to `apps/desktop/AGENTS.md` for desktop-specific commands.
 
-- [ ] **Step 3: Verify the index targets exist**
+- [ ] **Step 3: Verify the index targets and record forward references**
 
-Run `for path in docs/agents/*.md; do test -f "$path" || exit 1; done` and confirm every local link in the index points to one of those files or to the root `AGENTS.md`.
+Run `for path in docs/agents/*.md; do test -f "$path" || exit 1; done` and confirm all links to existing files resolve. The links to `product-boundaries.md` and `development-workflow.md` are intentional forward references to Task 2; Task 4 performs the final all-links check after those files exist. The bundle-wide frontmatter invariant is completed by Task 3, not by this intermediate task.
 
 - [ ] **Step 4: Commit the self-contained context bundle**
 
