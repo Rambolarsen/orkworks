@@ -1,3 +1,11 @@
+---
+type: Architecture Reference
+title: OrkWorks architecture
+description: Electron, Rust sidecar, runtime, API, and metadata-protocol architecture.
+tags: [architecture, electron, rust, sidecar, metadata, api]
+status: stable
+---
+
 # Architecture
 
 ```text
@@ -145,6 +153,27 @@ Every spawned PTY session receives `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` in 
 
 `electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists workspace-scoped state to `~/.orkworks/workspaces/<path-hash>/workspace.json`; Aider's versioned notification-command preference is separately stored at `integrations/aider.json`, so no repository Aider configuration is edited.
 
+## Metadata protocol
+
+- `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state. (design, not yet implemented — see issue #313) Gains a current-summary snapshot (`summary`, `summarySource`, `summaryConfidence`, `summaryObservedAt`, all four updated or cleared together — ADR 0042)
+- `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
+- `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — recent raw terminal replay, bounded on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until their next append
+- `~/.orkworks/workspaces/<hash>/events/<id>.terminal-size` — the PTY's `cols`x`rows`, used to render dead-session terminal replay at its recorded size instead of the current panel width. Written authoritatively at the moment a session reaches a terminal status (`killed`/`ended`/`error`), and best-effort on every live resize so a daemon restart mid-session still leaves a usable last-known size for orphan reconciliation (`metadata::reconcile_orphaned_session`), which has no in-memory runtime handle to read a size from and never reaches the terminal-status transition itself. Still absent for sessions that ended before this file existed and for sessions that never lived long enough to receive a resize before an untimely daemon restart — both cases fall back to fit-to-container replay, which can misrender recorded output that used absolute-column cursor addressing computed for a different width than the container happens to fit to.
+- `~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson` and `~/.orkworks/workspaces/<hash>/workflow-observations/sequence` — bounded (1,000 records/2 MiB per session), sequenced, immutable `WorkflowObservation` evidence recorded through one shared module (`workflow_observations.rs`) from the authenticated `POST /sessions/:id/workflow-observations` agent-report route (`http/workflow_observation_handlers.rs`); durable improvement evidence for Taskmaster, deliberately separate from the current-summary snapshot above (ADR 0042). The route authenticates with a per-session `ORKWORKS_REPORT_TOKEN` bearer capability, generated from OS randomness (`getrandom`) at session start/resume and never persisted, logged, or serialized; session creation/resume fails closed if OS randomness is unavailable rather than spawning with a weak or empty token. Peon-inferred recording and Taskmaster's `improve_workflow` correlation are implemented.
+- `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
+- `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
+- `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
+- `~/.orkworks/workspaces/<hash>/codex-hook-observation.json` — the last Codex hook fingerprint observed executing; Settings reports Codex activation only when it matches the currently installed hook definition
+- `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
+- `~/.orkworks/harnesses.json` — global harness definitions
+- `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular). The workspace-local harness hook configuration that invokes these reporters is gitignored and must not be committed.
+
+Metadata source priority is `user > agent > peon > backend_inference > process > unknown > debug`. Peon reads terminal output and writes inferred metadata; it never types into terminals. Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive, so losing a renderer terminal attachment alone must not end a session.
+
+`GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. The session detail panel renders these as "Task history," distinct from `label` (title), which is a stable, one-shot Peon-authored topic rather than turn-by-turn activity (ADR 0029).
+
+Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action. The passive `improve_workflow` recommendation needs no approval to display, but cannot focus a terminal, edit a file, or start a session. A user may dismiss it or explicitly accept it to send a generated fix prompt to their active session, scoped to the recommended target surface (ADR 0042, ADR 0048).
+
 ## Workflow observations and the current-summary snapshot (partially implemented)
 
 This section documents the authoritative target contract from
@@ -235,7 +264,7 @@ Single binary. Top-level modules:
 - `taskmaster/` — canonical passive recommendation contract, deterministic workflow-improvement evaluator, five-second generation-debounced refresh, and atomic recommendation persistence with dismissal watermarks and orphan/session cleanup.
 - `workspace_runtime.rs` — `iso_now`, `orkworks_global_dir` (workspace path hashing to global store location)
 
-For the current Rust domain model itself, see [domain-entities.md](./domain-entities.md).
+For the current Rust domain model itself, see [domain-entities.md](domain-entities.md).
 
 ## Dockview panel layout
 

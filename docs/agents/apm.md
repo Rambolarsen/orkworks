@@ -1,3 +1,11 @@
+---
+type: Agent Guide
+title: APM and agent plugins
+description: APM-managed agent dependencies, generated configuration, and repository skill operations.
+tags: [apm, agents, plugins, skills, configuration]
+status: stable
+---
+
 # APM and Agent Plugins
 
 Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo root. The root `apm.yml` defines targets (claude, codex, copilot, opencode) and dependencies. Running `apm install` from the repo root populates generated agent assets:

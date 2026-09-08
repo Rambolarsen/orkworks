@@ -1,3 +1,11 @@
+---
+type: Policy
+title: Subagent model policy
+description: Default delegated-work model tier and conditions for escalation.
+tags: [subagents, models, delegation, policy]
+status: stable
+---
+
 # Subagent Model Policy
 
 This project defaults to the Luna model tier for delegated implementation and

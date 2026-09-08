@@ -1,3 +1,11 @@
+---
+type: Troubleshooting Guide
+title: Peon timeout troubleshooting
+description: Safe diagnostics and recovery steps for Peon provider-inference timeouts.
+tags: [peon, troubleshooting, providers, diagnostics]
+status: stable
+---
+
 # Peon timeout troubleshooting
 
 Use this runbook when Peon reports that provider inference timed out or the
