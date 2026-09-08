@@ -304,6 +304,21 @@ bash scripts/doc-check.sh
 
 This checks git diff against known triggers and lists any doc files that likely need updating. The committed script is harness-neutral and is called directly by Claude Code and CI; other harness adapters may wrap it in their own local hook configuration. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`. The same script also runs non-blocking in CI as `pr-ci.yml`'s `doc-drift` job (see "CI routing" above) against the PR's diff, as a backstop for harnesses that don't trigger the Stop hook — that CI signal doesn't replace running it locally, since it only surfaces after a PR is opened.
 
+## Consolidated verification
+
+After implementation changes, run the repository's one-shot verification
+helper:
+
+```bash
+bash scripts/verify-repo.sh
+```
+
+It runs the required Rust, desktop, documentation, formatting, diff, and
+worktree checks in a fixed order and stops at the first failure. Use the
+individual commands from the scoped instructions when narrowing a failure;
+`bash scripts/verify-repo.sh --dry-run` only displays the sequence and is not
+verification.
+
 ## Worktree currency check
 
 Before ending any session, also run:
