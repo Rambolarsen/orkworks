@@ -104,6 +104,7 @@ Run `git diff --check`, then `git add AGENTS.md docs/agents/product-boundaries.m
 ### Task 3: Normalize existing agent concepts with OKF metadata
 
 **Files:** `docs/agents/apm.md`, `architecture.md`, `codex-api-troubleshooting.md`, `domain-entities.md`, `harness-instruction-coverage.md`, `harness-integration-contracts.md`, `peon-timeout-troubleshooting.md`, and `subagent-model-policy.md`.
+- Also modify: `AGENTS.md` for the metadata-protocol summary; preserve the existing unstaged `Assumption discipline` hunk and do not stage it.
 
 **Interfaces:**
 - Consumes: Existing specialized agent guidance and the bundle index.
@@ -125,9 +126,9 @@ Use relative Markdown links for links between `docs/agents/` concepts. Preserve 
 
 Run `for file in docs/agents/*.md; do sed -n '1,8p' "$file"; done`. Confirm every non-index concept begins with the required fields and the index begins with only the bundle-root `okf_version` metadata.
 
-- [ ] **Step 5: Commit normalized concepts**
+- [ ] **Step 5: Commit normalized concepts and the root metadata summary**
 
-Run `git add docs/agents && git commit -m "docs: add metadata to agent concepts"`.
+Stage the intended `AGENTS.md` metadata-summary edits and all changed `docs/agents/` concepts without staging the pre-existing `Assumption discipline` hunk. Verify the staged and unstaged diffs before committing, then run `git commit -m "docs: add metadata to agent concepts"`.
 
 ### Task 4: Validate the complete bundle and root guide
 
