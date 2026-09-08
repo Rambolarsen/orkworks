@@ -131,6 +131,10 @@ Each release build verifies the installer, packaged Rust sidecar, and hook
 scripts before uploading the top-level `OrkWorks-*` artifacts to the draft
 GitHub Release.
 
+The Windows release job also silently installs and uninstalls its NSIS artifact
+in a temporary directory, checking the installed executable, Rust sidecar, and
+harness hook scripts before the artifact can be uploaded.
+
 Normal pull requests use `.github/workflows/pr-ci.yml`. That workflow routes by changed surface:
 
 - `apps/desktop/**` runs desktop type-check, tests, and build

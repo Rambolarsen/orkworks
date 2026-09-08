@@ -16,13 +16,16 @@ OrkWorks needs installable artifacts for early testers on macOS and Windows. The
 - Version source of truth: `apps/desktop/package.json` `version` field
 - `cutting-release` repo skill for agent guidance
 - Manual version bump, manual tag push
+- Windows x64 NSIS install/uninstall smoke validation on the `windows-latest`
+  release runner after packaging.
 
 ### Non-goals
 
 - Code signing or notarization (alpha artifacts are unsigned; users bypass platform warnings)
 - Auto-update (no update server, no `electron-updater`)
 - Automated version bumping or changelog generation
-- Cross-platform testing in CI (artifacts are built but not tested)
+- Broad Windows-version, architecture, or locale compatibility testing.
+- GUI automation or first-launch runtime testing.
 - Production distribution, store publishing, or installer branding
 
 ## Architecture
@@ -107,7 +110,12 @@ Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Ea
 8. Verifies `process.arch` matches the matrix architecture before packaging.
 9. Runs `pnpm verify:release`, which fails unless the installer, unpacked app,
    Rust sidecar, and each packaged hook-script file all exist.
-10. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
+10. On the Windows runner, runs `pnpm smoke:windows-installer`, which silently
+    installs the generated NSIS artifact into a unique temporary directory,
+    verifies the installed executable, Rust sidecar, and hook scripts, then
+    uninstalls it and requires the directory to disappear within a bounded
+    timeout.
+11. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
 
 After all matrix jobs complete, a `publish` job downloads all artifacts and creates/updates a draft GitHub Release via `softprops/action-gh-release@v2`. Requires `permissions: { contents: write }` at the workflow level.
 
@@ -183,6 +191,7 @@ application available for inspection.
 | Tag push without version bump | CI guard (workflow step 2) compares `$GITHUB_REF_NAME` to `apps/desktop/package.json` and fails the job, so a stale tag never produces artifacts |
 | Parallel tag pushes | Each tag triggers a new workflow run; they don't conflict |
 | Missing `apps/desktop/build/` icons dir | electron-builder falls back to default Electron icons — acceptable for alpha; branded icons deferred |
+| Windows installer or uninstaller fails | The Windows build fails before artifact upload, with the failing executable or installed path in the log |
 
 ## Future Upgrades
 
