@@ -8,6 +8,10 @@ import { pathToFileURL } from "node:url";
 import { createReleaseArtifactExpectation } from "./verifyReleaseArtifact.mjs";
 
 const packageJsonPath = join(import.meta.dirname, "..", "package.json");
+const WINDOWS_UNINSTALL_REGISTRY_ROOTS = [
+  "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+];
 
 function readPackageJson() {
   return JSON.parse(readFileSync(packageJsonPath, "utf8"));
@@ -62,6 +66,36 @@ export function verifyInstalledWindowsApp(expectation, fsModule = fs) {
   }
 }
 
+export function isWindowsInstallationRegistered(productName, execFileSync = defaultExecFileSync) {
+  for (const registryRoot of WINDOWS_UNINSTALL_REGISTRY_ROOTS) {
+    try {
+      const output = execFileSync("reg.exe", [
+        "query",
+        registryRoot,
+        "/s",
+        "/v",
+        "DisplayName",
+        "/f",
+        productName,
+        "/d",
+        "/e",
+      ], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        shell: false,
+        windowsHide: true,
+      });
+      if (String(output).trim()) return true;
+    } catch (error) {
+      if (error?.status === 1) continue;
+      throw new Error(`Windows installer smoke test failed during registry probe: ${registryRoot}`, {
+        cause: error,
+      });
+    }
+  }
+  return false;
+}
+
 export async function waitForDirectoryRemoval(
   installDir,
   {
@@ -88,7 +122,11 @@ function createDefaultInstallDir(env = process.env) {
 
 function runInstallerProcess(execFileSync, executablePath, args, operation) {
   try {
-    execFileSync(executablePath, args, { stdio: "inherit" });
+    execFileSync(executablePath, args, {
+      stdio: "inherit",
+      shell: false,
+      windowsVerbatimArguments: true,
+    });
   } catch (error) {
     throw new Error(`Windows installer smoke test failed during ${operation}: ${executablePath}`, {
       cause: error,
@@ -107,6 +145,7 @@ export async function runWindowsInstallerSmokeTest(options = {}) {
     productName = packageJson.productName,
     fsModule = fs,
     execFileSync = defaultExecFileSync,
+    registryProbe,
     waitForDirectoryRemoval: waitForDirectoryRemovalFn = waitForDirectoryRemoval,
     waitOptions = {},
   } = options;
@@ -124,6 +163,13 @@ export async function runWindowsInstallerSmokeTest(options = {}) {
 
   if (fsModule.existsSync(installDir)) {
     throw new Error(`Windows installer smoke test failed: pre-existing installation directory: ${installDir}`);
+  }
+
+  const hasRegisteredInstallation = registryProbe
+    ? registryProbe(productName)
+    : isWindowsInstallationRegistered(productName, execFileSync);
+  if (hasRegisteredInstallation) {
+    throw new Error(`Windows installer smoke test failed: registered ${productName} installation exists`);
   }
 
   assertNonEmptyFile(fsModule, expectation.installerPath, "installer");

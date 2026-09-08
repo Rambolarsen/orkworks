@@ -114,7 +114,11 @@ Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Ea
     installs the generated NSIS artifact into a unique temporary directory,
     verifies the installed executable, Rust sidecar, and hook scripts, then
     uninstalls it and requires the directory to disappear within a bounded
-    timeout.
+    timeout. Before launching NSIS, the smoke test refuses to run if an
+    OrkWorks uninstall entry is registered in either the per-user or
+    per-machine Windows uninstall registry data. If post-install verification
+    fails, it does not invoke the uninstaller, leaving the installation
+    directory available for diagnosis.
 11. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
 
 After all matrix jobs complete, a `publish` job downloads all artifacts and creates/updates a draft GitHub Release via `softprops/action-gh-release@v2`. Requires `permissions: { contents: write }` at the workflow level.
@@ -191,6 +195,8 @@ application available for inspection.
 | Tag push without version bump | CI guard (workflow step 2) compares `$GITHUB_REF_NAME` to `apps/desktop/package.json` and fails the job, so a stale tag never produces artifacts |
 | Parallel tag pushes | Each tag triggers a new workflow run; they don't conflict |
 | Missing `apps/desktop/build/` icons dir | electron-builder falls back to default Electron icons — acceptable for alpha; branded icons deferred |
+| Existing OrkWorks uninstall entry | The Windows smoke test refuses to launch NSIS when an OrkWorks installation is registered in either per-user or per-machine uninstall registry data |
+| Post-install verification failure | The uninstaller is not invoked, and the installation directory remains available for diagnosis |
 | Windows installer or uninstaller fails | The Windows build fails before artifact upload, with the failing executable or installed path in the log |
 
 ## Future Upgrades

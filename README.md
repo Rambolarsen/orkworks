@@ -133,7 +133,10 @@ GitHub Release.
 
 The Windows release job also silently installs and uninstalls its NSIS artifact
 in a temporary directory, checking the installed executable, Rust sidecar, and
-harness hook scripts before the artifact can be uploaded.
+harness hook scripts before the artifact can be uploaded. The smoke test refuses
+to start when an OrkWorks uninstall entry is already registered in either the
+per-user or per-machine Windows uninstall registry data; if post-install
+verification fails, it leaves the installation directory in place for diagnosis.
 
 Normal pull requests use `.github/workflows/pr-ci.yml`. That workflow routes by changed surface:
 

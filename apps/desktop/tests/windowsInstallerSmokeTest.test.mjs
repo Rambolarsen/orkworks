@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 
+import * as smokeTest from "../scripts/windowsInstallerSmokeTest.mjs";
 import {
   createWindowsInstallerExpectation,
   runWindowsInstallerSmokeTest,
@@ -68,11 +69,96 @@ test("pre-existing installation directories are rejected without invoking NSIS",
       productName: "OrkWorks",
       fsModule,
       execFileSync: (file, args) => calls.push({ file, args }),
+      registryProbe: () => false,
       waitForDirectoryRemoval: async () => {},
     }),
     /pre-existing installation directory/,
   );
   assert.deepEqual(calls, []);
+});
+
+test("registered OrkWorks installations are rejected before invoking NSIS", async () => {
+  const calls = [];
+  let probeCalls = 0;
+  const expectation = createWindowsInstallerExpectation({
+    version: "0.1.0",
+    releaseDir: "C:\\release",
+    installDir: "C:\\temp\\orkworks-smoke",
+    productName: "OrkWorks",
+  });
+  const fsModule = {
+    existsSync: (path) => path === expectation.installerPath,
+    statSync: (path) => ({
+      isFile: () => path === expectation.installerPath,
+      isDirectory: () => false,
+      size: 1,
+    }),
+  };
+
+  await assert.rejects(
+    () => runWindowsInstallerSmokeTest({
+      platform: "win32",
+      arch: "x64",
+      version: "0.1.0",
+      releaseDir: "C:\\release",
+      installDir: expectation.installDir,
+      productName: "OrkWorks",
+      fsModule,
+      registryProbe: () => {
+        probeCalls += 1;
+        return true;
+      },
+      execFileSync: (file, args) => calls.push({ file, args }),
+    }),
+    /registered OrkWorks installation/,
+  );
+  assert.equal(probeCalls, 1);
+  assert.deepEqual(calls, []);
+});
+
+test("registry probe checks both per-user and per-machine uninstall data", () => {
+  for (const registeredRoot of [
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  ]) {
+    const calls = [];
+    assert.equal(typeof smokeTest.isWindowsInstallationRegistered, "function");
+    const result = smokeTest.isWindowsInstallationRegistered("OrkWorks", (file, args, options) => {
+      calls.push({ file, args, options });
+      if (args[1] === registeredRoot) {
+        return "DisplayName    REG_SZ    OrkWorks";
+      }
+      const error = new Error("registry value not found");
+      error.status = 1;
+      throw error;
+    });
+
+    assert.equal(result, true);
+    assert.equal(calls[0].file, "reg.exe");
+    assert.deepEqual(calls.map(({ args }) => args[1]), [
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+      ...(registeredRoot === "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+        ? [registeredRoot]
+        : []),
+    ]);
+    assert.deepEqual(calls[0].args, [
+      "query",
+      calls[0].args[1],
+      "/s",
+      "/v",
+      "DisplayName",
+      "/f",
+      "OrkWorks",
+      "/d",
+      "/e",
+    ]);
+    assert.deepEqual(calls[0].options, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: false,
+      windowsHide: true,
+    });
+  }
 });
 
 test("successful runs invoke silent install then silent uninstall", async () => {
@@ -81,7 +167,7 @@ test("successful runs invoke silent install then silent uninstall", async () => 
   const expectation = createWindowsInstallerExpectation({
     version: "0.1.0",
     releaseDir: "C:\\release",
-    installDir: "C:\\temp\\orkworks-smoke",
+    installDir: "C:\\temp\\OrkWorks Smoke",
     productName: "OrkWorks",
   });
   const fsModule = {
@@ -105,17 +191,117 @@ test("successful runs invoke silent install then silent uninstall", async () => 
     installDir: expectation.installDir,
     productName: "OrkWorks",
     fsModule,
-    execFileSync: (file, args) => {
-      calls.push({ file, args });
+    execFileSync: (file, args, options) => {
+      calls.push({ file, args, options });
       if (file === expectation.installerPath) installExists = true;
       if (file === expectation.uninstallerPath) installExists = false;
     },
+    registryProbe: () => false,
     waitForDirectoryRemoval: async () => {},
   });
 
   assert.deepEqual(calls, [
-    { file: expectation.installerPath, args: ["/S", `/D=${expectation.installDir}`] },
-    { file: expectation.uninstallerPath, args: ["/S"] },
+    {
+      file: expectation.installerPath,
+      args: ["/S", `/D=${expectation.installDir}`],
+      options: { stdio: "inherit", shell: false, windowsVerbatimArguments: true },
+    },
+    {
+      file: expectation.uninstallerPath,
+      args: ["/S"],
+      options: { stdio: "inherit", shell: false, windowsVerbatimArguments: true },
+    },
+  ]);
+});
+
+test("missing post-install resources leave the install directory for diagnosis", async () => {
+  const calls = [];
+  let installExists = false;
+  const expectation = createWindowsInstallerExpectation({
+    version: "0.1.0",
+    releaseDir: "C:\\release",
+    installDir: "C:\\temp\\orkworks-smoke",
+    productName: "OrkWorks",
+  });
+  const fsModule = {
+    existsSync: (path) => path === expectation.installDir && installExists,
+    statSync(path) {
+      if (path === expectation.installerPath || path === expectation.appPath) {
+        return { isFile: () => true, isDirectory: () => false, size: 1 };
+      }
+      throw new Error("ENOENT");
+    },
+  };
+
+  await assert.rejects(
+    () => runWindowsInstallerSmokeTest({
+      platform: "win32",
+      arch: "x64",
+      version: "0.1.0",
+      releaseDir: "C:\\release",
+      installDir: expectation.installDir,
+      productName: "OrkWorks",
+      fsModule,
+      registryProbe: () => false,
+      execFileSync: (file, args, options) => {
+        calls.push({ file, args, options });
+        installExists = true;
+      },
+    }),
+    /installed Rust sidecar missing/,
+  );
+  assert.equal(installExists, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, expectation.installerPath);
+});
+
+test("cleanup wait rejection propagates after the uninstaller runs", async () => {
+  const calls = [];
+  let installExists = false;
+  const cleanupError = new Error("cleanup wait failed");
+  const expectation = createWindowsInstallerExpectation({
+    version: "0.1.0",
+    releaseDir: "C:\\release",
+    installDir: "C:\\temp\\orkworks-smoke",
+    productName: "OrkWorks",
+  });
+  const fsModule = {
+    existsSync: (path) => path === expectation.installDir && installExists,
+    statSync(path) {
+      if (path === expectation.installerPath || path === expectation.appPath || path === expectation.uninstallerPath || path === expectation.sidecarPath || expectation.scriptPaths.includes(path)) {
+        return { isFile: () => true, isDirectory: () => false, size: 1 };
+      }
+      if (path === expectation.scriptsDir) {
+        return { isFile: () => false, isDirectory: () => true, size: 0 };
+      }
+      throw new Error("ENOENT");
+    },
+  };
+
+  await assert.rejects(
+    () => runWindowsInstallerSmokeTest({
+      platform: "win32",
+      arch: "x64",
+      version: "0.1.0",
+      releaseDir: "C:\\release",
+      installDir: expectation.installDir,
+      productName: "OrkWorks",
+      fsModule,
+      registryProbe: () => false,
+      execFileSync: (file, args, options) => {
+        calls.push({ file, args, options });
+        if (file === expectation.installerPath) installExists = true;
+        if (file === expectation.uninstallerPath) installExists = false;
+      },
+      waitForDirectoryRemoval: async () => {
+        throw cleanupError;
+      },
+    }),
+    (error) => error === cleanupError,
+  );
+  assert.deepEqual(calls.map(({ file }) => file), [
+    expectation.installerPath,
+    expectation.uninstallerPath,
   ]);
 });
 
