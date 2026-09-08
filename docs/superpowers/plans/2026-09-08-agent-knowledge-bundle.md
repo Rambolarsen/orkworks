@@ -148,7 +148,7 @@ Run `bash scripts/doc-check.sh`. Resolve every flagged documentation file before
 
 - [ ] **Step 3: Build the docs site**
 
-Run `pnpm --dir docs build`. Expected result: VitePress completes without dead-link errors.
+Run `pnpm --dir docs run docs:build`, the existing VitePress build script in `docs/package.json`. Expected result: VitePress completes without dead-link errors.
 
 - [ ] **Step 4: Review the final diff**
 
