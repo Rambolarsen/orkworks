@@ -25,6 +25,57 @@ test("recognizes relative and absolute supported plan paths", () => {
   );
 });
 
+test("recognizes shell-home absolute plan paths", () => {
+  assert.deepEqual(
+    terminalPlanPaths("Added ~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md"),
+    ["~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md"],
+  );
+  assert.deepEqual(
+    terminalPlanPaths("x~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md"),
+    [],
+  );
+  assert.deepEqual(
+    terminalPlanPaths("x/~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md"),
+    [],
+  );
+  assert.deepEqual(
+    terminalPlanPaths("x\\~\\workspace\\orkworks-windows-installer-smoke-test\\docs\\superpowers\\specs\\plan.md"),
+    [],
+  );
+});
+
+test("exposes shell-home plan paths as clickable links", async () => {
+  const terminal = new Terminal({ cols: 160, rows: 2 });
+  const expected = "~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md";
+  await new Promise<void>((resolve) => terminal.write("Added " + expected, resolve));
+  const activated: string[] = [];
+  const provider = createTerminalPlanLinkProvider(terminal, async (path) => { activated.push(path); });
+  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+
+  assert.equal(links?.length, 1);
+  assert.equal(links[0].text, expected);
+  links[0].activate();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(activated, [expected]);
+  terminal.dispose();
+});
+
+test("exposes Windows shell-home plan paths as clickable links", async () => {
+  const terminal = new Terminal({ cols: 160, rows: 2 });
+  const expected = "~\\workspace\\orkworks-windows-installer-smoke-test\\docs\\superpowers\\specs\\plan.md";
+  await new Promise<void>((resolve) => terminal.write("Added " + expected, resolve));
+  const activated: string[] = [];
+  const provider = createTerminalPlanLinkProvider(terminal, async (path) => { activated.push(path); });
+  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+
+  assert.equal(links?.length, 1);
+  assert.equal(links[0].text, expected);
+  links[0].activate();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(activated, [expected]);
+  terminal.dispose();
+});
+
 test("recognizes supported Windows paths and spaces", () => {
   assert.deepEqual(
     terminalPlanPaths("Wrote C:\\repo folder\\specs\\my plan.md and specs/a plan.md"),

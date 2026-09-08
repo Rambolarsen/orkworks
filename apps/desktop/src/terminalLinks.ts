@@ -9,7 +9,7 @@ export function terminalLinkHandler(openExternal: (url: string) => Promise<void>
   };
 }
 
-const PLAN_PATH = /(?:(?<![A-Za-z0-9_.-])\/(?:[^\r\n/]+\/)*(?:docs\/[ \t]*superpowers\/[ \t]*(?:plans|specs)|specs)\/[^\r\n]*?\.md|[A-Za-z]:\\(?:[^\r\n\\]+\\)*(?:docs\\[ \t]*superpowers\\[ \t]*(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?<![\\/])(?:docs\/[ \t]*superpowers\/[ \t]*(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?<![\\/])(?:docs\\[ \t]*superpowers\\[ \t]*(?:plans|specs)|specs)\\[^\r\n]*?\.md)\b/g;
+const PLAN_PATH = /(?:(?<![A-Za-z0-9_.~\/\\-])~\/(?:[^\r\n/]+\/)*(?:docs\/[ \t]*superpowers\/[ \t]*(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?<![A-Za-z0-9_.~\/\\-])~\\(?:[^\r\n\\]+\\)*(?:docs\\[ \t]*superpowers\\[ \t]*(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?<![A-Za-z0-9_.~-])\/(?:[^\r\n/]+\/)*(?:docs\/[ \t]*superpowers\/[ \t]*(?:plans|specs)|specs)\/[^\r\n]*?\.md|[A-Za-z]:\\(?:[^\r\n\\]+\\)*(?:docs\\[ \t]*superpowers\\[ \t]*(?:plans|specs)|specs)\\[^\r\n]*?\.md|(?<![\\/])(?:docs\/[ \t]*superpowers\/[ \t]*(?:plans|specs)|specs)\/[^\r\n]*?\.md|(?<![\\/])(?:docs\\[ \t]*superpowers\\[ \t]*(?:plans|specs)|specs)\\[^\r\n]*?\.md)\b/g;
 
 function normalizePlanPath(path: string): string {
   return path.replace(/\/[ \t]+/g, "/").replace(/\\[ \t]+/g, "\\");

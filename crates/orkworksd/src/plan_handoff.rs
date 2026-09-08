@@ -33,6 +33,15 @@ pub(crate) fn resolve_printed_plan_path(
     launch_root: &Path,
     printed_path: &str,
 ) -> Result<(PathBuf, String), String> {
+    let home_dir = dirs::home_dir();
+    resolve_printed_plan_path_with_home(launch_root, printed_path, home_dir.as_deref())
+}
+
+pub(crate) fn resolve_printed_plan_path_with_home(
+    launch_root: &Path,
+    printed_path: &str,
+    home_dir: Option<&Path>,
+) -> Result<(PathBuf, String), String> {
     if printed_path.chars().any(char::is_control) {
         return Err("plan path must not contain control characters".into());
     }
@@ -40,7 +49,14 @@ pub(crate) fn resolve_printed_plan_path(
     let launch_root = launch_root
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let candidate = if printed.is_absolute() {
+    let candidate = if let Some(home_relative) = printed_path
+        .strip_prefix("~/")
+        .or_else(|| printed_path.strip_prefix("~\\"))
+    {
+        home_dir
+            .ok_or("home directory is unavailable")?
+            .join(home_relative)
+    } else if printed.is_absolute() {
         printed.to_path_buf()
     } else {
         if printed.components().any(|component| {
@@ -88,9 +104,9 @@ pub(crate) fn resolve_printed_plan_path(
 /// Verbs that indicate a line is reporting a file the agent just wrote,
 /// rather than merely mentioning or quoting an existing path (e.g. a `grep`
 /// hit, an error message, or prose referencing someone else's plan).
-const WRITE_SIGNALS: [&str; 12] = [
+const WRITE_SIGNALS: [&str; 13] = [
     "wrote", "write", "writes", "writing", "written", "created", "create", "creates", "creating",
-    "saved", "save", "saves",
+    "added", "saved", "save", "saves",
 ];
 
 /// Maximum token index at which a write-signal verb counts as the
@@ -122,6 +138,32 @@ fn trim_plan_token(word: &str) -> &str {
             '`' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | '.' | ':'
         )
     })
+}
+
+fn is_supported_printed_plan_path(path: &str) -> bool {
+    if path.starts_with("docs/superpowers/plans/")
+        || path.starts_with("docs/superpowers/specs/")
+        || path.starts_with("specs/")
+    {
+        return true;
+    }
+
+    let Some(home_relative) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) else {
+        return false;
+    };
+
+    home_relative.contains("/docs/superpowers/plans/")
+        || home_relative.contains("/docs/superpowers/specs/")
+        || home_relative.starts_with("docs/superpowers/plans/")
+        || home_relative.starts_with("docs/superpowers/specs/")
+        || home_relative.contains("\\docs\\superpowers\\plans\\")
+        || home_relative.contains("\\docs\\superpowers\\specs\\")
+        || home_relative.starts_with("docs\\superpowers\\plans\\")
+        || home_relative.starts_with("docs\\superpowers\\specs\\")
+        || home_relative.contains("/specs/")
+        || home_relative.starts_with("specs/")
+        || home_relative.contains("\\specs\\")
+        || home_relative.starts_with("specs\\")
 }
 
 /// Returns the first Markdown path printed by an agent that sits under one
@@ -176,9 +218,7 @@ pub(crate) fn printed_plan_path(output: &str) -> Option<String> {
             }) {
                 return None;
             }
-            if !(path.starts_with("docs/superpowers/plans/")
-                || path.starts_with("docs/superpowers/specs/")
-                || path.starts_with("specs/"))
+            if !is_supported_printed_plan_path(path)
                 || !path.ends_with(".md")
                 || path.chars().any(char::is_control)
             {
@@ -357,6 +397,7 @@ mod tests {
     use super::{
         normalize_reported_plan_path, printed_plan_path, resolve_openable_plan,
         resolve_openable_plan_reference, resolve_printed_plan_path,
+        resolve_printed_plan_path_with_home,
     };
     use crate::metadata::{PlanReference, PlanSource};
     use std::fs;
@@ -481,6 +522,28 @@ mod tests {
     }
 
     #[test]
+    fn finds_a_printed_shell_home_plan_path() {
+        assert_eq!(
+            printed_plan_path(
+                "Added ~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md"
+            ),
+            Some(
+                "~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md"
+                    .into()
+            )
+        );
+        assert_eq!(
+            printed_plan_path(
+                r"Added ~\workspace\orkworks-windows-installer-smoke-test\docs\superpowers\specs\plan.md"
+            ),
+            Some(
+                r"~\workspace\orkworks-windows-installer-smoke-test\docs\superpowers\specs\plan.md"
+                    .into()
+            )
+        );
+    }
+
+    #[test]
     fn resolves_relative_terminal_link_against_launch_worktree() {
         let workspace = tempfile::tempdir().unwrap();
         git2::Repository::init(workspace.path()).unwrap();
@@ -553,6 +616,42 @@ mod tests {
             resolve_printed_plan_path(&main_dir, printed_path.to_str().unwrap()).unwrap();
         assert_eq!(root, linked_dir.canonicalize().unwrap());
         assert_eq!(relative, "docs/superpowers/specs/example.md");
+    }
+
+    #[test]
+    fn resolves_a_shell_home_terminal_link_in_a_real_sibling_linked_worktree() {
+        let base = tempfile::tempdir().unwrap();
+        let home_dir = base.path().join("home");
+        let main_dir = home_dir.join("workspace/orkworks");
+        let linked_dir = home_dir.join("workspace/orkworks-windows-installer-smoke-test");
+        fs::create_dir_all(&main_dir).unwrap();
+
+        run_git(&main_dir, &["init", "-q"]);
+        run_git(&main_dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(&main_dir, &["branch", "feature"]);
+        run_git(
+            &main_dir,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked_dir.to_str().unwrap(),
+                "feature",
+            ],
+        );
+
+        let plan_dir = linked_dir.join("docs/superpowers/specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("plan.md"), "# plan").unwrap();
+
+        let (root, relative) = resolve_printed_plan_path_with_home(
+            &main_dir,
+            "~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md",
+            Some(&home_dir),
+        )
+        .unwrap();
+        assert_eq!(root, linked_dir.canonicalize().unwrap());
+        assert_eq!(relative, "docs/superpowers/specs/plan.md");
     }
 
     #[test]
