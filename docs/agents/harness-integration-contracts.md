@@ -1,3 +1,11 @@
+---
+type: Integration Reference
+title: Harness integration contracts
+description: Evidence requirements and local signal contracts for coding-tool integrations.
+tags: [harnesses, integrations, hooks, signals, evidence]
+status: stable
+---
+
 # Harness integration contracts
 
 This evidence register is the implementation gate for compiled harness signal

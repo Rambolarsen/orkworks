@@ -1,3 +1,11 @@
+---
+type: Troubleshooting Guide
+title: Codex API troubleshooting
+description: Safe diagnostics and escalation steps for generic Codex API failures.
+tags: [codex, troubleshooting, diagnostics, api-failures]
+status: stable
+---
+
 # Codex API troubleshooting
 
 Use this runbook when Codex reports a generic API failure such as `Error in

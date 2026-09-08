@@ -14,52 +14,30 @@ Use **pnpm** for all Node.js package-management tasks in this repository, includ
 
 ## CI routing
 
-GitHub Actions now has six distinct workflow classes:
+CI routing, required checks, and informational automated reviews are repository
+obligations; follow the branch and PR workflow below. For workflow classes,
+path routing, schedules, and review thresholds, read
+[`docs/agents/project-context.md`](docs/agents/project-context.md#ci-routing).
 
-- `.github/workflows/release.yml` for tag-driven release packaging only
-- `.github/workflows/pr-ci.yml` for pull-request validation on `main`
-- `.github/workflows/main-ci.yml` re-runs the full desktop and Rust test suites against `main` itself, unconditionally (no path filtering) — on every push to `main`, on a daily schedule, and via manual dispatch. It exists because `pr-ci.yml` only triggers on `pull_request` and never re-validates `main` after a merge, so a bad merge (including one that bypasses branch protection as an admin) can sit undetected until the next PR; the daily schedule additionally catches drift with no code change (flaky tests, dependency updates).
-- `.github/workflows/docs.yml` builds the VitePress docs site and deploys it to GitHub Pages on doc-path pushes to `main`
-- `.github/workflows/quality-audit.yml` for the weekly scheduled quality audit — rotates through the audit skills in `skills/` (one per week, so each fires roughly monthly) and files scoped issues per those skills' guardrails; requires the `CLAUDE_CODE_OAUTH_TOKEN` repo secret (subscription auth via `claude setup-token`; an `ANTHROPIC_API_KEY` swap is documented in the workflow header)
-- `.github/workflows/pr-review.yml` posts one automated first-pass review comment on opened, reopened, ready-for-review, or synchronized PRs that touch `apps/desktop/` or `crates/orkworksd/` **and whose cumulative non-docs delta since the last completed review exceeds the review gate's escalation threshold** (roughly more than 8 files or 500 changed lines), reusing the same `CLAUDE_CODE_OAUTH_TOKEN` secret. The cheap eligibility job runs on every update, but Claude is only invoked at a threshold crossing; a manual workflow dispatch with a PR number can intentionally force a relevant-code review below the threshold. Documentation-only changes never invoke Claude. It is informational only — excluded from required status checks, cannot block a merge, and does not replace the manual `/code-review` review gate below; it always says so in its own comment.
 
 GitHub's native Copilot code review is also enabled as a repository ruleset (Settings → Rules → Rulesets), scoped to PRs targeting `main` only — it is not a workflow file, so it has no corresponding entry under `.github/workflows/`. Like `pr-review.yml`, it is a second automated reviewer, not a required check, and does not replace the manual `/code-review` review gate below.
 
-PR CI is path-routed: desktop changes run desktop validation, Rust changes run a blocking `cargo fmt --check` gate plus Rust tests, and non-code PRs receive a lightweight passing no-op check. `pr-ci.yml` also runs a `doc-drift` job on every PR — the same drift checks as `scripts/doc-check.sh` (see "Doc currency check" below), run against the PR's diff and surfaced in the Actions run summary. It is intentionally excluded from required status checks and can never block a merge; it exists so the doc-drift nudge also reaches non-Claude-Code harnesses that don't trigger the Stop hook.
 
 ## Containerized dev environment (optional)
 
-A Podman/OCI toolchain container (`Containerfile` + `compose.yaml` at the repo root) can build, type-check, lint, and test both `apps/desktop` and `crates/orkworksd` without a host Node/Rust/Electron install. It is an **alternative** to the native pnpm workflow in [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md), never a replacement — the native host workflow and the release pipeline (`.github/workflows/release.yml`) are unchanged. Toolchain versions are pinned in `rust-toolchain.toml`, `.nvmrc`, and the `packageManager` field so the container and host agree. GUI runs stay on the native flow (issue #80 Tier 2).
+The optional Podman/OCI toolchain is an alternative to the native pnpm workflow,
+never a replacement; GUI runs remain native. Use the documented named-volume
+setup rather than host bind mounts for platform-specific dependencies. For
+commands, provider setup, platform notes, and sidecar behavior, read
+[`docs/agents/project-context.md`](docs/agents/project-context.md#containerized-development-environment-optional).
 
-Substitute `docker compose` for `podman compose` if you use Docker.
 
-`podman compose` requires a compose provider (`podman-compose` or `docker-compose`) on the host; a bare Podman install does not include one. Without it, `podman compose` fails with `looking up compose provider failed` — install `podman-compose` (e.g. `brew install podman-compose`) or point Podman at `docker-compose`.
-
-```bash
-# Build the toolchain image
-podman compose build
-
-# Non-GUI tasks (each runs in a throwaway container)
-podman compose run --rm dev bash -lc "cd apps/desktop && pnpm install"
-podman compose run --rm dev bash -lc "cd apps/desktop && npx tsc --noEmit"
-podman compose run --rm dev bash -lc "cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs"
-podman compose run --rm dev cargo build  --manifest-path crates/orkworksd/Cargo.toml
-podman compose run --rm dev cargo clippy --manifest-path crates/orkworksd/Cargo.toml
-podman compose run --rm dev cargo test   --manifest-path crates/orkworksd/Cargo.toml
-```
-
-`apps/desktop/node_modules`, `crates/orkworksd/target`, and the Cargo registry live in **named volumes** — never bind-mounted from the host, since Electron and native deps are platform-specific and the caches must not corrupt each other. On Windows, Podman runs in a WSL2 VM (bind-mount perf penalty on NTFS paths; set `git config core.autocrlf input` so CRLF endings don't break in-container shell scripts).
-
-The Rust sidecar uses the target-specific `windows-sys` `Win32_Storage_FileSystem` feature only on Windows: `ReplaceFileW` replaces an expected existing configuration while preserving Windows replacement semantics, and `MoveFileExW` publishes an expected new file without replace-existing. These operations remain best-effort optimistic concurrency, not portable compare-and-swap. It adds no dependency to Unix builds.
 
 ## Issue board
 
 All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
-- **Prioritize GitHub Copilot harness work first.** OrkWorks is used daily against GitHub Copilot CLI as a harness; closing gaps in Copilot support (resume, model selection, capacity signals, native voice, session ID capture, attention/integration coverage, and related issues — see #323–#327) takes priority over stabilization and milestone work.
-- **Stabilization work is next.** Once no open Copilot-harness issue is actionable, prefer issues that restore or stabilize existing functionality before starting new milestone feature work. This includes user-visible bugs, regressions, failing tests, and correctness or data-integrity bugs.
-- **Use milestone order for remaining net-new work.** When no meaningful Copilot or stabilization work is open, pick from the lowest incomplete milestone and work forward in milestone order.
-- **Break ties by user impact.** If multiple issues within the same priority tier are plausible next steps, favor current usability and data correctness.
+- **Prioritize GitHub Copilot harness work first**, then stabilization work, then net-new work in lowest-incomplete-milestone order. Break ties by user impact.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
 - **Keep issues in sync** with the codebase — close when done, update when scope changes.
 - If the issue board is inaccessible, do not guess at priorities. Stop and inform the user that issue board access is required before picking or closing work.
@@ -79,6 +57,15 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 Read these before starting any implementation work.
 
 If any authoritative spec file is missing or unreadable, stop and notify the user before proceeding. Do not infer scope from context alone.
+
+## Documentation
+
+Durable project context is organized as an OKF v0.2-style knowledge bundle in
+[`docs/agents/index.md`](docs/agents/index.md). Read the index and the relevant
+concept before changing documentation, architecture, integrations, or other
+work whose context is not fully captured in this root guide. The root guide
+remains authoritative for repository-wide rules; the bundle provides focused
+reference detail and progressive disclosure.
 
 ## Assumption discipline
 
@@ -177,7 +164,7 @@ Because parallel agents each see only their own worktree, none of them individua
 
 ## Decision tracking
 
-Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file with context, decision, and consequences.
+Architecture decisions are captured as ADRs in `docs/adr/`. Each significant architectural, stack, protocol, or boundary decision gets a numbered markdown file. See the [development workflow reference](docs/agents/development-workflow.md) for lifecycle and curation detail.
 
 - **Template**: `docs/adr/template.md`
 - **Index**: `docs/adr/README.md`
@@ -186,8 +173,6 @@ Architecture decisions are captured as ADRs in `docs/adr/`. Each significant arc
 - **Supersede** old ADRs (don't delete) when a decision is reversed or replaced. In case (b), write the new ADR first, then update the old ADR status to `superseded` and reference the new ADR number.
 - **Keep the index updated** — add each new ADR to the `docs/adr/README.md` table.
 - **The `## Architecture` section's inline ADR bullets are curated, not comprehensive** — see the eligibility rule stated there. When you supersede an ADR that has an inline bullet, remove that bullet in the same change (the README table remains the historical record). When you add prose elsewhere (e.g. `docs/agents/architecture.md`) that covers an ADR already inlined here, collapse its bullet to a pointer in the same change.
-
-ADRs are complementary to specs: specs define what we're building; ADRs record why we chose to build it that way.
 
 ## Key naming
 
@@ -199,9 +184,12 @@ ADRs are complementary to specs: specs define what we're building; ADRs record w
 | Taskmaster | Workspace-level next-step coordinator |
 | `.orkworks/` | Global metadata directory under `~/.orkworks/` (workspaces/<hash>/, harnesses.json, hook-scripts/) |
 
-User-facing UI says `Coding tool` for CLI coding applications. Internal code and metadata continue to use `harness` for that integration abstraction. `Model provider` is reserved for inference services and local inference runtimes.
-
-Use normal engineering terminology for all other concepts. Peon and Taskmaster are the two intentional product-specific worker names; do not expand the fantasy naming further without an explicit spec update.
+Use `Coding tool` in UI, `harness` internally for that integration abstraction,
+and `Model provider` only for inference services and local inference runtimes.
+Use normal engineering terminology for all other concepts; Peon and Taskmaster
+are the only intentional product-specific worker names.
+See [product boundaries and terminology](docs/agents/product-boundaries.md) for
+the detailed naming rules.
 
 ## Architecture
 
@@ -218,6 +206,17 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - ADR 0052: one `orkworksd` process owns a workspace's metadata at a time through an OS advisory lease; workspace open/switch returns conflict before orphan reconciliation when another sidecar holds it.
 
 ## Metadata protocol
+
+The detailed paths, bounds, lifecycle, authentication, and ADR reference are in the [architecture concept](docs/agents/architecture.md#metadata-protocol).
+
+- Metadata is workspace-scoped under `~/.orkworks/workspaces/<hash>/`; global harness definitions and stable hook reporters live under `~/.orkworks/`.
+- Priority: user > agent > peon > backend_inference > process > unknown > debug.
+- Peon reads terminal output and writes inferred metadata; it never types into terminals.
+- Detached runtimes keep draining terminal output, persisting history, and feeding Peon while `orkworksd` remains alive; losing a renderer terminal attachment alone must not end a session.
+- Taskmaster proposes cross-session transitions, but v1 requires explicit user approval for every action. `improve_workflow` may display without approval, but cannot focus a terminal, edit a file, or start a session; a user may dismiss it or accept it to send a scoped fix prompt to their active session.
+The current metadata paths and behavior are also summarized below for quick
+operational reference; the architecture concept remains authoritative for the
+full protocol detail.
 
 - `~/.orkworks/workspaces/<hash>/sessions/<id>.json` — session state. (design, not yet implemented — see issue #313) Gains a current-summary snapshot (`summary`, `summarySource`, `summaryConfidence`, `summaryObservedAt`, all four updated or cleared together — ADR 0042)
 - `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
@@ -240,21 +239,21 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 
 ## Key conventions from specs
 
-- Do **not** expand fantasy naming beyond Peon and Taskmaster — use normal engineering terms everywhere else
 - MVP does not own Git workflow, worktree management, merging, or arbitrary task decomposition
 - Taskmaster may recommend session transitions but must not start sessions without explicit user approval in v1
 - If asked to implement something listed as a non-goal in the specs, decline and explain which non-goal applies. Do not implement it even partially.
 - Harness voice is pass-through only — OrkWorks never captures/proxies/stores audio for native voice
 - Store metadata source and confidence where possible
-- Capacity states: healthy, degraded, capped, unknown, disabled
-- Cost tiers: local, low, medium, high, premium
+- See [product boundaries and terminology](docs/agents/product-boundaries.md) for detailed scope, naming, and product conventions.
 
 ## Product design principles
 
-These are load-bearing UX decisions. Treat them as constraints on any feature, design, or plan that touches the desktop UI.
-
-- **Session = context. Switching sessions is the context-switch primitive.** The sessions list is the multi-view across N sessions; the active terminal is single by design. Do not propose, plan, or build multi-terminal, tiled, split, stacked, or picture-in-picture terminal views. Showing many terminals at once is context degradation, not visibility — it divides attention and consumes screen real estate without adding situational awareness. Situational awareness belongs in the sessions list (legibility, attention state, last activity, agent action summary) and the detail panel — not in parallel terminal rendering. The same logic extends to any other context-bearing surface added later (editors, agent transcripts): one active, switch deliberately. See [ADR 0013](docs/adr/0013-single-active-context-primitive.md) for context and consequences.
-- Fast context-switching (keyboard nav, MRU ordering, jump-to-session search) is the right axis to improve when situational awareness or task throughput is the goal. Parallel visibility is the wrong axis.
+These are load-bearing constraints on desktop UI work. A session is context;
+switching sessions is the context-switch primitive. Keep one active terminal and
+do not build multi-terminal, tiled, split, stacked, or picture-in-picture
+views. Improve situational awareness through fast context switching, not
+parallel visibility. See [ADR 0013](docs/adr/0013-single-active-context-primitive.md)
+and [product boundaries and terminology](docs/agents/product-boundaries.md).
 
 ## APM and agent plugins
 
@@ -302,7 +301,7 @@ Before ending any session, run:
 bash scripts/doc-check.sh
 ```
 
-This checks git diff against known triggers and lists any doc files that likely need updating. The committed script is harness-neutral and is called directly by Claude Code and CI; other harness adapters may wrap it in their own local hook configuration. Address all flagged files before closing. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`. The same script also runs non-blocking in CI as `pr-ci.yml`'s `doc-drift` job (see "CI routing" above) against the PR's diff, as a backstop for harnesses that don't trigger the Stop hook — that CI signal doesn't replace running it locally, since it only surfaces after a PR is opened.
+Address all flagged files before closing. See the [development workflow reference](docs/agents/development-workflow.md) for check behavior and CI/harness integration.
 
 ## Consolidated verification
 
@@ -327,10 +326,14 @@ Before ending any session, also run:
 bash .claude/hooks/worktree-check.sh
 ```
 
-This lists every worktree/branch in the repo (not just the one this session used) and flags branches that are already merged (worktree can be removed), or stale >7 days with no open PR (needs a rebase-and-progress or close decision per the stranded-branches rule above). It exists because with multiple agents working in parallel worktrees, no single session sees the whole fleet — this surfaces it every time any session ends. Only act on branches you own; for others, note the flag for the human or the branch's owner rather than touching their worktree. Claude Code runs this automatically via a Stop hook; all other agents must run it manually as part of `verification-before-completion`.
+Only act on branches you own. See the [development workflow reference](docs/agents/development-workflow.md) for fleet-wide check behavior and follow-up.
 
 ## Maintaining AGENTS.md and README.md
 
-Keep both files current as the project evolves. Update AGENTS.md and README.md whenever any of the following occur: a new runtime dependency is added or removed, a directory in the planned architecture changes, a new agent target is added to `apm.yml`, a convention or workflow listed in this file changes, or a new ADR is created. Treat stale docs as a bug — if you notice something out of date while working, fix it.
-
-Also keep `docs/agents/domain-entities.md` current whenever `SessionMetadata` fields, status/lifecycle vocabulary, or terminology boundaries change in `crates/orkworksd/src/metadata.rs` or in closely related session/API mapping code.
+Keep both files current as the project evolves. Update them when runtime
+dependencies, planned architecture directories, `apm.yml` agent targets,
+documented conventions or workflows, or ADRs change. Treat stale docs as a bug.
+Also keep `docs/agents/domain-entities.md` current when `SessionMetadata`,
+session/API vocabulary, or terminology boundaries change. See the
+[development workflow reference](docs/agents/development-workflow.md) for
+maintenance detail.

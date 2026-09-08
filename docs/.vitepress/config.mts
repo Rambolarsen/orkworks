@@ -104,6 +104,7 @@ export default defineConfig({
       {
         text: 'Agent docs',
         items: [
+          { text: 'Knowledge bundle', link: '/docs/agents/index' },
           { text: 'Architecture', link: '/docs/agents/architecture' },
           { text: 'Domain entities', link: '/docs/agents/domain-entities' },
           { text: 'APM', link: '/docs/agents/apm' },

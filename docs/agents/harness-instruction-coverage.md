@@ -1,3 +1,11 @@
+---
+type: Integration Reference
+title: Harness instruction coverage
+description: Configured instruction-delivery mechanisms and retained probe evidence for supported harnesses.
+tags: [harnesses, instructions, claude, codex, copilot, opencode]
+status: stable
+---
+
 # Harness Instruction Coverage
 
 Root `AGENTS.md` is the repository entry point and routing contract. The two

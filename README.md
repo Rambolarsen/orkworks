@@ -16,7 +16,7 @@ orkworks/
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
 │  ├─ adr/                # Architecture Decision Records
-│  └─ agents/             # Agent-facing docs (architecture, domain entities, APM)
+│  └─ agents/             # Agent-facing knowledge bundle and concepts
 ├─ skills/                # Repo-level agent skills
 └─ specs/                 # Authoritative product specs
 ```

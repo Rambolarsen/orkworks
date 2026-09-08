@@ -1,3 +1,11 @@
+---
+type: Domain Reference
+title: Session state model
+description: Persisted session metadata, runtime state, terminology, and workflow-observation domain concepts.
+tags: [domain-model, sessions, metadata, peon, taskmaster]
+status: stable
+---
+
 # Session State Model
 
 This document describes the current Rust session state model in `crates/orkworksd/src/`.
@@ -126,7 +134,7 @@ Observations are immutable while retained, workspace-scoped but
 session-segmented on disk, and never participate in the `SessionMetadata`
 source-priority overwrite rules above — an agent report and a Peon
 observation coexist rather than competing. See the "Workflow observations and the current-summary snapshot (design)"
-section of [`docs/agents/architecture.md`](./architecture.md) for storage
+section of [architecture.md](architecture.md) for storage
 paths, routes, and the recording module's interface.
 
 ## Related files
