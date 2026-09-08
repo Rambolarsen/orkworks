@@ -75,3 +75,13 @@ test("Linux release plan uses the Linux GNU target", () => {
     },
   ]);
 });
+
+test("release workflow smoke-tests Windows installers before upload", () => {
+  const workflow = readFileSync(resolve(import.meta.dirname, "../../../.github/workflows/release.yml"), "utf8");
+  const smokeIndex = workflow.indexOf("Smoke-test Windows installer");
+  const uploadIndex = workflow.indexOf("Upload artifacts");
+  assert.ok(smokeIndex >= 0);
+  assert.ok(smokeIndex < uploadIndex);
+  assert.match(workflow.slice(smokeIndex, uploadIndex), /if: matrix\.target == ['\"]win['\"]/);
+  assert.match(workflow.slice(smokeIndex, uploadIndex), /run: pnpm smoke:windows-installer/);
+});

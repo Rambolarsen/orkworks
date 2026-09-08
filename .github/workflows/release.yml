@@ -75,6 +75,13 @@ jobs:
         working-directory: apps/desktop
         run: pnpm verify:release
 
+      - name: Smoke-test Windows installer
+        if: matrix.target == 'win'
+        working-directory: apps/desktop
+        run: pnpm smoke:windows-installer
+        env:
+          ORKWORKS_INSTALLER_SMOKE_DIR: ${{ runner.temp }}\orkworks-installer-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
