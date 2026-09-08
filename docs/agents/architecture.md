@@ -37,18 +37,21 @@ process instead of leaving API callers waiting on a stale promise.
 
 Sidecar readiness is followed by a separate generation-owned restoration gate
 in `electron/backendRestoration.ts`. After the port is known, Electron main
-restores the remembered workspace, applies persisted retention settings, and
-pushes persisted provider settings. These operations share an abort signal. A
-restoration timeout or workspace-restoration failure rejects readiness and
-publishes an unavailable state; retention-setting and provider-setting failures
-are logged as best-effort application failures, and readiness proceeds. The
-workspace restoration and settings attempts complete before `get-backend-url`
-resolves or the renderer receives the `ready` lifecycle event. Initial startup
-uses the last existing workspace path when available, otherwise the
-development repository or the packaged home directory. A workspace switch
-persists the selected path before starting its replacement generation, and
-stale restoration work is aborted so an older workspace cannot become ready
-afterward.
+restores the remembered workspace as the critical prerequisite for readiness.
+Once that succeeds, `get-backend-url` resolves and the renderer receives the
+`ready` lifecycle event; the renderer can therefore adopt the restored
+workspace and recover its sessions even if a secondary settings replay is
+unavailable. Persisted retention and provider settings are then applied as
+abortable best-effort steps in the same generation. Provider replay shares the
+Electron settings mutation queue with user saves, so a slow startup catalog
+request cannot overwrite newer settings. Their failures are logged without
+invalidating workspace readiness, and replacement/disposal aborts any
+in-flight step. A restoration timeout or workspace-restoration failure still
+rejects readiness and publishes an unavailable state. Initial startup uses the
+last existing workspace path when available, otherwise the development
+repository or the packaged home directory. A workspace switch persists the
+selected path before starting its replacement generation, and stale restoration
+work is aborted so an older workspace cannot become ready afterward.
 
 Automatic recovery is bounded: one recovery sequence makes at most three
 sidecar launches in total (the initial launch plus two automatic retries), with
@@ -238,10 +241,10 @@ Single binary. Top-level modules:
   - `integration_handlers.rs` — generic harness integration install/status/uninstall (`GET/POST /workspace/integrations/:harness_id/{status,install,uninstall}`), reporter script path resolution
   - `provider_handlers.rs` — provider query handlers (`GET /providers`, `GET /providers/:id/models`, `POST /settings/providers`, `POST /settings/providers/ollama/verify`) plus the Peon verification/apply adapters (`POST /settings/peon/provider/verify`, `POST /settings/peon/test-and-apply`, `GET /settings/peon/applied`). Stale-generation rejections on the verify and test-and-apply routes include the sidecar's current `currentGeneration` in the response body so the desktop transaction can resync and retry instead of staying locked out.
   - `retention_handlers.rs` — retention config handler (`POST /settings/retention`)
-  - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types. `GET /sessions` is a thin blocking-task adapter over `session_projection.rs`. `POST /workspace` reconciles sessions orphaned by a previous daemon run via `metadata::reconcile_orphaned_session`: stale "running"/"creating" sessions are completed to `ended`, and sessions persisted mid-`ending` consume their `pendingTerminalStatus` as the final status so they cannot stay stuck in the ending phase
+  - `session_handlers.rs` — session/workspace HTTP handlers (`POST /workspace`, `GET/POST /sessions`, `DELETE /sessions/:id`, `POST /sessions/:id/resume`, `POST /sessions/:id/harness-session`, etc.) and associated request/response types. `GET /sessions` is a thin blocking-task adapter over `session_projection.rs`. `POST /workspace` acquires the workspace's OS advisory lease before migration or reconciliation; a second sidecar receives `409 Conflict` and cannot mark the owner's sessions orphaned. The owning sidecar reconciles sessions orphaned by a previous daemon run via `metadata::reconcile_orphaned_session`: stale "running"/"creating" sessions are completed to `ended`, and sessions persisted mid-`ending` consume their `pendingTerminalStatus` as the final status so they cannot stay stuck in the ending phase.
   - `workflow_observation_handlers.rs` — the thin, capability-authenticated `POST /sessions/:id/workflow-observations` adapter (ADR 0042): bearer-token auth, the route's own 30-attempts/60s pre-persistence rate limit, `Idempotency-Key` validation, and fixed request-vocabulary enforcement, before mapping onto `workflow_observations::record_observation`. Merged into the router as its own sub-`Router` so `DefaultBodyLimit::max(8 KiB)` scopes to this route only.
 - `taskmaster_handlers.rs` — recommendation list/detail/dismiss/accept/complete adapters. `accept` (ADR 0048) sends a generated fix prompt into a caller-specified, already-live session; it starts no session of its own. `complete` accepts only a capability-authenticated optional summary and derives the target session from `ORKWORKS_REPORT_TOKEN`, so agents cannot complete a recommendation on behalf of another session.
-- `session_application.rs` — typed application seam for workspace opening, session lifecycle commands, attention and plan selection, and delete/forget workflows. It coordinates the existing `AppState` and runtime/metadata modules without owning a second session map; `http/session_handlers.rs` remains responsible for request extraction, authorization, compatibility mapping, and serialization.
+- `session_application.rs` — typed application seam for workspace opening, session lifecycle commands, attention and plan selection, and delete/forget workflows. It coordinates the existing `AppState` and runtime/metadata modules without owning a second session map; workspace opening retains the `WorkspaceLease` in `WorkspaceState` for the lifetime of the owner; `http/session_handlers.rs` remains responsible for request extraction, authorization, compatibility mapping, and serialization.
 - `session_projection.rs` — stateful `GET /sessions` projection. It snapshots live and durable session state, performs capacity/provider write-back and cwd/Git/conflict enrichment, and serializes projection with workspace replacement under `AppState.projection_lock`; the lock order is projection lock, workspace or sessions lock, then provider-manager internal locks. It releases state locks before filesystem, process-cwd, or Git I/O. `session_view.rs` remains pure and reusable for field derivation.
 - `runtime/` — background-task and PTY submodules:
   - `observed_status.rs` — owns every write to `observed_status`/`attention` across the live session handle and persisted metadata: `apply_attention_signal` (external hook/debug reports) and `apply_process_transition` (the sidecar's own observations — committed input, idle timeout). See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md).

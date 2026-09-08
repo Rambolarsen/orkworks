@@ -24,6 +24,7 @@ hex = "0.4"
 getrandom = "0.3"
 libc = "0.2"
 sysinfo = "0.39"
+fs2 = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 # ReplaceFileW preserves Windows replacement semantics for existing targets;

@@ -2481,6 +2481,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -2642,6 +2643,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -2796,6 +2798,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -2966,6 +2969,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3182,6 +3186,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3308,6 +3313,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3555,6 +3561,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3734,6 +3741,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -3925,6 +3933,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -4098,6 +4107,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -4269,6 +4279,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -4445,6 +4456,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
@@ -4620,6 +4632,7 @@ mod tests {
                     orkworks.clone(),
                 )
                 .expect("open recommendation store"),
+                lease: None,
                 watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {

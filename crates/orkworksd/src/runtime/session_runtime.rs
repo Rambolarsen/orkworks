@@ -2106,6 +2106,7 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open recommendation store"),
+            lease: None,
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
 
@@ -2304,6 +2305,7 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open recommendation store"),
+            lease: None,
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -2388,6 +2390,7 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open recommendation store"),
+            lease: None,
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -2560,6 +2563,7 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open recommendation store"),
+            lease: None,
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
@@ -3434,6 +3438,7 @@ mod tests {
                 metadata_root.clone(),
             )
             .expect("open recommendation store"),
+            lease: None,
             watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         let replay_store = crate::metadata::MetadataStore::new(&metadata_root);

@@ -6,7 +6,7 @@ use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
 use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
-use crate::workspace_runtime::{iso_now, orkworks_global_dir};
+use crate::workspace_runtime::{iso_now, orkworks_global_dir, WorkspaceLease};
 use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
@@ -1680,6 +1680,26 @@ impl SessionApplication {
             }
         }
 
+        let existing_lease = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|workspace| workspace.path == path)
+            .and_then(|workspace| workspace.lease.clone());
+        let workspace_lease = match existing_lease {
+            Some(lease) => lease,
+            None => Arc::new(WorkspaceLease::acquire(&global_dir).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::WouldBlock {
+                    SessionError::Conflict
+                } else {
+                    tracing::error!(path = %path.display(), %error, "failed to acquire workspace sidecar lease");
+                    SessionError::Internal("failed to acquire workspace sidecar lease")
+                }
+            })?),
+        };
+
         let store = metadata::MetadataStore::new(&global_dir);
         migration::migrate_if_needed(&path, &global_dir);
         let harness_snapshot = self.state.harness_store.snapshot().map_err(|error| {
@@ -1757,6 +1777,7 @@ impl SessionApplication {
             metadata: store,
             workflow_observations,
             recommendation_store,
+            lease: Some(workspace_lease),
             watcher,
         });
         self.state.bump_harness_probe_generation();
@@ -4155,15 +4176,56 @@ mod tests {
 
     #[test]
     fn opening_a_workspace_returns_its_application_snapshot() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let application = SessionApplication::new(state);
+        let home = tempfile::tempdir().unwrap();
+        crate::test_support::with_fake_home(home.path(), || {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let application = SessionApplication::new(state);
 
-        let snapshot = application
-            .open_workspace(root.path().to_path_buf())
-            .unwrap();
+            let snapshot = application
+                .open_workspace(root.path().to_path_buf())
+                .unwrap();
 
-        assert_eq!(snapshot.path, root.path().to_string_lossy());
+            assert_eq!(snapshot.path, root.path().to_string_lossy());
+        });
+    }
+
+    #[test]
+    fn open_workspace_rejects_another_sidecar_before_orphan_reconciliation() {
+        let home = tempfile::tempdir().unwrap();
+        crate::test_support::with_fake_home(home.path(), || {
+            let root = tempfile::tempdir().unwrap();
+            let global_dir = crate::workspace_runtime::orkworks_global_dir(root.path()).unwrap();
+            let metadata = metadata::MetadataStore::new(&global_dir);
+            let mut session = crate::test_support::test_session_metadata(
+                "workspace-lease-session",
+                "Lease session",
+                &root.path().display().to_string(),
+                "running",
+                "before",
+                "before",
+            );
+            session.lifecycle_phase = "active".into();
+            session.lifecycle = "alive".into();
+            session.connectivity = "online".into();
+            session.terminal_outcome = None;
+            metadata.write_session(&session);
+            let _existing_lease =
+                crate::workspace_runtime::WorkspaceLease::acquire(&global_dir).unwrap();
+
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let result = SessionApplication::new(state).open_workspace(root.path().to_path_buf());
+
+            assert!(matches!(result, Err(SessionError::Conflict)));
+            assert_eq!(
+                metadata.read_session(&session.id).unwrap().status,
+                "running"
+            );
+            assert_eq!(
+                metadata.read_session(&session.id).unwrap().lifecycle,
+                "alive"
+            );
+        });
     }
 
     #[test]
