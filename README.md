@@ -16,6 +16,11 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Architecture
 
+The accepted [brain-informed Taskmaster design](specs/taskmaster-knowledge.md)
+adds independently updated reference knowledge, a separate analysis model, and
+user-controlled background discovery; implementation is tracked in
+[issue #503](https://github.com/Rambolarsen/orkworks/issues/503).
+
 ```text
 orkworks/
 ├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js desktop UI

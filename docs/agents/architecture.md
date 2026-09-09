@@ -86,6 +86,12 @@ when the normal renderer document is not.
 
 ## Packaging and release
 
+Taskmaster's independently updated reference knowledge and separate analysis
+model follow [ADR 0053](../adr/0053-taskmaster-knowledge-and-analysis.md) and the
+[knowledge specification](../../specs/taskmaster-knowledge.md). Electron main
+owns signature verification and bundle activation; the sidecar owns bounded
+analysis and evidence validation. Knowledge cannot change execution authority.
+
 Desktop packaging lives under `apps/desktop/`. `electron-builder.yml` defines the product metadata and `extraResources` layout, while `scripts/package-release.mjs` maps the current host platform/arch to the matching Rust target triple, stages the built `orkworksd` binary into `crates/orkworksd/target/release/`, and invokes `electron-builder` with the matching CLI arch flag. CI runs the same path from `.github/workflows/release.yml`, with separate macOS x64 and arm64 jobs so the packaged sidecar always matches the bundled Electron arch. In development, `pnpm dev` builds the debug sidecar before starting Electron, preventing the app from launching a stale Rust binary after sidecar changes.
 
 ## Preload bridge (security boundary)

@@ -60,3 +60,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0050](./0050-taskmaster-recommendation-aware-agent-handoff.md) | Taskmaster recommendation-aware agent handoff | accepted |
 | [0051](./0051-codex-deterministic-attention-hooks.md) | Codex deterministic attention hooks | accepted |
 | [0052](./0052-single-writer-workspace-lease.md) | Single-writer workspace lease for the sidecar | accepted |
+| [0053](./0053-taskmaster-knowledge-and-analysis.md) | Taskmaster knowledge distribution and independent analysis | accepted |

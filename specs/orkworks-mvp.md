@@ -547,6 +547,11 @@ Sessions should be prioritized:
 
 #### Recommendation Engine
 
+- optional brain-informed enrichment and background discovery, with independent
+  Taskmaster model selection, bounded read-only context, explicit context
+  settings, and independently updated reference knowledge as defined in
+  [Taskmaster knowledge](taskmaster-knowledge.md)
+
 - rule-based recommendation engine
 - uses:
   - task description
