@@ -128,6 +128,8 @@ Before OpenCode implementation work, verify that the skill tool lists Superpower
 
 `main` is the trunk, not the workspace. All changes — code and docs alike — land through branches and PRs.
 
+**Resolving a PR reference:** Never guess or assume the current branch's PR when the user names one without full detail. Resolve it to a concrete PR before acting; see [Resolving a PR reference](docs/agents/development-workflow.md#resolving-a-pr-reference).
+
 **`main` checkout ownership:** The local `main` branch may be checked out only in the primary checkout. Linked worktrees must be attached to an explicitly agent-owned or owner-authorized feature or fix branch; they must never check out `main` or remain detached. The primary checkout may temporarily use an agent-owned or owner-authorized branch under the rules below.
 
 When starting any task that will produce changes (code or docs), invoke the `starting-work` skill (in `skills/starting-work/`) before editing. It walks through the branch-vs-worktree decision, naming convention, and per-checkout setup that operationalize the rules in this section.

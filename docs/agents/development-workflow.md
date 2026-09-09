@@ -93,6 +93,22 @@ review questions whether the implementation matches an older decision:
    `bash scripts/doc-check.sh`. A review disagreement alone is not evidence
    that an ADR should be superseded; resolve it against the complete record.
 
+## Resolving a PR reference
+
+When the user refers to a PR without giving its full identifying detail (e.g.
+"the PR", "continue the PR", "PR #500" with no repo/URL), do not guess,
+assume the current branch's PR, or proceed without one. Resolve it to a
+concrete PR first:
+
+- Run `gh pr view --json number,url,headRefName,baseRefName,state` for the
+  current checkout's branch.
+- Run `gh pr view <number> --json ...` for a bare number.
+- Run `gh pr list --search "..."` when neither of the above pins it down.
+
+If the checkout, branch, and any number given still don't converge on exactly
+one PR, stop and ask the user for the PR number or URL rather than acting on
+an assumed target.
+
 ## Documentation and worktree maintenance
 
 Before ending a session, run:
