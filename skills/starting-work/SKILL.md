@@ -13,15 +13,22 @@ Use this skill at the start of any task that will produce changes (code or docs)
 
 ## Session scope and supported handoff
 
-One coding session owns one task from its prompt through verification. Do not
-launch another coding harness from an active session, and do not schedule a
-wakeup or `/loop` continuation to revive a completed task or babysit its PR.
-That nests session lifecycles and can duplicate work or leave cleanup running
-against stale state.
+One coding session owns one task from its prompt through its PR reaching a
+terminal state (merged or closed) — a task is not complete just because it
+opened a PR. A session may keep checking on its own PR (CI, comments,
+reviews) rather than handing off immediately once the PR is open.
 
-If a separate task or follow-up needs its own context, finish or pause the
-current task, report the handoff point, and stop and let the user start a
-separate session from the appropriate repository root or sibling worktree.
+Bound that self-babysitting so it never runs unattended waiting on human
+review: use `ScheduleWakeup` on a spaced cadence (20-30 minutes) up to a
+2-hour wall-clock budget measured from when the PR opened. If the PR has not
+reached a terminal state when that budget expires, stop, report the handoff
+point, and let the user start a fresh session to continue.
+
+Do not launch another coding harness from an active session. If a separate
+task or follow-up needs its own context — not just watching the PR this
+session opened, or the check-in budget above has expired — finish or pause
+the current task, report the handoff point, and stop and let the user start
+a separate session from the appropriate repository root or sibling worktree.
 For code changes that need parallel isolation, use the sibling-worktree path
 below and let the new session start there; never launch the second harness
 inside the current session. Use the repository's explicit `/code-review low`
