@@ -171,6 +171,7 @@ Architecture decisions are captured as ADRs in `docs/adr/`. Each significant arc
 - **Create an ADR** before writing any implementation code for a decision that shapes the architecture, stack, or protocol. If the decision only becomes clear during implementation, pause, write the ADR, and continue.
 - A decision is reversed or replaced when: (a) a new ADR explicitly contradicts a prior ADR, or (b) implementation diverges from what an existing ADR records.
 - **Supersede** old ADRs (don't delete) when a decision is reversed or replaced. In case (b), write the new ADR first, then update the old ADR status to `superseded` and reference the new ADR number.
+- Before changing an existing ADR, follow the [ADR change sequence](docs/agents/development-workflow.md#adr-change-sequence): amend it when the decision still stands and the change clarifies its consequences; supersede it only for a reversed decision or deliberate divergence.
 - **Keep the index updated** — add each new ADR to the `docs/adr/README.md` table.
 - **The `## Architecture` section's inline ADR bullets are curated, not comprehensive** — see the eligibility rule stated there. When you supersede an ADR that has an inline bullet, remove that bullet in the same change (the README table remains the historical record). When you add prose elsewhere (e.g. `docs/agents/architecture.md`) that covers an ADR already inlined here, collapse its bullet to a pointer in the same change.
 

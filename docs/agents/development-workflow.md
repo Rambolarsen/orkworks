@@ -67,6 +67,32 @@ independent prose summary elsewhere. Remove its inline bullet when it is
 superseded; when another document gains prose that covers it, collapse the
 bullet to a pointer. Specifications define what to build; ADRs record why.
 
+### ADR change sequence
+
+Use this sequence when a change touches an existing ADR, especially when a
+review questions whether the implementation matches an older decision:
+
+1. Compare the implementation with both the ADR's `Decision` and
+   `Consequences`. A consequence that deliberately qualifies the ordering is
+   part of the decision record; do not treat a terse ordering summary as the
+   whole contract.
+2. Choose the history operation:
+   - **Amend** the existing ADR in a dated `## Amendment` section when the
+     decision still stands and the change clarifies, operationalizes, or
+     records behavior already intended by its consequences. Keep the ADR's
+     status and number unchanged.
+   - **Supersede** only when the product decision is reversed or the intended
+     implementation deliberately diverges. Create the next numbered ADR,
+     link it from the old record, mark the old record `superseded`, and update
+     the index.
+3. Synchronize the documentation surfaces in the same change: update
+   `docs/adr/README.md` for every new ADR, remove or collapse an eligible
+   inline ADR bullet in `AGENTS.md`, and update the relevant concept document
+   when it carries the detailed prose.
+4. Verify the sequence before handoff with `git diff --check` and
+   `bash scripts/doc-check.sh`. A review disagreement alone is not evidence
+   that an ADR should be superseded; resolve it against the complete record.
+
 ## Documentation and worktree maintenance
 
 Before ending a session, run:
