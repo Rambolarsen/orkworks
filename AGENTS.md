@@ -128,7 +128,7 @@ Before OpenCode implementation work, verify that the skill tool lists Superpower
 
 `main` is the trunk, not the workspace. All changes — code and docs alike — land through branches and PRs.
 
-**Resolving a PR reference:** When the user refers to a PR without giving its full identifying detail (e.g. "the PR", "continue the PR", "PR #500" with no repo/URL), do not guess, assume the current branch's PR, or proceed without one. Resolve it to a concrete PR first: run `gh pr view --json number,url,headRefName,baseRefName,state` for the current checkout's branch, `gh pr view <number> --json ...` for a bare number, or `gh pr list --search "..."` when neither pins it down. If the checkout, branch, and any number given still don't converge on exactly one PR, stop and ask the user for the PR number or URL rather than acting on an assumed target.
+**Resolving a PR reference:** Never guess or assume the current branch's PR when the user names one without full detail. Resolve it to a concrete PR before acting; see [Resolving a PR reference](docs/agents/development-workflow.md#resolving-a-pr-reference).
 
 **`main` checkout ownership:** The local `main` branch may be checked out only in the primary checkout. Linked worktrees must be attached to an explicitly agent-owned or owner-authorized feature or fix branch; they must never check out `main` or remain detached. The primary checkout may temporarily use an agent-owned or owner-authorized branch under the rules below.
 
