@@ -2033,6 +2033,20 @@ html, body, #root {
   gap: var(--space-4);
 }
 
+/* Session/harness IDs are long enough to wrap their eyebrow label at 2-col
+   width — give them their own full-width row and set them in the mono
+   face, matching every other identifier in the panel (branch chip, Peon
+   diagnostics values). */
+.detail-fact--id {
+  grid-column: 1 / -1;
+}
+
+.detail-fact--id .session-detail-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
 .detail-fact-git {
   display: flex;
   align-items: center;
@@ -2192,7 +2206,7 @@ html, body, #root {
 .detail-task-history-recommendation {
   border: 0;
   padding: 0;
-  color: var(--accent-primary);
+  color: var(--accent);
   background: transparent;
   cursor: pointer;
   font: inherit;
@@ -2562,7 +2576,7 @@ html, body, #root {
 .recommendation-status-row { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-2); font-size: 0.75rem; }
 .recommendation-status { padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); background: var(--surface-3); color: var(--text-muted); text-transform: capitalize; }
 .recommendation-status--completed { color: var(--state-ok); }
-.recommendation-card--focused { border-color: var(--accent-primary); box-shadow: 0 0 0 1px var(--accent-primary); }
+.recommendation-card--focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .recommendation-updated { color: var(--text-muted); }
 .recommendation-target, .recommendation-impact, .recommendation-evidence-row span { font-size: var(--text-sm); color: var(--text-muted); }
 .recommendation-impact { padding: var(--space-1) var(--space-2); border-radius: var(--radius-pill); background: var(--state-warn-bg); }

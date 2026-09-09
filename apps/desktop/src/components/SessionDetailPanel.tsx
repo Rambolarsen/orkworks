@@ -277,10 +277,10 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
               <DetailField className="detail-fact" label="Lifecycle">
                 {lifecyclePhaseLabel(active.lifecyclePhase)}
               </DetailField>
-              <DetailField className="detail-fact" label="OrkWorks session ID">
+              <DetailField className="detail-fact detail-fact--id" label="OrkWorks session ID">
                 {active.id}
               </DetailField>
-              <DetailField className="detail-fact" label="Harness session ID">
+              <DetailField className="detail-fact detail-fact--id" label="Harness session ID">
                 {active.resume?.harnessSessionId ?? "Not captured"}
               </DetailField>
               {active.lifecycle === "alive" && (
