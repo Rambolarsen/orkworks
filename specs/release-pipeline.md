@@ -1,4 +1,140 @@
-# Release Pipeline — Alpha Distribution
+# Release Pipeline — Daily Builds and User-Controlled Updates
+
+## Approved scope extension — 2026-09-10
+
+This section defines the next release increment and supersedes conflicting
+alpha-only requirements below. The remainder records the existing baseline;
+daily builds, signing, and in-app updating are specified here, not yet implemented.
+
+### Purpose and distribution channels
+
+Everyday OrkWorks sessions should run an installed application whose frontend
+and bundled sidecar are independent of agent edits, branch switches, and builds
+in a development checkout. This removes a source of interference; it does not
+establish the cause of the reported blank windows or claim to fix all such bugs.
+
+Keep the existing manually tagged stable release path. Add a nightly channel
+for Apple Silicon macOS and Windows x64, using GitHub Releases as the artifact
+and update-metadata host. Linux and Intel macOS remain local-only packaging
+targets. A stable installation checks stable releases; a nightly installation
+checks nightlies. Channel switching and automatic downgrades are out of scope.
+The first migration from an unsigned development/alpha build is a manual install.
+
+### Daily workflow and version identity
+
+- Schedule a nightly run at 03:23 UTC, with manual dispatch for the same flow.
+  GitHub schedule timing is best effort, not a delivery-time guarantee.
+- Resolve one immutable `main` commit at the start and use it for every check,
+  platform build, and release record. Manual dispatch must also resolve `main`,
+  never publish arbitrary branch content.
+- Skip when that commit already has a successfully published nightly. A failed
+  attempt must remain retryable; publication, not tag existence, defines success.
+- Require the complete desktop and Rust validation used by main CI for that
+  exact commit, plus artifact verification and Windows installer smoke testing.
+  A green check for another commit or a docs-only no-op is insufficient.
+- Serialize nightly publication and recheck the last published source commit
+  before publishing, so concurrent schedule/dispatch runs cannot race.
+- Retain `package.json` as the stable base version. During CI only, derive a
+  SemVer nightly such as `0.1.0-nightly.20260910.123456789.1` from that base,
+  UTC date, GitHub run ID, and run attempt. Stage matching desktop and Rust
+  versions without committing version bumps back to `main`. Validate native
+  platform version fields as well as updater ordering; use separate numeric
+  platform build identifiers where the packager requires them.
+- Publish a unique, immutable tag and prerelease for each successful nightly,
+  with source SHA and build identity in its notes. Do not overwrite old assets,
+  move a rolling tag, mark a nightly as the stable latest release, or silently
+  prune previously published releases in this increment.
+- Stage both platforms and all channel-specific update metadata in a draft;
+  publish only after all required checks and assets succeed. A failed platform
+  must leave the preceding published update usable. Configure GitHub prerelease
+  discovery explicitly and test it against stable and nightly releases together.
+
+### Signing and update artifacts
+
+Use `electron-updater` with the existing `electron-builder` packaging and a
+fixed GitHub provider for `Rambolarsen/orkworks`. No separate update server is
+needed. Keep provider configuration and network/download operations in Electron
+main; the renderer cannot supply a feed URL, executable path, or release token.
+
+macOS builds require a Developer ID signature, notarization, and stapling of
+the distributed app/installer as applicable. Sign the bundled Rust executable
+and any other nested executable code. Publish both DMG (manual install) and ZIP
+(updater payload), with the generated channel metadata and checksums. Windows
+NSIS releases require Authenticode signing and verification against the expected
+publisher. Keep checksum and publisher/signature verification enabled.
+
+The owner provisions Apple Developer credentials and Windows signing credentials
+through protected GitHub Actions secrets/environments. The implementation must
+document exact secret names and setup without exposing values. Signing secrets
+are available only to trusted release jobs, never pull-request builds. Missing,
+expired, or invalid credentials fail the release before publication; no unsigned
+fallback is permitted for either update channel. Do not embed a GitHub token in
+the app. This design uses public release downloads; private distribution would
+require a separate authentication design.
+
+### In-app behavior and lifecycle
+
+Add an Updates section in Settings showing installed version, channel, check
+status, available version, release notes, and download progress. Provide a
+native menu `Check for updates` entry reaching the same flow. Packaged builds
+may check once after startup without interrupting work; explicit checks remain
+available. Development builds show updates as unavailable and never install.
+
+The flow is `Check for updates` → `Download` → `Restart and install`. Checking
+does not download; downloading does not restart or stop sessions. Disable
+automatic download and installation on ordinary quit. A downloaded update waits
+for an explicit install action; on a later launch, revalidate it against current
+release metadata before allowing installation. Duplicate clicks coalesce into
+one operation. Stale events cannot overwrite a newer check/download state.
+
+Before installing, main presents a native confirmation explaining that restarting
+OrkWorks stops its sidecar and interrupts live terminal sessions. Determine live
+session state from the current backend, not a stale renderer snapshot; if state
+is unavailable, state that sessions may be interrupted. Cancel leaves the app
+and sessions running. Confirm authorizes this one restart only. Reuse normal
+app/sidecar shutdown, await bounded shutdown completion before applying the
+update, and surface a shutdown failure without blindly replacing a running
+sidecar. Do not promise live PTY continuity or automatically resume harnesses.
+The new app restores workspace metadata through its existing startup path.
+
+Use a small main-owned updater service and narrow preload commands/events for
+check, download, installation request, and read-only status. Preserve the
+`electron/` versus `src/` boundary with independently defined IPC contract types.
+Offline checks, GitHub rate limits, no eligible releases, interrupted downloads,
+invalid metadata, signature/checksum failures, and install failures produce
+readable status and a retry path while the existing app remains usable. Never
+silently downgrade or replace user settings/metadata. Diagnostics must omit
+credentials and session content.
+
+### Delivery and verification
+
+Deliver this increment as separate tracked units:
+
+1. [Signing and notarization (#509)](https://github.com/Rambolarsen/orkworks/issues/509)
+   for the existing release artifacts, plus ZIP and
+   updater metadata preparation. Verify signed macOS and Windows artifacts in CI.
+2. [Daily workflow (#510)](https://github.com/Rambolarsen/orkworks/issues/510),
+   CI-only versions, channel publication, and unchanged-commit
+   skipping. Depends on signing; exercise success, partial failure, rerun,
+   concurrency, and stable/nightly isolation with fixtures and a manual run.
+3. [Main-owned updater and Settings/menu flow (#511)](https://github.com/Rambolarsen/orkworks/issues/511).
+   Depends on usable signed channel
+   artifacts. Test event ordering, disabled development mode, retry/error paths,
+   confirmation/cancellation, unavailable session state, and shutdown sequencing.
+   Verify an installed older signed build can download and install a newer one
+   on macOS and Windows, preserving settings and requiring explicit restart.
+
+Each unit updates operator/user documentation and records its actual validation.
+No release is declared update-ready based solely on source tests or successful
+packaging. Credentials and installed-app platform verification are external
+delivery prerequisites, not assumed available.
+
+### References
+
+- [electron-builder auto-update requirements](https://www.electron.build/v26/docs/features/auto-update/)
+- [Electron code signing](https://www.electronjs.org/docs/latest/tutorial/code-signing)
+
+## Existing alpha baseline (historical scope)
 
 Electron + Rust sidecar cross-platform release pipeline for internal/alpha testing.
 
