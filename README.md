@@ -111,6 +111,13 @@ apm install
 
 ## Build and release
 
+Daily signed builds and user-controlled in-app updates are planned in the
+[release specification](specs/release-pipeline.md#approved-scope-extension--2026-09-10).
+Implementation is tracked as [signing #509](https://github.com/Rambolarsen/orkworks/issues/509),
+[daily builds #510](https://github.com/Rambolarsen/orkworks/issues/510), and
+[in-app updates #511](https://github.com/Rambolarsen/orkworks/issues/511).
+The workflow below remains the currently implemented release path.
+
 ```bash
 # frontend + Electron build
 cd apps/desktop && pnpm build
