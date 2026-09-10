@@ -143,8 +143,12 @@ case "$marker" in
         status="working"
         codex_attention="yes"
         ;;
-      PermissionRequest|Stop)
+      PermissionRequest)
         status="waiting_for_input"
+        codex_attention="yes"
+        ;;
+      Stop)
+        status="idle"
         codex_attention="yes"
         ;;
       SessionStart)

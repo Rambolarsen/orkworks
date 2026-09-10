@@ -2351,7 +2351,8 @@ impl SessionApplication {
             .ok_or(SessionError::EmptyBadRequest)?;
         let expected_status = match event {
             "UserPromptSubmit" => "working",
-            "PermissionRequest" | "Stop" => "waiting_for_input",
+            "PermissionRequest" => "waiting_for_input",
+            "Stop" => "idle",
             "SessionStart" => return Err(SessionError::EmptyBadRequest),
             _ => return Err(SessionError::EmptyBadRequest),
         };

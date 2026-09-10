@@ -613,16 +613,18 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn report_harness_event_maps_codex_permission_and_stop_to_waiting_attention() {
-        for event in ["PermissionRequest", "Stop"] {
+    fn report_harness_event_maps_codex_permission_to_waiting_and_stop_to_idle() {
+        for (event, expected_status) in
+            [("PermissionRequest", "waiting_for_input"), ("Stop", "idle")]
+        {
             let trace = run_report_harness_event_sh_trace_with_args(
                 "orkworks:harness-integration:v2:codex",
                 &format!(r#"{{"session_id":"thr_123","hook_event_name":"{event}"}}"#),
                 &["--event", event, "--hook-fingerprint", "a1a1a1"],
             );
             assert!(
-                trace.contains(r#""status": "waiting_for_input""#),
-                "expected {event} to report waiting_for_input; trace:\n{trace}"
+                trace.contains(&format!(r#""status": "{expected_status}""#)),
+                "expected {event} to report {expected_status}; trace:\n{trace}"
             );
             assert!(
                 trace.contains(&format!(r#""event": "{event}""#)),

@@ -17,7 +17,7 @@ missing, untrusted, stale, or disabled for an individual session.
 Extend the owned Codex hook bundle to `SessionStart`, `UserPromptSubmit`,
 `PermissionRequest`, and `Stop`. `SessionStart` remains identity-only;
 `UserPromptSubmit` reports `working`; `PermissionRequest` and `Stop` report
-`waiting_for_input`. Every command carries one canonical bundle fingerprint,
+`waiting_for_input` and `idle`, respectively. Every command carries one canonical bundle fingerprint,
 and attention reports include the event, source, and fingerprint.
 
 The sidecar validates the provenance against the current installed bundle and

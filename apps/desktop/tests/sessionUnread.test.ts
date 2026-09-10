@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { EMPTY_UNREAD_STATE, clearUnread, trackUnread } from "../src/sessionUnread.ts";
+import {
+  EMPTY_UNREAD_STATE,
+  acknowledgeSession,
+  clearUnread,
+  trackUnread,
+} from "../src/sessionUnread.ts";
 import type { SessionInfo } from "../src/api.ts";
 
 function session(id: string, overrides: Partial<SessionInfo> = {}): SessionInfo {
@@ -82,6 +87,27 @@ test("selecting a session clears it even while its status keeps changing", () =>
   assert.equal(selected.unreadIds.has("a"), false);
 });
 
+test("acknowledging a needs-you session keeps it regular after selection moves away", () => {
+  const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
+  const needsYou = trackUnread(first, [session("a", { attention: "needs_you" })], null);
+  const acknowledged = acknowledgeSession(needsYou, "a");
+  const away = trackUnread(acknowledged, [session("a", { attention: "needs_you" })], null);
+
+  assert.equal(away.acknowledgedIds.has("a"), true);
+  assert.equal(away.unreadIds.has("a"), false);
+});
+
+test("a new working turn makes a previously acknowledged needs-you session loud again", () => {
+  const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
+  const needsYou = trackUnread(first, [session("a", { attention: "needs_you" })], null);
+  const acknowledged = acknowledgeSession(needsYou, "a");
+  const working = trackUnread(acknowledged, [session("a")], null);
+  const nextNeedsYou = trackUnread(working, [session("a", { attention: "needs_you" })], null);
+
+  assert.equal(nextNeedsYou.acknowledgedIds.has("a"), false);
+  assert.equal(nextNeedsYou.unreadIds.has("a"), true);
+});
+
 test("an unread latch survives an unexpected return to working while inactive", () => {
   const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
   const result = trackUnread(first, [session("a", { attention: "idle" })], null);
@@ -98,9 +124,11 @@ test("a session appearing mid-run starts read, not unread", () => {
 test("sessions that disappear are dropped from the state", () => {
   const first = trackUnread(EMPTY_UNREAD_STATE, [session("a")], null);
   const changed = trackUnread(first, [session("a", { attention: "idle" })], null);
-  const next = trackUnread(changed, [], null);
+  const acknowledged = acknowledgeSession(changed, "a");
+  const next = trackUnread(acknowledged, [], null);
   assert.equal(next.unreadIds.size, 0);
   assert.equal(next.signatures.size, 0);
+  assert.equal(next.acknowledgedIds.size, 0);
 });
 
 test("raw activity ticks without an attention change do not mark unread", () => {

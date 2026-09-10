@@ -104,7 +104,7 @@ if ($Marker -clike "*:claude-code") {
             $codexAttention = $true
         }
         "Stop" {
-            $Status = "waiting_for_input"
+            $Status = "idle"
             $codexAttention = $true
         }
     }
