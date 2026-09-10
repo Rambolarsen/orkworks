@@ -590,6 +590,17 @@ test("session list routes attention through the labels module instead of raw enu
   assert.doesNotMatch(source, /style=\{\{[^}]*#[0-9a-fA-F]{3,8}/);
 });
 
+test("acknowledged attention rows keep their status label without loud styling", () => {
+  const source = readFileSync(
+    new URL("../src/components/SessionListPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /const attention = isLoudTone\(tone\) && !remembered;/);
+  assert.match(source, /const loud = attention && !acknowledgedIds\.has\(s\.id\);/);
+  assert.match(source, /\{attention && \(\s*<span className="session-row-attention"/);
+});
+
 test("EmptyState is the single empty-state primitive across the app", () => {
   const list = readFileSync(new URL("../src/components/SessionListPanel.tsx", import.meta.url), "utf8");
   const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");

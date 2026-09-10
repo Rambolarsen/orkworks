@@ -25,6 +25,7 @@ interface SessionListPanelProps {
   sessions: SessionInfo[];
   activeSessionId: string | null;
   unreadIds: ReadonlySet<string>;
+  acknowledgedIds: ReadonlySet<string>;
   harnesses: HarnessConfig[];
   onSelectSession: (id: string) => void;
   onKillSession: (id: string) => void;
@@ -38,6 +39,7 @@ function SessionListPanel({
   sessions,
   activeSessionId,
   unreadIds,
+  acknowledgedIds,
   harnesses,
   onSelectSession,
   onKillSession,
@@ -138,7 +140,8 @@ function SessionListPanel({
                 // A dead session can carry a failed tone now (terminal
                 // outcome "error"), but remembered rows stay dimmed — the
                 // icon is the signal, never the loud treatment.
-                const loud = isLoudTone(tone) && !remembered;
+                const attention = isLoudTone(tone) && !remembered;
+                const loud = attention && !acknowledgedIds.has(s.id);
                 // Display name, never the raw harness id — ids leak into the
                 // icon tooltip/aria-label otherwise.
                 const tool = harnessDisplayName(harnesses, sessionCodingTool(s));
@@ -171,7 +174,7 @@ function SessionListPanel({
                       </div>
                     </div>
                     <div className="session-row-secondary">
-                      {loud && (
+                      {attention && (
                         <span className="session-row-attention" data-attention={tone}>
                           {attentionLabel(attn)}
                         </span>

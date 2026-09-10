@@ -127,7 +127,7 @@ Expected: FAIL because the scripts currently suppress every Codex attention repo
 
 - [ ] Step 3: Implement the POSIX reporter mapping.
 
-Parse --event while preserving existing non-Codex behavior. For the Codex marker, accept only the four generated event names. Set status=working for UserPromptSubmit, status=waiting_for_input for PermissionRequest and Stop, and skip attention for SessionStart. Include source, event, and hookFingerprint in Codex attention JSON; continue posting the native session-ID report with the same confidence. Invalid JSON, empty IDs, missing environment, and curl failures remain no-ops.
+Parse --event while preserving existing non-Codex behavior. For the Codex marker, accept only the four generated event names. Set status=working for UserPromptSubmit, status=waiting_for_input for PermissionRequest, status=idle for Stop, and skip attention for SessionStart. Include source, event, and hookFingerprint in Codex attention JSON; continue posting the native session-ID report with the same confidence. Invalid JSON, empty IDs, missing environment, and curl failures remain no-ops.
 
 - [ ] Step 4: Implement the equivalent PowerShell reporter mapping.
 
@@ -222,7 +222,7 @@ Add tests for these exact cases:
 
 1. A Codex UserPromptSubmit with the current fingerprint is accepted as working when the session starts with active_work_hook=false, and the live handle becomes authoritative.
 2. SessionStart with the same provenance captures identity but does not write attention or promote authority.
-3. PermissionRequest and Stop produce waiting_for_input.
+3. PermissionRequest produces waiting_for_input and Stop produces idle.
 4. A missing, unknown, mismatched, or malformed Codex event is rejected without metadata mutation.
 5. A stale Stop is ignored after a newer prompt timestamp.
 6. A generic non-Codex attention request remains accepted with its current behavior.
@@ -253,7 +253,7 @@ Implement one application helper that accepts Codex provenance only when the ses
 
 - [ ] Step 5: Implement atomic merge and promotion.
 
-Refactor the attention application seam so validation, stale ordering, metadata merge, and Codex promotion occur in one ordered session operation. Normalize Codex event statuses as follows: UserPromptSubmit to working, PermissionRequest and Stop to waiting_for_input, and SessionStart to identity-only. Set metadata source codex_hook and confidence 1.0 for accepted Codex attention. Set active_work_hook=true only after the event is accepted; never promote on an ignored or rejected event.
+Refactor the attention application seam so validation, stale ordering, metadata merge, and Codex promotion occur in one ordered session operation. Normalize Codex event statuses as follows: UserPromptSubmit to working, PermissionRequest to waiting_for_input, Stop to idle, and SessionStart to identity-only. Set metadata source codex_hook and confidence 1.0 for accepted Codex attention. Set active_work_hook=true only after the event is accepted; never promote on an ignored or rejected event.
 
 Preserve existing checks against accepted_input_at, last_hook_attention_at, terminal lifecycle, metadata priority, and pending work buffers. A newer user-authored state remains authoritative.
 

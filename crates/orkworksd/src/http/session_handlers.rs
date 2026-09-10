@@ -3418,7 +3418,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_permission_and_stop_hooks_report_waiting_for_input() {
+    async fn codex_permission_requests_wait_for_input_but_stop_returns_to_idle() {
         let dir = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let _fake_home = FakeHome::set(home.path());
@@ -3453,15 +3453,20 @@ mod tests {
         )
         .unwrap();
 
-        for (event, observed_at) in [
-            ("PermissionRequest", "2026-09-07T08:00:02.000000Z"),
-            ("Stop", "2026-09-07T08:00:03.000000Z"),
+        for (event, status, observed_at, expected_status) in [
+            (
+                "PermissionRequest",
+                "waiting_for_input",
+                "2026-09-07T08:00:02.000000Z",
+                "waiting_for_input",
+            ),
+            ("Stop", "idle", "2026-09-07T08:00:03.000000Z", "idle"),
         ] {
             let response = report_attention(
                 State(state.clone()),
                 Path(id.into()),
                 Json(AttentionReportRequest {
-                    status: "waiting_for_input".into(),
+                    status: status.into(),
                     message: None,
                     plan_path: Default::default(),
                     observed_at: Some(observed_at.into()),
@@ -3479,7 +3484,7 @@ mod tests {
                     .info
                     .observed_status
                     .as_deref(),
-                Some("waiting_for_input")
+                Some(expected_status)
             );
         }
         assert!(state.sessions.lock().unwrap()[id].active_work_hook);

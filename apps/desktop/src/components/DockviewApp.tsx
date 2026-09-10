@@ -27,6 +27,7 @@ interface DockviewAppData {
   activeSessionId: string | null;
   focusedRecommendationId: string | null;
   unreadIds: ReadonlySet<string>;
+  acknowledgedIds: ReadonlySet<string>;
   harnesses: HarnessConfig[];
   resumeTick: number;
   reviewTick: number;
@@ -58,6 +59,7 @@ function SessionsPanel() {
       sessions={ctx.sessions}
       activeSessionId={ctx.activeSessionId}
       unreadIds={ctx.unreadIds}
+      acknowledgedIds={ctx.acknowledgedIds}
       harnesses={ctx.harnesses}
       onSelectSession={ctx.onSelectSession}
       onKillSession={ctx.onKillSession}

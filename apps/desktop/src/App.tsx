@@ -6,7 +6,13 @@ import FixWithAiDialog from "./components/FixWithAiDialog";
 import SettingsModal from "./components/SettingsModal";
 import type { SettingsSection } from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
-import { EMPTY_UNREAD_STATE, clearUnread, trackUnread, type UnreadState } from "./sessionUnread";
+import {
+  EMPTY_UNREAD_STATE,
+  acknowledgeSession,
+  clearUnread,
+  trackUnread,
+  type UnreadState,
+} from "./sessionUnread";
 import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
 import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
@@ -300,7 +306,7 @@ function App() {
   }, [sessions, activeSessionId]);
 
   const handleSelectSession = useCallback((id: string) => {
-    setUnreadState((prev) => clearUnread(prev, id));
+    setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
     workspaceSessionController.selectSession(id);
     const api = dockviewApiRef.current;
     if (api) {
@@ -575,6 +581,7 @@ function App() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         unreadIds={unreadState.unreadIds}
+        acknowledgedIds={unreadState.acknowledgedIds}
         harnesses={harnesses}
         resumeTick={resumeTick}
         reviewTick={reviewTick}

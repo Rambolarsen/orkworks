@@ -30,7 +30,7 @@ hooks are active while preserving the observer-first fallback contract.
 - Capture `session_id` from every useful Codex event, retaining the existing
   `codex_hook` source and hook-fingerprint verification.
 - Map prompt submission to `working`, permission requests to
-  `waiting_for_input`, and completed turns to `waiting_for_input`.
+  `waiting_for_input`, and completed turns to `idle`.
 - Make `UserPromptSubmit` clear a previously stale or waiting attention state
   promptly.
 - Promote an individual live session to hook-authoritative scheduling only
@@ -71,7 +71,7 @@ The contract is intentionally limited to fields needed here:
 | `SessionStart` | string `session_id` | Report native session ID and hook fingerprint | No |
 | `UserPromptSubmit` | string `session_id`, event timestamp | Report native session ID; report `working`; clear prior attention | Yes |
 | `PermissionRequest` | string `session_id`, event timestamp | Report native session ID; report `waiting_for_input` | Yes |
-| `Stop` | string `session_id`, event timestamp | Report native session ID; report `waiting_for_input` | Yes |
+| `Stop` | string `session_id`, event timestamp | Report native session ID; report `idle` | Yes |
 
 Unknown event names, missing or non-string session IDs, malformed JSON, and
 invalid timestamps are successful no-ops at the reporter boundary and do not
@@ -119,7 +119,7 @@ argument. For the Codex marker they will use this mapping:
 | `SessionStart` | none | `session_id`, source `codex_hook`, matching fingerprint |
 | `UserPromptSubmit` | `status: "working"` | `session_id`, source, matching fingerprint |
 | `PermissionRequest` | `status: "waiting_for_input"` | `session_id`, source, matching fingerprint |
-| `Stop` | `status: "waiting_for_input"` | `session_id`, source, matching fingerprint |
+| `Stop` | `status: "idle"` | `session_id`, source, matching fingerprint |
 
 The reporter remains best-effort: missing OrkWorks environment variables,
 invalid JSON, an empty session ID, or an unavailable sidecar must not block or
@@ -178,8 +178,9 @@ After promotion:
 
 - hook `UserPromptSubmit` may write `working` and clears pending/idle
   attention;
-- hook `PermissionRequest` and `Stop` may write
-  `waiting_for_input`;
+- hook `PermissionRequest` may write `waiting_for_input`, while `Stop` writes
+  `idle` because it marks a completed turn rather than an explicit user
+  request;
 - Peon must not downgrade the session while deterministic hook authority is
   active; and
 - terminal input/output inference must not race a newer accepted hook event
@@ -254,8 +255,8 @@ Tests will be written before implementation changes and will cover:
    without static `active_work_hook`, then becomes hook-authoritative.
 6. A session with no accepted Codex event continues to accept the existing
    Peon/terminal fallback.
-7. `PermissionRequest` and `Stop` produce waiting state; `SessionStart` does
-   not.
+7. `PermissionRequest` produces waiting state, `Stop` produces idle state, and
+   `SessionStart` does not write attention.
 8. A stale `Stop` cannot overwrite a newer prompt submission, and a later
    prompt clears waiting/idle state.
 9. Unrelated non-Codex attention behavior and existing Codex session-ID
