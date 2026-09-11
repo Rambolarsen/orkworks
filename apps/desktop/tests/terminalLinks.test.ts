@@ -103,7 +103,7 @@ test("does not recognize plan-looking paths outside supported roots", () => {
   }
 });
 
-test("provides a single-row link for each xterm-wrapped buffer row", async () => {
+test("provides one link range across xterm-wrapped buffer rows", async () => {
   const terminal = new Terminal({ cols: 12, rows: 4 });
   await new Promise<void>((resolve) => terminal.write("specs/wrapped-plan.md", resolve));
   const provider = createTerminalPlanLinkProvider(terminal, async () => {});
@@ -111,12 +111,12 @@ test("provides a single-row link for each xterm-wrapped buffer row", async () =>
     provider.provideLinks(2, resolve);
   });
   assert.equal(links?.[0]?.text, "specs/wrapped-plan.md");
-  assert.equal(links?.[0]?.range.start.y, 2);
+  assert.equal(links?.[0]?.range.start.y, 1);
   assert.equal(links?.[0]?.range.end.y, 2);
   terminal.dispose();
 });
 
-test("exposes each wrapped absolute-path row as a clickable single-row range", async () => {
+test("exposes one stable range for each wrapped absolute-path row", async () => {
   const terminal = new Terminal({ cols: 80, rows: 8 });
   const expected = "/Users/froomiebot/workspace/orkworks-provider-model-selection/docs/superpowers/specs/2026-08-25-provider-model-selection-design.md";
   await new Promise<void>((resolve) => terminal.write(
@@ -125,18 +125,39 @@ test("exposes each wrapped absolute-path row as a clickable single-row range", a
   ));
   const activated: string[] = [];
   const provider = createTerminalPlanLinkProvider(terminal, async (path) => { activated.push(path); });
+  let range: { start: { x: number; y: number }; end: { x: number; y: number } } | undefined;
 
   for (const row of [1, 2, 3]) {
     const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
     assert.equal(links?.length, 1);
     assert.equal(links[0].text, expected);
-    assert.equal(links[0].range.start.y, row);
-    assert.equal(links[0].range.end.y, row);
+    if (range === undefined) range = links[0].range;
+    assert.deepEqual(links[0].range, range);
     links[0].activate();
   }
 
+  assert.notEqual(range?.start.y, range?.end.y);
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(activated, [expected, expected, expected]);
+  terminal.dispose();
+});
+
+test("keeps one logical link at a resized two-row width", async () => {
+  const terminal = new Terminal({ cols: 160, rows: 8 });
+  const expected = "/Users/froomiebot/workspace/orkworks/docs/superpowers/plans/2026-08-09-terminal-plan-links.md";
+  terminal.resize(80, 8);
+  await new Promise<void>((resolve) => terminal.write("Wrote " + expected, resolve));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+
+  for (const row of [1, 2]) {
+    const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
+    assert.equal(links?.length, 1);
+    assert.equal(links[0].text, expected);
+    assert.deepEqual(links[0].range, {
+      start: { x: 7, y: 1 },
+      end: { x: 20, y: 2 },
+    });
+  }
   terminal.dispose();
 });
 

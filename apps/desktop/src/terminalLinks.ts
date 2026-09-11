@@ -87,35 +87,37 @@ export function createTerminalPlanLinkProvider(
     provideLinks(y, callback) {
       const lines = logicalLine(terminal, y);
       const text = lines.map((part) => part.text).join("");
-      const links = [...text.matchAll(PLAN_PATH)].flatMap((match) => {
+      const linksForLine = [...text.matchAll(PLAN_PATH)].flatMap((match) => {
         const rawPath = match[0];
         const path = normalizePlanPath(rawPath);
         const startOffset = match.index ?? 0;
         const endOffset = startOffset + rawPath.length;
         let consumed = 0;
-        return lines.flatMap((part) => {
+        let start: { x: number; y: number } | undefined;
+        let end: { x: number; y: number } | undefined;
+        for (const part of lines) {
           const partStart = consumed;
           const partEnd = consumed + part.text.length;
           consumed = partEnd;
           const segmentStart = Math.max(startOffset, partStart);
           const segmentEnd = Math.min(endOffset, partEnd);
-          if (segmentStart >= segmentEnd) return [];
-          return [{
-            text: path,
-            range: {
-              start: { x: columnForTextOffset(part.line, segmentStart - partStart), y: part.y },
-              end: { x: columnForTextOffset(part.line, segmentEnd - partStart), y: part.y },
-            },
-            activate: () => {
-              void onPlanPath(path).catch((error) => {
-                console.error("[terminal] couldn't select plan", error);
-                pushToast("error", error instanceof Error ? error.message : "Couldn't open this plan.");
-              });
-            },
-          }];
-        });
-      }).filter((link) => link.range.start.y === y);
-      callback(links.length ? links : undefined);
+          if (segmentStart >= segmentEnd) continue;
+          start ??= { x: columnForTextOffset(part.line, segmentStart - partStart), y: part.y };
+          end = { x: columnForTextOffset(part.line, segmentEnd - partStart), y: part.y };
+        }
+        if (!start || !end || y < start.y || y > end.y) return [];
+        return [{
+          text: path,
+          range: { start, end },
+          activate: () => {
+            void onPlanPath(path).catch((error) => {
+              console.error("[terminal] couldn't select plan", error);
+              pushToast("error", error instanceof Error ? error.message : "Couldn't open this plan.");
+            });
+          },
+        }];
+      });
+      callback(linksForLine.length ? linksForLine : undefined);
     },
   };
 }
