@@ -150,7 +150,7 @@ test("keeps one logical link at a resized two-row width", async () => {
   const provider = createTerminalPlanLinkProvider(terminal, async () => {});
 
   for (const row of [1, 2]) {
-    const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
+    const links = await new Promise<ILink[] | undefined>((resolve) => provider.provideLinks(row, resolve));
     assert.equal(links?.length, 1);
     assert.equal(links[0].text, expected);
     assert.deepEqual(links[0].range, {
