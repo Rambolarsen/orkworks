@@ -77,6 +77,12 @@ Before acting, make every assumption that could change the scope, target, permis
 
 ## Docs site
 
+The public homepage prioritizes prospective users and onboarding. Keep its
+claims tied to implemented behavior, and distinguish source documentation
+from published installer capabilities. See [site maintenance](docs/agents/site-maintenance.md)
+for generated coding-tool/release facts, daily publishing, PR builds, and the
+weekly documentation-audit PR workflow.
+
 Repo markdown is rendered as a docs site at https://rambolarsen.github.io/orkworks/ (VitePress config in `docs/.vitepress/`, deployed by `.github/workflows/docs.yml`). The markdown files in the repo are the single source of truth — the site is a rendering layer only. User-facing documentation lives in `docs/user/`; agents read it like any other repo markdown. The build fails on dead links, so keep links valid when moving or renaming docs.
 
 ## Development workflow

@@ -1,5 +1,5 @@
 # Builds the VitePress docs site and deploys it to GitHub Pages.
-# Triggers only on doc paths — release.yml and pr-ci.yml are unaffected.
+# Refreshes public facts on release publication and daily, as well as source changes.
 name: Docs
 
 on:
@@ -9,6 +9,13 @@ on:
       - 'docs/**'
       - 'specs/**'
       - '.github/workflows/docs.yml'
+      - 'crates/orkworksd/resources/harnesses-v2.json'
+      - 'apps/desktop/package.json'
+      - '.nvmrc'
+  release:
+    types: [published, edited, deleted]
+  schedule:
+    - cron: '23 5 * * *'
   workflow_dispatch:
 
 permissions:
@@ -25,6 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main # release events must build the current site, not the tagged source
       - uses: pnpm/action-setup@v4
         with:
           version: 11.9.0
@@ -37,6 +46,8 @@ jobs:
         working-directory: docs
       - run: pnpm docs:build
         working-directory: docs
+        env:
+          DOCS_FETCH_RELEASES: '1'
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,5 +1,11 @@
 # OrkWorks
 
+**New here?** [Explore OrkWorks](https://rambolarsen.github.io/orkworks/) or
+[get started](https://rambolarsen.github.io/orkworks/docs/user/getting-started).
+The public site refreshes coding-tool and release facts automatically;
+[site maintenance](docs/agents/site-maintenance.md) describes publishing and
+reviewed documentation updates.
+
 Local-first mission control for AI coding sessions. Peons observe individual sessions; Taskmaster recommends what should happen next across harnesses, models, reviews, capacity, and Git context. OrkWorks observes and recommends before it controls — it does not replace Claude Code, Codex, OpenCode, Antigravity CLI, or Aider.
 
 **Documentation:** https://rambolarsen.github.io/orkworks/

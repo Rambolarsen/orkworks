@@ -31,7 +31,7 @@ commands and validation, read [`apps/desktop/AGENTS.md`](https://github.com/Ramb
 
 ## CI routing
 
-GitHub Actions has six distinct workflow classes:
+GitHub Actions has seven distinct workflow classes:
 
 - `.github/workflows/release.yml` handles tag-driven release packaging only.
 - `.github/workflows/pr-ci.yml` validates pull requests targeting `main`.
@@ -44,7 +44,11 @@ GitHub Actions has six distinct workflow classes:
   request; the daily schedule also catches drift such as flaky tests and
   dependency updates without a code change.
 - `.github/workflows/docs.yml` builds the VitePress documentation site and
-  deploys it to GitHub Pages when documentation paths change on `main`.
+  deploys it to GitHub Pages when documentation or generated-fact inputs change
+  on `main`, after public release changes, and daily to refresh release data.
+- `.github/workflows/docs-audit.yml` checks public guides weekly and proposes
+  bounded corrections through a draft PR. See [site maintenance](site-maintenance.md)
+  for credentials, permissions, and the review handoff.
 - `.github/workflows/quality-audit.yml` runs a weekly rotating quality audit
   from the skills in `skills/`, filing scoped issues under those skills'
   guardrails. It requires the `CLAUDE_CODE_OAUTH_TOKEN` repository secret;
@@ -67,7 +71,8 @@ check, and does not replace the manual `/code-review` gate.
 
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run
 a blocking `cargo fmt --check` gate plus Rust tests, and non-code pull
-requests receive a lightweight passing no-op check. `pr-ci.yml` also runs a
+requests receive a lightweight passing no-op code check. Every PR also builds
+the documentation site and tests generated-fact filtering. `pr-ci.yml` runs a
 `doc-drift` job on every pull request using the same checks as
 `scripts/doc-check.sh`; this job is informational and cannot block a merge.
 

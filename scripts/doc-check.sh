@@ -20,6 +20,12 @@ fi
 
 needs=()
 
+# Public adoption guides: changing user-facing behavior warrants a prose review.
+if echo "$CHANGED" | grep -qE '^apps/desktop/(src|electron)/|^crates/orkworksd/(src/|resources/harnesses-v2\.json)|^\.github/workflows/release\.yml|^apps/desktop/(package\.json|electron-builder\.yml)'; then
+  echo "$CHANGED" | grep -qE '^docs/user/|^docs/index\.md|^docs/\.vitepress/theme/' || \
+    needs+=("docs/user/ and docs/index.md  (user-facing behavior or release inputs changed; review claims and onboarding)")
+fi
+
 # docs/agents/architecture.md — new routes, Rust modules, IPC boundary, API client, or deps
 DIFF_TARGET="${RANGE:-HEAD}"
 NEW_RUST=$(git diff --name-status "$DIFF_TARGET" 2>/dev/null | grep -E '^A.*crates/orkworksd/src/' | wc -l)
