@@ -462,8 +462,11 @@ pub(crate) async fn report_harness_session(
                     | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
             )
         {
-            let _ = SessionApplication::new(observation_state)
-                .record_codex_hook_observation(&id, &fingerprint);
+            if let Err(error) = SessionApplication::new(observation_state)
+                .record_codex_hook_observation(&id, &fingerprint)
+            {
+                tracing::warn!(session_id = %id, error = ?error, "failed to record Codex hook observation");
+            }
         }
     }
 
@@ -641,6 +644,8 @@ mod tests {
     use super::*;
     use crate::runtime::terminal_runtime::set_session_status;
     use crate::test_support::*;
+    use std::io::Write;
+    use std::sync::Mutex;
 
     static PLAN_TOKEN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     static LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK: std::sync::LazyLock<
@@ -1399,6 +1404,81 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[derive(Clone, Default)]
+    struct LogCapture {
+        output: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for LogCapture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.output.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_logs_codex_observation_recording_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let mut session = test_session_metadata(
+            "known-non-codex",
+            "Known",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "claude".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+
+        let capture = LogCapture::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(capture.clone())
+            .finish();
+        let _default = tracing::subscriber::set_default(subscriber);
+
+        let response = report_harness_session(
+            State(state),
+            Path("known-non-codex".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-123".into(),
+                source: "codex_hook".into(),
+                confidence: 0.98,
+                hook_fingerprint: Some("a".repeat(64)),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let logs = String::from_utf8(capture.output.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("failed to record Codex hook observation"),
+            "{logs}"
+        );
+        assert!(logs.contains("session_id=known-non-codex"), "{logs}");
     }
 
     #[tokio::test]
