@@ -84,17 +84,7 @@ pub(crate) fn prepare(
             command.arg(expand(arg, model, effort, file_path)?);
         }
     }
-    // Freeze a filtered copy: late process-global environment additions cannot
-    // reintroduce action/report capabilities between preparation and spawn.
-    command.env_clear();
-    for (key, value) in std::env::vars_os() {
-        let normalized = key.to_string_lossy().to_ascii_uppercase();
-        if !normalized.starts_with("ORKWORKS_")
-            && !matches!(normalized.as_str(), "BASH_ENV" | "ENV")
-        {
-            command.env(key, value);
-        }
-    }
+    super::set_inference_environment(&mut command);
     Ok(PreparedCustomInference {
         command,
         stdin: if capability.input() == Input::Stdin {

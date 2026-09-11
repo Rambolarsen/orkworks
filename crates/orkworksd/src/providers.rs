@@ -703,6 +703,19 @@ pub(crate) mod custom_inference;
 mod inference;
 pub(crate) mod native_inference;
 
+/// Freeze login/configuration environment without sidecar or shell capabilities.
+fn set_inference_environment(command: &mut Command) {
+    command.env_clear();
+    for (key, value) in std::env::vars_os() {
+        let normalized = key.to_string_lossy().to_ascii_uppercase();
+        if !normalized.starts_with("ORKWORKS_")
+            && !matches!(normalized.as_str(), "BASH_ENV" | "ENV")
+        {
+            command.env(key, value);
+        }
+    }
+}
+
 trait ProviderRunner: Send + Sync {
     fn run_prepared(
         &self,

@@ -23,7 +23,7 @@ export default function InferenceTrustSettings() {
         const request = { harnessId: adapter.id, expectedRevision: adapter.revision };
         const accepted = approve ? await window.orkworks.approveInferenceAdapter(request)
           : (await window.orkworks.revokeInferenceAdapter(request), true);
-        if (current === revision.current) setMessage(approve ? (accepted ? "Executable approved. Custom execution remains inactive." : "Approval cancelled.") : "Executable approval revoked.");
+        if (current === revision.current) setMessage(approve ? (accepted ? "Executable approved for use by Taskmaster." : "Approval cancelled.") : "Executable approval revoked.");
       }
       const views = await window.orkworks.getInferenceTrust();
       if (current === revision.current) setAdapters(views);
@@ -33,13 +33,13 @@ export default function InferenceTrustSettings() {
   }
   return <section aria-labelledby="inference-trust-heading">
     <h4 id="inference-trust-heading">Custom inference executables</h4>
-    <p className="settings-section-copy">Defined through coding-tool JSON, independently of Peon. Approval is global and does not enable execution in this version.</p>
+    <p className="settings-section-copy">Defined through coding-tool JSON, independently of Peon. Approval is global. Approved executables may run when selected for Taskmaster with background analysis enabled, within configured context and evaluation limits.</p>
     <p className="settings-section-copy">An approved executable receives permitted context and existing CLI credential access. It may run hooks or plugins and is not sandboxed by OrkWorks. Review the native confirmation before granting trust.</p>
     {adapters.map((adapter) => {
       const actions = inferenceTrustActions(adapter, busy);
       return <fieldset key={adapter.id}>
         <legend>{adapter.name}</legend>
-        <p role="status">{adapter.state === "approved" ? "Approved — execution inactive" : adapter.state === "approval_required" ? "Approval required" : "Executable unavailable or coding tool retired"}</p>
+        <p role="status">{adapter.state === "approved" ? "Approved for Taskmaster" : adapter.state === "approval_required" ? "Approval required" : "Executable unavailable or coding tool retired"}</p>
         <dl className="recommendation-facts">
           <div><dt>Executable</dt><dd>{adapter.definition.command}</dd></div>
           <div><dt>Resolved path</dt><dd>{adapter.resolvedPath ?? "Unavailable"}</dd></div>

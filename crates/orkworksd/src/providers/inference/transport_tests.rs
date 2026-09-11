@@ -15,6 +15,7 @@ fn prepared_cli_preserves_login_environment_and_strips_report_capabilities() {
         let executable_path = directory.path().join(executable);
         fs::write(&executable_path, r#"#!/bin/sh
 if [ "$1" = '--version' ]; then
+  if [ "${ORKWORKS_LATE_CAPABILITY-unset}" != 'unset' ] || [ "${orkworks_mixed_capability-unset}" != 'unset' ]; then exit 32; fi
   printf '%s' "$INFERENCE_FIXTURE_VERSION"
   exit 0
 fi
@@ -29,6 +30,7 @@ if [ "$INFERENCE_FIXTURE_PROVIDER" = 'claude-code' ]; then
   done
 fi
 printf '%s\n' "$PWD" "$HOME" "$CODEX_HOME" "$CLAUDE_CONFIG_DIR" "${ORKWORKS_REPORT_TOKEN-unset}" "${ORKWORKS_OTHER_CAPABILITY-unset}" > "$INFERENCE_FIXTURE_RECORD"
+printf '%s\n' "${ORKWORKS_LATE_CAPABILITY-unset}" "${orkworks_mixed_capability-unset}" >> "$INFERENCE_FIXTURE_RECORD"
 printf '%s\n' "$@" > "$INFERENCE_FIXTURE_ARGS"
 /bin/cat > "$INFERENCE_FIXTURE_PROMPT"
 printf '%s' "$INFERENCE_FIXTURE_RESPONSE"
@@ -53,15 +55,16 @@ printf '%s' "$INFERENCE_FIXTURE_RESPONSE"
             .env("CLAUDE_CONFIG_DIR", &login)
             .env("ORKWORKS_REPORT_TOKEN", "fixture-not-a-real-token")
             .env("ORKWORKS_OTHER_CAPABILITY", "fixture-not-a-real-token")
+            .env("orkworks_mixed_capability", "fixture-not-a-real-token")
             .output().unwrap();
         assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         let record = fs::read_to_string(directory.path().join("record")).unwrap();
         let fields: Vec<_> = record.lines().collect();
-        assert_eq!(fields.len(), 6);
+        assert_eq!(fields.len(), 8);
         assert!(fields[0].contains("orkworks-inference-"));
         assert!(!Path::new(fields[0]).exists(), "private cwd must be removed after dispatch");
         for path in &fields[1..4] { assert_eq!(*path, login.to_str().unwrap()); }
-        assert_eq!(&fields[4..], &["unset", "unset"]);
+        assert_eq!(&fields[4..], &["unset", "unset", "unset", "unset"]);
         assert_eq!(fs::read_to_string(directory.path().join("prompt")).unwrap(), "bounded fixture context");
         let args = fs::read_to_string(directory.path().join("args")).unwrap();
         assert!(args.lines().any(|arg| arg == "--model=explicit-model"));
@@ -91,6 +94,30 @@ fn child_process_fixture() {
                 "bounded fixture context".into()
             )
             .unwrap(),
+        "fixture response"
+    );
+    // This isolated child owns environment changes. Probe and invocation must
+    // both keep the preparation-time filtered environment, including late keys.
+    let mut invocation = prepare(
+        &manager.definition(&id).unwrap(),
+        "explicit-model",
+        None,
+        "bounded fixture context".into(),
+    )
+    .unwrap();
+    std::env::set_var("ORKWORKS_LATE_CAPABILITY", "fixture-not-a-real-token");
+    invocation.check_version(&ProcessRunner, &id).unwrap();
+    let result = crate::providers::ProviderRunner::run_prepared(
+        &ProcessRunner,
+        &id,
+        &mut invocation.command,
+        &invocation.stdin,
+        5,
+        None,
+    );
+    assert!(result.success);
+    assert_eq!(
+        invocation.decode(&result.stdout).unwrap(),
         "fixture response"
     );
 }

@@ -31,7 +31,21 @@ test("approval uses fixed privileged endpoint and exact reviewed revision after 
   assert.match(detail, /credential/);
   assert.match(detail, /not sandboxed/);
   assert.match(detail, /hooks or plugins/);
+  assert.doesNotMatch(detail, /execution is not enabled|trust only/i);
+  assert.match(detail, /selected.*background analysis/i);
   assert.equal((await readInferenceTrust(context))[0].revision.generation, "9007199254740993");
+});
+test("approval transport rejects sidecar changes during fetch or body decoding", async () => {
+  for (const phase of ["fetch", "body"]) {
+    const { context } = fixture();
+    let current = true;
+    context.isCurrent = () => current;
+    context.fetcher = async () => {
+      if (phase === "fetch") current = false;
+      return { ok: true, json: async () => { current = false; return { adapters: [adapter] }; } } as Response;
+    };
+    await assert.rejects(readInferenceTrust(context), /changed/);
+  }
 });
 test("declining approval or changing sidecar during confirmation cannot post a grant", async () => {
   const declined = fixture(async () => false);

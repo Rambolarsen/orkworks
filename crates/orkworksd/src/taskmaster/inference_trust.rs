@@ -2,7 +2,7 @@
 mod identity;
 pub(crate) use identity::AdapterIdentity;
 
-use super::runtime::{persistence_file_lock, PersistenceGuard, PERSISTENCE_LOCK};
+use super::runtime::PersistenceGuard;
 use crate::harness::definition::parse_strict_json;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -118,10 +118,7 @@ impl InferenceTrustStore {
     }
 
     fn locked<T>(&self, operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-        let _process = PERSISTENCE_LOCK
-            .lock()
-            .map_err(|_| "inference trust lock unavailable")?;
-        let _file = persistence_file_lock(&self.root)?;
+        let _guard = PersistenceGuard::acquire(&self.root)?;
         operation()
     }
 
@@ -400,7 +397,7 @@ mod tests {
     fn cross_process_approval_waits_for_taskmaster_file_lock() {
         use std::time::{Duration, Instant};
         let dir = tempfile::tempdir().unwrap();
-        let lock = persistence_file_lock(dir.path()).unwrap();
+        let lock = super::super::runtime::persistence_file_lock(dir.path()).unwrap();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",

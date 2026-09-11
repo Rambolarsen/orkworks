@@ -5,29 +5,35 @@ import { build } from "esbuild";
 import * as React from "react";
 
 const require = createRequire(import.meta.url);
-const compiled = await build({
-  entryPoints: [new URL("../src/components/TaskmasterSettings.tsx", import.meta.url).pathname],
+const compile = (component) => build({
+  entryPoints: [new URL(`../src/components/${component}.tsx`, import.meta.url).pathname],
   bundle: true, write: false, platform: "node", format: "cjs", packages: "external",
   external: ["./InferenceTrustSettings"],
 });
+const compiled = await compile("TaskmasterSettings");
+const compiledTrust = await compile("InferenceTrustSettings");
 
 // Drive this component's state/effect boundary without replacing its render,
 // selection, save, or discovery logic. IPC is the external dependency.
-async function fixture(t, { state = "execution_inactive", missing = false, effort } = {}) {
+async function fixture(t, { state = "execution_inactive", missing = false, effort, trust = false } = {}) {
   const settings = { enabled: true, selection: { provider: "custom", model: " vendor/opaque model ", reasoningEffort: effort }, contextLevel: "workflow_context", excludedPaths: [], dailyEvaluationLimit: 8, minIntervalMinutes: 60, automaticKnowledgeUpdates: true, workspaceOverrides: {} };
   const status = { settings, effectiveSettings: settings, providers: missing ? [] : [{ id: "custom", label: "Custom", state, models: [], supportsReasoningEffort: false }], remainingEvaluations: 8, analysisStatus: state, knowledgeVersion: null, lastEvaluatedAt: null, lastError: null, workspacePath: null, knowledgeUpdate: { version: null, lastSuccessfulUpdate: null, lastError: null } };
   let discovery = 0;
   const saves = [];
+  let approved = false;
   const previousWindow = globalThis.window;
   globalThis.window = { orkworks: {
     getTaskmasterSettings: async () => structuredClone(status),
     getProviderModels: async () => { discovery++; return { models: ["discovered"] }; },
     saveTaskmasterSettings: async (value) => { saves.push(structuredClone(value)); return { ...structuredClone(status), settings: value, effectiveSettings: value }; },
+    getInferenceTrust: async () => [{ id: "custom", name: "Custom", state: approved ? "approved" : "approval_required", resolvedPath: "/tools/custom", revision: { documentRevision: "a".repeat(64), generation: "0", digest: "b".repeat(64) }, definition: { command: "custom", args: [], input: "stdin", timeoutSecs: 60 } }],
+    approveInferenceAdapter: async (request) => { saves.push(request); approved = true; return true; },
   } };
   t.after(() => { globalThis.window = previousWindow; });
   const values = [], dependencies = [], effects = [];
   let stateIndex = 0, effectIndex = 0;
   const hooks = { ...React,
+    useRef(initial) { return hooks.useState({ current: initial })[0]; },
     useState(initial) {
       const index = stateIndex++;
       if (!(index in values)) values[index] = initial;
@@ -40,7 +46,7 @@ async function fixture(t, { state = "execution_inactive", missing = false, effor
     },
   };
   const module = { exports: {} };
-  new Function("require", "module", "exports", compiled.outputFiles[0].text)(
+  new Function("require", "module", "exports", (trust ? compiledTrust : compiled).outputFiles[0].text)(
     (id) => id === "react" ? hooks : id === "./InferenceTrustSettings" ? { default: () => null } : require(id), module, module.exports,
   );
   const render = () => { stateIndex = 0; effectIndex = 0; return module.exports.default(); };
@@ -87,4 +93,17 @@ test("unsupported stored effort is rejected instead of silently dropped or saved
   await view.settle();
   assert.equal(view.saves.length, 0);
   assert.match(text(view.render()), /does not support reasoning effort/);
+});
+
+test("executable approval displays conditional execution eligibility, not inactive execution", async (t) => {
+  const view = await fixture(t, { trust: true });
+  assert.doesNotMatch(text(view.render()), /does not enable execution|execution inactive|remains inactive/i);
+  nodes(view.render()).find((node) => node.type === "button" && text(node) === "Review and approve executable").props.onClick();
+  await view.settle();
+  assert.equal(view.saves.length, 1);
+  assert.equal(view.saves[0].harnessId, "custom");
+  const rendered = text(view.render());
+  assert.match(rendered, /Approved/);
+  assert.match(rendered, /selected.*background analysis/i);
+  assert.doesNotMatch(rendered, /does not enable execution|execution inactive|remains inactive/i);
 });

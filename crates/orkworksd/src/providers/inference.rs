@@ -96,14 +96,7 @@ fn prepare_with_preferences(
         .map_err(|_| invalid("could not create private inference directory"))?;
     let mut command = Command::new(&definition.command);
     command.current_dir(directory.path());
-    // Keep HOME and provider authentication paths untouched. Do not give child
-    // inference access to the sidecar's reporting/action bearer capabilities.
-    for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("ORKWORKS_") {
-            command.env_remove(key);
-        }
-    }
-    command.env_remove("BASH_ENV").env_remove("ENV");
+    super::set_inference_environment(&mut command);
     match profile {
         Profile::Claude => {
             command.args([
@@ -316,6 +309,7 @@ impl PreparedInference {
     ) -> Result<(), ProviderOperationError> {
         let mut probe = Command::new(self.command.get_program());
         probe.arg("--version").current_dir(self._directory.path());
+        probe.env_clear();
         for (key, value) in self.command.get_envs() {
             if let Some(value) = value {
                 probe.env(key, value);
@@ -458,15 +452,21 @@ mod tests {
             assert!(args.contains(&"--model=chosen-model"));
             assert_eq!(invocation.stdin, "supplied context");
             assert!(invocation.command.get_current_dir().unwrap().is_dir());
-            for (key, _) in invocation.command.get_envs() {
-                assert!(![
+            for (key, value) in invocation.command.get_envs() {
+                if [
                     "HOME",
                     "CODEX_HOME",
                     "CLAUDE_CONFIG_DIR",
                     "ANTHROPIC_API_KEY",
-                    "OPENAI_API_KEY"
+                    "OPENAI_API_KEY",
                 ]
-                .contains(&key.to_str().unwrap()));
+                .contains(&key.to_str().unwrap())
+                {
+                    assert!(
+                        value == std::env::var_os(key).as_deref(),
+                        "login environment changed"
+                    );
+                }
             }
             if id == "claude-code" {
                 assert!(args.contains(&"--safe-mode"));

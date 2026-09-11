@@ -1,4 +1,5 @@
 /** Privileged custom-inference approval protocol. No renderer-provided URLs or authority. */
+import { taskmasterRequest } from "./taskmasterSettings.ts";
 export interface InferenceTrustRevision { documentRevision: string; generation: string; digest: string | null }
 export interface InferenceTrustRequest { harnessId: string; expectedRevision: InferenceTrustRevision }
 export interface InferenceAdapterView {
@@ -24,20 +25,9 @@ function requestValue(raw: unknown, approving: boolean): InferenceTrustRequest {
 }
 function current(context: TrustContext) {
   if (!context.isCurrent()) throw new Error("Sidecar changed. Refresh and review the adapter again.");
-  if (!Number.isInteger(context.port) || context.port < 1 || context.port > 65535 || !context.token) throw new Error("Inference approval backend unavailable");
 }
 async function transport(context: TrustContext, payload?: unknown): Promise<Record<string, unknown>> {
-  current(context);
-  const response = await (context.fetcher ?? fetch)(`http://127.0.0.1:${context.port}/settings/taskmaster/inference`, {
-    method: payload === undefined ? "GET" : "POST", headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": context.token },
-    body: payload === undefined ? undefined : JSON.stringify(payload), signal: AbortSignal.timeout(15_000),
-  });
-  current(context);
-  const result: unknown = await response.json();
-  current(context);
-  if (!response.ok) throw new Error(object(result) && typeof result.error === "string" ? result.error : "Inference approval request failed");
-  if (!object(result)) throw new Error("Invalid inference approval response");
-  return result;
+  return taskmasterRequest(context.port, context.token, "inference", payload, context.fetcher, () => current(context));
 }
 export async function readInferenceTrust(context: TrustContext): Promise<InferenceAdapterView[]> {
   const result = await transport(context);
@@ -67,7 +57,7 @@ export async function approveInferenceAdapter(raw: unknown, context: TrustContex
     `Input: ${def.input}; timeout: ${def.timeoutSecs} seconds`, "",
     "This executable receives permitted workspace context and access to your existing CLI credentials. It may run configured hooks or plugins. It is not sandboxed or certified safe by OrkWorks. Administrator policy remains authoritative.",
     "Approval includes updates to the installed executable at this path, its dependencies and configuration. Revocation prevents new calls and discards pending results; a running process may continue until exit or timeout, and side effects cannot be undone.",
-    "Custom execution is not enabled in this version. This records executable trust only.",
+    "When selected for Taskmaster with background analysis enabled, this adapter may execute within your configured context and evaluation limits.",
   ].join("\n");
   if (!await context.confirm(detail)) return false;
   current(context);

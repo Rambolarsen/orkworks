@@ -10,6 +10,9 @@ Codex 0.153.4 or later in the 0.x series, or Claude Code 2.1.236 or later in the
 unrecognized versions and failed checks do not run inference. Other providers
 are shown as unavailable; they never fall back to Peon's selection.
 CLI providers reuse existing logins; no separate API credentials are required.
+Native and custom inference use a preparation-time copy of the login/configuration
+environment with OrkWorks capability variables and shell startup variables
+removed. Native version checks use that same filtered copy.
 Custom executable wrappers and custom Codex user-configured backends are not
 supported by these profiles.
 

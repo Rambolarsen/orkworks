@@ -39,3 +39,25 @@ test("settings transport carries main-process authority only to the fixed loopba
 test("settings transport rejects sidecar errors without reporting a successful save", async () => {
   await assert.rejects(taskmasterRequest(4321, "test-authority", "settings", settings, async () => new Response(JSON.stringify({ error: "invalid limit" }), { status: 400 })), /invalid limit/);
 });
+test("privileged transport rejects non-object success responses", async () => {
+  for (const value of [null, [], "saved"]) {
+    await assert.rejects(taskmasterRequest(4321, "test-authority", "settings", undefined,
+      async () => new Response(JSON.stringify(value))), /Invalid.*response/);
+  }
+});
+test("privileged transport keeps per-resource byte limits and rejects invalid authority before fetch", async () => {
+  let calls = 0;
+  const fetcher = async () => { calls++; return new Response("{}"); };
+  for (const [resource, limit] of [["settings", 65536], ["knowledge", 2097152], ["inference", 8192]] as const) {
+    // JSON quotes consume two bytes; multibyte text must be counted as UTF-8.
+    await taskmasterRequest(4321, "token", resource, "x".repeat(limit - 2), fetcher);
+    const before = calls;
+    await assert.rejects(taskmasterRequest(4321, "token", resource, "é".repeat(limit / 2), fetcher), /too large/);
+    assert.equal(calls, before);
+  }
+  const before = calls;
+  for (const [port, token] of [[0, "token"], [65536, "token"], [4321, ""]] as const) {
+    await assert.rejects(taskmasterRequest(port, token, "settings", undefined, fetcher), /unavailable/);
+  }
+  assert.equal(calls, before);
+});
