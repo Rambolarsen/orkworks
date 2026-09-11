@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import xterm from "@xterm/xterm";
+import xterm, { type ILink } from "@xterm/xterm";
 import { dismissToast, subscribeToasts } from "../src/feedback.ts";
 import { createTerminalPlanLinkProvider, terminalLinkHandler, terminalPlanPaths } from "../src/terminalLinks.ts";
 
@@ -107,7 +107,7 @@ test("provides one link range across xterm-wrapped buffer rows", async () => {
   const terminal = new Terminal({ cols: 12, rows: 4 });
   await new Promise<void>((resolve) => terminal.write("specs/wrapped-plan.md", resolve));
   const provider = createTerminalPlanLinkProvider(terminal, async () => {});
-  const links = await new Promise<any>((resolve) => {
+  const links = await new Promise<ILink[] | undefined>((resolve) => {
     provider.provideLinks(2, resolve);
   });
   assert.equal(links?.[0]?.text, "specs/wrapped-plan.md");
@@ -128,7 +128,7 @@ test("exposes one stable range for each wrapped absolute-path row", async () => 
   let range: { start: { x: number; y: number }; end: { x: number; y: number } } | undefined;
 
   for (const row of [1, 2, 3]) {
-    const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
+    const links = await new Promise<ILink[] | undefined>((resolve) => provider.provideLinks(row, resolve));
     assert.equal(links?.length, 1);
     assert.equal(links[0].text, expected);
     if (range === undefined) range = links[0].range;
@@ -155,7 +155,24 @@ test("keeps one logical link at a resized two-row width", async () => {
     assert.equal(links[0].text, expected);
     assert.deepEqual(links[0].range, {
       start: { x: 7, y: 1 },
-      end: { x: 20, y: 2 },
+      end: { x: 19, y: 2 },
+    });
+  }
+  terminal.dispose();
+});
+
+test("ends a wrapped plan link at the final path cell", async () => {
+  const terminal = new Terminal({ cols: 10, rows: 4 });
+  const expected = "specs/abcdefghi.md";
+  await new Promise<void>((resolve) => terminal.write("x " + expected + "\nnext", resolve));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+
+  for (const row of [1, 2]) {
+    const links = await new Promise<ILink[] | undefined>((resolve) => provider.provideLinks(row, resolve));
+    assert.equal(links?.length, 1);
+    assert.deepEqual(links[0].range, {
+      start: { x: 3, y: 1 },
+      end: { x: 10, y: 2 },
     });
   }
   terminal.dispose();
