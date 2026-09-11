@@ -25,6 +25,7 @@ pnpm-debug.log*
 
 # Electron
 out/
+apps/desktop/release/
 
 # Superpowers (brainstorming artifacts)
 .superpowers/

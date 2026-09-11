@@ -6,6 +6,10 @@ directories:
 files:
   - dist/**/*
   - dist-electron/**/*
+  - build/icon.png
+  - build/icon-dark.png
+  - build/icon.ico
+  - build/icon-dark.ico
   - package.json
 mac:
   category: public.app-category.developer-tools
