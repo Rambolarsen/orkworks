@@ -4207,7 +4207,7 @@ while IFS= read -r line; do
   case "$line" in
     *'"method":"initialize"'*)
       case "$line" in
-        *'"version":"0.2.0"'*) ;;
+        *'"version":"__ORKWORKS_VERSION__"'*) ;;
         *) exit 23 ;;
       esac
       printf '%s\n' '{"id":1,"result":{}}'
@@ -4218,7 +4218,8 @@ while IFS= read -r line; do
       ;;
   esac
 done
-"#,
+"#
+            .replace("__ORKWORKS_VERSION__", env!("CARGO_PKG_VERSION")),
         )
         .unwrap();
         make_test_executable(&command);
