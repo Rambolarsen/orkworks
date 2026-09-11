@@ -711,16 +711,21 @@ fn mark_committed_input_working(
         && handle.info.detected_question.is_none()
         && handle.info.suggested_options.is_none()
         && handle.pending_work_signal.is_none();
-    // The narrow gate #273 used to arm a work signal: only a hookless
-    // harness's hook-reported `needs_you` (Claude Code's Notification path)
-    // treats a bare printable keystroke as evidence of resumed work. Shell
-    // sessions and Peon-detected TUI prompts never set `metadata_source ==
-    // "agent"`, so they never qualify here — unchanged in scope from #273,
-    // just no longer output-gated.
+    // A hook-reported prompt normally defers to the hook for the working
+    // transition. Codex is the exception: approving a PermissionRequest is a
+    // bare printable keystroke, and Codex does not emit a new
+    // `UserPromptSubmit` event after that approval. Treat that exact
+    // Codex-sourced prompt as resumed work while preserving the hook deferral
+    // for every other active hook.
     let single_key_qualifies = printable_keystroke
-        && !handle.active_work_hook
         && handle.info.attention.as_deref() == Some("needs_you")
-        && handle.info.metadata_source.as_deref() == Some("agent");
+        && match (
+            handle.active_work_hook,
+            handle.info.metadata_source.as_deref(),
+        ) {
+            (false, Some("agent")) | (true, Some("codex_hook")) => true,
+            _ => false,
+        };
     let commit_working = !already_working && (line_completed || single_key_qualifies);
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
@@ -1630,6 +1635,33 @@ mod tests {
         let info = state.sessions.lock().unwrap()[session_id].info.clone();
         assert_eq!(info.attention.as_deref(), Some("needs_you"));
         assert_eq!(info.metadata_source.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn codex_permission_approval_keystroke_clears_hook_prompt_to_working() {
+        let session_id = "codex-permission-approval";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.metadata_source = Some("codex_hook".into());
+            handle.active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
+            meta.metadata_source = "codex_hook".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(record_terminal_input(&state, session_id, "y"), None);
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
     }
 
     #[test]
