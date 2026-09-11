@@ -128,3 +128,19 @@ test("desktop package exposes the release verification command", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(packageJson.scripts["verify:release"], "node scripts/verifyReleaseArtifact.mjs");
 });
+
+test("packaged app includes the runtime icon assets used by Electron main", () => {
+  const electronBuilderConfig = readFileSync(
+    new URL("../electron-builder.yml", import.meta.url),
+    "utf8",
+  );
+
+  for (const asset of [
+    "build/icon.png",
+    "build/icon-dark.png",
+    "build/icon.ico",
+    "build/icon-dark.ico",
+  ]) {
+    assert.match(electronBuilderConfig, new RegExp(`^\\s*- ${asset.replaceAll(".", "\\.")}$`, "m"));
+  }
+});
