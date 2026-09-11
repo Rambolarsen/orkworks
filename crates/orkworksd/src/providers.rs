@@ -2037,9 +2037,11 @@ impl ProviderManager {
                     .and_then(|_| stdin.write_all(b"\n"))
                     .map_err(|error| format!("failed to write Codex app-server request: {error}"))
             };
-            write_request(
-                r#"{"method":"initialize","id":1,"params":{"clientInfo":{"name":"orkworks","title":"OrkWorks","version":"0.1.0"},"capabilities":{}}}"#,
-            )?;
+            let initialize_request = format!(
+                r#"{{"method":"initialize","id":1,"params":{{"clientInfo":{{"name":"orkworks","title":"OrkWorks","version":"{}"}},"capabilities":{{}}}}}}"#,
+                env!("CARGO_PKG_VERSION")
+            );
+            write_request(&initialize_request)?;
             loop {
                 let line = receive_line()?;
                 let value: serde_json::Value =
@@ -4206,6 +4208,10 @@ mod tests {
 while IFS= read -r line; do
   case "$line" in
     *'"method":"initialize"'*)
+      case "$line" in
+        *'"version":"__ORKWORKS_VERSION__"'*) ;;
+        *) exit 23 ;;
+      esac
       printf '%s\n' '{"id":1,"result":{}}'
       ;;
     *'"method":"model/list"'*)
@@ -4214,7 +4220,8 @@ while IFS= read -r line; do
       ;;
   esac
 done
-"#,
+"#
+            .replace("__ORKWORKS_VERSION__", env!("CARGO_PKG_VERSION")),
         )
         .unwrap();
         make_test_executable(&command);
