@@ -3261,7 +3261,9 @@ mod tests {
         .unwrap();
         make_test_executable(&script);
 
-        let result = ProcessRunner.run("test", script.to_str().unwrap(), &[], "", 1, None);
+        // Allow the helper shell to start and create its PID file even when
+        // the full test suite is exercising the runner concurrently.
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &[], "", 5, None);
         assert!(!result.success);
 
         let descendant_pid: i32 = std::fs::read_to_string(&pidfile)
