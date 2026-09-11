@@ -2206,6 +2206,7 @@ mod tests {
                         resume: None,
                         models: None,
                         peon: None,
+                        inference: None,
                         capacity: None,
                         session_signals: None,
                         integration: None,

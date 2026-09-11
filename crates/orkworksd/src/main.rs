@@ -59,6 +59,9 @@ use crate::http::taskmaster_handlers::{
     accept_recommendation, complete_recommendation, dismiss_recommendation, get_recommendation,
     list_recommendations,
 };
+use crate::http::taskmaster_settings_handlers::{
+    get_taskmaster_settings, post_taskmaster_knowledge, set_taskmaster_settings,
+};
 use crate::http::workflow_observation_handlers::report_workflow_observation;
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
@@ -259,6 +262,13 @@ async fn main() {
         });
     }
 
+    {
+        let taskmaster_state = state.clone();
+        tokio::spawn(async move {
+            crate::taskmaster::evaluator::periodic_evaluation(taskmaster_state).await;
+        });
+    }
+
     // Start retention cleanup background task
     {
         let retention_state = state.clone();
@@ -312,6 +322,19 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             post(test_and_apply_peon_provider),
         )
         .route("/settings/peon/applied", get(get_applied_peon_provider))
+        .route(
+            "/settings/taskmaster",
+            get(get_taskmaster_settings).post(set_taskmaster_settings),
+        )
+        .route(
+            "/settings/taskmaster/knowledge",
+            post(post_taskmaster_knowledge),
+        )
+        .route(
+            "/settings/taskmaster/inference",
+            get(http::inference_trust_handlers::get_inference_trust)
+                .post(http::inference_trust_handlers::post_inference_trust),
+        )
         .route("/workspace", post(set_workspace))
         .route("/workspace/active-session", post(set_active_session))
         .route("/workspace/active-harnesses", put(set_active_harnesses))
@@ -412,6 +435,7 @@ fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity()
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    pub(crate) mod native_inference;
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 

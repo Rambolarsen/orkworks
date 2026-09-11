@@ -53,6 +53,7 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 - `specs/review-queue.md` — superseded repo-local review inbox proposal
 - `specs/session-plan-review.md` — selected-session plan/spec review and explicit review prompt handoff
 - `specs/taskmaster.md` — proposed cross-session coordination and next-step recommendation layer
+- `specs/taskmaster-knowledge.md` — signed reference knowledge, independent Taskmaster analysis, and background context controls
 
 Read these before starting any implementation work.
 

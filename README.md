@@ -20,6 +20,12 @@ The accepted [brain-informed Taskmaster design](specs/taskmaster-knowledge.md)
 adds independently updated reference knowledge, a separate analysis model, and
 user-controlled background discovery; implementation is tracked in
 [issue #503](https://github.com/Rambolarsen/orkworks/issues/503).
+Taskmaster's CLI analysis must reuse existing coding-tool logins without changing
+Peon's selection. Background availability depends on a recommendation profile
+in the shared provider layer, not a separate Taskmaster provider list. Codex and
+Claude Code profiles check CLI compatibility before sending context and honor
+administrator-managed policies, including required hooks and managed routing
+([ADR 0054](docs/adr/0054-taskmaster-honors-managed-cli-policy.md)).
 
 ```text
 orkworks/

@@ -543,6 +543,10 @@ fn parse_codex_model_list(payload: &str) -> Result<Vec<ProviderModelOption>, Str
         .collect()
 }
 
+pub(crate) fn supports_inference_definition(definition: &ProviderDefinition) -> bool {
+    definition.id == "ollama" || inference::supports(definition)
+}
+
 fn simple_model_options(models: Vec<String>) -> Vec<ProviderModelOption> {
     models
         .into_iter()
@@ -632,6 +636,8 @@ pub struct ProviderRunResult {
 #[derive(Serialize)]
 pub struct ProviderEntry {
     pub id: String,
+    #[serde(rename = "inferenceOnly")]
+    pub inference_only: bool,
     pub label: String,
     pub origin: String,
     #[serde(rename = "harnessId", skip_serializing_if = "Option::is_none")]
@@ -693,7 +699,25 @@ fn block_on_http<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
+pub(crate) mod custom_inference;
+mod inference;
+pub(crate) mod native_inference;
+
 trait ProviderRunner: Send + Sync {
+    fn run_prepared(
+        &self,
+        _id: &str,
+        _command: &mut Command,
+        _prompt: &str,
+        _timeout_secs: u64,
+        _model: Option<&str>,
+    ) -> InvocationResult {
+        InvocationResult {
+            success: false,
+            stdout: String::new(),
+            stderr: "runner does not support isolated inference".into(),
+        }
+    }
     fn run(
         &self,
         id: &str,
@@ -724,6 +748,17 @@ struct CompositeRunner {
 }
 
 impl ProviderRunner for CompositeRunner {
+    fn run_prepared(
+        &self,
+        id: &str,
+        command: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+    ) -> InvocationResult {
+        self.process
+            .run_prepared(id, command, prompt, timeout_secs, model)
+    }
     fn run(
         &self,
         id: &str,
@@ -767,6 +802,11 @@ impl ProviderRunner for CompositeRunner {
 
 struct ProcessRunner;
 
+enum ProcessOutcome {
+    Finished(InvocationResult),
+    TimedOut,
+}
+
 fn remaining_until(deadline: std::time::Instant) -> Duration {
     deadline.saturating_duration_since(std::time::Instant::now())
 }
@@ -785,6 +825,54 @@ impl ProviderRunner for ProcessRunner {
         for arg in args {
             cmd.arg(arg);
         }
+        self.run_prepared(id, &mut cmd, prompt, timeout_secs, _model)
+    }
+
+    fn run_prepared(
+        &self,
+        id: &str,
+        cmd: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        _model: Option<&str>,
+    ) -> InvocationResult {
+        match self.run_prepared_with_encoding(id, cmd, prompt, timeout_secs, false) {
+            ProcessOutcome::Finished(result) => result,
+            ProcessOutcome::TimedOut => InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "timed out".into(),
+            },
+        }
+    }
+}
+
+impl ProcessRunner {
+    fn run_prepared_with_encoding(
+        &self,
+        id: &str,
+        cmd: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        strict_stdout: bool,
+    ) -> ProcessOutcome {
+        self.run_prepared_with_spawn(id, cmd, prompt, timeout_secs, strict_stdout, |cmd| {
+            Ok::<_, std::convert::Infallible>(cmd.spawn())
+        })
+        .unwrap_or_else(|never| match never {})
+    }
+
+    /// The callback must perform spawn synchronously and release its guard before
+    /// returning. Waiting and pipe I/O happen only after this boundary returns.
+    fn run_prepared_with_spawn<E>(
+        &self,
+        id: &str,
+        cmd: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        strict_stdout: bool,
+        spawn: impl FnOnce(&mut Command) -> Result<std::io::Result<std::process::Child>, E>,
+    ) -> Result<ProcessOutcome, E> {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -792,18 +880,29 @@ impl ProviderRunner for ProcessRunner {
         #[cfg(unix)]
         cmd.process_group(0);
 
-        let mut child = match cmd.spawn() {
+        let child = match spawn(cmd)? {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!(provider = %id, error = %e, "peon: failed to spawn");
-                return InvocationResult {
+                return Ok(ProcessOutcome::Finished(InvocationResult {
                     success: false,
                     stdout: String::new(),
                     stderr: e.to_string(),
-                };
+                }));
             }
         };
 
+        Ok(self.finish_child(id, child, prompt, timeout_secs, strict_stdout))
+    }
+
+    fn finish_child(
+        &self,
+        id: &str,
+        mut child: std::process::Child,
+        prompt: &str,
+        timeout_secs: u64,
+        strict_stdout: bool,
+    ) -> ProcessOutcome {
         let pid = child.id();
         let terminate_child = |child: &mut std::process::Child| {
             #[cfg(unix)]
@@ -850,21 +949,17 @@ impl ProviderRunner for ProcessRunner {
                     terminate_child(&mut child);
                     let _ = thread.join();
                     tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
-                    return InvocationResult {
+                    return ProcessOutcome::Finished(InvocationResult {
                         success: false,
                         stdout: String::new(),
                         stderr: e.to_string(),
-                    };
+                    });
                 }
                 Err(_) => {
                     terminate_child(&mut child);
                     let _ = thread.join();
                     tracing::warn!(provider = %id, "peon: prompt write timed out");
-                    return InvocationResult {
-                        success: false,
-                        stdout: String::new(),
-                        stderr: "timed out".to_string(),
-                    };
+                    return ProcessOutcome::TimedOut;
                 }
             }
         }
@@ -903,22 +998,18 @@ impl ProviderRunner for ProcessRunner {
                         terminate_child(&mut child);
                         join_capture_threads(stdout_thread, stderr_thread);
                         tracing::warn!(provider = %id, "peon: provider timed out");
-                        return InvocationResult {
-                            success: false,
-                            stdout: String::new(),
-                            stderr: "timed out".to_string(),
-                        };
+                        return ProcessOutcome::TimedOut;
                     }
                     std::thread::sleep(remaining.min(Duration::from_millis(10)));
                 }
                 Err(e) => {
                     terminate_child(&mut child);
                     join_capture_threads(stdout_thread, stderr_thread);
-                    return InvocationResult {
+                    return ProcessOutcome::Finished(InvocationResult {
                         success: false,
                         stdout: String::new(),
                         stderr: e.to_string(),
-                    };
+                    });
                 }
             }
         };
@@ -938,32 +1029,43 @@ impl ProviderRunner for ProcessRunner {
                     let message = e.to_string();
                     terminate_child(&mut child);
                     join_capture_threads(stdout_thread, stderr_thread);
-                    return InvocationResult {
+                    return ProcessOutcome::Finished(InvocationResult {
                         success: false,
                         stdout: String::new(),
                         stderr: message,
-                    };
+                    });
                 }
                 Err(_) => {
                     terminate_child(&mut child);
                     join_capture_threads(stdout_thread, stderr_thread);
                     tracing::warn!(provider = %id, "peon: provider timed out");
-                    return InvocationResult {
-                        success: false,
-                        stdout: String::new(),
-                        stderr: "timed out".to_string(),
-                    };
+                    return ProcessOutcome::TimedOut;
                 }
             }
         }
 
         join_capture_threads(stdout_thread, stderr_thread);
 
-        InvocationResult {
+        let stdout = stdout.unwrap_or_default();
+        let stdout = if strict_stdout {
+            match String::from_utf8(stdout) {
+                Ok(text) => text,
+                Err(_) => {
+                    return ProcessOutcome::Finished(InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: "provider stdout is not UTF-8".into(),
+                    })
+                }
+            }
+        } else {
+            String::from_utf8_lossy(&stdout).into_owned()
+        };
+        ProcessOutcome::Finished(InvocationResult {
             success: status.success(),
-            stdout: String::from_utf8_lossy(&stdout.unwrap_or_default()).into_owned(),
+            stdout,
             stderr: String::from_utf8_lossy(&stderr.unwrap_or_default()).into_owned(),
-        }
+        })
     }
 }
 
@@ -1527,7 +1629,26 @@ impl ProviderManager {
         reasoning_effort: Option<&str>,
         ollama_base_url: Option<&str>,
     ) -> InvocationResult {
-        let prompt = peon::build_prompt(&[]);
+        self.invoke_prompt(
+            definition,
+            model,
+            reasoning_effort,
+            ollama_base_url,
+            peon::build_prompt(&[]),
+        )
+    }
+
+    /// Runs an explicit prompt through a transport whose authority has been
+    /// reviewed for Taskmaster. Unlike `invoke_provider`, this never builds a
+    /// Peon prompt or mutates Peon/provider state.
+    fn invoke_prompt(
+        &self,
+        definition: &ProviderDefinition,
+        model: Option<&str>,
+        reasoning_effort: Option<&str>,
+        ollama_base_url: Option<&str>,
+        prompt: String,
+    ) -> InvocationResult {
         let model_arg = if definition.supports_model {
             model.and_then(|model| {
                 definition
@@ -1588,6 +1709,112 @@ impl ProviderManager {
             runner_model,
             ollama_base_url,
         )
+    }
+
+    /// Shared provider capability; consumers never maintain their own provider allowlists.
+    pub(crate) fn supports_inference_only(&self, provider: &str) -> bool {
+        self.definition(provider)
+            .is_ok_and(|definition| supports_inference_definition(&definition))
+    }
+
+    /// Explicit selection with no Peon state mutation, model routing, or fallback.
+    #[cfg(test)]
+    pub(crate) fn invoke_taskmaster_prompt(
+        &self,
+        provider: &str,
+        model: &str,
+        reasoning_effort: Option<&str>,
+        ollama_base_url: Option<&str>,
+        prompt: String,
+    ) -> Result<String, ProviderOperationError> {
+        let definition = self.definition(provider)?;
+        if !self.supports_inference_only(provider) {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: "provider has no verified inference-only transport".into(),
+            });
+        }
+        self.invoke_taskmaster_definition(
+            &definition,
+            model,
+            reasoning_effort,
+            ollama_base_url,
+            prompt,
+        )
+    }
+
+    /// Production native inference consumes the captured code-owned profile,
+    /// never re-resolves a mutable Peon definition by provider ID.
+    pub(crate) fn invoke_native_taskmaster_prompt(
+        &self,
+        profile: native_inference::NativeProfile,
+        model: &str,
+        reasoning_effort: Option<&str>,
+        ollama_base_url: Option<&str>,
+        prompt: String,
+    ) -> Result<String, ProviderOperationError> {
+        self.invoke_taskmaster_definition(
+            &profile.definition(),
+            model,
+            reasoning_effort,
+            ollama_base_url,
+            prompt,
+        )
+    }
+
+    fn invoke_taskmaster_definition(
+        &self,
+        definition: &ProviderDefinition,
+        model: &str,
+        reasoning_effort: Option<&str>,
+        ollama_base_url: Option<&str>,
+        prompt: String,
+    ) -> Result<String, ProviderOperationError> {
+        let provider = definition.id.as_str();
+        if model.trim().is_empty() || model.len() > 256 {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::Malformed,
+                message: "model must be nonempty and at most 256 bytes".into(),
+            });
+        }
+        if provider != "ollama" {
+            let mut invocation = inference::prepare(&definition, model, reasoning_effort, prompt)?;
+            invocation.check_version(self.runner.as_ref(), provider)?;
+            let result = self.runner.run_prepared(
+                provider,
+                &mut invocation.command,
+                &invocation.stdin,
+                definition.timeout_secs,
+                Some(model),
+            );
+            if !result.success {
+                return Err(ProviderOperationError { code: classify_invocation_error(&result.stderr), message: "inference-only CLI invocation failed; check the installed CLI and its existing login".into() });
+            }
+            return invocation.decode(&result.stdout);
+        }
+        let base_url = ollama_base_url
+            .map(normalize_ollama_base_url)
+            .transpose()
+            .map_err(|message| ProviderOperationError {
+                code: ProviderOperationErrorCode::Malformed,
+                message,
+            })?
+            .unwrap_or_else(|| "http://127.0.0.1:11434".into());
+        let result = self.invoke_prompt(
+            &definition,
+            Some(model),
+            reasoning_effort,
+            Some(&base_url),
+            prompt,
+        );
+        if result.success {
+            Ok(result.stdout)
+        } else {
+            Err(ProviderOperationError {
+                code: classify_invocation_error(&result.stderr),
+                message: result.stderr,
+            })
+        }
     }
 
     pub fn capabilities(
@@ -1846,6 +2073,7 @@ impl ProviderManager {
                 let (origin, harness_id) = self.provider_metadata(&entry.id);
                 ProviderEntry {
                     id: entry.id.clone(),
+                    inference_only: self.supports_inference_only(&entry.id),
                     label,
                     origin,
                     harness_id,
@@ -2620,6 +2848,7 @@ fn is_leap(year: u64) -> bool {
 pub struct FakeProvider {
     pub id: &'static str,
     stdout_val: String,
+    version_stdout: Option<String>,
     stderr_val: String,
     exit_code: i32,
     sleep_ms: u64,
@@ -2638,6 +2867,7 @@ impl FakeProvider {
         Self {
             id,
             stdout_val: String::new(),
+            version_stdout: None,
             stderr_val: String::new(),
             exit_code: 0,
             sleep_ms: 0,
@@ -2650,6 +2880,11 @@ impl FakeProvider {
 
     pub fn stdout(mut self, s: &str) -> Self {
         self.stdout_val = s.to_string();
+        self
+    }
+
+    pub fn version(mut self, version: &str) -> Self {
+        self.version_stdout = Some(version.into());
         self
     }
 
@@ -2706,6 +2941,32 @@ struct FakeRunner {
 
 #[cfg(test)]
 impl ProviderRunner for FakeRunner {
+    fn run_prepared(
+        &self,
+        id: &str,
+        command: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+    ) -> InvocationResult {
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let mut result = self.run(id, "", &args, prompt, timeout_secs, model);
+        if args == ["--version"] {
+            if let Some(version) = self
+                .specs
+                .get(id)
+                .and_then(|spec| spec.version_stdout.as_ref())
+            {
+                result.stdout = version.clone();
+                result.stderr.clear();
+                result.success = true;
+            }
+        }
+        result
+    }
     fn run(
         &self,
         id: &str,
@@ -2825,6 +3086,218 @@ mod tests {
     const MAX_OLLAMA_TEST_REQUEST_BYTES: usize = 1024 * 1024;
 
     use super::*;
+
+    fn isolated_cli_config(test: &str) -> bool {
+        if std::env::var("INFERENCE_TEST_CASE").as_deref() == Ok(test) {
+            return false;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture"])
+            .env("INFERENCE_TEST_CASE", test)
+            .env("CODEX_HOME", directory.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        true
+    }
+
+    #[test]
+    fn taskmaster_checks_shared_capabilities_without_changing_peon() {
+        if isolated_cli_config(
+            "providers::tests::taskmaster_checks_shared_capabilities_without_changing_peon",
+        ) {
+            return;
+        }
+        for id in [
+            "ollama",
+            "codex",
+            "claude-code",
+            "copilot",
+            "opencode",
+            "aider",
+        ] {
+            let invocations = Arc::new(Mutex::new(Vec::new()));
+            let manager = ProviderManager::for_tests(
+                ProviderSettingsPayload {
+                    peon_selection: Some(PeonSelection {
+                        provider: "ollama".into(),
+                        model: "independent-peon-model".into(),
+                        reasoning_effort: None,
+                        ollama_base_url: Some("http://127.0.0.1:11435".into()),
+                    }),
+                    ..ProviderSettingsPayload::default()
+                },
+                vec![FakeProvider::new(id)
+                    .version(if id == "codex" { "codex-cli 0.153.4" } else { "2.1.236 (Claude Code)" })
+                    .stdout(match id {
+                        "codex" => "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"proposals\\\":[]}\"}}\n{\"type\":\"turn.completed\"}",
+                        "claude-code" => "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"{\\\"proposals\\\":[]}\"}",
+                        _ => "{\"proposals\":[]}",
+                    })
+                    .with_invocations(invocations.clone())],
+            );
+            let settings_before = serde_json::to_value(&*manager.settings.read().unwrap()).unwrap();
+            let applied_before =
+                serde_json::to_value(manager.operation_state.lock().unwrap().applied.clone())
+                    .unwrap();
+            // Current transport coverage, not the intended final provider matrix.
+            assert_eq!(
+                manager.supports_inference_only(id),
+                matches!(id, "ollama" | "codex" | "claude-code"),
+                "{id}"
+            );
+            let result = manager.invoke_taskmaster_prompt(
+                id,
+                "chosen-model",
+                None,
+                None,
+                "bounded-context".into(),
+            );
+            let calls = invocations.lock().unwrap();
+            if manager.supports_inference_only(id) {
+                assert_eq!(result.unwrap(), "{\"proposals\":[]}", "{id}");
+                assert_eq!(calls.len(), if id == "ollama" { 1 } else { 2 }, "{id}");
+                if id != "ollama" {
+                    assert_eq!(calls[0], (vec!["--version".into()], String::new()));
+                }
+                assert_eq!(calls.last().unwrap().1, "bounded-context");
+            } else {
+                assert_eq!(
+                    result.unwrap_err().code,
+                    ProviderOperationErrorCode::UnsupportedCapability,
+                    "{id}"
+                );
+                assert!(
+                    calls.is_empty(),
+                    "unsupported transports must not invoke {id}"
+                );
+            }
+            assert_eq!(
+                serde_json::to_value(&*manager.settings.read().unwrap()).unwrap(),
+                settings_before
+            );
+            assert_eq!(
+                serde_json::to_value(manager.operation_state.lock().unwrap().applied.clone())
+                    .unwrap(),
+                applied_before
+            );
+            assert!(manager.runtime.read().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn taskmaster_rejects_incompatible_cli_before_sending_context() {
+        if isolated_cli_config(
+            "providers::tests::taskmaster_rejects_incompatible_cli_before_sending_context",
+        ) {
+            return;
+        }
+        for (id, version) in [
+            ("codex", "codex-cli 0.100.0"),
+            ("codex", "codex-cli 0.153.4-beta"),
+            ("claude-code", "2.1.1 (Claude Code)"),
+            ("claude-code", "unknown"),
+            ("claude-code", "3.0.0 (Claude Code)"),
+        ] {
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let manager = ProviderManager::for_tests(
+                ProviderSettingsPayload::default(),
+                vec![FakeProvider::new(id)
+                    .version(version)
+                    .stdout("{}")
+                    .with_invocations(calls.clone())],
+            );
+            let error = manager
+                .invoke_taskmaster_prompt(id, "chosen", None, None, "private context".into())
+                .unwrap_err();
+            assert_eq!(
+                error.code,
+                ProviderOperationErrorCode::UnsupportedCapability,
+                "{id}: {version}"
+            );
+            assert_eq!(
+                *calls.lock().unwrap(),
+                vec![(vec!["--version".into()], String::new())]
+            );
+        }
+    }
+
+    #[test]
+    fn taskmaster_cli_failures_are_redacted_without_fallback_or_peon_mutation() {
+        if isolated_cli_config("providers::tests::taskmaster_cli_failures_are_redacted_without_fallback_or_peon_mutation") { return; }
+        for id in ["codex", "claude-code"] {
+            for (stderr, stdout, exit, expected) in [
+                (
+                    "unauthorized credential-detail",
+                    "",
+                    1,
+                    ProviderOperationErrorCode::Unauthorized,
+                ),
+                (
+                    "timed out private-detail",
+                    "",
+                    1,
+                    ProviderOperationErrorCode::Timeout,
+                ),
+                (
+                    "failed to spawn private-path",
+                    "",
+                    1,
+                    ProviderOperationErrorCode::ProviderFailure,
+                ),
+                (
+                    "provider output exceeded 65536 bytes",
+                    "",
+                    1,
+                    ProviderOperationErrorCode::ProviderFailure,
+                ),
+                (
+                    "",
+                    "not-json-private-detail",
+                    0,
+                    ProviderOperationErrorCode::Malformed,
+                ),
+            ] {
+                let calls = Arc::new(Mutex::new(Vec::new()));
+                let manager = ProviderManager::for_tests(
+                    ProviderSettingsPayload::default(),
+                    vec![FakeProvider::new(id)
+                        .version(if id == "codex" {
+                            "codex-cli 0.153.4"
+                        } else {
+                            "2.1.236 (Claude Code)"
+                        })
+                        .stderr(stderr)
+                        .stdout(stdout)
+                        .exit_code(exit)
+                        .with_invocations(calls.clone())],
+                );
+                manager.mark_applied_for_tests("ollama", Some("peon-model"));
+                let before =
+                    serde_json::to_value(manager.operation_state.lock().unwrap().applied.clone())
+                        .unwrap();
+                let error = manager
+                    .invoke_taskmaster_prompt(id, "selected-model", None, None, "context".into())
+                    .unwrap_err();
+                assert_eq!(error.code, expected);
+                assert!(!error.message.contains("private"));
+                assert!(!error.message.contains("credential-detail"));
+                assert_eq!(calls.lock().unwrap().len(), 2);
+                assert_eq!(
+                    serde_json::to_value(manager.operation_state.lock().unwrap().applied.clone())
+                        .unwrap(),
+                    before
+                );
+                assert!(manager.runtime.read().unwrap().is_empty());
+            }
+        }
+    }
 
     struct TestEntryBuilder {
         id: &'static str,
@@ -4029,6 +4502,26 @@ mod tests {
             .expect("Ollama should remain available");
         assert_eq!(ollama.origin, "standalone");
         assert_eq!(ollama.harness_id, None);
+        let json = serde_json::to_value(response).unwrap();
+        for (id, supported) in [
+            ("ollama", true),
+            ("codex", true),
+            ("claude-code", true),
+            ("copilot", false),
+            ("opencode", false),
+            ("aider", false),
+        ] {
+            let provider = json["providers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["id"] == id)
+                .unwrap();
+            assert_eq!(
+                provider["inferenceOnly"], supported,
+                "wire capability for {id}"
+            );
+        }
     }
 
     #[test]

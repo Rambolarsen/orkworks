@@ -60,6 +60,16 @@ test("unsupported release targets are rejected", () => {
   );
 });
 
+test("missing starter knowledge fails packaged release verification", () => {
+  const expectation = createReleaseArtifactExpectation("win32", "x64", "0.1.0", "/release");
+  const missing = join("/release", "win-unpacked", "resources", "knowledge", "starter.json");
+  const fakeFs = { statSync(path) {
+    if (path === missing) throw new Error("ENOENT");
+    return { isFile: () => true, isDirectory: () => true, size: 1 };
+  } };
+  assert.throws(() => verifyReleaseArtifact(expectation, fakeFs), /starter knowledge/);
+});
+
 test("missing packaged resources identify the failing path", () => {
   const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
   const fakeFs = {
@@ -106,6 +116,7 @@ test("runCli verifies a release and reports the installer", () => {
       if (path === expectation.installerPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
       if (path === expectation.sidecarPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
       if (expectation.scriptPaths.includes(path)) return { isFile: () => true, isDirectory: () => false, size: 1 };
+      if (path.includes(`${join("Resources", "knowledge")}`)) return { isFile: () => true, isDirectory: () => false, size: 1 };
       return { isFile: () => false, isDirectory: () => true, size: 0 };
     },
   };

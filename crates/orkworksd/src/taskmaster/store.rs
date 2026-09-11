@@ -339,6 +339,8 @@ mod tests {
             summary: "Make the obstacle easier to avoid".into(),
             reason: vec!["It recurred".into()],
             evidence: vec![evidence],
+            repository_evidence: vec![],
+            knowledge_evidence: vec![],
             source_session_ids: vec![session_id.into()],
             target_session_id: None,
             suggested_harness_id: None,

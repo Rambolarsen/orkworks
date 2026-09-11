@@ -9,7 +9,8 @@ Taskmaster uses a curated, independently updated knowledge bundle to enrich
 observed-friction recommendations and discover improvements quietly. The user
 approved this design and implementation in the 2026-09-09 planning session.
 This extends [Taskmaster](taskmaster.md); it does not authorize coding, command
-execution, session creation, or Git workflow actions in the background.
+execution, session creation, or Git workflow actions requested by Taskmaster in
+the background. Installed CLI-managed policy effects are qualified below.
 
 ## Knowledge distribution
 
@@ -41,6 +42,36 @@ discovery share a separate, explicitly selected Taskmaster provider/model using
 existing provider infrastructure. They never change or inherit Peon's selection.
 Without a configured available Taskmaster model, deterministic recommendations
 continue. There is no automatic provider fallback or model routing in v1.
+
+### Existing CLI logins and managed policy (approved 2026-09-10)
+
+JSON-defined custom inference adapters extend this contract under
+[ADR 0055](../docs/adr/0055-json-taskmaster-inference-adapters.md) and the
+[reviewed adapter design](../docs/superpowers/specs/2026-09-10-custom-inference-adapters-design.md).
+An optional independent `inference` capability preserves custom provider
+configuration and model identifiers. User definitions require separate explicit
+executable trust before background use; importing JSON cannot approve execution.
+Custom adapters are not certified side-effect-free. Trust/definition identity
+gates scheduling, cache reuse, and atomic result acceptance; failures never
+change Peon or select another provider. Existing built-in safeguards remain.
+
+CLI adapters reuse the installed coding tool's existing login and credential
+storage. OrkWorks never copies credentials or requires separate API keys for
+Taskmaster. Fixed invocation-local profiles request recommendations only, disable
+optional tools, hooks, plugins, and project discovery where supported, and do not
+reuse interactive launch/resume arguments. Unsupported or incompatible profiles
+fail without fallback or changing Peon.
+
+Administrator-managed CLI policies remain authoritative. Required hooks may run,
+managed instructions may add context, and managed routing/restrictions remain in
+force. OrkWorks does not modify managed configuration, bypass a policy conflict,
+or retry with weaker permissions. Its context limits govern what OrkWorks
+collects and supplies, not additional effects imposed by the installed CLI's
+managed policy. Settings and documentation disclose this distinction.
+
+Taskmaster does not request coding actions even when managed policies expose
+tools. Unexpected tool-action output is rejected, not converted to an accepted
+recommendation; rejecting output is not a claim to undo any CLI side effects.
 
 Before inference, retrieve relevant pages from workspace signals and assemble
 bounded permitted context. Analyze only the currently open workspace. At most
@@ -74,8 +105,9 @@ dismissal decisions and completion outcomes locally, distinguishing completed
 work from evidence of benefit. Do not publish local outcomes in v1.
 
 Use the existing explicit Fix with AI handoff into the user's active session.
-Include both local evidence and relevant knowledge in its scoped prompt. No
-background process edits files, types into terminals, or starts coding sessions.
+Include both local evidence and relevant knowledge in its scoped prompt.
+Taskmaster never initiates file edits, terminal input, or coding sessions during
+background discovery; managed CLI policy effects follow the exception above.
 
 ## Settings
 

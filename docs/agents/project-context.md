@@ -35,6 +35,11 @@ GitHub Actions has seven distinct workflow classes:
 
 - `.github/workflows/release.yml` handles tag-driven release packaging only.
 - `.github/workflows/pr-ci.yml` validates pull requests targeting `main`.
+  Its focused Windows custom-inference job runs native fixture transport,
+  approval-gated activation, and trust tests when Rust files, `rust-toolchain.toml`
+  or the PR workflow change. It requires the targeted tests to be discoverable
+  before running them, preventing a platform gate from producing an empty pass.
+  Existing Linux job names and branch-protection requirements are unchanged.
 - `.github/workflows/main-ci.yml` unconditionally reruns the full desktop and
   Rust test suites against `main`, without path filters, on every push to
   `main`, daily by schedule, and by manual dispatch. This exists because

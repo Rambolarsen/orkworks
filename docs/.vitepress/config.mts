@@ -88,6 +88,7 @@ export default defineConfig({
           { text: 'Coding tools', link: '/docs/user/coding-tools' },
           { text: 'Sessions', link: '/docs/user/sessions' },
           { text: 'Taskmaster', link: '/docs/user/taskmaster' },
+          { text: 'Taskmaster knowledge', link: '/docs/user/taskmaster-knowledge' },
         ],
       },
       {
@@ -99,6 +100,7 @@ export default defineConfig({
           { text: 'Release pipeline', link: '/specs/release-pipeline' },
           { text: 'Session plan review', link: '/specs/session-plan-review' },
           { text: 'Taskmaster', link: '/specs/taskmaster' },
+          { text: 'Taskmaster knowledge', link: '/specs/taskmaster-knowledge' },
         ],
       },
       {

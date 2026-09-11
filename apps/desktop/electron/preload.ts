@@ -76,6 +76,11 @@ contextBridge.exposeInMainWorld("orkworks", {
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
+  getTaskmasterSettings: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-settings"),
+  getInferenceTrust: (): Promise<import("./inferenceTrust").InferenceAdapterView[]> => ipcRenderer.invoke("get-inference-trust"),
+  approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest): Promise<boolean> => ipcRenderer.invoke("approve-inference-adapter", request),
+  revokeInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest): Promise<void> => ipcRenderer.invoke("revoke-inference-adapter", request),
+  saveTaskmasterSettings: (settings: unknown): Promise<unknown> => ipcRenderer.invoke("save-taskmaster-settings", settings),
   verifyPeonProvider: (provider: string, ollamaBaseUrl?: string): Promise<unknown> =>
     ipcRenderer.invoke("verify-peon-provider", provider, ollamaBaseUrl),
   testAndApplyPeonProvider: (selection: unknown): Promise<unknown> =>

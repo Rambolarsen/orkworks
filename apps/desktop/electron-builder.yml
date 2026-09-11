@@ -17,6 +17,8 @@ mac:
       to: orkworksd
     - from: ../../crates/orkworksd/scripts
       to: scripts
+    - from: resources/knowledge
+      to: knowledge
 win:
   target:
     - nsis
@@ -26,6 +28,8 @@ win:
       to: orkworksd.exe
     - from: ../../crates/orkworksd/scripts
       to: scripts
+    - from: resources/knowledge
+      to: knowledge
 linux:
   category: Development
   target:
@@ -37,6 +41,8 @@ linux:
       to: orkworksd
     - from: ../../crates/orkworksd/scripts
       to: scripts
+    - from: resources/knowledge
+      to: knowledge
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

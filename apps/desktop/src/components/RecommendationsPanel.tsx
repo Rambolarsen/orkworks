@@ -69,7 +69,7 @@ function RecommendationCard({
       <p className="recommendation-reason">{recommendation.reason.join(" ")}</p>
       <dl className="recommendation-facts">
         <div><dt>Confidence</dt><dd>{formatImpact(recommendation.confidence)}</dd></div>
-        <div><dt>Recurrence</dt><dd>{formatRecurrence(recommendation)}</dd></div>
+        <div><dt>Evidence origin</dt><dd>{recommendation.evidence.length ? formatRecurrence(recommendation) : "Repository discovery"}</dd></div>
         <div><dt>Expected benefit</dt><dd>{improvement.expectedBenefit}</dd></div>
       </dl>
       <div className="recommendation-sessions">
@@ -80,7 +80,14 @@ function RecommendationCard({
         ))}
       </div>
       <details className="recommendation-evidence">
-        <summary>Evidence ({recommendation.evidence.length})</summary>
+        <summary>Evidence ({recommendation.evidence.length + (recommendation.repositoryEvidence?.length ?? 0) + (recommendation.knowledgeEvidence?.length ?? 0)})</summary>
+        {recommendation.repositoryEvidence?.map((item) => <div className="recommendation-evidence-row" key={`${item.path}:${item.sha256}`}>
+          <strong>{item.path}</strong><span>Repository snapshot · {item.observedAt}</span><p>{item.excerpt}</p>
+        </div>)}
+        {recommendation.knowledgeEvidence?.map((item) => <div className="recommendation-evidence-row" key={`${item.pageId}:${item.sha256}`}>
+          <strong>{item.title}</strong><span>Knowledge {item.bundleVersion} · {item.status}</span><p>{item.excerpt}</p>
+          <span>{item.pageId}</span>
+        </div>)}
         {sortedEvidence(recommendation.evidence).map((item) => (
           <div className="recommendation-evidence-row" key={item.observationId}>
             <strong>{item.description}</strong>

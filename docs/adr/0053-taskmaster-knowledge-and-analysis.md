@@ -1,6 +1,6 @@
 # Taskmaster knowledge distribution and independent analysis
 
-- Status: accepted
+- Status: superseded by [ADR 0054](0054-taskmaster-honors-managed-cli-policy.md)
 - Deciders: repository owner
 - Date: 2026-09-09
 
@@ -28,6 +28,15 @@ repository facts and knowledge provenance separately from session observations.
 Enforce context limits, durable app-wide call reservations, cache invalidation,
 and user-approved handoff. Knowledge is untrusted reference content, not a source
 of execution authority. Local decisions and completion records stay local.
+
+CLI inference reuses each installed tool's existing authentication. The shared
+provider layer owns fixed, invocation-local inference profiles; it does not reuse
+interactive launch arguments or edit login/configuration files. A profile must
+establish the effective context and tool boundary, including managed policy;
+ordinary safe-mode or ignore-user-config flags alone are insufficient. The
+Claude and Codex profile drafts remain disabled because managed hooks/MCP or
+configuration can survive those flags. An unsupported CLI/profile fails closed
+without changing providers. Taskmaster does not introduce separate API credentials.
 
 ## Consequences
 

@@ -212,6 +212,17 @@ impl HarnessStore {
         })
     }
 
+    /// Serialize a snapshot-dependent application operation with harness mutations.
+    /// Lock order: store mutex, document file lease, then consumer persistence locks.
+    pub(crate) fn with_locked_snapshot<T>(
+        &self,
+        operation: impl FnOnce(HarnessSnapshot) -> T,
+    ) -> Result<T, HarnessStoreError> {
+        let _guard = self.write_lock.lock().expect("harness store lock poisoned");
+        let _document_lock = self.document_lock()?;
+        Ok(operation(self.snapshot()?))
+    }
+
     pub(crate) fn mutate_at<F>(
         &self,
         catalog: &HarnessCatalog,
@@ -222,6 +233,7 @@ impl HarnessStore {
         F: FnOnce(&mut HarnessUserDocument) -> Result<(), HarnessDiagnostic>,
     {
         let _guard = self.write_lock.lock().expect("harness store lock poisoned");
+        let _document_lock = self.document_lock()?;
         let loaded = self.load()?;
         let current_revision = loaded
             .source_revision
@@ -258,6 +270,54 @@ impl HarnessStore {
             document_revision: HarnessDocumentRevision::from_bytes(&serialized),
             stored_patches: document.overrides,
         })
+    }
+
+    /// Retain the lock file: unlinking it could let another process lock a different inode.
+    fn document_lock(&self) -> Result<File, HarnessStoreError> {
+        let parent = self.path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "harness path has no parent",
+            )
+        })?;
+        let mut name = self
+            .path
+            .file_name()
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "harness path has no file name",
+                )
+            })?
+            .to_os_string();
+        name.push(".lock");
+        fs::create_dir_all(parent)?;
+        let mut options = File::options();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(
+                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
+            );
+        }
+        let file = options.open(parent.join(name))?;
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "harness lock is not a regular file",
+            )
+            .into());
+        }
+        fs2::FileExt::lock_exclusive(&file)?;
+        Ok(file)
     }
 
     fn current_revision(&self) -> Result<Option<HarnessDocumentRevision>, HarnessStoreError> {
@@ -479,6 +539,7 @@ fn legacy_patch(entry: &LegacyHarnessConfig, baseline: &LegacyHarnessConfig) -> 
         resume: None,
         models: legacy_models_changed.then(|| entry.peon.as_ref().and_then(legacy_models)),
         peon: legacy_peon_patch(entry.peon.as_ref(), baseline.peon.as_ref()),
+        inference: None,
         capacity: None,
         session_signals: None,
         integration: None,
@@ -585,6 +646,7 @@ fn legacy_definition(
         default_model: (!entry.default_model.is_empty()).then_some(entry.default_model),
         resume: safe_adapter.and_then(|definition| definition.resume.clone()),
         models: entry.peon.as_ref().and_then(legacy_models),
+        inference: None,
         peon: entry.peon.map(|peon| PeonCapability {
             command_override: peon.command_override,
             args: peon.args,
@@ -826,6 +888,51 @@ mod tests {
             fixture.read_document().overrides,
             HarnessUserDocument::default().overrides
         );
+    }
+
+    #[test]
+    fn inference_definition_persists_without_projecting_an_executable_provider() {
+        let fixture = StoreFixture::v2();
+        let definition = super::super::definition::parse_custom_definition(
+            br#"{"id":"custom-infer","name":"Custom","launch":{"kind":"platform-shell","login":false},"inference":{"kind":"command","command":"not-an-installed-executable","args":["{model}"],"input":"stdin","output":"result-json-v1"}}"#,
+        ).unwrap();
+        fixture
+            .store
+            .mutate(&fixture.catalog, |document| {
+                document.custom.push(definition);
+                Ok(())
+            })
+            .unwrap();
+        let loaded = fixture.store.load().unwrap();
+        let registered = &loaded.registry.get("custom-infer").unwrap().definition;
+        assert_eq!(
+            serde_json::to_value(registered).unwrap()["inference"]["command"],
+            "not-an-installed-executable"
+        );
+        assert!(registered.peon.is_none());
+        assert!(!loaded
+            .registry
+            .providers()
+            .iter()
+            .any(|provider| provider.id == "custom-infer"));
+        assert_eq!(loaded.document.version, 3);
+        fixture
+            .store
+            .mutate(&fixture.catalog, |document| {
+                document.custom[0].name = "Renamed".into();
+                Ok(())
+            })
+            .unwrap();
+        assert!(fixture
+            .store
+            .load()
+            .unwrap()
+            .registry
+            .get("custom-infer")
+            .unwrap()
+            .definition
+            .inference
+            .is_some());
     }
 
     #[test]

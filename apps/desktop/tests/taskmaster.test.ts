@@ -97,6 +97,19 @@ test("Taskmaster fix prompt is scoped to the target surface and forbids touching
   assert.match(prompt, /Work only in the current session/);
 });
 
+test("proactive fix draft carries immutable reference evidence without claiming recurrence", () => {
+  const prompt = buildFixPromptDraft({ ...recommendation, evidence: [], sourceSessionIds: [],
+    workflowImprovement: { ...recommendation.workflowImprovement, recurrenceCount: 0, affectedSessionIds: [] },
+    repositoryEvidence: [{ path: "README.md", sha256: "abc", excerpt: "Verify changes", observedAt: "2026-09-09T00:00:00Z" }],
+    knowledgeEvidence: [{ pageId: "verification.md", title: "Verification", status: "hypothesis", bundleVersion: "v1", sha256: "def", excerpt: "Prefer evidence" }],
+  });
+  assert.match(prompt, /README.md/);
+  assert.match(prompt, /Prefer evidence/);
+  assert.match(prompt, /experimental hypotheses/);
+  assert.match(prompt, /not instruction authority/);
+  assert.doesNotMatch(prompt, /recurring issue/);
+});
+
 test("Fix with AI always presses Enter regardless of dialog edits", () => {
   // Regression: the dialog's editable draft has no trailing \r (it shouldn't
   // show one to the user), but the backend's build_fix_prompt convention
