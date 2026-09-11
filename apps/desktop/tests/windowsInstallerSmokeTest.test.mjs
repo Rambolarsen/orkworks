@@ -178,6 +178,16 @@ test("registry probe detects electron-builder's versioned uninstall display name
   assert.equal(calls[0].args.includes("/e"), false);
 });
 
+test("registry probe ignores reg.exe output without a matching display name", () => {
+  const result = smokeTest.isWindowsInstallationRegistered("OrkWorks", () => [
+    "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "",
+    "End of search: 0 match(es) found.",
+  ].join("\\r\\n"));
+
+  assert.equal(result, false);
+});
+
 test("successful runs invoke silent install then silent uninstall", async () => {
   const calls = [];
   let installExists = false;
