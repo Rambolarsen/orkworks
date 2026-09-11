@@ -24,6 +24,7 @@ export default defineConfig({
   title: 'OrkWorks',
   description: 'Local-first mission control for AI coding sessions',
   base: '/orkworks/',
+  appearance: 'dark',
   srcDir: '..',
   srcExclude: [
     'README.md',
@@ -71,8 +72,9 @@ export default defineConfig({
   },
   themeConfig: {
     nav: [
-      { text: 'User Guide', link: '/docs/user/getting-started' },
-      { text: 'Specs', link: '/specs/orkworks-mvp' },
+      { text: 'Get started', link: '/docs/user/getting-started' },
+      { text: 'User guide', link: '/docs/user/sessions' },
+      { text: 'Developers', link: '/docs/developers' },
     ],
     socialLinks: [
       { icon: 'github', link: 'https://github.com/Rambolarsen/orkworks' },
@@ -81,15 +83,21 @@ export default defineConfig({
     sidebar: [
       {
         text: 'User Guide',
-        items: [{ text: 'Getting started', link: '/docs/user/getting-started' }],
+        items: [
+          { text: 'Get started', link: '/docs/user/getting-started' },
+          { text: 'Coding tools', link: '/docs/user/coding-tools' },
+          { text: 'Sessions', link: '/docs/user/sessions' },
+          { text: 'Taskmaster', link: '/docs/user/taskmaster' },
+        ],
       },
       {
         text: 'Specs',
+        collapsed: true,
         items: [
           { text: 'OrkWorks MVP', link: '/specs/orkworks-mvp' },
           { text: 'Native harness voice support', link: '/specs/native-harness-voice-support' },
           { text: 'Release pipeline', link: '/specs/release-pipeline' },
-          { text: 'Review queue', link: '/specs/review-queue' },
+          { text: 'Session plan review', link: '/specs/session-plan-review' },
           { text: 'Taskmaster', link: '/specs/taskmaster' },
         ],
       },
@@ -103,6 +111,7 @@ export default defineConfig({
       },
       {
         text: 'Agent docs',
+        collapsed: true,
         items: [
           { text: 'Knowledge bundle', link: '/docs/agents/index' },
           { text: 'Architecture', link: '/docs/agents/architecture' },

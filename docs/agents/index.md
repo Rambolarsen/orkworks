@@ -23,6 +23,8 @@ needed.
 
 - [Development workflow](development-workflow.md) — Issue, planning,
   documentation, decision, and maintenance workflow reference.
+- [Site maintenance](site-maintenance.md) — Public-site content, generated facts,
+  publishing, and scheduled documentation proposals.
 - [APM and agent plugins](apm.md) — APM-managed dependencies, generated
   assets, and agent-plugin operations.
 - [Subagent model policy](subagent-model-policy.md) — Default model tier and
