@@ -13,6 +13,14 @@ const WINDOWS_UNINSTALL_REGISTRY_ROOTS = [
   "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
 ];
 
+function registryOutputHasDisplayName(output, productName) {
+  const expectedName = productName.toLowerCase();
+  return String(output).split(/\r?\n/).some((line) => {
+    const match = line.match(/^\s*DisplayName\s+REG_\S+\s+(.*)$/i);
+    return match && match[1].toLowerCase().includes(expectedName);
+  });
+}
+
 function readPackageJson() {
   return JSON.parse(readFileSync(packageJsonPath, "utf8"));
 }
@@ -84,7 +92,7 @@ export function isWindowsInstallationRegistered(productName, execFileSync = defa
         shell: false,
         windowsHide: true,
       });
-      if (String(output).trim()) return true;
+      if (registryOutputHasDisplayName(output, productName)) return true;
     } catch (error) {
       if (error?.status === 1) continue;
       throw new Error(`Windows installer smoke test failed during registry probe: ${registryRoot}`, {
