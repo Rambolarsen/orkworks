@@ -21,7 +21,7 @@ fi
 needs=()
 
 # Public adoption guides: changing user-facing behavior warrants a prose review.
-if echo "$CHANGED" | grep -qE '^apps/desktop/src/|^crates/orkworksd/(src/|resources/harnesses-v2\.json)|^\.github/workflows/release\.yml|^apps/desktop/(package\.json|electron-builder\.yml)'; then
+if echo "$CHANGED" | grep -qE '^apps/desktop/(src|electron)/|^crates/orkworksd/(src/|resources/harnesses-v2\.json)|^\.github/workflows/release\.yml|^apps/desktop/(package\.json|electron-builder\.yml)'; then
   echo "$CHANGED" | grep -qE '^docs/user/|^docs/index\.md|^docs/\.vitepress/theme/' || \
     needs+=("docs/user/ and docs/index.md  (user-facing behavior or release inputs changed; review claims and onboarding)")
 fi

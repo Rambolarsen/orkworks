@@ -25,7 +25,7 @@ jobs:
           cache-dependency-path: docs/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: docs
-      - run: node --test docs/.vitepress/site-facts.test.mjs
+      - run: node --test docs/.vitepress/site-facts.test.mjs scripts/docs-audit-scope.test.mjs
       - run: pnpm docs:build
         working-directory: docs
 

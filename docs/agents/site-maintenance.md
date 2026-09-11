@@ -35,8 +35,10 @@ These warnings remain informational; they do not prove semantic accuracy.
 
 The Documentation audit workflow runs Tuesdays at 06:41 UTC or on manual
 dispatch. It uses the existing `CLAUDE_CODE_OAUTH_TOKEN` secret and can consume
-model usage. It checks the last 14 days of changes, proposes at most three
-evidenced corrections to existing user guides, builds the docs, and opens one
+model usage. It checks the last 14 days of changes and proposes at most three
+evidenced corrections to existing user guides. Deterministic steps reject
+out-of-scope files, new files, removals, renames, or excess edits before building
+the docs and opening one
 draft `docs-currency-audit` PR. An existing open proposal prevents another.
 Missing credentials are reported in the job summary. It never merges its PR.
 Actions must be allowed to create pull requests in repository settings.
@@ -47,7 +49,7 @@ PR validation before merging (for example by pushing a reviewed change).
 ## Verify changes
 
 ```bash
-node --test docs/.vitepress/site-facts.test.mjs
+node --test docs/.vitepress/site-facts.test.mjs scripts/docs-audit-scope.test.mjs
 cd docs
 pnpm install --frozen-lockfile
 pnpm docs:build

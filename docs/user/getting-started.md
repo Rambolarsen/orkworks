@@ -11,8 +11,10 @@ installer may not include every feature described here.
 <DownloadLinks />
 
 The release pipeline targets Apple Silicon macOS and Windows x64. Alpha
-installers are unsigned; read the release notes for platform-specific
-installation details. Linux and Intel macOS are source/local-build paths.
+installers are unsigned. When a public installer is available, read its notes
+on the [releases page](https://github.com/Rambolarsen/orkworks/releases) for
+platform-specific installation details. Linux and Intel macOS are
+source/local-build paths.
 
 ## Run from source
 

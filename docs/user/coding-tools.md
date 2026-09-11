@@ -24,6 +24,15 @@ native voice, or integrations.
 3. Open OrkWorks Settings and review the available coding tools.
 4. Select the tool when creating a session in your workspace.
 
+Official installation and sign-in guides:
+
+- [Claude Code](https://code.claude.com/docs/en/quickstart)
+- [Codex](https://github.com/openai/codex#installation-and-setup)
+- [OpenCode](https://opencode.ai/docs/)
+- [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli)
+- [Aider](https://aider.chat/docs/install.html)
+- [Antigravity CLI](https://www.antigravity.google/docs/cli/install/)
+
 Integrations are optional and installed explicitly from Settings where
 supported. They can give OrkWorks more direct session signals. Check the
 reported detection, registration, and activation state; an installed
