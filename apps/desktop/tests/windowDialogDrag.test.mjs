@@ -63,11 +63,17 @@ if (process.versions.electron) {
   const { default: test } = await import('node:test');
   const { spawnSync } = await import('node:child_process');
   const { createRequire } = await import('node:module');
-  test('Windows modal overlays preserve dragging without covering dialog controls', { skip: process.platform !== 'win32' }, () => {
+  test('Windows modal overlays preserve dragging without covering dialog controls', () => {
     const electron = createRequire(import.meta.url)('electron');
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const result = spawnSync(electron, [fileURLToPath(import.meta.url)], { env, encoding: 'utf8', timeout: 30000, windowsHide: true });
+    const args = [fileURLToPath(import.meta.url)];
+    // This child loads only the local test fixture; Linux CI restricts sandbox namespaces.
+    if (process.platform === 'linux') args.unshift('--no-sandbox');
+    const headlessLinux = process.platform === 'linux' && !env.DISPLAY;
+    if (headlessLinux) args.unshift('-a', electron);
+    const result = spawnSync(headlessLinux ? 'xvfb-run' : electron, args, { env, encoding: 'utf8', timeout: 30000, windowsHide: true });
+    assert.ifError(result.error);
     assert.equal(result.status, 0, result.stdout + result.stderr);
   });
 }
