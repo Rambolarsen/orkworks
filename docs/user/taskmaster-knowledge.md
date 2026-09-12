@@ -57,6 +57,9 @@ every six hours while the app is running. Updates are verified before use; an
 offline or failed update keeps the cached version. You can disable knowledge
 updates independently of AI analysis. Settings shows version, last successful
 check, and remaining daily evaluations.
+Knowledge page IDs preserve relative Markdown names, including spaces, dots,
+and Unicode, within 256 UTF-8 bytes. Absolute paths, traversal components, and
+control characters are rejected.
 
 Recommendation evidence distinguishes session observations, repository snapshots,
 and the knowledge pages that informed a suggestion. Experimental guidance remains

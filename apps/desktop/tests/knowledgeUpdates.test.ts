@@ -12,7 +12,7 @@ function bundle(version: string) {
   const content = "Document the command that verifies a change and its applicable scope.";
   return { formatVersion: 1, version, sequence: Number(version), publishedAt: "2026-09-09T00:00:00Z", pages: [{
     id: "concepts/verification.md", title: "Verification", type: "concept", status: "active",
-    content, sha256: createHash("sha256").update(content).digest("hex"), relatedIds: [],
+    content, sha256: createHash("sha256").update(content).digest("hex"), relatedIds: [] as string[],
   }] };
 }
 function signed(value: unknown) {
@@ -128,6 +128,28 @@ test("content limits measure UTF-8 bytes rather than characters", () => {
   value.pages[0].content = "é".repeat(40_000);
   value.pages[0].sha256 = createHash("sha256").update(value.pages[0].content).digest("hex");
   assert.throws(() => validateKnowledgeBundle(value), /Invalid knowledge page/);
+});
+
+test("knowledge page IDs preserve safe Markdown names and relationships", () => {
+  for (const id of ["concepts/Review notes.v2.md", "概念/検証.md", ".guides/review.md", "x".repeat(253) + ".md"]) {
+    const value = bundle("1");
+    value.pages[0].id = id;
+    value.pages.push({ ...value.pages[0], id: "index.md", relatedIds: [id] });
+    const parsed = validateKnowledgeBundle(value);
+    assert.equal(parsed.pages[0].id, id);
+    assert.deepEqual(parsed.pages[1].relatedIds, [id]);
+  }
+});
+
+test("knowledge page IDs reject unsafe paths and exceedance of the byte limit", () => {
+  for (const id of ["/guide.md", "../guide.md", "a/../guide.md", "./guide.md", "a//guide.md",
+    "C:/guide.md", "C:guide.md", "a\\guide.md", "\\\\server\\guide.md", "https://host/guide.md",
+    "guide.txt", "guide.md\n", "a\u0000.md", "a\u001b.md", "a\u007f.md", "a\u0085.md",
+    "x".repeat(254) + ".md", "é".repeat(127) + ".md"]) {
+    const value = bundle("1");
+    value.pages[0].id = id;
+    assert.throws(() => validateKnowledgeBundle(value), /Invalid knowledge page/, id);
+  }
 });
 
 test("disabled updates load the starter without making network requests", async () => {

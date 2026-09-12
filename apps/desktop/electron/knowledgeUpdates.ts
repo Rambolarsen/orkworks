@@ -48,6 +48,12 @@ const object = (value: unknown): Record<string, unknown> => {
 };
 const shortText = (value: unknown, max = 500): value is string => typeof value === "string" && value.length > 0 && value.length <= max;
 
+function relativeMarkdownId(value: unknown): value is string {
+  return shortText(value, 256) && Buffer.byteLength(value) <= 256
+    && value.endsWith(".md") && !/[\\:\u0000-\u001f\u007f-\u009f]/u.test(value)
+    && value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+
 export function validateKnowledgeBundle(value: unknown): KnowledgeBundle {
   const bundle = object(value);
   if (bundle.formatVersion !== 1 || !shortText(bundle.version, 128)
@@ -57,7 +63,7 @@ export function validateKnowledgeBundle(value: unknown): KnowledgeBundle {
   const ids = new Set<string>();
   for (const item of bundle.pages) {
     const page = object(item);
-    if (!shortText(page.id, 256) || !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*\.md$/.test(page.id)
+    if (!relativeMarkdownId(page.id)
       || ids.has(page.id) || !shortText(page.title) || !shortText(page.type, 64)
       || !shortText(page.status, 64) || !shortText(page.content, 64 * 1024)
       || Buffer.byteLength(page.content) > 64 * 1024
