@@ -38,6 +38,8 @@ import {
   type PlannedIntegrationMutation,
 } from "./activeHarnessIntegration";
 
+import { getWindowChromeOptions } from "./windowChrome";
+
 app.setName("OrkWorks");
 
 let mainWindow: BrowserWindow | null = null;
@@ -118,7 +120,7 @@ function createWindow(): void {
     minHeight: 500,
     title: "OrkWorks",
     icon: path.join(__dirname, "../build", process.platform === "win32" ? "icon.ico" : "icon.png"),
-    ...(process.platform === "darwin" && { titleBarStyle: "hiddenInset" as const }),
+    ...getWindowChromeOptions(process.platform),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

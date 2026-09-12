@@ -368,6 +368,7 @@ The first useful MVP should include:
 #### Electron Desktop Shell
 
 - Electron app shell
+- On Windows, one integrated 38px header replaces the separate native title bar: OrkWorks icon at the far left, workspace name and switch action, connection status, and native minimize/maximize/close controls at the right. Preserve dragging, resizing, and keyboard menu access (Alt reveals the auto-hidden application menu). macOS and Linux retain their existing window chrome.
 - React + TypeScript UI
 - VS Code-like three-column layout
 - left sidebar with workspaces/sessions
