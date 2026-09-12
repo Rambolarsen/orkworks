@@ -45,7 +45,7 @@ while using the app.
 
 In current source builds, the OrkWorks icon and workspace name share one top
 bar with the native minimize, maximize, and close buttons. Drag an empty part
-of that bar to move the window. Press **Alt** to reveal the application menu;
+of that bar to move the window, including while a dialog is open. Press **Alt** to reveal the application menu;
 menu keyboard shortcuts remain available while it is hidden.
 
 ## Start your first session

@@ -70,6 +70,24 @@ html, body, #root {
   width: env(titlebar-area-width, calc(100% - 138px));
 }
 
+/* Full-window overlays must preserve dragging without exposing workspace actions. */
+[data-platform="win32"] :is(.settings-backdrop, .new-session-backdrop, .error-boundary)::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--titlebar-height);
+  -webkit-app-region: drag;
+}
+
+[data-platform="win32"] .new-session-backdrop {
+  padding-top: var(--titlebar-height);
+}
+
+[data-platform="win32"] .new-session-dialog {
+  max-height: calc(100vh - var(--titlebar-height) - var(--space-5));
+  overflow-y: auto;
+}
+
 .titlebar-icon {
   width: 24px;
   height: 24px;
