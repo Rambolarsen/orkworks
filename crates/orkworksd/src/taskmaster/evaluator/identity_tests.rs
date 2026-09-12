@@ -141,6 +141,45 @@ fn approve(state: &AppState, trust: &InferenceTrustStore) {
 }
 
 #[test]
+fn generated_proposals_reject_terminal_control_characters() {
+    for field in ["title", "summary"] {
+        for control in ['\r', '\n', '\u{1b}', '\u{0}', '\u{7f}'] {
+            let fixture = Fixture::new();
+            let mut proposal = serde_json::json!({
+                "targetSurface":"documentation", "title":"Document verification",
+                "summary":"Experimental improvement",
+                "repositoryFactHashes":[fixture.facts[0].sha256], "knowledgePageIds":[]
+            });
+            proposal[field] = format!("first{control}second").into();
+            apply_model_output(
+                &fixture.state,
+                &fixture.runtime,
+                &fixture.snapshot,
+                fixture.dir.path(),
+                fixture.instance,
+                &fixture.facts,
+                &[],
+                &serde_json::json!({"proposals":[proposal]}).to_string(),
+            );
+            assert!(
+                fixture
+                    .state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .recommendation_store
+                    .list()
+                    .unwrap()
+                    .is_empty(),
+                "accepted {field} {control:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn evaluation_identity_rejects_stale_custom_output_at_recommendation_commit() {
     for change in [
         "none",
@@ -322,6 +361,15 @@ fn evaluation_identity_reservation_checks_trust_and_uses_bound_cache_key() {
             &fresh
         )
         .unwrap());
+    assert!(fixture
+        .runtime
+        .record_evaluation_success(
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            &fresh,
+            &fresh_key,
+        )
+        .unwrap());
     assert!(!fixture
         .runtime
         .reserve_snapshot(
@@ -414,11 +462,49 @@ fn evaluation_identity_native_to_custom_change_invalidates_binding_reservation_a
     changed.settings.selection.as_mut().unwrap().model = "another-model".into();
     assert_ne!(key, changed.cache_key("prompt").unwrap());
     let path = fixture.dir.path().join("harnesses.json");
+    assert!(fixture
+        .runtime
+        .reserve_snapshot(
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            "2026-09-11T00:00:00Z",
+            &key,
+            &fixture.snapshot
+        )
+        .unwrap());
+    assert!(fixture
+        .runtime
+        .record_evaluation_success(
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            &fixture.snapshot,
+            &key
+        )
+        .unwrap());
+    assert!(!fixture
+        .runtime
+        .reserve_snapshot(
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            "2026-09-11T01:00:00Z",
+            &key,
+            &fixture.snapshot
+        )
+        .unwrap());
     let mut document: serde_json::Value =
         serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     document["overrides"]["codex"] =
         serde_json::json!({"inference":document["custom"][0]["inference"]});
     fs::write(path, serde_json::to_vec(&document).unwrap()).unwrap();
+    assert!(!fixture
+        .runtime
+        .record_evaluation_success(
+            &fixture.state.harness_store,
+            fixture.dir.path(),
+            &fixture.snapshot,
+            "stale-key"
+        )
+        .unwrap());
     assert!(!fixture
         .runtime
         .reserve_snapshot(

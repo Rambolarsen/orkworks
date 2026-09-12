@@ -196,6 +196,50 @@ fn custom_evaluation_failures_spend_one_reservation_without_recommendations() {
 }
 
 #[test]
+fn custom_evaluation_retries_failed_inputs_but_caches_accepted_empty_results() {
+    let fixture = Fixture::new("malformed");
+    fixture.approve();
+    fixture.run();
+    assert_eq!(fixture.remaining(), 7);
+    let ledger_path = fixture.root.join("evaluations.json");
+    let allow_next_interval = || {
+        let mut ledger: serde_json::Value =
+            serde_json::from_slice(&fs::read(&ledger_path).unwrap()).unwrap();
+        let key = fixture
+            .dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
+        ledger["workspaceLastEvaluated"][&key] = "2026-01-01T00:00:00Z".into();
+        fs::write(&ledger_path, serde_json::to_vec(&ledger).unwrap()).unwrap();
+    };
+    allow_next_interval();
+    fs::write(
+        fixture.root.join("response.json"),
+        json!({"version":1,"status":"success",
+        "result":"{\"enrichments\":[],\"proposals\":[]}"})
+        .to_string(),
+    )
+    .unwrap();
+    fixture.run();
+    assert_eq!(
+        fixture.remaining(),
+        6,
+        "failed inputs must retry after the interval"
+    );
+    assert!(fixture.recommendations().is_empty());
+    allow_next_interval();
+    fixture.run();
+    assert_eq!(
+        fixture.remaining(),
+        6,
+        "accepted empty results must suppress identical calls"
+    );
+}
+
+#[test]
 fn custom_evaluation_rechecks_readiness_before_context_and_reservation() {
     for change in [
         "unapproved",

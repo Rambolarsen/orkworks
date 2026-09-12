@@ -47,12 +47,8 @@ pub(crate) fn collect_repository_facts(
         if remaining == 0 {
             break;
         }
-        let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
-        if !metadata.is_file() {
-            continue;
-        }
         let mut bytes = Vec::new();
-        fs::File::open(&path)
+        open_context_file(&path)
             .map_err(|error| error.to_string())?
             .take(MAX_FILE_BYTES as u64)
             .read_to_end(&mut bytes)
@@ -95,6 +91,95 @@ pub(crate) fn collect_repository_facts(
         });
     }
     Ok(evidence)
+}
+
+fn open_context_file(path: &Path) -> std::io::Result<fs::File> {
+    let file = open_without_links(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other("context file is not regular"));
+    }
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn open_without_links(path: &Path) -> std::io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Component;
+
+    if !path.is_absolute() {
+        return Err(std::io::Error::other("context path must be absolute"));
+    }
+    let mut file = fs::File::open("/")?;
+    let mut parts = path.components().peekable();
+    while let Some(part) = parts.next() {
+        let name = match part {
+            Component::RootDir => continue,
+            Component::Normal(name) => CString::new(name.as_bytes())?,
+            _ => return Err(std::io::Error::other("invalid context path component")),
+        };
+        let flags = libc::O_RDONLY
+            | libc::O_CLOEXEC
+            | libc::O_NOFOLLOW
+            | libc::O_NONBLOCK
+            | if parts.peek().is_some() {
+                libc::O_DIRECTORY
+            } else {
+                0
+            };
+        // SAFETY: file owns a live directory descriptor and name is NUL-terminated.
+        // Each next component is opened relative to that descriptor without links.
+        let fd = unsafe { libc::openat(file.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: openat returned a new descriptor, transferred to exactly one File.
+        file = unsafe { fs::File::from_raw_fd(fd) };
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_without_links(path: &Path) -> std::io::Result<fs::File> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_READ,
+    };
+    if !path.is_absolute() {
+        return Err(std::io::Error::other("context path must be absolute"));
+    }
+    let mut parents = Vec::new();
+    let mut current = PathBuf::new();
+    for part in path.components() {
+        current.push(part);
+        if matches!(part, std::path::Component::Prefix(_)) {
+            continue;
+        }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            // Deny reparse mutation and deletion/rename while descendants open.
+            .share_mode(FILE_SHARE_READ)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&current)?;
+        if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(std::io::Error::other(
+                "context path contains a reparse point",
+            ));
+        }
+        parents.push(file);
+    }
+    parents
+        .pop()
+        .ok_or_else(|| std::io::Error::other("empty context path"))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_without_links(_: &Path) -> std::io::Result<fs::File> {
+    Err(std::io::Error::other(
+        "safe context collection is unsupported on this platform",
+    ))
 }
 
 fn collect_paths(
@@ -158,17 +243,19 @@ fn collect_paths(
                 remaining_entries,
             )?;
         } else if file_type.is_file() && allowed_file(relative, level) {
-            let canonical = match path.canonicalize() {
-                Ok(value) if value.starts_with(root) => value,
-                _ => continue,
-            };
-            output.push(canonical);
+            // Preserve the traversed path: canonicalizing here could conceal a
+            // substituted symlink into an excluded directory. Opening checks
+            // every original component without following links.
+            output.push(path);
         }
     }
     Ok(())
 }
 
 fn path_is_excluded(relative: &str, configured: &str) -> bool {
+    let configured = configured.replace('\\', "/");
+    #[cfg(windows)]
+    let (relative, configured) = (relative.to_lowercase(), configured.to_lowercase());
     let configured = configured.trim().trim_matches('/');
     !configured.is_empty()
         && (relative == configured || relative.starts_with(&format!("{configured}/")))
@@ -177,21 +264,22 @@ fn path_is_excluded(relative: &str, configured: &str) -> bool {
 fn builtin_excluded(relative: &Path) -> bool {
     if relative.components().any(|part| {
         matches!(
-            part.as_os_str().to_str(),
-            Some(
-                ".git"
-                    | ".orkworks"
-                    | "node_modules"
-                    | "target"
-                    | "dist"
-                    | "build"
-                    | ".ssh"
-                    | ".aws"
-                    | ".azure"
-                    | ".gcloud"
-                    | ".codex"
-                    | ".claude"
-            )
+            part.as_os_str()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .as_str(),
+            ".git"
+                | ".orkworks"
+                | "node_modules"
+                | "target"
+                | "dist"
+                | "build"
+                | ".ssh"
+                | ".aws"
+                | ".azure"
+                | ".gcloud"
+                | ".codex"
+                | ".claude"
         )
     }) {
         return true;
@@ -248,6 +336,43 @@ fn allowed_file(path: &Path, level: ContextLevel) -> bool {
 mod tests {
     use super::*;
     use crate::taskmaster::runtime::ContextLevel;
+
+    #[cfg(unix)]
+    #[test]
+    fn context_open_rejects_file_and_parent_replaced_with_symlinks() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("README.md"), "outside data").unwrap();
+        let directory = root.join("docs");
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("README.md");
+        fs::write(&path, "inside data").unwrap();
+        assert!(open_context_file(&path).is_ok());
+        fs::remove_file(&path).unwrap();
+        symlink(outside.path().join("README.md"), &path).unwrap();
+        assert!(open_context_file(&path).is_err());
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(&directory).unwrap();
+        symlink(outside.path(), &directory).unwrap();
+        assert!(open_context_file(&path).is_err());
+    }
+
+    #[test]
+    fn configured_exclusions_accept_native_separators_and_sensitive_directory_case() {
+        assert!(path_is_excluded("private/docs/README.md", r"private\docs"));
+        assert!(!path_is_excluded(
+            "private/documents/README.md",
+            r"private\docs"
+        ));
+        if cfg!(windows) {
+            assert!(path_is_excluded("Private/Docs/README.md", "private/docs"));
+        }
+        for name in [".AWS", ".SSH", ".CODEX"] {
+            assert!(builtin_excluded(&Path::new(name).join("README.md")));
+        }
+    }
 
     #[test]
     fn collector_returns_confined_document_facts_but_not_credentials_or_ignored_paths() {

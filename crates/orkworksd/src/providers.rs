@@ -701,7 +701,10 @@ fn block_on_http<F: std::future::Future>(f: F) -> F::Output {
 
 pub(crate) mod custom_inference;
 mod inference;
+pub(crate) use inference::valid_native_model;
 pub(crate) mod native_inference;
+#[cfg(windows)]
+mod windows_process;
 
 /// Freeze login/configuration environment without sidecar or shell capabilities.
 fn set_inference_environment(command: &mut Command) {
@@ -824,6 +827,23 @@ fn remaining_until(deadline: std::time::Instant) -> Duration {
     deadline.saturating_duration_since(std::time::Instant::now())
 }
 
+fn join_until(thread: std::thread::JoinHandle<()>, deadline: std::time::Instant) -> bool {
+    while !thread.is_finished() {
+        let remaining = remaining_until(deadline);
+        if remaining.is_zero() {
+            return false;
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+    thread.join().is_ok()
+}
+
+#[test]
+fn process_cleanup_does_not_join_a_pipe_thread_past_its_deadline() {
+    let thread = std::thread::spawn(|| std::thread::sleep(Duration::from_millis(100)));
+    assert!(!join_until(thread, std::time::Instant::now()));
+}
+
 impl ProviderRunner for ProcessRunner {
     fn run(
         &self,
@@ -893,6 +913,22 @@ impl ProcessRunner {
         #[cfg(unix)]
         cmd.process_group(0);
 
+        #[cfg(windows)]
+        let job = {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
+            match windows_process::ProcessJob::new() {
+                Ok(job) => job,
+                Err(error) => {
+                    return Ok(ProcessOutcome::Finished(InvocationResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: error.to_string(),
+                    }))
+                }
+            }
+        };
+
         let child = match spawn(cmd)? {
             Ok(c) => c,
             Err(e) => {
@@ -905,7 +941,25 @@ impl ProcessRunner {
             }
         };
 
-        Ok(self.finish_child(id, child, prompt, timeout_secs, strict_stdout))
+        #[cfg(windows)]
+        if let Err(error) = job.attach_and_resume(&child) {
+            let mut child = child;
+            let _ = child.kill();
+            return Ok(ProcessOutcome::Finished(InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: error.to_string(),
+            }));
+        }
+        Ok(self.finish_child(
+            id,
+            child,
+            prompt,
+            timeout_secs,
+            strict_stdout,
+            #[cfg(windows)]
+            job,
+        ))
     }
 
     fn finish_child(
@@ -915,6 +969,7 @@ impl ProcessRunner {
         prompt: &str,
         timeout_secs: u64,
         strict_stdout: bool,
+        #[cfg(windows)] job: windows_process::ProcessJob,
     ) -> ProcessOutcome {
         let pid = child.id();
         let terminate_child = |child: &mut std::process::Child| {
@@ -929,16 +984,19 @@ impl ProcessRunner {
             let _ = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
             #[cfg(windows)]
             {
-                // Terminating a Windows process does not terminate its
-                // descendants. Kill the whole tree so inherited stdio handles
-                // close and the capture threads can be joined below.
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid.to_string(), "/T", "/F"])
-                    .output();
+                if let Err(error) = job.terminate() {
+                    tracing::warn!(provider = %id, error = %error, "provider tree cleanup failed");
+                    let _ = child.kill();
+                }
             }
             #[cfg(not(any(unix, windows)))]
             let _ = child.kill();
-            let _ = child.wait();
+            let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(1);
+            while matches!(child.try_wait(), Ok(None))
+                && !remaining_until(cleanup_deadline).is_zero()
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
         };
 
         let deadline = std::time::Instant::now()
@@ -956,11 +1014,11 @@ impl ProcessRunner {
 
             match rx.recv_timeout(remaining_until(deadline)) {
                 Ok(Ok(())) => {
-                    let _ = thread.join();
+                    join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                 }
                 Ok(Err(e)) => {
                     terminate_child(&mut child);
-                    let _ = thread.join();
+                    join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                     tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
                     return ProcessOutcome::Finished(InvocationResult {
                         success: false,
@@ -970,7 +1028,7 @@ impl ProcessRunner {
                 }
                 Err(_) => {
                     terminate_child(&mut child);
-                    let _ = thread.join();
+                    join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                     tracing::warn!(provider = %id, "peon: prompt write timed out");
                     return ProcessOutcome::TimedOut;
                 }
@@ -994,11 +1052,12 @@ impl ProcessRunner {
         let join_capture_threads =
             |stdout_thread: Option<std::thread::JoinHandle<()>>,
              stderr_thread: Option<std::thread::JoinHandle<()>>| {
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
                 if let Some(thread) = stdout_thread {
-                    let _ = thread.join();
+                    join_until(thread, deadline);
                 }
                 if let Some(thread) = stderr_thread {
-                    let _ = thread.join();
+                    join_until(thread, deadline);
                 }
             };
 

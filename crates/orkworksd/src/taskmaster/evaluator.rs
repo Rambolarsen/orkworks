@@ -247,16 +247,25 @@ fn run_model_evaluation_with_context(
             return;
         };
         match result {
-            Ok(output) => apply_model_output(
-                &state,
-                &runtime,
-                &snapshot,
-                &workspace_path,
-                workspace_instance,
-                &facts,
-                &recommendations,
-                &output,
-            ),
+            Ok(output) => {
+                if apply_model_output(
+                    &state,
+                    &runtime,
+                    &snapshot,
+                    &workspace_path,
+                    workspace_instance,
+                    &facts,
+                    &recommendations,
+                    &output,
+                ) {
+                    let _ = runtime.record_evaluation_success(
+                        &state.harness_store,
+                        &workspace_path,
+                        &snapshot,
+                        &cache_key,
+                    );
+                }
+            }
             Err(error) => {
                 let _ = runtime.record_evaluation_error(
                     &state.harness_store,
@@ -351,9 +360,9 @@ fn apply_model_output(
     facts: &[crate::taskmaster::RepositoryEvidence],
     supplied_recommendations: &[Recommendation],
     output: &str,
-) {
+) -> bool {
     if output.len() > 64 * 1024 {
-        return;
+        return false;
     }
     let Ok(model) = serde_json::from_str::<ModelOutput>(output) else {
         let _ = runtime.record_evaluation_error(
@@ -362,7 +371,7 @@ fn apply_model_output(
             snapshot,
             Some("Taskmaster provider returned invalid JSON".into()),
         );
-        return;
+        return false;
     };
     let bundle = snapshot.knowledge.as_ref();
     let page_map = bundle
@@ -392,8 +401,10 @@ fn apply_model_output(
         || model.proposals.iter().any(|proposal| {
             parse_target_surface(&proposal.target_surface).is_none()
                 || proposal.title.trim().is_empty()
+                || proposal.title.chars().any(char::is_control)
                 || proposal.title.chars().count() > 240
                 || proposal.summary.trim().is_empty()
+                || proposal.summary.chars().any(char::is_control)
                 || proposal.summary.chars().count() > 1_000
                 || proposal.repository_fact_hashes.is_empty()
                 || proposal.repository_fact_hashes.len() > 32
@@ -414,14 +425,15 @@ fn apply_model_output(
             snapshot,
             Some("Taskmaster provider cited unsupplied knowledge".into()),
         );
-        return;
+        return false;
     }
     if !runtime
         .record_evaluation_error(&state.harness_store, workspace_path, snapshot, None)
         .unwrap_or(false)
     {
-        return;
+        return false;
     }
+    let mut accepted = false;
     let _ = runtime.with_current_evaluation(&state.harness_store, workspace_path, snapshot, || {
     let workspace = state.workspace.lock().expect("workspace lock poisoned");
     let Some(workspace) = workspace
@@ -466,7 +478,7 @@ fn apply_model_output(
             });
         }
         recommendation.updated_at = chrono::Utc::now().to_rfc3339();
-        let _ = workspace.recommendation_store.put(&recommendation);
+        if workspace.recommendation_store.put(&recommendation).is_err() { return; }
     }
     for proposal in model.proposals {
         let target_surface =
@@ -524,9 +536,11 @@ fn apply_model_output(
             dedupe_key, created_at: now.clone(), updated_at: now, expires_at: None,
             workflow_improvement: WorkflowImprovement { proposed_improvement: proposal.summary, target_surface, observation_ids: Vec::new(), recurrence_count: 0, affected_session_ids: Vec::new(), impact: Impact::Low, expected_benefit: "Hypothesis based on the cited repository facts.".into(), supersedes_recommendation_id: None, dismissal_watermark: None },
         };
-        let _ = workspace.recommendation_store.put(&recommendation);
+        if workspace.recommendation_store.put(&recommendation).is_err() { return; }
     }
+    accepted = true;
     });
+    accepted
 }
 
 fn select_relevant_pages(
@@ -536,6 +550,7 @@ fn select_relevant_pages(
 ) {
     let signals = observations
         .iter()
+        .rev()
         .take(16)
         .map(|item| item.description.as_str())
         .chain(facts.iter().map(|item| item.excerpt.as_str()))
@@ -844,5 +859,28 @@ mod tests {
         assert!(prompt.contains("relatedIds"));
         assert!(prompt.contains("never infer absence"));
         assert!(!prompt.contains("page8.md"));
+
+        let observations = (0..32).map(|sequence| serde_json::from_value(
+            serde_json::json!({"id":format!("o{sequence}"),"sequence":sequence,
+                "sessionId":"session","observedAt":"2026-09-12T00:00:00Z",
+                "kind":"obstacle","description":if sequence < 16 { "obsolete" } else { "verification" },
+                "evidence":"observed","reportedImpact":"low","source":"agent",
+                "confidence":0.9,"fingerprint":"friction"})
+        ).unwrap()).collect::<Vec<_>>();
+        snapshot
+            .knowledge
+            .as_mut()
+            .unwrap()
+            .pages
+            .iter_mut()
+            .for_each(|page| {
+                if page.id != "page9.md" {
+                    page.content = "obsolete".into();
+                }
+            });
+        select_relevant_pages(&mut snapshot, &observations, &[]);
+        assert_eq!(snapshot.knowledge.as_ref().unwrap().pages[0].id, "page9.md");
+        let prompt = build_taskmaster_prompt(&snapshot, &observations, &[], &[]);
+        assert!(!prompt.contains("\"description\":\"obsolete\""));
     }
 }

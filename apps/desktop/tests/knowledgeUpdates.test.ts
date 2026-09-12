@@ -4,7 +4,7 @@ import { generateKeyPairSync, createHash, sign } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KnowledgeUpdates, validateKnowledgeBundle } from "../electron/knowledgeUpdates.ts";
+import { KnowledgeUpdates, synchronizeKnowledge, validateKnowledgeBundle } from "../electron/knowledgeUpdates.ts";
 
 const keys = generateKeyPairSync("ed25519");
 const publicKey = keys.publicKey.export({ type: "spki", format: "pem" }).toString();
@@ -30,6 +30,46 @@ async function setup() {
   const options = { directory: join(directory, "cache"), starterPath, publicKey, feedUrl: "https://example.org/knowledge/manifest.json", fetcher, now: () => 1_800_000_000_000 };
   return { directory, options, calls };
 }
+
+test("a rejected older local snapshot still checks and activates the signed feed", async () => {
+  const fixture = await setup();
+  try {
+    const activated: string[] = [];
+    await synchronizeKnowledge(new KnowledgeUpdates(fixture.options), async (value) => {
+      if (value.version === "1") throw new Error("knowledge bundle sequence is older than the active bundle");
+      activated.push(value.version);
+    }, () => true);
+    assert.deepEqual(activated, ["2"]);
+    assert.equal(fixture.calls.length, 2);
+  } finally { await rm(fixture.directory, { recursive: true, force: true }); }
+});
+
+test("knowledge synchronization propagates other activation failures", async () => {
+  const fixture = await setup();
+  try {
+    await assert.rejects(synchronizeKnowledge(new KnowledgeUpdates(fixture.options), async () => {
+      throw new Error("unauthorized");
+    }, () => true), /unauthorized/);
+    assert.deepEqual(fixture.calls, []);
+  } finally { await rm(fixture.directory, { recursive: true, force: true }); }
+});
+
+test("knowledge synchronization stops at every stale workspace boundary", async () => {
+  for (const stage of ["load", "activate", "check"]) {
+    let current = true;
+    let checks = 0;
+    const activated: string[] = [];
+    await synchronizeKnowledge({
+      load: async () => { if (stage === "load") current = false; return bundle("1"); },
+      check: async () => { checks++; if (stage === "check") current = false; return bundle("2"); },
+    }, async (value) => {
+      activated.push(value.version);
+      if (stage === "activate") current = false;
+    }, () => current);
+    assert.deepEqual(activated, stage === "load" ? [] : ["1"], stage);
+    assert.equal(checks, stage === "check" ? 1 : 0, stage);
+  }
+});
 
 test("verified update survives restart and unchanged checks respect the interval", async () => {
   const fixture = await setup();

@@ -119,6 +119,14 @@ pub(crate) async fn set_taskmaster_settings(
                         }),
                 );
                 for selection in selections {
+                    use crate::providers::native_inference::NativeProfile;
+                    use provider_catalog::Transport;
+                    if providers.iter().find(|provider| provider.id == selection.provider)
+                        .is_some_and(|provider| matches!(&provider.transport, Transport::Native(revision) if matches!(revision.profile, NativeProfile::Codex | NativeProfile::Claude)))
+                        && !crate::providers::valid_native_model(&selection.model)
+                    {
+                        return Err("Native Taskmaster model IDs must use ASCII letters, digits, or -._/:@+ (1–256 bytes)".into());
+                    }
                     if selection.reasoning_effort.is_some()
                         && providers
                             .iter()
@@ -254,6 +262,57 @@ mod tests {
             "taskmaster-test-token".parse().unwrap(),
         );
         headers
+    }
+
+    #[tokio::test]
+    async fn model_validation_uses_resolved_transport_not_provider_id() {
+        for provider in ["codex", "claude-code"] {
+            let directory = tempfile::tempdir().unwrap();
+            let state = test_app_state_with_workspace(directory.path());
+            let mut settings = TaskmasterSettings::default();
+            settings.selection = Some(
+                serde_json::from_value(serde_json::json!({
+                    "provider": provider, "model": "vendor/模型 model"
+                }))
+                .unwrap(),
+            );
+            assert_eq!(
+                set_taskmaster_settings(
+                    State(state.clone()),
+                    authorized_headers(),
+                    Json(settings.clone())
+                )
+                .await
+                .status(),
+                StatusCode::UNPROCESSABLE_ENTITY
+            );
+            assert!(runtime_for(&state)
+                .status(None)
+                .settings
+                .selection
+                .is_none());
+            state.harness_store.mutate(&state.harness_catalog, |document| {
+                document.overrides.insert(provider.into(), serde_json::from_value(serde_json::json!({
+                    "inference":{"kind":"command","command":std::env::current_exe().unwrap(),"args":["{model}"],"input":"stdin","output":"result-json-v1"}
+                })).unwrap());
+                Ok(())
+            }).unwrap();
+            assert_eq!(
+                set_taskmaster_settings(State(state.clone()), authorized_headers(), Json(settings))
+                    .await
+                    .status(),
+                StatusCode::OK
+            );
+            assert_eq!(
+                runtime_for(&state)
+                    .status(None)
+                    .settings
+                    .selection
+                    .unwrap()
+                    .model,
+                "vendor/模型 model"
+            );
+        }
     }
 
     #[tokio::test]

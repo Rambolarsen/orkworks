@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "e
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
-import { KnowledgeUpdates } from "./knowledgeUpdates";
+import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
 import { taskmasterRequest } from "./taskmasterSettings";
 import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
 import * as path from "path";
@@ -245,7 +245,7 @@ app.whenReady().then(() => {
     if (generation !== backendGeneration) throw new Error("Workspace changed; reopen Recommendations settings");
     const settings = result.settings as { automaticKnowledgeUpdates?: boolean } | undefined;
     knowledgeUpdates.setEnabled(settings?.automaticKnowledgeUpdates !== false);
-    return { ...result, workspacePath, knowledgeUpdate: knowledgeUpdates.status() };
+    return { ...result, knowledgeUpdate: knowledgeUpdates.status() };
   }
   let knowledgeSync: Promise<void> | null = null;
   async function inferenceTrustContext(): Promise<TrustContext> {
@@ -275,11 +275,8 @@ app.whenReady().then(() => {
       const status = await taskmasterRequest(port, token, "settings");
       const settings = status.settings as { automaticKnowledgeUpdates?: boolean };
       knowledgeUpdates.setEnabled(settings.automaticKnowledgeUpdates !== false);
-      const cached = await knowledgeUpdates.load();
-      if (!stillCurrent()) return;
-      await taskmasterRequest(port, token, "knowledge", cached);
-      const updated = await knowledgeUpdates.check();
-      if (stillCurrent() && updated.version !== cached.version) await taskmasterRequest(port, token, "knowledge", updated);
+      await synchronizeKnowledge(knowledgeUpdates,
+        (bundle) => taskmasterRequest(port, token, "knowledge", bundle), stillCurrent);
     })().catch((error: unknown) => {
       console.warn("[taskmaster] knowledge unavailable:", error instanceof Error ? error.message : "unknown error");
     }).finally(() => {

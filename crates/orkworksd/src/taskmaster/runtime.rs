@@ -170,6 +170,7 @@ pub(crate) struct KnowledgeBundle {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TaskmasterStatus {
+    pub workspace_path: Option<String>,
     pub settings: TaskmasterSettings,
     pub effective_settings: TaskmasterSettings,
     pub remaining_evaluations: u32,
@@ -186,7 +187,8 @@ struct EvaluationLedger {
     reservations: u32,
     #[serde(default)]
     workspace_last_evaluated: BTreeMap<String, String>,
-    #[serde(default)]
+    // Older versions cached reservations, not accepted results. Ignore those keys.
+    #[serde(default, rename = "acceptedWorkspaceCacheKeys")]
     workspace_cache_keys: BTreeMap<String, String>,
     #[serde(default)]
     last_error: Option<String>,
@@ -273,6 +275,7 @@ impl TaskmasterRuntime {
             .as_deref()
             .and_then(|key| data.ledger.workspace_last_evaluated.get(key).cloned());
         TaskmasterStatus {
+            workspace_path: workspace,
             remaining_evaluations: data
                 .ledger_readable
                 .then_some(effective.daily_evaluation_limit.saturating_sub(used))
@@ -424,11 +427,6 @@ impl TaskmasterRuntime {
         data.ledger
             .workspace_last_evaluated
             .insert(workspace.clone(), now.to_string());
-        if let Some(cache_key) = cache_key {
-            data.ledger
-                .workspace_cache_keys
-                .insert(workspace.clone(), cache_key.to_string());
-        }
         write_json(&self.root.join("evaluations.json"), &data.ledger)?;
         Ok(true)
     }
@@ -615,6 +613,53 @@ fn validate_selection(selection: &TaskmasterSelection) -> Result<(), String> {
 #[cfg(test)]
 mod selection_tests {
     use super::*;
+
+    #[test]
+    fn settings_status_exposes_the_canonical_workspace_override_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().join("runtime"));
+        let path = directory.path().join(".");
+        let value = serde_json::to_value(runtime.status(Some(&path))).unwrap();
+        assert_eq!(
+            value["workspacePath"],
+            path.canonicalize().unwrap().display().to_string()
+        );
+        assert!(serde_json::to_value(runtime.status(None)).unwrap()["workspacePath"].is_null());
+        let mut settings = TaskmasterSettings::default();
+        settings.enabled = true;
+        settings.workspace_overrides.insert(
+            value["workspacePath"].as_str().unwrap().into(),
+            serde_json::from_value(serde_json::json!({"enabled": false})).unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        assert!(runtime.status(None).effective_settings.enabled);
+        assert!(!runtime.status(Some(&path)).effective_settings.enabled);
+    }
+
+    #[test]
+    fn stored_custom_overrides_keep_opaque_model_ids() {
+        for provider in ["codex", "claude-code"] {
+            let directory = tempfile::tempdir().unwrap();
+            let runtime = TaskmasterRuntime::open(directory.path().into());
+            for model in ["model ", "vendor/模型", "model;other"] {
+                let mut settings = TaskmasterSettings::default();
+                settings.selection = Some(TaskmasterSelection {
+                    provider: provider.into(),
+                    model: model.into(),
+                    reasoning_effort: None,
+                    ollama_base_url: None,
+                });
+                assert!(
+                    runtime.replace_settings(settings).is_ok(),
+                    "rejected opaque {provider}: {model}"
+                );
+                assert_eq!(
+                    runtime.status(None).settings.selection.unwrap().model,
+                    model
+                );
+            }
+        }
+    }
 
     #[test]
     fn selection_rejects_unbounded_or_control_values_without_rewriting_opaque_models() {
@@ -860,7 +905,7 @@ mod tests {
             )
             .unwrap());
         let reopened = TaskmasterRuntime::open(directory.path().into());
-        assert!(!reopened
+        assert!(reopened
             .reserve_current(
                 directory.path(),
                 "2026-09-09T01:00:00Z",
@@ -886,14 +931,47 @@ mod tests {
         assert!(reopened
             .reserve_current(
                 directory.path(),
-                "2026-09-09T01:00:00Z",
+                "2026-09-09T02:00:00Z",
                 Some("same"),
                 Some(generation)
             )
             .unwrap());
         let ledger: EvaluationLedger =
             read_json(directory.path().join("evaluations.json")).unwrap();
-        assert_eq!(ledger.reservations, 2);
+        assert_eq!(ledger.reservations, 3);
+    }
+
+    #[test]
+    fn legacy_reservation_cache_does_not_suppress_a_retry_or_reset_usage() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        runtime.replace_settings(configured()).unwrap();
+        let key = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
+        fs::write(
+            directory.path().join("evaluations.json"),
+            serde_json::json!({
+                "day":"2026-09-12", "reservations":3, "generation":1,
+                "workspaceCacheKeys":{key:"old-attempt"},
+                "workspaceLastEvaluated":{}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(runtime
+            .reserve_evaluation_for_inputs(
+                directory.path(),
+                "2026-09-12T12:00:00Z",
+                Some("old-attempt")
+            )
+            .unwrap());
+        let ledger: EvaluationLedger =
+            read_json(directory.path().join("evaluations.json")).unwrap();
+        assert_eq!(ledger.reservations, 4);
     }
 
     #[test]

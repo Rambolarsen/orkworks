@@ -375,6 +375,14 @@ Single binary. Top-level modules:
 
 For the current Rust domain model itself, see [domain-entities.md](domain-entities.md).
 
+The shared provider process runner owns a Windows Job object per invocation
+(`providers/windows_process.rs`). It assigns the suspended child before resuming
+execution, preventing descendants from escaping timeout cleanup. Termination
+and pipe joins have bounded waits; external `taskkill` is unnecessary. Unix
+continues using an owned process group. See the 2026-09-12 amendment to
+[ADR 0055](../adr/0055-json-taskmaster-inference-adapters.md); native Windows
+desktop verification remains tracked by #525.
+
 ## Dockview panel layout
 
 The renderer uses Dockview for sessions, session detail, terminal, and optional utility panels. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. The single reusable Review tab joins Terminal's tab group on demand and renders selected-session plan/spec content as Markdown via `react-markdown`/`remark-gfm` — plan/spec paths are sidecar-enforced to end in `.md` (see `resolve_openable_plan_reference` and `normalize_reported_plan_path` in the sidecar), so the Review tab does not need to branch on file type. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket attach channel. Inactive sessions do not need to stay attached to keep their PTYs running; only the active terminal stays attached. The session detail panel includes read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` fields for the selected session, plus debug-only `OrkWorks session ID` / `Harness session ID` fields and the read-only `Peon diagnostics` block when `Show debug metadata` is enabled.

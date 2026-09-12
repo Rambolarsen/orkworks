@@ -16,6 +16,11 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Architecture
 
+Background CLI inference owns its process tree for bounded cleanup, using Unix
+process groups and Windows Job objects. See [ADR 0055](docs/adr/0055-json-taskmaster-inference-adapters.md)
+for the transport contract; native Windows desktop validation remains tracked in
+[issue #525](https://github.com/Rambolarsen/orkworks/issues/525).
+
 The accepted [brain-informed Taskmaster design](specs/taskmaster-knowledge.md)
 adds independently updated reference knowledge, a separate analysis model, and
 user-controlled background discovery; implementation is tracked in

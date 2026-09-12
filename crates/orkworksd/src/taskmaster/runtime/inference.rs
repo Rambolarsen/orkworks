@@ -129,6 +129,47 @@ impl TaskmasterRuntime {
         }
     }
 
+    /// Cache only an accepted result, revalidating its identity before persistence.
+    pub(crate) fn record_evaluation_success(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        cache_key: &str,
+    ) -> Result<bool, String> {
+        let Some(workspace_key) = canonical_workspace_key(workspace) else {
+            return Ok(false);
+        };
+        let mut saved = Ok(false);
+        let save = |data: &mut super::RuntimeData| {
+            data.ledger
+                .workspace_cache_keys
+                .insert(workspace_key, cache_key.into());
+            saved =
+                super::write_json(&self.root.join("evaluations.json"), &data.ledger).map(|()| true);
+        };
+        if let Some(captured) = &snapshot.custom_inference {
+            if !captured.matches_snapshot(workspace, snapshot) {
+                return Ok(false);
+            }
+            self.with_current_custom_data(harnesses, captured, save)?;
+        } else {
+            self.with_native_revision(harnesses, snapshot, || {
+                let _guard = PersistenceGuard::acquire(&self.root)?;
+                let mut data = self
+                    .data
+                    .lock()
+                    .map_err(|_| "taskmaster runtime lock unavailable")?;
+                reload_durable(&self.root, &mut data);
+                if data.ledger_readable && data.ledger.generation == snapshot.generation {
+                    save(&mut data);
+                }
+                Ok(())
+            })?;
+        }
+        saved
+    }
+
     /// Reserve under the same trust/definition boundary as spawn and acceptance.
     /// `cache_key` is an internal evaluator value from `snapshot.cache_key(prompt)`,
     /// not a caller-supplied API value; this method does not receive prompt text.

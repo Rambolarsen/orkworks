@@ -140,6 +140,8 @@ jobs:
             "providers::custom_inference::transport_tests::custom_inference_cleans_up_failures_and_bounds_output_and_runtime",
             "providers::custom_inference::transport_tests::custom_inference_rejects_invalid_utf8_instead_of_repairing_response_bytes",
             "providers::custom_inference::transport_tests::custom_inference_does_not_classify_provider_stderr_as_runner_timeout",
+            "taskmaster::context::tests::configured_exclusions_accept_native_separators_and_sensitive_directory_case",
+            "taskmaster::runtime::selection_tests::settings_status_exposes_the_canonical_workspace_override_key",
             "taskmaster::evaluator::activation_tests::unapproved_custom_evaluation_never_starts_a_child_or_spends_usage",
             "taskmaster::evaluator::activation_tests::activation_requires_approval_then_persists_grounded_custom_output",
             "taskmaster::evaluator::activation_tests::custom_evaluation_failures_spend_one_reservation_without_recommendations",
@@ -157,6 +159,11 @@ jobs:
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml activation_tests
       - name: Test inference trust persistence and identity
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml inference_trust
+      - name: Test Windows context exclusions and workspace settings
+        run: |
+          cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::context
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::runtime::selection_tests
 
   noop:
     name: No relevant code changes

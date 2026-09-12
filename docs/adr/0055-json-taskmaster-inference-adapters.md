@@ -35,3 +35,19 @@ implemented and verified.
 
 The [reviewed design](../superpowers/specs/2026-09-10-custom-inference-adapters-design.md)
 defines bounds, trust semantics, migration, and acceptance requirements.
+
+## Amendment — 2026-09-12: enforce bounded Windows cleanup
+
+The bounded transport contract requires process-tree ownership independent of
+external cleanup programs. The shared Windows process runner creates children
+suspended, assigns them to an unnamed kill-on-close Job object, and resumes the
+initial thread only after assignment. Assignment or resume failure fails closed.
+It terminates the job on timeout and bounds child/pipe cleanup waits even when
+termination fails. Unix retains its owned process group. This operationalizes
+the existing timeout contract; it does not change executable trust or permit
+background coding actions. Native Windows execution and desktop evidence remain
+tracked by #525.
+
+References: [Windows Job objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects),
+[AssignProcessToJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-assignprocesstojobobject),
+[ResumeThread](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-resumethread).

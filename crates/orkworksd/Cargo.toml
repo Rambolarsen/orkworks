@@ -32,4 +32,4 @@ tempfile = "3"
 [target.'cfg(windows)'.dependencies]
 # ReplaceFileW preserves Windows replacement semantics for existing targets;
 # MoveFileExW publishes new targets without clobbering a raced creation.
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }

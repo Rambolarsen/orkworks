@@ -63,6 +63,14 @@ pub(super) fn prepare(
     prepare_with_preferences(definition, model, effort, prompt, &preferences)
 }
 
+pub(crate) fn valid_native_model(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= 256
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-._/:@+".contains(c))
+}
+
 fn prepare_with_preferences(
     definition: &ProviderDefinition,
     model: &str,
@@ -74,12 +82,7 @@ fn prepare_with_preferences(
         code: ProviderOperationErrorCode::UnsupportedCapability,
         message: "provider has no verified inference-only transport".into(),
     })?;
-    if model.is_empty()
-        || model.len() > 256
-        || !model
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-._/:@+".contains(c))
-    {
+    if !valid_native_model(model) {
         return Err(invalid("model contains unsupported characters"));
     }
     if effort.is_some_and(|value| !matches!(value, "low" | "medium" | "high")) {

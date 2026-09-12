@@ -30,7 +30,9 @@ not satisfy that requirement.
 Model suggestions are static; enter your provider's model ID directly when it
 is not listed. Opening Recommendations settings does not run model-discovery
 commands. Model IDs are preserved unchanged and must be nonempty, at most
-256 UTF-8 bytes, and contain no control characters. Reasoning effort must be
+256 UTF-8 bytes, and contain no control characters. Built-in Codex and Claude
+profiles additionally require ASCII letters, digits, or `-._/:@+`; unsupported
+model values are rejected when saving. Reasoning effort must be
 supported by the selected adapter; choose **Provider default** to remove an
 unsupported setting. Ollama currently does not support this effort setting.
 
@@ -46,6 +48,9 @@ default limit is eight AI evaluations per UTC day across the app and at least
 one hour between evaluations of a workspace. Failed calls count. This limits
 usage, not the amount a provider may bill. Saving a narrower context invalidates
 pending results that used the previous context.
+Failed or discarded evaluations can retry after the minimum interval, within
+the remaining budget. Only successfully accepted results suppress identical
+future evaluations.
 
 Shared reference knowledge ships with the application and updates automatically
 every six hours while the app is running. Updates are verified before use; an

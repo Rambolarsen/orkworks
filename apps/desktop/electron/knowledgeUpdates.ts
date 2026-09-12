@@ -13,6 +13,27 @@ export interface KnowledgeBundle {
 export interface KnowledgeStatus {
   version: string | null; lastSuccessfulUpdate: string | null; lastError: string | null;
 }
+
+/** Main-owned synchronization, with the same generation guard as its caller. */
+export async function synchronizeKnowledge(
+  updates: Pick<KnowledgeUpdates, "load" | "check">,
+  activate: (bundle: KnowledgeBundle) => Promise<unknown>,
+  isCurrent: () => boolean,
+): Promise<void> {
+  const cached = await updates.load();
+  if (!isCurrent()) return;
+  try {
+    await activate(cached);
+  } catch (error) {
+    // Sidecar knowledge may outlive a lost Electron cache. Keep its newer
+    // snapshot and still allow recovery through the independently signed feed.
+    if (!(error instanceof Error)
+      || error.message !== "knowledge bundle sequence is older than the active bundle") throw error;
+  }
+  if (!isCurrent()) return;
+  const updated = await updates.check();
+  if (isCurrent() && updated.version !== cached.version) await activate(updated);
+}
 interface Options {
   directory: string; starterPath: string; publicKey: string; feedUrl: string;
   fetcher?: (url: string, init?: RequestInit) => Promise<Response>;

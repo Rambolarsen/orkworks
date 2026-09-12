@@ -42,6 +42,12 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("activation") => activation(&args[1..]),
         Some("transport") => transport(&args[1..]),
+        Some("hold-pipes") => {
+            let root = PathBuf::from(env::var_os("CUSTOM_TEST_ROOT").unwrap());
+            fs::write(root.join("descendant-started"), "started").unwrap();
+            std::thread::sleep(Duration::from_secs(3));
+            fs::write(root.join("descendant-survived"), "survived").unwrap();
+        }
         _ => panic!("unknown fixture protocol"),
     }
 }
@@ -50,6 +56,8 @@ fn transport(args: &[String]) {
     let root = PathBuf::from(env::var_os("CUSTOM_TEST_ROOT").unwrap());
     let mode = env::var("CUSTOM_TEST_MODE").unwrap();
     if mode == "timeout" {
+        let _descendant = std::process::Command::new(env::current_exe().unwrap())
+            .arg("hold-pipes").spawn().unwrap();
         std::thread::sleep(Duration::from_secs(3));
     }
     let mut fields = vec![env::current_dir().unwrap().to_str().unwrap().to_owned()];

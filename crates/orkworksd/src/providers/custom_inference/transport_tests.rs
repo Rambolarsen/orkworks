@@ -27,19 +27,14 @@ fn exercise(mode: &str, file: bool) {
     child.current_dir(root.path());
     // Windows requires its system directory, not a provider credential/config.
     child.env_clear();
-    #[cfg(not(windows))]
     let test_path = root.path().as_os_str().to_owned();
     #[cfg(windows)]
-    let test_path = {
+    {
         let system_root = std::env::var_os("SYSTEMROOT").expect("Windows system root");
         child.env("SYSTEMROOT", &system_root);
-        // The process runner uses taskkill for timeout cleanup on Windows.
-        std::env::join_paths([
-            root.path().to_path_buf(),
-            PathBuf::from(system_root).join("System32"),
-        ])
-        .unwrap()
-    };
+        // A failing cleanup executable must have no role in process ownership.
+        fs::copy(&executable, root.path().join("taskkill.exe")).unwrap();
+    }
     let output = child
         .args(["--exact", CHILD, "--nocapture"])
         .env("PATH", &test_path)
@@ -76,6 +71,12 @@ fn exercise(mode: &str, file: bool) {
     // Timeout may happen before the child can record anything. The helper
     // asserts timeout classification and ownership cleanup directly below.
     if mode == "timeout" {
+        assert!(root.path().join("descendant-started").exists());
+        std::thread::sleep(Duration::from_secs(3));
+        assert!(
+            !root.path().join("descendant-survived").exists(),
+            "provider descendant escaped cleanup"
+        );
         return;
     }
     let record = fs::read_to_string(root.path().join("record"))
