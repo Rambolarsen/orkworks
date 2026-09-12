@@ -57,3 +57,14 @@ alongside the descendant-holding-pipes timeout fixture. Native Windows execution
 and owner desktop smoke evidence remain tracked in #525. The blind-spot closeout
 found these gaps already covered by #525 and #503; neither issue is closed or
 duplicated. The formal `/code-review medium` gate remains pending and blocks merge.
+
+Native Windows CI at c135596 passed custom transport (including descendant
+cleanup), approval-gated evaluation and trust tests. Newly enabled end-to-end
+context tests then failed: canonical Rust paths and libgit2 workdir paths used
+different Windows prefixes, so the fail-closed ignore check excluded everything.
+Canonicalizing the repository workdir before prefix comparison addresses that
+failure without following candidate-file links or weakening ignore failures.
+The same two collector regressions remain enabled for native CI verification.
+Local context tests (4), formatting and diff checks pass after the correction.
+The incremental doc checker suggests user docs; no new user contract is added:
+this restores the already documented Git-ignore-aware Windows collection.

@@ -220,6 +220,9 @@ fn collect_paths(
             || repository.is_some_and(|repository| {
                 repository
                     .workdir()
+                    // libgit2 may return a drive path while Rust canonicalization
+                    // uses a verbatim Windows prefix. Compare the same spelling.
+                    .and_then(|repo_root| repo_root.canonicalize().ok())
                     .and_then(|repo_root| path.strip_prefix(repo_root).ok())
                     .map(|repo_relative| {
                         repository

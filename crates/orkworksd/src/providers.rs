@@ -971,6 +971,7 @@ impl ProcessRunner {
         strict_stdout: bool,
         #[cfg(windows)] job: windows_process::ProcessJob,
     ) -> ProcessOutcome {
+        #[cfg(unix)]
         let pid = child.id();
         let terminate_child = |child: &mut std::process::Child| {
             #[cfg(unix)]
