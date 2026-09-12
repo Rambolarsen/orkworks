@@ -169,6 +169,16 @@ The admin override is the documented recovery for the impossible self-approval c
 
 **Clean up your worktrees when done.** Remove the worktree and prune it as soon as the branch merges (or the task is abandoned). Leaving stale worktrees behind wastes disk space and confuses subsequent `git worktree list` output. The `starting-work` skill includes the exact cleanup commands.
 
+For a merged PR with a local branch/worktree, use the guarded repository
+helper with the concrete PR number or URL:
+
+```bash
+bash scripts/finish-pr.sh <PR_NUMBER_OR_URL>
+```
+
+It verifies that the PR is merged into `main`, refuses current, ambiguous, or
+dirty worktrees, and then removes the clean matching worktree and local branch.
+
 Because parallel agents each see only their own worktree, none of them individually notices the fleet-wide sprawl this creates — see the [worktree currency check](#worktree-currency-check) below, which runs at the end of every session and reports on all worktrees, not just the current one.
 
 ## Decision tracking

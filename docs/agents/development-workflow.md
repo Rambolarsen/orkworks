@@ -109,6 +109,17 @@ If the checkout, branch, and any number given still don't converge on exactly
 one PR, stop and ask the user for the PR number or URL rather than acting on
 an assumed target.
 
+After a concrete PR merges, run the repository cleanup helper from the
+repository root:
+
+```bash
+bash scripts/finish-pr.sh <PR_NUMBER_OR_URL>
+```
+
+It rechecks the PR's merged-into-`main` state, finds the matching local branch
+and worktree, and refuses current, ambiguous, or dirty worktrees before
+removing the clean worktree and local branch.
+
 ## Documentation and worktree maintenance
 
 Before ending a session, run:
