@@ -46,7 +46,7 @@ export interface WorkspaceSessionController {
   setPollingEnabled(enabled: boolean): void;
   openWorkspace(path: string): Promise<void>;
   adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void>;
-  refreshSessions(): Promise<boolean>;
+  refreshSessions(): Promise<readonly SessionInfo[] | null>;
   createSession(options: CreateSessionOptions): Promise<void>;
   resumeSession(id: string): Promise<void>;
   selectSession(id: string): void;
@@ -93,12 +93,12 @@ export function createWorkspaceSessionController(
     options.onSessions?.(next);
   };
 
-  async function refreshSessions(epoch?: number): Promise<boolean> {
+  async function refreshSessions(epoch?: number): Promise<readonly SessionInfo[] | null> {
     const token = foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const list = await deps.listSessions(baseUrl);
-      if (!isCurrent(token) || (epoch !== undefined && epoch !== pollingEpoch)) return false;
+      if (!isCurrent(token) || (epoch !== undefined && epoch !== pollingEpoch)) return null;
 
       deps.pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
       const resolution = resolvePendingCreates(pendingCreateIds, list);
@@ -109,9 +109,9 @@ export function createWorkspaceSessionController(
       lastResortAt = nextLastResortAt;
       publishSessions(next);
       reportedErrors.clear();
-      return true;
+      return next;
     } catch {
-      return false;
+      return null;
     }
   }
 
