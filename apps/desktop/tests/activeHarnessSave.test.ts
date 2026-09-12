@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mergeIntegrationOperationFailures } from "../src/settingsController.ts";
+import { deriveIntegrationDisplayState } from "../src/harnessIntegrationPresentation.ts";
 
 import {
   enableHarnessImmediate,
@@ -101,6 +103,54 @@ function createDeps(
     confirmMutations: async () => true,
     ...overrides,
   };
+}
+
+for (const flow of ["immediate", "per-group", "batch"] as const) {
+  for (const operation of ["install", "repair", "uninstall"] as const) {
+    if (flow === "immediate" && operation === "uninstall") continue;
+    test(`${flow} ${operation} preserves a sidecar failure returned in an HTTP-success status`, async () => {
+      const key = { adapterId: "copilot", targetId: "workspace" };
+      const consumers = [{ harnessId: "copilot" }];
+      const failedStatus = grouped(key, consumers, {
+        registration: "error",
+        ownership: "none",
+        activation: "unknown",
+        diagnostics: [{ code: "io_error", message: "Reporter replacement failed: sharing violation." }],
+      });
+      const deps = createDeps({
+        listHarnesses: async () => ({ documentRevision: "doc-1", harnesses: [harness("copilot")] }),
+        getGroupedIntegrationStatus: async () => grouped(key, consumers, {
+          registration: operation === "install" ? "absent" : operation === "repair" ? "drifted" : "installed",
+        }),
+        installGroupedIntegration: async () => failedStatus,
+        repairGroupedIntegration: async () => failedStatus,
+        uninstallGroupedIntegration: async () => failedStatus,
+      });
+      const ids = operation === "uninstall" ? [] : ["copilot"];
+      const result = flow === "batch"
+        ? await saveActiveHarnessesWithIntegrations(ids, deps)
+        : flow === "immediate"
+        ? await enableHarnessImmediate(ids, key, deps)
+        : { integrations: { "copilot/workspace": await reconcileGroupedIntegration(key, new Set(ids), deps) } };
+
+      const failure = result.integrations["copilot/workspace"];
+      assert.equal(failure.operation, operation);
+      assert.equal(failure.outcome, "failed");
+      assert.equal(failure.diagnosticCode, "io_error");
+      assert.equal(failure.message, "Reporter replacement failed: sharing violation.");
+
+      const failures = mergeIntegrationOperationFailures({}, result.integrations);
+      const display = deriveIntegrationDisplayState({
+        harnessName: "Copilot",
+        enabled: ids.length > 0,
+        // The next status probe sees no installed hook, not the failed write.
+        status: { ok: true, status: status({ registration: "absent", diagnostics: [] }) },
+        operation: failures.copilot,
+      });
+      assert.equal(display.appearance, "needs-you");
+      assert.match(display.description, /Reporter replacement failed: sharing violation/);
+    });
+  }
 }
 
 test("active selection persistence sends and returns the active revision", async () => {

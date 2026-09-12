@@ -211,7 +211,8 @@ function resultForGroup(
     key: group.key,
     consumerHarnessIds: group.consumers.map((consumer) => consumer.harnessId),
     operation,
-    outcome,
+    // Mutation routes can return HTTP 200 with a failed registration and diagnostics.
+    outcome: outcome === "succeeded" && status.registration === "error" ? "failed" : outcome,
     registration: status.registration,
     activation: status.activation,
     coverage: status.coverage,

@@ -139,6 +139,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn reporter_reconcile_replaces_an_existing_outdated_script() {
+        let source = tempfile::tempdir().unwrap();
+        let stable = tempfile::tempdir().unwrap();
+        fs::write(source.path().join("report.ps1"), "new reporter").unwrap();
+        fs::write(stable.path().join("report.ps1"), "old reporter").unwrap();
+        let resolver = super::ReporterAssetResolver {
+            source_dir: source.path().to_path_buf(),
+            stable_dir: stable.path().to_path_buf(),
+        };
+
+        let resolved = resolver.reconcile("report.ps1").unwrap();
+        assert_eq!(fs::read_to_string(&resolved).unwrap(), "new reporter");
+        assert_eq!(resolver.reconcile("report.ps1").unwrap(), resolved);
+        assert_eq!(fs::read_dir(stable.path()).unwrap().count(), 1);
+    }
+
     #[cfg(unix)]
     #[test]
     fn reconciled_reporter_script_is_executable() {
@@ -1344,6 +1361,8 @@ fn write_new_file_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()
         file.write_all(contents)?;
         file.flush()?;
         file.sync_all()?;
+        // Windows ReplaceFileW cannot replace from a file still open for writing.
+        drop(file);
         let target_existed = fs::symlink_metadata(path).map(|_| true).or_else(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 Ok(false)

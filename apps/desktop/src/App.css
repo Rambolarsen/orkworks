@@ -543,6 +543,10 @@ html, body, #root {
   padding-left: 26px;
 }
 
+.settings-config-item-subsection[hidden] {
+  display: none;
+}
+
 .settings-config-item-subsection-actions {
   display: flex;
   align-items: center;

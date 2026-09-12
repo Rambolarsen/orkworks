@@ -232,6 +232,11 @@ test("SettingsModal keeps the command-path control mounted while its subsection 
   assert.match(settingsSource, /hidden=\{!expanded\}/);
 });
 
+test("SettingsModal hidden subsections override the flex layout", () => {
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+  assert.match(css, /\.settings-config-item-subsection\[hidden\]\s*\{\s*display:\s*none;/);
+});
+
 test("SettingsModal stops both click and keydown propagation from the toggle so activating it cannot also expand or collapse the row", () => {
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(

@@ -38,6 +38,11 @@ supported. They can give OrkWorks more direct session signals. Check the
 reported detection, registration, and activation state; an installed
 integration is not necessarily active in an already-running session.
 
+Use the arrow beside a tool to show or hide its details; collapsing keeps
+unsaved custom-path edits. If an enabled tool needs installation or repair,
+toggle it off and on, then confirm the integration update. Installation
+failures appear in that tool's status, so check the message before retrying.
+
 ## Coding tools and model providers
 
 A **coding tool** runs your interactive coding session. A **model provider**
