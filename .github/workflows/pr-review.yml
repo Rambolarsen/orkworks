@@ -261,6 +261,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "dependabot[bot]"
           prompt: |
             Review pull request #${{ needs.changes.outputs.pr_number }} at
             head commit ${{ needs.changes.outputs.head_sha }} in this
