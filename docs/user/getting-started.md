@@ -41,6 +41,13 @@ The first start builds the Rust backend before opening the desktop app, so
 it can take longer than subsequent starts. Keep the development terminal open
 while using the app.
 
+## Windows window controls
+
+In current source builds, the OrkWorks icon and workspace name share one top
+bar with the native minimize, maximize, and close buttons. Drag an empty part
+of that bar to move the window. Press **Alt** to reveal the application menu;
+menu keyboard shortcuts remain available while it is hidden.
+
 ## Start your first session
 
 1. Open or add a workspace: a Git repository you want to work in.

@@ -1,3 +1,4 @@
+import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
@@ -534,6 +535,9 @@ function App() {
       <ToastRack />
       <div className="titlebar">
         <div className="titlebar-left">
+          {window.orkworks.platform === "win32" && (
+            <img className="titlebar-icon" src={orkworksIcon} alt="OrkWorks" draggable={false} />
+          )}
           {workspace ? (
             <>
               <span

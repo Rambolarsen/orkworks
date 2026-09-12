@@ -9,6 +9,7 @@ export function recoveryDocumentUrl(originalUrl: string): string {
     <style>
       :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #0c0d10; color: #eceef1; }
+      body::before { content: ""; position: fixed; inset: 0 0 auto; height: 38px; -webkit-app-region: drag; }
       main { width: min(420px, calc(100vw - 48px)); padding: 32px; border: 1px solid #5a2b29; border-radius: 12px; background: #111319; text-align: center; box-sizing: border-box; }
       p { color: #8a909c; line-height: 1.5; }
       button { margin-top: 16px; padding: 9px 18px; border: 1px solid #9dc520; border-radius: 8px; color: #0c0d10; background: #9dc520; font: inherit; font-weight: 600; cursor: pointer; }
