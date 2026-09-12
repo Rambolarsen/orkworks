@@ -100,11 +100,13 @@ Notes:
 When the branch merges (squash-merge by default per `AGENTS.md`):
 
 ```bash
-# from anywhere
-git worktree remove ../orkworks-<branch-slug>
-git worktree prune
-git branch -d <branch-slug>          # local cleanup
+# from the repository root, after resolving the concrete merged PR
+bash scripts/finish-pr.sh <PR_NUMBER_OR_URL>
 ```
+
+The helper verifies the PR is merged into `main`, refuses the current,
+ambiguous, or dirty worktree, and performs the matching worktree removal,
+prune, and local branch cleanup as one guarded operation.
 
 Also clean up worktrees for abandoned tasks — if you decide not to pursue a task, remove the worktree immediately. Do not leave it "just in case."
 
@@ -122,7 +124,6 @@ git worktree add ../orkworks-my-feature -b my-feature
 # create a worktree on an existing branch
 git worktree add ../orkworks-my-feature my-feature
 
-# remove a finished worktree
-git worktree remove ../orkworks-my-feature
-git worktree prune
+# remove a finished worktree after its PR merges
+bash scripts/finish-pr.sh <PR_NUMBER_OR_URL>
 ```
