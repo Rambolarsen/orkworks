@@ -25,12 +25,14 @@ command -v jq >/dev/null 2>&1 || {
 
 repo_root="$(git rev-parse --show-toplevel)"
 current_repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
-pr_json="$(gh pr view "$gh_pr_ref" --json state,baseRefName,headRefName,headRefOid,headRepository,mergeCommit)"
+pr_json="$(gh pr view "$gh_pr_ref" --json number,state,baseRefName,headRefName,headRefOid,headRepository,isCrossRepository,mergeCommit)"
+pr_number="$(jq -r '.number // empty' <<<"$pr_json")"
 state="$(jq -r '.state // empty' <<<"$pr_json")"
 base_branch="$(jq -r '.baseRefName // empty' <<<"$pr_json")"
 head_branch="$(jq -r '.headRefName // empty' <<<"$pr_json")"
 head_ref_oid="$(jq -r '.headRefOid // empty' <<<"$pr_json")"
 head_repo="$(jq -r '.headRepository.nameWithOwner // empty' <<<"$pr_json")"
+is_cross_repository="$(jq -r '.isCrossRepository // false' <<<"$pr_json")"
 
 if [ "$state" != 'MERGED' ]; then
   echo "finish-pr: PR $pr_label is not merged (state: ${state:-unknown}); nothing changed" >&2
@@ -38,6 +40,10 @@ if [ "$state" != 'MERGED' ]; then
 fi
 if [ "$base_branch" != 'main' ]; then
   echo "finish-pr: PR $pr_label targets ${base_branch:-an unknown branch}, not main; nothing changed" >&2
+  exit 1
+fi
+if [ "$is_cross_repository" = 'true' ]; then
+  echo "finish-pr: PR $pr_label is cross-repository; nothing changed" >&2
   exit 1
 fi
 if [ -z "$head_repo" ] || [ "$head_repo" != "$current_repo" ]; then
@@ -48,6 +54,10 @@ if [ -z "$head_branch" ] || [ "$head_branch" = 'main' ] || ! git check-ref-forma
   echo "finish-pr: PR $pr_label has an invalid or protected head branch; nothing changed" >&2
   exit 1
 fi
+if [ -z "$head_ref_oid" ]; then
+  echo "finish-pr: PR $pr_label is missing the head commit OID; nothing changed" >&2
+  exit 1
+fi
 
 current_branch="$(git -C "$repo_root" branch --show-current)"
 if [ "$current_branch" = "$head_branch" ]; then
@@ -55,9 +65,9 @@ if [ "$current_branch" = "$head_branch" ]; then
   exit 1
 fi
 
-git -C "$repo_root" fetch origin main --quiet
-
-if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$head_branch" && [ -n "$head_ref_oid" ]; then
+local_branch_exists=false
+if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$head_branch"; then
+  local_branch_exists=true
   local_head_oid="$(git -C "$repo_root" rev-parse "refs/heads/$head_branch")"
   if [ "$local_head_oid" != "$head_ref_oid" ]; then
     echo "finish-pr: local branch $head_branch no longer matches PR $pr_label; nothing changed" >&2
@@ -98,15 +108,38 @@ if [ "$matching_count" -eq 1 ]; then
     echo "finish-pr: worktree $matching_path has uncommitted changes; nothing changed" >&2
     exit 1
   fi
+fi
+
+open_pr_numbers="$(gh pr list --repo "$current_repo" --state open --head "$head_repo:$head_branch" --json number --jq '.[].number')"
+while IFS= read -r open_pr_number; do
+  [ -n "$open_pr_number" ] || continue
+  if [ "$open_pr_number" != "$pr_number" ]; then
+    echo "finish-pr: branch $head_branch is still used by open PR #$open_pr_number; nothing changed" >&2
+    exit 1
+  fi
+done <<<"$open_pr_numbers"
+
+if [ "$matching_count" -eq 1 ]; then
   git -C "$repo_root" worktree remove "$matching_path"
 fi
 
 git -C "$repo_root" worktree prune
-if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$head_branch"; then
-  git -C "$repo_root" branch -D -- "$head_branch"
+branch_removed=false
+if [ "$local_branch_exists" = true ]; then
+  if ! git -C "$repo_root" update-ref -d "refs/heads/$head_branch" "$head_ref_oid"; then
+    echo "finish-pr: local branch $head_branch changed during cleanup; nothing changed" >&2
+    exit 1
+  fi
+  branch_removed=true
+elif git -C "$repo_root" show-ref --verify --quiet "refs/heads/$head_branch"; then
+  echo "finish-pr: local branch $head_branch appeared during cleanup; nothing changed" >&2
+  exit 1
 fi
 
-message="PR $pr_label is merged into main; cleaned branch $head_branch"
+message="PR $pr_label is merged into main"
+if [ "$branch_removed" = true ]; then
+  message+="; cleaned branch $head_branch"
+fi
 if [ "$matching_count" -eq 1 ]; then
   message+=" and worktree $matching_path"
 fi
