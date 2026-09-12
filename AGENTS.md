@@ -53,6 +53,7 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 - `specs/review-queue.md` — superseded repo-local review inbox proposal
 - `specs/session-plan-review.md` — selected-session plan/spec review and explicit review prompt handoff
 - `specs/taskmaster.md` — proposed cross-session coordination and next-step recommendation layer
+- `specs/taskmaster-knowledge.md` — signed reference knowledge, independent Taskmaster analysis, and background context controls
 
 Read these before starting any implementation work.
 
@@ -201,6 +202,11 @@ See [product boundaries and terminology](docs/agents/product-boundaries.md) for
 the detailed naming rules.
 
 ## Architecture
+
+Provider process cleanup uses Windows Job APIs through the existing
+`windows-sys` dependency; preserve suspended-child assignment and bounded cleanup
+when changing inference transports. See [provider process ownership](docs/agents/architecture.md)
+and the [ADR 0055 amendment](docs/adr/0055-json-taskmaster-inference-adapters.md).
 
 Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions, and renders plan/spec content in the Review tab as Markdown via `react-markdown`/`remark-gfm`. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state. The desktop `pnpm dev` command builds the debug sidecar before launching Electron so development runs use the current Rust implementation.
 

@@ -327,7 +327,10 @@ fn current_time(_inner: &StoreInner) -> DateTime<Utc> {
 // Store
 // ---------------------------------------------------------------------------
 
+static NEXT_STORE_INSTANCE: AtomicU64 = AtomicU64::new(1);
+
 pub(crate) struct WorkflowObservationStore {
+    instance_id: u64,
     dir: PathBuf,
     inner: Mutex<StoreInner>,
     evaluation_generation: AtomicU64,
@@ -439,6 +442,7 @@ impl WorkflowObservationStore {
         };
 
         Ok(Self {
+            instance_id: NEXT_STORE_INSTANCE.fetch_add(1, Ordering::Relaxed),
             dir,
             inner: Mutex::new(StoreInner {
                 last_issued_sequence,
@@ -623,6 +627,10 @@ impl WorkflowObservationStore {
 
     pub(crate) fn evaluation_generation(&self) -> u64 {
         self.evaluation_generation.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn instance_id(&self) -> u64 {
+        self.instance_id
     }
 
     pub(crate) fn diagnostics(&self) -> Vec<ObservationDiagnostic> {

@@ -75,7 +75,12 @@ declare global {
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
-      getSettings: () => Promise<AppSettings>;
+    getSettings: () => Promise<AppSettings>;
+      getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
+      getInferenceTrust: () => Promise<import("./inferenceTrust").InferenceAdapterView[]>;
+      approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<boolean>;
+      revokeInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<void>;
+    saveTaskmasterSettings: (settings: import("./taskmasterSettings").TaskmasterSettings) => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
       verifyPeonProvider: (provider: string, ollamaBaseUrl?: string) => Promise<PeonProviderVerificationResponse>;
       testAndApplyPeonProvider: (selection: PeonSelection) => Promise<PeonAppliedState>;
       getAppliedPeonProvider: () => Promise<PeonAppliedState>;

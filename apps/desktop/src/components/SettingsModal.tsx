@@ -22,14 +22,16 @@ import HarnessIcon from "./HarnessIcon";
 import Toggle, { ToggleStatusText } from "./Toggle";
 import Button from "./Button";
 import Input from "./Input";
+import TaskmasterSettings from "./TaskmasterSettings";
 
 type HotkeyAction = keyof HotkeySettings;
 
-export type SettingsSection = "tools" | "providers" | "hotkeys" | "retention" | "debug";
+export type SettingsSection = "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "debug";
 
 const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
   { key: "tools", label: "Coding tools" },
   { key: "providers", label: "Model providers" },
+  { key: "recommendations", label: "Recommendations" },
   { key: "hotkeys", label: "Hotkeys" },
   { key: "retention", label: "Session retention" },
   { key: "debug", label: "Debug" },
@@ -968,6 +970,8 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                 </>)}
               </div>
             )}
+
+            {activeSection === "recommendations" && <TaskmasterSettings />}
 
             {activeSection === "debug" && (
               <div className="settings-section">

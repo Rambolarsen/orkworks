@@ -158,7 +158,9 @@ OrkWorks needs installable artifacts for early testers on macOS and Windows. The
 ### Non-goals
 
 - Code signing or notarization (alpha artifacts are unsigned; users bypass platform warnings)
-- Auto-update (no update server, no `electron-updater`)
+- Application-binary auto-update (no update server, no `electron-updater`).
+  Independently updated reference knowledge and its packaged fallback are
+  governed by [Taskmaster knowledge](taskmaster-knowledge.md).
 - Automated version bumping or changelog generation
 - Broad Windows-version, architecture, or locale compatibility testing.
 - GUI automation or first-launch runtime testing.

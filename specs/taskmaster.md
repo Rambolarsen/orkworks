@@ -662,6 +662,13 @@ The explanation must state meaningful trade-offs, such as using the same provide
 
 ## Optional model assistance
 
+The accepted [brain-informed recommendation extension](taskmaster-knowledge.md)
+defines the implemented direction for optional model assistance: independent
+Taskmaster provider/model selection, bounded background analysis, signed shared
+knowledge, repository evidence, and user-controlled context. Its specific v1
+contract governs this extension; session-transition features below remain
+separately staged.
+
 The initial rules should remain deterministic.
 
 An optional model may later help with:

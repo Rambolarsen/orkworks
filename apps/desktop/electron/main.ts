@@ -1,7 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
+import { taskmasterRequest } from "./taskmasterSettings";
+import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
@@ -226,6 +229,67 @@ app.whenReady().then(() => {
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
   let appliedPeonState: PeonAppliedState | null = null;
   let backendGeneration = 0;
+  const knowledgeResources = app.isPackaged
+    ? path.join(process.resourcesPath, "knowledge")
+    : path.join(__dirname, "../resources/knowledge");
+  const knowledgeKeyPath = path.join(knowledgeResources, "public-key.pem");
+  const knowledgeUpdates = new KnowledgeUpdates({
+    directory: path.join(app.getPath("userData"), "knowledge"),
+    starterPath: path.join(knowledgeResources, "starter.json"),
+    publicKey: existsSync(knowledgeKeyPath) ? readFileSync(knowledgeKeyPath, "utf8") : "",
+    feedUrl: "https://rambolarsen.github.io/brain/orkworks-knowledge/manifest.json",
+  });
+  async function readTaskmasterSettings(payload?: unknown): Promise<Record<string, unknown>> {
+    const generation = backendGeneration;
+    const port = await restoration.getReadiness();
+    if (generation !== backendGeneration) throw new Error("Workspace changed; reopen Recommendations settings");
+    const result = await taskmasterRequest(port, openPlanToken, "settings", payload);
+    if (generation !== backendGeneration) throw new Error("Workspace changed; reopen Recommendations settings");
+    const settings = result.settings as { automaticKnowledgeUpdates?: boolean } | undefined;
+    knowledgeUpdates.setEnabled(settings?.automaticKnowledgeUpdates !== false);
+    return { ...result, knowledgeUpdate: knowledgeUpdates.status() };
+  }
+  let knowledgeSync: Promise<void> | null = null;
+  async function inferenceTrustContext(): Promise<TrustContext> {
+    const generation = backendGeneration;
+    const port = await restoration.getReadiness();
+    if (generation !== backendGeneration) throw new Error("Sidecar changed. Refresh executable approvals.");
+    return { port, token: openPlanToken, isCurrent: () => generation === backendGeneration,
+      confirm: async (detail) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return false;
+        const result = await dialog.showMessageBox(mainWindow, {
+          type: "warning", title: "Approve custom inference executable?", message: "Trust this executable with background inference context?", detail,
+          buttons: ["Cancel", "Approve executable"], defaultId: 0, cancelId: 0, noLink: true,
+        });
+        return result.response === 1;
+      },
+    };
+  }
+  function refreshKnowledge(): Promise<void> {
+    if (knowledgeSync) return knowledgeSync;
+    const requestedGeneration = backendGeneration;
+    knowledgeSync = (async () => {
+      const generation = backendGeneration;
+      const port = await restoration.getReadiness();
+      const token = openPlanToken;
+      const stillCurrent = () => generation === backendGeneration && token === openPlanToken;
+      if (!stillCurrent()) return;
+      const status = await taskmasterRequest(port, token, "settings");
+      const settings = status.settings as { automaticKnowledgeUpdates?: boolean };
+      knowledgeUpdates.setEnabled(settings.automaticKnowledgeUpdates !== false);
+      await synchronizeKnowledge(knowledgeUpdates,
+        (bundle) => taskmasterRequest(port, token, "knowledge", bundle), stillCurrent);
+    })().catch((error: unknown) => {
+      console.warn("[taskmaster] knowledge unavailable:", error instanceof Error ? error.message : "unknown error");
+    }).finally(() => {
+      knowledgeSync = null;
+      if (requestedGeneration !== backendGeneration) void refreshKnowledge();
+    });
+    return knowledgeSync;
+  }
+  const knowledgeTimer = setInterval(() => { void refreshKnowledge(); }, 6 * 60 * 60 * 1000);
+  knowledgeTimer.unref();
+  app.once("before-quit", () => { clearInterval(knowledgeTimer); knowledgeUpdates.setEnabled(false); });
   let activeHarnessRevision = 0;
   // Main's copy of the persisted active-harness selection, kept in sync with
   // the sidecar: seeded from workspace restoration and updated only after a
@@ -494,6 +558,7 @@ app.whenReady().then(() => {
       persistedActiveHarnessIds = workspace?.activeHarnessIds ?? [];
       publishBackendLifecycle({ state: "ready", port, workspace });
       restorePersistedPeonSelection(port);
+      void refreshKnowledge();
     },
     onFailure: (error) => {
       logBackendLifecycleFailure("restoration", error);
@@ -595,6 +660,15 @@ app.whenReady().then(() => {
     currentSettings = readSettings(app.getPath("userData"));
     return rendererSettings(currentSettings);
   });
+  ipcMain.handle("get-taskmaster-settings", () => readTaskmasterSettings());
+  ipcMain.handle("get-inference-trust", async () => readInferenceTrust(await inferenceTrustContext()));
+  ipcMain.handle("approve-inference-adapter", (_event, request: unknown) => enqueueSettingsWrite(async () => approveInferenceAdapter(request, await inferenceTrustContext())));
+  ipcMain.handle("revoke-inference-adapter", (_event, request: unknown) => enqueueSettingsWrite(async () => revokeInferenceAdapter(request, await inferenceTrustContext())));
+  ipcMain.handle("save-taskmaster-settings", (_event, payload: unknown) => enqueueSettingsWrite(async () => {
+    const saved = await readTaskmasterSettings(payload);
+    void refreshKnowledge();
+    return saved;
+  }));
 
   ipcMain.handle("save-hotkeys", async (_event, hotkeys: unknown) => {
     const { nextSettings, nextMenu } = await enqueueSettingsWrite(() => {

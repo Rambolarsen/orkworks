@@ -35,6 +35,7 @@ jobs:
     outputs:
       desktop_changed: ${{ steps.filter.outputs.desktop }}
       rust_changed: ${{ steps.filter.outputs.rust }}
+      windows_inference_changed: ${{ steps.filter.outputs.windows_inference }}
       relevant_code_changed: ${{ steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true' }}
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +50,11 @@ jobs:
               - 'apps/desktop/**'
             rust:
               - 'crates/orkworksd/**'
+              - 'rust-toolchain.toml'
+            windows_inference:
+              - 'crates/orkworksd/**'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/pr-ci.yml'
 
       - name: Print routing decision
         run: |
@@ -109,6 +115,55 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --manifest-path crates/orkworksd/Cargo.toml
+
+  windows-inference:
+    name: Windows custom inference
+    needs: changes
+    if: needs.changes.outputs.windows_inference_changed == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      RUST_TEST_THREADS: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/orkworksd
+      - name: Test native custom inference transport
+        shell: pwsh
+        run: |
+          $listed = cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $required = @(
+            "providers::custom_inference::transport_tests::custom_inference_transports_stdin_and_file_with_literal_argv_and_existing_login",
+            "providers::custom_inference::transport_tests::custom_inference_cleans_up_failures_and_bounds_output_and_runtime",
+            "providers::custom_inference::transport_tests::custom_inference_rejects_invalid_utf8_instead_of_repairing_response_bytes",
+            "providers::custom_inference::transport_tests::custom_inference_does_not_classify_provider_stderr_as_runner_timeout",
+            "taskmaster::context::tests::configured_exclusions_accept_native_separators_and_sensitive_directory_case",
+            "taskmaster::runtime::selection_tests::settings_status_exposes_the_canonical_workspace_override_key",
+            "taskmaster::evaluator::activation_tests::unapproved_custom_evaluation_never_starts_a_child_or_spends_usage",
+            "taskmaster::evaluator::activation_tests::activation_requires_approval_then_persists_grounded_custom_output",
+            "taskmaster::evaluator::activation_tests::custom_evaluation_failures_spend_one_reservation_without_recommendations",
+            "taskmaster::evaluator::activation_tests::custom_evaluation_rechecks_readiness_before_context_and_reservation",
+            "taskmaster::evaluator::activation_tests::custom_evaluation_discards_output_revoked_while_child_is_running",
+            "taskmaster::evaluator::activation_tests::custom_evaluation_recovers_after_reapproval_or_reenable",
+            "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it"
+          )
+          foreach ($test in $required) {
+            if ($listed -notcontains "$($test): test") { throw "Missing required Windows test: $test" }
+          }
+      - name: Run native custom inference transport
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml custom_inference
+      - name: Test approval-gated evaluation
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml activation_tests
+      - name: Test inference trust persistence and identity
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml inference_trust
+      - name: Test Windows context exclusions and workspace settings
+        run: |
+          cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::context
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::runtime::selection_tests
 
   noop:
     name: No relevant code changes

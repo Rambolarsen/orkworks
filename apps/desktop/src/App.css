@@ -2606,6 +2606,13 @@ html, body, #root {
 .recommendation-proposal { margin: var(--space-4) 0 var(--space-2); color: var(--text-primary) !important; font-weight: 600; }
 .recommendation-facts { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
 .recommendation-facts div { display: flex; justify-content: space-between; gap: var(--space-3); }
+.taskmaster-settings { display: flex; flex-direction: column; gap: var(--space-3); }
+.taskmaster-settings > label { display: flex; flex-direction: column; gap: var(--space-2); }
+.taskmaster-settings > .taskmaster-checkbox { flex-direction: row; align-items: center; }
+.taskmaster-settings select, .taskmaster-settings input:not([type="checkbox"]), .taskmaster-settings textarea {
+  width: 100%; box-sizing: border-box; padding: var(--space-2); color: var(--text-primary);
+  background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+}
 .recommendation-facts dt { color: var(--text-muted); } .recommendation-facts dd { color: var(--text-primary); text-align: right; }
 .recommendation-sessions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .recommendation-evidence { margin: var(--space-4) 0; } .recommendation-evidence summary { cursor: pointer; color: var(--text-primary); }

@@ -86,6 +86,112 @@ when the normal renderer document is not.
 
 ## Packaging and release
 
+Taskmaster's independently updated reference knowledge and separate analysis
+model follow [ADR 0054](../adr/0054-taskmaster-honors-managed-cli-policy.md) and the
+[knowledge specification](../../specs/taskmaster-knowledge.md). Electron main
+owns signature verification and bundle activation; the sidecar owns bounded
+analysis and evidence validation. Knowledge cannot change execution authority.
+CLI analysis reuses installed logins through fixed recommendation profiles and
+honors administrator-managed policies; required hooks/context/routing are not
+bypassed. OrkWorks' context limits constrain its own collection and request.
+
+`GET/POST /settings/taskmaster` and `POST /settings/taskmaster/knowledge` use
+the existing Electron-only sidecar authority. Taskmaster settings and durable
+evaluation accounting are global under `~/.orkworks/taskmaster/`, with explicit
+workspace overrides; Peon settings remain independent. The Recommendations
+settings panel uses narrow preload methods rather than receiving that authority.
+Electron verifies signed feed updates and pushes the validated bundle; packaged
+resources include `knowledge/starter.json` and `knowledge/public-key.pem`.
+
+The custom inference foundation follows [ADR 0055](../adr/0055-json-taskmaster-inference-adapters.md).
+`harness/inference.rs` validates inert JSON capabilities;
+`taskmaster/inference_trust.rs` and its `identity` submodule resolve executable
+identity without running it and persist fingerprint-bound grants separately in
+`inference-trust.json` beneath the Taskmaster global root. Grant operations
+share Taskmaster's process and filesystem persistence locks, reject stale
+revisions, and fail closed on malformed data. `taskmaster/inference_approval.rs`
+holds the harness mutation lock while re-resolving identities and changing
+grants. Dedicated `GET/POST /settings/taskmaster/inference` handlers require
+Electron-only authority and strict revision-bound requests. Electron's
+`inferenceTrust.ts` re-inspects before native confirmation; its narrow preload
+methods expose inspect, approve, and revoke without exposing credentials or
+arbitrary URLs. Recommendations settings lists these capabilities independently
+of Peon. `providers/custom_inference.rs` implements the isolated command transport:
+single-pass literal argv expansion, private stdin/file input ownership, inherited
+CLI login configuration with OrkWorks capabilities stripped, and strict bounded
+UTF-8/JSON response validation. It reuses the existing process runner with opt-in
+strict stdout decoding; existing Peon and native transports retain their decoding.
+The runtime's captured-identity invocation now calls this transport, but the
+scheduler does not activate that path yet. `taskmaster/provider_catalog.rs`
+projects selection availability independently of Peon; privileged settings and
+the pre-context evaluator gate share that projection. Custom definitions report
+approval required, unavailable, or ready after current executable approval, including
+when they override a built-in ID. An explicit inference clear cannot fall back
+to the legacy native profile. The Recommendations picker preserves unavailable
+stored selections and uses static suggestions/free-text only for all providers;
+it never calls Peon's dynamic model-discovery endpoint. Peon discovery is unchanged.
+Native readiness permits presentation/discovery metadata overrides but rejects
+launch or Peon execution overrides unless an explicit custom inference command is
+declared and trusted. Ollama does not advertise reasoning-effort support; a stored
+unsupported effort is not ready for evaluation. Settings reject unsupported effort
+instead of silently discarding it. Model and effort string bounds are shared with
+the custom transport: nonempty, at most 256 UTF-8 bytes, no control characters,
+and no model trimming or prefix rewriting.
+`taskmaster/runtime/inference.rs` now captures an immutable identity containing
+the approved definition/path, trust generation, runtime generation, selected
+settings and workspace key. Its short synchronous action guard re-resolves and
+revalidates those values while holding the harness document lease and Taskmaster
+persistence/runtime locks. `PersistenceGuard` lets trust inspection reuse the
+held persistence lease without recursively acquiring its mutex. The guard offers
+a stable cache identity. `invoke_custom_inference` prepares only from captured
+fields and supplies the process runner's fallible spawn callback; the guard
+remains held through actual `Command::spawn`, then releases before prompt I/O,
+output capture and process waiting. Native/Peon calls retain their direct-spawn
+wrapper. Private prompt files remain owned through denial, failure or completion.
+The invocation itself does not reserve usage or commit recommendations.
+The evaluator now binds the custom identity to its snapshot before collecting
+context; its internal catalog transport kind prevents failed custom capture from
+falling through to native dispatch. Versioned SHA-256 cache keys include settings,
+generation, prompt and the captured trust identity or native profile/revision.
+Native catalog entries carry a closed code-owned Codex, Claude or Ollama profile
+and the inspected harness-document revision. Production Taskmaster invocation
+uses that bound profile's fixed definition, never a mutable Peon provider lookup;
+existing CLI policy, login handling, version probes and response decoders remain
+unchanged. Native profiles are not deserializable from user JSON. Binding,
+reservation, diagnostics and final commit reject changed revisions while holding
+the harness lease. This deliberately invalidates native evaluations even for
+unrelated document edits. A snapshot with neither identity fails closed.
+An explicitly defined custom `ollama` harness shadows the native HTTP catalog
+entry; it follows custom readiness/trust rules and never falls back to HTTP.
+`reserve_snapshot` checks
+custom trust and writes usage under the same mutation locks, reusing the native
+ledger rules without recursively locking. `with_current_evaluation` checks that
+the identity belongs to the supplied settings/generation/workspace, then guards
+the existing live workspace-instance, current-evidence and recommendation writes.
+Evaluation diagnostic updates use the same identity checks, so revoked output
+cannot replace or clear the current error status.
+
+`HarnessStore::with_locked_snapshot` and mutations share a retained
+`harnesses.json.lock` OS file lease, not just an instance-local mutex, so a
+second OrkWorks store/process cannot edit the definition during a guarded action.
+Lock order is store mutex → harness file lease → Taskmaster process/file locks
+→ runtime data. The lease coordinates cooperating OrkWorks mutations; it does
+not freeze arbitrary direct filesystem edits or updates to an installed executable.
+Do not wait for model completion inside this guard: revocation must remain able
+to proceed while a model call is running.
+
+Approval records executable trust; custom scheduling additionally requires enabled
+analysis, a selected model, compatible effort, and a usage reservation. Approved
+custom entries now report ready and use the integrated guarded evaluation path.
+Native Rust process fixtures cover custom transport, activation and revocation
+without requiring a shell. A focused Windows PR CI job exercises transport,
+activation and trust. Native Windows verification remains a release requirement
+and has not been performed in this checkout; locally passing portable fixtures
+are not a substitute for that run. Guarded-spawn lock stress fixtures remain
+Unix-only; the portable activation fixture covers revocation during a live call.
+Built-in Codex/Claude CLI process fixtures also remain Unix-only; this job is
+custom-adapter coverage, not a claim of complete native CLI validation on Windows.
+
 Desktop packaging lives under `apps/desktop/`. `electron-builder.yml` defines the product metadata and `extraResources` layout, while `scripts/package-release.mjs` maps the current host platform/arch to the matching Rust target triple, stages the built `orkworksd` binary into `crates/orkworksd/target/release/`, and invokes `electron-builder` with the matching CLI arch flag. CI runs the same path from `.github/workflows/release.yml`, with separate macOS x64 and arm64 jobs so the packaged sidecar always matches the bundled Electron arch. In development, `pnpm dev` builds the debug sidecar before starting Electron, preventing the app from launching a stale Rust binary after sidecar changes.
 
 ## Preload bridge (security boundary)
@@ -268,6 +374,14 @@ Single binary. Top-level modules:
 - `workspace_runtime.rs` — `iso_now`, `orkworks_global_dir` (workspace path hashing to global store location)
 
 For the current Rust domain model itself, see [domain-entities.md](domain-entities.md).
+
+The shared provider process runner owns a Windows Job object per invocation
+(`providers/windows_process.rs`). It assigns the suspended child before resuming
+execution, preventing descendants from escaping timeout cleanup. Termination
+and pipe joins have bounded waits; external `taskkill` is unnecessary. Unix
+continues using an owned process group. See the 2026-09-12 amendment to
+[ADR 0055](../adr/0055-json-taskmaster-inference-adapters.md); native Windows
+desktop verification remains tracked by #525.
 
 ## Dockview panel layout
 

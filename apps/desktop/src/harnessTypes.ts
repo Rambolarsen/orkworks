@@ -1,3 +1,5 @@
+import { validateInferenceDefinition, type InferenceDefinition } from "./inferenceDefinition.ts";
+
 /** Mirrors crates/orkworksd/src/harness/definition.rs LaunchCapability. */
 export type HarnessLaunch =
   | { kind: "command-template"; command: string; args: string[]; modelPrefix: string | null }
@@ -20,6 +22,7 @@ export interface HarnessConfig {
   resume: unknown;
   models: unknown;
   peon: unknown;
+  inference?: InferenceDefinition | null;
   capacity: unknown;
   sessionSignals: unknown;
   integration: unknown;
@@ -89,6 +92,7 @@ const COMPLETE_FIELDS = new Set([
   "resume",
   "models",
   "peon",
+  "inference",
   "capacity",
   "voice",
   "minVersion",
@@ -101,6 +105,7 @@ const PATCH_FIELDS = new Set([
   "resume",
   "models",
   "peon",
+  "inference",
   "capacity",
   "voice",
   "minVersion",
@@ -183,6 +188,7 @@ export function parseHarnessDraft(text: string, mode: HarnessEditorMode): Harnes
 
   if (mode === "override") validatePatch(object, diagnostics);
   else validateCompleteDefinition(object, diagnostics);
+  diagnostics.push(...validateInferenceDefinition(object.inference));
 
   return { value: object, diagnostics };
 }

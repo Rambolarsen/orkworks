@@ -19,6 +19,8 @@ pub(crate) struct HarnessDefinition {
     pub resume: Option<ResumeCapability>,
     pub models: Option<ModelCapability>,
     pub peon: Option<PeonCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inference: Option<super::inference::InferenceCapability>,
     pub capacity: Option<CapacityCapability>,
     pub session_signals: Option<SessionSignalBinding>,
     pub integration: Option<IntegrationBinding>,
@@ -245,6 +247,8 @@ pub(crate) struct HarnessPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peon: Option<Option<PeonPatch>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference: Option<Option<super::inference::InferenceCapability>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub capacity: Option<Option<CapacityCapability>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_signals: Option<Option<SessionSignalBinding>>,
@@ -331,6 +335,7 @@ impl<'de> Deserialize<'de> for HarnessPatch {
                 "resume",
                 "models",
                 "peon",
+                "inference",
                 "capacity",
                 "voice",
                 "minVersion",
@@ -344,6 +349,7 @@ impl<'de> Deserialize<'de> for HarnessPatch {
             resume: optional_boundary_field(&fields, "resume")?,
             models: optional_boundary_field(&fields, "models")?,
             peon: optional_boundary_field(&fields, "peon")?,
+            inference: optional_boundary_field(&fields, "inference")?,
             capacity: optional_boundary_field(&fields, "capacity")?,
             session_signals: optional_boundary_field(&fields, "sessionSignals")?,
             integration: optional_boundary_field(&fields, "integration")?,
@@ -517,6 +523,8 @@ struct CustomHarnessDefinition {
     #[serde(default)]
     peon: Option<PeonCapability>,
     #[serde(default)]
+    inference: Option<super::inference::InferenceCapability>,
+    #[serde(default)]
     capacity: Option<CapacityCapability>,
     #[serde(default)]
     voice: Option<VoiceCapability>,
@@ -537,6 +545,7 @@ impl From<CustomHarnessDefinition> for HarnessDefinition {
             resume: value.resume,
             models: value.models,
             peon: value.peon,
+            inference: value.inference,
             capacity: value.capacity,
             session_signals: None,
             integration: None,
@@ -640,6 +649,27 @@ pub(crate) fn parse_stored_user_document(
             )]);
         }
     }
+    if object.get("version").and_then(serde_json::Value::as_u64) == Some(2) {
+        let custom_has_inference = object
+            .get("custom")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|entries| entries.iter().any(|entry| entry.get("inference").is_some()));
+        let override_has_inference = object
+            .get("overrides")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|entries| {
+                entries
+                    .values()
+                    .any(|entry| entry.get("inference").is_some())
+            });
+        if custom_has_inference || override_has_inference {
+            return Err(vec![HarnessDiagnostic::document(
+                "inference_requires_v3",
+                "Inference definitions require harness document version 3.",
+                Some("$.version"),
+            )]);
+        }
+    }
     let wire = serde_json::from_value::<UserDocumentWire>(value).map_err(|error| {
         vec![HarnessDiagnostic::document(
             "invalid_schema",
@@ -715,6 +745,7 @@ fn validate_custom_schema(value: &serde_json::Value) -> Result<(), Vec<HarnessDi
             "resume",
             "models",
             "peon",
+            "inference",
             "capacity",
             "voice",
             "minVersion",
@@ -1155,10 +1186,8 @@ impl HarnessDefinition {
                             ));
                         }
                     };
-                    result
-                        .validate(DefinitionOrigin::Override)
-                        .map_err(|mut errors| errors.remove(0))?;
-                    return Ok(result);
+                    // Apply the remaining independent fields before validating
+                    // the complete patch (e.g. clearing Peon with a shell launch).
                 }
             }
             match &mut result.launch {
@@ -1210,6 +1239,9 @@ impl HarnessDefinition {
             result.peon = value
                 .as_ref()
                 .map(|patch| patch_peon(result.peon.as_ref(), patch));
+        }
+        if let Some(value) = &patch.inference {
+            result.inference = value.clone();
         }
         if let Some(value) = &patch.capacity {
             result.capacity = value.clone();
@@ -1784,6 +1816,59 @@ mod tests {
             r#"{"launch":{"command":"codex","unknown":true}}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn inference_definition_round_trips_without_peon() {
+        let raw = br#"{"id":"custom-infer","name":"Custom","launch":{"kind":"command-template","command":"tool","args":[],"modelPrefix":null},"inference":{"kind":"command","command":"custom-infer","args":["--model","{model}"],"input":"stdin","output":"result-json-v1"}}"#;
+        let parsed = parse_custom_definition(raw).expect("valid independent inference capability");
+        assert!(parsed.peon.is_none());
+        let serialized = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(serialized["inference"]["timeoutSecs"], 60);
+        assert_eq!(serialized["inference"]["command"], "custom-infer");
+        let restored = parse_stored_custom_definition_value(serialized).unwrap();
+        assert_eq!(parsed, restored);
+    }
+
+    #[test]
+    fn inference_definition_patch_survives_launch_kind_replacement_and_clear() {
+        let original = codex();
+        let patch: HarnessPatch = serde_json::from_str(r#"{"launch":{"kind":"platform-shell","login":false},"peon":null,"inference":{"kind":"command","command":"custom-infer","args":["{model}"],"input":"stdin","output":"result-json-v1"}}"#).unwrap();
+        let updated = original.apply_patch(&patch).unwrap();
+        assert!(updated.inference.is_some());
+        assert!(updated.peon.is_none());
+        assert_eq!(
+            updated.inference,
+            updated
+                .apply_patch(&HarnessPatch::default())
+                .unwrap()
+                .inference
+        );
+        let cleared = updated
+            .apply_patch(&serde_json::from_str(r#"{"inference":null}"#).unwrap())
+            .unwrap();
+        assert!(cleared.inference.is_none());
+        assert!(
+            serde_json::from_str::<HarnessPatch>(r#"{"inference":{"timeoutSecs":30}}"#).is_err()
+        );
+    }
+
+    #[test]
+    fn inference_definition_rejects_v2_field_and_duplicate_keys() {
+        for inference in [
+            serde_json::Value::Null,
+            serde_json::json!({"kind":"command","command":"tool","args":["{model}"],"input":"stdin","output":"result-json-v1"}),
+        ] {
+            let value = serde_json::json!({"version":2,"custom":[],"overrides":{"codex":{"inference":inference.clone()}}});
+            assert!(parse_stored_user_document(value).is_err());
+            let value = serde_json::json!({"version":2,"custom":[{"id":"custom-infer","name":"Custom","launch":{"kind":"platform-shell","login":false},"inference":inference}],"overrides":{}});
+            assert!(parse_stored_user_document(value).is_err());
+        }
+        let duplicate = br#"{"id":"custom-infer","name":"Custom","launch":{"kind":"platform-shell","login":false},"inference":{"kind":"command","command":"tool","args":["{model}"],"input":"stdin","output":"result-json-v1","timeoutSecs":60,"timeoutSecs":120}}"#;
+        assert!(parse_custom_definition(duplicate)
+            .unwrap_err()
+            .iter()
+            .any(|error| error.code == "duplicate_key"));
     }
 
     #[test]

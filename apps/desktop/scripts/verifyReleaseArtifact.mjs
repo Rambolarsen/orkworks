@@ -58,6 +58,8 @@ export function verifyReleaseArtifact(expectation, fsModule = { statSync: defaul
   for (const scriptPath of expectation.scriptPaths) {
     assertPath(fsModule, scriptPath, "hook script", "file");
   }
+  assertPath(fsModule, join(expectation.scriptsDir, "..", "knowledge", "starter.json"), "starter knowledge", "file");
+  assertPath(fsModule, join(expectation.scriptsDir, "..", "knowledge", "public-key.pem"), "knowledge verification key", "file");
 }
 
 export function runCli({

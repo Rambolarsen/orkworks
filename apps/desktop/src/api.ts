@@ -479,6 +479,7 @@ export async function getSummaryLog(
 
 export interface ProviderRuntimeEntry {
   id: string;
+  inferenceOnly?: boolean;
   label: string;
   origin: "builtin" | "override" | "custom" | "standalone";
   harnessId?: string;
@@ -548,6 +549,8 @@ export interface WorkflowImprovement {
 }
 
 export interface WorkflowRecommendation {
+  repositoryEvidence?: Array<{ path: string; sha256: string; excerpt: string; observedAt: string }>;
+  knowledgeEvidence?: Array<{ pageId: string; title: string; status: string; bundleVersion: string; sha256: string; excerpt: string }>;
   id: string;
   workspaceId: string;
   chainId: string;

@@ -8,6 +8,7 @@ axum = { version = "0.7", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 serde_path_to_error = "0.1"
 tower-http = { version = "0.5", features = ["cors"] }
 tracing = "0.1"
@@ -26,10 +27,9 @@ libc = "0.2"
 sysinfo = "0.39"
 fs2 = "0.4"
 
+tempfile = "3"
+
 [target.'cfg(windows)'.dependencies]
 # ReplaceFileW preserves Windows replacement semantics for existing targets;
 # MoveFileExW publishes new targets without clobbering a raced creation.
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
-
-[dev-dependencies]
-tempfile = "3"
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
