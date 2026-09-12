@@ -31,7 +31,9 @@ node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs
 node --experimental-strip-types --test tests/api.test.ts
 ```
 
-Run these commands from `apps/desktop/`.
+Run these commands from `apps/desktop/`. Linux desktop tests require Xvfb
+(`xvfb-run`) when no display is available; the Electron layout test starts its
+own virtual display. GitHub-hosted Ubuntu runners include Xvfb.
 
 ## Electron and renderer boundary
 
