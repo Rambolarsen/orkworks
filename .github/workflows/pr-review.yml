@@ -9,7 +9,13 @@
 # low-risk PRs are deliberately skipped: they are covered by the manual
 # /code-review low gate, GitHub's native Copilot code review, and pr-ci.yml,
 # and a full automated Claude pass on every small PR costs more tokens than
-# the findings justify. This is a convenience first pass, not a replacement:
+# the findings justify. PRs authored by a bot (e.g. Dependabot) are also
+# skipped when triggered automatically: GitHub withholds custom Actions
+# secrets — including CLAUDE_CODE_OAUTH_TOKEN — from pull_request runs
+# triggered by a bot actor, so the review step cannot authenticate. A manual
+# workflow_dispatch force-run is exempt from this skip, since that run is
+# triggered by the human who dispatched it and does get full secrets access
+# regardless of the PR's author. This is a convenience first pass, not a replacement:
 # it is intentionally excluded from required status checks and can never
 # block a merge, same rationale as pr-ci.yml's doc-drift job. The PR author
 # is still responsible for the manual /code-review the review-gate requires,
@@ -84,6 +90,10 @@ jobs:
             base_sha="$(jq -r '.base.sha' <<<"$pr_json")"
             head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
             head_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
+            # A forced run is dispatched by the human who ran it, so it gets
+            # full secrets access regardless of the PR author; the bot-skip
+            # below only ever applies to the automatic (non-forced) path.
+            author_is_bot=false
           else
             pr_number="$EVENT_PR_NUMBER"
             state="$(jq -r '.pull_request.state' "$GITHUB_EVENT_PATH" | tr '[:lower:]' '[:upper:]')"
@@ -92,6 +102,7 @@ jobs:
             base_sha="$EVENT_BASE_SHA"
             head_sha="$EVENT_HEAD_SHA"
             head_repo="$EVENT_HEAD_REPO"
+            author_is_bot="$(jq -r '(.pull_request.user.type // "") == "Bot"' "$GITHUB_EVENT_PATH")"
           fi
 
           eligible=true
@@ -107,6 +118,7 @@ jobs:
             echo "base_sha=$base_sha"
             echo "head_sha=$head_sha"
             echo "eligible=$eligible"
+            echo "author_is_bot=$author_is_bot"
             if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
               echo "force_review=true"
             else
@@ -141,6 +153,7 @@ jobs:
           BASE_SHA: ${{ steps.context.outputs.base_sha }}
           HEAD_SHA: ${{ steps.context.outputs.head_sha }}
           FORCE_REVIEW: ${{ steps.context.outputs.force_review }}
+          AUTHOR_IS_BOT: ${{ steps.context.outputs.author_is_bot }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.context.outputs.pr_number }}
         run: |
@@ -200,7 +213,8 @@ jobs:
             review_diff_base="$BASE_SHA"
           fi
           if [ "$relevant_code_changed" = true ] \
-            && { [ "$over_review_threshold" = true ] || [ "$FORCE_REVIEW" = true ]; }; then
+            && { [ "$over_review_threshold" = true ] || [ "$FORCE_REVIEW" = true ]; } \
+            && [ "$AUTHOR_IS_BOT" != true ]; then
             should_review=true
           fi
 
@@ -210,6 +224,7 @@ jobs:
           echo "non-docs code files: $files, changed lines: $lines"
           echo "automatic threshold: $over_review_threshold"
           echo "manual force: $FORCE_REVIEW"
+          echo "bot-authored PR: $AUTHOR_IS_BOT"
           echo "should review: $should_review"
           {
             echo "review_base=$review_base"
