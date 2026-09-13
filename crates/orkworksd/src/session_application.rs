@@ -679,6 +679,7 @@ impl SessionApplication {
                             kind: candidate.kind,
                             description: candidate.description.clone(),
                             evidence: candidate.evidence.clone(),
+                            problem_area: candidate.problem_area.clone(),
                             reported_impact: candidate.reported_impact,
                             confidence: Some(candidate.confidence),
                         },
@@ -836,6 +837,7 @@ impl SessionApplication {
                     kind: candidate.kind,
                     description: candidate.description.clone(),
                     evidence: candidate.evidence.clone(),
+                    problem_area: candidate.problem_area.clone(),
                     reported_impact: candidate.reported_impact,
                     confidence: Some(candidate.confidence),
                 },
@@ -3521,6 +3523,7 @@ mod tests {
                 kind: crate::workflow_observations::ObservationKind::Obstacle,
                 description: "The same command needed another retry".into(),
                 evidence: "cargo test failed again".into(),
+                problem_area: None,
                 reported_impact: crate::workflow_observations::Impact::Medium,
                 confidence: Some(0.1),
             },
@@ -3546,6 +3549,7 @@ mod tests {
             kind: crate::workflow_observations::ObservationKind::Obstacle,
             description: "The command needed another retry".into(),
             evidence: "cargo test failed again".into(),
+            problem_area: None,
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: None,
         };
@@ -3601,6 +3605,7 @@ mod tests {
             kind: crate::workflow_observations::ObservationKind::Obstacle,
             description: "A command required an extra retry".into(),
             evidence: "retry output".into(),
+            problem_area: Some("command retry".into()),
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: 0.8,
         }];
@@ -3636,6 +3641,10 @@ mod tests {
             observations[0].source,
             crate::workflow_observations::ObservationSource::Peon
         );
+        assert_eq!(
+            observations[0].problem_area.as_deref(),
+            Some("command retry")
+        );
     }
 
     #[test]
@@ -3667,6 +3676,7 @@ mod tests {
             kind: crate::workflow_observations::ObservationKind::Obstacle,
             description: "The final scan found a retry".into(),
             evidence: "retry output".into(),
+            problem_area: None,
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: 0.9,
         };
@@ -7820,6 +7830,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: evidence.into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -7862,6 +7873,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -7928,6 +7940,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -8316,6 +8329,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -8355,6 +8369,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },

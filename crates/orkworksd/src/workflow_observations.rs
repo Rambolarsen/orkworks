@@ -40,6 +40,7 @@ use std::sync::Mutex;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use unicode_normalization::UnicodeNormalization;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -47,6 +48,7 @@ use sha2::{Digest, Sha256};
 
 const MAX_DESCRIPTION_CHARS: usize = 500;
 const MAX_EVIDENCE_CHARS: usize = 2_000;
+pub(crate) const MAX_PROBLEM_AREA_CHARS: usize = 120;
 const MAX_SEGMENT_OBSERVATIONS: usize = 1_000;
 const MAX_SEGMENT_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_WORKSPACE_OBSERVATIONS: usize = 10_000;
@@ -145,6 +147,7 @@ pub(crate) struct ObservationCandidate {
     pub kind: ObservationKind,
     pub description: String,
     pub evidence: String,
+    pub problem_area: Option<String>,
     pub reported_impact: Impact,
     pub confidence: Option<f64>,
 }
@@ -159,6 +162,8 @@ pub(crate) struct WorkflowObservation {
     pub kind: ObservationKind,
     pub description: String,
     pub evidence: String,
+    #[serde(default)]
+    pub problem_area: Option<String>,
     pub reported_impact: Impact,
     pub source: ObservationSource,
     pub confidence: f64,
@@ -240,6 +245,8 @@ pub(crate) enum RecordError {
     DescriptionTooLong,
     EmptyEvidence,
     EvidenceTooLong,
+    EmptyProblemArea,
+    ProblemAreaContainsControl,
     MissingConfidence,
     ConfidenceOutOfRange,
     IdempotencyConflict,
@@ -262,6 +269,10 @@ impl std::fmt::Display for RecordError {
             RecordError::DescriptionTooLong => "description exceeds the maximum length",
             RecordError::EmptyEvidence => "evidence must not be empty",
             RecordError::EvidenceTooLong => "evidence exceeds the maximum length",
+            RecordError::EmptyProblemArea => "problem area must not be empty",
+            RecordError::ProblemAreaContainsControl => {
+                "problem area must not contain control characters"
+            }
             RecordError::MissingConfidence => {
                 "peon-origin observations require a candidate confidence value"
             }
@@ -494,17 +505,26 @@ impl WorkflowObservationStore {
             }
         };
 
-        let fingerprint = format!(
-            "v1:{}:{}",
-            candidate.kind.as_str(),
-            normalize_description(&candidate.description)
-        );
+        let canonical_problem_area = candidate
+            .problem_area
+            .as_deref()
+            .map(canonicalize_problem_area)
+            .transpose()?;
+        let fingerprint = match canonical_problem_area.as_deref() {
+            Some(problem_area) => fingerprint_v2(candidate.kind, problem_area),
+            None => format!(
+                "v1:{}:{}",
+                candidate.kind.as_str(),
+                normalize_description(&candidate.description)
+            ),
+        };
         let key_hash = hash_key(session_id, idempotency_key);
         let payload_hash = hash_payload(
             candidate.kind,
             &candidate.description,
             &candidate.evidence,
             candidate.reported_impact,
+            canonical_problem_area.as_deref(),
         );
 
         let mut inner = self.inner.lock().unwrap();
@@ -552,6 +572,7 @@ impl WorkflowObservationStore {
             kind: candidate.kind,
             description: candidate.description.clone(),
             evidence: candidate.evidence.clone(),
+            problem_area: canonical_problem_area,
             reported_impact: candidate.reported_impact,
             source,
             confidence,
@@ -782,6 +803,30 @@ fn normalize_description(description: &str) -> String {
     out
 }
 
+fn canonicalize_problem_area(problem_area: &str) -> Result<String, RecordError> {
+    if problem_area.chars().any(char::is_control) {
+        return Err(RecordError::ProblemAreaContainsControl);
+    }
+
+    let normalized = problem_area
+        .nfkc()
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    let canonical = normalize_description(&normalized);
+    if canonical.is_empty() {
+        return Err(RecordError::EmptyProblemArea);
+    }
+    Ok(canonical.chars().take(MAX_PROBLEM_AREA_CHARS).collect())
+}
+
+fn fingerprint_v2(kind: ObservationKind, canonical_problem_area: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(kind.as_str().as_bytes());
+    hasher.update([0u8]);
+    hasher.update(canonical_problem_area.as_bytes());
+    format!("v2:{}:{}", kind.as_str(), hex::encode(hasher.finalize()))
+}
+
 fn hash_key(session_id: &str, idempotency_key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(session_id.as_bytes());
@@ -795,6 +840,7 @@ fn hash_payload(
     description: &str,
     evidence: &str,
     impact: Impact,
+    problem_area: Option<&str>,
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(kind.as_str().as_bytes());
@@ -804,6 +850,10 @@ fn hash_payload(
     hasher.update(evidence.as_bytes());
     hasher.update([0u8]);
     hasher.update(impact.as_str().as_bytes());
+    if let Some(problem_area) = problem_area {
+        hasher.update([0u8]);
+        hasher.update(problem_area.as_bytes());
+    }
     hex::encode(hasher.finalize())
 }
 
@@ -1040,6 +1090,7 @@ mod tests {
             kind,
             description: description.to_string(),
             evidence: evidence.to_string(),
+            problem_area: None,
             reported_impact: Impact::Medium,
             confidence: None,
         }
@@ -1264,6 +1315,120 @@ mod tests {
         assert_ne!(fp(a), fp(b));
     }
 
+    #[test]
+    fn explicit_problem_area_uses_v2_nfkc_lowercase_whitespace_and_punctuation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let mut c = candidate(ObservationKind::Obstacle, "description", "evidence");
+        c.problem_area = Some("  Ｐｅｏｎ\u{00a0}MODEL — ①  ".into());
+
+        let outcome = store
+            .record_observation("session-1", ObservationOrigin::Agent, "key-1", c)
+            .unwrap();
+        let observation = match outcome {
+            RecordOutcome::Accepted(observation) => observation,
+            other => panic!("expected Accepted, got {other:?}"),
+        };
+
+        assert_eq!(observation.problem_area.as_deref(), Some("peon model — 1"));
+        assert_eq!(
+            observation.fingerprint,
+            "v2:obstacle:82112ba063f6039c53f2fe7b60de9527bfd92c747df8d8381c11845fc0ff430d"
+        );
+    }
+
+    #[test]
+    fn omitted_problem_area_keeps_legacy_v1_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let outcome = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "key-1",
+                candidate(ObservationKind::Obstacle, "  Fix   the Bug  ", "evidence"),
+            )
+            .unwrap();
+        let observation = match outcome {
+            RecordOutcome::Accepted(observation) => observation,
+            other => panic!("expected Accepted, got {other:?}"),
+        };
+        assert_eq!(observation.problem_area, None);
+        assert_eq!(observation.fingerprint, "v1:obstacle:fix the bug");
+    }
+
+    #[test]
+    fn persisted_observation_without_problem_area_deserializes_as_legacy() {
+        let json = r#"{
+            "id":"obs-1","sequence":1,"sessionId":"session-1",
+            "observedAt":"2026-09-13T12:00:00Z","kind":"obstacle",
+            "description":"description","evidence":"evidence",
+            "reportedImpact":"medium","source":"agent","confidence":0.9,
+            "fingerprint":"v1:obstacle:description"
+        }"#;
+        let observation: WorkflowObservation = serde_json::from_str(json).unwrap();
+        assert_eq!(observation.problem_area, None);
+    }
+
+    #[test]
+    fn explicit_problem_area_empty_or_control_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        for problem_area in ["   ".to_string(), "model\n detection".to_string()] {
+            let mut c = candidate(ObservationKind::Obstacle, "description", "evidence");
+            c.problem_area = Some(problem_area);
+            let error = store
+                .record_observation(
+                    "session-1",
+                    ObservationOrigin::Agent,
+                    "key-empty-or-control",
+                    c,
+                )
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                RecordError::EmptyProblemArea | RecordError::ProblemAreaContainsControl
+            ));
+        }
+    }
+
+    #[test]
+    fn explicit_problem_area_is_truncated_to_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let mut c = candidate(ObservationKind::Obstacle, "description", "evidence");
+        c.problem_area = Some("x".repeat(MAX_PROBLEM_AREA_CHARS + 20));
+        let outcome = store
+            .record_observation("session-1", ObservationOrigin::Agent, "key-1", c)
+            .unwrap();
+        let observation = match outcome {
+            RecordOutcome::Accepted(observation) => observation,
+            other => panic!("expected Accepted, got {other:?}"),
+        };
+        assert_eq!(
+            observation.problem_area.as_ref().unwrap().chars().count(),
+            MAX_PROBLEM_AREA_CHARS
+        );
+    }
+
+    #[test]
+    fn changing_explicit_problem_area_is_not_an_idempotent_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let mut first = candidate(ObservationKind::Obstacle, "description", "evidence");
+        first.problem_area = Some("model detection".into());
+        store
+            .record_observation("session-1", ObservationOrigin::Agent, "key-1", first)
+            .unwrap();
+
+        let mut second = candidate(ObservationKind::Obstacle, "description", "evidence");
+        second.problem_area = Some("provider detection".into());
+        let error = store
+            .record_observation("session-1", ObservationOrigin::Agent, "key-1", second)
+            .unwrap_err();
+        assert_eq!(error, RecordError::IdempotencyConflict);
+    }
+
     // -- Idempotency -----------------------------------------------------
 
     #[test]
@@ -1331,6 +1496,7 @@ mod tests {
             kind: ObservationKind::Obstacle,
             description: "target description".to_string(),
             evidence: "target evidence".to_string(),
+            problem_area: None,
             reported_impact: Impact::Medium,
             source: ObservationSource::Agent,
             confidence: AGENT_CONFIDENCE,
@@ -1358,6 +1524,7 @@ mod tests {
                 kind: ObservationKind::Obstacle,
                 description: "unrelated description".to_string(),
                 evidence: "unrelated evidence".to_string(),
+                problem_area: None,
                 reported_impact: Impact::Medium,
                 source: ObservationSource::Agent,
                 confidence: AGENT_CONFIDENCE,
@@ -1524,6 +1691,7 @@ mod tests {
                 kind: ObservationKind::Obstacle,
                 description: "retried description".to_string(),
                 evidence: "evidence".to_string(),
+                problem_area: None,
                 reported_impact: Impact::Medium,
                 source: ObservationSource::Agent,
                 confidence: AGENT_CONFIDENCE,
@@ -1535,6 +1703,7 @@ mod tests {
                 "retried description",
                 "evidence",
                 Impact::Medium,
+                None,
             ),
         };
 
@@ -1554,6 +1723,7 @@ mod tests {
                     kind: ObservationKind::Obstacle,
                     description: "filler description".to_string(),
                     evidence: "evidence".to_string(),
+                    problem_area: None,
                     reported_impact: Impact::Medium,
                     source: ObservationSource::Agent,
                     confidence: AGENT_CONFIDENCE,
@@ -1668,6 +1838,7 @@ mod tests {
                 kind: ObservationKind::Obstacle,
                 description: description.clone(),
                 evidence: evidence.clone(),
+                problem_area: None,
                 reported_impact: Impact::Medium,
                 source: ObservationSource::Agent,
                 confidence: AGENT_CONFIDENCE,
@@ -1740,6 +1911,7 @@ mod tests {
                     kind: ObservationKind::Obstacle,
                     description: "description".to_string(),
                     evidence: "evidence".to_string(),
+                    problem_area: None,
                     reported_impact: Impact::Medium,
                     source: ObservationSource::Agent,
                     confidence: AGENT_CONFIDENCE,
@@ -1786,6 +1958,7 @@ mod tests {
             kind: ObservationKind::Obstacle,
             description: "description".to_string(),
             evidence: "evidence".to_string(),
+            problem_area: None,
             reported_impact: Impact::Medium,
             source: ObservationSource::Agent,
             confidence: AGENT_CONFIDENCE,
@@ -1841,6 +2014,7 @@ mod tests {
                 kind: ObservationKind::Obstacle,
                 description: "description".to_string(),
                 evidence: "evidence".to_string(),
+                problem_area: None,
                 reported_impact: Impact::Medium,
                 source: ObservationSource::Agent,
                 confidence: AGENT_CONFIDENCE,

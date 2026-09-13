@@ -472,6 +472,7 @@ mod tests {
             kind: ObservationKind::Obstacle,
             description: "The setup blocks progress".into(),
             evidence: format!("failure {sequence}"),
+            problem_area: None,
             reported_impact: impact,
             source: ObservationSource::Peon,
             confidence,

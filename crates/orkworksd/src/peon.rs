@@ -845,7 +845,7 @@ Available fields:
 - detectedHarness: name of the AI coding harness visible in the terminal (e.g. \"claude-code\", \"opencode\", \"codex\", \"aider\", \"gemini-cli\"), or omit if not detectable
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
-- workflowObservations: array of at most five concrete workflow-friction candidates. Each candidate must have kind (one of repetition, obstacle, missing_context, assumption, correction, workaround, verification_gap), description, evidence, reportedImpact (low, medium, or high), and confidence from 0.0 to 1.0. Only report friction that made the work harder than necessary; never report ordinary progress, terminal redraws, or speculative advice.
+- workflowObservations: array of at most five concrete workflow-friction candidates. Each candidate must have kind (one of repetition, obstacle, missing_context, assumption, correction, workaround, verification_gap), description, optional problemArea (a short neutral recurring-problem identity, under eight words; omit task verbs, IDs, PR numbers, timestamps, and transient evidence), evidence, reportedImpact (low, medium, or high), and confidence from 0.0 to 1.0. Only report friction that made the work harder than necessary; never report ordinary progress, terminal redraws, or speculative advice.
 
 If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
@@ -867,6 +867,8 @@ pub(crate) struct PeonWorkflowObservation {
     pub kind: crate::workflow_observations::ObservationKind,
     pub description: String,
     pub evidence: String,
+    #[serde(rename = "problemArea", default)]
+    pub problem_area: Option<String>,
     #[serde(rename = "reportedImpact")]
     pub reported_impact: crate::workflow_observations::Impact,
     pub confidence: f64,
@@ -926,7 +928,11 @@ where
                 break;
             }
             if let Ok(candidate) = serde_json::from_value::<PeonWorkflowObservation>(item) {
-                if (0.0..=1.0).contains(&candidate.confidence) {
+                if (0.0..=1.0).contains(&candidate.confidence)
+                    && candidate.problem_area.as_deref().is_none_or(|area| {
+                        !area.trim().is_empty() && !area.chars().any(char::is_control)
+                    })
+                {
                     candidates.push(candidate);
                 }
             }
@@ -1388,6 +1394,75 @@ mod tests {
         assert_eq!(
             inference.workflow_observations[0].reported_impact,
             crate::workflow_observations::Impact::Medium
+        );
+    }
+
+    #[test]
+    fn peon_parses_optional_problem_area_and_keeps_legacy_candidates_valid() {
+        let raw = r#"{
+            "observedStatus": "working",
+            "confidence": 0.8,
+            "workflowObservations": [
+                {
+                    "kind": "obstacle",
+                    "description": "The selected model was not detected",
+                    "problemArea": "Peon model detection",
+                    "evidence": "The model probe returned no match",
+                    "reportedImpact": "high",
+                    "confidence": 0.8
+                },
+                {
+                    "kind": "repetition",
+                    "description": "The same fixture was rebuilt",
+                    "evidence": "The rebuild ran twice",
+                    "reportedImpact": "low",
+                    "confidence": 0.7
+                }
+            ]
+        }"#;
+
+        let inference = parse_inference(raw).expect("valid Peon response");
+        assert_eq!(inference.workflow_observations.len(), 2);
+        assert_eq!(
+            inference.workflow_observations[0].problem_area.as_deref(),
+            Some("Peon model detection")
+        );
+        assert_eq!(inference.workflow_observations[1].problem_area, None);
+    }
+
+    #[test]
+    fn peon_drops_malformed_optional_problem_area_but_keeps_core_and_other_candidates() {
+        let raw = r#"{
+            "observedStatus": "blocked",
+            "summary": "Fixing model detection",
+            "confidence": 0.8,
+            "workflowObservations": [
+                {
+                    "kind": "obstacle",
+                    "description": "Bad optional area",
+                    "problemArea": 42,
+                    "evidence": "evidence",
+                    "reportedImpact": "high",
+                    "confidence": 0.8
+                },
+                {
+                    "kind": "workaround",
+                    "description": "A fallback was used",
+                    "evidence": "fallback output",
+                    "reportedImpact": "medium",
+                    "confidence": 0.7
+                }
+            ]
+        }"#;
+
+        let inference =
+            parse_inference(raw).expect("core inference must survive malformed optional field");
+        assert_eq!(inference.observed_status.as_deref(), Some("blocked"));
+        assert_eq!(inference.summary.as_deref(), Some("Fixing model detection"));
+        assert_eq!(inference.workflow_observations.len(), 1);
+        assert_eq!(
+            inference.workflow_observations[0].kind,
+            crate::workflow_observations::ObservationKind::Workaround
         );
     }
 
