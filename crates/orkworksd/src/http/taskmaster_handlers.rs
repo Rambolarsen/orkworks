@@ -15,6 +15,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[derive(Serialize)]
@@ -46,6 +47,36 @@ pub(crate) struct CompleteRequest {
 
 const MAX_COMPLETION_SUMMARY_CHARS: usize = 2_000;
 
+fn actionable_recommendations(recommendations: Vec<Recommendation>) -> Vec<Recommendation> {
+    let active_member_ids = recommendations
+        .iter()
+        .filter(|recommendation| {
+            !recommendation.rollup_member_ids.is_empty()
+                && matches!(
+                    recommendation.status,
+                    crate::taskmaster::RecommendationStatus::Proposed
+                        | crate::taskmaster::RecommendationStatus::Executing
+                )
+        })
+        .flat_map(|recommendation| recommendation.rollup_member_ids.iter().cloned())
+        .collect::<BTreeSet<_>>();
+
+    recommendations
+        .into_iter()
+        .filter(|recommendation| {
+            if !recommendation.rollup_member_ids.is_empty() {
+                return matches!(
+                    recommendation.status,
+                    crate::taskmaster::RecommendationStatus::Proposed
+                        | crate::taskmaster::RecommendationStatus::Executing
+                );
+            }
+            recommendation.status == crate::taskmaster::RecommendationStatus::Proposed
+                && !active_member_ids.contains(&recommendation.id)
+        })
+        .collect()
+}
+
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(AUTHORIZATION)
@@ -75,7 +106,7 @@ pub(crate) async fn list_recommendations(State(state): State<Arc<AppState>>) -> 
         Err(RecommendationQueryError::Store(error)) => return store_error(error),
     };
     Json(RecommendationListResponse {
-        recommendations,
+        recommendations: actionable_recommendations(recommendations),
         diagnostics,
     })
     .into_response()
@@ -173,9 +204,108 @@ mod tests {
     use crate::runtime::terminal_runtime::{
         clear_workflow_report_token, set_workflow_report_token, WORKFLOW_REPORT_RATE_LIMIT,
     };
+    use crate::taskmaster::{
+        RecommendationConfidence, RecommendationStatus, RecommendationType, TargetSurface,
+        WorkflowImprovement, WorkflowObservationEvidence,
+    };
     use crate::test_support::test_app_state_with_workspace;
+    use crate::workflow_observations::{Impact, ObservationKind, ObservationSource};
     use axum::body::Bytes;
     use axum::http::header::AUTHORIZATION;
+
+    fn recommendation_fixture(
+        id: &str,
+        status: RecommendationStatus,
+        session_id: &str,
+    ) -> Recommendation {
+        Recommendation {
+            id: id.into(),
+            workspace_id: "workspace-1".into(),
+            chain_id: id.into(),
+            chain_depth: 0,
+            recommendation_type: RecommendationType::ImproveWorkflow,
+            status,
+            priority: Impact::Medium,
+            title: format!("Recommendation {id}"),
+            summary: "A bounded workflow improvement".into(),
+            reason: vec!["The evidence supports this change.".into()],
+            evidence: vec![WorkflowObservationEvidence {
+                observation_id: format!("observation-{id}"),
+                sequence: 1,
+                session_id: session_id.into(),
+                kind: ObservationKind::Obstacle,
+                description: format!("Evidence for {id}"),
+                evidence: "The workflow failed at this point.".into(),
+                problem_area: Some("model detection".into()),
+                reported_impact: Impact::Medium,
+                source: ObservationSource::Agent,
+                confidence: 0.8,
+                observed_at: "2026-09-13T10:00:00Z".into(),
+            }],
+            repository_evidence: Vec::new(),
+            knowledge_evidence: Vec::new(),
+            source_session_ids: vec![session_id.into()],
+            target_session_id: None,
+            suggested_harness_id: None,
+            suggested_model: None,
+            suggested_working_directory: None,
+            suggested_prompt: None,
+            confidence: RecommendationConfidence::Medium,
+            requires_approval: false,
+            dedupe_key: format!("dedupe-{id}"),
+            created_at: "2026-09-13T10:00:00Z".into(),
+            updated_at: "2026-09-13T10:00:00Z".into(),
+            expires_at: None,
+            workflow_improvement: WorkflowImprovement {
+                proposed_improvement: "Improve the workflow".into(),
+                target_surface: TargetSurface::Tooling,
+                observation_ids: vec![format!("observation-{id}")],
+                recurrence_count: 1,
+                affected_session_ids: vec![session_id.into()],
+                impact: Impact::Medium,
+                expected_benefit: "Fewer repeated failures".into(),
+                supersedes_recommendation_id: None,
+                dismissal_watermark: None,
+            },
+            rollup_member_ids: Vec::new(),
+            rollup_member_dedupe_keys: Vec::new(),
+            rollup_generation: None,
+            rolled_up_by: None,
+        }
+    }
+
+    fn persist_rollup_fixture(state: &std::sync::Arc<crate::AppState>) -> (String, String) {
+        let member_id = "rollup-member".to_string();
+        let parent_id = "rollup-parent".to_string();
+        let mut parent =
+            recommendation_fixture(&parent_id, RecommendationStatus::Proposed, "session-parent");
+        parent.rollup_member_ids = vec![member_id.clone()];
+        parent.rollup_member_dedupe_keys = vec!["dedupe-rollup-member".into()];
+        parent.rollup_generation = Some(7);
+        let mut member =
+            recommendation_fixture(&member_id, RecommendationStatus::RolledUp, "session-member");
+        member.rolled_up_by = Some(parent_id.clone());
+
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().recommendation_store;
+        store.put(&parent).unwrap();
+        store.put(&member).unwrap();
+        store
+            .put(&recommendation_fixture(
+                "standalone",
+                RecommendationStatus::Proposed,
+                "session-standalone",
+            ))
+            .unwrap();
+        store
+            .put(&recommendation_fixture(
+                "dismissed",
+                RecommendationStatus::Dismissed,
+                "session-dismissed",
+            ))
+            .unwrap();
+        (parent_id, member_id)
+    }
 
     fn accepted_recommendation(
         state: &std::sync::Arc<crate::AppState>,
@@ -433,6 +563,126 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let response = list_recommendations(State(test_app_state_with_workspace(dir.path()))).await;
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn list_returns_active_parents_and_unparented_proposals_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (parent_id, member_id) = persist_rollup_fixture(&state);
+
+        let response = list_recommendations(State(state)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let ids = body["recommendations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&parent_id.as_str()));
+        assert!(ids.contains(&"standalone"));
+        assert!(!ids.contains(&member_id.as_str()));
+        assert!(!ids.contains(&"dismissed"));
+    }
+
+    #[test]
+    fn list_projection_keeps_executing_rollup_parents_actionable_for_audit() {
+        let mut parent = recommendation_fixture(
+            "executing-parent",
+            RecommendationStatus::Executing,
+            "session-parent",
+        );
+        parent.rollup_member_ids = vec!["executing-member".into()];
+        parent.rollup_member_dedupe_keys = vec!["dedupe-executing-member".into()];
+        let mut member = recommendation_fixture(
+            "executing-member",
+            RecommendationStatus::RolledUp,
+            "session-member",
+        );
+        member.rolled_up_by = Some(parent.id.clone());
+
+        let projected = actionable_recommendations(vec![member, parent]);
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].id, "executing-parent");
+    }
+
+    #[tokio::test]
+    async fn detail_exposes_rollup_relationship_and_problem_area_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (parent_id, member_id) = persist_rollup_fixture(&state);
+
+        let parent = get_recommendation(State(state.clone()), Path(parent_id.clone())).await;
+        assert_eq!(parent.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(parent.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["rollupMemberIds"], serde_json::json!([member_id]));
+        assert_eq!(
+            body["rollupMemberDedupeKeys"],
+            serde_json::json!(["dedupe-rollup-member"])
+        );
+        assert_eq!(body["rollupGeneration"], 7);
+        assert!(body["rolledUpBy"].is_null());
+        assert_eq!(body["evidence"][0]["problemArea"], "model detection");
+
+        let member = get_recommendation(State(state), Path("rollup-member".into())).await;
+        assert_eq!(member.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(member.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["status"], "rolled_up");
+        assert_eq!(body["rolledUpBy"], "rollup-parent");
+    }
+
+    #[tokio::test]
+    async fn actions_against_rolled_up_members_conflict_without_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (_, member_id) = persist_rollup_fixture(&state);
+        let before = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&member_id)
+            .unwrap()
+            .unwrap();
+
+        let dismissed =
+            dismiss_recommendation(State(state.clone()), Path(member_id.clone()), None).await;
+        assert_eq!(dismissed.status(), StatusCode::CONFLICT);
+
+        let accepted = accept_recommendation(
+            State(state.clone()),
+            Path(member_id.clone()),
+            Json(AcceptRequest {
+                session_id: "unrelated-session".into(),
+                prompt: Some("attempted mutation".into()),
+            }),
+        )
+        .await;
+        assert_eq!(accepted.status(), StatusCode::CONFLICT);
+
+        let after = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&member_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(after, before);
     }
 
     #[tokio::test]

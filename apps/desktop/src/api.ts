@@ -508,7 +508,7 @@ export type Impact = "low" | "medium" | "high";
 export type RecommendationConfidence = "low" | "medium" | "high";
 export type RecommendationStatus =
   | "proposed" | "accepted" | "executing" | "completed"
-  | "dismissed" | "superseded" | "expired" | "failed";
+  | "dismissed" | "rolled_up" | "superseded" | "expired" | "failed";
 export type TargetSurface = "instructions" | "skill" | "test" | "tooling" | "documentation";
 export type ObservationKind =
   | "repetition" | "obstacle" | "missing_context" | "assumption"
@@ -521,6 +521,7 @@ export interface WorkflowObservationEvidence {
   kind: ObservationKind;
   description: string;
   evidence: string;
+  problemArea?: string | null;
   reportedImpact: Impact;
   source: "agent" | "peon";
   confidence: number;
@@ -575,6 +576,10 @@ export interface WorkflowRecommendation {
   updatedAt: string;
   expiresAt: string | null;
   workflowImprovement: WorkflowImprovement;
+  rollupMemberIds: string[];
+  rollupMemberDedupeKeys: string[];
+  rollupGeneration: number | null;
+  rolledUpBy: string | null;
 }
 
 export interface ObservationDiagnostic {

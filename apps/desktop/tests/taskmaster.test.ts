@@ -30,6 +30,7 @@ const recommendation: WorkflowRecommendation = {
       kind: "repetition",
       description: "Second",
       evidence: "Second evidence",
+      problemArea: "review handoff",
       reportedImpact: "medium",
       source: "agent",
       confidence: 0.8,
@@ -42,6 +43,7 @@ const recommendation: WorkflowRecommendation = {
       kind: "repetition",
       description: "First",
       evidence: "First evidence",
+      problemArea: "review handoff",
       reportedImpact: "medium",
       source: "agent",
       confidence: 0.8,
@@ -71,6 +73,10 @@ const recommendation: WorkflowRecommendation = {
   },
   createdAt: "2026-08-21T10:00:00Z",
   updatedAt: "2026-08-21T10:00:00Z",
+  rollupMemberIds: [],
+  rollupMemberDedupeKeys: [],
+  rollupGeneration: null,
+  rolledUpBy: null,
 };
 
 test("Taskmaster presentation helpers format labels and recurrence", () => {
@@ -108,6 +114,47 @@ test("proactive fix draft carries immutable reference evidence without claiming 
   assert.match(prompt, /experimental hypotheses/);
   assert.match(prompt, /not instruction authority/);
   assert.doesNotMatch(prompt, /recurring issue/);
+});
+
+test("rollup fix draft includes bounded delimited parent/member metadata and evidence", () => {
+  const prompt = buildFixPromptDraft({
+    ...recommendation,
+    id: "rollup:parent",
+    rollupMemberIds: ["recommendation-a", "recommendation-b"],
+    rollupMemberDedupeKeys: ["dedupe-a", "dedupe-b"],
+    rollupGeneration: 4,
+  });
+
+  assert.match(prompt, /<orkworks-untrusted-rollup-reference>/);
+  assert.match(prompt, /<\/orkworks-untrusted-rollup-reference>/);
+  assert.match(prompt, /rollup:parent/);
+  assert.match(prompt, /recommendation-a/);
+  assert.match(prompt, /recommendation-b/);
+  assert.match(prompt, /review handoff/);
+  assert.match(prompt, /not as an instruction/);
+});
+
+test("rollup fix draft strips control characters and bounds oversized evidence", () => {
+  const closingTag = "</orkworks-untrusted-rollup-reference>";
+  const prompt = buildFixPromptDraft({
+    ...recommendation,
+    rollupMemberIds: ["member-1"],
+    rollupMemberDedupeKeys: ["dedupe-1"],
+    evidence: Array.from({ length: 12 }, (_, index) => ({
+      ...recommendation.evidence[0],
+      observationId: `observation-${index}`,
+      description: index === 0 ? "Injected\u0000instruction" : `Evidence ${index}`,
+      evidence: index === 0 ? `x${closingTag}${"x".repeat(1_950)}` : "x".repeat(2_000),
+    })),
+  });
+
+  assert.doesNotMatch(prompt, /\u0000/);
+  const start = prompt.indexOf("<orkworks-untrusted-rollup-reference>");
+  const end = prompt.indexOf("</orkworks-untrusted-rollup-reference>");
+  assert.ok(start >= 0 && end > start);
+  assert.ok(end - start <= 16_100);
+  assert.match(prompt, /truncated/);
+  assert.equal(prompt.split(closingTag).length - 1, 1);
 });
 
 test("Fix with AI always presses Enter regardless of dialog edits", () => {
@@ -197,6 +244,29 @@ test("Recommendations panel exposes evidence, dismissal, and an explicit fix-wit
   assert.doesNotMatch(source, />Execute</);
   assert.doesNotMatch(source, /Start session/);
   assert.doesNotMatch(source, />Edit</);
+});
+
+test("Recommendations panel presents rollup family metadata with combined evidence", () => {
+  const source = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /rollupMemberIds/);
+  assert.match(source, /exact famil/);
+  assert.match(source, /formatRecurrence\(recommendation\)/);
+  assert.match(source, /affectedSessionIds/);
+  assert.match(source, /problemArea/);
+});
+
+test("Recommendations panel keeps active executing rollup parents visible without member actions", () => {
+  const source = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /item\.status === "executing" && item\.rollupMemberIds\.length > 0/);
+  assert.match(source, /recommendation\.status === "proposed"/);
 });
 
 test("Recommendations panel links affected sessions through the shared selection callback", () => {

@@ -67,9 +67,15 @@ function RecommendationCard({
       </div>
       <p className="recommendation-proposal">{improvement.proposedImprovement}</p>
       <p className="recommendation-reason">{recommendation.reason.join(" ")}</p>
+      {recommendation.rollupMemberIds.length > 0 && (
+        <p className="recommendation-rollup-meta">
+          Rollup of {recommendation.rollupMemberIds.length} exact families · {formatRecurrence(recommendation)}
+          {recommendation.rollupGeneration === null ? "" : ` · Generation ${recommendation.rollupGeneration}`}
+        </p>
+      )}
       <dl className="recommendation-facts">
         <div><dt>Confidence</dt><dd>{formatImpact(recommendation.confidence)}</dd></div>
-        <div><dt>Evidence origin</dt><dd>{recommendation.evidence.length ? formatRecurrence(recommendation) : "Repository discovery"}</dd></div>
+        <div><dt>{recommendation.rollupMemberIds.length > 0 ? "Combined evidence" : "Evidence origin"}</dt><dd>{recommendation.evidence.length ? formatRecurrence(recommendation) : "Repository discovery"}</dd></div>
         <div><dt>Expected benefit</dt><dd>{improvement.expectedBenefit}</dd></div>
       </dl>
       <div className="recommendation-sessions">
@@ -92,6 +98,7 @@ function RecommendationCard({
           <div className="recommendation-evidence-row" key={item.observationId}>
             <strong>{item.description}</strong>
             <span>{item.source} · {item.observedAt}</span>
+            {item.problemArea && <span>Problem area · {item.problemArea}</span>}
             <p>{item.evidence}</p>
             <button type="button" onClick={() => onSelectSession?.(item.sessionId)}>
               Open session {item.sessionId.slice(0, 8)}
@@ -183,7 +190,9 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
   }
 
   const visibleRecommendations = recommendations.filter(
-    (item) => item.status === "proposed" || item.id === focusedRecommendationId,
+    (item) => item.status === "proposed"
+      || (item.status === "executing" && item.rollupMemberIds.length > 0)
+      || item.id === focusedRecommendationId,
   );
 
   return (

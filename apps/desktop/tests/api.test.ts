@@ -373,6 +373,16 @@ test("Taskmaster API reads the recommendations envelope and encodes recommendati
   }
 });
 
+test("Taskmaster recommendation types include rollup lifecycle and evidence fields", () => {
+  const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  assert.match(source, /\| \"dismissed\" \| \"rolled_up\"/);
+  assert.match(source, /problemArea\?: string \| null/);
+  assert.match(source, /rollupMemberIds: string\[\]/);
+  assert.match(source, /rollupMemberDedupeKeys: string\[\]/);
+  assert.match(source, /rollupGeneration: number \| null/);
+  assert.match(source, /rolledUpBy: string \| null/);
+});
+
 test("Taskmaster dismissal sends an optional reason and accepts a successful response", async () => {
   const origFetch = globalThis.fetch;
   let init: RequestInit | undefined;
