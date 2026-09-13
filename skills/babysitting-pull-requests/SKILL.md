@@ -19,7 +19,7 @@ all inline review comments. First query the PR metadata, then query every
 comment and check channel:
 
 ```bash
-gh pr view <pr> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,reviewRequests,baseRefOid,baseRefName,headRefOid,headRepository,isCrossRepository
+gh pr view <pr> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,reviewRequests,baseRefOid,baseRefName,headRefOid,headRefName,headRepository,isCrossRepository
 gh api --paginate repos/<owner>/<repo>/issues/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/reviews
@@ -50,9 +50,11 @@ For each comment or review not already handled:
    for informational or duplicate comments too.
 5. If uncertain whether feedback is correct, keep the human partner informed
    and ask for direction before making a consequential choice.
-6. Before changing the tree, verify that this session owns the head branch or
-   has the owner's explicit authorization to modify and push it. If the branch
-   is foreign and authorization is absent, do not commit or push; report the
+6. Before changing the tree, verify that this session owns the exact head
+   branch (`headRefName` and head repository) or has the owner's explicit
+   authorization to modify and push it. Same-repository status alone is not
+   branch ownership evidence. If the branch is foreign or ownership is
+   uncertain and authorization is absent, do not commit or push; report the
    blocker and hand off instead.
 7. If the tree changes, verify the fix, push it, and refresh CI and comments.
 
@@ -79,6 +81,13 @@ top-level PR comment containing `@codex review`:
 gh pr comment <pr> --body '@codex review'
 ```
 
+Record the current `headRefOid` and the trigger time. Poll the PR review list,
+review-comment list, and Codex summary until a Codex review result exists whose
+`commit_id` is that current head. A trigger comment or a review for an older
+head is not completion. If the current-head result does not appear before the
+bounded babysit budget expires, report the review as unresolved and hand off
+with the observed head, trigger time, and last review state.
+
 For the repository's custom automated review workflow, dispatch it manually
 when needed and only when the PR is open, non-draft, targets `main`, uses a
 head repository matching the current repository, and has relevant code under
@@ -92,8 +101,14 @@ The workflow skips documentation-only and fork PRs. A manual dispatch can
 force a relevant-code review below the normal size threshold, but it cannot
 make a documentation-only or fork PR eligible.
 
-Record the run URL or ID returned by the dispatch, then wait for that exact run
-to finish before completing the feedback cycle. Use `gh run watch <run-id> --exit-status`
+`gh workflow run` may return no run URL or ID. Before dispatching, snapshot the
+existing IDs with `gh run list --workflow pr-review.yml --event workflow_dispatch`
+and note the dispatch time. Dispatch the workflow, then list the same workflow
+and event with `--json databaseId,createdAt,displayTitle,status,conclusion` until
+a new run appears after that time. Confirm its workflow and logs identify the
+requested PR before watching it; if more than one candidate is ambiguous, do
+not watch an arbitrary run—keep the human partner informed. Once identified,
+wait for that exact run to finish with `gh run watch <run-id> --exit-status`
 (or repeatedly query that run's status and conclusion), then
 rescan all PR comment channels because the review comment is asynchronous.
 `gh pr checks` alone is not proof that this manually dispatched review ran or
@@ -107,10 +122,12 @@ gh api -X POST repos/<owner>/<repo>/pulls/<pr>/requested_reviewers \
   -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
 ```
 
-Verify that the request was retained in `reviewRequests` or that a new Copilot
-review appears for the current head. If neither appears, report that the
-request was not confirmed and keep the human partner in the loop; do not claim
-that Copilot reviewed the change or retry blindly.
+Verify that a **new** Copilot review appears whose `commit_id` matches the
+current `headRefOid`. A retained `reviewRequests` entry only proves that a
+request is present; it does not prove that Copilot reviewed the new head. If a
+current-head review does not appear, report the re-review as unconfirmed and
+keep the human partner in the loop; do not claim that Copilot reviewed the
+change or retry blindly.
 
 Treat every resulting comment as a new item and run this skill again. Copilot
 does not necessarily re-review new pushes unless the repository ruleset is
