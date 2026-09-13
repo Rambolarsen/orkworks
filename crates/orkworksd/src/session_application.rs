@@ -6437,7 +6437,7 @@ mod tests {
             .metadata
             .write_session(&meta);
 
-        let result = SessionApplication::new(state)
+        let result = SessionApplication::new(state.clone())
             .select_plan(
                 id,
                 PlanSelection {
