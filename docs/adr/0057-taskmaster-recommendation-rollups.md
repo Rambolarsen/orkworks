@@ -33,8 +33,9 @@ from the user-visible `description`. New records use a versioned fingerprint
 derived from `kind` and normalized `problemArea`. The sidecar owns validation
 and normalization: Unicode NFKC, Unicode lowercase, trimmed edges, and every
 run of Unicode whitespace collapsed to one ASCII space. Punctuation is
-retained. The fingerprint is `v2:<kind>:<sha256-hex>` over
-`kind + "\0" + canonical_problem_area`.
+retained. The fingerprint input concatenates `kind`, one NUL byte (`U+0000`),
+and `canonical_problem_area`; the stored fingerprint is
+`v2:<kind>:<sha256-hex>`.
 
 The field is bounded to a non-empty, non-control string of at most 120
 characters. Explicit overlong values are truncated by the canonicalizer;
@@ -66,17 +67,25 @@ generated text outside its bounds. Invalid output is rejected as a whole; no
 partial rollup is applied. All cluster and member ordering is normalized
 before identity is computed. The stable parent identity is
 `rollup:<sha256-hex>` over sorted member recommendation IDs. Generated prose
-does not determine identity or derived claims. If the provider is unavailable,
-malformed, or stale, exact recommendations and observations remain unchanged.
+does not determine identity or derived claims. A server-owned evaluation token
+contains the workspace instance ID, a monotonic generation within that
+workspace instance, the provider/model identity, and a hash of the supplied
+family snapshot; it is not model-supplied or persisted as authority. Applying
+model output requires the same workspace instance and generation, followed by
+locked revalidation that every supplied family is still proposed, has the same
+evidence snapshot, and has no changed active parent. If the provider is
+unavailable, malformed, or stale, exact recommendations and observations
+remain unchanged.
 
 `RecommendationStatus` gains `rolled_up`. A rollup parent stores sorted
-`rollupMemberIds`, sorted `rollupMemberDedupeKeys`, `rollupGeneration`, and a
-bounded projection of member evidence; a rolled-up member stores
-`rolledUpBy`. The parent projection is limited to 64 evidence entries and 128
-KiB. The sidecar computes the parent's evidence, recurrence count, affected
-sessions, impact, confidence, and target surface from its members. In v1 all
-members must share one target surface. A member can belong to at most one
-active parent.
+`rollupMemberIds`, sorted `rollupMemberDedupeKeys`, `rollupGeneration`,
+`supersedesRecommendationId`, and a bounded projection of member evidence; a
+rolled-up member stores `rolledUpBy`. The parent projection is limited to 64
+evidence entries and 128 KiB. The sidecar computes the parent's evidence,
+recurrence count, affected sessions, impact, confidence, and target surface
+from its members. In v1 all members must share one target surface. A member
+can belong to at most one active parent. A replacement rollup links to the
+superseded parent through `supersedesRecommendationId`.
 
 The parent/member transition is owned by the sidecar and written under the
 workspace lock as one recoverable transaction. It stages all replacement JSON,

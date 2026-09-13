@@ -419,8 +419,9 @@ New workflow observations may include an optional, short `problemArea`
 separate from the user-visible `description`. The sidecar validates and
 normalizes this field with Unicode NFKC, Unicode lowercase, trimmed edges, and
 every run of Unicode whitespace collapsed to one ASCII space; punctuation is
-retained. New records use `v2:<kind>:<sha256-hex>` over
-`kind + "\\0" + canonical_problem_area`. The field is bounded to a non-empty,
+retained. The fingerprint input concatenates `kind`, one NUL byte (`U+0000`),
+and `canonical_problem_area`; new records store
+`v2:<kind>:<sha256-hex>`. The field is bounded to a non-empty,
 non-control value of at most 120 characters. Explicit overlong values are
 truncated; explicit empty or control-bearing values are rejected. Missing
 `problemArea` preserves the legacy v1 description-based fingerprint, may be
@@ -440,7 +441,14 @@ at most 1,000 characters. The sidecar rejects unknown, empty, duplicate,
 overlapping, invalid, or cross-target clusters as a whole; no partial result
 is applied. Cluster and member ordering is normalized before identity is
 computed, and the parent ID is `rollup:<sha256-hex>` over sorted member
-recommendation IDs.
+recommendation IDs. A server-owned evaluation token contains the workspace
+instance ID, a monotonic generation within that workspace instance, the
+provider/model identity, and a hash of the supplied family snapshot; it is not
+model-supplied or persisted as authority. Applying model output requires the
+same workspace instance and generation, followed by locked revalidation that
+every supplied family is still proposed, has the same evidence snapshot, and
+has no changed active parent. Stale output is discarded without changing exact
+recommendations or observations.
 
 `RecommendationStatus` includes `rolled_up`. Rollup parents add
 `rollupMemberIds`, `rollupMemberDedupeKeys`, `rollupGeneration`,
@@ -505,7 +513,7 @@ workflowImprovement
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For this passive variant, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. `executing`, `accepted`, and `completed` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
+For exact-family evaluation, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses stay valid for shared deserialization but are never produced by that evaluator. The separate rollup evaluator may produce `superseded` when a proposed rollup's membership changes. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. For exact-family recommendations and unchanged rollup membership, `executing`, `accepted`, and `completed` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
 
 ### Deduplication and dismissal watermark
 
