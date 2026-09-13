@@ -288,6 +288,7 @@ Session metadata and session API payloads now accept canonical `harnessId`, `mod
 
 ## Specs
 
+- [Concurrent workspaces](specs/multi-workspace.md) — proposed design for remembered locations and background sessions; not implemented
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
 - `specs/release-pipeline.md` — alpha desktop packaging and GitHub Releases workflow

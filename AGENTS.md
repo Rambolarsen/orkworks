@@ -47,6 +47,7 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 
 ## Authoritative specs
 
+- `specs/multi-workspace.md` — proposed concurrent-workspace design; written-spec review required before implementation
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
 - `specs/release-pipeline.md` — alpha desktop packaging and GitHub Releases workflow
