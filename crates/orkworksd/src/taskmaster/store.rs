@@ -368,6 +368,67 @@ impl RecommendationStore {
         self.commit_replacements(expected, replacements)
     }
 
+    /// Atomically publishes a complete recommendation graph assembled by the
+    /// evaluator. The evaluator owns the in-memory projection; this boundary
+    /// owns optimistic concurrency, graph validation, and durable publication.
+    pub(crate) fn apply_recommendation_graph_transaction(
+        &self,
+        expected: &BTreeMap<String, Option<String>>,
+        records: &[Recommendation],
+    ) -> Result<(), StoreError> {
+        self.recover_transactions()?;
+        self.validate_graph()?;
+        let current = self.read_all_by_id()?;
+        self.verify_expected(expected, &current)?;
+        let next = records
+            .iter()
+            .cloned()
+            .map(|record| (record.id.clone(), record))
+            .collect::<BTreeMap<_, _>>();
+        if next.len() != records.len() {
+            return Err(StoreError::GraphInvariant(
+                "recommendation graph contains duplicate IDs".into(),
+            ));
+        }
+        validate_graph_records(&next.values().cloned().collect::<Vec<_>>())?;
+        for (id, old) in &current {
+            if !next.contains_key(id) {
+                return Err(StoreError::GraphInvariant(
+                    "rollup graph transaction cannot remove an existing record".into(),
+                ));
+            }
+            if matches!(
+                old.status,
+                RecommendationStatus::Accepted
+                    | RecommendationStatus::Completed
+                    | RecommendationStatus::Dismissed
+                    | RecommendationStatus::Superseded
+                    | RecommendationStatus::Expired
+                    | RecommendationStatus::Failed
+            ) && next.get(id) != Some(old)
+            {
+                return Err(StoreError::InvalidTransition);
+            }
+        }
+        let replacements = next
+            .iter()
+            .map(|(id, record)| {
+                let new = serde_json::to_vec_pretty(record).map_err(StoreError::Json)?;
+                let old = current.get(id).map(|previous| {
+                    serde_json::to_vec_pretty(previous).expect("recommendation is serializable")
+                });
+                Ok((
+                    id.clone(),
+                    Replacement {
+                        old,
+                        new: Some(new),
+                    },
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>, StoreError>>()?;
+        self.commit_replacements(expected, replacements)
+    }
+
     pub(crate) fn dismiss(
         &self,
         id: &str,
@@ -553,7 +614,7 @@ impl RecommendationStore {
     }
 
     fn path_for(&self, id: &str) -> PathBuf {
-        self.dir.join(format!("{id}.json"))
+        self.dir.join(recommendation_filename(id))
     }
 
     fn read_path(&self, path: &Path) -> Result<Recommendation, StoreError> {
@@ -699,7 +760,7 @@ impl RecommendationStore {
             let old_sha256 = old.as_deref().map(hash_bytes);
             let old_exists = old.is_some();
             let backup = if let Some(old) = old {
-                let relative = format!("backups/{id}.json");
+                let relative = transaction_backup_path(&id);
                 write_sync(&transaction_root.join(&relative), &old)?;
                 Some(relative)
             } else {
@@ -707,7 +768,7 @@ impl RecommendationStore {
             };
             let new_exists = new.is_some();
             let (staged, new_sha256) = if let Some(new) = new {
-                let relative = format!("staged/{id}.json");
+                let relative = transaction_staged_path(&id);
                 write_sync(&transaction_root.join(&relative), &new)?;
                 (Some(relative), Some(hash_bytes(&new)))
             } else {
@@ -728,7 +789,7 @@ impl RecommendationStore {
         // so the manifest cannot point at the wrong recommendation if the
         // map's ordering changes.
         for entry in &mut entries {
-            entry.target = format!("{}.json", entry.id);
+            entry.target = recommendation_filename(&entry.id);
         }
 
         let manifest_path = transaction_root.join(ROLLUP_TRANSACTION_MANIFEST);
@@ -911,7 +972,7 @@ impl RecommendationStore {
                         entry.id
                     )));
                 }
-                let restore_path = transaction_root.join(format!("restore-{}.json", entry.id));
+                let restore_path = transaction_root.join(transaction_restore_path(&entry.id));
                 write_sync(&restore_path, &bytes)?;
                 crate::harness::integration::atomic_replace(
                     &restore_path,
@@ -992,7 +1053,7 @@ fn validate_manifest_entries(entries: &[RollupTransactionEntry]) -> Result<(), S
     let mut ids = BTreeSet::new();
     for entry in entries {
         if !valid_id(&entry.id)
-            || entry.target != format!("{}.json", entry.id)
+            || entry.target != recommendation_filename(&entry.id)
             || !ids.insert(entry.id.clone())
             || entry.old_exists != entry.old_sha256.is_some()
             || entry.old_exists != entry.backup.is_some()
@@ -1001,6 +1062,22 @@ fn validate_manifest_entries(entries: &[RollupTransactionEntry]) -> Result<(), S
         {
             return Err(StoreError::Recovery(format!(
                 "invalid transaction entry for {}",
+                entry.id
+            )));
+        }
+        if entry.staged.as_deref()
+            != entry
+                .new_exists
+                .then(|| transaction_staged_path(&entry.id))
+                .as_deref()
+            || entry.backup.as_deref()
+                != entry
+                    .old_exists
+                    .then(|| transaction_backup_path(&entry.id))
+                    .as_deref()
+        {
+            return Err(StoreError::Recovery(format!(
+                "invalid transaction paths for {}",
                 entry.id
             )));
         }
@@ -1019,6 +1096,35 @@ fn validate_manifest_entries(entries: &[RollupTransactionEntry]) -> Result<(), S
         }
     }
     Ok(())
+}
+
+fn recommendation_filename(id: &str) -> String {
+    format!("{}.json", filename_component(id))
+}
+
+fn transaction_staged_path(id: &str) -> String {
+    format!("staged/{}.json", filename_component(id))
+}
+
+fn transaction_backup_path(id: &str) -> String {
+    format!("backups/{}.json", filename_component(id))
+}
+
+fn transaction_restore_path(id: &str) -> String {
+    format!("restore-{}.json", filename_component(id))
+}
+
+fn filename_component(id: &str) -> String {
+    let mut encoded = String::with_capacity(id.len());
+    for byte in id.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push_str(&format!("{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 fn validate_graph_records(records: &[Recommendation]) -> Result<(), StoreError> {
@@ -1604,6 +1710,48 @@ mod tests {
 
         let reopened = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
         let persisted = reopened.get(&parent_id).unwrap().unwrap();
+        assert_eq!(persisted.id, parent_id);
+        assert_eq!(persisted.rollup_member_ids, ["member-a", "member-b"]);
+    }
+
+    #[test]
+    fn encodes_rollup_id_only_in_the_filesystem_filename() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        store.put(&recommendation("member-a", "session-a")).unwrap();
+        store.put(&recommendation("member-b", "session-b")).unwrap();
+        let parent_id = format!("rollup:{}", "ab".repeat(32));
+        let parent = rollup_parent(&parent_id, &["member-a", "member-b"]);
+
+        assert!(!store
+            .path_for(&parent_id)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(':'));
+
+        let expected = BTreeMap::from([
+            (
+                "member-a".into(),
+                Some(expected_hash(&store.get("member-a").unwrap().unwrap())),
+            ),
+            (
+                "member-b".into(),
+                Some(expected_hash(&store.get("member-b").unwrap().unwrap())),
+            ),
+            (parent_id.clone(), None),
+        ]);
+        store
+            .apply_rollup_transaction(
+                &expected,
+                &parent,
+                &[
+                    store.get("member-a").unwrap().unwrap(),
+                    store.get("member-b").unwrap().unwrap(),
+                ],
+            )
+            .unwrap();
+        let persisted = store.get(&parent_id).unwrap().unwrap();
         assert_eq!(persisted.id, parent_id);
         assert_eq!(persisted.rollup_member_ids, ["member-a", "member-b"]);
     }

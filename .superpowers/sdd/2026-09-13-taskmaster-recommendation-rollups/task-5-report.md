@@ -30,3 +30,24 @@ An initial sandboxed full sidecar run completed with 1,208 passed, 10 unrelated 
 ## Commit
 
 `feat: evaluate bounded Taskmaster recommendation rollups`
+
+## Fix round 1
+
+Addressed review findings:
+
+- logical `rollup:<64-hex>` IDs now use platform-safe encoded filenames while
+  preserving the logical ID in JSON, lookups, and transaction manifests;
+- legacy enrichments/proposals and rollups now share one strict response
+  envelope, with whole-response validation before either section mutates state;
+- multiple clusters are assembled into one complete graph and published by one
+  recoverable transaction;
+- rollup application reuses the existing custom-inference and native-harness
+  identity guards, including trust/capability and document-revision checks.
+
+Verification:
+
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster::evaluator::rollup_tests`: 9 passed.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster::evaluator`: 27 passed.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster::store`: 25 passed.
+- `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check`: passed.
+- `git diff --check`: passed.

@@ -528,27 +528,22 @@ impl TaskmasterRuntime {
     /// the application layer while this guard owns durable Taskmaster config.
     pub(crate) fn with_current_rollup_evaluation(
         &self,
+        harnesses: &crate::harness::store::HarnessStore,
         workspace: &Path,
+        snapshot: &EvaluationSnapshot,
         token: &RollupEvaluationToken,
         apply: impl FnOnce(),
     ) -> Result<bool, String> {
-        let _guard = PersistenceGuard::acquire(&self.root)?;
-        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
-        reload_durable(&self.root, &mut data);
-        if !data.ledger_readable || data.ledger.generation != token.generation {
-            return Ok(false);
-        }
-        let Some(workspace) = canonical_workspace_key(workspace) else {
+        let Some(selection) = snapshot.settings.selection.as_ref() else {
             return Ok(false);
         };
-        let Some(selection) = effective_settings(&data.settings, &workspace).selection else {
-            return Ok(false);
-        };
-        if selection.provider != token.provider || selection.model != token.model {
+        if snapshot.generation != token.generation
+            || selection.provider != token.provider
+            || selection.model != token.model
+        {
             return Ok(false);
         }
-        apply();
-        Ok(true)
+        self.with_current_evaluation(harnesses, workspace, snapshot, apply)
     }
 }
 

@@ -81,6 +81,8 @@ struct ModelOutput {
     enrichments: Vec<ModelEnrichment>,
     #[serde(default)]
     proposals: Vec<ModelProposal>,
+    #[serde(default)]
+    rollups: Vec<RollupCluster>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,13 +90,6 @@ pub(crate) struct RollupEvaluationRequest {
     pub(crate) token: RollupEvaluationToken,
     pub(crate) snapshots: Vec<RollupFamilySnapshot>,
     pub(crate) prompt: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RollupModelOutput {
-    #[serde(default)]
-    rollups: Vec<RollupCluster>,
 }
 
 pub(crate) fn build_rollup_request(
@@ -139,14 +134,39 @@ pub(crate) fn parse_rollup_model_output(
     if output.len() > MAX_ROLLUP_RESPONSE_BYTES {
         return Err(RollupValidationError::ResponseTooLarge);
     }
-    let model = serde_json::from_str::<RollupModelOutput>(output)
+    let model = serde_json::from_str::<ModelOutput>(output)
         .map_err(|_| RollupValidationError::ResponseTooLarge)?;
     validate_rollup_clusters(snapshots, &model.rollups)
+}
+
+fn parse_provider_response(
+    output: &str,
+    snapshots: Option<&[RollupFamilySnapshot]>,
+) -> Result<ModelOutput, String> {
+    if output.len() > MAX_ROLLUP_RESPONSE_BYTES {
+        return Err("Taskmaster provider response is too large".into());
+    }
+    let model = serde_json::from_str::<ModelOutput>(output)
+        .map_err(|_| "Taskmaster provider returned invalid JSON".to_string())?;
+    match snapshots {
+        Some(snapshots) => {
+            let mut model = model;
+            model.rollups = validate_rollup_clusters(snapshots, &model.rollups)
+                .map_err(|error| format!("invalid Taskmaster rollups: {error:?}"))?;
+            return Ok(model);
+        }
+        None if !model.rollups.is_empty() => {
+            return Err("Taskmaster response contained rollups without supplied families".into())
+        }
+        None => {}
+    }
+    Ok(model)
 }
 
 pub(crate) fn apply_rollup_model_output(
     state: &Arc<AppState>,
     runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
     token: &RollupEvaluationToken,
     snapshots: &[RollupFamilySnapshot],
     output: &str,
@@ -161,9 +181,21 @@ pub(crate) fn apply_rollup_model_output(
     if expected_hash != token.family_snapshot_hash {
         return false;
     }
-    let Ok(clusters) = parse_rollup_model_output(output, snapshots) else {
+    let Ok(model) = parse_provider_response(output, Some(snapshots)) else {
         return false;
     };
+    let clusters = model.rollups;
+    apply_rollup_model_clusters(state, runtime, snapshot, token, snapshots, &clusters)
+}
+
+fn apply_rollup_model_clusters(
+    state: &Arc<AppState>,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    token: &RollupEvaluationToken,
+    snapshots: &[RollupFamilySnapshot],
+    clusters: &[RollupCluster],
+) -> bool {
     if clusters.is_empty() {
         return true;
     }
@@ -175,14 +207,20 @@ pub(crate) fn apply_rollup_model_output(
         workspace.path.clone()
     };
     let mut applied = false;
-    let _ = runtime.with_current_rollup_evaluation(&workspace_path, token, || {
-        applied = SessionApplication::new(state.clone()).apply_rollup_clusters(
-            token.workspace_instance,
-            snapshots,
-            &clusters,
-            token.generation,
-        );
-    });
+    let _ = runtime.with_current_rollup_evaluation(
+        &state.harness_store,
+        &workspace_path,
+        snapshot,
+        token,
+        || {
+            applied = SessionApplication::new(state.clone()).apply_rollup_clusters(
+                token.workspace_instance,
+                snapshots,
+                &clusters,
+                token.generation,
+            );
+        },
+    );
     applied
 }
 
@@ -367,7 +405,7 @@ fn run_model_evaluation_with_context(
         };
         match result {
             Ok(output) => {
-                let model_applied = apply_model_output(
+                if apply_provider_output(
                     &state,
                     &runtime,
                     &snapshot,
@@ -375,18 +413,9 @@ fn run_model_evaluation_with_context(
                     workspace_instance,
                     &facts,
                     &recommendations,
+                    rollup_request.as_ref(),
                     &output,
-                );
-                let rollup_applied = rollup_request.as_ref().is_some_and(|request| {
-                    apply_rollup_model_output(
-                        &state,
-                        &runtime,
-                        &request.token,
-                        &request.snapshots,
-                        &output,
-                    )
-                });
-                if model_applied || rollup_applied {
+                ) {
                     let _ = runtime.record_evaluation_success(
                         &state.harness_store,
                         &workspace_path,
@@ -481,7 +510,7 @@ fn build_taskmaster_prompt(
 }
 
 fn apply_model_output(
-    state: &AppState,
+    state: &Arc<AppState>,
     runtime: &TaskmasterRuntime,
     snapshot: &EvaluationSnapshot,
     workspace_path: &std::path::Path,
@@ -490,18 +519,81 @@ fn apply_model_output(
     supplied_recommendations: &[Recommendation],
     output: &str,
 ) -> bool {
-    if output.len() > 64 * 1024 {
-        return false;
-    }
-    let Ok(model) = serde_json::from_str::<ModelOutput>(output) else {
+    apply_provider_output(
+        state,
+        runtime,
+        snapshot,
+        workspace_path,
+        workspace_instance,
+        facts,
+        supplied_recommendations,
+        None,
+        output,
+    )
+}
+
+fn apply_provider_output(
+    state: &Arc<AppState>,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    workspace_path: &std::path::Path,
+    workspace_instance: u64,
+    facts: &[crate::taskmaster::RepositoryEvidence],
+    supplied_recommendations: &[Recommendation],
+    rollup_request: Option<&RollupEvaluationRequest>,
+    output: &str,
+) -> bool {
+    let parsed = rollup_request.map_or_else(
+        || parse_provider_response(output, None),
+        |request| parse_provider_response(output, Some(&request.snapshots)),
+    );
+    let Ok(model) = parsed else {
         let _ = runtime.record_evaluation_error(
             &state.harness_store,
             workspace_path,
             snapshot,
-            Some("Taskmaster provider returned invalid JSON".into()),
+            Some(if rollup_request.is_some() {
+                "Taskmaster provider returned an invalid combined response".into()
+            } else {
+                "Taskmaster provider returned invalid JSON".into()
+            }),
         );
         return false;
     };
+    let rollups = model.rollups.clone();
+    let model_applied = apply_model_output_parsed(
+        state.as_ref(),
+        runtime,
+        snapshot,
+        workspace_path,
+        workspace_instance,
+        facts,
+        supplied_recommendations,
+        model,
+    );
+    let rollup_applied = rollup_request.is_some_and(|request| {
+        apply_rollup_model_clusters(
+            state,
+            runtime,
+            snapshot,
+            &request.token,
+            &request.snapshots,
+            &rollups,
+        )
+    });
+    model_applied || rollup_applied
+}
+
+fn apply_model_output_parsed(
+    state: &AppState,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    workspace_path: &std::path::Path,
+    workspace_instance: u64,
+    facts: &[crate::taskmaster::RepositoryEvidence],
+    supplied_recommendations: &[Recommendation],
+    model: ModelOutput,
+) -> bool {
     let bundle = snapshot.knowledge.as_ref();
     let page_map = bundle
         .into_iter()

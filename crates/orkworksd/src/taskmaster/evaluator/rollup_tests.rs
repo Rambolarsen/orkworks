@@ -1,6 +1,8 @@
 use super::*;
-use crate::taskmaster::rollup::RollupCluster;
-use crate::taskmaster::runtime::{EvaluationSnapshot, TaskmasterSelection, TaskmasterSettings};
+use crate::taskmaster::rollup::{stable_rollup_id, RollupCluster};
+use crate::taskmaster::runtime::{
+    EvaluationSnapshot, KnowledgeBundle, KnowledgePage, TaskmasterSelection, TaskmasterSettings,
+};
 use crate::taskmaster::{
     RecommendationConfidence, RepositoryEvidence, WorkflowImprovement, WorkflowObservationEvidence,
 };
@@ -22,6 +24,19 @@ fn evaluation_snapshot() -> EvaluationSnapshot {
         custom_inference: None,
         native_revision: None,
     }
+}
+
+fn bound_snapshot(
+    state: &crate::AppState,
+    runtime: &TaskmasterRuntime,
+    workspace: &std::path::Path,
+) -> EvaluationSnapshot {
+    let mut snapshot = runtime.evaluation_snapshot(workspace).unwrap();
+    snapshot.native_revision = Some(crate::taskmaster::provider_catalog::NativeRevision {
+        document_revision: state.harness_store.snapshot().unwrap().document_revision,
+        profile: crate::providers::native_inference::NativeProfile::Codex,
+    });
+    snapshot
 }
 
 fn recommendation(id: &str, sequence: u64) -> Recommendation {
@@ -189,7 +204,8 @@ fn rollup_parser_accepts_same_target_clusters_and_rejects_invalid_response_as_a_
 fn stale_rollup_tokens_preserve_exact_recommendations() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
-    let request = build_rollup_request(17, &evaluation_snapshot(), &recommendations).unwrap();
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request = build_rollup_request(17, &snapshot, &recommendations).unwrap();
     let before = state
         .workspace
         .lock()
@@ -211,6 +227,7 @@ fn stale_rollup_tokens_preserve_exact_recommendations() {
         assert!(!apply_rollup_model_output(
             &state,
             &runtime,
+            &snapshot,
             &token,
             &request.snapshots,
             &output(&[cluster(&["a", "b"])]),
@@ -242,16 +259,14 @@ fn unavailable_rollup_selection_preserves_exact_recommendations() {
 fn same_set_rollup_updates_in_place_and_is_idempotent() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
-    let request = build_rollup_request(
-        workspace_instance(&state),
-        &evaluation_snapshot(),
-        &recommendations,
-    )
-    .unwrap();
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
     let first = output(&[cluster(&["a", "b"])]);
     assert!(apply_rollup_model_output(
         &state,
         &runtime,
+        &snapshot,
         &request.token,
         &request.snapshots,
         &first,
@@ -262,6 +277,7 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
     assert!(apply_rollup_model_output(
         &state,
         &runtime,
+        &snapshot,
         &request.token,
         &request.snapshots,
         &output(&[updated_cluster]),
@@ -301,18 +317,191 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
 }
 
 #[test]
+fn invalid_rollup_rejects_legacy_mutation_before_any_section_is_applied() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let page = KnowledgePage {
+        id: "page.md".into(),
+        title: "Page".into(),
+        page_type: "concept".into(),
+        status: "active".into(),
+        content: "Grounded context".into(),
+        sha256: "page-sha".into(),
+        related_ids: vec![],
+    };
+    let mut snapshot = evaluation_snapshot();
+    snapshot.native_revision = Some(crate::taskmaster::provider_catalog::NativeRevision {
+        document_revision: state.harness_store.snapshot().unwrap().document_revision,
+        profile: crate::providers::native_inference::NativeProfile::Codex,
+    });
+    snapshot.knowledge = Some(KnowledgeBundle {
+        format_version: 1,
+        version: "v1".into(),
+        sequence: 1,
+        published_at: "2026-09-13T00:00:00Z".into(),
+        pages: vec![page],
+    });
+    let response = serde_json::json!({
+        "enrichments": [{"dedupeKey": "exact:a", "knowledgePageIds": ["page.md"]}],
+        "proposals": [],
+        "rollups": [cluster(&["a", "b"]), cluster(&["b", "a"])],
+    })
+    .to_string();
+
+    assert!(!apply_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        workspace_instance(&state),
+        &[],
+        &recommendations,
+        &response,
+    ));
+    assert!(state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .get("a")
+        .unwrap()
+        .unwrap()
+        .knowledge_evidence
+        .is_empty());
+}
+
+#[test]
+fn valid_combined_response_applies_legacy_enrichment_and_rollup() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let mut snapshot = evaluation_snapshot();
+    snapshot.native_revision = Some(crate::taskmaster::provider_catalog::NativeRevision {
+        document_revision: state.harness_store.snapshot().unwrap().document_revision,
+        profile: crate::providers::native_inference::NativeProfile::Codex,
+    });
+    snapshot.knowledge = Some(KnowledgeBundle {
+        format_version: 1,
+        version: "v1".into(),
+        sequence: 1,
+        published_at: "2026-09-13T00:00:00Z".into(),
+        pages: vec![KnowledgePage {
+            id: "page.md".into(),
+            title: "Page".into(),
+            page_type: "concept".into(),
+            status: "active".into(),
+            content: "Grounded context".into(),
+            sha256: "page-sha".into(),
+            related_ids: vec![],
+        }],
+    });
+    let response = serde_json::json!({
+        "enrichments": [{"dedupeKey": "exact:a", "knowledgePageIds": ["page.md"]}],
+        "proposals": [],
+        "rollups": [cluster(&["a", "b"])],
+    })
+    .to_string();
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+
+    assert!(apply_provider_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        workspace_instance(&state),
+        &[],
+        &recommendations,
+        Some(&request),
+        &response,
+    ));
+    let records = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .list()
+        .unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|item| item.rollup_member_ids.len() == 2)
+            .count(),
+        1
+    );
+    assert_eq!(
+        records
+            .iter()
+            .find(|item| item.id == "a")
+            .unwrap()
+            .knowledge_evidence
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn failed_multi_cluster_application_leaves_the_old_graph_unchanged() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c", "d"]);
+    let collision_id = stable_rollup_id(&["c".into(), "d".into()]);
+    let workspace = state.workspace.lock().unwrap();
+    workspace
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .put(&recommendation(&collision_id, 9))
+        .unwrap();
+    drop(workspace);
+
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    let before = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .list()
+        .unwrap();
+
+    assert!(!apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &request.token,
+        &request.snapshots,
+        &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])]),
+    ));
+
+    let after = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .list()
+        .unwrap();
+    assert_eq!(after, before);
+}
+
+#[test]
 fn changed_set_supersedes_parent_and_releases_unselected_member() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
-    let request = build_rollup_request(
-        workspace_instance(&state),
-        &evaluation_snapshot(),
-        &recommendations,
-    )
-    .unwrap();
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
     assert!(apply_rollup_model_output(
         &state,
         &runtime,
+        &snapshot,
         &request.token,
         &request.snapshots,
         &output(&[cluster(&["a", "b"])]),
@@ -320,6 +509,7 @@ fn changed_set_supersedes_parent_and_releases_unselected_member() {
     assert!(apply_rollup_model_output(
         &state,
         &runtime,
+        &snapshot,
         &request.token,
         &request.snapshots,
         &output(&[cluster(&["a", "c"])]),
