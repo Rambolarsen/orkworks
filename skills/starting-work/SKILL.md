@@ -40,21 +40,43 @@ Run `git worktree list --porcelain` before selecting a checkout. The local `main
 
 If the primary checkout is detached, do not check out `origin/main`. If another worktree holds `main`, ask its owner to restore the owner branch or remove the worktree. Only if that worktree is clean and you are explicitly authorized may you perform the recovery; never detach it or use force operations. Stop for direction if recovery would affect an active owner or uncommitted changes.
 
+### Detect a shared checkout
+
+The primary checkout can look idle while another session is mid-task — agents enter it between your checks, and their edits, branch switches, and ref updates collide with yours silently (real incident, 2026-09-13: two sessions working in the primary checkout swapped each other's branch names mid-flight). `git worktree list` only shows live worktrees; it says nothing about who used this checkout. Before trusting that the primary checkout is yours alone, check for residue another session leaves behind:
+
+```bash
+git status --short                          # untracked files or edits you didn't make
+git reflog --date=iso | head -20            # checkouts/commits you didn't perform
+git branch -v --sort=-committerdate | head  # foreign branches, very recent activity
+```
+
+**Default to a worktree.** Unless the user has explicitly said no other agent will use this checkout, do your work in a sibling worktree on your own branch — even for docs-only or trivial fixes. A worktree is cheap (seconds to create); a mid-session branch swap, clobbered index, or interleaved uncommitted edits are not. Working on a branch in the primary checkout is the exception, not the default.
+
+**Residue rule:** any reflog entry, branch, or untracked file not created by this session counts as residue — there is no recency or relevance exemption, and you cannot cheaply prove the session that left it is done. Residue found means worktree, no exceptions. Do not delete, clean up, or "adopt" residue; it may be another live session's uncommitted work — flag it to the user and leave it in place.
+
+**The exception's full preconditions** (all required, checked in order):
+1. The residue check above comes back clean — no residue of any kind, per the residue rule.
+2. The user affirmatively confirms — in response to a question that names this checkout and this moment ("is anything else running against `~/workspace/orkworks` right now?") — that no other agent or human is working in this checkout and none is expected while the task runs. A vague "should be fine" or an unsolicited assumption does not count; ask.
+3. The confirmation covers the task's whole duration. If another agent appears mid-task (new worktree, foreign branch updates, edits you didn't make), the exception expires: stop, commit or stash nothing further in the primary checkout, and move to a worktree.
+
+Even with all three met, a mid-task entry by another session stays possible — that residual risk is why the worktree is the default and the exception should be rare.
+
 ## Decide where the work lives
 
 Pick the lowest-overhead option that satisfies the rules in `AGENTS.md`.
 
 | Change shape | Where to work |
 | ------------ | ------------- |
-| Docs-only (`docs/`, `specs/`, ADRs, `*.md` outside `apps/`/`crates/`) or trivial code fix <~20 lines | Branch in the primary checkout (worktree when the concurrency/foreign-branch triggers below apply) |
-| Code change in `apps/desktop/` or `crates/orkworksd/`, no other agent active, branch is **yours or explicitly authorized by its owner** | Branch in the primary checkout |
+| Any change (code or docs), default | Worktree on your own branch (see "Detect a shared checkout" above) |
+| Docs-only or trivial code fix <~20 lines, all exception preconditions met | Branch in the primary checkout |
+| Code change in `apps/desktop/` or `crates/orkworksd/`, all exception preconditions met, branch is **yours or explicitly authorized by its owner** | Branch in the primary checkout |
 | Code change while the active branch in the primary checkout is **not yours and not explicitly authorized by its owner** | Worktree (do not add commits to someone else's branch) |
-| Code change while another branch is already in flight in the primary checkout, or another agent is running | Worktree |
+| Any residue of another session found (foreign branches, unfamiliar reflog entries, untracked files you didn't create) | Worktree — treat the checkout as possibly-shared; flag the residue, touch nothing |
 | Parallel agents on independent tasks | One worktree per agent, always |
 
 If the work itself is a multi-agent effort being planned or dispatched (not just this skill's one-checkout-per-agent isolation), structure it with the `orchestrating-task-graphs` skill first — it decides whether to fan out at all and how to verify and merge the results.
 
-The triggers for a worktree are **concurrency** and **foreign-branch ownership**. If the primary checkout is on a branch you didn't create and its owner has not explicitly authorized your work, use a worktree — don't stack commits on branches you don't own. The point of the ownership rule is preventing two writers on one branch, not blocking legitimate changes: with the branch owner's explicit permission (e.g. they ask you to land review fixes on their PR branch), pushing to their branch is fine. See "Branch and PR workflow" in `AGENTS.md`.
+The triggers for a worktree are **concurrency**, **shared-checkout risk**, and **foreign-branch ownership**. If the primary checkout is on a branch you didn't create and its owner has not explicitly authorized your work, use a worktree — don't stack commits on branches you don't own. The point of the ownership rule is preventing two writers on one branch, not blocking legitimate changes: with the branch owner's explicit permission (e.g. they ask you to land review fixes on their PR branch), pushing to their branch is fine. See "Branch and PR workflow" in `AGENTS.md`.
 
 ## Path and naming convention
 
@@ -111,6 +133,16 @@ prune, and local branch cleanup as one guarded operation.
 Also clean up worktrees for abandoned tasks — if you decide not to pursue a task, remove the worktree immediately. Do not leave it "just in case."
 
 Stranded worktrees follow the 7-day stranded-branch rule. If a worktree has gone >7 days without progress, either rebase and continue or remove it and close its PR with a one-line reason.
+
+## Red flags — stop and use a worktree
+
+- "It's just a small docs/trivial fix, the primary checkout is fine" — small fixes are exactly where the ownership check gets skipped under pressure; the fix's size says nothing about who else is in the checkout.
+- "The checkout was clean when I started" — clean at session start does not mean unshared mid-session; other agents enter between your checks, which is why the exception expires on any mid-task sign of another session.
+- "The reflog commits are from an old session, it's abandoned" — the residue rule has no recency exemption; you cannot cheaply prove the session that left it is done.
+- "A worktree means a full pnpm install, too slow" — the install is minutes once, not per-commit; a clobbered index or swapped branch costs far more.
+- "There's no evidence anyone else is running" — absence of evidence at one instant is not evidence of absence for the session's duration; that is why the default is the worktree, not more checking.
+- "The user said hurry, that's permission" — urgency satisfies none of the exception's preconditions; the speed-preserving move is the seconds-cheap worktree.
+- "I'll just clean up the stray files first" — residue may be another live session's uncommitted work; flag it, never delete or adopt it.
 
 ## Quick reference
 
