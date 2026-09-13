@@ -19,7 +19,7 @@ all inline review comments. First query the PR metadata, then query every
 comment and check channel:
 
 ```bash
-gh pr view <pr> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,headRefOid,baseRefOid
+gh pr view <pr> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,reviewRequests,headRefOid,baseRefOid
 gh api --paginate repos/<owner>/<repo>/issues/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/reviews
@@ -45,7 +45,11 @@ For each comment or review not already handled:
    for informational or duplicate comments too.
 5. If uncertain whether feedback is correct, keep the human partner informed
    and ask for direction before making a consequential choice.
-6. If the tree changes, verify the fix, push it, and refresh CI and comments.
+6. Before changing the tree, verify that this session owns the head branch or
+   has the owner's explicit authorization to modify and push it. If the branch
+   is foreign and authorization is absent, do not commit or push; report the
+   blocker and hand off instead.
+7. If the tree changes, verify the fix, push it, and refresh CI and comments.
 
 Do not report “no comments” unless the complete inventory was performed. Do
 not declare the PR complete or merge while an actionable comment lacks a
@@ -71,11 +75,17 @@ gh pr comment <pr> --body '@codex review'
 ```
 
 For the repository's custom automated review workflow, dispatch it manually
-when needed:
+when needed and only when the PR is open, non-draft, targets `main`, uses a
+head repository matching the current repository, and has relevant code under
+`apps/desktop/` or `crates/orkworksd/`:
 
 ```bash
 gh workflow run pr-review.yml -f pr_number=<pr>
 ```
+
+The workflow skips documentation-only and fork PRs. A manual dispatch can
+force a relevant-code review below the normal size threshold, but it cannot
+make a documentation-only or fork PR eligible.
 
 For PRs targeting `main`, request or re-request GitHub's native Copilot review
 through the PR's Reviewer controls. The equivalent API request is:
@@ -84,6 +94,11 @@ through the PR's Reviewer controls. The equivalent API request is:
 gh api -X POST repos/<owner>/<repo>/pulls/<pr>/requested_reviewers \
   -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
 ```
+
+Verify that the request was retained in `reviewRequests` or that a new Copilot
+review appears for the current head. If neither appears, report that the
+request was not confirmed and keep the human partner in the loop; do not claim
+that Copilot reviewed the change or retry blindly.
 
 Treat every resulting comment as a new item and run this skill again. Copilot
 does not necessarily re-review new pushes unless the repository ruleset is

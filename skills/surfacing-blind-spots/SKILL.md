@@ -1,6 +1,6 @@
 ---
 name: surfacing-blind-spots
-description: Use when planning implementation or research work before decomposing it, when closing out a work session, or when auditing OrkWorks for risks, hidden assumptions, and missed alternatives.
+description: Use when planning implementation or research work before decomposing it, when closing out a work session, when auditing OrkWorks for risks, hidden assumptions, and missed alternatives, or when asked to generate quality-improvement tasks.
 ---
 
 # Surfacing Blind Spots
