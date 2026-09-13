@@ -137,7 +137,7 @@ test("rollup fix draft includes bounded delimited parent/member metadata and evi
   const start = prompt.indexOf("<orkworks-untrusted-rollup-reference>");
   const end = prompt.indexOf("</orkworks-untrusted-rollup-reference>");
   const serialized = prompt.slice(start + "<orkworks-untrusted-rollup-reference>".length, end).trim();
-  assert.ok(serialized.length <= 16_000);
+  assert.ok(new TextEncoder().encode(serialized).length <= 16_000);
   const reference = JSON.parse(serialized) as Record<string, unknown>;
   assert.equal(reference.truncated, undefined);
   assert.ok((reference.memberRecommendationIds as string[]).length <= 8);

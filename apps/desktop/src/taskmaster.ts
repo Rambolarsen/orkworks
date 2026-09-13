@@ -65,7 +65,7 @@ export function buildFixPromptDraft(recommendation: WorkflowRecommendation): str
   ].join("\n");
 }
 
-const MAX_ROLLUP_PROMPT_REFERENCE_CHARS = 16_000;
+const MAX_ROLLUP_PROMPT_REFERENCE_BYTES = 16_000;
 const MAX_ROLLUP_MEMBER_ENTRIES = 8;
 const MAX_ROLLUP_SOURCE_SESSION_ENTRIES = 16;
 const MAX_ROLLUP_EVIDENCE_ENTRIES = 64;
@@ -80,6 +80,10 @@ function boundedSequence(value: number): number {
 
 function boundedConfidence(value: number): number {
   return Number.isFinite(value) && value >= 0 && value <= 1 ? value : 0;
+}
+
+function referenceByteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
 }
 
 function buildRollupReference(recommendation: WorkflowRecommendation): string {
@@ -141,12 +145,12 @@ function buildRollupReference(recommendation: WorkflowRecommendation): string {
   let evidence = allEvidence;
   let truncated = false;
   let serialized = JSON.stringify({ ...baseReference, evidence });
-  while (serialized.length > MAX_ROLLUP_PROMPT_REFERENCE_CHARS && evidence.length > 0) {
+  while (referenceByteLength(serialized) > MAX_ROLLUP_PROMPT_REFERENCE_BYTES && evidence.length > 0) {
     evidence = evidence.slice(0, -1);
     truncated = true;
     serialized = JSON.stringify({ ...baseReference, evidence, truncated });
   }
-  if (serialized.length > MAX_ROLLUP_PROMPT_REFERENCE_CHARS) {
+  if (referenceByteLength(serialized) > MAX_ROLLUP_PROMPT_REFERENCE_BYTES) {
     serialized = JSON.stringify({
       rollupId: baseReference.rollupId,
       memberRecommendationIds: baseReference.memberRecommendationIds,
@@ -159,7 +163,7 @@ function buildRollupReference(recommendation: WorkflowRecommendation): string {
       truncated: true,
     });
   }
-  if (serialized.length > MAX_ROLLUP_PROMPT_REFERENCE_CHARS) {
+  if (referenceByteLength(serialized) > MAX_ROLLUP_PROMPT_REFERENCE_BYTES) {
     serialized = JSON.stringify({
       rollupId: baseReference.rollupId,
       memberRecommendationIds: baseReference.memberRecommendationIds,
@@ -170,7 +174,7 @@ function buildRollupReference(recommendation: WorkflowRecommendation): string {
       truncated: true,
     });
   }
-  if (serialized.length > MAX_ROLLUP_PROMPT_REFERENCE_CHARS) {
+  if (referenceByteLength(serialized) > MAX_ROLLUP_PROMPT_REFERENCE_BYTES) {
     serialized = JSON.stringify({
       rollupId: cleanReferenceText(recommendation.id, 64),
       instruction: baseReference.instruction,
