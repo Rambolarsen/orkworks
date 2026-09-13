@@ -16,7 +16,7 @@ This document is a proposed extension to the [MVP](orkworks-mvp.md) and
 [Taskmaster knowledge spec](taskmaster-knowledge.md), not implemented behavior.
 The process ownership decision is in [ADR 0056](../docs/adr/0056-one-sidecar-per-open-workspace.md).
 The executable validation requirements are described in the
-[validation plan](../docs/superpowers/plans/2026-09-13-multi-workspace-validation.md).
+[validation plan](../docs/validation/multi-workspace.md).
 
 ## Workspace states and identity
 
@@ -46,6 +46,15 @@ on case-sensitive filesystems. Revalidate identity before opening; if resolution
 fails or the directory was replaced, report it rather than falling back to the
 raw spelling. Reuse existing durable metadata/settings for the resolved workspace;
 normalization must not silently create a second history or discard overrides.
+Pass the expected OS directory identity with the sidecar open request. The
+sidecar must open and retain a directory handle, compare its resolved identity
+before metadata loading/reconciliation, and bind adoption to that directory.
+A path-only request or parent-only check is insufficient. Resolve workspace
+operations against the retained directory or revalidate their identity before
+using path-based facilities; replacement must fail visibly, never inherit the
+original workspace's history or settings. Native validation must cover replacement
+between Electron's check and sidecar adoption and establish the platform mechanism
+before implementing this boundary.
 
 ## Switcher and focus
 
@@ -57,17 +66,17 @@ successfully opened location until the user explicitly forgets it; recency only
 orders the list. Forget is available for closed locations and removes the shortcut,
 not metadata or project files. An Add workspace action opens the native picker.
 
-The initial release has an explicit maximum number of simultaneously open
-workspace lifecycles. Set its numeric value from supported-platform native
-resource measurements and record it here before release; four-workspace samples
-alone do not establish that limit. Count starting/recovering/unavailable/closing
-entries until their owned cleanup is complete, reserve admission atomically, and
-reject an extra open with a message asking the user to close a workspace first.
-Coalesced opens of an existing identity consume no extra slot. Never evict, pause,
-or close existing work automatically. Spawn/resource failure releases only the
-failed attempt's slot after owned cleanup and leaves other workspaces usable.
-Remembered locations do not consume slots; final admission-limit and failure tests
-are required before readiness can be claimed.
+Do not impose a workspace-count cap. Resource use depends on running work, not
+just the number of sidecars. When measured system resource pressure is sustained,
+show a dismissible, non-blocking warning with a way to inspect/close workspaces;
+opening remains available. Base the warning signal, sampling and recovery
+thresholds on native measurements and record them before release. Coalesce the
+warning across workspaces, avoid repeated alerts during one pressure episode,
+and do not claim low pressure when measurements are unavailable. Never evict,
+pause, or close existing work automatically. A failed open reports the error and
+cleans only its attempted runtime; preserve existing workspace control and allow
+retry after cleanup. Validation must cover increasing load, pressure warnings,
+and resource failures rather than claim an arbitrary maximum is safe.
 
 Selecting a ready open workspace changes focus without restarting its sidecar.
 Selecting a starting/recovering workspace waits on its existing bounded readiness
@@ -83,6 +92,16 @@ Commit the visible focus and durable last-focused location only after destinatio
 readiness and confirmed revocation of the old Taskmaster permission, then activate
 the destination as described below. A failed or superseded pre-commit attempt must
 not overwrite the previous last-focused location.
+
+Persist workspace memory with atomic replacement of a synchronized temporary
+file, including a revision/focus epoch; do not reuse the direct truncating writer.
+On an ambiguous I/O outcome, read back and reconcile before restoring any analysis
+permission: a confirmed old record permits pre-commit recovery, a confirmed new
+record requires adoption of that committed focus, and an unreadable/unknown record
+keeps analysis suspended with a visible storage error. Do not assume failure means
+the old record survived. Serialize memory writes and focus transitions so late
+writes cannot replace newer intent. Apply this contract to close/clear/forget
+writes as well; storage failure never resurrects terminated sessions.
 
 Switching detaches the previous terminal view, not its runtime. PTYs keep
 draining output, recording bounded history, and feeding Peon in background
@@ -118,11 +137,13 @@ publish no backend port, and acquire no workspace lease until explicit selection
 Remove the current development-repository/home-directory fallback for this case.
 
 Switching away never asks to stop sessions. Explicitly closing a workspace
-with live or creating sessions requires a native confirmation naming the
+with non-terminal sessions requires a native confirmation naming the
 workspace and running-session count: Cancel or Close workspace. Cancel leaves
-focus and processes unchanged. With no live or creating sessions, close
+focus and processes unchanged. Include `creating`, `active`, and `ending` phases
+(ADR 0021); `ending` still has running status while finalization completes.
+With no non-terminal sessions, close
 directly. Atomically block creation/resume while taking the final runtime-generation
-and live/creating-session snapshot, including for the no-dialog fast path. The
+and non-terminal-session snapshot, including for the no-dialog fast path. The
 sidecar serializes this gate with every start/resume admission, including requests
 already in flight; those admitted before the gate appear in the snapshot. After
 a dialog, if the generation changed or additional sessions started, refresh
@@ -134,7 +155,8 @@ last known session count as uncertain and require confirmation before cleanup;
 never interpret a failed status request as an empty workspace.
 
 Once confirmed, reject new session creation/resume and new analysis for that
-workspace, stop owned sessions and inference, flush terminal metadata/history,
+workspace, stop owned sessions and inference, await existing `ending` finalization,
+flush terminal metadata/history,
 then terminate the sidecar and confirm process exit and lease release. Keep
 the workspace visibly closing until cleanup finishes. Bound graceful cleanup;
 escalation may target only processes owned by that runtime. Failure must remain
@@ -178,7 +200,7 @@ their later recovery never steals focus. Never reopen a closed location to fill
 the vacancy. A candidate losing readiness before focus commit returns to this
 picker state. Persist only a successful replacement focus.
 
-Explicit app quit uses one confirmation across all live/creating sessions and
+Explicit app quit uses one confirmation across all non-terminal sessions and
 unavailable workspaces with unknown liveness, listing known counts and last-known
 counts explicitly marked uncertain. Cancel leaves the application running.
 Confirm prevents new work and closes all owned runtimes, with the same bounded
@@ -193,6 +215,28 @@ Apply the atomic admission gate and final snapshot to every open runtime before
 quit cleanup; refresh the aggregate confirmation if any set or generation widened.
 Do not start cleanup in one workspace while another still needs confirmation.
 Crashes and forced OS termination cannot promise confirmation or graceful flush.
+
+One Electron lifecycle-operation coordinator owns workspace close, app quit and
+restart/install shutdown. Serialize them: quit requested during a close queues
+behind that operation, then discovers fresh state; a close requested during quit
+cannot acquire gates or run a second dialog. Coalesce repeated requests and discard
+queued close requests on confirmed quit. Cancel only releases gates owned by that
+operation. A close failure leaves its runtime unresolved for the later quit snapshot.
+
+Before quit discovery, atomically freeze registry admission for new opens and
+generation replacement/recovery. An in-flight open must either already be registered
+and included or fail admission before spawning/adopting a runtime; recheck after
+async path resolution. Keep this barrier through confirmation and cleanup, including
+the Cancel release of session gates; release it last on Cancel. Do not replay blocked
+opens automatically. Existing session starts use the per-runtime snapshot gates
+above. No background recovery or new workspace may escape the shutdown set.
+
+`Restart and install` and other app-wide graceful shutdown entry points use this
+same coordinator, aggregate uncertain-liveness confirmation and bounded cleanup;
+install only after all owned runtimes have exited. Keep the explicit per-install
+authorization, and never install merely because ordinary quit was confirmed.
+Update the release-pipeline spec's current-backend shutdown wording when accepting
+this proposal.
 
 The app-quit confirmation is the working interpretation of the owner's final
 go-ahead after that question; it is explicitly included in written-spec review.
@@ -215,6 +259,20 @@ cannot replace a newer port, token, settings state, or terminal attachment.
 This applies to session create/resume/end, active-session persistence, settings,
 integration changes, terminal links, plan review, and recommendation handoffs.
 
+Foreground-only prompt handoffs (recommendation accept and plan review) require
+more than response filtering. Capture focus epoch, workspace/runtime identity and
+target session; validate them at the sidecar's PTY submission boundary before
+writing or marking the handoff accepted. Focus revocation closes this input gate
+as well as analysis admission and rejects queued stale handoffs. Its acknowledgement
+waits for any already-admitted prompt write to finish before focus can move; use
+the bounded handoff timeout, never allow a delayed write after acknowledgement.
+Rejections before any write preserve retryable recommendation state under the
+existing reservation/rollback contract. An uncertain write outcome remains visibly
+unresolved under the existing `executing` recovery contract, never blindly retried
+or reported accepted; prevent duplicate prompts.
+This foreground authority is independent of whether Taskmaster analysis is enabled.
+Coordinate the acceptance-time ADR 0048/spec update with this explicit boundary.
+
 The renderer receives workspace identities and validated lifecycle summaries,
 never privileged tokens or arbitrary filesystem/network authority. Session
 commands retain their narrow contracts and include an owning workspace selector.
@@ -227,7 +285,8 @@ IPC types remain separately defined in electron/ and src/; no cross-imports.
 | Sessions, terminal history, attention, selected session | Remembered locations and focused-workspace identity |
 | Workflow observations, repository facts, recommendations and dismissals | Installed coding-tool definitions and executable trust |
 | Taskmaster model, context access, exclusions, interval, enabled override | Global defaults and Taskmaster daily budget |
-| Taskmaster diagnostics and workspace cache invalidation | Verified reference-knowledge bundle and update checks |
+| Workspace analysis diagnostics and cache invalidation | Shared ledger availability, remaining evaluations and ledger errors |
+| Workspace last-evaluated state | Verified reference-knowledge bundle and update checks |
 | Active coding tools, local integration configuration | Shared reporter assets |
 | Peon selection and retention overrides | Default Peon selection and retention settings |
 
@@ -301,18 +360,26 @@ never coding-session cancellation. It need not wait for inference exit.
 
 Use this ordered handoff: ready destination (still suspended), confirmed old
 revocation or old-generation exit, commit destination focus, then send destination
-activation for that epoch. No activation may be sent before Electron has durably
+activation for that epoch. After an old-sidecar crash, additionally require
+surviving-owner proof that old inference exited before activation; focus can commit
+while that proof is pending. A released lease alone cannot satisfy it.
+With no source workspace (cold-start restore, first picker selection, or focus
+after the prior workspace closed), use readiness -> durable focus/adoption ->
+activation with a fresh epoch and no source revoke. The crash-cleanup prerequisite
+still applies to any prior owned generation. A recovered focused generation follows
+the same adoption/activation rules; recovery of a background workspace never does.
+No activation may be sent before Electron has durably
 recorded and published the new focus and the renderer has acknowledged adopting
 that workspace/epoch. This acknowledgement describes adopted UI state, not a
 paint-timing guarantee. Serialize focus changes through that acknowledgement;
 if it fails or exceeds five seconds, keep the committed destination selected with
-analysis suspended and
-recover the renderer into that state. Never roll focus back while activation is
+analysis suspended and recover the renderer into that state. Never roll focus back while activation is
 uncertain. An unavailable status or HTTP timeout is not process-exit proof.
 
-Bound revocation and activation requests individually to five seconds. Failure
-before focus commit preserves previous visible/durable focus and grants nobody
-else; restore old permission only with a newer epoch after reconciling revocation.
+Bound revocation and activation requests individually to five seconds. A confirmed
+failure before focus commit preserves previous visible/durable focus and grants nobody
+else; restore old permission only with a newer epoch after reconciling revocation
+and uncertain storage outcomes under the workspace-memory contract above.
 Failure after focus commit keeps the destination focused and shows its Taskmaster
 activation as unavailable/uncertain. Reconcile/retry idempotently for that same
 workspace and epoch; do not refund usage or trigger an extra evaluation. A later

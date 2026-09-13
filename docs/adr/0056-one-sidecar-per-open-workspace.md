@@ -51,12 +51,18 @@ accepted, coordinate the focused-workspace qualification in specs/taskmaster.md,
 specs/taskmaster-knowledge.md, and ADR 0042's deterministic correlation clause,
 following the ADR amendment/supersession sequence. ADR 0054 remains the
 managed-CLI-policy decision.
+Acceptance also coordinates the release-pipeline shutdown contract and ADR 0048's
+foreground prompt-submission boundary. One lifecycle-operation coordinator owns
+close/quit/install and registry admission; stale handoffs cannot write after focus
+revocation. Focus storage requires atomic publication and uncertain-outcome recovery.
 
 Analysis handoff requires destination readiness, confirmed old-generation
 revocation (or process exit), and generation/epoch-bound commands. Commit and
 publish focus before activating the destination; failed activation keeps that
 destination selected and is reconciled without rollback. Pre-commit failure
-preserves prior focus. Neither path can grant a second analysis owner.
+preserves prior focus once storage outcome is confirmed. Neither path can grant
+a second analysis owner. Initial focus uses adoption/activation without source
+revocation; crash recovery also waits for old inference exit proof before activation.
 Existing sidecar-owned PTY handles do not prove cleanup after a sidecar crash.
 Native crash-surviving containment/supervision must be selected, demonstrated,
 and recorded here before implementing unavailable-runtime cleanup or recovery;
