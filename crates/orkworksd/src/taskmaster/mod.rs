@@ -197,23 +197,41 @@ pub(crate) fn evaluate_workflow_improvements(
             .filter(|recommendation| recommendation.dedupe_key == dedupe_key)
             .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
 
-        let terminal_predecessor = prior.filter(|recommendation| {
-            matches!(
-                recommendation.status,
-                RecommendationStatus::Accepted
-                    | RecommendationStatus::Completed
-                    | RecommendationStatus::Dismissed
-                    | RecommendationStatus::Superseded
-                    | RecommendationStatus::Expired
-                    | RecommendationStatus::Failed
-                    | RecommendationStatus::RolledUp
-            )
+        let active_rollup_member = prior.filter(|recommendation| {
+            recommendation.status == RecommendationStatus::RolledUp
+                && recommendation
+                    .rolled_up_by
+                    .as_deref()
+                    .is_some_and(|parent_id| {
+                        existing.iter().any(|parent| {
+                            parent.id == parent_id
+                                && parent.status == RecommendationStatus::Proposed
+                                && parent.rollup_member_ids.contains(&recommendation.id)
+                        })
+                    })
         });
+        let terminal_predecessor = prior
+            .filter(|recommendation| {
+                matches!(
+                    recommendation.status,
+                    RecommendationStatus::Accepted
+                        | RecommendationStatus::Completed
+                        | RecommendationStatus::Dismissed
+                        | RecommendationStatus::Superseded
+                        | RecommendationStatus::Expired
+                        | RecommendationStatus::Failed
+                        | RecommendationStatus::RolledUp
+                )
+            })
+            .filter(|recommendation| {
+                active_rollup_member.is_none_or(|active| active.id != recommendation.id)
+            });
         if prior.is_some_and(|recommendation| {
             !matches!(
                 recommendation.status,
                 RecommendationStatus::Proposed | RecommendationStatus::Dismissed
             ) && terminal_predecessor.is_none()
+                && active_rollup_member.is_none()
         }) {
             continue;
         }
@@ -229,7 +247,10 @@ pub(crate) fn evaluate_workflow_improvements(
         }
 
         let mut evidence: Vec<WorkflowObservationEvidence> = prior
-            .filter(|recommendation| recommendation.status == RecommendationStatus::Proposed)
+            .filter(|recommendation| {
+                recommendation.status == RecommendationStatus::Proposed
+                    || active_rollup_member.is_some_and(|active| active.id == recommendation.id)
+            })
             .map(|recommendation| recommendation.evidence.clone())
             .unwrap_or_default();
         for observation in qualifying {
@@ -293,7 +314,10 @@ pub(crate) fn evaluate_workflow_improvements(
             .map(|item| item.observation_id.clone())
             .collect::<Vec<_>>();
         let id = prior
-            .filter(|recommendation| recommendation.status == RecommendationStatus::Proposed)
+            .filter(|recommendation| {
+                recommendation.status == RecommendationStatus::Proposed
+                    || active_rollup_member.is_some_and(|active| active.id == recommendation.id)
+            })
             .map(|recommendation| recommendation.id.clone())
             .unwrap_or_else(|| {
                 format!(
@@ -302,14 +326,21 @@ pub(crate) fn evaluate_workflow_improvements(
                 )
             });
         let supersedes = prior
-            .filter(|recommendation| recommendation.status != RecommendationStatus::Proposed)
+            .filter(|recommendation| {
+                recommendation.status != RecommendationStatus::Proposed
+                    && active_rollup_member.is_none()
+            })
             .map(|recommendation| recommendation.id.clone());
-        let rollup_generation = terminal_predecessor.map(|recommendation| {
-            recommendation
-                .rollup_generation
-                .unwrap_or(0)
-                .saturating_add(1)
-        });
+        let rollup_generation = terminal_predecessor
+            .map(|recommendation| {
+                recommendation
+                    .rollup_generation
+                    .unwrap_or(0)
+                    .saturating_add(1)
+            })
+            .or_else(|| {
+                active_rollup_member.and_then(|recommendation| recommendation.rollup_generation)
+            });
         let title = format!("Improve {}", target_surface_name(target_surface));
         let description = evidence[0].description.clone();
         let proposed_improvement =
@@ -326,7 +357,11 @@ pub(crate) fn evaluate_workflow_improvements(
             source_mix(&evidence)
         );
         let created_at = match prior {
-            Some(recommendation) if recommendation.status == RecommendationStatus::Proposed => {
+            Some(recommendation)
+                if recommendation.status == RecommendationStatus::Proposed
+                    || active_rollup_member
+                        .is_some_and(|active| active.id == recommendation.id) =>
+            {
                 recommendation.created_at.clone()
             }
             _ => now.to_string(),
@@ -347,18 +382,28 @@ pub(crate) fn evaluate_workflow_improvements(
                 })
                 .unwrap_or(0),
             recommendation_type: RecommendationType::ImproveWorkflow,
-            status: RecommendationStatus::Proposed,
+            status: if active_rollup_member.is_some() {
+                RecommendationStatus::RolledUp
+            } else {
+                RecommendationStatus::Proposed
+            },
             priority: impact,
             title,
             summary,
             reason: vec![reason],
             evidence: evidence.clone(),
             repository_evidence: prior
-                .filter(|item| item.status == RecommendationStatus::Proposed)
+                .filter(|item| {
+                    item.status == RecommendationStatus::Proposed
+                        || active_rollup_member.is_some_and(|active| active.id == item.id)
+                })
                 .map(|item| item.repository_evidence.clone())
                 .unwrap_or_default(),
             knowledge_evidence: prior
-                .filter(|item| item.status == RecommendationStatus::Proposed)
+                .filter(|item| {
+                    item.status == RecommendationStatus::Proposed
+                        || active_rollup_member.is_some_and(|active| active.id == item.id)
+                })
                 .map(|item| item.knowledge_evidence.clone())
                 .unwrap_or_default(),
             source_session_ids: affected_session_ids.clone(),
@@ -387,7 +432,8 @@ pub(crate) fn evaluate_workflow_improvements(
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation,
-            rolled_up_by: None,
+            rolled_up_by: active_rollup_member
+                .and_then(|recommendation| recommendation.rolled_up_by.clone()),
         });
     }
     proposals.sort_by(|left, right| left.dedupe_key.cmp(&right.dedupe_key));
@@ -837,5 +883,48 @@ mod tests {
         assert_eq!(updated.len(), 1);
         assert_eq!(updated[0].id, existing[0].id);
         assert_eq!(updated[0].evidence.len(), 3);
+    }
+
+    #[test]
+    fn active_rollup_member_updates_in_place_without_starting_a_generation() {
+        let first = observation("one", 1, "session-a", 0.8, Impact::Low);
+        let second = observation("two", 2, "session-b", 0.8, Impact::Low);
+        let third = observation("three", 3, "session-c", 0.8, Impact::Low);
+        let mut member = evaluate_workflow_improvements(
+            &[first.clone(), second.clone()],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        )
+        .remove(0);
+        member.status = RecommendationStatus::RolledUp;
+        member.rollup_generation = Some(4);
+        member.rolled_up_by = Some("rollup-parent".into());
+
+        let mut parent = member.clone();
+        parent.id = "rollup-parent".into();
+        parent.dedupe_key = "rollup:member".into();
+        parent.rollup_member_ids = vec![member.id.clone()];
+        parent.rollup_member_dedupe_keys = vec![member.dedupe_key.clone()];
+        parent.status = RecommendationStatus::Proposed;
+        parent.rolled_up_by = None;
+
+        let updated = evaluate_workflow_improvements(
+            &[first, second, third],
+            &[member.clone(), parent],
+            "workspace-1",
+            "2026-08-21T12:01:00Z",
+        );
+
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].id, member.id);
+        assert_eq!(updated[0].status, RecommendationStatus::RolledUp);
+        assert_eq!(updated[0].rolled_up_by, member.rolled_up_by);
+        assert_eq!(updated[0].rollup_generation, member.rollup_generation);
+        assert_eq!(updated[0].evidence.len(), 3);
+        assert_eq!(
+            updated[0].workflow_improvement.supersedes_recommendation_id,
+            None
+        );
     }
 }

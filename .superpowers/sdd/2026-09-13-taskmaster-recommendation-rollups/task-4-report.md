@@ -174,3 +174,47 @@ full-suite failures were observed or classified.
 - Focused compilation still emits the repository's existing warnings; no
   warning was treated as a test failure.
 - The crash-point seam is test-only and does not expand the public store API.
+
+## Fix round 2
+
+### RED evidence
+
+Added the regression fixture for a `RolledUp` exact-family member receiving
+new qualifying evidence while its proposed parent remains active. The first
+run failed because the fixture cloned the member after setting its status to
+`RolledUp` and did not set the cloned parent back to `Proposed`. The evaluator
+correctly treated that parent as inactive and generated a new ID; this was a
+test-fixture error, not a production behavior to accommodate.
+
+### GREEN evidence
+
+The fixture now preserves the parent membership fields and explicitly sets
+`parent.status = RecommendationStatus::Proposed`. The existing
+parent-status-aware evaluator rule therefore reuses the rolled-up member ID,
+preserves its parent linkage and generation, and absorbs new evidence without
+creating a duplicate exact-family card.
+
+The store publication loops now use test-only counters, eliminating the new
+non-test unused `index` warnings without changing publication behavior.
+
+### Commands and results
+
+```text
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster
+```
+
+Result: 141 passed, 2 ignored, 1,074 filtered out; 0 failed.
+
+```text
+rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
+```
+
+Result: passed.
+
+```text
+rtk git diff --check
+```
+
+Result: passed.
+
+The full sidecar suite was not run.

@@ -686,10 +686,13 @@ impl RecommendationStore {
         fs::create_dir_all(transaction_root.join("staged")).map_err(StoreError::Io)?;
         fs::create_dir_all(transaction_root.join("backups")).map_err(StoreError::Io)?;
         let mut entries = Vec::with_capacity(replacements.len());
-        for (index, (id, replacement)) in replacements.into_iter().enumerate() {
+        #[cfg(test)]
+        let mut staging_fault_pending = true;
+        for (id, replacement) in replacements {
             #[cfg(test)]
-            if index == 0 {
+            if staging_fault_pending {
                 take_fault_point(|point| matches!(point, FaultPoint::Staging))?;
+                staging_fault_pending = false;
             }
             let Replacement { old, new } = replacement;
             let old_sha256 = old.as_deref().map(hash_bytes);
@@ -746,12 +749,17 @@ impl RecommendationStore {
             sync_directory(parent);
         }
 
-        for (index, entry) in committed_manifest.entries.iter().enumerate() {
+        #[cfg(test)]
+        let mut publication_index = 0;
+        for entry in &committed_manifest.entries {
             self.publish_entry(&transaction_root, entry)?;
             #[cfg(test)]
-            take_fault_point(
-                |point| matches!(point, FaultPoint::Publication(after) if after == index + 1),
-            )?;
+            {
+                publication_index += 1;
+                take_fault_point(
+                    |point| matches!(point, FaultPoint::Publication(after) if after == publication_index),
+                )?;
+            }
         }
         sync_directory(&self.dir);
         if let Err(error) = self.validate_graph() {
