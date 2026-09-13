@@ -507,7 +507,7 @@ workflowImprovement
   affectedSessionIds
   impact
   expectedBenefit
-  supersedesRecommendationId null or dismissed predecessor ID
+  supersedesRecommendationId null, dismissed predecessor ID, or superseded rollup parent ID
   dismissalWatermark null or dismissed evidence watermark
 ```
 
@@ -655,8 +655,10 @@ Required recommendation fields:
 - timestamps
 
 Rollup records additionally expose `rollupMemberIds`,
-`rollupMemberDedupeKeys`, `rollupGeneration`, and `rolledUpBy`; legacy records
-deserialize these as empty lists or `null`.
+`rollupMemberDedupeKeys`, `rollupGeneration`, `rolledUpBy`, and
+`supersedesRecommendationId`. For a replacement rollup, that last field links
+the new parent to its superseded rollup parent. Legacy records deserialize
+these as empty lists or `null`.
 
 ## Recommendation lifecycle
 
