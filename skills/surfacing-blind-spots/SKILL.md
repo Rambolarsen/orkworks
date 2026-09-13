@@ -11,7 +11,7 @@ Two complementary questions expose the two failure modes of an AI work session: 
 
 **Core principle: an uncertainty you listed but did not investigate is not a finding — it is a confession.** In planning mode, investigated uncertainty becomes evidence and risk treatment in the plan; in close-out and audit modes, investigated findings become scoped GitHub issues, never a raw list of doubts.
 
-## Two modes
+## Three modes
 
 | Mode | Trigger | Scope of the questions |
 | ---- | ------- | ---------------------- |
