@@ -70,6 +70,40 @@ struct Replacement {
     new: Option<Vec<u8>>,
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+enum FaultPoint {
+    Staging,
+    ManifestCommit,
+    Publication(usize),
+    Cleanup,
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAULT_POINT: std::cell::RefCell<Option<FaultPoint>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn set_fault_point(point: Option<FaultPoint>) {
+    FAULT_POINT.with(|fault| *fault.borrow_mut() = point);
+}
+
+#[cfg(test)]
+fn take_fault_point(expected: impl FnOnce(FaultPoint) -> bool) -> Result<(), StoreError> {
+    FAULT_POINT.with(|fault| {
+        let mut fault = fault.borrow_mut();
+        if fault.as_ref().is_some_and(|point| expected(*point)) {
+            *fault = None;
+            Err(StoreError::Io(io::Error::other(
+                "injected rollup store failure",
+            )))
+        } else {
+            Ok(())
+        }
+    })
+}
+
 impl RecommendationStore {
     pub(crate) fn open(root: PathBuf) -> Result<Self, StoreError> {
         let dir = root.join("recommendations");
@@ -146,6 +180,9 @@ impl RecommendationStore {
             || parent.rolled_up_by.is_some()
             || member_ids.is_empty()
             || member_ids.len() != members.len()
+            || member_ids.contains(&parent.id)
+            || member_ids.iter().any(|id| !valid_id(id))
+            || parent.rollup_member_ids.iter().any(|id| !valid_id(id))
             || member_ids
                 != parent
                     .rollup_member_ids
@@ -157,6 +194,18 @@ impl RecommendationStore {
             return Err(StoreError::GraphInvariant(
                 "rollup parent and members do not describe one complete graph".into(),
             ));
+        }
+        if member_ids.iter().any(|id| !current.contains_key(id)) {
+            return Err(StoreError::GraphInvariant(
+                "every rollup member must already exist".into(),
+            ));
+        }
+        if let Some(existing_parent) = current.get(&parent.id) {
+            if existing_parent.status != RecommendationStatus::Proposed
+                || existing_parent.rollup_member_ids.is_empty()
+            {
+                return Err(StoreError::InvalidTransition);
+            }
         }
 
         let mut parent_record = parent.clone();
@@ -175,6 +224,12 @@ impl RecommendationStore {
             serde_json::to_vec_pretty(&parent_record).map_err(StoreError::Json)?,
         );
         for member in members {
+            if !member.rollup_member_ids.is_empty() {
+                return Err(StoreError::GraphInvariant(format!(
+                    "member {} cannot also be a rollup parent",
+                    member.id
+                )));
+            }
             if member.recommendation_type != RecommendationType::ImproveWorkflow
                 || !matches!(
                     member.status,
@@ -284,7 +339,7 @@ impl RecommendationStore {
             }
         }
 
-        let replacements = replacements
+        let replacements: BTreeMap<String, Replacement> = replacements
             .into_iter()
             .map(|(id, new)| {
                 let old = current.get(&id).map(|record| {
@@ -299,6 +354,16 @@ impl RecommendationStore {
                 )
             })
             .collect();
+        let mut preview = current.clone();
+        for (id, replacement) in &replacements {
+            let bytes = replacement
+                .new
+                .as_ref()
+                .expect("rollup replacements have new content");
+            let recommendation = serde_json::from_slice(bytes).map_err(StoreError::Json)?;
+            preview.insert(id.clone(), recommendation);
+        }
+        validate_graph_records(&preview.values().cloned().collect::<Vec<_>>())?;
         self.commit_replacements(expected, replacements)
     }
 
@@ -621,7 +686,11 @@ impl RecommendationStore {
         fs::create_dir_all(transaction_root.join("staged")).map_err(StoreError::Io)?;
         fs::create_dir_all(transaction_root.join("backups")).map_err(StoreError::Io)?;
         let mut entries = Vec::with_capacity(replacements.len());
-        for (id, replacement) in replacements {
+        for (index, (id, replacement)) in replacements.into_iter().enumerate() {
+            #[cfg(test)]
+            if index == 0 {
+                take_fault_point(|point| matches!(point, FaultPoint::Staging))?;
+            }
             let Replacement { old, new } = replacement;
             let old_sha256 = old.as_deref().map(hash_bytes);
             let old_exists = old.is_some();
@@ -664,18 +733,44 @@ impl RecommendationStore {
             committed: false,
             entries,
         };
-        write_json_sync(&manifest_path, &manifest)?;
+        write_manifest_atomic(&manifest_path, &manifest)?;
         sync_directory(&transaction_root);
 
         let mut committed_manifest = manifest;
         committed_manifest.committed = true;
-        write_json_sync(&manifest_path, &committed_manifest)?;
+        #[cfg(test)]
+        take_fault_point(|point| matches!(point, FaultPoint::ManifestCommit))?;
+        write_manifest_atomic(&manifest_path, &committed_manifest)?;
         sync_directory(&transaction_root);
+        if let Some(parent) = transaction_root.parent() {
+            sync_directory(parent);
+        }
 
-        for entry in &committed_manifest.entries {
+        for (index, entry) in committed_manifest.entries.iter().enumerate() {
             self.publish_entry(&transaction_root, entry)?;
+            #[cfg(test)]
+            take_fault_point(
+                |point| matches!(point, FaultPoint::Publication(after) if after == index + 1),
+            )?;
         }
         sync_directory(&self.dir);
+        if let Err(error) = self.validate_graph() {
+            let rollback =
+                self.rollback_transaction(&transaction_root, &committed_manifest.entries);
+            if let Err(rollback_error) = rollback {
+                return Err(StoreError::Recovery(format!(
+                    "published graph invalid ({error}); rollback failed: {rollback_error}"
+                )));
+            }
+            self.validate_graph().map_err(|rollback_error| {
+                StoreError::Recovery(format!(
+                    "published graph invalid ({error}); old graph invalid after rollback: {rollback_error}"
+                ))
+            })?;
+            return Err(error);
+        }
+        #[cfg(test)]
+        take_fault_point(|point| matches!(point, FaultPoint::Cleanup))?;
         fs::remove_file(&manifest_path).map_err(StoreError::Io)?;
         sync_directory(&transaction_root);
         fs::remove_dir_all(&transaction_root).map_err(StoreError::Io)?;
@@ -729,6 +824,10 @@ impl RecommendationStore {
         for entry in entries {
             let transaction_root = entry.map_err(StoreError::Io)?.path();
             if !transaction_root.is_dir() {
+                continue;
+            }
+            if !transaction_root.join(ROLLUP_TRANSACTION_MANIFEST).exists() {
+                fs::remove_dir_all(&transaction_root).map_err(StoreError::Io)?;
                 continue;
             }
             self.recover_transaction(&transaction_root)?;
@@ -855,6 +954,23 @@ fn write_sync(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
 fn write_json_sync<T: Serialize>(path: &Path, value: &T) -> Result<(), StoreError> {
     let bytes = serde_json::to_vec_pretty(value).map_err(StoreError::Json)?;
     write_sync(path, &bytes)
+}
+
+fn write_manifest_atomic(
+    manifest_path: &Path,
+    manifest: &RollupTransactionManifest,
+) -> Result<(), StoreError> {
+    let temporary = manifest_path.with_extension("json.tmp");
+    write_json_sync(&temporary, manifest)?;
+    crate::harness::integration::atomic_replace(&temporary, manifest_path, manifest_path.exists())
+        .map_err(StoreError::Io)?;
+    if let Some(transaction_root) = manifest_path.parent() {
+        sync_directory(transaction_root);
+        if let Some(transaction_parent) = transaction_root.parent() {
+            sync_directory(transaction_parent);
+        }
+    }
+    Ok(())
 }
 
 fn sync_directory(path: &Path) {
@@ -1589,6 +1705,146 @@ mod tests {
 
         assert!(store.get("parent").unwrap().is_none());
         assert!(store.get("member").unwrap().is_none());
+    }
+
+    #[test]
+    fn refuses_to_reuse_a_terminal_parent_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let member = recommendation("member", "session");
+        let mut terminal_parent = rollup_parent("parent", &["member"]);
+        terminal_parent.status = RecommendationStatus::Dismissed;
+        store.put(&terminal_parent).unwrap();
+        store.put(&member).unwrap();
+        let successor = rollup_parent("parent", &["member"]);
+        let expected = expected_present(&[&terminal_parent, &member]);
+
+        let result = store.apply_rollup_transaction(&expected, &successor, &[member.clone()]);
+
+        assert!(matches!(result, Err(StoreError::InvalidTransition)));
+        assert_eq!(store.get("parent").unwrap(), Some(terminal_parent));
+        assert_eq!(store.get("member").unwrap(), Some(member));
+    }
+
+    #[test]
+    fn rejects_missing_or_colliding_member_ids_before_staging() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let existing = recommendation("existing", "session");
+        store.put(&existing).unwrap();
+
+        let missing_parent = rollup_parent("parent", &["missing"]);
+        let missing = store.apply_rollup_transaction(
+            &BTreeMap::from([("parent".into(), None)]),
+            &missing_parent,
+            &[recommendation("missing", "session")],
+        );
+        assert!(matches!(missing, Err(StoreError::GraphInvariant(_))));
+        assert!(store.get("parent").unwrap().is_none());
+        assert!(store.get("missing").unwrap().is_none());
+
+        let collision_parent = rollup_parent("existing", &["existing"]);
+        let collision = store.apply_rollup_transaction(
+            &BTreeMap::from([("existing".into(), Some(expected_hash(&existing)))]),
+            &collision_parent,
+            &[existing.clone()],
+        );
+        assert!(matches!(collision, Err(StoreError::GraphInvariant(_))));
+        assert_eq!(store.get("existing").unwrap(), Some(existing.clone()));
+
+        let mut nested_member = existing.clone();
+        nested_member.rollup_member_ids = vec!["child".into()];
+        nested_member.rollup_member_dedupe_keys = vec!["child-dedupe".into()];
+        let nested_parent = rollup_parent("nested-parent", &["existing"]);
+        let nested = store.apply_rollup_transaction(
+            &BTreeMap::from([("existing".into(), Some(expected_hash(&existing)))]),
+            &nested_parent,
+            &[nested_member],
+        );
+        assert!(matches!(nested, Err(StoreError::GraphInvariant(_))));
+        assert!(store.get("nested-parent").unwrap().is_none());
+    }
+
+    #[test]
+    fn rejects_a_malformed_result_graph_without_publishing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let old = recommendation("member", "session");
+        store.put(&old).unwrap();
+        let mut malformed_parent = rollup_parent("parent", &["member"]);
+        malformed_parent.status = RecommendationStatus::Proposed;
+        let malformed_bytes = serde_json::to_vec_pretty(&malformed_parent).unwrap();
+        let old_bytes = serde_json::to_vec_pretty(&old).unwrap();
+        let result = store.commit_replacements(
+            &BTreeMap::from([
+                ("member".into(), Some(hash_bytes(&old_bytes))),
+                ("parent".into(), None),
+            ]),
+            BTreeMap::from([
+                (
+                    "parent".into(),
+                    Replacement {
+                        old: None,
+                        new: Some(malformed_bytes),
+                    },
+                ),
+                (
+                    "member".into(),
+                    Replacement {
+                        old: Some(old_bytes.clone()),
+                        new: Some(old_bytes),
+                    },
+                ),
+            ]),
+        );
+
+        assert!(matches!(result, Err(StoreError::GraphInvariant(_))));
+        assert!(store.get("parent").unwrap().is_none());
+        assert_eq!(store.get("member").unwrap(), Some(old));
+    }
+
+    #[test]
+    fn fault_points_recover_to_a_complete_old_or_new_graph() {
+        for fault in [
+            FaultPoint::Staging,
+            FaultPoint::ManifestCommit,
+            FaultPoint::Publication(1),
+            FaultPoint::Cleanup,
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+            let member_a = recommendation("member-a", "session-a");
+            let member_b = recommendation("member-b", "session-b");
+            store.put(&member_a).unwrap();
+            store.put(&member_b).unwrap();
+            let parent = rollup_parent("parent", &["member-a", "member-b"]);
+            let expected = BTreeMap::from([
+                (member_a.id.clone(), Some(expected_hash(&member_a))),
+                (member_b.id.clone(), Some(expected_hash(&member_b))),
+                (parent.id.clone(), None),
+            ]);
+            set_fault_point(Some(fault));
+            let result = store.apply_rollup_transaction(&expected, &parent, &[member_a, member_b]);
+            set_fault_point(None);
+            assert!(result.is_err());
+
+            let recovered = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+            let parent_exists = recovered.get("parent").unwrap().is_some();
+            let member_a = recovered.get("member-a").unwrap().unwrap();
+            let member_b = recovered.get("member-b").unwrap().unwrap();
+            if parent_exists {
+                assert_eq!(member_a.status, RecommendationStatus::RolledUp);
+                assert_eq!(member_a.rolled_up_by, Some("parent".into()));
+                assert_eq!(member_b.status, RecommendationStatus::RolledUp);
+                assert_eq!(member_b.rolled_up_by, Some("parent".into()));
+            } else {
+                assert_eq!(member_a.status, RecommendationStatus::Proposed);
+                assert_eq!(member_a.rolled_up_by, None);
+                assert_eq!(member_b.status, RecommendationStatus::Proposed);
+                assert_eq!(member_b.rolled_up_by, None);
+            }
+            assert!(recovered.list().is_ok());
+        }
     }
 
     fn write_transaction_fixture(

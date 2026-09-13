@@ -197,11 +197,33 @@ pub(crate) fn evaluate_workflow_improvements(
             .filter(|recommendation| recommendation.dedupe_key == dedupe_key)
             .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
 
+        let terminal_predecessor = prior.filter(|recommendation| {
+            matches!(
+                recommendation.status,
+                RecommendationStatus::Accepted
+                    | RecommendationStatus::Completed
+                    | RecommendationStatus::Dismissed
+                    | RecommendationStatus::Superseded
+                    | RecommendationStatus::Expired
+                    | RecommendationStatus::Failed
+                    | RecommendationStatus::RolledUp
+            )
+        });
         if prior.is_some_and(|recommendation| {
             !matches!(
                 recommendation.status,
                 RecommendationStatus::Proposed | RecommendationStatus::Dismissed
-            )
+            ) && terminal_predecessor.is_none()
+        }) {
+            continue;
+        }
+        if terminal_predecessor.is_some_and(|recommendation| {
+            !qualifying.iter().any(|observation| {
+                !recommendation
+                    .evidence
+                    .iter()
+                    .any(|evidence| evidence.observation_id == observation.id)
+            })
         }) {
             continue;
         }
@@ -280,8 +302,14 @@ pub(crate) fn evaluate_workflow_improvements(
                 )
             });
         let supersedes = prior
-            .filter(|recommendation| recommendation.status == RecommendationStatus::Dismissed)
+            .filter(|recommendation| recommendation.status != RecommendationStatus::Proposed)
             .map(|recommendation| recommendation.id.clone());
+        let rollup_generation = terminal_predecessor.map(|recommendation| {
+            recommendation
+                .rollup_generation
+                .unwrap_or(0)
+                .saturating_add(1)
+        });
         let title = format!("Improve {}", target_surface_name(target_surface));
         let description = evidence[0].description.clone();
         let proposed_improvement =
@@ -310,7 +338,13 @@ pub(crate) fn evaluate_workflow_improvements(
                 .map(|recommendation| recommendation.chain_id.clone())
                 .unwrap_or_else(|| dedupe_key.clone()),
             chain_depth: prior
-                .map(|recommendation| recommendation.chain_depth)
+                .map(|recommendation| {
+                    if terminal_predecessor.is_some() {
+                        recommendation.chain_depth.saturating_add(1)
+                    } else {
+                        recommendation.chain_depth
+                    }
+                })
                 .unwrap_or(0),
             recommendation_type: RecommendationType::ImproveWorkflow,
             status: RecommendationStatus::Proposed,
@@ -352,7 +386,7 @@ pub(crate) fn evaluate_workflow_improvements(
             },
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
-            rollup_generation: None,
+            rollup_generation,
             rolled_up_by: None,
         });
     }
@@ -559,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_recommendation_is_never_overwritten_by_reevaluation() {
+    fn accepted_recommendation_starts_a_new_lineaged_generation() {
         let first = observation("one", 1, "session-a", 0.8, Impact::Low);
         let second = observation("two", 2, "session-b", 0.8, Impact::Low);
         let mut existing = evaluate_workflow_improvements(
@@ -583,10 +617,17 @@ mod tests {
             "2026-08-21T12:01:00Z",
         );
 
-        assert!(
-            reevaluated.is_empty(),
-            "an accepted recommendation must never be resurfaced or overwritten by later evidence"
+        assert_eq!(reevaluated.len(), 1);
+        assert_ne!(reevaluated[0].id, existing[0].id);
+        assert_eq!(reevaluated[0].chain_depth, existing[0].chain_depth + 1);
+        assert_eq!(
+            reevaluated[0]
+                .workflow_improvement
+                .supersedes_recommendation_id,
+            Some(existing[0].id.clone())
         );
+        assert_eq!(reevaluated[0].rollup_generation, Some(1));
+        assert_eq!(existing[0].status, RecommendationStatus::Accepted);
     }
 
     #[test]
@@ -610,6 +651,90 @@ mod tests {
             "2026-08-21T12:01:00Z",
         )
         .is_empty());
+    }
+
+    #[test]
+    fn terminal_predecessors_create_lineaged_exact_family_generations() {
+        for status in [
+            RecommendationStatus::Accepted,
+            RecommendationStatus::Completed,
+            RecommendationStatus::Superseded,
+            RecommendationStatus::Expired,
+            RecommendationStatus::Failed,
+        ] {
+            let first = observation("one", 1, "session-a", 0.8, Impact::Low);
+            let second = observation("two", 2, "session-b", 0.8, Impact::Low);
+            let third = observation("three", 3, "session-c", 0.8, Impact::Low);
+            let mut predecessor = evaluate_workflow_improvements(
+                &[first.clone(), second.clone()],
+                &[],
+                "workspace-1",
+                "2026-08-21T12:00:00Z",
+            )
+            .remove(0);
+            predecessor.status = status;
+            predecessor.rollup_generation = Some(7);
+
+            let generations = evaluate_workflow_improvements(
+                &[first, second, third],
+                &[predecessor.clone()],
+                "workspace-1",
+                "2026-08-21T12:01:00Z",
+            );
+
+            assert_eq!(generations.len(), 1);
+            assert_ne!(generations[0].id, predecessor.id);
+            assert_eq!(generations[0].chain_depth, predecessor.chain_depth + 1);
+            assert_eq!(
+                generations[0]
+                    .workflow_improvement
+                    .supersedes_recommendation_id,
+                Some(predecessor.id)
+            );
+            assert_eq!(generations[0].rollup_generation, Some(8));
+        }
+    }
+
+    #[test]
+    fn dismissed_predecessor_generation_requires_new_evidence_and_keeps_lineage() {
+        let first = observation("one", 1, "session-a", 0.8, Impact::Low);
+        let second = observation("two", 2, "session-b", 0.8, Impact::Low);
+        let third = observation("three", 3, "session-c", 0.8, Impact::Low);
+        let fourth = observation("four", 4, "session-d", 0.8, Impact::Low);
+        let mut predecessor = evaluate_workflow_improvements(
+            &[first.clone(), second.clone()],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        )
+        .remove(0);
+        predecessor.status = RecommendationStatus::Dismissed;
+        predecessor.rollup_generation = Some(2);
+        predecessor.workflow_improvement.dismissal_watermark = Some(DismissalWatermark {
+            dismissed_at: "2026-08-21T12:00:30Z".into(),
+            dismissed_through_sequence: 2,
+            observation_ids: vec!["one".into(), "two".into()],
+            qualifying_count: 2,
+            highest_impact: Impact::Low,
+            affected_session_ids: vec!["session-a".into(), "session-b".into()],
+        });
+
+        let generations = evaluate_workflow_improvements(
+            &[first, second, third, fourth],
+            &[predecessor.clone()],
+            "workspace-1",
+            "2026-08-21T12:01:00Z",
+        );
+
+        assert_eq!(generations.len(), 1);
+        assert_ne!(generations[0].id, predecessor.id);
+        assert_eq!(
+            generations[0]
+                .workflow_improvement
+                .supersedes_recommendation_id,
+            Some(predecessor.id)
+        );
+        assert_eq!(generations[0].rollup_generation, Some(3));
     }
 
     #[test]

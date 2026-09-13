@@ -87,3 +87,90 @@ Result: passed.
 - The store preserves existing `put` and single-record lifecycle behavior;
   integration of evaluator rollup application and API filtering remains for
   later tasks.
+
+## Fix round 1
+
+### RED evidence
+
+Added focused tests for the review findings before completing the fixes:
+
+- terminal parent IDs cannot be reused, while proposed parents may be updated;
+- missing members, parent/member collisions, nested members, and malformed
+  graphs are rejected before or during publication;
+- staging, manifest commit, partial publication, and cleanup crash points
+  recover to a complete old or complete new graph; and
+- accepted, completed, dismissed, superseded, expired, and failed terminal
+  predecessors preserve lineage by starting a new exact-family generation.
+
+The first focused run intentionally failed with three behavioral failures:
+the collision assertion observed the wrong error ordering, the accepted
+predecessor test still expected terminal overwrite, and the dismissed
+predecessor test lacked the required new-evidence watermark. Those tests and
+the implementation were corrected. The final compile-only failure was caused
+by the test moving `existing` in `Some(existing)` before cloning it for the
+nested-member case; changing that assertion to `Some(existing.clone())`
+resolved the ownership error without changing production semantics.
+
+### GREEN evidence
+
+The store now rejects terminal-parent reuse, requires existing member IDs,
+rejects ID collisions and nested/self-referential graph inputs, validates the
+published graph before manifest cleanup, and rolls back malformed results.
+Manifest publication uses a fsynced temporary marker and atomic replacement,
+with transaction-directory and parent-directory synchronization before
+publication. Fault-injection coverage exercises staging, manifest commit,
+publication, and cleanup; startup recovery exposes a complete old or new
+graph.
+
+Taskmaster now preserves terminal predecessors and creates a new exact-family
+generation with supersession lineage for terminal evidence, including the
+required `rollup_generation` value.
+
+The public method signature remains:
+
+```rust
+pub(crate) fn apply_rollup_transaction(
+    &self,
+    expected: &BTreeMap<String, Option<String>>,
+    parent: &Recommendation,
+    members: &[Recommendation],
+) -> Result<(), StoreError>
+```
+
+### Files
+
+- `crates/orkworksd/src/taskmaster/store.rs` — review fixes, crash-safe
+  manifest publication, graph validation, fault seam, and tests.
+- `crates/orkworksd/src/taskmaster/mod.rs` — terminal evidence lineage and
+  Taskmaster tests.
+- `.superpowers/sdd/2026-09-13-taskmaster-recommendation-rollups/task-4-report.md`
+  — appended fix-round evidence.
+
+### Commands and results
+
+```text
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster
+```
+
+Result: 140 passed, 2 ignored, 1,074 filtered out; 0 failed.
+
+```text
+rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
+```
+
+Result: passed.
+
+```text
+rtk git diff --check
+```
+
+Result: passed.
+
+The full sidecar suite was not run, per instruction; therefore no unrelated
+full-suite failures were observed or classified.
+
+### Concerns
+
+- Focused compilation still emits the repository's existing warnings; no
+  warning was treated as a test failure.
+- The crash-point seam is test-only and does not expand the public store API.
