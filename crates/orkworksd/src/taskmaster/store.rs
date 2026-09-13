@@ -9,7 +9,8 @@ use uuid::Uuid;
 
 const ROLLUP_TRANSACTION_DIR: &str = ".rollup-transactions";
 const ROLLUP_TRANSACTION_MANIFEST: &str = "manifest.json";
-const ROLLUP_TRANSACTION_VERSION: u32 = 1;
+const ROLLUP_TRANSACTION_VERSION: u32 = 2;
+const LEGACY_ROLLUP_TRANSACTION_VERSION: u32 = 1;
 
 #[derive(Debug)]
 pub(crate) enum StoreError {
@@ -947,13 +948,19 @@ impl RecommendationStore {
         let manifest_json = fs::read_to_string(&manifest_path).map_err(|error| {
             StoreError::Recovery(format!("cannot read {}: {error}", manifest_path.display()))
         })?;
-        let manifest: RollupTransactionManifest = serde_json::from_str(&manifest_json)
+        let mut manifest: RollupTransactionManifest = serde_json::from_str(&manifest_json)
             .map_err(|error| StoreError::Recovery(format!("invalid rollup manifest: {error}")))?;
-        if manifest.version != ROLLUP_TRANSACTION_VERSION {
+        if !matches!(
+            manifest.version,
+            LEGACY_ROLLUP_TRANSACTION_VERSION | ROLLUP_TRANSACTION_VERSION
+        ) {
             return Err(StoreError::Recovery(format!(
                 "unsupported rollup transaction version {}",
                 manifest.version
             )));
+        }
+        if manifest.version == LEGACY_ROLLUP_TRANSACTION_VERSION {
+            self.migrate_legacy_transaction_paths(transaction_root, &mut manifest.entries)?;
         }
         validate_manifest_entries(&manifest.entries)?;
         if manifest.committed {
@@ -1032,6 +1039,84 @@ impl RecommendationStore {
         sync_directory(&self.dir);
         Ok(())
     }
+
+    fn migrate_legacy_transaction_paths(
+        &self,
+        transaction_root: &Path,
+        entries: &mut [RollupTransactionEntry],
+    ) -> Result<(), StoreError> {
+        let mut migrated = false;
+        for entry in entries {
+            if !valid_id(&entry.id) {
+                continue;
+            }
+            let legacy_target = format!("{}.json", entry.id);
+            let current_target = recommendation_filename(&entry.id);
+            if entry.target == legacy_target {
+                migrate_transaction_path(
+                    &self.dir.join(&legacy_target),
+                    &self.dir.join(&current_target),
+                    &entry.id,
+                )?;
+                entry.target = current_target;
+                migrated = true;
+            }
+            migrate_optional_transaction_path(
+                transaction_root,
+                &mut entry.staged,
+                &format!("staged/{}.json", entry.id),
+                &transaction_staged_path(&entry.id),
+                &entry.id,
+                &mut migrated,
+            )?;
+            migrate_optional_transaction_path(
+                transaction_root,
+                &mut entry.backup,
+                &format!("backups/{}.json", entry.id),
+                &transaction_backup_path(&entry.id),
+                &entry.id,
+                &mut migrated,
+            )?;
+        }
+        if migrated {
+            sync_directory(&self.dir);
+            sync_directory(transaction_root);
+        }
+        Ok(())
+    }
+}
+
+fn migrate_optional_transaction_path(
+    transaction_root: &Path,
+    path: &mut Option<String>,
+    legacy: &str,
+    current: &str,
+    id: &str,
+    migrated: &mut bool,
+) -> Result<(), StoreError> {
+    if path.as_deref() != Some(legacy) {
+        return Ok(());
+    }
+    migrate_transaction_path(
+        &transaction_root.join(legacy),
+        &transaction_root.join(current),
+        id,
+    )?;
+    *path = Some(current.to_string());
+    *migrated = true;
+    Ok(())
+}
+
+fn migrate_transaction_path(source: &Path, destination: &Path, id: &str) -> Result<(), StoreError> {
+    if source == destination || !source.exists() {
+        return Ok(());
+    }
+    if destination.exists() {
+        return Err(StoreError::Recovery(format!(
+            "both legacy and encoded transaction paths exist for {id}"
+        )));
+    }
+    fs::rename(source, destination).map_err(StoreError::Io)
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
@@ -1825,6 +1910,38 @@ mod tests {
             .path()
             .join("recommendations/.rollup-transactions")
             .exists());
+    }
+
+    #[test]
+    fn recovers_a_legacy_rollup_transaction_with_raw_colon_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let member_a = recommendation("member-a", "session-a");
+        let member_b = recommendation("member-b", "session-b");
+        store.put(&member_a).unwrap();
+        store.put(&member_b).unwrap();
+        let parent_id = format!("rollup:{}", "cd".repeat(32));
+        let parent = rollup_parent(&parent_id, &["member-a", "member-b"]);
+        let mut rolled_a = member_a.clone();
+        rolled_a.status = RecommendationStatus::RolledUp;
+        rolled_a.rolled_up_by = Some(parent_id.clone());
+        let mut rolled_b = member_b.clone();
+        rolled_b.status = RecommendationStatus::RolledUp;
+        rolled_b.rolled_up_by = Some(parent_id.clone());
+
+        write_transaction_fixture(
+            dir.path(),
+            true,
+            &[(&member_a, Some(&rolled_a)), (&member_b, Some(&rolled_b))],
+            &[&parent],
+        );
+
+        let recovered = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        assert_eq!(recovered.get(&parent_id).unwrap(), Some(parent));
+        assert_eq!(
+            recovered.get("member-a").unwrap().unwrap().status,
+            RecommendationStatus::RolledUp
+        );
     }
 
     #[test]

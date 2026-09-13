@@ -503,7 +503,7 @@ fn failed_multi_cluster_application_leaves_the_old_graph_unchanged() {
 }
 
 #[test]
-fn changed_set_supersedes_parent_and_releases_unselected_member() {
+fn stale_rollup_cannot_reparent_a_member_from_an_active_parent() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
@@ -517,16 +517,7 @@ fn changed_set_supersedes_parent_and_releases_unselected_member() {
         &request.snapshots,
         &output(&[cluster(&["a", "b"])]),
     ));
-    assert!(apply_rollup_model_output(
-        &state,
-        &runtime,
-        &snapshot,
-        &request.token,
-        &request.snapshots,
-        &output(&[cluster(&["a", "c"])]),
-    ));
-
-    let records = state
+    let before = state
         .workspace
         .lock()
         .unwrap()
@@ -535,23 +526,24 @@ fn changed_set_supersedes_parent_and_releases_unselected_member() {
         .recommendation_store
         .list()
         .unwrap();
-    assert_eq!(
-        records
-            .iter()
-            .filter(|item| item.status == RecommendationStatus::Superseded)
-            .count(),
-        1
-    );
-    assert_eq!(
-        records.iter().find(|item| item.id == "b").unwrap().status,
-        RecommendationStatus::Proposed
-    );
-    assert_eq!(
-        records.iter().find(|item| item.id == "a").unwrap().status,
-        RecommendationStatus::RolledUp
-    );
-    assert_eq!(
-        records.iter().find(|item| item.id == "c").unwrap().status,
-        RecommendationStatus::RolledUp
-    );
+
+    assert!(!apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &request.token,
+        &request.snapshots,
+        &output(&[cluster(&["a", "c"])]),
+    ));
+
+    let after = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .list()
+        .unwrap();
+    assert_eq!(after, before);
 }

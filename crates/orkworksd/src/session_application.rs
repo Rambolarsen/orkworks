@@ -321,6 +321,12 @@ impl SessionApplication {
                 return false;
             }
             let parent_id = stable_rollup_id(&cluster.member_recommendation_ids);
+            if members.iter().any(|member| {
+                member.status == RecommendationStatus::RolledUp
+                    && member.rolled_up_by.as_deref() != Some(parent_id.as_str())
+            }) {
+                return false;
+            }
             let existing_parent = current.iter().find(|item| item.id == parent_id);
             if existing_parent.is_some_and(|parent| {
                 parent.rollup_member_ids.is_empty()
@@ -342,15 +348,19 @@ impl SessionApplication {
             }) {
                 return false;
             }
-            let superseded_parent = current.iter().find(|item| {
-                matches!(item.status, RecommendationStatus::Proposed)
-                    && !item.rollup_member_ids.is_empty()
-                    && item.id != parent_id
-                    && item
-                        .rollup_member_ids
-                        .iter()
-                        .any(|member_id| member_ids.contains(member_id))
-            });
+            let superseded_parents = current
+                .iter()
+                .filter(|item| {
+                    matches!(item.status, RecommendationStatus::Proposed)
+                        && !item.rollup_member_ids.is_empty()
+                        && item.id != parent_id
+                        && item
+                            .rollup_member_ids
+                            .iter()
+                            .any(|member_id| member_ids.contains(member_id))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
             let mut parent = existing_parent
                 .cloned()
                 .unwrap_or_else(|| first_member.clone());
@@ -397,7 +407,7 @@ impl SessionApplication {
                         .supersedes_recommendation_id
                         .clone()
                 })
-                .or_else(|| superseded_parent.map(|parent| parent.id.clone()));
+                .or_else(|| superseded_parents.first().map(|parent| parent.id.clone()));
             parent.id = parent_id.clone();
             parent.status = if existing_parent
                 .is_some_and(|existing| existing.status == RecommendationStatus::Executing)
@@ -483,7 +493,7 @@ impl SessionApplication {
                 add_expected(&member.id, &mut expected);
                 working.insert(member.id.clone(), member);
             }
-            if let Some(old_parent) = superseded_parent {
+            for old_parent in superseded_parents {
                 let mut superseded = old_parent.clone();
                 superseded.status = RecommendationStatus::Superseded;
                 superseded.updated_at = now.clone();

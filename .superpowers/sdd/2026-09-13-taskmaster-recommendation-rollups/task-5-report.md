@@ -25,6 +25,25 @@
 - `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check`: passed.
 - `git diff --check`: passed.
 
+## Fix round 3
+
+The final review identified a conflict between stale-parent reparenting and the
+design's explicit no-changed-active-parent rule. The implementation now rejects
+any result that would move a member away from an active parent created or
+changed after the supplied snapshot; same-member-set retries remain
+idempotent. Supersession code handles every overlapping proposed parent when
+such a transaction is valid, while the stale-parent guard prevents that path
+from being used to apply an old result.
+
+It also accepts and normalizes version-1 transaction manifests with raw
+colon-containing rollup paths, while newly written manifests use version 2.
+
+Verification:
+
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster::evaluator::rollup_tests`: 9 passed.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster::store::tests::recovers_a_legacy_rollup_transaction_with_raw_colon_paths`: passed.
+- `cargo fmt --manifest-path crates/orkworksd/Cargo.toml`: passed.
+
 ## Fix round 2
 
 Addressed the second review pass:
