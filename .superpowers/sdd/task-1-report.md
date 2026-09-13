@@ -32,3 +32,21 @@ Reviewed the diff against the brief. Changes are test-only, limited to the three
 - The focused desktop test could not execute in this worktree because dependencies are unavailable and pnpm setup is permission-blocked.
 - The Rust crate currently has an unrelated existing compile error involving a moved `Arc`.
 - Commit creation requires elevated filesystem permission for the linked worktree’s Git index lock.
+
+## Reviewer fix
+
+The reviewer identified that the test module referenced `normalize_windows_drive_alias` without importing it from `super`. Added that missing test import only; no production implementation code changed.
+
+## Reviewer-fix verification
+
+- Renderer characterization attempt: `pnpm --dir apps/desktop exec node --experimental-strip-types --test tests/terminalLinks.test.ts` — blocked by PowerShell execution policy for `pnpm.ps1`.
+- Renderer equivalent: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/terminalLinks.test.ts` — blocked by pnpm temporary-file permission error.
+- Direct Node attempt from `apps/desktop`: blocked because `@xterm/xterm` is unavailable in this worktree.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml plan_handoff` — still RED on the missing production helper, now reported as the expected unresolved test import; the unrelated moved-`Arc` compile error remains.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml session_application::tests::select_plan_application_seam_rejects_unresolvable_path` — blocked by the same crate-wide compile errors.
+- `git diff --check` — passed before commit.
+
+## Reviewer-fix files
+
+- `crates/orkworksd/src/plan_handoff.rs` — added the missing test-module import.
+- `.superpowers/sdd/task-1-report.md` — appended this fix and verification record.

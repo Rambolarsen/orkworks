@@ -395,7 +395,7 @@ pub(crate) fn normalize_reported_plan_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_reported_plan_path, printed_plan_path, resolve_openable_plan,
+        normalize_reported_plan_path, normalize_windows_drive_alias, printed_plan_path, resolve_openable_plan,
         resolve_openable_plan_reference, resolve_printed_plan_path,
         resolve_printed_plan_path_with_home,
     };
