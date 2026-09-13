@@ -523,6 +523,34 @@ impl TaskmasterRuntime {
         Ok(true)
     }
 
+    pub(super) fn with_current_generation_and_selection(
+        &self,
+        workspace: &Path,
+        generation: u64,
+        provider: &str,
+        model: &str,
+        apply: impl FnOnce(),
+    ) -> Result<bool, String> {
+        let _guard = PersistenceGuard::acquire(&self.root)?;
+        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+        reload_durable(&self.root, &mut data);
+        let Some(workspace) = canonical_workspace_key(workspace) else {
+            return Ok(false);
+        };
+        let Some(selection) = effective_settings(&data.settings, &workspace).selection else {
+            return Ok(false);
+        };
+        if !data.ledger_readable
+            || data.ledger.generation != generation
+            || selection.provider != provider
+            || selection.model != model
+        {
+            return Ok(false);
+        }
+        apply();
+        Ok(true)
+    }
+
     /// Revalidates the selected provider/model and generation before applying
     /// a semantic rollup. The caller performs workspace and evidence checks in
     /// the application layer while this guard owns durable Taskmaster config.
@@ -543,7 +571,11 @@ impl TaskmasterRuntime {
         {
             return Ok(false);
         }
-        self.with_current_evaluation(harnesses, workspace, snapshot, apply)
+        if snapshot.custom_inference.is_some() {
+            self.with_current_evaluation(harnesses, workspace, snapshot, apply)
+        } else {
+            self.with_current_native_rollup_evaluation(harnesses, workspace, snapshot, token, apply)
+        }
     }
 }
 

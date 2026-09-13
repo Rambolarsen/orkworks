@@ -560,6 +560,17 @@ fn apply_provider_output(
         );
         return false;
     };
+    if let Err(error) =
+        validate_legacy_model_output(&model, snapshot, facts, supplied_recommendations)
+    {
+        let _ = runtime.record_evaluation_error(
+            &state.harness_store,
+            workspace_path,
+            snapshot,
+            Some(error),
+        );
+        return false;
+    }
     let rollups = model.rollups.clone();
     let model_applied = apply_model_output_parsed(
         state.as_ref(),
@@ -582,6 +593,85 @@ fn apply_provider_output(
         )
     });
     model_applied || rollup_applied
+}
+
+fn validate_legacy_model_output(
+    model: &ModelOutput,
+    snapshot: &EvaluationSnapshot,
+    facts: &[crate::taskmaster::RepositoryEvidence],
+    supplied_recommendations: &[Recommendation],
+) -> Result<(), String> {
+    let page_map = snapshot
+        .knowledge
+        .as_ref()
+        .into_iter()
+        .flat_map(|bundle| bundle.pages.iter())
+        .map(|page| (page.id.as_str(), page))
+        .collect::<std::collections::HashMap<_, _>>();
+    let fact_ids = facts
+        .iter()
+        .map(|fact| fact.sha256.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let proposed = supplied_recommendations
+        .iter()
+        .filter(|item| item.status == RecommendationStatus::Proposed)
+        .take(16)
+        .collect::<Vec<_>>();
+    let cites_unsupplied_knowledge = model.enrichments.iter().any(|enrichment| {
+        enrichment
+            .knowledge_page_ids
+            .iter()
+            .any(|id| !page_map.contains_key(id.as_str()))
+    }) || model.proposals.iter().any(|proposal| {
+        proposal
+            .repository_fact_hashes
+            .iter()
+            .any(|hash| !fact_ids.contains(hash.as_str()))
+            || proposal
+                .knowledge_page_ids
+                .iter()
+                .any(|id| !page_map.contains_key(id.as_str()))
+    });
+    if cites_unsupplied_knowledge {
+        return Err("Taskmaster provider cited unsupplied knowledge".into());
+    }
+    if model.enrichments.len() > 16
+        || model.enrichments.iter().any(|enrichment| {
+            enrichment.dedupe_key.is_empty()
+                || !proposed
+                    .iter()
+                    .any(|item| item.dedupe_key == enrichment.dedupe_key)
+                || enrichment.knowledge_page_ids.len() > 8
+                || enrichment
+                    .knowledge_page_ids
+                    .iter()
+                    .any(|id| !page_map.contains_key(id.as_str()))
+        })
+        || model.proposals.len() > 3
+        || model.proposals.iter().any(|proposal| {
+            parse_target_surface(&proposal.target_surface).is_none()
+                || proposal.title.trim().is_empty()
+                || proposal.title.chars().any(char::is_control)
+                || proposal.title.chars().count() > 240
+                || proposal.summary.trim().is_empty()
+                || proposal.summary.chars().any(char::is_control)
+                || proposal.summary.chars().count() > 1_000
+                || proposal.repository_fact_hashes.is_empty()
+                || proposal.repository_fact_hashes.len() > 32
+                || proposal.knowledge_page_ids.len() > 8
+                || proposal
+                    .repository_fact_hashes
+                    .iter()
+                    .any(|hash| !fact_ids.contains(hash.as_str()))
+                || proposal
+                    .knowledge_page_ids
+                    .iter()
+                    .any(|id| !page_map.contains_key(id.as_str()))
+        })
+    {
+        return Err("Taskmaster provider returned invalid legacy output".into());
+    }
+    Ok(())
 }
 
 fn apply_model_output_parsed(

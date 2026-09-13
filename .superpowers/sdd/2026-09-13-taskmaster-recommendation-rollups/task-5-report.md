@@ -25,6 +25,22 @@
 - `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check`: passed.
 - `git diff --check`: passed.
 
+## Fix round 2
+
+Addressed the second review pass:
+
+- combined legacy and rollup output is validated as one atomic response, including legacy citations, before either section can mutate state;
+- native rollup revalidation now compares the live effective provider/model and generation under the runtime persistence lock;
+- pre-existing POSIX `rollup:<digest>.json` files migrate to the encoded cross-platform filename on store open;
+- executing rollup parents retain their lifecycle state and cannot be replaced by a changed member set.
+
+Verification:
+
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster::evaluator`: 27 passed.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster::store`: 25 passed.
+- `cargo fmt --manifest-path crates/orkworksd/Cargo.toml`: passed.
+- `git diff --check`: passed.
+
 An initial sandboxed full sidecar run completed with 1,208 passed, 10 unrelated environment/pre-existing failures, and 3 ignored tests. A rerun with normal filesystem access was started to distinguish those failures, but was interrupted before its final summary by the user. No Task 5-focused test failure remained.
 
 ## Commit

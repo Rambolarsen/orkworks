@@ -272,6 +272,14 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
         &first,
     ));
 
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    let workspace = state.workspace.lock().unwrap();
+    let store = &workspace.as_ref().unwrap().recommendation_store;
+    let mut executing = store.get(&parent_id).unwrap().unwrap();
+    executing.status = RecommendationStatus::Executing;
+    store.put(&executing).unwrap();
+    drop(workspace);
+
     let mut updated_cluster = cluster(&["b", "a"]);
     updated_cluster.title = "Updated title".into();
     assert!(apply_rollup_model_output(
@@ -342,13 +350,15 @@ fn invalid_rollup_rejects_legacy_mutation_before_any_section_is_applied() {
         pages: vec![page],
     });
     let response = serde_json::json!({
-        "enrichments": [{"dedupeKey": "exact:a", "knowledgePageIds": ["page.md"]}],
+        "enrichments": [{"dedupeKey": "not-supplied", "knowledgePageIds": ["page.md"]}],
         "proposals": [],
-        "rollups": [cluster(&["a", "b"]), cluster(&["b", "a"])],
+        "rollups": [cluster(&["a", "b"])],
     })
     .to_string();
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
 
-    assert!(!apply_model_output(
+    assert!(!apply_provider_output(
         &state,
         &runtime,
         &snapshot,
@@ -356,6 +366,7 @@ fn invalid_rollup_rejects_legacy_mutation_before_any_section_is_applied() {
         workspace_instance(&state),
         &[],
         &recommendations,
+        Some(&request),
         &response,
     ));
     assert!(state

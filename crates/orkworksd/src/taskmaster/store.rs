@@ -109,6 +109,7 @@ impl RecommendationStore {
         let dir = root.join("recommendations");
         fs::create_dir_all(&dir).map_err(StoreError::Io)?;
         let store = Self { dir };
+        store.migrate_legacy_rollup_filenames()?;
         store.recover_transactions()?;
         store.validate_graph()?;
         Ok(store)
@@ -615,6 +616,34 @@ impl RecommendationStore {
 
     fn path_for(&self, id: &str) -> PathBuf {
         self.dir.join(recommendation_filename(id))
+    }
+
+    fn migrate_legacy_rollup_filenames(&self) -> Result<(), StoreError> {
+        for entry in fs::read_dir(&self.dir).map_err(StoreError::Io)? {
+            let entry = entry.map_err(StoreError::Io)?;
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let Some(id) = name
+                .strip_prefix("rollup:")
+                .and_then(|name| name.strip_suffix(".json"))
+            else {
+                continue;
+            };
+            let logical_id = format!("rollup:{id}");
+            if !valid_id(&logical_id) {
+                continue;
+            }
+            let encoded = self.path_for(&logical_id);
+            if encoded.exists() {
+                return Err(StoreError::Recovery(format!(
+                    "both legacy and encoded filenames exist for {logical_id}"
+                )));
+            }
+            fs::rename(path, encoded).map_err(StoreError::Io)?;
+        }
+        Ok(())
     }
 
     fn read_path(&self, path: &Path) -> Result<Recommendation, StoreError> {
@@ -1708,6 +1737,12 @@ mod tests {
             .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
             .unwrap();
 
+        let encoded_path = store.path_for(&parent_id);
+        let legacy_path = dir
+            .path()
+            .join("recommendations")
+            .join(format!("{parent_id}.json"));
+        fs::rename(&encoded_path, &legacy_path).unwrap();
         let reopened = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
         let persisted = reopened.get(&parent_id).unwrap().unwrap();
         assert_eq!(persisted.id, parent_id);

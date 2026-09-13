@@ -331,11 +331,20 @@ impl SessionApplication {
             }) {
                 return false;
             }
+            if existing_parent.is_some_and(|parent| {
+                parent.status == RecommendationStatus::Executing
+                    && parent
+                        .rollup_member_ids
+                        .iter()
+                        .cloned()
+                        .collect::<BTreeSet<_>>()
+                        != member_ids
+            }) {
+                return false;
+            }
             let superseded_parent = current.iter().find(|item| {
-                matches!(
-                    item.status,
-                    RecommendationStatus::Proposed | RecommendationStatus::Executing
-                ) && !item.rollup_member_ids.is_empty()
+                matches!(item.status, RecommendationStatus::Proposed)
+                    && !item.rollup_member_ids.is_empty()
                     && item.id != parent_id
                     && item
                         .rollup_member_ids
@@ -390,7 +399,13 @@ impl SessionApplication {
                 })
                 .or_else(|| superseded_parent.map(|parent| parent.id.clone()));
             parent.id = parent_id.clone();
-            parent.status = RecommendationStatus::Proposed;
+            parent.status = if existing_parent
+                .is_some_and(|existing| existing.status == RecommendationStatus::Executing)
+            {
+                RecommendationStatus::Executing
+            } else {
+                RecommendationStatus::Proposed
+            };
             parent.workspace_id = workspace.path.display().to_string();
             parent.chain_id = parent_id.clone();
             parent.chain_depth = members
