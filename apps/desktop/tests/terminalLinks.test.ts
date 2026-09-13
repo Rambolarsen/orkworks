@@ -25,6 +25,27 @@ test("recognizes relative and absolute supported plan paths", () => {
   );
 });
 
+test("detects slash-prefixed Windows absolute plan paths without rewriting them", () => {
+  const path = "/C:/Users/froma/source/repos/orkworks-multi-workspace-design/specs/multi-workspace.md";
+  assert.deepEqual(terminalPlanPaths(`Created ${path}`), [path]);
+});
+
+test("activates a slash-prefixed Windows plan link with exact path text", async () => {
+  const terminal = new Terminal({ cols: 160, rows: 2 });
+  const expected = "/C:/Users/froma/source/repos/orkworks-multi-workspace-design/specs/multi-workspace.md";
+  await new Promise<void>((resolve) => terminal.write("Created " + expected, resolve));
+  const activated: string[] = [];
+  const provider = createTerminalPlanLinkProvider(terminal, async (path) => { activated.push(path); });
+  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+
+  assert.equal(links?.length, 1);
+  assert.equal(links[0].text, expected);
+  links[0].activate();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(activated, [expected]);
+  terminal.dispose();
+});
+
 test("recognizes shell-home absolute plan paths", () => {
   assert.deepEqual(
     terminalPlanPaths("Added ~/workspace/orkworks-windows-installer-smoke-test/docs/superpowers/specs/plan.md"),

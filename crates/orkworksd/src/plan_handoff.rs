@@ -37,6 +37,23 @@ pub(crate) fn resolve_printed_plan_path(
     resolve_printed_plan_path_with_home(launch_root, printed_path, home_dir.as_deref())
 }
 
+fn normalize_windows_drive_alias(path: &str) -> String {
+    #[cfg(windows)]
+    {
+        let bytes = path.as_bytes();
+        let is_drive_letter = bytes.get(1).is_some_and(|byte| byte.is_ascii_alphabetic());
+        let has_drive_separator = matches!(bytes.get(3), Some(b'/') | Some(b'\\'));
+        if bytes.first() == Some(&b'/')
+            && is_drive_letter
+            && bytes.get(2) == Some(&b':')
+            && has_drive_separator
+        {
+            return path[1..].to_owned();
+        }
+    }
+    path.to_owned()
+}
+
 pub(crate) fn resolve_printed_plan_path_with_home(
     launch_root: &Path,
     printed_path: &str,
@@ -45,7 +62,8 @@ pub(crate) fn resolve_printed_plan_path_with_home(
     if printed_path.chars().any(char::is_control) {
         return Err("plan path must not contain control characters".into());
     }
-    let printed = Path::new(printed_path);
+    let normalized_path = normalize_windows_drive_alias(printed_path);
+    let printed = Path::new(&normalized_path);
     let launch_root = launch_root
         .canonicalize()
         .map_err(|error| error.to_string())?;
@@ -395,13 +413,47 @@ pub(crate) fn normalize_reported_plan_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_reported_plan_path, printed_plan_path, resolve_openable_plan,
-        resolve_openable_plan_reference, resolve_printed_plan_path,
+        normalize_reported_plan_path, normalize_windows_drive_alias, printed_plan_path,
+        resolve_openable_plan, resolve_openable_plan_reference, resolve_printed_plan_path,
         resolve_printed_plan_path_with_home,
     };
     use crate::metadata::{PlanReference, PlanSource};
     use std::fs;
     use std::path::Path;
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_only_one_leading_slash_from_a_windows_drive_alias() {
+        assert_eq!(
+            normalize_windows_drive_alias("/C:/repo/specs/plan.md"),
+            "C:/repo/specs/plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("/C:\\repo\\specs\\plan.md"),
+            "C:\\repo\\specs\\plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("//C:/repo/specs/plan.md"),
+            "//C:/repo/specs/plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("/1:/repo/specs/plan.md"),
+            "/1:/repo/specs/plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("/C:relative/specs/plan.md"),
+            "/C:relative/specs/plan.md"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn leaves_windows_drive_display_aliases_unchanged_on_non_windows() {
+        assert_eq!(
+            normalize_windows_drive_alias("/C:/repo/specs/plan.md"),
+            "/C:/repo/specs/plan.md"
+        );
+    }
 
     #[test]
     fn accepts_workspace_relative_markdown_only() {
@@ -432,8 +484,12 @@ mod tests {
         fs::write(&plan, "# plan").unwrap();
 
         assert_eq!(
-            normalize_reported_plan_path(workspace.path(), plan.to_str().unwrap()).unwrap(),
-            "docs/superpowers/plans/session.md"
+            Path::new(
+                normalize_reported_plan_path(workspace.path(), plan.to_str().unwrap())
+                    .unwrap()
+                    .as_str()
+            ),
+            Path::new("docs/superpowers/plans/session.md")
         );
     }
 
@@ -451,9 +507,15 @@ mod tests {
         let sibling = tempfile::tempdir().unwrap();
         std::env::set_current_dir(sibling.path()).unwrap();
         assert_eq!(
-            normalize_reported_plan_path(workspace.path(), "docs/superpowers/plans/relative.md")
-                .unwrap(),
-            "docs/superpowers/plans/relative.md"
+            Path::new(
+                normalize_reported_plan_path(
+                    workspace.path(),
+                    "docs/superpowers/plans/relative.md"
+                )
+                .unwrap()
+                .as_str()
+            ),
+            Path::new("docs/superpowers/plans/relative.md")
         );
     }
 
@@ -553,7 +615,23 @@ mod tests {
         let (root, relative) =
             resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
         assert_eq!(root, workspace.path().canonicalize().unwrap());
-        assert_eq!(relative, "specs/plan.md");
+        assert_eq!(Path::new(relative.as_str()), Path::new("specs/plan.md"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolves_a_single_slash_prefixed_windows_drive_plan_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan = workspace.path().join("specs/plan.md");
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::write(&plan, "# plan").unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        let printed = format!("/{}", plan.to_string_lossy().replace('\\', "/"));
+
+        let (root, relative) = resolve_printed_plan_path(workspace.path(), &printed).unwrap();
+
+        assert_eq!(root, workspace.path().canonicalize().unwrap());
+        assert_eq!(Path::new(relative.as_str()), Path::new("specs/plan.md"));
     }
 
     // CI runners have no global git identity configured, so `git commit`
@@ -615,7 +693,10 @@ mod tests {
         let (root, relative) =
             resolve_printed_plan_path(&main_dir, printed_path.to_str().unwrap()).unwrap();
         assert_eq!(root, linked_dir.canonicalize().unwrap());
-        assert_eq!(relative, "docs/superpowers/specs/example.md");
+        assert_eq!(
+            Path::new(relative.as_str()),
+            Path::new("docs/superpowers/specs/example.md")
+        );
     }
 
     #[test]
@@ -651,7 +732,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(root, linked_dir.canonicalize().unwrap());
-        assert_eq!(relative, "docs/superpowers/specs/plan.md");
+        assert_eq!(
+            Path::new(relative.as_str()),
+            Path::new("docs/superpowers/specs/plan.md")
+        );
     }
 
     #[test]
