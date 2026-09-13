@@ -270,24 +270,41 @@ impl SessionApplication {
                 return true;
             };
             let mut comparable = recommendation.clone();
-            if recommendation.status == RecommendationStatus::RolledUp {
-                let Some(parent_id) = recommendation.rolled_up_by.as_deref() else {
-                    return true;
+            let active_parent =
+                if let Some(expected_parent_id) = snapshot.active_parent_id.as_deref() {
+                    let Some(parent) = current
+                        .iter()
+                        .find(|parent| parent.id == expected_parent_id)
+                    else {
+                        return true;
+                    };
+                    let mut current_member_ids = parent.rollup_member_ids.clone();
+                    current_member_ids.sort();
+                    current_member_ids.dedup();
+                    if parent.status != RecommendationStatus::Proposed
+                        || recommendation.status != RecommendationStatus::RolledUp
+                        || recommendation.rolled_up_by.as_deref() != Some(expected_parent_id)
+                        || current_member_ids != snapshot.active_parent_member_ids
+                    {
+                        return true;
+                    }
+                    comparable.status = RecommendationStatus::Proposed;
+                    comparable.rolled_up_by = None;
+                    Some(parent)
+                } else {
+                    if recommendation.status != RecommendationStatus::Proposed
+                        || !recommendation.rollup_member_ids.is_empty()
+                        || recommendation.rolled_up_by.is_some()
+                    {
+                        return true;
+                    }
+                    None
                 };
-                let Some(parent) = current.iter().find(|parent| parent.id == parent_id) else {
-                    return true;
-                };
-                if !matches!(
-                    parent.status,
-                    RecommendationStatus::Proposed | RecommendationStatus::Executing
-                ) || !parent.rollup_member_ids.contains(&recommendation.id)
-                {
-                    return true;
-                }
-                comparable.status = RecommendationStatus::Proposed;
-                comparable.rolled_up_by = None;
-            }
-            let matches = RollupFamilySnapshot::from_recommendation(&comparable).ok()
+            let matches = RollupFamilySnapshot::from_recommendation_with_active_parent(
+                &comparable,
+                active_parent,
+            )
+            .ok()
                 == Some(snapshot.clone());
             !matches
         }) {
@@ -323,7 +340,11 @@ impl SessionApplication {
             let parent_id = stable_rollup_id(&cluster.member_recommendation_ids);
             if members.iter().any(|member| {
                 member.status == RecommendationStatus::RolledUp
-                    && member.rolled_up_by.as_deref() != Some(parent_id.as_str())
+                    && !supplied_snapshots.iter().any(|snapshot| {
+                        snapshot.recommendation_id == member.id
+                            && snapshot.active_parent_id.as_deref()
+                                == member.rolled_up_by.as_deref()
+                    })
             }) {
                 return false;
             }

@@ -34,6 +34,10 @@ pub(crate) struct RollupFamilySnapshot {
     pub summary: String,
     pub representative_evidence: Vec<WorkflowObservationEvidence>,
     pub source_session_ids: Vec<String>,
+    #[serde(default)]
+    pub active_parent_id: Option<String>,
+    #[serde(default)]
+    pub active_parent_member_ids: Vec<String>,
     pub evidence_snapshot_hash: String,
 }
 
@@ -72,6 +76,13 @@ impl RollupFamilySnapshot {
     pub(crate) fn from_recommendation(
         recommendation: &Recommendation,
     ) -> Result<Self, RollupValidationError> {
+        Self::from_recommendation_with_active_parent(recommendation, None)
+    }
+
+    pub(crate) fn from_recommendation_with_active_parent(
+        recommendation: &Recommendation,
+        active_parent: Option<&Recommendation>,
+    ) -> Result<Self, RollupValidationError> {
         if recommendation.status != RecommendationStatus::Proposed {
             return Err(RollupValidationError::NotProposed(
                 recommendation.id.clone(),
@@ -83,6 +94,12 @@ impl RollupFamilySnapshot {
         source_session_ids.sort();
         source_session_ids.dedup();
         source_session_ids.truncate(MAX_ROLLUP_SOURCE_SESSIONS);
+        let active_parent_id = active_parent.map(|parent| parent.id.clone());
+        let mut active_parent_member_ids = active_parent
+            .map(|parent| parent.rollup_member_ids.clone())
+            .unwrap_or_default();
+        active_parent_member_ids.sort();
+        active_parent_member_ids.dedup();
         let mut snapshot = Self {
             recommendation_id: recommendation.id.clone(),
             dedupe_key: recommendation.dedupe_key.clone(),
@@ -95,6 +112,8 @@ impl RollupFamilySnapshot {
             summary: truncate_chars(&recommendation.summary, MAX_ROLLUP_SUMMARY_CHARS),
             representative_evidence,
             source_session_ids,
+            active_parent_id,
+            active_parent_member_ids,
             evidence_snapshot_hash: String::new(),
         };
         snapshot.evidence_snapshot_hash = snapshot_hash(&snapshot);
@@ -105,20 +124,62 @@ impl RollupFamilySnapshot {
 pub(crate) fn build_rollup_family_snapshots(
     recommendations: &[Recommendation],
 ) -> Result<Vec<RollupFamilySnapshot>, RollupValidationError> {
-    let mut candidates = recommendations
+    let active_parents = recommendations
         .iter()
         .filter(|recommendation| {
             recommendation.status == RecommendationStatus::Proposed
-                && recommendation.rollup_member_ids.is_empty()
+                && !recommendation.rollup_member_ids.is_empty()
                 && recommendation.rolled_up_by.is_none()
         })
+        .map(|recommendation| (recommendation.id.as_str(), recommendation))
+        .collect::<BTreeMap<_, _>>();
+    let mut candidates = recommendations
+        .iter()
+        .filter_map(|recommendation| {
+            if recommendation.status == RecommendationStatus::Proposed
+                && recommendation.rollup_member_ids.is_empty()
+                && recommendation.rolled_up_by.is_none()
+            {
+                return Some((recommendation.clone(), None));
+            }
+            let parent_id = recommendation.rolled_up_by.as_deref()?;
+            let parent = active_parents.get(parent_id)?;
+            parent
+                .rollup_member_ids
+                .contains(&recommendation.id)
+                .then(|| {
+                    let mut comparable = recommendation.clone();
+                    comparable.status = RecommendationStatus::Proposed;
+                    comparable.rolled_up_by = None;
+                    (comparable, Some((*parent).clone()))
+                })
+        })
         .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| left.id.cmp(&right.id));
+    candidates.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
     candidates.truncate(MAX_ROLLUP_FAMILIES);
 
+    // Never submit only part of an active parent's member set. The parent
+    // membership is part of the stale-result token, but a partial snapshot
+    // would still give the model incomplete evidence for a possible change.
+    let selected_ids = candidates
+        .iter()
+        .map(|(recommendation, _)| recommendation.id.clone())
+        .collect::<BTreeSet<_>>();
+    candidates.retain(|(_, active_parent)| {
+        active_parent.as_ref().is_none_or(|parent| {
+            parent
+                .rollup_member_ids
+                .iter()
+                .all(|member_id| selected_ids.contains(member_id))
+        })
+    });
+
     let mut snapshots = Vec::new();
-    for recommendation in candidates {
-        let snapshot = RollupFamilySnapshot::from_recommendation(recommendation)?;
+    for (recommendation, active_parent) in candidates {
+        let snapshot = RollupFamilySnapshot::from_recommendation_with_active_parent(
+            &recommendation,
+            active_parent.as_ref(),
+        )?;
         let mut candidate = snapshots.clone();
         candidate.push(snapshot.clone());
         if serialized_size(&candidate) <= MAX_ROLLUP_INPUT_BYTES {

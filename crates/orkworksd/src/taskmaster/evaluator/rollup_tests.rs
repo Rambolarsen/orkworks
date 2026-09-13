@@ -148,6 +148,39 @@ fn seeded_state(
     (state, runtime, recommendations)
 }
 
+fn stored_recommendations(state: &crate::AppState) -> Vec<Recommendation> {
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .list()
+        .unwrap()
+}
+
+fn apply_combined_output(
+    state: &std::sync::Arc<crate::AppState>,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    directory: &std::path::Path,
+    request: &RollupEvaluationRequest,
+    output: &str,
+) -> bool {
+    apply_provider_output(
+        state,
+        runtime,
+        snapshot,
+        directory,
+        workspace_instance(state),
+        &[],
+        &stored_recommendations(state),
+        Some(request),
+        output,
+    )
+}
+
 #[test]
 fn rollup_prompt_is_bounded_and_labels_all_supplied_data_untrusted() {
     let directory = tempfile::tempdir().unwrap();
@@ -256,6 +289,130 @@ fn unavailable_rollup_selection_preserves_exact_recommendations() {
 }
 
 #[test]
+fn active_proposed_parent_members_remain_in_the_next_rollup_snapshot() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &request.token,
+        &request.snapshots,
+        &output(&[cluster(&["a", "b"])]),
+    ));
+
+    let current = stored_recommendations(&state);
+    let snapshots = build_rollup_family_snapshots(&current).unwrap();
+
+    assert_eq!(
+        snapshots
+            .iter()
+            .map(|snapshot| snapshot.recommendation_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+}
+
+#[test]
+fn evaluator_output_refreshes_an_existing_proposed_rollup_in_place() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &initial.token,
+        &initial.snapshots,
+        &output(&[cluster(&["a", "b"])]),
+    ));
+
+    let current = stored_recommendations(&state);
+    let refresh = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    let mut updated = cluster(&["b", "a"]);
+    updated.title = "Refreshed title".into();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &refresh,
+        &output(&[updated]),
+    ));
+
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    let parent = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .recommendation_store
+        .get(&parent_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(parent.title, "Refreshed title");
+    assert_eq!(parent.status, RecommendationStatus::Proposed);
+    assert_eq!(parent.rollup_member_ids, ["a", "b"]);
+}
+
+#[test]
+fn evaluator_output_supersedes_a_changed_rollup_and_releases_unassigned_members() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &initial.token,
+        &initial.snapshots,
+        &output(&[cluster(&["a", "b"])]),
+    ));
+
+    let current = stored_recommendations(&state);
+    let changed = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &changed,
+        &output(&[cluster(&["a", "c"])]),
+    ));
+
+    let records = stored_recommendations(&state);
+    let old_parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    let new_parent_id = stable_rollup_id(&["a".into(), "c".into()]);
+    assert_eq!(
+        records
+            .iter()
+            .find(|item| item.id == old_parent_id)
+            .unwrap()
+            .status,
+        RecommendationStatus::Superseded
+    );
+    assert_eq!(
+        records
+            .iter()
+            .find(|item| item.id == new_parent_id)
+            .unwrap()
+            .rollup_member_ids,
+        ["a", "c"]
+    );
+    let released = records.iter().find(|item| item.id == "b").unwrap();
+    assert_eq!(released.status, RecommendationStatus::Proposed);
+    assert_eq!(released.rolled_up_by, None);
+}
+
+#[test]
 fn same_set_rollup_updates_in_place_and_is_idempotent() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
@@ -275,10 +432,17 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
     let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
     let workspace = state.workspace.lock().unwrap();
     let store = &workspace.as_ref().unwrap().recommendation_store;
-    let mut executing = store.get(&parent_id).unwrap().unwrap();
-    executing.status = RecommendationStatus::Executing;
-    store.put(&executing).unwrap();
+    let mut existing = store.get(&parent_id).unwrap().unwrap();
+    existing.title = "Original title".into();
+    store.put(&existing).unwrap();
     drop(workspace);
+
+    let refresh = build_rollup_request(
+        workspace_instance(&state),
+        &snapshot,
+        &stored_recommendations(&state),
+    )
+    .unwrap();
 
     let mut updated_cluster = cluster(&["b", "a"]);
     updated_cluster.title = "Updated title".into();
@@ -286,9 +450,19 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        &refresh.token,
+        &refresh.snapshots,
         &output(&[updated_cluster]),
+    ));
+    let mut repeated = cluster(&["a", "b"]);
+    repeated.title = "Updated title".into();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &refresh.token,
+        &refresh.snapshots,
+        &output(&[repeated]),
     ));
 
     let records = state
@@ -322,6 +496,97 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
             .title,
         "Updated title"
     );
+}
+
+#[test]
+fn stale_evaluator_result_cannot_reparent_a_member_after_parent_membership_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &initial.token,
+        &initial.snapshots,
+        &output(&[cluster(&["a", "b"])]),
+    ));
+
+    let before_change = stored_recommendations(&state);
+    let stale =
+        build_rollup_request(workspace_instance(&state), &snapshot, &before_change).unwrap();
+    let changed = build_rollup_request(
+        workspace_instance(&state),
+        &snapshot,
+        &stored_recommendations(&state),
+    )
+    .unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &changed,
+        &output(&[cluster(&["a", "c"])]),
+    ));
+    let after_change = stored_recommendations(&state);
+
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &stale,
+        &output(&[cluster(&["a", "b"])]),
+    ));
+    assert_eq!(stored_recommendations(&state), after_change);
+}
+
+#[test]
+fn stale_evaluator_result_cannot_mutate_an_executing_parent() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &initial.token,
+        &initial.snapshots,
+        &output(&[cluster(&["a", "b"])]),
+    ));
+    let current = stored_recommendations(&state);
+    let stale = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    {
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().recommendation_store;
+        let mut executing = store.get(&parent_id).unwrap().unwrap();
+        executing.status = RecommendationStatus::Executing;
+        executing.title = "Executing title".into();
+        store.put(&executing).unwrap();
+    }
+    assert!(build_rollup_request(
+        workspace_instance(&state),
+        &snapshot,
+        &stored_recommendations(&state),
+    )
+    .is_none());
+    let before = stored_recommendations(&state);
+
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &stale,
+        &output(&[cluster(&["a", "b"])]),
+    ));
+    assert_eq!(stored_recommendations(&state), before);
 }
 
 #[test]

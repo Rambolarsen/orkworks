@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   dismissTaskmasterRecommendation,
   getTaskmasterRecommendation,
@@ -134,8 +134,10 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
   const [error, setError] = useState<string>();
   const [dismissing, setDismissing] = useState<string>();
   const [dismissErrors, setDismissErrors] = useState<Record<string, string>>({});
+  const refreshGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const response = await getTaskmasterRecommendations(baseUrl);
@@ -145,18 +147,19 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
         && !nextRecommendations.some((item) => item.id === focusedRecommendationId)
       ) {
         try {
-          nextRecommendations = [
-            ...nextRecommendations,
-            await getTaskmasterRecommendation(baseUrl, focusedRecommendationId),
-          ];
+          const detail = await getTaskmasterRecommendation(baseUrl, focusedRecommendationId);
+          if (generation !== refreshGeneration.current) return;
+          nextRecommendations = [...nextRecommendations, detail];
         } catch {
           // A stale history link should not make the actionable list fail.
         }
       }
+      if (generation !== refreshGeneration.current) return;
       setRecommendations(nextRecommendations);
       setDiagnostics(response.diagnostics);
       setError(undefined);
     } catch (cause) {
+      if (generation !== refreshGeneration.current) return;
       setError(cause instanceof Error ? cause.message : "Couldn't load recommendations.");
     }
   }, [focusedRecommendationId]);
@@ -171,6 +174,7 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
     // drop whatever was on screen for the previous one rather than leaving
     // it visible until the next successful poll.
     if (!hasWorkspace) {
+      ++refreshGeneration.current;
       setRecommendations([]);
       setDiagnostics([]);
       setError(undefined);
