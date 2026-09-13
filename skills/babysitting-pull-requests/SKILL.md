@@ -19,7 +19,7 @@ all inline review comments. First query the PR metadata, then query every
 comment and check channel:
 
 ```bash
-gh pr view <pr> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,reviewRequests,headRefOid,baseRefOid
+gh pr view <pr> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,reviewRequests,baseRefOid,baseRefName,headRefOid,headRepository,isCrossRepository
 gh api --paginate repos/<owner>/<repo>/issues/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/reviews
