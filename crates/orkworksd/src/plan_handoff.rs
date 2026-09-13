@@ -413,8 +413,8 @@ pub(crate) fn normalize_reported_plan_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_reported_plan_path, normalize_windows_drive_alias, printed_plan_path, resolve_openable_plan,
-        resolve_openable_plan_reference, resolve_printed_plan_path,
+        normalize_reported_plan_path, normalize_windows_drive_alias, printed_plan_path,
+        resolve_openable_plan, resolve_openable_plan_reference, resolve_printed_plan_path,
         resolve_printed_plan_path_with_home,
     };
     use crate::metadata::{PlanReference, PlanSource};
@@ -424,17 +424,35 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn normalizes_only_one_leading_slash_from_a_windows_drive_alias() {
-        assert_eq!(normalize_windows_drive_alias("/C:/repo/specs/plan.md"), "C:/repo/specs/plan.md");
-        assert_eq!(normalize_windows_drive_alias("/C:\\repo\\specs\\plan.md"), "C:\\repo\\specs\\plan.md");
-        assert_eq!(normalize_windows_drive_alias("//C:/repo/specs/plan.md"), "//C:/repo/specs/plan.md");
-        assert_eq!(normalize_windows_drive_alias("/1:/repo/specs/plan.md"), "/1:/repo/specs/plan.md");
-        assert_eq!(normalize_windows_drive_alias("/C:relative/specs/plan.md"), "/C:relative/specs/plan.md");
+        assert_eq!(
+            normalize_windows_drive_alias("/C:/repo/specs/plan.md"),
+            "C:/repo/specs/plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("/C:\\repo\\specs\\plan.md"),
+            "C:\\repo\\specs\\plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("//C:/repo/specs/plan.md"),
+            "//C:/repo/specs/plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("/1:/repo/specs/plan.md"),
+            "/1:/repo/specs/plan.md"
+        );
+        assert_eq!(
+            normalize_windows_drive_alias("/C:relative/specs/plan.md"),
+            "/C:relative/specs/plan.md"
+        );
     }
 
     #[cfg(not(windows))]
     #[test]
     fn leaves_windows_drive_display_aliases_unchanged_on_non_windows() {
-        assert_eq!(normalize_windows_drive_alias("/C:/repo/specs/plan.md"), "/C:/repo/specs/plan.md");
+        assert_eq!(
+            normalize_windows_drive_alias("/C:/repo/specs/plan.md"),
+            "/C:/repo/specs/plan.md"
+        );
     }
 
     #[test]
