@@ -45,10 +45,10 @@ sidecar will add one Windows-only input alias at the printed-path boundary:
 The drive letter is one ASCII letter; the character after the colon must be a
 path separator. On Windows, the resolver strips exactly that one display slash
 before constructing `Path`; `//C:/`, `/1:/`, `/C:relative`, and other malformed
-forms are not normalized and remain subject to existing rejection. Existing
+forms are not normalized and are rejected before metadata mutation. Existing
 path-root, token-boundary, punctuation, quoted, space-containing, and
 wrapped-terminal behavior remains governed by the current matcher rules. The
-representative regression case is:
+representative matcher regression case is:
 
 `/C:/Users/froma/source/repos/orkworks-multi-workspace-design/specs/multi-workspace.md`
 
@@ -57,34 +57,55 @@ existing terminal-plan selection IPC. It does not normalize the path or gain
 filesystem access. The sidecar normalizes only the leading-slash drive aliases
 (`/X:/...` → `X:/...` and `/X:\\...` → `X:\\...`) at the Windows path
 boundary, then runs the same resolution and validation used for all printed
-paths. On non-Windows sidecars, these spellings receive no drive-path special
-case; the existing POSIX behavior remains unchanged.
+paths. The production normalizer is compile-time gated: Windows strips the
+alias, while non-Windows leaves the input unchanged and retains existing POSIX
+behavior.
 
 Validation completes before the sidecar writes the selected plan reference.
 The renderer dispatches the existing `terminal-plan-selected` event only after
 selection succeeds, so a failed or stale click causes no association, Review
 tab creation/focus, or persisted-state mutation.
 
-The sidecar resolves an absolute path against the session launch worktree and
-accepts a linked worktree only when it belongs to the same Git common-directory
-family. It stores the validated worktree root plus workspace-relative Markdown
-path, as it does today. Both live `Terminal` and historical `HistoricalTerminal`
+The sidecar canonicalizes an absolute target independently, derives its actual
+worktree root, canonicalizes the session launch root, compares Git common
+directories, and computes the target-root-relative path. It then enforces the
+existing supported-root allowlist (`docs/superpowers/plans`,
+`docs/superpowers/specs`, or `specs`), regular-file status, and Markdown
+extension. A linked worktree is accepted only when it belongs to the same Git
+common-directory family. It stores the validated worktree root plus
+workspace-relative Markdown path, as it does today; the existing plan-content
+resolver consumes both fields, so Review reads the clicked linked-worktree
+artifact rather than reopening the relative path under the launch root.
+
+Selection holds the existing workspace mutex from session lookup through
+validation and metadata/event write, which serializes concurrent selections and
+is the transaction boundary for this operation. A missing/stale session fails
+before mutation. Both live `Terminal` and historical `HistoricalTerminal`
 instances use the same session ID and IPC callback. The existing App flow then
 selects that session and reuses the singleton Review panel; repeated clicks do
-not create another tab, and a deleted/stale session remains a rejected,
-side-effect-free selection.
+not create another tab.
 
 ## Verification
 
 - Existing renderer terminal-link tests remain green, including a regression
-  assertion that the representative `/C:/...` text is detected and forwarded
-  unchanged by the provider.
-- Sidecar unit tests cover a pure leading-slash drive-alias normalizer on every
-  host platform. A Windows validation test resolves the representative path
-  and confirms the stored worktree-relative reference matches the equivalent
-  native path, including a real linked worktree. Rejection tests retain
-  coverage for parent traversal, unsupported roots, non-Markdown/unreadable
-  files, control characters, and symlink/junction escape attempts.
+  assertion that the literal representative `/C:/...` text is detected and
+  forwarded unchanged by the provider. The matcher test uses the literal
+  display path; sidecar tests derive paths from temporary Windows fixtures and
+  never depend on a particular user name or checkout location.
+- Sidecar tests cover the compile-time normalizer contract: Windows strips one
+  leading slash from a drive-qualified path, while non-Windows leaves it
+  unchanged. A Windows validation test resolves a derived `/X:/...` path and
+  confirms the stored worktree-relative reference matches the equivalent
+  native path, including a real linked worktree.
+- Direct selection tests confirm the sidecar allowlist still rejects a readable
+  `README.md`, malformed aliases (`//C:/`, `/1:/`, `/C:relative`, and bad
+  separators), parent traversal, non-Markdown/unreadable files, control
+  characters, and symlink/junction escape attempts, with no metadata mutation
+  on every rejection.
+- Existing selection tests continue to cover validation-before-write, missing
+  sessions, and serialized workspace updates; existing App/Dockview tests
+  cover session targeting and one Review panel. No renderer or App production
+  code changes are required.
 - The existing selection ordering continues to validate before metadata write;
   live and historical terminals continue to use the same session callback, and
   App-level behavior continues to reuse one Review panel. No renderer or App
