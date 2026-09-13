@@ -37,6 +37,23 @@ pub(crate) fn resolve_printed_plan_path(
     resolve_printed_plan_path_with_home(launch_root, printed_path, home_dir.as_deref())
 }
 
+fn normalize_windows_drive_alias(path: &str) -> String {
+    #[cfg(windows)]
+    {
+        let bytes = path.as_bytes();
+        let is_drive_letter = bytes.get(1).is_some_and(|byte| byte.is_ascii_alphabetic());
+        let has_drive_separator = matches!(bytes.get(3), Some(b'/') | Some(b'\\'));
+        if bytes.first() == Some(&b'/')
+            && is_drive_letter
+            && bytes.get(2) == Some(&b':')
+            && has_drive_separator
+        {
+            return path[1..].to_owned();
+        }
+    }
+    path.to_owned()
+}
+
 pub(crate) fn resolve_printed_plan_path_with_home(
     launch_root: &Path,
     printed_path: &str,
@@ -45,7 +62,8 @@ pub(crate) fn resolve_printed_plan_path_with_home(
     if printed_path.chars().any(char::is_control) {
         return Err("plan path must not contain control characters".into());
     }
-    let printed = Path::new(printed_path);
+    let normalized_path = normalize_windows_drive_alias(printed_path);
+    let printed = Path::new(&normalized_path);
     let launch_root = launch_root
         .canonicalize()
         .map_err(|error| error.to_string())?;
