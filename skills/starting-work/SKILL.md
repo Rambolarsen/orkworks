@@ -24,6 +24,12 @@ review: use `ScheduleWakeup` on a spaced cadence (20-30 minutes) up to a
 reached a terminal state when that budget expires, stop, report the handoff
 point, and let the user start a fresh session to continue.
 
+When a fresh session explicitly adopts an already-open PR, start a new bounded
+2-hour babysit budget at adoption rather than inheriting the prior session's
+elapsed time. Do not reset the budget repeatedly within the same session, and
+still require ownership or explicit authorization before modifying the PR
+branch.
+
 Do not launch another coding harness from an active session. If a separate
 task or follow-up needs its own context — not just watching the PR this
 session opened, or the check-in budget above has expired — finish or pause

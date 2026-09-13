@@ -88,7 +88,8 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `working-on-recommendation` | Resolves a Taskmaster recommendation, scopes the work, and reports verified completion |
 | `writing-skills` | TDD-based skill creation following the Agent Skills standard |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
-| `surfacing-blind-spots` | End-of-session self-critique and codebase audit that files scoped quality issues |
+| `surfacing-blind-spots` | Planning checkpoint, end-of-session self-critique, and quality-improvement audit for investigated quality risks |
+| `babysitting-pull-requests` | Repo-owned post-PR workflow for complete comment, CI, and review-state inventories |
 | `auditing-test-honesty` | Finds passing tests that would survive the bug they're named after |
 | `walking-failure-paths` | Traces external failures (files, processes, ports) through the code to the user-visible outcome |
 | `grooming-the-board` | Board/code/spec consistency sweep: duplicates, done-but-open issues, stranded branches, doc drift |
