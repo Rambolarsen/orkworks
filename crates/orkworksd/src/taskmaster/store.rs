@@ -218,6 +218,16 @@ impl RecommendationStore {
             .collect();
         parent_record.rollup_member_dedupe_keys.sort();
 
+        let can_reparent_from = parent_record
+            .workflow_improvement
+            .supersedes_recommendation_id
+            .as_deref()
+            .filter(|old_parent_id| {
+                current
+                    .get(*old_parent_id)
+                    .is_some_and(|old_parent| old_parent.status == RecommendationStatus::Proposed)
+            });
+
         let mut replacements = BTreeMap::new();
         replacements.insert(
             parent_record.id.clone(),
@@ -238,7 +248,7 @@ impl RecommendationStore {
                 || member
                     .rolled_up_by
                     .as_deref()
-                    .is_some_and(|id| id != parent.id)
+                    .is_some_and(|id| id != parent.id && Some(id) != can_reparent_from)
                 || member.workflow_improvement.target_surface
                     != parent.workflow_improvement.target_surface
             {
@@ -252,15 +262,6 @@ impl RecommendationStore {
                 {
                     return Err(StoreError::InvalidTransition);
                 }
-                let can_reparent_from = parent_record
-                    .workflow_improvement
-                    .supersedes_recommendation_id
-                    .as_deref()
-                    .filter(|old_parent_id| {
-                        current.get(*old_parent_id).is_some_and(|old_parent| {
-                            old_parent.status == RecommendationStatus::Proposed
-                        })
-                    });
                 if existing
                     .rolled_up_by
                     .as_deref()
@@ -1130,10 +1131,14 @@ fn validate_graph_records(records: &[Recommendation]) -> Result<(), StoreError> 
 }
 
 fn valid_id(id: &str) -> bool {
-    !id.is_empty()
+    let legacy_id = !id.is_empty()
         && id
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+    let stable_rollup_id = id.strip_prefix("rollup:").is_some_and(|digest| {
+        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    });
+    legacy_id || stable_rollup_id
 }
 
 fn references_session(recommendation: &Recommendation, session_id: &str) -> bool {
@@ -1575,6 +1580,32 @@ mod tests {
             .path()
             .join("recommendations/.rollup-transactions")
             .exists());
+    }
+
+    #[test]
+    fn persists_loads_and_transacts_with_a_stable_rollup_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let member_a = recommendation("member-a", "session-a");
+        let member_b = recommendation("member-b", "session-b");
+        store.put(&member_a).unwrap();
+        store.put(&member_b).unwrap();
+        let parent_id = format!("rollup:{}", "ab".repeat(32));
+        let parent = rollup_parent(&parent_id, &["member-a", "member-b"]);
+        let expected = BTreeMap::from([
+            (member_a.id.clone(), Some(expected_hash(&member_a))),
+            (member_b.id.clone(), Some(expected_hash(&member_b))),
+            (parent.id.clone(), None),
+        ]);
+
+        store
+            .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
+            .unwrap();
+
+        let reopened = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let persisted = reopened.get(&parent_id).unwrap().unwrap();
+        assert_eq!(persisted.id, parent_id);
+        assert_eq!(persisted.rollup_member_ids, ["member-a", "member-b"]);
     }
 
     #[test]
