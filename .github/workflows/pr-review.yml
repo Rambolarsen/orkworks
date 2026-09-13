@@ -64,6 +64,7 @@ jobs:
       over_review_threshold: ${{ steps.delta.outputs.over_review_threshold }}
       force_review: ${{ steps.context.outputs.force_review }}
       should_review: ${{ steps.delta.outputs.should_review }}
+      review_prompt: ${{ steps.prompt.outputs.review_prompt }}
     steps:
       - id: context
         name: Resolve pull request context
@@ -234,6 +235,86 @@ jobs:
             echo "should_review=$should_review"
           } >> "$GITHUB_OUTPUT"
 
+      # The review prompt is built once here so the review and review-retry
+      # jobs can share it without duplicating (and drifting) the text.
+      - id: prompt
+        name: Build review prompt
+        if: steps.delta.outputs.should_review == 'true'
+        env:
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          REVIEW_DIFF_BASE: ${{ steps.delta.outputs.review_diff_base }}
+          FORCE_REVIEW: ${{ steps.context.outputs.force_review }}
+        run: |
+          set -euo pipefail
+          # The YAML block scalar strips this script's 10-space indent, so
+          # heredoc body lines reach bash with 2 leading spaces (12 in the
+          # file minus 10). The sed strip removes exactly those 2.
+          cat <<'PROMPT' \
+            | sed \
+              -e "s|@@PR@@|$PR_NUMBER|g" \
+              -e "s|@@HEAD@@|$HEAD_SHA|g" \
+              -e "s|@@BASE@@|$REVIEW_DIFF_BASE|g" \
+              -e "s|@@FORCE@@|$FORCE_REVIEW|g" \
+              -e 's/^  //' > "$RUNNER_TEMP/review-prompt.txt"
+            Review pull request @@PR@@ at
+            head commit @@HEAD@@ in this
+            repository (Rambolarsen/orkworks) and prepare one review report with
+            your findings. This is an automated first pass, not the project's real
+            review gate — the PR author still runs a manual /code-review per
+            AGENTS.md, especially for bigger or riskier changes. Say so plainly
+            at the end of the report so nobody mistakes this for that review.
+
+            The workflow has already checked that this is an open, non-draft PR
+            targeting main with relevant code changes. Manual force run:
+            @@FORCE@@. Do not decide to skip
+            this run and do not post to GitHub directly. Return the final report
+            in the required structured `report` field; the workflow will add
+            the machine-readable marker and publish exactly one comment.
+            You are the only reviewer for this bounded pass: do not spawn,
+            delegate to, or wait for subagents. Do not return progress updates,
+            placeholders, or statements that analysis is still in progress.
+            The report must contain actual findings or a plainly stated no-
+            findings result before you return.
+
+            Otherwise:
+
+            1. Read the root AGENTS.md, plus apps/desktop/AGENTS.md and/or
+               crates/orkworksd/AGENTS.md depending on which paths the PR
+               touches (`git diff --name-only @@BASE@@ @@HEAD@@`).
+            2. Read the exact captured diff with
+               `git diff @@BASE@@ @@HEAD@@`.
+            3. Look for real correctness bugs and clear violations of the
+               AGENTS.md files you read — not style nitpicks. Do not flag:
+               anything a linter/typechecker/compiler/test run would catch
+               (imports, types, formatting — CI runs those separately);
+               general code-quality opinions not required by AGENTS.md;
+               pre-existing issues outside the diff; issues on lines the PR
+               didn't touch; changes that are clearly intentional.
+            4. This workflow normally runs for PRs past the review gate's size
+               threshold, so treat the diff as higher-risk by AGENTS.md's
+               review-gate heuristic (cross-cutting architecture/runtime work,
+               concurrency or lifecycle changes, protocol/schema/migration
+               changes, security-sensitive work) and look hard at those areas.
+            5. Do not attempt to build, typecheck, or run tests yourself —
+               pr-ci.yml already does that.
+
+            Keep the report brief, with no emojis except the sign-off. Cite
+            file and line with a full-commit-SHA GitHub permalink for each
+            finding (e.g.
+            https://github.com/Rambolarsen/orkworks/blob/@@HEAD@@/path/to/file#L10-L15,
+            with 1 line of context before/after the cited lines. If you found
+            no issues, say so plainly instead of inventing filler. Always end
+            the report with a line stating this was an automated first pass
+            and does not replace the project's manual /code-review review gate.
+          PROMPT
+          test -s "$RUNNER_TEMP/review-prompt.txt"
+          {
+            echo "review_prompt<<DELIM"
+            cat "$RUNNER_TEMP/review-prompt.txt"
+            echo "DELIM"
+          } >> "$GITHUB_OUTPUT"
+
   review:
     name: Automated review
     needs: changes
@@ -272,61 +353,69 @@ jobs:
 
       - name: Run review
         id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@0a8d3c9443bbff909ab973b6a17a340b913f229f # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          prompt: |
-            Review pull request #${{ needs.changes.outputs.pr_number }} at
-            head commit ${{ needs.changes.outputs.head_sha }} in this
-            repository (Rambolarsen/orkworks) and prepare one review report with
-            your findings. This is an automated first pass, not the project's real
-            review gate — the PR author still runs a manual /code-review per
-            AGENTS.md, especially for bigger or riskier changes. Say so plainly
-            at the end of the report so nobody mistakes this for that review.
+          prompt: ${{ needs.changes.outputs.review_prompt }}
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Bash(git diff:*),Read,Grep,Glob"
+            --json-schema '{"type":"object","properties":{"report":{"type":"string"}},"required":["report"],"additionalProperties":false}'
 
-            The workflow has already checked that this is an open, non-draft PR
-            targeting main with relevant code changes. Manual force run:
-            ${{ needs.changes.outputs.force_review }}. Do not decide to skip
-            this run and do not post to GitHub directly. Return the final report
-            in the required structured `report` field; the workflow will add
-            the machine-readable marker and publish exactly one comment.
-            You are the only reviewer for this bounded pass: do not spawn,
-            delegate to, or wait for subagents. Do not return progress updates,
-            placeholders, or statements that analysis is still in progress.
-            The report must contain actual findings or a plainly stated no-
-            findings result before you return.
+  # Retry pass for the review job: upstream claude-code-action#1720-style
+  # transient SDK failures (result event reports success with is_error:true,
+  # zero turns, zero cost, so the --json-schema guard fails with "did not
+  # return structured_output") are not detectable from the step outcome
+  # alone, so the retry is unconditional. One retry bounds the worst-case
+  # cost while absorbing that flake (issue #437).
+  review-retry:
+    name: Automated review (retry)
+    needs: [changes, review]
+    # always() is load-bearing: without a status check function the implicit
+    # success() gate would skip this job when `review` fails — exactly the
+    # path it exists for. When review was merely skipped (should_review
+    # false), result is 'skipped', so the retry stays off.
+    if: always() && needs.review.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      review_json: ${{ steps.claude.outputs.structured_output }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.changes.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-            Otherwise:
+      - name: Verify checked out head
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_head_sha="$(git rev-parse HEAD)"
+          test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
 
-            1. Read the root AGENTS.md, plus apps/desktop/AGENTS.md and/or
-               crates/orkworksd/AGENTS.md depending on which paths the PR
-               touches (`git diff --name-only ${{ needs.changes.outputs.review_diff_base }} ${{ needs.changes.outputs.head_sha }}`).
-            2. Read the exact captured diff with
-               `git diff ${{ needs.changes.outputs.review_diff_base }} ${{ needs.changes.outputs.head_sha }}`.
-            3. Look for real correctness bugs and clear violations of the
-               AGENTS.md files you read — not style nitpicks. Do not flag:
-               anything a linter/typechecker/compiler/test run would catch
-               (imports, types, formatting — CI runs those separately);
-               general code-quality opinions not required by AGENTS.md;
-               pre-existing issues outside the diff; issues on lines the PR
-               didn't touch; changes that are clearly intentional.
-            4. This workflow normally runs for PRs past the review gate's size
-               threshold, so treat the diff as higher-risk by AGENTS.md's
-               review-gate heuristic (cross-cutting architecture/runtime work,
-               concurrency or lifecycle changes, protocol/schema/migration
-               changes, security-sensitive work) and look hard at those areas.
-            5. Do not attempt to build, typecheck, or run tests yourself —
-               pr-ci.yml already does that.
+      - name: Verify PR head is unchanged
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.changes.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          live_head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
+          test "$live_head_sha" = "$EXPECTED_HEAD_SHA"
 
-            Keep the report brief, with no emojis except the sign-off. Cite
-            file and line with a full-commit-SHA GitHub permalink for each
-            finding (e.g.
-            https://github.com/Rambolarsen/orkworks/blob/${{ needs.changes.outputs.head_sha }}/path/to/file#L10-L15,
-            with 1 line of context before/after the cited lines. If you found
-            no issues, say so plainly instead of inventing filler. Always end
-            the report with a line stating this was an automated first pass
-            and does not replace the project's manual /code-review review gate.
+      - name: Run review (retry)
+        id: claude
+        uses: anthropics/claude-code-action@0a8d3c9443bbff909ab973b6a17a340b913f229f # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: ${{ needs.changes.outputs.review_prompt }}
           claude_args: |
             --max-turns 40
             --allowedTools "Bash(git diff:*),Read,Grep,Glob"
@@ -334,8 +423,10 @@ jobs:
 
   publish:
     name: Publish automated review
-    needs: [changes, review]
-    if: needs.review.result == 'success'
+    needs: [changes, review, review-retry]
+    # The retry job runs only when the first attempt failed; publish proceeds
+    # with whichever attempt produced structured output.
+    if: always() && needs.changes.outputs.should_review == 'true' && (needs.review.result == 'success' || needs.review-retry.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -347,16 +438,38 @@ jobs:
           HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
           PR_NUMBER: ${{ needs.changes.outputs.pr_number }}
           REVIEW_JSON: ${{ needs.review.outputs.review_json }}
+          RETRY_REVIEW_JSON: ${{ needs.review-retry.outputs.review_json }}
+          FIRST_ATTEMPT_OK: ${{ needs.review.result == 'success' }}
         run: |
           set -euo pipefail
           live_head_sha="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
           test "$live_head_sha" = "$HEAD_SHA"
+          # When the first attempt failed, prefer the retry's output even if
+          # the failed attempt left a partial/stale structured_output behind.
+          if [ "$FIRST_ATTEMPT_OK" != "true" ]; then
+            REVIEW_JSON="$RETRY_REVIEW_JSON"
+          fi
+          test -n "$REVIEW_JSON"
           report="$(jq -r '.report' <<<"$REVIEW_JSON")"
           test -n "$report"
-          if grep -Eiq 'placeholder|review in progress|background (subagents?|work)' <<<"$report"; then
-            echo "Claude returned a progress or placeholder report instead of a completed review" >&2
+          # Sanity-check that the report is a completed review, not progress
+          # filler. Match only progress phrases, not bare words: a word-level
+          # "placeholder" grep false-positived on a real review that
+          # legitimately discussed an `{effort}` placeholder token
+          # (run 34100875338, issue #437). Sub-200-char reports without the
+          # required automated-first-pass sign-off are also treated as
+          # filler — the sign-off exemption keeps a genuinely short
+          # no-findings review publishable.
+          if [ "${#report}" -lt 200 ] \
+            && ! grep -Eqi 'automated first pass' <<<"$report"; then
+            echo "Claude returned a placeholder report instead of a completed review" >&2
             exit 1
           fi
+          if grep -Eiq 'review (is still )?in progress|analysis is still|still (working|analyzing|investigating)' <<<"$report"; then
+            echo "Claude returned a progress report instead of a completed review" >&2
+            exit 1
+          fi
+          test -n "$(echo "$report" | tr -d '[:space:]')"
           comment_file="$RUNNER_TEMP/orkworks-pr-review-comment.md"
           {
             printf '%s\n' '### Automated code review'
