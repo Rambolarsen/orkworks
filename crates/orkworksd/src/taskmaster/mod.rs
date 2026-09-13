@@ -205,7 +205,11 @@ pub(crate) fn evaluate_workflow_improvements(
                     .is_some_and(|parent_id| {
                         existing.iter().any(|parent| {
                             parent.id == parent_id
-                                && parent.status == RecommendationStatus::Proposed
+                                && matches!(
+                                    parent.status,
+                                    RecommendationStatus::Proposed
+                                        | RecommendationStatus::Executing
+                                )
                                 && parent.rollup_member_ids.contains(&recommendation.id)
                         })
                     })
@@ -325,12 +329,16 @@ pub(crate) fn evaluate_workflow_improvements(
                     stable_id(&dedupe_key, &observation_ids)
                 )
             });
-        let supersedes = prior
-            .filter(|recommendation| {
-                recommendation.status != RecommendationStatus::Proposed
-                    && active_rollup_member.is_none()
-            })
-            .map(|recommendation| recommendation.id.clone());
+        let supersedes = if let Some(active) = active_rollup_member {
+            active
+                .workflow_improvement
+                .supersedes_recommendation_id
+                .clone()
+        } else {
+            prior
+                .filter(|recommendation| recommendation.status != RecommendationStatus::Proposed)
+                .map(|recommendation| recommendation.id.clone())
+        };
         let rollup_generation = terminal_predecessor
             .map(|recommendation| {
                 recommendation
@@ -899,6 +907,8 @@ mod tests {
         .remove(0);
         member.status = RecommendationStatus::RolledUp;
         member.rollup_generation = Some(4);
+        member.workflow_improvement.supersedes_recommendation_id =
+            Some("earlier-generation".into());
         member.rolled_up_by = Some("rollup-parent".into());
 
         let mut parent = member.clone();
@@ -906,7 +916,7 @@ mod tests {
         parent.dedupe_key = "rollup:member".into();
         parent.rollup_member_ids = vec![member.id.clone()];
         parent.rollup_member_dedupe_keys = vec![member.dedupe_key.clone()];
-        parent.status = RecommendationStatus::Proposed;
+        parent.status = RecommendationStatus::Executing;
         parent.rolled_up_by = None;
 
         let updated = evaluate_workflow_improvements(
@@ -924,7 +934,7 @@ mod tests {
         assert_eq!(updated[0].evidence.len(), 3);
         assert_eq!(
             updated[0].workflow_improvement.supersedes_recommendation_id,
-            None
+            Some("earlier-generation".into())
         );
     }
 }

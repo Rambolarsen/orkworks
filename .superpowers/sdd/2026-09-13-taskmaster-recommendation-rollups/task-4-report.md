@@ -218,3 +218,48 @@ rtk git diff --check
 Result: passed.
 
 The full sidecar suite was not run.
+
+## Fix round 3
+
+### RED evidence
+
+Extended the active rolled-up-member regression with an `Executing` parent
+and a member whose `workflow_improvement.supersedes_recommendation_id` points
+to an earlier generation. Before the fix, the evaluator did not recognize the
+executing parent as active and generated a duplicate recommendation ID; its
+in-place output also cleared the prior lineage field.
+
+### GREEN evidence
+
+Verified the store's active-parent semantics are exactly
+`Proposed | Executing` and aligned evaluator detection with that set. An
+executing rollup parent now keeps its rolled-up member on the same exact
+family path: the member ID, `RolledUp` status, parent linkage, generation, and
+prior supersession lineage are preserved while new evidence is incorporated.
+No duplicate exact-family generation/card is produced.
+
+The publication loops use test-only counters, so the new non-test unused
+`index` warnings are removed. Remaining compilation warnings are unrelated
+pre-existing repository warnings.
+
+### Commands and results
+
+```text
+rtk cargo test --manifest-path crates/orkworksd/Cargo.toml taskmaster
+```
+
+Result: 141 passed, 2 ignored, 1,074 filtered out; 0 failed.
+
+```text
+rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
+```
+
+Result: passed.
+
+```text
+rtk git diff --check
+```
+
+Result: passed.
+
+The full sidecar suite was not run.
