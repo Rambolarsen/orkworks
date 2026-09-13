@@ -26,6 +26,11 @@ gh api --paginate repos/<owner>/<repo>/pulls/<pr>/reviews
 gh pr checks <pr>
 ```
 
+After the channel queries finish, fetch `headRefOid` again. If it differs
+from the first metadata result, discard the pass and restart the complete
+inventory for the new head so comments or checks from a concurrent push are
+not missed.
+
 The pull-request comments endpoint is mandatory: it contains line comments and
 thread replies that can carry actionable feedback. When thread resolution
 state matters, inspect the review threads in the forge UI or its thread API as

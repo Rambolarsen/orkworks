@@ -88,8 +88,10 @@ When `finishing-a-development-branch` chooses the push-and-create-PR path,
 that choice hands the open PR to this babysitting workflow; creating the PR or
 passing its initial checks is not a terminal state.
 
-The PR is not ready for handoff while an actionable comment lacks a
-disposition, and `gh pr view` alone is not a complete inline-comment inventory.
+The PR is not ready for completion or merge while an actionable comment lacks
+a disposition. If the bounded babysit budget expires, an explicit unresolved-
+work handoff is allowed only after reporting the outstanding comments and
+checks; `gh pr view` alone is not a complete inline-comment inventory.
 
 ## Architecture decision records
 
