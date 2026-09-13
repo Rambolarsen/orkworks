@@ -3,6 +3,7 @@ pub(crate) mod evaluator;
 pub(crate) mod inference_approval;
 pub(crate) mod inference_trust;
 pub(crate) mod provider_catalog;
+pub(crate) mod rollup;
 pub(crate) mod runtime;
 pub(crate) mod store;
 
@@ -24,6 +25,7 @@ pub(crate) enum RecommendationStatus {
     Executing,
     Completed,
     Dismissed,
+    RolledUp,
     Superseded,
     Expired,
     Failed,
@@ -67,6 +69,8 @@ pub(crate) struct WorkflowObservationEvidence {
     pub kind: ObservationKind,
     pub description: String,
     pub evidence: String,
+    #[serde(default)]
+    pub problem_area: Option<String>,
     pub reported_impact: Impact,
     pub source: ObservationSource,
     pub confidence: f64,
@@ -125,6 +129,14 @@ pub(crate) struct Recommendation {
     pub updated_at: String,
     pub expires_at: Option<String>,
     pub workflow_improvement: WorkflowImprovement,
+    #[serde(default)]
+    pub rollup_member_ids: Vec<String>,
+    #[serde(default)]
+    pub rollup_member_dedupe_keys: Vec<String>,
+    #[serde(default)]
+    pub rollup_generation: Option<u64>,
+    #[serde(default)]
+    pub rolled_up_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -210,6 +222,7 @@ pub(crate) fn evaluate_workflow_improvements(
                     kind: observation.kind,
                     description: observation.description.clone(),
                     evidence: observation.evidence.clone(),
+                    problem_area: observation.problem_area.clone(),
                     reported_impact: observation.reported_impact,
                     source: observation.source,
                     confidence: observation.confidence,
@@ -337,6 +350,10 @@ pub(crate) fn evaluate_workflow_improvements(
                 supersedes_recommendation_id: supersedes,
                 dismissal_watermark: None,
             },
+            rollup_member_ids: Vec::new(),
+            rollup_member_dedupe_keys: Vec::new(),
+            rollup_generation: None,
+            rolled_up_by: None,
         });
     }
     proposals.sort_by(|left, right| left.dedupe_key.cmp(&right.dedupe_key));

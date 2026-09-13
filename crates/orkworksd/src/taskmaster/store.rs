@@ -322,6 +322,7 @@ mod tests {
             kind: ObservationKind::Obstacle,
             description: "A recurring obstacle".into(),
             evidence: "The same command failed twice".into(),
+            problem_area: None,
             reported_impact: Impact::High,
             source: ObservationSource::Peon,
             confidence: 0.9,
@@ -364,6 +365,10 @@ mod tests {
                 supersedes_recommendation_id: None,
                 dismissal_watermark: None,
             },
+            rollup_member_ids: Vec::new(),
+            rollup_member_dedupe_keys: Vec::new(),
+            rollup_generation: None,
+            rolled_up_by: None,
         }
     }
 
