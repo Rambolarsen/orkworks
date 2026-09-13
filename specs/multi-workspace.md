@@ -35,6 +35,18 @@ create, delete, or manage Git worktrees. Existing workspace metadata leases
 remain authoritative: a conflicting external owner produces a visible conflict,
 never takeover, metadata reconciliation, or forced termination of that owner.
 
+Resolve and validate the selected directory before registry lookup or spawning.
+Use OS-resolved directory identity to coalesce aliases and one canonical path
+for that identity throughout sidecar restoration, settings keys, metadata, and
+session ownership. Keep display/input paths separate from identity. On Windows,
+resolve junctions/symlinks and equivalent drive-letter, separator, case and
+extended-path spellings using filesystem semantics; do not lowercase paths or
+assume that distinct UNC shares/server names are aliases. Preserve distinctions
+on case-sensitive filesystems. Revalidate identity before opening; if resolution
+fails or the directory was replaced, report it rather than falling back to the
+raw spelling. Reuse existing durable metadata/settings for the resolved workspace;
+normalization must not silently create a second history or discard overrides.
+
 ## Switcher and focus
 
 The workspace-name control opens a keyboard-accessible switcher. Show open
@@ -78,6 +90,9 @@ On app startup, reopen only the last focused workspace. All other locations
 remain remembered without sidecar startup. Do not automatically resume coding
 sessions. If the last location is missing, show the picker and retain other
 remembered locations. Do not silently open a different project.
+With no last location, or a missing/inaccessible last location, start no sidecar,
+publish no backend port, and acquire no workspace lease until explicit selection.
+Remove the current development-repository/home-directory fallback for this case.
 
 Switching away never asks to stop sessions. Explicitly closing a workspace
 with live or creating sessions requires a native confirmation naming the
@@ -99,6 +114,12 @@ visible and must not report the workspace closed while owned processes survive.
 Use a five-second graceful-cleanup deadline followed by a five-second owned-
 process termination deadline. Report any survivor after those deadlines rather
 than looping forever or broadening termination to unrelated processes.
+Ownership comes from retained process handles and the runtime's recorded child
+ownership, never PID/name/path matches alone. A failed open against an external
+lease owner authorizes cleanup only of our attempted runtime. Do not wait for,
+release, or terminate that external owner's lease/processes. A surviving owned
+process leaves our runtime unresolved; a surviving foreign owner does not prevent
+removal of our failed attempt once our own cleanup is complete.
 Closing a background workspace leaves focus unchanged. Closing the focused
 workspace selects the most recently focused remaining open workspace, or the
 picker when none remain. Persist that focus; with none open, clear last focus.
@@ -157,6 +178,19 @@ per-workspace application failures; never report universal success after one
 successful push. Save scoped settings under revision checks so a stale draft
 cannot replace newer settings for another workspace.
 
+Taskmaster settings reads return an opaque revision of the durable settings
+document. Saves carry that expected revision and either a global-default patch
+or a patch/reset for one canonical workspace, never a replacement of all workspace
+overrides from a UI draft. Under the existing cross-process persistence lock,
+reload the document, compare revisions, validate and apply the scoped patch,
+and publish atomically. A mismatch returns a conflict with no settings, cache,
+diagnostic, or budget mutation; preserve the draft for explicit refresh/retry.
+This intentionally allows unrelated concurrent edits to conflict rather than
+silently merging stale intent. Successful workspace-only saves invalidate only
+that workspace's affected analysis; changing the document revision alone must
+not invalidate other workspaces. Global saves invalidate only affected effective
+configuration. Electron serialization alone is insufficient for other processes.
+
 Taskmaster follows each workspace's permitted repository instructions and
 evidence; shared knowledge does not override local policy. This feature adds
 no simple/advanced workflow presets or workflow engine. Existing bounded
@@ -184,6 +218,13 @@ deterministic evaluation and model analysis. Background Peon and hook evidence
 continues to be recorded; existing recommendations remain stored. On refocus,
 reevaluate from current evidence subject to existing debounce, interval, cache,
 and budget rules. Do not treat refocus as permission for an extra provider call.
+
+For this proposed mode, the evaluation triggers in taskmaster.md and the
+"currently open workspace" wording in taskmaster-knowledge.md are qualified by
+focused-workspace permission: opening/restoring a background workspace, accepting
+its observations, or reaching a periodic timer does not start evaluation. Update
+those accepted-spec passages and ADR 0054 together when accepting this proposal;
+until then their current single-workspace implementation remains unchanged.
 
 Electron grants/revokes analysis permission through a narrow authenticated
 sidecar operation bound to workspace identity and runtime generation. Default
