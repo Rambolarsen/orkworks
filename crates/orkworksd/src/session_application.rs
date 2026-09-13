@@ -6501,15 +6501,18 @@ mod tests {
             "/C:relative/specs/plan.md",
             "/C|/repo/specs/plan.md",
         ] {
-            let before_session = state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(id)
-                .unwrap();
+            let before_session = serde_json::to_value(
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap(),
+            )
+            .unwrap();
             let before_events = serde_json::to_value(
                 state
                     .workspace
@@ -6535,15 +6538,18 @@ mod tests {
                 matches!(result, Err(SessionError::Conflict)),
                 "{printed_path}"
             );
-            let after_session = state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(id)
-                .unwrap();
+            let after_session = serde_json::to_value(
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap(),
+            )
+            .unwrap();
             let after_events = serde_json::to_value(
                 state
                     .workspace
@@ -6555,10 +6561,7 @@ mod tests {
                     .read_events(id),
             )
             .unwrap();
-            assert_eq!(
-                after_session.plan_path, before_session.plan_path,
-                "{printed_path}"
-            );
+            assert_eq!(after_session, before_session, "{printed_path}");
             assert_eq!(after_events, before_events, "{printed_path}");
         }
     }
