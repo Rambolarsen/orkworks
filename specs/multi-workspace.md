@@ -51,15 +51,20 @@ normalization must not silently create a second history or discard overrides.
 
 The workspace-name control opens a keyboard-accessible switcher. Show open
 workspaces and remembered closed locations, with enough path information to
-distinguish equal folder names. Reuse existing recent-location storage; keep
-every currently open workspace visible even if it is outside the bounded
-recent list. An Add workspace action opens the native directory picker.
+distinguish equal folder names. Migrate the existing recent-location store into
+the remembered-location list, removing its ten-entry truncation. Remember every
+successfully opened location until the user explicitly forgets it; recency only
+orders the list. Forget is available for closed locations and removes the shortcut,
+not metadata or project files. An Add workspace action opens the native picker.
 
 Selecting an open workspace changes focus without restarting its sidecar.
 Selecting a remembered closed workspace opens it and focuses it after readiness.
 Until a new destination is ready, preserve the previous focus and its terminal.
 Failure to open the destination leaves the previous focus usable and shows the
 destination's error. Coalesce simultaneous opens of the same identity.
+Commit the visible focus and durable last-focused location only after destination
+readiness and the Taskmaster permission handoff below succeed. A failed or
+superseded attempt must not overwrite the previous last-focused location.
 
 Switching detaches the previous terminal view, not its runtime. PTYs keep
 draining output, recording bounded history, and feeding Peon in background
@@ -98,8 +103,13 @@ Switching away never asks to stop sessions. Explicitly closing a workspace
 with live or creating sessions requires a native confirmation naming the
 workspace and running-session count: Cancel or Close workspace. Cancel leaves
 focus and processes unchanged. With no live or creating sessions, close
-directly. Revalidate the runtime generation and session set after the dialog;
-if additional sessions started, refresh confirmation before including them.
+directly. Atomically block creation/resume while taking the final runtime-generation
+and live/creating-session snapshot, including for the no-dialog fast path. The
+sidecar serializes this gate with every start/resume admission, including requests
+already in flight; those admitted before the gate appear in the snapshot. After
+a dialog, if the generation changed or additional sessions started, refresh
+confirmation before including them. Keep the gate during renewed confirmation;
+Cancel releases it and leaves existing processes and focus unchanged.
 Sessions that finished meanwhile do not require another confirmation.
 If a sidecar is unavailable and session liveness cannot be confirmed, show the
 last known session count as uncertain and require confirmation before cleanup;
@@ -120,17 +130,39 @@ lease owner authorizes cleanup only of our attempted runtime. Do not wait for,
 release, or terminate that external owner's lease/processes. A surviving owned
 process leaves our runtime unresolved; a surviving foreign owner does not prevent
 removal of our failed attempt once our own cleanup is complete.
+
+The current PTY ownership in a sidecar's memory is insufficient after that sidecar
+crashes. Before implementing this cleanup promise, prove a native ownership
+boundary that outlives each sidecar: Electron must retain a generation-bound OS
+containment handle or a surviving supervisor channel before any session or
+inference child can execute. Spawn admission fails closed if registration fails.
+The owner must enumerate/terminate only its registered descendants and acknowledge
+complete exit, including children surviving a sidecar crash; PID records and a
+released metadata lease cannot supply that proof. Windows Job containment and
+Unix supervision require separate native fixture evidence; the existing provider
+Job helper alone does not prove PTY containment. Selecting and recording the
+platform mechanism is an implementation-planning prerequisite. Until proved,
+unavailable-runtime cleanup remains unresolved and must never report successful
+close/quit or launch a replacement over potentially surviving owned sessions.
+
 Closing a background workspace leaves focus unchanged. Closing the focused
 workspace selects the most recently focused remaining open workspace, or the
 picker when none remain. Persist that focus; with none open, clear last focus.
 
-Explicit app quit uses one confirmation across all live/creating sessions,
-listing affected workspaces and counts. Cancel leaves the application running.
+Explicit app quit uses one confirmation across all live/creating sessions and
+unavailable workspaces with unknown liveness, listing known counts and last-known
+counts explicitly marked uncertain. Cancel leaves the application running.
 Confirm prevents new work and closes all owned runtimes, with the same bounded
 cleanup rules. Retain the last focused location for next startup, unlike closing
 the final workspace individually. Coalesce repeated quit requests into one
 dialog/cleanup operation. Native window close follows the platform's existing
 app-lifetime convention; on macOS closing the window does not imply app quit.
+Where closing the last window quits the app (Windows/Linux), intercept its
+cancelable close event before destroying the window. Use the same coalesced quit
+operation; Cancel preserves the existing window, terminal attachment and controls.
+Apply the atomic admission gate and final snapshot to every open runtime before
+quit cleanup; refresh the aggregate confirmation if any set or generation widened.
+Do not start cleanup in one workspace while another still needs confirmation.
 Crashes and forced OS termination cannot promise confirmation or graceful flush.
 
 The app-quit confirmation is the working interpretation of the owner's final
@@ -223,15 +255,35 @@ For this proposed mode, the evaluation triggers in taskmaster.md and the
 "currently open workspace" wording in taskmaster-knowledge.md are qualified by
 focused-workspace permission: opening/restoring a background workspace, accepting
 its observations, or reaching a periodic timer does not start evaluation. Update
-those accepted-spec passages and ADR 0054 together when accepting this proposal;
+those accepted-spec passages and ADR 0042's deterministic active-workspace
+correlation clause together when accepting this proposal; ADR 0054 remains the
+managed-CLI-policy decision. Follow the ADR amendment/supersession sequence;
 until then their current single-workspace implementation remains unchanged.
 
 Electron grants/revokes analysis permission through a narrow authenticated
-sidecar operation bound to workspace identity and runtime generation. Default
-new/recovered sidecars to analysis suspended until explicitly focused. Revoke
-the old workspace before granting the new one. Focus loss invalidates pending
-results and requests cancellation of its inference operation, never its coding
-sessions. Validate permission again before reservation, spawn, and commit.
+sidecar operation bound to workspace identity, runtime generation and a monotonic
+focus-transition epoch. Default new/recovered sidecars to analysis suspended.
+Serialize transitions; reject obsolete permission commands. Prepare the destination
+to readiness before revoking the old permission, so open failure leaves the old
+permission and durable focus unchanged. A revocation acknowledgement means the
+old evaluation gate is closed and pending results invalidated atomically with
+reservation, spawn and commit checks; it also requests inference cancellation,
+never coding-session cancellation. It need not wait for inference exit.
+
+Grant the destination only after confirmed revocation or confirmed exit of the
+old sidecar generation. An unavailable status or HTTP timeout is not exit proof.
+Bound the revoke/grant exchange to five seconds. On failure, preserve the previous
+visible and durable focus, show Taskmaster switching unavailable, and grant no
+other workspace. Reconcile any uncertain destination grant by confirmed revoke
+or process exit before regranting the previous workspace with a newer epoch.
+Late replies cannot complete an abandoned transition. Never terminate coding
+sessions merely to make a focus change succeed. After a confirmed old-sidecar
+crash, focus may move to a ready workspace, but model analysis remains blocked
+until the surviving process owner confirms the old inference exited: the crashed
+sidecar's released analysis lease alone is insufficient. Recovery still starts
+suspended. These rules trade
+a visible failed switch during an unresponsive-sidecar fault for unambiguous
+analysis authority, without adding a second cross-process coordination service.
 
 Retain the cross-process analysis lease until actual inference cleanup finishes;
 discarding a result alone does not release execution capacity. The destination
@@ -257,7 +309,14 @@ Investigation at revision 7c61883 on Windows, 2026-09-13:
   calling the Windows replacement helper, which requires it closed first.
 - Real two-sidecar active-session behavior and resource usage are unmeasured.
 
-Repair and rerun the two Windows failure families before claiming readiness.
+Repair and rerun the Windows lease classification defect
+([#543](https://github.com/Rambolarsen/orkworks/issues/543)) and recommendation
+replacement defect ([#544](https://github.com/Rambolarsen/orkworks/issues/544)).
+Both issues must close with native regression evidence before claiming readiness.
+Prove crash-surviving process ownership
+([#545](https://github.com/Rambolarsen/orkworks/issues/545)) before implementing the registry's
+unavailable-runtime cleanup/recovery path; record the selected platform mechanisms
+in ADR 0056 and the implementation plan before implementation proceeds.
 Coordinate generation work with [#360](https://github.com/Rambolarsen/orkworks/issues/360)
 and [#361](https://github.com/Rambolarsen/orkworks/issues/361), and native validation
 with [#525](https://github.com/Rambolarsen/orkworks/issues/525). The validation plan

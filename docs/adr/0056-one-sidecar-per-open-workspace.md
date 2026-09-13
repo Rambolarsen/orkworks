@@ -47,5 +47,15 @@ process boundary does not make shared global settings or caches coherent.
 
 ADR 0022 (runtime-owned PTYs), ADR 0013 (single active context), and ADR 0052
 (one metadata owner per workspace) remain in force. When this proposal is
-accepted, clarify ADR 0054's active-workspace analysis wording to mean focused
-workspace; it does not change that ADR's managed-policy decision.
+accepted, coordinate the focused-workspace qualification in specs/taskmaster.md,
+specs/taskmaster-knowledge.md, and ADR 0042's deterministic correlation clause,
+following the ADR amendment/supersession sequence. ADR 0054 remains the
+managed-CLI-policy decision.
+
+Analysis handoff requires destination readiness, confirmed old-generation
+revocation (or process exit), and generation/epoch-bound commands. A bounded
+failed handoff preserves prior focus and cannot grant a second analysis owner.
+Existing sidecar-owned PTY handles do not prove cleanup after a sidecar crash.
+Native crash-surviving containment/supervision must be selected, demonstrated,
+and recorded here before implementing unavailable-runtime cleanup or recovery;
+the specification defines the required registration and exit acknowledgements.

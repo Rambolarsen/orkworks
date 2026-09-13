@@ -35,6 +35,8 @@ to prove survival through app actions; only the harness cleans them up afterward
 | A reports need for input while B is focused | Switcher count increases once; B keeps focus; expanded A row identifies the attention |
 | A returns to working or ends | Its count clears from current state; no accumulating notification |
 | Switch back to A | Restore selected session and replay, then receive continuing output; one terminal attachment is visible |
+| Open more than ten locations, close some, then relaunch | Every successfully opened location remains remembered; only last focused opens; explicit Forget on a closed location removes only its shortcut |
+| B fails readiness or a switch is superseded while A is focused | A remains usable with unchanged analysis permission and durable last focus; relaunch restores A |
 | Selected session ends while backgrounded | Return shows its historical replay rather than silently selecting another session |
 | Open A through an alias, including simultaneous requests | One canonical workspace, sidecar, settings key, metadata history and session owner; existing overrides/history preserved; no spurious reconciliation |
 | Windows directory aliases and case-sensitive distinct directories | Junction/symlink and equivalent drive/case/separator/extended-path aliases resolve using OS identity; equivalent UNC spellings coalesce only when identity is proven; distinct directories stay distinct |
@@ -48,18 +50,27 @@ to prove survival through app actions; only the harness cleans them up afterward
 | Two processes concurrently save scoped Taskmaster settings | Disk-lock/revision contract prevents clobbering independently of Electron's queue; readers see a complete old or new settings document |
 | Simultaneous first reporter installation and repair | Complete valid shared reporter bytes; both local integrations retain session-bound routing |
 | A's inference is blocked, then switch to B | A's pending result is invalidated, cancellation targets inference only, and B cannot acquire execution lease until A exits |
+| A revoke times out while A is still alive | No B grant or focus commit; bounded visible failure preserves A; late acknowledgements cannot complete the abandoned switch |
+| B grant response is lost, then switch is abandoned | Reconcile B by confirmed revoke/exit before any A regrant; obsolete epoch commands cannot restore B permission |
+| Focused A crashes, then select ready B | Confirm A process exit before B permission; UI can move, but new model calls wait for proof old inference exited, not merely a released lock |
 | Refocus repeatedly after an inference reservation | No reservation refund, interval bypass, duplicate accepted output, or budget reset |
 | Crash background A | B's port, input and settings remain usable; A shows unavailable/stale attention and independent bounded recovery |
 | Open or recover A without focus, inject observations, and advance debounce/periodic timers | Evidence persists but no deterministic recommendation change, usage reservation, or provider call occurs; after focus, evaluation is eligible only under normal interval/cache/budget rules |
 | Retry or late exit from obsolete A generation | No change to B or A's replacement token/port; external metadata owner is never terminated |
 | Cancel close confirmation | No session termination, focus change or history deletion |
 | Close an unavailable workspace | Unknown liveness is shown explicitly and requires confirmation; failed polling is not treated as zero sessions |
+| Sidecar crashes leaving registered PTY/inference descendants | Surviving owner proves generation-bound membership, terminates only owned children within deadlines, and acknowledges exit; recovery cannot overlap surviving sessions |
+| Process ownership registration fails during spawn | Child never executes; failure is visible and cannot leave an unregistered descendant |
 | External sidecar owns A's lease; app open/retry conflicts, then close and quit | Foreign sidecar and sentinel heartbeats continue; foreign lease remains held and metadata untouched; only our attempted runtime is cleaned up |
 | Owned child survives graceful cleanup and termination deadlines | Runtime remains visibly unresolved; cleanup never broadens to the foreign sidecar/sentinel or reuses a stale PID as ownership |
 | Confirm close A with running sessions | Only A's owned sessions/inference stop; flush and process exit precede closed state; A remains remembered |
+| Close ready A with no live/creating sessions | Atomic admission gate confirms empty set; no confirmation or session termination; sidecar/inference cleanup still completes |
 | Session ends or another starts during close dialog | Recheck current generation/session set; broadened termination requires refreshed confirmation |
+| Race start/resume with final close/quit snapshot | Request is either admitted and included in confirmation, or rejected by the atomic gate; Cancel releases gates without terminating sessions |
 | Close focused workspace or final open workspace | Select remaining open MRU or picker; do not start a closed remembered workspace |
 | Repeated app quit, cancel, then confirm | One dialog at a time; cancel preserves work; confirmation stops all owned runtimes and leaves no fixture child |
+| Quit with an unavailable background runtime and no known live sessions | One confirmation still lists that workspace with uncertain count; no cleanup before confirmation |
+| Close last window on Windows/Linux, then cancel | Same window, terminal attachment and controls survive; repeated close/quit coalesces; macOS window close retains its existing app-lifetime behavior |
 | Relaunch after confirmed quit | Only the last focused workspace opens; no coding session resumes automatically |
 | No last location, or missing/inaccessible last location on startup | Picker and remembered list remain available; no sidecar spawn, backend port, workspace lease or repo/home fallback until explicit selection |
 
@@ -76,8 +87,15 @@ to prove survival through app actions; only the harness cleans them up afterward
    behavior and login/environment preservation. Do not record credentials or
    private prompts. This does not replace repeatable fixture coverage.
 
-Run the failure scenarios on native Windows after repairing the two known
-failure families. Reuse #525's relevant process fixtures; do not claim that its
+Run the failure scenarios on native Windows after closing the two known
+failure families with evidence: [#543](https://github.com/Rambolarsen/orkworks/issues/543)
+and [#544](https://github.com/Rambolarsen/orkworks/issues/544). Before implementing
+unavailable-runtime cleanup/recovery, demonstrate the surviving process-owner
+registration and exit protocol on Windows and macOS, with portable Linux coverage,
+and record the selected mechanisms in ADR 0056; track this prerequisite in
+[#545](https://github.com/Rambolarsen/orkworks/issues/545). A sidecar-held PTY handle, PID
+list, process group without proven containment, or released lease is insufficient.
+Reuse #525's relevant process fixtures; do not claim that its
 existing custom-inference coverage covers every native coding tool or Electron.
 
 ## Performance experiment
