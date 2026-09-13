@@ -29,7 +29,7 @@
 ### Task 1: Record the recommendation identity and lifecycle decision
 
 **Files:**
-- Create: `docs/adr/0056-taskmaster-recommendation-rollups.md`
+- Create: `docs/adr/0057-taskmaster-recommendation-rollups.md`
 - Modify: `docs/adr/README.md`
 - Modify: `specs/taskmaster.md`
 - Modify: `docs/agents/architecture.md`
@@ -40,11 +40,11 @@
 - Does not change runtime behavior.
 
 - [ ] **Step 1: Write the ADR.** Record that exact v1 evidence families remain deterministic audit units, structured `problemArea` creates v2 identity for new records, bounded model output may create one parent over proposed exact families, and the sidecar owns validation, identity, lifecycle, and recoverable persistence.
-- [ ] **Step 2: Update the ADR index.** Add ADR 0056 with status `proposed` and the exact title to the historical table.
+- [ ] **Step 2: Update the ADR index.** Add ADR 0057 with status `proposed` and the exact title to the historical table.
 - [ ] **Step 3: Update `specs/taskmaster.md`.** Replace the v1-only prohibition on combining different fingerprints with the two-layer contract. Document `rolled_up`, parent/member fields, list filtering, terminal behavior, and the existing exact thresholds.
 - [ ] **Step 4: Update `docs/agents/architecture.md`.** Add the observation `problemArea` field, v2 fingerprint, recommendation graph transaction/recovery, and API/list semantics to the metadata protocol section.
 - [ ] **Step 5: Run the documentation check.** Run `bash scripts/doc-check.sh` from the repository root; if it reports an environment-only limitation, run `git diff --check` and record the limitation.
-- [ ] **Step 6: Commit.** `git add docs/adr/0056-taskmaster-recommendation-rollups.md docs/adr/README.md specs/taskmaster.md docs/agents/architecture.md && git commit -m "docs: record Taskmaster rollup architecture"`
+- [ ] **Step 6: Commit.** `git add docs/adr/0057-taskmaster-recommendation-rollups.md docs/adr/README.md specs/taskmaster.md docs/agents/architecture.md && git commit -m "docs: record Taskmaster rollup architecture"`
 
 ### Task 2: Add structured observation identity with legacy compatibility
 
