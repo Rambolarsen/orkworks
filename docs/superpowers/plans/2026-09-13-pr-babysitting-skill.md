@@ -28,15 +28,15 @@
 - Consumes: an open PR number or URL, the current branch/commit, GitHub PR state, CI state, and all available comment channels.
 - Produces: a complete comment disposition, fixes or reasoned replies, refreshed CI state, and either a terminal PR state or an explicit handoff point.
 
-- [ ] **Step 1: Capture the RED baseline**
+- [x] **Step 1: Capture the RED baseline**
 
 Record the demonstrated failure from PR #538: `gh pr view --json comments,reviews` showed the review summary but omitted the actionable inline Codex comment. The skill must therefore require the dedicated review-comments endpoint in addition to PR-level fields.
 
-- [ ] **Step 2: Write the skill**
+- [x] **Step 2: Write the skill**
 
 Document the trigger as “after opening an open PR or when checking an open PR for review/CI changes.” Require a complete inventory of PR conversation comments, inline review comments/threads, review summaries, requested changes, and status checks. Require every comment to receive a disposition: fix, reasoned pushback with an inline reply, informational acknowledgment, or already-handled evidence. Require re-scanning after pushes and CI completion. Define a substantial-change threshold for triggering fresh Codex/Copilot review after feedback; do not trigger new review for trivial edits, and ask the human partner when uncertain. Define terminal-state, user-stop, permission-blocked, and bounded-budget stopping conditions.
 
-- [ ] **Step 3: Validate the skill structure**
+- [x] **Step 3: Validate the skill structure**
 
 Run `git diff --check` and inspect the frontmatter, trigger wording, API coverage, disposition rules, and stopping conditions manually. Confirm the skill contains no APM-generated path or instruction to edit generated files.
 
@@ -52,15 +52,15 @@ Run `git diff --check` and inspect the frontmatter, trigger wording, API coverag
 - Consumes: the existing planning checkpoint and repo skill catalog entries.
 - Produces: discoverable, consistent routing for planning, PR babysitting, and audit/close-out modes.
 
-- [ ] **Step 1: Add explicit planning mode**
+- [x] **Step 1: Add explicit planning mode**
 
 Add planning to the surfacing skill description and mode table. State that planning records evidence, resolved assumptions, unresolved risks/spec gaps, and mitigations in the plan; it does not file issues unless an audit or explicit issue-generation request is active.
 
-- [ ] **Step 2: Add babysitting triggers**
+- [x] **Step 2: Add babysitting triggers**
 
 Add the committed skill to the repo skill catalogs and state in `AGENTS.md` that opening a PR transitions the session into the dedicated babysitting skill. Keep `starting-work` focused on ownership and initial checkout setup.
 
-- [ ] **Step 3: Check catalog consistency**
+- [x] **Step 3: Check catalog consistency**
 
 Search for every `surfacing-blind-spots` and `babysitting-pull-requests` catalog entry and ensure each description identifies its actual trigger and ownership.
 
@@ -73,15 +73,15 @@ Search for every `surfacing-blind-spots` and `babysitting-pull-requests` catalog
 - Consumes: the branch/PR lifecycle rules and the new repo-owned skill.
 - Produces: durable workflow guidance that places babysitting after PR creation and before completion/handoff.
 
-- [ ] **Step 1: Document the lifecycle handoff**
+- [x] **Step 1: Document the lifecycle handoff**
 
 Add a concise pointer that `finishing-a-development-branch` hands an opened PR to `skills/babysitting-pull-requests/`, and that an open PR is not complete merely because it was created or its initial checks passed.
 
-- [ ] **Step 2: Run repository verification**
+- [x] **Step 2: Run repository verification**
 
 Run `git diff --check`, `bash scripts/doc-check.sh`, and `bash scripts/verify-repo.sh`. Confirm the unrelated `.github/workflows/pr-review.yml` edit, if present in the primary checkout, is not staged or changed by this worktree.
 
-- [ ] **Step 3: Commit the review fix**
+- [x] **Step 3: Commit the review fix**
 
 ```bash
 git add AGENTS.md README.md docs/agents/apm.md docs/agents/development-workflow.md skills/surfacing-blind-spots/SKILL.md skills/babysitting-pull-requests/SKILL.md docs/superpowers/plans/2026-09-13-pr-babysitting-skill.md

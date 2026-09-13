@@ -84,6 +84,10 @@ codebase and requirements, fix it or push back with evidence, and keep the
 human partner informed when uncertain. After a substantial feedback-driven
 change, trigger a fresh automated review before completing the cycle.
 
+When `finishing-a-development-branch` chooses the push-and-create-PR path,
+that choice hands the open PR to this babysitting workflow; creating the PR or
+passing its initial checks is not a terminal state.
+
 The PR is not ready for handoff while an actionable comment lacks a
 disposition, and `gh pr view` alone is not a complete inline-comment inventory.
 

@@ -1,6 +1,6 @@
 ---
 name: babysitting-pull-requests
-description: Use after opening a pull request or when monitoring an open pull request for review comments, CI changes, requested changes, or merge readiness.
+description: Use when babysitting an open pull request after it is opened, or when monitoring one for review comments, CI changes, requested changes, or merge readiness.
 ---
 
 # Babysitting Pull Requests
@@ -15,9 +15,11 @@ budget requires an explicit handoff.
 
 Resolve the concrete PR number and current head commit. `gh pr view` is useful
 for state and checks, but its `comments` and `reviews` fields do **not** expose
-all inline review comments. Query every channel:
+all inline review comments. First query the PR metadata, then query every
+comment and check channel:
 
 ```bash
+gh pr view <pr> --json state,isDraft,mergeable,mergeStateStatus,reviewDecision,headRefOid,baseRefOid
 gh api --paginate repos/<owner>/<repo>/issues/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments
 gh api --paginate repos/<owner>/<repo>/pulls/<pr>/reviews
@@ -27,7 +29,8 @@ gh pr checks <pr>
 The pull-request comments endpoint is mandatory: it contains line comments and
 thread replies that can carry actionable feedback. When thread resolution
 state matters, inspect the review threads in the forge UI or its thread API as
-well.
+well. Review bodies can also contain suppressed or summarized comments; inspect
+those items instead of treating the review summary as informational only.
 
 ## Vet and disposition every item
 
@@ -45,7 +48,10 @@ For each comment or review not already handled:
 6. If the tree changes, verify the fix, push it, and refresh CI and comments.
 
 Do not report “no comments” unless the complete inventory was performed. Do
-not merge or hand off with an actionable comment lacking a disposition.
+not declare the PR complete or merge while an actionable comment lacks a
+disposition. If the bounded babysit budget expires, an explicit handoff is
+allowed only after reporting the unresolved comments and checks; it is not a
+completion claim.
 
 ## Re-review after a substantial feedback-driven change
 
