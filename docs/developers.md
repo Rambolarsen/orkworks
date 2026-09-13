@@ -12,6 +12,7 @@ tracks implementation.
 - [MVP scope and architecture](/specs/orkworks-mvp)
 - [Session plan review](/specs/session-plan-review)
 - [Taskmaster](/specs/taskmaster)
+- [Concurrent workspaces (proposed)](/specs/multi-workspace)
 - [Native voice support](/specs/native-harness-voice-support)
 - [Release pipeline](/specs/release-pipeline)
 

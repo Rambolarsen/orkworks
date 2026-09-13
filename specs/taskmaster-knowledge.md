@@ -1,5 +1,10 @@
 # Brain-informed Taskmaster recommendations
 
+The [concurrent-workspace proposal](multi-workspace.md) defines a future
+distinction between open and focused workspaces, including analysis permission
+and workspace-specific diagnostics. It is pending written-spec review and does
+not describe implemented multi-workspace behavior.
+
 Status: accepted
 Date: 2026-09-09
 

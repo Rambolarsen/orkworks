@@ -101,6 +101,7 @@ export default defineConfig({
           { text: 'Session plan review', link: '/specs/session-plan-review' },
           { text: 'Taskmaster', link: '/specs/taskmaster' },
           { text: 'Taskmaster knowledge', link: '/specs/taskmaster-knowledge' },
+          { text: 'Concurrent workspaces (proposed)', link: '/specs/multi-workspace' },
         ],
       },
       {
