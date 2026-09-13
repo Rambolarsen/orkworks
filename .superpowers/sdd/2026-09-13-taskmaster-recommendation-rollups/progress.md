@@ -50,8 +50,10 @@ Task 4: fix round 2/5 (1 addressed, 0 open; commits 55739338..57987ab0)
 Task 4: fix round 3/5 (2 addressed, 0 open; commits 57987ab0..cef243a5)
 Task 4: verification: taskmaster evaluator tests 12 passed; store tests 23 passed; formatter and diff checks passed.
 Task 4: complete (commits 11b0ab5..cef243a5, review clean)
-Task 5: Ruling: a rollup result may update an existing active parent only for the same deterministic member set; any result that would reparent a member away from its current active parent is stale and rejected atomically, because the supplied snapshot has no authority over a parent created after evaluation.
+Task 5: Ruling: a rollup result may update an existing active parent for the same deterministic member set; a fresh snapshot may also supersede a proposed parent and reassign its members atomically, while any result captured before the active parent graph changed is stale and rejected because the supplied snapshot has no authority over a newer graph.
 Task 5: fix round 1/5 (4 addressed, 0 open; commits 012cf875..ffc8359)
 Task 5: fix round 2/5 (4 addressed, 0 open; commit 50a6fca)
 Task 5: fix round 3/5 (2 addressed, 1 intentionally rejected as conflicting with the no-changed-active-parent contract; current fixes uncommitted)
-Task 6: fix round 1/5 (2 addressed, 0 open; commit pending review)
+Task 6: fix round 1/5 (2 addressed, 0 open; commit 8df3aff..5833cca)
+Task 6: fix round 2/5 (4 addressed, 0 open; commits 2e8f686..837bc07; active-parent snapshot/revalidation refinement included)
+Task 6: verification: focused Taskmaster tests 135 passed before final lifecycle refinement; final rollup evaluator tests 14 passed; desktop full suite 741 passed/1 unrelated Windows dialog-drag failure; Rust full suite 1224 passed/10 environment-sensitive failures.
