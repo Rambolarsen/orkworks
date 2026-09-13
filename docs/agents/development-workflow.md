@@ -77,7 +77,7 @@ finding or add a separate issue for a concern already fixed or tracked.
 
 Opening a pull request starts its review lifecycle; it is not the end of the
 coding session. After creating or adopting an open PR, use the repo-owned
-[`babysitting-pull-requests`](../../skills/babysitting-pull-requests/) skill.
+[`babysitting-pull-requests`](https://github.com/Rambolarsen/orkworks/blob/main/skills/babysitting-pull-requests/SKILL.md) skill.
 It requires checking PR conversation comments, inline review comments and
 threads, review summaries, and status checks. Vet every comment against the
 codebase and requirements, fix it or push back with evidence, and keep the
