@@ -13,7 +13,9 @@
 ## Global Constraints
 
 - Committed repo skills under `skills/` are the source of truth; do not edit `.agents/skills/` or other APM-generated artifacts.
-- All changes remain on the existing `planning-blind-spot-checkpoint` PR branch.
+- Use `starting-work` to select an owned branch or worktree before making
+  changes; this plan is branch-agnostic and must not authorize edits to a
+  foreign PR branch.
 - Review feedback must be technically evaluated and answered in its inline thread; suggestions are not accepted blindly.
 - The PR babysitting loop must not claim “no comments” without inspecting inline review comments.
 
@@ -39,6 +41,17 @@ Document the trigger as “after opening an open PR or when checking an open PR 
 - [x] **Step 3: Validate the skill structure**
 
 Run `git diff --check` and inspect the frontmatter, trigger wording, API coverage, disposition rules, and stopping conditions manually. Confirm the skill contains no APM-generated path or instruction to edit generated files.
+
+- [x] **Step 4: Run the pressure scenario**
+
+Run a combined-pressure scenario with and without the skill: multiple comment
+channels, suppressed review feedback, changing CI, a possible concurrent push,
+unknown branch ownership, an expiring babysit budget, and both trivial and
+substantial proposed changes. The no-skill control froze safely but could not
+reliably apply the repository-specific review-trigger protocol. The
+skill-loaded run built a complete feedback ledger, withheld mutations until
+ownership was known, rechecked the head SHA, separated trivial from substantial
+work, and produced an evidence-only budget handoff.
 
 ### Task 2: Make planning and catalog routing unambiguous
 
@@ -88,7 +101,7 @@ git add AGENTS.md README.md docs/agents/apm.md docs/agents/development-workflow.
 git commit -m "docs: add pull request babysitting workflow"
 ```
 
-- [ ] **Step 4: Push and re-check PR #538**
+- [x] **Step 4: Push and re-check PR #538**
 
 ```bash
 git push origin planning-blind-spot-checkpoint
