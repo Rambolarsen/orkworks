@@ -6470,6 +6470,99 @@ mod tests {
             .any(|event| event.event_type == "session.plan_selected_by_user"));
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn select_plan_rejects_malformed_windows_aliases_without_mutation() {
+        let root = tempfile::tempdir().unwrap();
+        git2::Repository::init(root.path()).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "malformed-windows-plan-alias";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Plan",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.cwd = root.path().display().to_string();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+
+        for printed_path in [
+            "//C:/repo/specs/plan.md",
+            "/1:/repo/specs/plan.md",
+            "/C:relative/specs/plan.md",
+            "/C|/repo/specs/plan.md",
+        ] {
+            let before_session = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            let before_events = serde_json::to_value(
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_events(id),
+            )
+            .unwrap();
+
+            let result = SessionApplication::new(state.clone())
+                .select_plan(
+                    id,
+                    PlanSelection {
+                        printed_path: printed_path.into(),
+                    },
+                )
+                .await;
+
+            assert!(
+                matches!(result, Err(SessionError::Conflict)),
+                "{printed_path}"
+            );
+            let after_session = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            let after_events = serde_json::to_value(
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_events(id),
+            )
+            .unwrap();
+            assert_eq!(
+                after_session.plan_path, before_session.plan_path,
+                "{printed_path}"
+            );
+            assert_eq!(after_events, before_events, "{printed_path}");
+        }
+    }
+
     #[tokio::test]
     async fn select_plan_application_seam_persists_user_selected_reference_and_event() {
         let root = tempfile::tempdir().unwrap();

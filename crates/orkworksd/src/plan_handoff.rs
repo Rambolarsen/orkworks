@@ -484,8 +484,12 @@ mod tests {
         fs::write(&plan, "# plan").unwrap();
 
         assert_eq!(
-            normalize_reported_plan_path(workspace.path(), plan.to_str().unwrap()).unwrap(),
-            "docs/superpowers/plans/session.md"
+            Path::new(
+                normalize_reported_plan_path(workspace.path(), plan.to_str().unwrap())
+                    .unwrap()
+                    .as_str()
+            ),
+            Path::new("docs/superpowers/plans/session.md")
         );
     }
 
@@ -503,9 +507,15 @@ mod tests {
         let sibling = tempfile::tempdir().unwrap();
         std::env::set_current_dir(sibling.path()).unwrap();
         assert_eq!(
-            normalize_reported_plan_path(workspace.path(), "docs/superpowers/plans/relative.md")
-                .unwrap(),
-            "docs/superpowers/plans/relative.md"
+            Path::new(
+                normalize_reported_plan_path(
+                    workspace.path(),
+                    "docs/superpowers/plans/relative.md"
+                )
+                .unwrap()
+                .as_str()
+            ),
+            Path::new("docs/superpowers/plans/relative.md")
         );
     }
 
@@ -605,7 +615,7 @@ mod tests {
         let (root, relative) =
             resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
         assert_eq!(root, workspace.path().canonicalize().unwrap());
-        assert_eq!(relative, "specs/plan.md");
+        assert_eq!(Path::new(relative.as_str()), Path::new("specs/plan.md"));
     }
 
     #[cfg(windows)]
@@ -621,7 +631,7 @@ mod tests {
         let (root, relative) = resolve_printed_plan_path(workspace.path(), &printed).unwrap();
 
         assert_eq!(root, workspace.path().canonicalize().unwrap());
-        assert_eq!(relative, "specs/plan.md");
+        assert_eq!(Path::new(relative.as_str()), Path::new("specs/plan.md"));
     }
 
     // CI runners have no global git identity configured, so `git commit`
@@ -683,7 +693,10 @@ mod tests {
         let (root, relative) =
             resolve_printed_plan_path(&main_dir, printed_path.to_str().unwrap()).unwrap();
         assert_eq!(root, linked_dir.canonicalize().unwrap());
-        assert_eq!(relative, "docs/superpowers/specs/example.md");
+        assert_eq!(
+            Path::new(relative.as_str()),
+            Path::new("docs/superpowers/specs/example.md")
+        );
     }
 
     #[test]
@@ -719,7 +732,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(root, linked_dir.canonicalize().unwrap());
-        assert_eq!(relative, "docs/superpowers/specs/plan.md");
+        assert_eq!(
+            Path::new(relative.as_str()),
+            Path::new("docs/superpowers/specs/plan.md")
+        );
     }
 
     #[test]

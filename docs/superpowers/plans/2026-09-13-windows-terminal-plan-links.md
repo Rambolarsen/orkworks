@@ -1,4 +1,9 @@
-# Windows Terminal Plan-Path Links Implementation Plan
+# Windows Terminal Plan-Path Links Implementation Plan (historical)
+
+> Implemented on 2026-09-13. Verification passed for the renderer/Dockview
+> suite, TypeScript, formatting, and focused selection safety. The broader
+> Windows `plan_handoff` suite retains pre-existing separator-sensitive
+> assertions documented in the review report.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
