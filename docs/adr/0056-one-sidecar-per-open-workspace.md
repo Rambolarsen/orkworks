@@ -53,9 +53,12 @@ following the ADR amendment/supersession sequence. ADR 0054 remains the
 managed-CLI-policy decision.
 
 Analysis handoff requires destination readiness, confirmed old-generation
-revocation (or process exit), and generation/epoch-bound commands. A bounded
-failed handoff preserves prior focus and cannot grant a second analysis owner.
+revocation (or process exit), and generation/epoch-bound commands. Commit and
+publish focus before activating the destination; failed activation keeps that
+destination selected and is reconciled without rollback. Pre-commit failure
+preserves prior focus. Neither path can grant a second analysis owner.
 Existing sidecar-owned PTY handles do not prove cleanup after a sidecar crash.
 Native crash-surviving containment/supervision must be selected, demonstrated,
 and recorded here before implementing unavailable-runtime cleanup or recovery;
-the specification defines the required registration and exit acknowledgements.
+the specification defines the required registration and exit acknowledgements,
+including cleanup after unexpected Electron exit before relaunch adoption.

@@ -57,14 +57,32 @@ successfully opened location until the user explicitly forgets it; recency only
 orders the list. Forget is available for closed locations and removes the shortcut,
 not metadata or project files. An Add workspace action opens the native picker.
 
-Selecting an open workspace changes focus without restarting its sidecar.
+The initial release has an explicit maximum number of simultaneously open
+workspace lifecycles. Set its numeric value from supported-platform native
+resource measurements and record it here before release; four-workspace samples
+alone do not establish that limit. Count starting/recovering/unavailable/closing
+entries until their owned cleanup is complete, reserve admission atomically, and
+reject an extra open with a message asking the user to close a workspace first.
+Coalesced opens of an existing identity consume no extra slot. Never evict, pause,
+or close existing work automatically. Spawn/resource failure releases only the
+failed attempt's slot after owned cleanup and leaves other workspaces usable.
+Remembered locations do not consume slots; final admission-limit and failure tests
+are required before readiness can be claimed.
+
+Selecting a ready open workspace changes focus without restarting its sidecar.
+Selecting a starting/recovering workspace waits on its existing bounded readiness
+attempt while preserving current focus. Selecting an unavailable workspace shows
+its error and explicit Retry action without changing focus; selecting a closing
+workspace is disabled. Retry uses the existing lifecycle and never bypasses
+ownership/cleanup gates. Recovery alone does not complete an abandoned selection.
 Selecting a remembered closed workspace opens it and focuses it after readiness.
 Until a new destination is ready, preserve the previous focus and its terminal.
 Failure to open the destination leaves the previous focus usable and shows the
 destination's error. Coalesce simultaneous opens of the same identity.
 Commit the visible focus and durable last-focused location only after destination
-readiness and the Taskmaster permission handoff below succeed. A failed or
-superseded attempt must not overwrite the previous last-focused location.
+readiness and confirmed revocation of the old Taskmaster permission, then activate
+the destination as described below. A failed or superseded pre-commit attempt must
+not overwrite the previous last-focused location.
 
 Switching detaches the previous terminal view, not its runtime. PTYs keep
 draining output, recording bounded history, and feeding Peon in background
@@ -144,10 +162,21 @@ Job helper alone does not prove PTY containment. Selecting and recording the
 platform mechanism is an implementation-planning prerequisite. Until proved,
 unavailable-runtime cleanup remains unresolved and must never report successful
 close/quit or launch a replacement over potentially surviving owned sessions.
+The same ownership boundary must terminate every owned sidecar and descendant
+when Electron exits unexpectedly, including background workspaces; a surviving
+supervisor must detect loss of its app-owner channel and perform bounded cleanup.
+Relaunch must wait for that cleanup proof before adopting a new generation, using
+generation-bound supervisor/OS ownership evidence, never persisted PIDs alone.
+Prove forced Electron termination and relaunch with multiple workspaces in #545.
+This does not promise a graceful history flush after an application crash.
 
 Closing a background workspace leaves focus unchanged. Closing the focused
-workspace selects the most recently focused remaining open workspace, or the
-picker when none remain. Persist that focus; with none open, clear last focus.
+workspace selects the most recently focused remaining ready workspace. Skip
+starting/recovering/unavailable/closing entries. If none are ready, clear visible
+and durable focus and show the picker with the open entries and their statuses;
+their later recovery never steals focus. Never reopen a closed location to fill
+the vacancy. A candidate losing readiness before focus commit returns to this
+picker state. Persist only a successful replacement focus.
 
 Explicit app quit uses one confirmation across all live/creating sessions and
 unavailable workspaces with unknown liveness, listing known counts and last-known
@@ -270,19 +299,32 @@ old evaluation gate is closed and pending results invalidated atomically with
 reservation, spawn and commit checks; it also requests inference cancellation,
 never coding-session cancellation. It need not wait for inference exit.
 
-Grant the destination only after confirmed revocation or confirmed exit of the
-old sidecar generation. An unavailable status or HTTP timeout is not exit proof.
-Bound the revoke/grant exchange to five seconds. On failure, preserve the previous
-visible and durable focus, show Taskmaster switching unavailable, and grant no
-other workspace. Reconcile any uncertain destination grant by confirmed revoke
-or process exit before regranting the previous workspace with a newer epoch.
-Late replies cannot complete an abandoned transition. Never terminate coding
+Use this ordered handoff: ready destination (still suspended), confirmed old
+revocation or old-generation exit, commit destination focus, then send destination
+activation for that epoch. No activation may be sent before Electron has durably
+recorded and published the new focus and the renderer has acknowledged adopting
+that workspace/epoch. This acknowledgement describes adopted UI state, not a
+paint-timing guarantee. Serialize focus changes through that acknowledgement;
+if it fails or exceeds five seconds, keep the committed destination selected with
+analysis suspended and
+recover the renderer into that state. Never roll focus back while activation is
+uncertain. An unavailable status or HTTP timeout is not process-exit proof.
+
+Bound revocation and activation requests individually to five seconds. Failure
+before focus commit preserves previous visible/durable focus and grants nobody
+else; restore old permission only with a newer epoch after reconciling revocation.
+Failure after focus commit keeps the destination focused and shows its Taskmaster
+activation as unavailable/uncertain. Reconcile/retry idempotently for that same
+workspace and epoch; do not refund usage or trigger an extra evaluation. A later
+switch must obtain confirmed revocation/exit from this possibly active destination
+before committing another focus. Late replies cannot complete an abandoned
+transition or change focus. Never terminate coding
 sessions merely to make a focus change succeed. After a confirmed old-sidecar
 crash, focus may move to a ready workspace, but model analysis remains blocked
 until the surviving process owner confirms the old inference exited: the crashed
 sidecar's released analysis lease alone is insufficient. Recovery still starts
 suspended. These rules trade
-a visible failed switch during an unresponsive-sidecar fault for unambiguous
+a visible failed switch or unavailable analysis during a sidecar fault for unambiguous
 analysis authority, without adding a second cross-process coordination service.
 
 Retain the cross-process analysis lease until actual inference cleanup finishes;
