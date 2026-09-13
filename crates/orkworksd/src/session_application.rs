@@ -6447,6 +6447,27 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(SessionError::Conflict)));
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert!(stored.plan_path.is_none());
+        assert!(!state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(id)
+            .iter()
+            .any(|event| event.event_type == "session.plan_selected_by_user"));
     }
 
     #[tokio::test]

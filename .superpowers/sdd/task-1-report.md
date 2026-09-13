@@ -1,64 +1,34 @@
 # Task 1 report
 
-## Status
+## Implementation
 
-Complete. The domain-model and strict-validation slice is implemented and
-committed as `feat: add harness compatibility profiles`, with a follow-up
-review-fix commit for persistence-boundary validation and diagnostics.
+Added the requested renderer characterization test, Windows resolver normalization tests, Windows printed-path resolution fixture, and strengthened the unresolvable `select_plan` rejection assertions. No production implementation code was changed.
 
-## Changes
+## Files
 
-- Added the closed `CompatibilityProfile::Copilot` enum and the single
-  `derive_compatibility_metadata` mapping to compiled Copilot bindings.
-- Added the v3 `compatibilityProfiles` map to `HarnessUserDocument`; v2
-  documents migrate with an empty profile map.
-- Added strict JSON parsing with the 256 KiB limit, duplicate-key rejection,
-  and trailing-input rejection.
-- Added restricted custom-definition parsing with unknown-field, compiled
-  binding, malformed placeholder, and lowercase kebab-case validation.
-- Routed persisted user documents through the restricted custom-definition
-  parser so raw JSON cannot smuggle integration/session-signal bindings into a
-  custom definition.
-- Added JSON paths to schema diagnostics and retained null-versus-omitted
-  patch semantics.
-- Updated the version gate and diagnostic construction required by the v3
-  document and schema diagnostics.
-- Added a sidecar-only profile assignment method, orphan-profile validation,
-  and atomic custom-definition/profile cleanup on deletion.
-- Added field-specific paths for nested schema type and required-field errors
-  and a trailing-input parser regression test.
-- Routed create and update HTTP bodies through the strict parser and the
-  restricted custom-definition parser, including strict envelope validation.
-- Tightened ID segments, capability-variant field combinations, and Peon
-  model-template placeholder validation.
-- Kept persisted `compatibilityProfiles` in a sidecar-only stored-document
-  parser while removing generic `HarnessUserDocument` deserialization, so the
-  editable custom JSON/API paths cannot mutate profile metadata; v2 migration
-  discards any legacy profile field.
+- `apps/desktop/tests/terminalLinks.test.ts`
+- `crates/orkworksd/src/plan_handoff.rs`
+- `crates/orkworksd/src/session_application.rs`
 
-## Verification
+## Test commands and results
 
-```text
-rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml -- --check
-pass
+- `pnpm --dir apps/desktop exec node --experimental-strip-types --test tests/terminalLinks.test.ts` — blocked by PowerShell execution policy for `pnpm.ps1`.
+- Equivalent `pnpm.cmd ...` — blocked by a local pnpm temporary-file permission error while pnpm attempted its dependency status check.
+- Direct Node test — could not run because this worktree has no installed `@xterm/xterm` dependency.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml plan_handoff` — RED: the new non-Windows test fails to compile because `normalize_windows_drive_alias` is not yet implemented. The build also reports an unrelated pre-existing moved-`Arc` test error at `session_application.rs:5591`.
+- `cargo test --manifest-path crates/orkworksd/Cargo.toml session_application::tests::select_plan_application_seam_rejects_unresolvable_path` — blocked by the same crate compilation errors.
+- `git diff --check` — passed.
 
-rtk cargo test --manifest-path crates/orkworksd/Cargo.toml harness::
-cargo test: 180 passed, 740 filtered out (2 suites)
+## TDD RED evidence
 
-rtk cargo test --manifest-path crates/orkworksd/Cargo.toml http::harness_handlers::tests
-3 passed
+The resolver test correctly exposes the missing production helper with `cannot find function normalize_windows_drive_alias`; this is the expected RED-phase failure before the Windows implementation task.
 
-rtk git diff --check
-pass
-```
+## Self-review
 
-The full Rust suite was not run for this focused task.
+Reviewed the diff against the brief. Changes are test-only, limited to the three specified source files, preserve the exact renderer path text, use the requested `cfg` gates and fixture shape, and assert no persisted plan or selection event after rejection.
 
 ## Concerns
 
-- The existing runtime `HarnessDefinition` remains intentionally broad for
-  built-ins and derived metadata; persisted custom JSON uses the restricted
-  parser and the registry still validates custom authority fields. The
-  sidecar-owned profile map is loaded only through the restricted document
-  parser and can be mutated through the sidecar method.
-- Registry projection and provider behavior remain for Task 2.
+- The focused desktop test could not execute in this worktree because dependencies are unavailable and pnpm setup is permission-blocked.
+- The Rust crate currently has an unrelated existing compile error involving a moved `Arc`.
+- Commit creation requires elevated filesystem permission for the linked worktree’s Git index lock.

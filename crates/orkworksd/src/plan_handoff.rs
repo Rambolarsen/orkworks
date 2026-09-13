@@ -403,6 +403,22 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_only_one_leading_slash_from_a_windows_drive_alias() {
+        assert_eq!(normalize_windows_drive_alias("/C:/repo/specs/plan.md"), "C:/repo/specs/plan.md");
+        assert_eq!(normalize_windows_drive_alias("/C:\\repo\\specs\\plan.md"), "C:\\repo\\specs\\plan.md");
+        assert_eq!(normalize_windows_drive_alias("//C:/repo/specs/plan.md"), "//C:/repo/specs/plan.md");
+        assert_eq!(normalize_windows_drive_alias("/1:/repo/specs/plan.md"), "/1:/repo/specs/plan.md");
+        assert_eq!(normalize_windows_drive_alias("/C:relative/specs/plan.md"), "/C:relative/specs/plan.md");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn leaves_windows_drive_display_aliases_unchanged_on_non_windows() {
+        assert_eq!(normalize_windows_drive_alias("/C:/repo/specs/plan.md"), "/C:/repo/specs/plan.md");
+    }
+
     #[test]
     fn accepts_workspace_relative_markdown_only() {
         let workspace = tempfile::tempdir().unwrap();
@@ -552,6 +568,22 @@ mod tests {
         fs::write(plan_dir.join("plan.md"), "# plan").unwrap();
         let (root, relative) =
             resolve_printed_plan_path(workspace.path(), "specs/plan.md").unwrap();
+        assert_eq!(root, workspace.path().canonicalize().unwrap());
+        assert_eq!(relative, "specs/plan.md");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolves_a_single_slash_prefixed_windows_drive_plan_path() {
+        let workspace = tempfile::tempdir().unwrap();
+        let plan = workspace.path().join("specs/plan.md");
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::write(&plan, "# plan").unwrap();
+        git2::Repository::init(workspace.path()).unwrap();
+        let printed = format!("/{}", plan.to_string_lossy().replace('\\', "/"));
+
+        let (root, relative) = resolve_printed_plan_path(workspace.path(), &printed).unwrap();
+
         assert_eq!(root, workspace.path().canonicalize().unwrap());
         assert_eq!(relative, "specs/plan.md");
     }
