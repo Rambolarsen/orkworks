@@ -67,7 +67,7 @@ A session Peon answers:
 - What should probably happen next inside this session?
 - How confident is the observation?
 
-A repo Peon may summarize repo-level artifacts and signals, but it does not coordinate sessions.
+A repo Peon may summarize repo-level signals (the repo-scoped Peon from ADR 0012), but it does not coordinate sessions.
 
 ### Taskmaster
 
@@ -812,13 +812,15 @@ Taskmaster adds:
 
 Taskmaster should produce the action intent, then delegate harness/model ranking to the shared recommendation engine.
 
-### Review Queue
+### Session plan/spec review
 
-The Review Queue surfaces plan and spec artifacts for the user to read. Taskmaster coordinates session transitions.
+The repo-wide Review Queue proposal (`specs/review-queue.md`) is superseded by
+`specs/session-plan-review.md`; the artifact-inbox design is not in product
+scope. Session-owned plan/spec review — surfaced through the selected-session
+Review tab and explicit review-prompt handoff — is the mechanism Taskmaster may
+observe evidence from, but Taskmaster remains a workflow recommendation engine:
 
-They may share UI patterns and repo-level Peon infrastructure, but their responsibilities remain distinct:
-
-- Review Queue: artifact inbox
+- Session plan/spec review: session-owned artifact review
 - Taskmaster: workflow recommendation engine
 
 ### Right-side action overview
