@@ -14,7 +14,14 @@ import {
   trackUnread,
   type UnreadState,
 } from "./sessionUnread";
-import { PANEL_DEFAULTS, buildDefaultLayout } from "./components/DockviewApp";
+import {
+  PANEL_DEFAULTS,
+  buildDefaultLayout,
+  synchronizeSignalPanels,
+  shouldShowRecommendationsPanel,
+  shouldShowReviewPanel,
+  type SignalPanelId,
+} from "./components/DockviewApp";
 import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
 import { activeNewSessionHarnesses } from "./newSessionDialogState";
@@ -62,7 +69,11 @@ function App() {
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
-  const sessionsHiddenLayoutRef = useRef<string | null>(null);
+  const signalPanelHiddenIdsRef = useRef<Set<SignalPanelId>>(new Set());
+  const sessionsHiddenLayoutRef = useRef<{
+    layout: string;
+    hiddenSignalPanels: SignalPanelId[];
+  } | null>(null);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
   const workspaceSessionControllerRef = useRef<ReturnType<typeof createWorkspaceSessionController> | null>(null);
   if (!workspaceSessionControllerRef.current) {
@@ -343,7 +354,9 @@ function App() {
     getTerminal(activeSessionId)?.terminal.focus();
   }, [activeSessionId]);
 
-  const handleReviewPlan = useCallback(() => {
+  const handleReviewPlan = useCallback((sessionId = activeSessionId, refreshedSessions: readonly SessionInfo[] = sessions) => {
+    const activeSession = refreshedSessions.find((session) => session.id === sessionId);
+    if (!shouldShowReviewPanel(activeSession)) return;
     const api = dockviewApiRef.current;
     if (!api) return;
     const panel = api.getPanel("review") ?? api.addPanel({
@@ -352,11 +365,13 @@ function App() {
     });
     panel?.api.setActive();
     setReviewTick((tick) => tick + 1);
-  }, []);
+  }, [activeSessionId, sessions]);
 
   const [focusedRecommendationId, setFocusedRecommendationId] = useState<string | null>(null);
 
   const handleOpenRecommendation = useCallback((id: string) => {
+    const activeSession = sessions.find((session) => session.id === activeSessionId);
+    if (!shouldShowRecommendationsPanel(activeSession)) return;
     setFocusedRecommendationId(id);
     const api = dockviewApiRef.current;
     if (!api) return;
@@ -371,7 +386,7 @@ function App() {
     }
     const panel = api.getPanel("recommendations") ?? api.addPanel(options);
     panel?.api.setActive();
-  }, []);
+  }, [activeSessionId, sessions]);
 
   useEffect(() => {
     const onSelected = (event: Event) => {
@@ -379,7 +394,7 @@ function App() {
       if (typeof sessionId !== "string") return;
       workspaceSessionController.selectSession(sessionId);
       void refreshSessions().then((refreshed) => {
-        if (refreshed) handleReviewPlan();
+        if (refreshed) handleReviewPlan(sessionId, refreshed);
       });
     };
     window.addEventListener("orkworks:terminal-plan-selected", onSelected);
@@ -459,6 +474,9 @@ function App() {
       if (action === "focus" && panelId) {
         const def = PANEL_DEFAULTS[panelId];
         if (!def) return;
+        const activeSession = sessions.find((session) => session.id === activeSessionId);
+        if (panelId === "recommendations" && !shouldShowRecommendationsPanel(activeSession)) return;
+        if (panelId === "review" && !shouldShowReviewPanel(activeSession)) return;
         const existing = api.getPanel(def.component);
 
         if (panelId === "sessions") {
@@ -471,7 +489,14 @@ function App() {
             const snapshot = sessionsHiddenLayoutRef.current;
             if (snapshot) {
               try {
-                api.fromJSON(JSON.parse(snapshot));
+                api.fromJSON(JSON.parse(snapshot.layout));
+                signalPanelHiddenIdsRef.current = new Set(snapshot.hiddenSignalPanels);
+                const restoredActiveSession = sessions.find((session) => session.id === activeSessionId);
+                synchronizeSignalPanels(
+                  api,
+                  restoredActiveSession,
+                  signalPanelHiddenIdsRef.current,
+                );
                 sessionsHiddenLayoutRef.current = null;
                 focusList();
                 return;
@@ -496,7 +521,10 @@ function App() {
           const listEl = document.getElementById("sessions-list");
           const isFocused = !!listEl && listEl.contains(document.activeElement);
           if (isFocused) {
-            sessionsHiddenLayoutRef.current = JSON.stringify(api.toJSON());
+            sessionsHiddenLayoutRef.current = {
+              layout: JSON.stringify(api.toJSON()),
+              hiddenSignalPanels: [...signalPanelHiddenIdsRef.current],
+            };
             existing.api.close();
           } else if (!existing.api.isActive) {
             existing.api.setActive();
@@ -508,8 +536,14 @@ function App() {
         }
 
         if (existing) {
+          if (panelId === "recommendations" || panelId === "review") {
+            signalPanelHiddenIdsRef.current.add(panelId);
+          }
           existing.api.close();
         } else {
+          if (panelId === "recommendations" || panelId === "review") {
+            signalPanelHiddenIdsRef.current.delete(panelId);
+          }
           const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
             id: def.component,
             component: def.component,
@@ -524,11 +558,13 @@ function App() {
         }
       } else if (action === "reset-layout") {
         sessionsHiddenLayoutRef.current = null;
+        signalPanelHiddenIdsRef.current.clear();
         api.clear();
         buildDefaultLayout(api);
+        synchronizeSignalPanels(api, sessions.find((session) => session.id === activeSessionId), signalPanelHiddenIdsRef.current);
       }
     });
-  }, [handleCreateSession]);
+  }, [handleCreateSession, activeSessionId, sessions, openSettings]);
 
   return (
     <div className="app-shell">
@@ -604,8 +640,9 @@ function App() {
         onOpenWorkspace={handleOpenWorkspace}
         onReviewPlan={handleReviewPlan}
             onBackendUnavailable={handleBackendUnavailable}
-            onRetryBackend={handleRetryBackend}
+        onRetryBackend={handleRetryBackend}
         dockviewApiRef={dockviewApiRef}
+        signalPanelHiddenIdsRef={signalPanelHiddenIdsRef}
       />
       {(backendStatus === "unreachable" || backendStatus === "exhausted") && (
         <div className="backend-recovery-backdrop" role="alert">

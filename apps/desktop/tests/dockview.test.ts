@@ -171,7 +171,7 @@ test("DockviewApp migrates pre-redesign stored layouts that referenced removed p
   assert.match(source, /"recommendations"/);
   // Post-redesign layouts are versioned, so they never match the migration
   // predicate after the user opens Capacity/Recommendations from the View menu.
-  assert.match(source, /\{ v: 1, d: api\.toJSON\(\) \}/);
+  assert.match(source, /v: 1,[\s\S]*d: api\.toJSON\(\),[\s\S]*hiddenSignalPanels/);
 });
 
 test("App and DockviewApp share one canonical default-layout builder", () => {
@@ -179,8 +179,73 @@ test("App and DockviewApp share one canonical default-layout builder", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
   assert.match(dockview, /export function buildDefaultLayout\(/);
-  assert.match(app, /buildDefaultLayout\s*\}\s*from\s*"\.\/components\/DockviewApp"/);
+  assert.match(app, /PANEL_DEFAULTS[\s\S]*buildDefaultLayout[\s\S]*from "\.\/components\/DockviewApp"/);
   assert.match(app, /buildDefaultLayout\(api\)/);
+});
+
+test("DockviewApp automatically adds and removes signal panels from the active session", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /export function shouldShowRecommendationsPanel/);
+  assert.match(source, /export function shouldShowReviewPanel/);
+  assert.match(source, /synchronizeSignalPanels\(\s*api,\s*activeSession,/);
+  assert.match(source, /if \(shouldShow\) \{[\s\S]*?api\.addPanel/);
+  assert.match(source, /panel\??\.api\.close\(\)/);
+});
+
+test("DockviewApp does not reopen a signal panel while its condition stays true", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /signalPanelHiddenIdsRef/);
+  assert.match(source, /hiddenSignalPanelIds\.has\(id\)/);
+});
+
+test("DockviewApp keeps automatically added signal panels inactive", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /title: def\.title,[\s\S]*inactive: true/);
+});
+
+test("DockviewApp preserves restored signal-panel visibility choices", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /signalPanelHiddenIdsRef/);
+  assert.match(source, /hiddenSignalPanels/);
+});
+
+test("DockviewApp does not treat the generic shell fallback as a recommendation harness", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /generic-shell/);
+});
+
+test("App does not open signal panels when their active-session condition is false", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /shouldShowRecommendationsPanel/);
+  assert.match(source, /shouldShowReviewPanel/);
+  assert.match(source, /panelId === "recommendations"[\s\S]*?shouldShowRecommendationsPanel/);
+  assert.match(source, /panelId === "review"[\s\S]*?shouldShowReviewPanel/);
+});
+
+test("App refreshes the menu subscription when the active session changes", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /\}, \[handleCreateSession, activeSessionId, sessions, openSettings\]\);/);
+});
+
+test("App reviews the session selected by a terminal plan link", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const handleReviewPlan = useCallback\(\(sessionId = activeSessionId, refreshedSessions[^)]* = sessions\) =>/);
+  assert.match(source, /handleReviewPlan\(sessionId, refreshed\)/);
+});
+
+test("App revalidates signal panels after restoring the hidden sessions layout", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /hiddenSignalPanels: \[\.\.\.signalPanelHiddenIdsRef\.current\]/);
+  assert.match(source, /api\.fromJSON\(JSON\.parse\(snapshot\.layout\)\);[\s\S]*synchronizeSignalPanels\([\s\S]*signalPanelHiddenIdsRef\.current/);
 });
 
 test("DockviewApp exposes header actions for Sessions and Review panels", () => {

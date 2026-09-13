@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   DockviewDefaultTab,
   DockviewReact,
@@ -47,6 +47,7 @@ interface DockviewAppData {
   onBackendUnavailable: () => void;
   onRetryBackend: () => void;
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
+  signalPanelHiddenIdsRef: React.MutableRefObject<Set<SignalPanelId>>;
 }
 
 const DockviewContext = createContext<DockviewAppData>(null!);
@@ -186,6 +187,58 @@ export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
   review:          { component: "review", title: "Review", position: { referencePanel: "terminal" } },
 };
 
+export function shouldShowRecommendationsPanel(
+  session: Pick<SessionInfo, "harnessId" | "harness"> | null | undefined,
+): boolean {
+  const harnessId = session?.harnessId?.trim() || session?.harness?.trim();
+  return Boolean(harnessId) && harnessId !== "generic-shell";
+}
+
+export function shouldShowReviewPanel(
+  session: Pick<SessionInfo, "hasOpenablePlan"> | null | undefined,
+): boolean {
+  return session?.hasOpenablePlan === true;
+}
+
+export type SignalPanelId = "recommendations" | "review";
+
+function panelOptions(api: DockviewApi, id: string): Parameters<typeof api.addPanel>[0] {
+  const def = PANEL_DEFAULTS[id];
+  const options: Parameters<typeof api.addPanel>[0] = {
+    id: def.component,
+    component: def.component,
+    title: def.title,
+    inactive: true,
+  };
+  if (def.position && api.getPanel(def.position.referencePanel)) {
+    options.position = {
+      referencePanel: def.position.referencePanel,
+      direction: def.position.direction,
+    };
+  }
+  return options;
+}
+
+export function synchronizeSignalPanels(
+  api: DockviewApi,
+  activeSession: SessionInfo | undefined,
+  hiddenSignalPanelIds: ReadonlySet<SignalPanelId> = new Set(),
+): void {
+  const signalPanels = [
+    { id: "recommendations", shouldShow: shouldShowRecommendationsPanel(activeSession) },
+    { id: "review", shouldShow: shouldShowReviewPanel(activeSession) },
+  ] satisfies ReadonlyArray<{ id: SignalPanelId; shouldShow: boolean }>;
+  for (const { id, shouldShow } of signalPanels) {
+    const def = PANEL_DEFAULTS[id];
+    const panel = api.getPanel(def.component);
+    if (shouldShow) {
+      if (!panel && !hiddenSignalPanelIds.has(id)) api.addPanel(panelOptions(api, id));
+    } else {
+      panel?.api.close();
+    }
+  }
+}
+
 /** Single source of truth for first-launch / Reset Layout. Capacity and
  *  Recommendations are reachable via View menu hotkeys but closed by default
  *  until they carry signal. */
@@ -221,12 +274,26 @@ function DockviewApp(props: DockviewAppData) {
   const ctxValue = props;
 
   const initializedRef = useRef(false);
+  const [layoutReady, setLayoutReady] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
+  const activeSession = props.sessions.find((s) => s.id === props.activeSessionId);
+
+  useEffect(() => {
+    const api = dockviewApiRef.current;
+    if (!layoutReady || !api) return;
+    synchronizeSignalPanels(
+      api,
+      activeSession,
+      props.signalPanelHiddenIdsRef.current,
+    );
+  }, [activeSession, dockviewApiRef, layoutReady, props.signalPanelHiddenIdsRef]);
 
   function resetLayout(api: DockviewApi) {
     api.clear();
     buildDefaultLayout(api);
+    props.signalPanelHiddenIdsRef.current.clear();
+    synchronizeSignalPanels(api, activeSession, props.signalPanelHiddenIdsRef.current);
   }
 
   function reportVisibility(api: DockviewApi) {
@@ -266,17 +333,27 @@ function DockviewApp(props: DockviewAppData) {
                       api.fromJSON(
                         "v" in parsed ? (parsed as { d: unknown }).d : parsed,
                       );
+                      props.signalPanelHiddenIdsRef.current = new Set(
+                        "v" in parsed && Array.isArray((parsed as { hiddenSignalPanels?: unknown }).hiddenSignalPanels)
+                          ? (parsed as { hiddenSignalPanels: unknown[] }).hiddenSignalPanels.filter(
+                              (id): id is SignalPanelId => id === "recommendations" || id === "review",
+                            )
+                          : [],
+                      );
                     }
                     reportVisibility(api);
                     setIsEmpty(api.totalPanels === 0);
+                    setLayoutReady(true);
                     return;
                   } catch (e) {
                     console.warn("[DockviewApp] failed to restore layout, using default", e);
                   }
                 }
                 buildDefaultLayout(api);
+                props.signalPanelHiddenIdsRef.current.clear();
                 reportVisibility(api);
                 setIsEmpty(api.totalPanels === 0);
+                setLayoutReady(true);
               });
 
             api.onDidLayoutChange(() => {
@@ -285,7 +362,11 @@ function DockviewApp(props: DockviewAppData) {
               if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
               saveTimerRef.current = setTimeout(() => {
                 window.orkworks.saveLayout(
-                  JSON.stringify({ v: 1, d: api.toJSON() }),
+                  JSON.stringify({
+                    v: 1,
+                    d: api.toJSON(),
+                    hiddenSignalPanels: [...props.signalPanelHiddenIdsRef.current],
+                  }),
                 );
               }, 500);
             });
