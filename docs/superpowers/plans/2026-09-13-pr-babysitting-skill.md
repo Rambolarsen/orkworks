@@ -53,6 +53,12 @@ skill-loaded run built a complete feedback ledger, withheld mutations until
 ownership was known, rechecked the head SHA, separated trivial from substantial
 work, and produced an evidence-only budget handoff.
 
+Run a follow-up scenario with the three-cycle limit exhausted, Codex reporting
+a quota cap, Copilot producing no current-head result, green CI, and no host
+wake-up mechanism. The skill-loaded agent correctly refused blind retries and
+extra cycles, treated review as unresolved, preserved the provider failure
+evidence, and produced an evidence-only human handoff.
+
 ### Task 2: Make planning and catalog routing unambiguous
 
 **Files:**

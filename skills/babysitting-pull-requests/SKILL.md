@@ -141,13 +141,69 @@ gate's documented risk or size conditions. Automated Codex, Copilot, and
 custom-workflow reviews do not replace that manual gate. Docs-only changes do
 not need this code-review rerun.
 
+## Feedback-cycle budget
+
+The feedback loop has a separate finite budget from the wall-clock babysit
+budget. By default, allow at most **three substantial review cycles per PR
+lifecycle**, shared across sessions. Count one cycle when reviewer feedback
+causes a substantial change and the agent requests fresh review for that new
+head. Trivial typo, formatting-only, or isolated documentation clarifications
+do not consume a cycle.
+
+Before triggering fresh review, read the prior handoff or PR conversation and
+record the cycle number, limit, head SHA, and review trigger (for example,
+`substantial review cycle 2/3; head <sha>; Codex and Copilot requested`). Do
+not reset this count merely because a new session adopts the PR. If the limit
+is reached, stop the feedback loop and ask the human partner for an explicit,
+finite extension before triggering another review. Record the approved number
+of additional cycles; never grant an open-ended extension or silently start a
+new cycle.
+
+The cycle cap does not permit completion or merge with undispositioned
+feedback. At the cap, hand off with the unresolved comments, current head,
+review/CI evidence, cycle count, and the exact human decision needed.
+
+## Review-service availability
+
+Each substantial cycle permits at most one Codex request and one Copilot
+request. A quota or rate-limit response, service cap, permission failure, or
+missing current-head result is an external review blocker; it is not a reason
+to start another cycle, switch accounts, spawn another coding harness, or retry
+blindly. Record the reviewer, head SHA, request time, response or timeout, and
+last observed state, then keep the human partner informed. The PR cannot be
+called review-complete while a required current-head review is unavailable;
+the human must explicitly decide whether to wait, provide a finite retry
+authorization, or use an applicable alternative review path.
+
+## Continuation contract
+
+An open PR is not being babysat unless an active check or a real continuation
+has been established. Before ending a check-in while the PR is still open:
+
+1. If the host exposes a wake-up or scheduled-resume mechanism, schedule the
+   next check before responding. Use a 20–30 minute cadence within the
+   bounded budget, and carry the PR number, last verified `headRefOid`, last
+   check timestamp, CI/review state, and unresolved items into the resumed
+   session.
+2. If no wake-up mechanism is available, continue polling only while this
+   session is actively running. When the turn ends, state explicitly that
+   babysitting has stopped and provide the exact handoff evidence; do not say
+   “waiting,” “still watching,” or “I’ll keep checking.”
+3. On every scheduled or manually resumed check, start with the complete
+   inventory above. A resumed session must not assume that the old head,
+   comments, reviews, or checks are still current.
+
+Never claim background monitoring without a scheduled continuation that the
+host actually accepted. A queued review request is not a continuation.
+
 ## Re-check loop and stopping conditions
 
 After opening the PR, after each push, and after CI or review activity settles,
 repeat the complete inventory. Use the bounded self-babysit budget defined by
-`starting-work`; use the host wake-up mechanism when available. If no wake-up
-mechanism is available, report the exact last-checked commit, timestamp, checks,
-and unresolved items instead of implying background monitoring.
+`starting-work`, the feedback-cycle budget, and the continuation contract
+above. If no wake-up mechanism is available, report the exact last-checked
+commit, timestamp, checks, and unresolved items instead of implying background
+monitoring.
 
 Stop only when the PR is merged or closed, the user explicitly stops or takes
 over, permissions prevent progress, or the documented babysit budget expires.
