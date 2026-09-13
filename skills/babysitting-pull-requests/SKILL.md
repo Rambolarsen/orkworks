@@ -92,6 +92,13 @@ The workflow skips documentation-only and fork PRs. A manual dispatch can
 force a relevant-code review below the normal size threshold, but it cannot
 make a documentation-only or fork PR eligible.
 
+Record the run URL or ID returned by the dispatch, then wait for that exact run
+to finish before completing the feedback cycle. Use `gh run watch <run-id> --exit-status`
+(or repeatedly query that run's status and conclusion), then
+rescan all PR comment channels because the review comment is asynchronous.
+`gh pr checks` alone is not proof that this manually dispatched review ran or
+finished.
+
 For PRs targeting `main`, request or re-request GitHub's native Copilot review
 through the PR's Reviewer controls. The equivalent API request is:
 
@@ -109,6 +116,13 @@ Treat every resulting comment as a new item and run this skill again. Copilot
 does not necessarily re-review new pushes unless the repository ruleset is
 configured to review new pushes, so explicitly request the re-review after a
 substantial change.
+
+For a substantial feedback-driven change touching `apps/desktop/` or
+`crates/orkworksd/`, also rerun the repository's mandatory manual review on the
+new head with `/code-review low`, escalating the effort only under the review
+gate's documented risk or size conditions. Automated Codex, Copilot, and
+custom-workflow reviews do not replace that manual gate. Docs-only changes do
+not need this code-review rerun.
 
 ## Re-check loop and stopping conditions
 
