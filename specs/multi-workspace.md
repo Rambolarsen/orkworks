@@ -28,6 +28,14 @@ The executable validation requirements are described in the
 - **Closed:** has no owned running processes; its location and durable history
   remain remembered. Closing does not delete session history or project files.
 
+Normalize the existing lifecycle events without replacing its retry policy:
+initial `starting` maps to starting; `retrying` and the following retry launch map
+to recovering; `failed`/`exhausted` map to unavailable with the existing reason.
+A scheduled retry can move failed -> recovering; exhausted requires explicit
+Retry. `ready` becomes registry-ready only after restoration succeeds. Closing
+takes precedence over lifecycle events until owned cleanup finishes; stale
+generation events cannot clear it or initiate recovery.
+
 Canonical filesystem identity determines whether a workspace is already open.
 Aliases must reuse the same runtime. Different Git worktrees remain separate
 workspaces even when they share a Git common directory. This feature does not
@@ -43,18 +51,29 @@ resolve junctions/symlinks and equivalent drive-letter, separator, case and
 extended-path spellings using filesystem semantics; do not lowercase paths or
 assume that distinct UNC shares/server names are aliases. Preserve distinctions
 on case-sensitive filesystems. Revalidate identity before opening; if resolution
-fails or the directory was replaced, report it rather than falling back to the
+fails or identity changes during this open attempt, report it rather than falling back to the
 raw spelling. Reuse existing durable metadata/settings for the resolved workspace;
 normalization must not silently create a second history or discard overrides.
 Pass the expected OS directory identity with the sidecar open request. The
 sidecar must open and retain a directory handle, compare its resolved identity
 before metadata loading/reconciliation, and bind adoption to that directory.
-A path-only request or parent-only check is insufficient. Resolve workspace
-operations against the retained directory or revalidate their identity before
-using path-based facilities; replacement must fail visibly, never inherit the
-original workspace's history or settings. Native validation must cover replacement
-between Electron's check and sidecar adoption and establish the platform mechanism
-before implementing this boundary.
+A path-only request or parent-only check is insufficient for that adoption check.
+Native validation covers replacement between Electron's check and sidecar adoption.
+
+This is an open-attempt identity check, not a filesystem sandbox. Renaming or
+replacing the workspace root while open is unsupported; when detected, mark that
+runtime unavailable and require close/reopen before further app operations. A
+check followed by a path-based operation is not atomic protection against another
+process changing the filesystem in between. Do not claim such protection for Git,
+integration writes, or coding-tool working directories; pinning all such operations
+would require a separate platform design and is outside this feature.
+
+Remembered closed entries remain path shortcuts with the existing canonical-path
+metadata key, not durable filesystem-object identities. Reopening resolves the
+current directory at that path; a deliberately replaced directory can therefore
+see the path's existing history/settings. Do not silently migrate keys, discard
+history, or imply that a remembered shortcut detects replacement while closed.
+The switcher exposes the full path so this existing storage behavior is explicit.
 
 ## Switcher and focus
 
@@ -89,19 +108,26 @@ Until a new destination is ready, preserve the previous focus and its terminal.
 Failure to open the destination leaves the previous focus usable and shows the
 destination's error. Coalesce simultaneous opens of the same identity.
 Commit the visible focus and durable last-focused location only after destination
-readiness and confirmed revocation of the old Taskmaster permission, then activate
+readiness and confirmed revocation of old foreground and Taskmaster authority, then activate
 the destination as described below. A failed or superseded pre-commit attempt must
 not overwrite the previous last-focused location.
 
 Persist workspace memory with atomic replacement of a synchronized temporary
 file, including a revision/focus epoch; do not reuse the direct truncating writer.
-On an ambiguous I/O outcome, read back and reconcile before restoring any analysis
-permission: a confirmed old record permits pre-commit recovery, a confirmed new
+On an ambiguous I/O outcome, read back and reconcile before restoring foreground
+or analysis permission: a confirmed old record permits pre-commit recovery, a confirmed new
 record requires adoption of that committed focus, and an unreadable/unknown record
-keeps analysis suspended with a visible storage error. Do not assume failure means
+keeps both authorities suspended with a visible storage error. Do not assume failure means
 the old record survived. Serialize memory writes and focus transitions so late
 writes cannot replace newer intent. Apply this contract to close/clear/forget
-writes as well; storage failure never resurrects terminated sessions.
+writes as well; storage failure never resurrects terminated sessions. Explicit
+close of the focused workspace must confirm a durable clear of last focus before
+terminating it. If that clear fails or is ambiguous, reconcile first and do not
+begin termination; keep the workspace open with a visible storage error. Once
+the clear is durable, cleanup may proceed. A later replacement-focus write failure
+can recover to the cleared record/picker, never the already-closed workspace.
+This close-specific ordering also covers closing the final workspace; ordinary
+app quit deliberately preserves last focus for restart.
 
 Switching detaches the previous terminal view, not its runtime. PTYs keep
 draining output, recording bounded history, and feeding Peon in background
@@ -142,9 +168,10 @@ workspace and running-session count: Cancel or Close workspace. Cancel leaves
 focus and processes unchanged. Include `creating`, `active`, and `ending` phases
 (ADR 0021); `ending` still has running status while finalization completes.
 With no non-terminal sessions, close
-directly. Atomically block creation/resume while taking the final runtime-generation
+directly. Atomically block creation/resume, analysis and new foreground submissions
+while taking the final runtime-generation
 and non-terminal-session snapshot, including for the no-dialog fast path. The
-sidecar serializes this gate with every start/resume admission, including requests
+sidecar serializes this gate with every start/resume and evaluation admission, including requests
 already in flight; those admitted before the gate appear in the snapshot. After
 a dialog, if the generation changed or additional sessions started, refresh
 confirmation before including them. Keep the gate during renewed confirmation;
@@ -154,7 +181,8 @@ If a sidecar is unavailable and session liveness cannot be confirmed, show the
 last known session count as uncertain and require confirmation before cleanup;
 never interpret a failed status request as an empty workspace.
 
-Once confirmed, reject new session creation/resume and new analysis for that
+After confirmation (or the gated no-dialog empty-session path), reject new
+session creation/resume and new analysis for that
 workspace, stop owned sessions and inference, await existing `ending` finalization,
 flush terminal metadata/history,
 then terminate the sidecar and confirm process exit and lease release. Keep
@@ -216,12 +244,19 @@ quit cleanup; refresh the aggregate confirmation if any set or generation widene
 Do not start cleanup in one workspace while another still needs confirmation.
 Crashes and forced OS termination cannot promise confirmation or graceful flush.
 
-One Electron lifecycle-operation coordinator owns workspace close, app quit and
-restart/install shutdown. Serialize them: quit requested during a close queues
+One Electron lifecycle-operation coordinator owns focus transitions, workspace
+close, app quit and restart/install shutdown. Serialize them: quit requested during a close queues
 behind that operation, then discovers fresh state; a close requested during quit
 cannot acquire gates or run a second dialog. Coalesce repeated requests and discard
 queued close requests on confirmed quit. Cancel only releases gates owned by that
 operation. A close failure leaves its runtime unresolved for the later quit snapshot.
+Preparing a destination can happen outside the coordinator, but revocation through
+focus publication/grant acknowledgement belongs to one operation. Revalidate
+destination generation/readiness after acquiring it. Close cannot terminate a
+reserved destination mid-handoff, and a handoff queued behind close cannot adopt
+the closed generation. Async failure, timeout and recovery events are reconciled
+under this ownership before the next operation begins; generation checks still
+reject spontaneous runtime failure during a transition.
 
 Before quit discovery, atomically freeze registry admission for new opens and
 generation replacement/recovery. An in-flight open must either already be registered
@@ -230,6 +265,16 @@ async path resolution. Keep this barrier through confirmation and cleanup, inclu
 the Cancel release of session gates; release it last on Cancel. Do not replay blocked
 opens automatically. Existing session starts use the per-runtime snapshot gates
 above. No background recovery or new workspace may escape the shutdown set.
+
+On confirmed cleanup failure, stop that quit/install operation and show the
+unresolved runtimes. Retain their ownership and per-runtime closing gates; do not
+restart them or report success. Reconcile any stopped entries and focus/storage
+outcome, restore admission for unaffected still-ready runtimes (foreground grants
+only through the normal focus protocol), then release the global registry barrier
+and coordinator. Entries already closed stay closed. The user may continue using
+unaffected workspaces or explicitly retry cleanup; retry acquires a fresh operation
+and fresh confirmation. Discard install authorization on failure: retry must obtain
+it again. Failure must not strand the application behind an unowned global gate.
 
 `Restart and install` and other app-wide graceful shutdown entry points use this
 same coordinator, aggregate uncertain-liveness confirmation and bounded cleanup;
@@ -247,6 +292,17 @@ Electron main owns one registry entry per canonical workspace. Each entry owns
 its sidecar process lifecycle, restoration readiness, generation, port, private
 authorization token, settings-application status, and bounded recovery policy.
 One focused-workspace identity is separate from all process generations.
+Only one desktop coordinator may own a given application-global metadata root.
+Acquire an OS advisory coordinator lease before reading/writing workspace memory
+or starting registry work; hold it until all shutdown bookkeeping ends or the
+process exits. Use Electron's single-instance mechanism for normal second-launch
+delivery: raise the existing window, without auto-opening arguments or changing
+workspace focus. A second process, including one with different Electron userData
+but the same metadata root, cannot create a second registry or grant focus. Report
+ownership conflict and exit if it cannot reach the owner. Never infer authority
+from a PID file. Independent test roots have independent leases; separate sidecar
+workspace/analysis leases retain their existing roles. Coordinator exit releases
+the lease, but does not waive the crash-cleanup proof required before relaunch.
 Reuse existing lifecycle/restoration modules behind this registry; do not
 duplicate their retry logic or replace the sidecar's single-workspace model.
 
@@ -271,7 +327,27 @@ existing reservation/rollback contract. An uncertain write outcome remains visib
 unresolved under the existing `executing` recovery contract, never blindly retried
 or reported accepted; prevent duplicate prompts.
 This foreground authority is independent of whether Taskmaster analysis is enabled.
-Coordinate the acceptance-time ADR 0048/spec update with this explicit boundary.
+After durable focus publication and renderer adoption, Electron sends a separate
+authenticated foreground grant bound to workspace, runtime generation and epoch.
+The sidecar acknowledges idempotently; requests cannot grant themselves authority
+by supplying a new epoch. New/recovered runtimes start with this gate closed.
+Await the grant acknowledgement before enabling Fix with AI or plan-review actions;
+timeout leaves those actions unavailable in the committed workspace, with bounded
+same-epoch reconciliation. Taskmaster analysis activation failure does not revoke
+an acknowledged foreground grant. Before another focus can commit, revoke both
+foreground and analysis authority, including any grant with an uncertain outcome.
+Initial focus and refocus use the same grant sequence.
+
+Ordinary keyboard input retains its original session/runtime-bound WebSocket
+route. Bytes sent while A was focused remain intended for A even if delivered
+after switching; never reroute them to B or silently discard a partial command.
+Detaching A's view stops new keyboard capture there; a stale detached-view callback
+must not send additional input. This is distinct from newly executing a delayed
+generated-prompt handoff. Validate delayed pre-detach delivery and post-detach
+capture separately, without promising that all PTY effects finish before switching.
+
+Coordinate acceptance updates to ADR 0048/Taskmaster and ADR 0034 with
+specs/session-plan-review.md for these foreground prompt boundaries.
 
 The renderer receives workspace identities and validated lifecycle summaries,
 never privileged tokens or arbitrary filesystem/network authority. Session
@@ -359,8 +435,8 @@ reservation, spawn and commit checks; it also requests inference cancellation,
 never coding-session cancellation. It need not wait for inference exit.
 
 Use this ordered handoff: ready destination (still suspended), confirmed old
-revocation or old-generation exit, commit destination focus, then send destination
-activation for that epoch. After an old-sidecar crash, additionally require
+revocation or old-generation exit, commit destination focus, then perform the
+foreground grant above and independent analysis activation for that epoch. After an old-sidecar crash, additionally require
 surviving-owner proof that old inference exited before activation; focus can commit
 while that proof is pending. A released lease alone cannot satisfy it.
 With no source workspace (cold-start restore, first picker selection, or focus
@@ -376,7 +452,8 @@ if it fails or exceeds five seconds, keep the committed destination selected wit
 analysis suspended and recover the renderer into that state. Never roll focus back while activation is
 uncertain. An unavailable status or HTTP timeout is not process-exit proof.
 
-Bound revocation and activation requests individually to five seconds. A confirmed
+Bound foreground grant, revocation and analysis activation requests individually
+to five seconds. A confirmed
 failure before focus commit preserves previous visible/durable focus and grants nobody
 else; restore old permission only with a newer epoch after reconciling revocation
 and uncertain storage outcomes under the workspace-memory contract above.

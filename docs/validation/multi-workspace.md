@@ -36,6 +36,8 @@ to prove survival through app actions; only the harness cleans them up afterward
 | Scenario | Required observation |
 | --- | --- |
 | Open A, start its fixture, open B | A retains PID, port and uninterrupted numbered output; B owns different runtime identity and port |
+| Launch two Electron processes with the same global root, including different userData | Exactly one coordinator lease/registry/memory writer; second launch raises existing window without changing workspace or reports conflict and exits; distinct isolated roots remain independent |
+| Existing lifecycle emits retrying/failed/exhausted | Normalize recovering/unavailable, preserve bounded retry timings, require explicit Retry after exhaustion; closing cannot be undone by late lifecycle events |
 | A reports need for input while B is focused | Switcher count increases once; B keeps focus; expanded A row identifies the attention |
 | A returns to working or ends | Its count clears from current state; no accumulating notification |
 | View waiting A, then return to B without answering A | Viewing leaves A's attention state unchanged; background aggregate returns to one until A reports working or ends |
@@ -47,11 +49,15 @@ to prove survival through app actions; only the harness cleans them up afterward
 | Windows directory aliases and case-sensitive distinct directories | Junction/symlink and equivalent drive/case/separator/extended-path aliases resolve using OS identity; equivalent UNC spellings coalesce only when identity is proven; distinct directories stay distinct |
 | Directory disappears or is replaced during resolution/open | Fail visibly before adopting a different identity; no raw-path fallback or duplicate metadata store |
 | Replace directory after Electron check but before sidecar adoption | Retained directory handle must match expected OS identity before metadata loading/reconciliation; replacement cannot inherit original registry/settings/history |
+| Replace root while open, then replace a closed remembered location | Detected open-root changes mark unavailable and require close/reopen; no atomic filesystem-sandbox guarantee is asserted. Closed-location reopen deliberately resolves current path and retains existing path-keyed history/settings |
 | Open separate Git worktrees of the same repository | Separate workspace runtimes and metadata; no worktree creation or deletion |
 | A and B have opposing workflow instructions and settings | Each model request and recommendation contains only permitted facts and effective settings for its own workspace |
 | Delayed session/settings/review request overlaps a switch | Mutation stays bound to its originating workspace; stale foreground response is discarded |
+| Startup get-initial-workspace waits for A while B is opened (#360) | Response retains captured A generation/identity or is rejected as stale; never returns mutable B restoration state as A's initial result |
 | Recommendation accept/plan-review submission overlaps focus revoke | Stale epoch/target rejected before PTY write; admitted write finishes before revoke acknowledgement/focus commit; no duplicate prompt or false accepted state |
 | PTY write result becomes unknown during revocation | Recommendation stays visibly `executing`/unresolved, with no rollback or blind retry; revoke cannot acknowledge until pending write is drained/cancelled with no possible later write; timeout preserves current focus |
+| Refocus B with Taskmaster disabled or analysis activation failing | Independent authenticated foreground grant/ack enables prompt actions; epoch in a request cannot self-grant; unknown grant leaves actions unavailable until reconciled; next switch revokes both authorities |
+| Delay A keyboard bytes already sent, then switch to B | Bytes reach only original A session/runtime without truncation; detached A view captures no new keys; generated-prompt revocation rules do not silently drop previously typed input |
 | Global definition/settings edit with both open | Both affected sidecars refresh; workspace overrides remain intact; partial apply failure identifies its workspace |
 | A-only Taskmaster settings edit | B's settings, diagnostics, recommendations and unrelated cache remain unchanged |
 | A reserves usage or shared ledger fails | B reflects shared remaining evaluations/ledger error; workspace analysis/cache diagnostics remain scoped |
@@ -63,7 +69,8 @@ to prove survival through app actions; only the harness cleans them up afterward
 | B activation response is lost after focus commit | B remains visibly/durably focused; activation cannot precede renderer focus acknowledgement; reconcile same epoch without extra evaluation/refund; switching away requires confirmed B revoke/exit |
 | Focus persistence or renderer acknowledgement fails | No destination activation; pre-commit failure preserves A, post-commit renderer failure recovers into selected B with analysis suspended |
 | Focus-memory replacement fails before/after publication or read-back fails | Complete old/new records only; read-back selects recovery, unknown outcome keeps analysis suspended; stale writers cannot overwrite newer focus |
-| Focused A crashes, then select ready B | Confirm A process exit before B permission; UI can move, but new model calls wait for proof old inference exited, not merely a released lock |
+| Close focused A with storage failure before clear or during B persistence | No A termination until durable clear confirmed; after A exits, failed B write falls back to cleared record/picker, never auto-reopens A; next startup follows confirmed durable outcome |
+| Focused A crashes, then select ready B | Confirm A sidecar exit before focus handoff; B foreground grant follows normal adoption/ack protocol independently; B analysis activation/model calls wait for proof old inference exited, not merely a released lock |
 | Refocus repeatedly after an inference reservation | No reservation refund, interval bypass, duplicate accepted output, or budget reset |
 | Crash background A | B's port, input and settings remain usable; A's last attention count is stale, not zero, excluded from confirmed total, with an accessible unavailable indicator and independent bounded recovery |
 | Select starting/recovering, unavailable, or closing A while B is focused | Existing bounded readiness is awaited, explicit error/Retry shown, or selection disabled respectively; failed/abandoned selection preserves B and last focus; recovery never steals focus |
@@ -77,6 +84,7 @@ to prove survival through app actions; only the harness cleans them up afterward
 | Owned child survives graceful cleanup and termination deadlines | Runtime remains visibly unresolved; cleanup never broadens to the foreign sidecar/sentinel or reuses a stale PID as ownership |
 | Confirm close A with running sessions | Only A's owned sessions/inference stop; flush and process exit precede closed state; A remains remembered |
 | Close ready A with no non-terminal sessions | Atomic admission gate confirms empty set; no confirmation or session termination; sidecar/inference cleanup still completes |
+| Empty A admits analysis concurrently with close/quit snapshot | Atomic gate covers evaluation as well as session starts; admitted inference is stopped/drained, later admission rejected; no-dialog path cannot bypass analysis gating |
 | Close A during session `ending` | Include session in confirmation; await bounded finalization/terminal transition before successful cleanup or report cleanup failure |
 | Session ends or another starts during close dialog | Recheck current generation/session set; broadened termination requires refreshed confirmation |
 | Race start/resume with final close/quit snapshot | Request is either admitted and included in confirmation, or rejected by the atomic gate; Cancel releases gates without terminating sessions |
@@ -84,6 +92,8 @@ to prove survival through app actions; only the harness cleans them up afterward
 | Close focused A while remaining entries are non-ready | Choose most recent ready entry only; with none ready, clear focus and show picker/statuses; later recovery does not auto-select; a chosen entry failing before commit returns to picker |
 | Repeated app quit, cancel, then confirm | One dialog at a time; cancel preserves work; confirmation stops all owned runtimes and leaves no fixture child |
 | Close overlaps quit/restart in either order | One owner of gates/dialog/cleanup; queued quit rediscovers after close; Cancel cannot release another operation's gates |
+| A-to-B focus handoff overlaps B close before/after selection | Coordinator serializes reservation and close; revalidate queued destination; neither obsolete grant nor durable focus can adopt closed B |
+| Confirmed quit/install cleanup fails with surviving owned child, then continue/retry | Keep survivor closing/owned; reconcile stopped entries/focus, release unaffected gates and global barrier; app usable, retry obtains new operation/confirmation; install authorization not reused |
 | Add/Open or recovery is resolving at quit discovery | Registry barrier includes registered attempt or rejects admission before spawn/adoption; no escaped runtime; Cancel releases gates in order without replaying blocked opens |
 | Restart and install with background sessions | Aggregate confirmation includes all runtimes; Cancel preserves sessions; install waits for exit and requires install-specific authorization |
 | Quit with an unavailable background runtime and no known live sessions | One confirmation still lists that workspace with uncertain count; no cleanup before confirmation |
@@ -129,9 +139,11 @@ Record Electron and per-sidecar working set/RSS, CPU, owned child count, inferen
 concurrency, and output backlog. Identify machine, OS, build revision and build
 mode. Do not combine debug and packaged-release results.
 
-For each condition, measure 30 switches between already-ready workspaces and
-report median/p95 click-to-visible-session latency. Measure 30 attention events
-and report median/p95 hook-acceptance-to-indicator latency. Repeat open/close
+For conditions with at least two ready workspaces, measure 30 switches and
+report median/p95 click-to-visible-session latency. In those same conditions,
+measure 30 background attention events and report median/p95 hook-acceptance-to-
+indicator latency. The one-workspace condition is a resource baseline, not a
+switch/background-indicator latency sample. Repeat open/close
 20 times and verify no cumulative child-process, handle or memory growth beyond
 the measured steady-state variation. Record raw samples and their units.
 

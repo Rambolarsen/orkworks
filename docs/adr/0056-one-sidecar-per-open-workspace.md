@@ -51,10 +51,27 @@ accepted, coordinate the focused-workspace qualification in specs/taskmaster.md,
 specs/taskmaster-knowledge.md, and ADR 0042's deterministic correlation clause,
 following the ADR amendment/supersession sequence. ADR 0054 remains the
 managed-CLI-policy decision.
-Acceptance also coordinates the release-pipeline shutdown contract and ADR 0048's
-foreground prompt-submission boundary. One lifecycle-operation coordinator owns
-close/quit/install and registry admission; stale handoffs cannot write after focus
+Acceptance also coordinates the release-pipeline shutdown contract, ADR 0048's
+foreground prompt-submission boundary, and ADR 0034/specs/session-plan-review.md.
+One lifecycle-operation coordinator owns focus/close/quit/install and registry
+admission; stale generated-prompt handoffs cannot write after focus
 revocation. Focus storage requires atomic publication and uncertain-outcome recovery.
+Clear durable last focus before terminating an explicitly closed focused workspace;
+failed replacement persistence cannot restore that closed workspace on restart.
+Failed quit cleanup retains unresolved ownership but releases global coordination
+after reconciling unaffected runtimes, allowing continued use or explicit retry.
+
+An OS advisory coordinator lease scopes one desktop registry/memory writer to
+one application-global data root, including launches with different userData.
+Electron single-instance delivery raises the existing window; a second registry
+cannot grant focus. Foreground prompt grants are explicit and independently
+acknowledged, even when Taskmaster analysis is disabled or unavailable. Ordinary
+already-sent keystrokes retain their original terminal target across a switch.
+
+Directory identity coalesces aliases and validates each open attempt. Remembered
+locations retain canonical-path metadata semantics; no persistent object-identity
+migration or atomic sandbox against concurrent root replacement is included.
+Changing the root while open is unsupported and detected changes require reopen.
 
 Analysis handoff requires destination readiness, confirmed old-generation
 revocation (or process exit), and generation/epoch-bound commands. Commit and
