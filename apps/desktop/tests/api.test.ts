@@ -10,6 +10,7 @@ import {
   duplicateHarness,
   forgetSession,
   getTaskmasterRecommendations,
+  getTaskmasterRecommendation,
   listHarnesses,
   removeHarnessProfile,
   saveHarnessConfiguration,
@@ -381,6 +382,22 @@ test("Taskmaster recommendation types include rollup lifecycle and evidence fiel
   assert.match(source, /rollupMemberDedupeKeys: string\[\]/);
   assert.match(source, /rollupGeneration: number \| null/);
   assert.match(source, /rolledUpBy: string \| null/);
+});
+
+test("Taskmaster detail fetch encodes hidden recommendation ids", async () => {
+  const origFetch = globalThis.fetch;
+  let requestUrl = "";
+  globalThis.fetch = (url: string | URL | Request) => {
+    requestUrl = String(url);
+    return Promise.resolve(new Response(JSON.stringify({ id: "rollup:member" }), { status: 200 }));
+  };
+  try {
+    const response = await getTaskmasterRecommendation("http://localhost:0", "rollup:member/1");
+    assert.equal(response.id, "rollup:member");
+    assert.match(requestUrl, /rollup%3Amember%2F1$/);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
 });
 
 test("Taskmaster dismissal sends an optional reason and accepts a successful response", async () => {

@@ -32,8 +32,8 @@ be recorded here before code is changed.
 - Task 2: complete
 - Task 3: complete
 - Task 4: complete
-- Task 5: pending
-- Task 6: pending
+- Task 5: complete
+- Task 6: in progress
 - Task 7: pending
 
 Task 1: fix round 1/5 (4 addressed, 0 open; commits b63d197..1c71e017)
@@ -54,3 +54,4 @@ Task 5: Ruling: a rollup result may update an existing active parent only for th
 Task 5: fix round 1/5 (4 addressed, 0 open; commits 012cf875..ffc8359)
 Task 5: fix round 2/5 (4 addressed, 0 open; commit 50a6fca)
 Task 5: fix round 3/5 (2 addressed, 1 intentionally rejected as conflicting with the no-changed-active-parent contract; current fixes uncommitted)
+Task 6: fix round 1/5 (2 addressed, 0 open; commit pending review)

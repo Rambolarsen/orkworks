@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   dismissTaskmasterRecommendation,
+  getTaskmasterRecommendation,
   getTaskmasterRecommendations,
   type ObservationDiagnostic,
   type WorkflowRecommendation,
@@ -138,13 +139,27 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const response = await getTaskmasterRecommendations(baseUrl);
-      setRecommendations(response.recommendations);
+      let nextRecommendations = response.recommendations;
+      if (
+        focusedRecommendationId
+        && !nextRecommendations.some((item) => item.id === focusedRecommendationId)
+      ) {
+        try {
+          nextRecommendations = [
+            ...nextRecommendations,
+            await getTaskmasterRecommendation(baseUrl, focusedRecommendationId),
+          ];
+        } catch {
+          // A stale history link should not make the actionable list fail.
+        }
+      }
+      setRecommendations(nextRecommendations);
       setDiagnostics(response.diagnostics);
       setError(undefined);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't load recommendations.");
     }
-  }, []);
+  }, [focusedRecommendationId]);
 
   useEffect(() => {
     // The panel mounts as part of the default layout, before the sidecar's

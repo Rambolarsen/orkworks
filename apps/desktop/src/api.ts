@@ -614,6 +614,17 @@ export async function getTaskmasterRecommendations(baseUrl: string): Promise<Rec
   return response.json();
 }
 
+export async function getTaskmasterRecommendation(
+  baseUrl: string,
+  id: string,
+): Promise<WorkflowRecommendation> {
+  const response = await taskmasterRequest(
+    baseUrl,
+    `/taskmaster/recommendations/${encodeURIComponent(id)}`,
+  );
+  return response.json();
+}
+
 export async function dismissTaskmasterRecommendation(
   baseUrl: string,
   id: string,
