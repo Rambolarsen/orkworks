@@ -93,6 +93,7 @@ Agents doing development work in this repo must use the installed Superpowers sk
 - Start each task by checking for applicable skills; if one might apply, invoke it before responding or editing.
 - Use `brainstorming` before creating features, building components, adding functionality, or modifying behavior.
 - Use `writing-plans` for multi-step implementation work after scope is understood.
+- During planning, after reviewing the relevant context and before decomposing work, use the two-question uncertainty and blind-spot checkpoint in [`skills/surfacing-blind-spots/`](skills/surfacing-blind-spots/): answer what you are least confident about and what the user/project may be missing, investigate anything that could change the outcome, and carry unresolved risks or spec gaps into the plan.
 - Use `test-driven-development` for feature and bugfix implementation unless the change is docs-only, config-only, or the user explicitly opts out.
 - Use `systematic-debugging` before fixing bugs, test failures, or unexpected behavior.
 - Use `receiving-code-review` when responding to review feedback.

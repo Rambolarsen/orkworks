@@ -48,6 +48,31 @@ silently choosing an interpretation. A source session, stale metadata, or an
 inferred status never authorizes resuming, reopening, or modifying that
 session; follow the task's explicit scope instead.
 
+## Planning uncertainty and blind-spot checkpoint
+
+After reviewing the relevant context and authoritative sources, but before
+decomposing a plan into implementation tasks, answer both questions:
+
+> **What am I least confident about right now?**
+
+> **What's the biggest thing I'm missing about the situation right now? What
+> am I not realizing?**
+
+Use the first question to identify uninvestigated files or paths, unsupported
+assumptions, unverified edge cases, dependencies taken on faith, and tests that
+may not pin the behavior they claim. Use the second to challenge the user's or
+project's framing: look for omitted constraints, alternative explanations,
+likely failure modes, and gaps between the request, specs, ADRs, code, and issue
+board.
+
+Investigate every answer that could change scope, architecture, acceptance
+criteria, or research conclusions before finalizing the plan. Record the
+evidence used and distinguish resolved questions from risks that remain. Carry
+real unresolved risks into the plan with a concrete validation or mitigation;
+when the finding is a spec gap, stop implementation planning and route it
+through the issue/spec workflow. Do not turn an uninvestigated doubt into a
+finding or add a separate issue for a concern already fixed or tracked.
+
 ## Architecture decision records
 
 Architecture decisions are recorded in `docs/adr/`, using the
