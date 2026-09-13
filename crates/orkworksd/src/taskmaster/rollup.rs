@@ -203,6 +203,11 @@ pub(crate) fn validate_rollup_clusters(
             summary: cluster.summary.clone(),
         });
     }
+    let mut normalized = normalized;
+    normalized.sort_by(|left, right| {
+        left.member_recommendation_ids
+            .cmp(&right.member_recommendation_ids)
+    });
     Ok(normalized)
 }
 
@@ -549,6 +554,45 @@ mod tests {
     }
 
     #[test]
+    fn reversed_model_cluster_order_has_identical_normalized_output() {
+        let snapshots = vec![
+            snapshot("recommendation-a", TargetSurface::Tooling),
+            snapshot("recommendation-b", TargetSurface::Tooling),
+            snapshot("recommendation-c", TargetSurface::Tooling),
+            snapshot("recommendation-d", TargetSurface::Tooling),
+        ];
+        let first = validate_rollup_clusters(
+            &snapshots,
+            &[
+                cluster(
+                    &["recommendation-c", "recommendation-d"],
+                    TargetSurface::Tooling,
+                ),
+                cluster(
+                    &["recommendation-a", "recommendation-b"],
+                    TargetSurface::Tooling,
+                ),
+            ],
+        )
+        .unwrap();
+        let second = validate_rollup_clusters(
+            &snapshots,
+            &[
+                cluster(
+                    &["recommendation-a", "recommendation-b"],
+                    TargetSurface::Tooling,
+                ),
+                cluster(
+                    &["recommendation-c", "recommendation-d"],
+                    TargetSurface::Tooling,
+                ),
+            ],
+        )
+        .unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
     fn rejects_unknown_member_ids() {
         let result = validate_rollup_clusters(
             &[snapshot("recommendation-a", TargetSurface::Tooling)],
@@ -659,6 +703,31 @@ mod tests {
     }
 
     #[test]
+    fn rejects_duplicate_cluster_sets() {
+        let snapshots = vec![
+            snapshot("recommendation-a", TargetSurface::Tooling),
+            snapshot("recommendation-b", TargetSurface::Tooling),
+        ];
+        let result = validate_rollup_clusters(
+            &snapshots,
+            &[
+                cluster(
+                    &["recommendation-a", "recommendation-b"],
+                    TargetSurface::Tooling,
+                ),
+                cluster(
+                    &["recommendation-b", "recommendation-a"],
+                    TargetSurface::Tooling,
+                ),
+            ],
+        );
+        assert!(matches!(
+            result,
+            Err(RollupValidationError::DuplicateCluster)
+        ));
+    }
+
+    #[test]
     fn rejects_generated_text_outside_bounds() {
         let snapshots = vec![
             snapshot("recommendation-a", TargetSurface::Tooling),
@@ -758,5 +827,90 @@ mod tests {
         let projection = project_parent_evidence(&evidence);
         assert!(projection.len() <= MAX_PARENT_EVIDENCE_ENTRIES);
         assert!(serialized_size(&projection) <= MAX_PARENT_EVIDENCE_BYTES);
+    }
+
+    #[test]
+    fn rejects_oversized_serialized_input() {
+        let mut supplied = vec![snapshot("recommendation-a", TargetSurface::Tooling)];
+        supplied[0].summary = "x".repeat(MAX_ROLLUP_INPUT_BYTES);
+        let result = validate_rollup_clusters(&supplied, &[]);
+        assert!(matches!(result, Err(RollupValidationError::InputTooLarge)));
+    }
+
+    #[test]
+    fn rejects_oversized_serialized_response() {
+        let result = validate_rollup_clusters(
+            &[],
+            &[RollupCluster {
+                member_recommendation_ids: vec!["x".repeat(10_000); 8],
+                target_surface: TargetSurface::Tooling,
+                title: "Valid title".into(),
+                summary: "Valid summary".into(),
+            }],
+        );
+        assert!(matches!(
+            result,
+            Err(RollupValidationError::ResponseTooLarge)
+        ));
+    }
+
+    #[test]
+    fn rejects_excessive_supplied_families() {
+        let supplied: Vec<_> = (0..=MAX_ROLLUP_FAMILIES)
+            .map(|index| snapshot(&format!("recommendation-{index}"), TargetSurface::Tooling))
+            .collect();
+        let result = validate_rollup_clusters(&supplied, &[]);
+        assert!(matches!(
+            result,
+            Err(RollupValidationError::TooManyFamilies)
+        ));
+    }
+
+    #[test]
+    fn rejects_excessive_supplied_representative_observations() {
+        let mut supplied = vec![snapshot("recommendation-a", TargetSurface::Tooling)];
+        supplied[0].representative_evidence = (0..=MAX_ROLLUP_OBSERVATIONS)
+            .map(|index| {
+                evidence(
+                    &format!("observation-{index}"),
+                    index as u64,
+                    "session-a",
+                    Impact::Low,
+                )
+            })
+            .collect();
+        let result = validate_rollup_clusters(&supplied, &[]);
+        assert!(matches!(
+            result,
+            Err(RollupValidationError::TooManyObservations)
+        ));
+    }
+
+    #[test]
+    fn caps_representative_evidence_and_source_ids_per_family() {
+        let recommendation = recommendation(
+            "recommendation-a",
+            TargetSurface::Tooling,
+            (0..12)
+                .map(|index| {
+                    evidence(
+                        &format!("observation-{index}"),
+                        index as u64,
+                        &format!("session-{index}"),
+                        if index == 6 {
+                            Impact::High
+                        } else {
+                            Impact::Low
+                        },
+                    )
+                })
+                .collect(),
+        );
+        let snapshot = RollupFamilySnapshot::from_recommendation(&recommendation).unwrap();
+        assert_eq!(snapshot.representative_evidence.len(), 3);
+        assert_eq!(
+            snapshot.source_session_ids.len(),
+            MAX_ROLLUP_SOURCE_SESSIONS
+        );
     }
 }
