@@ -103,7 +103,7 @@ Run `git diff --check`, `bash scripts/doc-check.sh`, and `bash scripts/verify-re
 - [x] **Step 3: Commit the review fix**
 
 ```bash
-git add AGENTS.md README.md docs/agents/apm.md docs/agents/development-workflow.md skills/surfacing-blind-spots/SKILL.md skills/babysitting-pull-requests/SKILL.md docs/superpowers/plans/2026-09-13-pr-babysitting-skill.md
+git add AGENTS.md README.md docs/agents/apm.md docs/agents/development-workflow.md skills/starting-work/SKILL.md skills/surfacing-blind-spots/SKILL.md skills/babysitting-pull-requests/SKILL.md docs/superpowers/plans/2026-09-13-pr-babysitting-skill.md
 git commit -m "docs: add pull request babysitting workflow"
 ```
 

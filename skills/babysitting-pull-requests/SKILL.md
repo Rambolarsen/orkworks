@@ -81,12 +81,15 @@ top-level PR comment containing `@codex review`:
 gh pr comment <pr> --body '@codex review'
 ```
 
-Record the current `headRefOid` and the trigger time. Poll the PR review list,
-review-comment list, and Codex summary until a Codex review result exists whose
-`commit_id` is that current head. A trigger comment or a review for an older
-head is not completion. If the current-head result does not appear before the
-bounded babysit budget expires, report the review as unresolved and hand off
-with the observed head, trigger time, and last review state.
+Immediately before posting the trigger, capture the current `headRefOid` and
+trigger time. Poll the PR review list, review-comment list, and Codex summary
+until a Codex review result exists whose `commit_id` is that captured head. A
+trigger comment or a review for an older head is not completion. If the head
+changes between capture and the trigger or during polling, restart the
+inventory for the new head rather than attributing the result to the wrong
+commit. If the current-head result does not appear before the bounded babysit
+budget expires, report the review as unresolved and hand off with the observed
+head, trigger time, and last review state.
 
 For the repository's custom automated review workflow, dispatch it manually
 when needed and only when the PR is open, non-draft, targets `main`, uses a
@@ -106,8 +109,10 @@ existing IDs with `gh run list --workflow pr-review.yml --event workflow_dispatc
 and note the dispatch time. Dispatch the workflow, then list the same workflow
 and event with `--json databaseId,createdAt,displayTitle,status,conclusion` until
 a new run appears after that time. Confirm its workflow and logs identify the
-requested PR before watching it; if more than one candidate is ambiguous, do
-not watch an arbitrary run—keep the human partner informed. Once identified,
+requested PR and that the run's reported `head_sha` matches the captured
+`headRefOid` before watching it; if the PR head changed or more than one
+candidate is ambiguous, restart the inventory and do not watch an arbitrary
+run—keep the human partner informed. Once identified,
 wait for that exact run to finish with `gh run watch <run-id> --exit-status`
 (or repeatedly query that run's status and conclusion), then
 rescan all PR comment channels because the review comment is asynchronous.
