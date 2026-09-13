@@ -73,6 +73,20 @@ when the finding is a spec gap, stop implementation planning and route it
 through the issue/spec workflow. Do not turn an uninvestigated doubt into a
 finding or add a separate issue for a concern already fixed or tracked.
 
+## Pull request babysitting
+
+Opening a pull request starts its review lifecycle; it is not the end of the
+coding session. After creating or adopting an open PR, use the repo-owned
+[`babysitting-pull-requests`](../../skills/babysitting-pull-requests/) skill.
+It requires checking PR conversation comments, inline review comments and
+threads, review summaries, and status checks. Vet every comment against the
+codebase and requirements, fix it or push back with evidence, and keep the
+human partner informed when uncertain. After a substantial feedback-driven
+change, trigger a fresh automated review before completing the cycle.
+
+The PR is not ready for handoff while an actionable comment lacks a
+disposition, and `gh pr view` alone is not a complete inline-comment inventory.
+
 ## Architecture decision records
 
 Architecture decisions are recorded in `docs/adr/`, using the
