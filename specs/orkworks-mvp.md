@@ -595,7 +595,6 @@ Sessions should be prioritized:
 - cleanup worktree from OrkWorks
 - branch management
 - auto-suggest terminal input gated by user approval
-- split terminal view
 - notifications
 - cost history
 - token usage parsing
