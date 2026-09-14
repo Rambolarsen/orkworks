@@ -238,7 +238,8 @@ test("NewSessionDialog only offers detected coding tools and rechecks before sta
 
   assert.match(source, /getHarnessDetectionStatus/);
   assert.match(source, /detectedSelectableHarnesses/);
-  assert.match(source, /if \(!canStartNewSession\(selectable, draft\.harnessId, detectedHarnessIds\)\) return;/);
+  assert.match(source, /const freshStatus = await getHarnessDetectionStatus\(selectedHarness\);/);
+  assert.match(source, /if \(freshStatus\.ok !== true \|\| !freshStatus\.status\.toolDetected\) return;/);
 });
 
 test("SettingsModal keeps the command-path control mounted while its subsection is collapsed instead of unmounting its draft state", () => {

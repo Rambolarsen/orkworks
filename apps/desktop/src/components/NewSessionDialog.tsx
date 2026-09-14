@@ -54,6 +54,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses, new Set(["generic-shell"])));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const harnessSelectRef = useRef<HTMLSelectElement>(null);
 
   useEffect(() => {
@@ -122,15 +123,38 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     });
   }
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
+    if (confirmBusy) return;
     if (!canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) return;
-    const harnessId = draft.harnessId || undefined;
-    const model = draft.model.trim() || undefined;
-    if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
-    if (model) localStorage.setItem(LS_MODEL_KEY, model);
-    else localStorage.removeItem(LS_MODEL_KEY);
-    onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
-  }, [detectedHarnessIds, draft.harnessId, draft.model, initialPrompt, onConfirm, selectable]);
+    const selectedHarness = selectable.find((harness) => harness.id === draft.harnessId);
+    setConfirmBusy(true);
+    try {
+      if (selectedHarness && selectedHarness.id !== "generic-shell") {
+        try {
+          const freshStatus = await getHarnessDetectionStatus(selectedHarness);
+          setDetectionStatuses((current) => ({ ...current, [selectedHarness.id]: freshStatus }));
+          if (freshStatus.ok !== true || !freshStatus.status.toolDetected) return;
+        } catch (error) {
+          setDetectionStatuses((current) => ({
+            ...current,
+            [selectedHarness.id]: {
+              ok: false,
+              error: error instanceof Error ? error.message : "Coding tool detection unavailable.",
+            },
+          }));
+          return;
+        }
+      }
+      const harnessId = draft.harnessId || undefined;
+      const model = draft.model.trim() || undefined;
+      if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
+      if (model) localStorage.setItem(LS_MODEL_KEY, model);
+      else localStorage.removeItem(LS_MODEL_KEY);
+      onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
+    } finally {
+      setConfirmBusy(false);
+    }
+  }, [confirmBusy, detectedHarnessIds, draft.harnessId, draft.model, initialPrompt, onConfirm, selectable]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -226,7 +250,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
             type="button"
             className="new-session-confirm"
             onClick={handleConfirm}
-            disabled={!canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
+            disabled={confirmBusy || !canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
           >
             Start
           </button>
