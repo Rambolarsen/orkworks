@@ -9,11 +9,26 @@ import {
   verifyReleaseArtifact,
 } from "../scripts/verifyReleaseArtifact.mjs";
 
+const passingMetadataModule = { verifyUpdateMetadata() {} };
+
 test("macOS expectation points at the DMG and packaged resources", () => {
   const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
 
   assert.deepEqual(expectation, {
     installerPath: join("/release", "OrkWorks-0.1.0-mac-arm64.dmg"),
+    distributablePaths: [
+      join("/release", "OrkWorks-0.1.0-mac-arm64.dmg"),
+      join("/release", "OrkWorks-0.1.0-mac-arm64.zip"),
+    ],
+    metadataPath: join("/release", "latest-mac.yml"),
+    blockmapPaths: [join("/release", "OrkWorks-0.1.0-mac-arm64.zip.blockmap")],
+    appUpdateMetadataPath: join(
+      "/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "app-update.yml",
+    ),
+    appPath: join("/release", "mac-arm64", "OrkWorks.app", "Contents", "MacOS", "OrkWorks"),
+    releaseDir: "/release",
+    version: "0.1.0",
+    checksumPath: join("/release", "SHA256SUMS.txt"),
     appDir: join("/release", "mac-arm64", "OrkWorks.app"),
     sidecarPath: join(
       "/release",
@@ -43,6 +58,21 @@ test("Windows expectation points at the NSIS installer and exe sidecar", () => {
   const expectation = createReleaseArtifactExpectation("win32", "x64", "0.1.0", "/release");
 
   assert.equal(expectation.installerPath, join("/release", "OrkWorks-0.1.0-win-x64.exe"));
+  assert.deepEqual(expectation.distributablePaths, [
+    join("/release", "OrkWorks-0.1.0-win-x64.exe"),
+  ]);
+  assert.equal(expectation.metadataPath, join("/release", "latest.yml"));
+  assert.deepEqual(expectation.blockmapPaths, [
+    join("/release", "OrkWorks-0.1.0-win-x64.exe.blockmap"),
+  ]);
+  assert.equal(
+    expectation.appUpdateMetadataPath,
+    join("/release", "win-unpacked", "resources", "app-update.yml"),
+  );
+  assert.equal(expectation.appPath, join("/release", "win-unpacked", "OrkWorks.exe"));
+  assert.equal(expectation.releaseDir, "/release");
+  assert.equal(expectation.version, "0.1.0");
+  assert.equal(expectation.checksumPath, join("/release", "SHA256SUMS.txt"));
   assert.equal(expectation.appDir, join("/release", "win-unpacked"));
   assert.equal(expectation.sidecarPath, join("/release", "win-unpacked", "resources", "orkworksd.exe"));
   assert.equal(expectation.scriptsDir, join("/release", "win-unpacked", "resources", "scripts"));
@@ -74,7 +104,12 @@ test("missing packaged resources identify the failing path", () => {
   const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
   const fakeFs = {
     statSync(path) {
-      if (path === expectation.installerPath) {
+      if (expectation.distributablePaths.includes(path)
+        || path === expectation.metadataPath
+        || expectation.blockmapPaths.includes(path)
+        || path === expectation.appUpdateMetadataPath
+        || path === expectation.appPath
+        || path === expectation.checksumPath) {
         return { isFile: () => true, isDirectory: () => false, size: 1 };
       }
       throw new Error("ENOENT");
@@ -84,6 +119,24 @@ test("missing packaged resources identify the failing path", () => {
   assert.throws(
     () => verifyReleaseArtifact(expectation, fakeFs),
     (error) => error instanceof Error && error.message.includes(expectation.appDir),
+  );
+});
+
+test("metadata validation failures identify the metadata path", () => {
+  const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
+  const fakeFs = {
+    statSync() {
+      return { isFile: () => true, isDirectory: () => true, size: 1 };
+    },
+  };
+
+  assert.throws(
+    () => verifyReleaseArtifact(expectation, fakeFs, {
+      verifyUpdateMetadata() {
+        throw new Error("invalid metadata");
+      },
+    }),
+    (error) => error instanceof Error && error.message.includes(expectation.metadataPath),
   );
 });
 
@@ -113,7 +166,14 @@ test("runCli verifies a release and reports the installer", () => {
   const output = [];
   const fakeFs = {
     statSync(path) {
-      if (path === expectation.installerPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
+      if (expectation.distributablePaths.includes(path)
+        || path === expectation.metadataPath
+        || expectation.blockmapPaths.includes(path)
+        || path === expectation.appUpdateMetadataPath
+        || path === expectation.appPath
+        || path === expectation.checksumPath) {
+        return { isFile: () => true, isDirectory: () => false, size: 1 };
+      }
       if (path === expectation.sidecarPath) return { isFile: () => true, isDirectory: () => false, size: 1 };
       if (expectation.scriptPaths.includes(path)) return { isFile: () => true, isDirectory: () => false, size: 1 };
       if (path.includes(`${join("Resources", "knowledge")}`)) return { isFile: () => true, isDirectory: () => false, size: 1 };
@@ -127,6 +187,7 @@ test("runCli verifies a release and reports the installer", () => {
     version: "0.1.0",
     releaseDir: "/release",
     fsModule: fakeFs,
+    metadataModule: passingMetadataModule,
     output: (message) => output.push(message),
   });
 
