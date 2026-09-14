@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   DockviewDefaultTab,
   DockviewReact,
@@ -273,15 +273,21 @@ function DockviewApp(props: DockviewAppData) {
   const { dockviewApiRef } = props;
   const ctxValue = props;
 
-  const initializedRef = useRef(false);
-  const [layoutReady, setLayoutReady] = useState(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const [layoutReady, setLayoutReady] = useState<DockviewApi | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
   const activeSession = props.sessions.find((s) => s.id === props.activeSessionId);
 
+  // Invalidate our callbacks before Dockview's passive-effect disposal, including
+  // development refreshes that preserve this component's refs and state.
+  useLayoutEffect(() => () => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+  }, []);
+
   useEffect(() => {
     const api = dockviewApiRef.current;
-    if (!layoutReady || !api) return;
+    if (!api || layoutReady !== api) return;
     synchronizeSignalPanels(
       api,
       activeSession,
@@ -313,54 +319,18 @@ function DockviewApp(props: DockviewAppData) {
           singleTabMode="fullwidth"
           rightHeaderActionsComponent={DockviewHeaderActions}
           onReady={(event: DockviewReadyEvent) => {
-            if (initializedRef.current) return;
-            initializedRef.current = true;
-
+            cleanupRef.current?.();
             const api = event.api;
             dockviewApiRef.current = api;
-
-              window.orkworks.getLayout().then((layout) => {
-                if (layout) {
-                  try {
-                    const parsed = JSON.parse(layout);
-                    if (!parsed || typeof parsed !== "object") {
-                      throw new Error("unrecognized layout");
-                    }
-                    if (!("v" in parsed) && layoutNeedsMigration(parsed as Record<string, unknown>)) {
-                      console.info("[DockviewApp] migrating stored layout to redesigned default");
-                      buildDefaultLayout(api);
-                    } else {
-                      api.fromJSON(
-                        "v" in parsed ? (parsed as { d: unknown }).d : parsed,
-                      );
-                      props.signalPanelHiddenIdsRef.current = new Set(
-                        "v" in parsed && Array.isArray((parsed as { hiddenSignalPanels?: unknown }).hiddenSignalPanels)
-                          ? (parsed as { hiddenSignalPanels: unknown[] }).hiddenSignalPanels.filter(
-                              (id): id is SignalPanelId => id === "recommendations" || id === "review",
-                            )
-                          : [],
-                      );
-                    }
-                    reportVisibility(api);
-                    setIsEmpty(api.totalPanels === 0);
-                    setLayoutReady(true);
-                    return;
-                  } catch (e) {
-                    console.warn("[DockviewApp] failed to restore layout, using default", e);
-                  }
-                }
-                buildDefaultLayout(api);
-                props.signalPanelHiddenIdsRef.current.clear();
-                reportVisibility(api);
-                setIsEmpty(api.totalPanels === 0);
-                setLayoutReady(true);
-              });
-
-            api.onDidLayoutChange(() => {
+            let disposed = false;
+            let saveTimer: ReturnType<typeof setTimeout> | null = null;
+            const subscription = api.onDidLayoutChange(() => {
+              if (disposed) return;
               reportVisibility(api);
               setIsEmpty(api.totalPanels === 0);
-              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-              saveTimerRef.current = setTimeout(() => {
+              if (saveTimer) clearTimeout(saveTimer);
+              saveTimer = setTimeout(() => {
+                if (disposed) return;
                 window.orkworks.saveLayout(
                   JSON.stringify({
                     v: 1,
@@ -370,6 +340,52 @@ function DockviewApp(props: DockviewAppData) {
                 );
               }, 500);
             });
+            cleanupRef.current = () => {
+              if (disposed) return;
+              disposed = true;
+              subscription.dispose();
+              if (saveTimer) clearTimeout(saveTimer);
+              if (dockviewApiRef.current === api) dockviewApiRef.current = null;
+            };
+
+            window.orkworks.getLayout().then((layout) => {
+              if (disposed) return;
+              if (layout) {
+                try {
+                  const parsed = JSON.parse(layout);
+                  if (!parsed || typeof parsed !== "object") {
+                    throw new Error("unrecognized layout");
+                  }
+                  if (!("v" in parsed) && layoutNeedsMigration(parsed as Record<string, unknown>)) {
+                    console.info("[DockviewApp] migrating stored layout to redesigned default");
+                    buildDefaultLayout(api);
+                  } else {
+                    api.fromJSON(
+                      "v" in parsed ? (parsed as { d: unknown }).d : parsed,
+                    );
+                    props.signalPanelHiddenIdsRef.current = new Set(
+                      "v" in parsed && Array.isArray((parsed as { hiddenSignalPanels?: unknown }).hiddenSignalPanels)
+                        ? (parsed as { hiddenSignalPanels: unknown[] }).hiddenSignalPanels.filter(
+                            (id): id is SignalPanelId => id === "recommendations" || id === "review",
+                          )
+                        : [],
+                    );
+                  }
+                  reportVisibility(api);
+                  setIsEmpty(api.totalPanels === 0);
+                  setLayoutReady(api);
+                  return;
+                } catch (e) {
+                  console.warn("[DockviewApp] failed to restore layout, using default", e);
+                }
+              }
+              buildDefaultLayout(api);
+              props.signalPanelHiddenIdsRef.current.clear();
+              reportVisibility(api);
+              setIsEmpty(api.totalPanels === 0);
+              setLayoutReady(api);
+            });
+
           }}
         />
         {isEmpty && (
