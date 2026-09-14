@@ -83,7 +83,7 @@ struct ModelOutput {
     #[serde(default)]
     proposals: Vec<ModelProposal>,
     #[serde(default)]
-    rollups: Vec<RollupCluster>,
+    rollups: Option<Vec<RollupCluster>>,
 }
 
 #[derive(Clone, Debug)]
@@ -175,7 +175,13 @@ pub(crate) fn parse_rollup_model_output(
     }
     let model = serde_json::from_str::<ModelOutput>(output)
         .map_err(|_| RollupValidationError::MalformedResponse)?;
-    validate_rollup_clusters(snapshots, &model.rollups)
+    validate_rollup_clusters(
+        snapshots,
+        model
+            .rollups
+            .as_deref()
+            .ok_or(RollupValidationError::MalformedResponse)?,
+    )
 }
 
 fn parse_provider_response(
@@ -190,11 +196,20 @@ fn parse_provider_response(
     match snapshots {
         Some(snapshots) => {
             let mut model = model;
-            model.rollups = validate_rollup_clusters(snapshots, &model.rollups)
-                .map_err(|error| format!("invalid Taskmaster rollups: {error:?}"))?;
+            let rollups = model.rollups.as_deref().ok_or_else(|| {
+                "Taskmaster rollup response must include a rollups array".to_string()
+            })?;
+            model.rollups = Some(
+                validate_rollup_clusters(snapshots, rollups)
+                    .map_err(|error| format!("invalid Taskmaster rollups: {error:?}"))?,
+            );
             return Ok(model);
         }
-        None if !model.rollups.is_empty() => {
+        None if model
+            .rollups
+            .as_ref()
+            .is_some_and(|rollups| !rollups.is_empty()) =>
+        {
             return Err("Taskmaster response contained rollups without supplied families".into())
         }
         None => {}
@@ -223,7 +238,7 @@ pub(crate) fn apply_rollup_model_output(
     let Ok(model) = parse_provider_response(output, Some(snapshots)) else {
         return false;
     };
-    let clusters = model.rollups;
+    let clusters = model.rollups.unwrap_or_default();
     apply_rollup_model_clusters(state, runtime, snapshot, token, snapshots, &clusters)
 }
 
@@ -625,7 +640,7 @@ fn apply_provider_output(
         );
         return false;
     }
-    let rollups = model.rollups.clone();
+    let rollups = model.rollups.clone().unwrap_or_default();
     if rollup_request.is_some()
         && !rollup_application_is_current(state, runtime, snapshot, rollup_request.unwrap())
     {

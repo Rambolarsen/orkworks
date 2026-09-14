@@ -1252,3 +1252,34 @@ fn empty_result_preserves_changed_evidence_and_terminal_parent_state() {
         assert_eq!(stored_recommendations(&state), before);
     }
 }
+
+#[test]
+fn omitted_rollups_are_not_an_authoritative_empty_result() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let before = stored_recommendations(&state);
+    let request = build_rollup_request(workspace_instance(&state), &snapshot, &before).unwrap();
+    let legacy_only = r#"{"enrichments":[],"proposals":[]}"#;
+    assert!(!apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        legacy_only
+    ));
+    assert_eq!(stored_recommendations(&state), before);
+    assert!(parse_rollup_model_output(legacy_only, &request.snapshots).is_err());
+    assert!(parse_provider_response(legacy_only, None).is_ok());
+}
