@@ -488,7 +488,7 @@ impl TaskmasterRuntime {
             .map_err(|error| error.to_string())?;
         match fs2::FileExt::try_lock_exclusive(&file) {
             Ok(()) => Ok(Some(file)),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) if is_analysis_lease_contention(&error) => Ok(None),
             Err(error) => Err(error.to_string()),
         }
     }
@@ -508,6 +508,18 @@ impl TaskmasterRuntime {
         apply();
         Ok(true)
     }
+}
+
+fn is_analysis_lease_contention(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        return error.raw_os_error() == Some(33);
+    }
+    #[cfg(not(windows))]
+    false
 }
 
 pub(crate) fn taskmaster_global_dir() -> Option<PathBuf> {
@@ -972,6 +984,20 @@ mod tests {
         let ledger: EvaluationLedger =
             read_json(directory.path().join("evaluations.json")).unwrap();
         assert_eq!(ledger.reservations, 4);
+    }
+
+    #[test]
+    fn analysis_lease_contention_errors_are_classified() {
+        assert!(is_analysis_lease_contention(&std::io::Error::from(
+            std::io::ErrorKind::WouldBlock,
+        )));
+        #[cfg(windows)]
+        assert!(is_analysis_lease_contention(
+            &std::io::Error::from_raw_os_error(33),
+        ));
+        assert!(!is_analysis_lease_contention(
+            &std::io::Error::from_raw_os_error(5),
+        ));
     }
 
     #[test]
