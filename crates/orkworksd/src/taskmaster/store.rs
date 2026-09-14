@@ -911,16 +911,16 @@ impl RecommendationStore {
             entries,
         };
         write_manifest_atomic(&manifest_path, &manifest)?;
-        sync_directory(&transaction_root);
+        sync_directory(&transaction_root)?;
 
         let mut committed_manifest = manifest;
         committed_manifest.committed = true;
         #[cfg(test)]
         take_fault_point(|point| matches!(point, FaultPoint::ManifestCommit))?;
         write_manifest_atomic(&manifest_path, &committed_manifest)?;
-        sync_directory(&transaction_root);
+        sync_directory(&transaction_root)?;
         if let Some(parent) = transaction_root.parent() {
-            sync_directory(parent);
+            sync_directory(parent)?;
         }
 
         #[cfg(test)]
@@ -935,7 +935,7 @@ impl RecommendationStore {
                 )?;
             }
         }
-        sync_directory(&self.dir);
+        sync_directory(&self.dir)?;
         if let Err(error) = self.validate_graph() {
             let rollback =
                 self.rollback_transaction(&transaction_root, &committed_manifest.entries);
@@ -954,9 +954,9 @@ impl RecommendationStore {
         #[cfg(test)]
         take_fault_point(|point| matches!(point, FaultPoint::Cleanup))?;
         fs::remove_file(&manifest_path).map_err(StoreError::Io)?;
-        sync_directory(&transaction_root);
+        sync_directory(&transaction_root)?;
         fs::remove_dir_all(&transaction_root).map_err(StoreError::Io)?;
-        sync_directory(&self.dir);
+        sync_directory(&self.dir)?;
         Ok(())
     }
 
@@ -1020,7 +1020,7 @@ impl RecommendationStore {
             .is_none()
         {
             fs::remove_dir(&root).map_err(StoreError::Io)?;
-            sync_directory(&self.dir);
+            sync_directory(&self.dir)?;
         }
         Ok(())
     }
@@ -1051,7 +1051,7 @@ impl RecommendationStore {
                 .iter()
                 .try_for_each(|entry| self.publish_entry(transaction_root, entry));
             if publish_result.is_ok() {
-                sync_directory(&self.dir);
+                sync_directory(&self.dir)?;
                 if self.validate_graph().is_ok() {
                     self.finish_transaction_cleanup(transaction_root, &manifest_path)?;
                     return Ok(());
@@ -1106,7 +1106,7 @@ impl RecommendationStore {
                 }
             }
         }
-        sync_directory(&self.dir);
+        sync_directory(&self.dir)?;
         Ok(())
     }
 
@@ -1116,9 +1116,9 @@ impl RecommendationStore {
         manifest_path: &Path,
     ) -> Result<(), StoreError> {
         fs::remove_file(manifest_path).map_err(StoreError::Io)?;
-        sync_directory(transaction_root);
+        sync_directory(transaction_root)?;
         fs::remove_dir_all(transaction_root).map_err(StoreError::Io)?;
-        sync_directory(&self.dir);
+        sync_directory(&self.dir)?;
         Ok(())
     }
 
@@ -1161,8 +1161,8 @@ impl RecommendationStore {
             )?;
         }
         if migrated {
-            sync_directory(&self.dir);
-            sync_directory(transaction_root);
+            sync_directory(&self.dir)?;
+            sync_directory(transaction_root)?;
         }
         Ok(())
     }
@@ -1226,17 +1226,24 @@ fn write_manifest_atomic(
     crate::harness::integration::atomic_replace(&temporary, manifest_path, manifest_path.exists())
         .map_err(StoreError::Io)?;
     if let Some(transaction_root) = manifest_path.parent() {
-        sync_directory(transaction_root);
+        sync_directory(transaction_root)?;
         if let Some(transaction_parent) = transaction_root.parent() {
-            sync_directory(transaction_parent);
+            sync_directory(transaction_parent)?;
         }
     }
     Ok(())
 }
 
-fn sync_directory(path: &Path) {
-    if let Ok(directory) = fs::File::open(path) {
-        let _ = directory.sync_all();
+fn sync_directory(path: &Path) -> Result<(), StoreError> {
+    match fs::File::open(path) {
+        Ok(directory) => directory.sync_all().map_err(StoreError::Io),
+        Err(error) if cfg!(target_os = "windows") && error.kind() == io::ErrorKind::Unsupported => {
+            // Directory handles are not syncable on every supported Windows
+            // filesystem. Preserve the best-effort behavior only for that
+            // platform limitation; all other open/sync failures are fatal.
+            Ok(())
+        }
+        Err(error) => Err(StoreError::Io(error)),
     }
 }
 
@@ -1352,6 +1359,26 @@ fn validate_graph_records(records: &[Recommendation]) -> Result<(), StoreError> 
                     recommendation.id, member_id
                 )));
             }
+        }
+        let mut expected_dedupe_keys = recommendation
+            .rollup_member_ids
+            .iter()
+            .map(|member_id| {
+                by_id
+                    .get(member_id.as_str())
+                    .expect("checked above")
+                    .dedupe_key
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+        expected_dedupe_keys.sort();
+        let mut actual_dedupe_keys = recommendation.rollup_member_dedupe_keys.clone();
+        actual_dedupe_keys.sort();
+        if actual_dedupe_keys != expected_dedupe_keys {
+            return Err(StoreError::GraphInvariant(format!(
+                "parent {} has member dedupe keys that do not match its members",
+                recommendation.id
+            )));
         }
         if recommendation.rolled_up_by.is_some()
             && recommendation.status != RecommendationStatus::RolledUp
@@ -1542,7 +1569,7 @@ mod tests {
         parent.rollup_member_dedupe_keys = parent
             .rollup_member_ids
             .iter()
-            .map(|id| format!("dedupe:{id}"))
+            .map(|_| parent.dedupe_key.clone())
             .collect();
         parent.evidence.clear();
         parent.source_session_ids.clear();
@@ -2101,6 +2128,28 @@ mod tests {
         let result = store.list();
 
         assert!(matches!(result, Err(StoreError::GraphInvariant(_))));
+    }
+
+    #[test]
+    fn rejects_a_graph_with_mismatched_member_dedupe_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let member = recommendation("member", "session");
+        let mut parent = rollup_parent("parent", &["member"]);
+        parent.rollup_member_dedupe_keys[0] = "wrong-dedupe-key".into();
+        let mut rolled_member = member;
+        rolled_member.status = RecommendationStatus::RolledUp;
+        rolled_member.rolled_up_by = Some(parent.id.clone());
+        store.put(&parent).unwrap();
+        store.put(&rolled_member).unwrap();
+
+        assert!(matches!(store.list(), Err(StoreError::GraphInvariant(_))));
+    }
+
+    #[test]
+    fn reports_directory_sync_failures() {
+        let missing = tempfile::tempdir().unwrap().path().join("missing");
+        assert!(matches!(sync_directory(&missing), Err(StoreError::Io(_))));
     }
 
     #[test]

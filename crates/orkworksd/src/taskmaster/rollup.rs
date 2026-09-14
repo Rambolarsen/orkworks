@@ -59,6 +59,7 @@ pub(crate) enum RollupValidationError {
     TooManyObservations,
     InputTooLarge,
     ResponseTooLarge,
+    MalformedResponse,
     UnknownMemberId(String),
     EmptyCluster,
     DuplicateCluster,
@@ -335,10 +336,9 @@ pub(crate) fn project_parent_evidence(
         if projection.len() == MAX_PARENT_EVIDENCE_ENTRIES {
             break;
         }
-        let mut next = projection.clone();
-        next.push(candidate.clone());
-        if serialized_size(&next) <= MAX_PARENT_EVIDENCE_BYTES {
-            projection.push(candidate);
+        projection.push(candidate);
+        if serialized_size(&projection) > MAX_PARENT_EVIDENCE_BYTES {
+            projection.pop();
         }
     }
     projection

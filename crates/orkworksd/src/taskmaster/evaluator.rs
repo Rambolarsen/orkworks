@@ -138,7 +138,7 @@ pub(crate) fn parse_rollup_model_output(
         return Err(RollupValidationError::ResponseTooLarge);
     }
     let model = serde_json::from_str::<ModelOutput>(output)
-        .map_err(|_| RollupValidationError::ResponseTooLarge)?;
+        .map_err(|_| RollupValidationError::MalformedResponse)?;
     validate_rollup_clusters(snapshots, &model.rollups)
 }
 

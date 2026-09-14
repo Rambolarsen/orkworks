@@ -220,7 +220,6 @@ fn refresh_rollup_parent_projection(
         .collect::<Vec<_>>();
     source_session_ids.sort();
     source_session_ids.dedup();
-    source_session_ids.truncate(crate::taskmaster::rollup::MAX_ROLLUP_SOURCE_SESSIONS);
     let priority = all_evidence
         .iter()
         .map(|evidence| evidence.reported_impact)
@@ -509,48 +508,15 @@ impl SessionApplication {
                 })
                 .cloned()
                 .collect::<Vec<_>>();
+            if superseded_parents.len() > 1 {
+                return false;
+            }
             let mut parent = existing_parent
                 .cloned()
                 .unwrap_or_else(|| first_member.clone());
             if existing_parent.is_none() {
                 parent.created_at = now.clone();
             }
-            let all_evidence = members
-                .iter()
-                .flat_map(|member| member.evidence.clone())
-                .collect::<Vec<_>>();
-            let projected_evidence = project_parent_evidence(&all_evidence);
-            let observation_ids = projected_evidence
-                .iter()
-                .map(|evidence| evidence.observation_id.clone())
-                .collect::<Vec<_>>();
-            let mut source_session_ids = members
-                .iter()
-                .flat_map(|member| {
-                    member.source_session_ids.iter().cloned().chain(
-                        member
-                            .evidence
-                            .iter()
-                            .map(|evidence| evidence.session_id.clone()),
-                    )
-                })
-                .collect::<Vec<_>>();
-            source_session_ids.sort();
-            source_session_ids.dedup();
-            source_session_ids.truncate(crate::taskmaster::rollup::MAX_ROLLUP_SOURCE_SESSIONS);
-            let priority = all_evidence
-                .iter()
-                .map(|evidence| evidence.reported_impact)
-                .max()
-                .unwrap_or(first_member.priority);
-            let confidence = if all_evidence
-                .iter()
-                .all(|evidence| evidence.confidence >= 0.8)
-            {
-                crate::taskmaster::RecommendationConfidence::High
-            } else {
-                crate::taskmaster::RecommendationConfidence::Medium
-            };
             let supersedes_recommendation_id = existing_parent
                 .and_then(|parent| {
                     parent
@@ -575,17 +541,14 @@ impl SessionApplication {
                 .max()
                 .unwrap_or(0)
                 .saturating_add(1);
-            parent.priority = priority;
             parent.title = cluster.title.clone();
             parent.summary = cluster.summary.clone();
             parent.reason = vec![format!(
                 "Bounded semantic rollup of {} exact recommendation families; derived evidence and counts remain sidecar-owned.",
                 members.len()
             )];
-            parent.evidence = projected_evidence;
             parent.repository_evidence.clear();
             parent.knowledge_evidence.clear();
-            parent.source_session_ids = source_session_ids.clone();
             if existing_parent
                 .is_none_or(|existing| existing.status != RecommendationStatus::Executing)
             {
@@ -595,10 +558,8 @@ impl SessionApplication {
             parent.suggested_model = None;
             parent.suggested_working_directory = None;
             parent.suggested_prompt = None;
-            parent.confidence = confidence;
             parent.requires_approval = false;
             parent.dedupe_key = format!("rollup:v1:{parent_id}");
-            parent.updated_at = now.clone();
             parent.expires_at = None;
             parent.rollup_member_ids = member_ids.iter().cloned().collect();
             parent.rollup_member_dedupe_keys = members
@@ -608,12 +569,9 @@ impl SessionApplication {
             parent.rollup_member_dedupe_keys.sort();
             parent.rollup_generation = Some(generation);
             parent.rolled_up_by = None;
+            refresh_rollup_parent_projection(&mut parent, &members, &now);
             parent.workflow_improvement.proposed_improvement = cluster.summary.clone();
             parent.workflow_improvement.target_surface = cluster.target_surface;
-            parent.workflow_improvement.observation_ids = observation_ids;
-            parent.workflow_improvement.recurrence_count = all_evidence.len();
-            parent.workflow_improvement.affected_session_ids = source_session_ids;
-            parent.workflow_improvement.impact = priority;
             parent.workflow_improvement.expected_benefit =
                 first_member.workflow_improvement.expected_benefit.clone();
             parent.workflow_improvement.supersedes_recommendation_id = supersedes_recommendation_id;
@@ -8312,28 +8270,28 @@ mod tests {
         {
             let workspace = state.workspace.lock().unwrap();
             let workspace = workspace.as_ref().unwrap();
-            for (key, problem_area) in [
-                ("network-first", "network"),
-                ("network-second", "network"),
-                ("storage-first", "storage"),
-                ("storage-second", "storage"),
-            ] {
-                workspace
-                    .workflow_observations
-                    .record_observation(
-                        "workflow-rollup-refresh-session",
-                        crate::workflow_observations::ObservationOrigin::Peon,
-                        key,
-                        crate::workflow_observations::ObservationCandidate {
-                            kind: crate::workflow_observations::ObservationKind::Obstacle,
-                            description: "The setup blocks progress".into(),
-                            evidence: format!("The {problem_area} setup failed again"),
-                            problem_area: Some(problem_area.into()),
-                            reported_impact: crate::workflow_observations::Impact::Medium,
-                            confidence: Some(0.8),
-                        },
-                    )
-                    .unwrap();
+            for (problem_area, prefix) in [("network", "network"), ("storage", "storage")] {
+                for index in 0..5 {
+                    let key = format!("{prefix}-{index}");
+                    let session_id =
+                        format!("workflow-rollup-refresh-session-{problem_area}-{index}");
+                    workspace
+                        .workflow_observations
+                        .record_observation(
+                            &session_id,
+                            crate::workflow_observations::ObservationOrigin::Peon,
+                            &key,
+                            crate::workflow_observations::ObservationCandidate {
+                                kind: crate::workflow_observations::ObservationKind::Obstacle,
+                                description: "The setup blocks progress".into(),
+                                evidence: format!("The {problem_area} setup failed again"),
+                                problem_area: Some(problem_area.into()),
+                                reported_impact: crate::workflow_observations::Impact::Medium,
+                                confidence: Some(0.8),
+                            },
+                        )
+                        .unwrap();
+                }
             }
         }
         application.refresh_workflow_recommendations();
@@ -8367,7 +8325,12 @@ mod tests {
         ));
         let parent_id = stable_rollup_id(&member_ids);
         let before = application.get_recommendation(&parent_id).unwrap().unwrap();
-        assert_eq!(before.workflow_improvement.recurrence_count, 4);
+        assert_eq!(before.workflow_improvement.recurrence_count, 10);
+        assert_eq!(before.source_session_ids.len(), 10);
+        assert_eq!(
+            before.workflow_improvement.affected_session_ids,
+            before.source_session_ids
+        );
 
         {
             let workspace = state.workspace.lock().unwrap();
@@ -8376,7 +8339,7 @@ mod tests {
                 .unwrap()
                 .workflow_observations
                 .record_observation(
-                    "workflow-rollup-refresh-session",
+                    "workflow-rollup-refresh-session-network-new",
                     crate::workflow_observations::ObservationOrigin::Peon,
                     "network-third",
                     crate::workflow_observations::ObservationCandidate {
@@ -8393,8 +8356,9 @@ mod tests {
         application.refresh_workflow_recommendations();
 
         let after = application.get_recommendation(&parent_id).unwrap().unwrap();
-        assert_eq!(after.workflow_improvement.recurrence_count, 5);
-        assert_eq!(after.evidence.len(), 5);
+        assert_eq!(after.workflow_improvement.recurrence_count, 11);
+        assert_eq!(after.evidence.len(), 11);
+        assert_eq!(after.source_session_ids.len(), 11);
         assert!(after
             .workflow_improvement
             .observation_ids

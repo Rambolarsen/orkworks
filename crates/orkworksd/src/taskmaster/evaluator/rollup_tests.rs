@@ -231,6 +231,11 @@ fn rollup_parser_accepts_same_target_clusters_and_rejects_invalid_response_as_a_
         invalid,
         Err(crate::taskmaster::rollup::RollupValidationError::DuplicateCluster)
     ));
+
+    assert!(matches!(
+        parse_rollup_model_output("not-json", &snapshots),
+        Err(crate::taskmaster::rollup::RollupValidationError::MalformedResponse)
+    ));
 }
 
 #[test]
@@ -500,6 +505,34 @@ fn split_rollup_parent_reassigns_all_members_in_one_transaction() {
             assert_eq!(member.rolled_up_by.as_deref(), Some(parent_id.as_str()));
         }
     }
+}
+
+#[test]
+fn rejects_a_rollup_that_would_supersede_multiple_active_parents() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c", "d"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &initial.token,
+        &initial.snapshots,
+        &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])]),
+    ));
+
+    let current = stored_recommendations(&state);
+    let merge = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    assert!(!apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &merge.token,
+        &merge.snapshots,
+        &output(&[cluster(&["a", "b", "c", "d"])]),
+    ));
 }
 
 #[test]
