@@ -65,3 +65,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0055](./0055-json-taskmaster-inference-adapters.md) | JSON-defined Taskmaster inference adapters | accepted |
 | [0056](./0056-one-sidecar-per-open-workspace.md) | One sidecar per open workspace | proposed |
 | [0057](./0057-taskmaster-recommendation-rollups.md) | Taskmaster recommendation rollups | proposed |
+| [0058](./0058-signed-release-artifacts-and-native-verification.md) | Signed release artifacts and native verification | accepted |

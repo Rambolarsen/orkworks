@@ -1,6 +1,7 @@
 import { readFileSync, statSync as defaultStatSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import * as defaultMetadataModule from "./releaseMetadata.mjs";
 
 const HOOK_SCRIPT_NAMES = [
   "report-harness-event.sh",
@@ -12,8 +13,20 @@ export function createReleaseArtifactExpectation(platform, arch, version, releas
   if (platform === "darwin" && (arch === "arm64" || arch === "x64")) {
     const appDir = join(releaseDir, `mac-${arch}`, "OrkWorks.app");
     const resourcesDir = join(appDir, "Contents", "Resources");
+    const installerPath = join(releaseDir, `OrkWorks-${version}-mac-${arch}.dmg`);
     return {
-      installerPath: join(releaseDir, `OrkWorks-${version}-mac-${arch}.dmg`),
+      installerPath,
+      distributablePaths: [
+        installerPath,
+        join(releaseDir, `OrkWorks-${version}-mac-${arch}.zip`),
+      ],
+      metadataPath: join(releaseDir, "latest-mac.yml"),
+      blockmapPaths: [join(releaseDir, `OrkWorks-${version}-mac-${arch}.zip.blockmap`)],
+      appUpdateMetadataPath: join(resourcesDir, "app-update.yml"),
+      appPath: join(appDir, "Contents", "MacOS", "OrkWorks"),
+      releaseDir,
+      version,
+      checksumPath: join(releaseDir, "SHA256SUMS.txt"),
       appDir,
       sidecarPath: join(resourcesDir, "orkworksd"),
       scriptsDir: join(resourcesDir, "scripts"),
@@ -24,8 +37,17 @@ export function createReleaseArtifactExpectation(platform, arch, version, releas
   if (platform === "win32" && arch === "x64") {
     const appDir = join(releaseDir, "win-unpacked");
     const resourcesDir = join(appDir, "resources");
+    const installerPath = join(releaseDir, `OrkWorks-${version}-win-${arch}.exe`);
     return {
-      installerPath: join(releaseDir, `OrkWorks-${version}-win-${arch}.exe`),
+      installerPath,
+      distributablePaths: [installerPath],
+      metadataPath: join(releaseDir, "latest.yml"),
+      blockmapPaths: [join(releaseDir, `OrkWorks-${version}-win-${arch}.exe.blockmap`)],
+      appUpdateMetadataPath: join(resourcesDir, "app-update.yml"),
+      appPath: join(appDir, "OrkWorks.exe"),
+      releaseDir,
+      version,
+      checksumPath: join(releaseDir, "SHA256SUMS.txt"),
       appDir,
       sidecarPath: join(resourcesDir, "orkworksd.exe"),
       scriptsDir: join(resourcesDir, "scripts"),
@@ -50,8 +72,24 @@ function assertPath(fsModule, path, label, kind) {
   }
 }
 
-export function verifyReleaseArtifact(expectation, fsModule = { statSync: defaultStatSync }) {
-  assertPath(fsModule, expectation.installerPath, "installer", "file");
+export function verifyReleaseArtifact(
+  expectation,
+  fsModule = { statSync: defaultStatSync },
+  metadataModule = defaultMetadataModule,
+  { preChecksum = false } = {},
+) {
+  for (const distributablePath of expectation.distributablePaths) {
+    assertPath(fsModule, distributablePath, "distributable", "file");
+  }
+  assertPath(fsModule, expectation.metadataPath, "update metadata", "file");
+  for (const blockmapPath of expectation.blockmapPaths) {
+    assertPath(fsModule, blockmapPath, "blockmap", "file");
+  }
+  assertPath(fsModule, expectation.appUpdateMetadataPath, "app update metadata", "file");
+  assertPath(fsModule, expectation.appPath, "packaged app executable", "file");
+  if (!preChecksum) {
+    assertPath(fsModule, expectation.checksumPath, "checksum manifest", "file");
+  }
   assertPath(fsModule, expectation.appDir, "unpacked app", "directory");
   assertPath(fsModule, expectation.sidecarPath, "Rust sidecar", "file");
   assertPath(fsModule, expectation.scriptsDir, "hook scripts", "directory");
@@ -60,6 +98,17 @@ export function verifyReleaseArtifact(expectation, fsModule = { statSync: defaul
   }
   assertPath(fsModule, join(expectation.scriptsDir, "..", "knowledge", "starter.json"), "starter knowledge", "file");
   assertPath(fsModule, join(expectation.scriptsDir, "..", "knowledge", "public-key.pem"), "knowledge verification key", "file");
+  try {
+    metadataModule.verifyUpdateMetadata({
+      metadataPath: expectation.metadataPath,
+      releaseDir: expectation.releaseDir,
+      expectedVersion: expectation.version,
+    });
+  } catch (error) {
+    throw new Error(`Packaged release metadata is invalid at ${expectation.metadataPath}`, {
+      cause: error,
+    });
+  }
 }
 
 export function runCli({
@@ -68,6 +117,8 @@ export function runCli({
   version,
   releaseDir = resolve(import.meta.dirname, "..", "release"),
   fsModule = { statSync: defaultStatSync },
+  metadataModule = defaultMetadataModule,
+  preChecksum = false,
   output = (message) => console.log(message),
 } = {}) {
   const packageJson = JSON.parse(
@@ -79,11 +130,15 @@ export function runCli({
     version ?? packageJson.version,
     releaseDir,
   );
-  verifyReleaseArtifact(expectation, fsModule);
+  verifyReleaseArtifact(expectation, fsModule, metadataModule, { preChecksum });
   output(`Verified release artifact: ${expectation.installerPath}; sidecar: ${expectation.sidecarPath}`);
   return expectation;
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  runCli();
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--pre-checksum")) {
+    throw new Error(`Unsupported release verification arguments: ${args.join(" ")}`);
+  }
+  runCli({ preChecksum: args[0] === "--pre-checksum" });
 }

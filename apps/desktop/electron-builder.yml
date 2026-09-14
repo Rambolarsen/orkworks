@@ -11,10 +11,22 @@ files:
   - build/icon.ico
   - build/icon-dark.ico
   - package.json
+publish:
+  provider: github
+  owner: Rambolarsen
+  repo: orkworks
 mac:
   category: public.app-category.developer-tools
   target:
     - dmg
+    - zip
+  notarize: true
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  binaries:
+    - Contents/Resources/orkworksd
+  forceCodeSigning: true
   artifactName: OrkWorks-${version}-mac-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd
@@ -23,9 +35,18 @@ mac:
       to: scripts
     - from: resources/knowledge
       to: knowledge
+dmg:
+  writeUpdateInfo: false
 win:
   target:
     - nsis
+  publish:
+    provider: github
+    owner: Rambolarsen
+    repo: orkworks
+  publisherName: []
+  verifyUpdateCodeSignature: true
+  forceCodeSigning: true
   artifactName: OrkWorks-${version}-win-${arch}.${ext}
   extraResources:
     - from: ../../crates/orkworksd/target/release/orkworksd.exe

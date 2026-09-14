@@ -194,6 +194,22 @@ custom-adapter coverage, not a claim of complete native CLI validation on Window
 
 Desktop packaging lives under `apps/desktop/`. `electron-builder.yml` defines the product metadata and `extraResources` layout, while `scripts/package-release.mjs` maps the current host platform/arch to the matching Rust target triple, stages the built `orkworksd` binary into `crates/orkworksd/target/release/`, and invokes `electron-builder` with the matching CLI arch flag. CI runs the same path from `.github/workflows/release.yml`, with separate macOS x64 and arm64 jobs so the packaged sidecar always matches the bundled Electron arch. In development, `pnpm dev` builds the debug sidecar before starting Electron, preventing the app from launching a stale Rust binary after sidecar changes.
 
+The tag-driven release workflow uses the protected GitHub `release` environment.
+For a credential-backed run, electron-builder signs the macOS app and nested
+Rust sidecar, notarizes and staples the macOS artifacts, and signs the Windows
+NSIS output with Authenticode. The workflow then verifies the generated
+metadata/checksums and performs native platform checks before upload. Signing
+credentials are injected only in the trusted release jobs; they are not stored
+in source control or packaged into the application. The base64 App Store
+Connect Team Key is decoded to a mode-600 file under the macOS runner's
+temporary directory, passed to electron-builder by path, and removed after
+packaging. Windows signing currently uses base64 `.pfx`/`.p12` secrets;
+managed signing requires separate workflow integration and is not wired here.
+
+Runtime updater network/download and restart operations remain Electron-main
+work owned by issue #511. The signing wiring here does not implement or claim
+installed older-build update testing.
+
 ## Preload bridge (security boundary)
 
 Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with backend discovery, workspace memory, layout memory, menu-command, panel-visibility, and app-settings methods. Adding new capabilities requires extending the preload, not relaxing context isolation. `titleBarStyle: 'hiddenInset'` is set on macOS so the web content extends into the title bar area; the renderer reads `window.orkworks.platform` (exposed synchronously by the preload) to apply a `data-platform` attribute on `<html>`, which CSS uses to add traffic-light clearance (`padding-left: 80px`) on darwin only.

@@ -3,8 +3,34 @@
 ## Approved scope extension — 2026-09-10
 
 This section defines the next release increment and supersedes conflicting
-alpha-only requirements below. The remainder records the existing baseline;
-daily builds, signing, and in-app updating are specified here, not yet implemented.
+alpha-only requirements below. The source wiring for signing and native
+artifact verification of the existing tag-driven release path is implemented;
+daily builds and in-app updating are not. Credential-backed trust, native
+certificate validation, and installed-app validation remain external delivery
+prerequisites.
+
+### Source-wiring status — 2026-09-14
+
+`.github/workflows/release.yml` now uses the protected `release` environment
+for the macOS and Windows build jobs. `apps/desktop/electron-builder.yml`
+requests macOS DMG/ZIP signing and notarization, nested sidecar signing, and
+Windows NSIS Authenticode signing with updater signature verification. The
+DMG remains a manual installer with update-info generation disabled; the ZIP
+is the sole macOS payload represented in `latest-mac.yml`. The macOS job
+decodes the base64 App Store Connect Team Key to a mode-600 `.p8`
+under `RUNNER_TEMP`, passes its path to electron-builder, and removes it after
+packaging. The Windows job currently supports base64 `.pfx`/`.p12` secrets;
+managed signing is not wired and requires separate workflow integration. The
+workflow runs a pre-checksum packaged-artifact gate, macOS and Windows native
+checks, and the Windows installer smoke test; it then generates
+`SHA256SUMS.txt` and reruns the full verifier before upload. It publishes a
+draft only after both platform jobs pass.
+
+The exact credential contract and operator steps are in the [signed release
+runbook](../docs/agents/release-signing.md). Source tests can prove this
+wiring, but cannot prove a trusted certificate chain, Apple notarization,
+stapling, or a credential-backed native release. Issue #511 owns installed
+older-build update testing.
 
 ### Purpose and distribution channels
 
@@ -57,8 +83,10 @@ needed. Keep provider configuration and network/download operations in Electron
 main; the renderer cannot supply a feed URL, executable path, or release token.
 
 macOS builds require a Developer ID signature, notarization, and stapling of
-the distributed app/installer as applicable. Sign the bundled Rust executable
-and any other nested executable code. Publish both DMG (manual install) and ZIP
+the app bundle before it is packaged. Sign the bundled Rust executable and any
+other nested executable code. The DMG container is not treated as separately
+stapled; verification mounts it and validates the contained app. Publish both
+DMG (manual install) and ZIP
 (updater payload), with the generated channel metadata and checksums. Windows
 NSIS releases require Authenticode signing and verification against the expected
 publisher. Keep checksum and publisher/signature verification enabled.

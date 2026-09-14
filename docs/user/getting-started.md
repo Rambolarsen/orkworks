@@ -10,11 +10,14 @@ installer may not include every feature described here.
 
 <DownloadLinks />
 
-The release pipeline targets Apple Silicon macOS and Windows x64. Alpha
-installers are unsigned. When a public installer is available, read its notes
-on the [releases page](https://github.com/Rambolarsen/orkworks/releases) for
-platform-specific installation details. Linux and Intel macOS are
-source/local-build paths.
+The release pipeline targets Apple Silicon macOS and Windows x64. Historical
+alpha installers were unsigned and may require the platform-specific bypasses
+described in their release notes. A credential-backed release is a separate
+artifact: its macOS DMG/ZIP and Windows NSIS installer are uploaded to a draft
+GitHub Release only after the protected workflow passes signing, metadata,
+checksum, and native verification gates. Check the [releases page](https://github.com/Rambolarsen/orkworks/releases)
+for the notes attached to the specific artifact you downloaded. Linux and
+Intel macOS remain source/local-build paths.
 
 ## Run from source
 
