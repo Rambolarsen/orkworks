@@ -40,6 +40,9 @@ unresolvable paths fail closed, and symlink/junction escapes are rejected.
   `node --experimental-strip-types --test apps/desktop/tests/releaseMetadata.test.mjs`
   — 10 passed, 0 failed, 0 skipped.
 - `git diff --check` — passed.
+- `bash scripts/verify-repo.sh` — unable to complete in this environment;
+  it stopped at Rust formatting because `cargo` is not available. The focused
+  Task 1 verification above passed.
 
 ## Commits
 
