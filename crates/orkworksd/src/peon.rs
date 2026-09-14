@@ -435,7 +435,11 @@ fn normalize_generic_instruction(label: &str) -> String {
 }
 
 fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
-    const PROMPT_EXAMPLE_TOPIC: &[&str] = &["peon", "model", "detection"];
+    const PROMPT_EXAMPLE_TOPIC: &[&[&str]] = &[
+        &["peon"],
+        &["model"],
+        &["detection", "detector", "detecting", "detect"],
+    ];
     const TASK_ACTIONS: &[&str] = &[
         "debug",
         "debugging",
@@ -467,16 +471,23 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
     ];
 
     input_hint
-        .split([';', '.', '!', '?', '\n'])
+        .split([';', ',', '.', '!', '?', '\n'])
         .map(normalize_generic_instruction)
         .any(|clause| {
             let words: Vec<_> = clause.split_whitespace().collect();
-            let mentions_topic = PROMPT_EXAMPLE_TOPIC
-                .iter()
-                .all(|word| words.iter().any(|input_word| input_word == word));
+            let mentions_topic = PROMPT_EXAMPLE_TOPIC.iter().all(|variants| {
+                variants
+                    .iter()
+                    .any(|word| words.iter().any(|input_word| input_word == word))
+            });
             let topic_start = PROMPT_EXAMPLE_TOPIC
                 .iter()
-                .filter_map(|word| words.iter().position(|input_word| input_word == word))
+                .filter_map(|variants| {
+                    variants
+                        .iter()
+                        .filter_map(|word| words.iter().position(|input_word| input_word == word))
+                        .min()
+                })
                 .min()
                 .unwrap_or(words.len());
             let negated = words.iter().enumerate().any(|(index, word)| {
@@ -487,9 +498,11 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
             let incidental_reference = words
                 .iter()
                 .any(|word| INCIDENTAL_REFERENCES.contains(word));
-            let starts_with_topic = words
-                .first()
-                .is_some_and(|word| PROMPT_EXAMPLE_TOPIC.contains(word));
+            let starts_with_topic = words.first().is_some_and(|word| {
+                PROMPT_EXAMPLE_TOPIC
+                    .iter()
+                    .any(|variants| variants.contains(word))
+            });
             let names_a_task = words.iter().any(|word| TASK_ACTIONS.contains(word));
 
             mentions_topic
@@ -497,6 +510,17 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
                 && !incidental_reference
                 && (starts_with_topic || names_a_task)
         })
+}
+
+fn is_prompt_example_label(normalized_label: &str) -> bool {
+    const PROMPT_EXAMPLE_LABEL: &[&str] = &["fixing", "peon", "model", "detection"];
+    const PR_SUFFIX_WORDS: &[&str] = &["pr", "pull", "request"];
+
+    let words: Vec<_> = normalized_label.split_whitespace().collect();
+    words.starts_with(PROMPT_EXAMPLE_LABEL)
+        && words[PROMPT_EXAMPLE_LABEL.len()..]
+            .iter()
+            .all(|word| PR_SUFFIX_WORDS.contains(word) || word.parse::<u64>().is_ok())
 }
 
 /// Returns whether an input-triggered label names the task and retains all PR
@@ -508,12 +532,11 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
         "instructing agent",
         "instructing the agent",
     ];
-    const PROMPT_EXAMPLE_LABEL: &str = "fixing peon model detection";
-
     let normalized = normalize_generic_instruction(&normalize_summary(label));
     let candidate_pr_numbers = referenced_pr_numbers(label);
     !normalized.is_empty()
-        && (normalized != PROMPT_EXAMPLE_LABEL || input_mentions_prompt_example_topic(input_hint))
+        && (!is_prompt_example_label(&normalized)
+            || input_mentions_prompt_example_topic(input_hint))
         && !GENERIC_PREFIXES
             .iter()
             .any(|prefix| normalized.starts_with(prefix))
@@ -2221,6 +2244,22 @@ mod tests {
         assert!(is_usable_input_label(
             "Fixing peon model detection",
             "fix peon model detection, not the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix Peon's model detector",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "Do not change the UI, just fix peon model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection PR #249",
+            "review PR #249 login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection PR #249",
+            "fix peon model detection for PR #249",
         ));
         assert!(is_usable_input_label(
             "User is fixing peon model detection",
