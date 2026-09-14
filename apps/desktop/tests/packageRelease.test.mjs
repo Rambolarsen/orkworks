@@ -2,11 +2,52 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import yaml from "js-yaml";
 
 import {
   createReleaseBuildPlan,
   electronBuilderInvocation,
 } from "../scripts/packageReleaseConfig.mjs";
+
+const desktopRoot = resolve(import.meta.dirname, "..");
+
+test("electron-builder config declares signed release targets", () => {
+  const config = yaml.load(
+    readFileSync(resolve(desktopRoot, "electron-builder.yml"), "utf8"),
+  );
+
+  assert.deepEqual(config.publish, {
+    provider: "github",
+    owner: "Rambolarsen",
+    repo: "orkworks",
+  });
+  assert.deepEqual(config.mac.target, ["dmg", "zip"]);
+  assert.equal(config.mac.notarize, true);
+  assert.equal(config.mac.hardenedRuntime, true);
+  assert.deepEqual(config.mac.binaries, ["Contents/Resources/orkworksd"]);
+  assert.equal(config.mac.forceCodeSigning, true);
+  assert.deepEqual(config.win.target, ["nsis"]);
+  assert.equal(config.win.verifyUpdateCodeSignature, true);
+  assert.equal(config.win.forceCodeSigning, true);
+});
+
+test("macOS entitlements allow the sidecar runtime requirements", () => {
+  for (const filename of [
+    "build/entitlements.mac.plist",
+    "build/entitlements.mac.inherit.plist",
+  ]) {
+    const entitlements = readFileSync(resolve(desktopRoot, filename), "utf8");
+
+    assert.match(
+      entitlements,
+      /<key>com\.apple\.security\.cs\.allow-jit<\/key>\s*<true\/>/,
+    );
+    assert.match(
+      entitlements,
+      /<key>com\.apple\.security\.cs\.allow-unsigned-executable-memory<\/key>\s*<true\/>/,
+    );
+  }
+});
 
 test("desktop package declares the GitHub repository for release metadata", () => {
   const packageJson = JSON.parse(
