@@ -124,6 +124,16 @@ impl RollupFamilySnapshot {
 pub(crate) fn build_rollup_family_snapshots(
     recommendations: &[Recommendation],
 ) -> Result<Vec<RollupFamilySnapshot>, RollupValidationError> {
+    build_rollup_family_snapshots_with_offset(recommendations, 0)
+}
+
+/// Builds a deterministic batch of exact families. `batch_offset` rotates the
+/// family groups between periodic evaluations while keeping every active
+/// parent's complete member set together.
+pub(crate) fn build_rollup_family_snapshots_with_offset(
+    recommendations: &[Recommendation],
+    batch_offset: usize,
+) -> Result<Vec<RollupFamilySnapshot>, RollupValidationError> {
     let active_parents = recommendations
         .iter()
         .filter(|recommendation| {
@@ -139,54 +149,73 @@ pub(crate) fn build_rollup_family_snapshots(
             if recommendation.status == RecommendationStatus::Proposed
                 && recommendation.rollup_member_ids.is_empty()
                 && recommendation.rolled_up_by.is_none()
+                && is_exact_family(recommendation)
             {
                 return Some((recommendation.clone(), None));
             }
             let parent_id = recommendation.rolled_up_by.as_deref()?;
             let parent = active_parents.get(parent_id)?;
-            parent
-                .rollup_member_ids
-                .contains(&recommendation.id)
-                .then(|| {
-                    let mut comparable = recommendation.clone();
-                    comparable.status = RecommendationStatus::Proposed;
-                    comparable.rolled_up_by = None;
-                    (comparable, Some((*parent).clone()))
-                })
+            (parent.rollup_member_ids.contains(&recommendation.id)
+                && is_exact_family(recommendation))
+            .then(|| {
+                let mut comparable = recommendation.clone();
+                comparable.status = RecommendationStatus::Proposed;
+                comparable.rolled_up_by = None;
+                (comparable, Some((*parent).clone()))
+            })
         })
         .collect::<Vec<_>>();
     candidates.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
-    candidates.truncate(MAX_ROLLUP_FAMILIES);
 
-    // Never submit only part of an active parent's member set. The parent
-    // membership is part of the stale-result token, but a partial snapshot
-    // would still give the model incomplete evidence for a possible change.
-    let selected_ids = candidates
-        .iter()
-        .map(|(recommendation, _)| recommendation.id.clone())
-        .collect::<BTreeSet<_>>();
-    candidates.retain(|(_, active_parent)| {
-        active_parent.as_ref().is_none_or(|parent| {
-            parent
-                .rollup_member_ids
-                .iter()
-                .all(|member_id| selected_ids.contains(member_id))
-        })
-    });
+    let mut groups: Vec<(String, Vec<(Recommendation, Option<Recommendation>)>)> = Vec::new();
+    for candidate in candidates {
+        let key = candidate
+            .1
+            .as_ref()
+            .map(|parent| parent.id.clone())
+            .unwrap_or_else(|| candidate.0.id.clone());
+        if let Some((_, group)) = groups.iter_mut().find(|(group_key, _)| *group_key == key) {
+            group.push(candidate);
+        } else {
+            groups.push((key, vec![candidate]));
+        }
+    }
+    groups.sort_by(|left, right| left.0.cmp(&right.0));
 
     let mut snapshots = Vec::new();
-    for (recommendation, active_parent) in candidates {
-        let snapshot = RollupFamilySnapshot::from_recommendation_with_active_parent(
-            &recommendation,
-            active_parent.as_ref(),
-        )?;
+    if groups.is_empty() {
+        return Ok(snapshots);
+    }
+    let start = batch_offset % groups.len();
+    for group_index in 0..groups.len() {
+        let (_, group) = &groups[(start + group_index) % groups.len()];
+        if snapshots.len() + group.len() > MAX_ROLLUP_FAMILIES {
+            continue;
+        }
+        let group_snapshots = group
+            .iter()
+            .map(|(recommendation, active_parent)| {
+                RollupFamilySnapshot::from_recommendation_with_active_parent(
+                    recommendation,
+                    active_parent.as_ref(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut candidate = snapshots.clone();
-        candidate.push(snapshot.clone());
+        candidate.extend(group_snapshots);
         if serialized_size(&candidate) <= MAX_ROLLUP_INPUT_BYTES {
-            snapshots.push(snapshot);
+            snapshots = candidate;
         }
     }
     Ok(snapshots)
+}
+
+fn is_exact_family(recommendation: &Recommendation) -> bool {
+    !recommendation.evidence.is_empty()
+        && !recommendation
+            .workflow_improvement
+            .observation_ids
+            .is_empty()
 }
 
 pub(crate) fn validate_rollup_clusters(
@@ -392,7 +421,10 @@ fn validate_generated_text(
     value: &str,
     limit: usize,
 ) -> Result<(), RollupValidationError> {
-    if value.is_empty() || value.chars().count() > limit || value.chars().any(char::is_control) {
+    if value.trim().is_empty()
+        || value.chars().count() > limit
+        || value.chars().any(char::is_control)
+    {
         return Err(RollupValidationError::GeneratedTextOutOfBounds { field, limit });
     }
     Ok(())
@@ -888,6 +920,52 @@ mod tests {
         let projection = project_parent_evidence(&evidence);
         assert!(projection.len() <= MAX_PARENT_EVIDENCE_ENTRIES);
         assert!(serialized_size(&projection) <= MAX_PARENT_EVIDENCE_BYTES);
+    }
+
+    #[test]
+    fn rotates_bounded_batches_without_splitting_active_parents() {
+        let recommendations: Vec<_> = (0..40)
+            .map(|index| {
+                recommendation(
+                    &format!("recommendation-{index:02}"),
+                    TargetSurface::Tooling,
+                    vec![evidence(
+                        &format!("observation-{index}"),
+                        index as u64,
+                        "session-a",
+                        Impact::Medium,
+                    )],
+                )
+            })
+            .collect();
+
+        let first = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+        let second = build_rollup_family_snapshots_with_offset(&recommendations, 32).unwrap();
+
+        assert_eq!(first.len(), MAX_ROLLUP_FAMILIES);
+        assert_eq!(second.len(), MAX_ROLLUP_FAMILIES);
+        assert!(second
+            .iter()
+            .any(|snapshot| snapshot.recommendation_id == "recommendation-39"));
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn rejects_whitespace_only_generated_text() {
+        let snapshots = [
+            snapshot("recommendation-a", TargetSurface::Tooling),
+            snapshot("recommendation-b", TargetSurface::Tooling),
+        ];
+        let mut invalid = cluster(
+            &["recommendation-a", "recommendation-b"],
+            TargetSurface::Tooling,
+        );
+        invalid.title = "   ".into();
+
+        assert!(matches!(
+            validate_rollup_clusters(&snapshots, &[invalid]),
+            Err(RollupValidationError::GeneratedTextOutOfBounds { field: "title", .. })
+        ));
     }
 
     #[test]

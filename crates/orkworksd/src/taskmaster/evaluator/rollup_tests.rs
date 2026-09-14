@@ -1,5 +1,5 @@
 use super::*;
-use crate::taskmaster::rollup::{stable_rollup_id, RollupCluster};
+use crate::taskmaster::rollup::{build_rollup_family_snapshots, stable_rollup_id, RollupCluster};
 use crate::taskmaster::runtime::{
     EvaluationSnapshot, KnowledgeBundle, KnowledgePage, TaskmasterSelection, TaskmasterSettings,
 };
@@ -234,6 +234,36 @@ fn rollup_parser_accepts_same_target_clusters_and_rejects_invalid_response_as_a_
 }
 
 #[test]
+fn rollup_candidates_exclude_unbacked_proactive_hypotheses() {
+    let mut proactive = recommendation("proactive", 3);
+    proactive.evidence.clear();
+    proactive.workflow_improvement.observation_ids.clear();
+    proactive.source_session_ids.clear();
+
+    let snapshots =
+        build_rollup_family_snapshots(&[recommendation("a", 1), recommendation("b", 2), proactive])
+            .unwrap();
+
+    assert_eq!(
+        snapshots
+            .iter()
+            .map(|snapshot| snapshot.recommendation_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+}
+
+#[test]
+fn combined_taskmaster_prompt_requests_all_response_sections_once() {
+    let prompt = build_taskmaster_prompt(&evaluation_snapshot(), &[], &[], &[], true);
+
+    assert_eq!(prompt.matches("Return only JSON").count(), 1);
+    assert!(prompt.contains("enrichments"));
+    assert!(prompt.contains("proposals"));
+    assert!(prompt.contains("rollups"));
+}
+
+#[test]
 fn stale_rollup_tokens_preserve_exact_recommendations() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
@@ -359,6 +389,15 @@ fn evaluator_output_refreshes_an_existing_proposed_rollup_in_place() {
     assert_eq!(parent.title, "Refreshed title");
     assert_eq!(parent.status, RecommendationStatus::Proposed);
     assert_eq!(parent.rollup_member_ids, ["a", "b"]);
+    assert_ne!(parent.created_at, records_created_at(&state, "a"));
+}
+
+fn records_created_at(state: &crate::AppState, id: &str) -> String {
+    stored_recommendations(state)
+        .into_iter()
+        .find(|record| record.id == id)
+        .unwrap()
+        .created_at
 }
 
 #[test]
@@ -410,6 +449,57 @@ fn evaluator_output_supersedes_a_changed_rollup_and_releases_unassigned_members(
     let released = records.iter().find(|item| item.id == "b").unwrap();
     assert_eq!(released.status, RecommendationStatus::Proposed);
     assert_eq!(released.rolled_up_by, None);
+}
+
+#[test]
+fn split_rollup_parent_reassigns_all_members_in_one_transaction() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c", "d"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &initial.token,
+        &initial.snapshots,
+        &output(&[cluster(&["a", "b", "c", "d"])]),
+    ));
+
+    let current = stored_recommendations(&state);
+    let split = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &split.token,
+        &split.snapshots,
+        &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])]),
+    ));
+
+    let records = stored_recommendations(&state);
+    let old_parent = records
+        .iter()
+        .find(|record| record.rollup_member_ids == ["a", "b", "c", "d"])
+        .unwrap();
+    assert_eq!(old_parent.status, RecommendationStatus::Superseded);
+    for (ids, member_ids) in [(["a", "b"], ["a", "b"]), (["c", "d"], ["c", "d"])] {
+        let parent_id = stable_rollup_id(&ids.map(String::from));
+        let parent = records
+            .iter()
+            .find(|record| record.id == parent_id)
+            .unwrap();
+        assert_eq!(parent.status, RecommendationStatus::Proposed);
+        for member_id in member_ids {
+            let member = records
+                .iter()
+                .find(|record| record.id == member_id)
+                .unwrap();
+            assert_eq!(member.status, RecommendationStatus::RolledUp);
+            assert_eq!(member.rolled_up_by.as_deref(), Some(parent_id.as_str()));
+        }
+    }
 }
 
 #[test]
@@ -533,7 +623,7 @@ fn stale_evaluator_result_cannot_reparent_a_member_after_parent_membership_chang
     ));
     let after_change = stored_recommendations(&state);
 
-    assert!(apply_combined_output(
+    assert!(!apply_combined_output(
         &state,
         &runtime,
         &snapshot,
@@ -578,7 +668,7 @@ fn stale_evaluator_result_cannot_mutate_an_executing_parent() {
     .is_none());
     let before = stored_recommendations(&state);
 
-    assert!(apply_combined_output(
+    assert!(!apply_combined_output(
         &state,
         &runtime,
         &snapshot,
@@ -646,6 +736,35 @@ fn invalid_rollup_rejects_legacy_mutation_before_any_section_is_applied() {
         .unwrap()
         .knowledge_evidence
         .is_empty());
+}
+
+#[test]
+fn stale_rollup_section_prevents_combined_legacy_application() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    let mut stale = request.clone();
+    stale.token.generation += 1;
+
+    assert!(!apply_provider_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        workspace_instance(&state),
+        &[],
+        &recommendations,
+        Some(&stale),
+        &serde_json::json!({
+            "enrichments": [],
+            "proposals": [],
+            "rollups": [cluster(&["a", "b"])]
+        })
+        .to_string(),
+    ));
+    assert_eq!(stored_recommendations(&state), recommendations);
 }
 
 #[test]

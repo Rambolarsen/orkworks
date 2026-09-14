@@ -242,15 +242,10 @@ impl SessionApplication {
         }
     }
 
-    /// Applies validated semantic clusters while the active workspace lock is
-    /// held. Exact recommendations are re-read and matched to the supplied
-    /// evidence snapshots before the recoverable graph transaction runs.
-    pub(crate) fn apply_rollup_clusters(
+    pub(crate) fn rollup_inputs_match(
         &self,
         workspace_instance: u64,
         supplied_snapshots: &[RollupFamilySnapshot],
-        clusters: &[RollupCluster],
-        generation: u64,
     ) -> bool {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
@@ -262,12 +257,12 @@ impl SessionApplication {
         let Ok(current) = workspace.recommendation_store.list() else {
             return false;
         };
-        if supplied_snapshots.iter().any(|snapshot| {
+        supplied_snapshots.iter().all(|snapshot| {
             let Some(recommendation) = current
                 .iter()
                 .find(|recommendation| recommendation.id == snapshot.recommendation_id)
             else {
-                return true;
+                return false;
             };
             let mut comparable = recommendation.clone();
             let active_parent =
@@ -276,7 +271,7 @@ impl SessionApplication {
                         .iter()
                         .find(|parent| parent.id == expected_parent_id)
                     else {
-                        return true;
+                        return false;
                     };
                     let mut current_member_ids = parent.rollup_member_ids.clone();
                     current_member_ids.sort();
@@ -286,7 +281,7 @@ impl SessionApplication {
                         || recommendation.rolled_up_by.as_deref() != Some(expected_parent_id)
                         || current_member_ids != snapshot.active_parent_member_ids
                     {
-                        return true;
+                        return false;
                     }
                     comparable.status = RecommendationStatus::Proposed;
                     comparable.rolled_up_by = None;
@@ -296,20 +291,37 @@ impl SessionApplication {
                         || !recommendation.rollup_member_ids.is_empty()
                         || recommendation.rolled_up_by.is_some()
                     {
-                        return true;
+                        return false;
                     }
                     None
                 };
-            let matches = RollupFamilySnapshot::from_recommendation_with_active_parent(
-                &comparable,
-                active_parent,
-            )
-            .ok()
-                == Some(snapshot.clone());
-            !matches
-        }) {
+            RollupFamilySnapshot::from_recommendation_with_active_parent(&comparable, active_parent)
+                .ok()
+                == Some(snapshot.clone())
+        })
+    }
+
+    /// Applies validated semantic clusters while the active workspace lock is
+    /// held. Exact recommendations are re-read and matched to the supplied
+    /// evidence snapshots before the recoverable graph transaction runs.
+    pub(crate) fn apply_rollup_clusters(
+        &self,
+        workspace_instance: u64,
+        supplied_snapshots: &[RollupFamilySnapshot],
+        clusters: &[RollupCluster],
+        generation: u64,
+    ) -> bool {
+        if !self.rollup_inputs_match(workspace_instance, supplied_snapshots) {
             return false;
         }
+
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return false;
+        };
+        let Ok(current) = workspace.recommendation_store.list() else {
+            return false;
+        };
 
         let now = chrono::Utc::now().to_rfc3339();
         let mut working = current
@@ -317,6 +329,10 @@ impl SessionApplication {
             .cloned()
             .map(|recommendation| (recommendation.id.clone(), recommendation))
             .collect::<BTreeMap<_, _>>();
+        let assigned_member_ids = clusters
+            .iter()
+            .flat_map(|cluster| cluster.member_recommendation_ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
         let mut expected = BTreeMap::new();
         for cluster in clusters {
             let member_ids = cluster
@@ -385,16 +401,18 @@ impl SessionApplication {
             let mut parent = existing_parent
                 .cloned()
                 .unwrap_or_else(|| first_member.clone());
+            if existing_parent.is_none() {
+                parent.created_at = now.clone();
+            }
             let all_evidence = members
                 .iter()
                 .flat_map(|member| member.evidence.clone())
                 .collect::<Vec<_>>();
-            let mut observation_ids = all_evidence
+            let projected_evidence = project_parent_evidence(&all_evidence);
+            let observation_ids = projected_evidence
                 .iter()
                 .map(|evidence| evidence.observation_id.clone())
                 .collect::<Vec<_>>();
-            observation_ids.sort();
-            observation_ids.dedup();
             let mut source_session_ids = members
                 .iter()
                 .flat_map(|member| {
@@ -408,6 +426,7 @@ impl SessionApplication {
                 .collect::<Vec<_>>();
             source_session_ids.sort();
             source_session_ids.dedup();
+            source_session_ids.truncate(crate::taskmaster::rollup::MAX_ROLLUP_SOURCE_SESSIONS);
             let priority = all_evidence
                 .iter()
                 .map(|evidence| evidence.reported_impact)
@@ -452,7 +471,7 @@ impl SessionApplication {
                 "Bounded semantic rollup of {} exact recommendation families; derived evidence and counts remain sidecar-owned.",
                 members.len()
             )];
-            parent.evidence = project_parent_evidence(&all_evidence);
+            parent.evidence = projected_evidence;
             parent.repository_evidence.clear();
             parent.knowledge_evidence.clear();
             parent.source_session_ids = source_session_ids.clone();
@@ -521,7 +540,7 @@ impl SessionApplication {
                 add_expected(&superseded.id, &mut expected);
                 working.insert(superseded.id.clone(), superseded);
                 for old_member_id in &old_parent.rollup_member_ids {
-                    if member_ids.contains(old_member_id) {
+                    if assigned_member_ids.contains(old_member_id) {
                         continue;
                     }
                     let Some(old_member) = current.iter().find(|item| item.id == *old_member_id)

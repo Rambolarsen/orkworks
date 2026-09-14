@@ -227,7 +227,7 @@ test("rollup fix draft bounds every dynamic field inside one serialized referenc
   assert.ok((reference.sourceSessionIds as string[]).length <= 16);
   assert.ok((reference.affectedSessionIds as string[]).length <= 16);
   assert.match(serialized, /rollup-injected/);
-  assert.doesNotMatch(prompt.slice(0, start), /rollup-injected/);
+  assert.match(prompt.slice(0, start), /recommendations\/rollup-injected  id/);
   assert.doesNotMatch(prompt.slice(0, start), /outside-target/);
   assert.doesNotMatch(serialized, /[\u0000-\u001f\u007f<>]/);
 });

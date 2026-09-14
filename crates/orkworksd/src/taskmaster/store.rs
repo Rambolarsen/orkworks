@@ -412,22 +412,22 @@ impl RecommendationStore {
                 return Err(StoreError::InvalidTransition);
             }
         }
-        let replacements = next
-            .iter()
-            .map(|(id, record)| {
-                let new = serde_json::to_vec_pretty(record).map_err(StoreError::Json)?;
-                let old = current.get(id).map(|previous| {
-                    serde_json::to_vec_pretty(previous).expect("recommendation is serializable")
-                });
-                Ok((
+        let mut replacements = BTreeMap::new();
+        for (id, record) in &next {
+            let new = serde_json::to_vec_pretty(record).map_err(StoreError::Json)?;
+            let old = current.get(id).map(|previous| {
+                serde_json::to_vec_pretty(previous).expect("recommendation is serializable")
+            });
+            if old.as_ref() != Some(&new) {
+                replacements.insert(
                     id.clone(),
                     Replacement {
                         old,
                         new: Some(new),
                     },
-                ))
-            })
-            .collect::<Result<BTreeMap<_, _>, StoreError>>()?;
+                );
+            }
+        }
         self.commit_replacements(expected, replacements)
     }
 
@@ -769,6 +769,9 @@ impl RecommendationStore {
             if actual != replacement.old {
                 return Err(StoreError::StaleExpectedHash { id: id.clone() });
             }
+        }
+        if replacements.is_empty() {
+            return Ok(());
         }
 
         let transaction_root = self

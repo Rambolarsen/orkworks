@@ -205,11 +205,7 @@ pub(crate) fn evaluate_workflow_improvements(
                     .is_some_and(|parent_id| {
                         existing.iter().any(|parent| {
                             parent.id == parent_id
-                                && matches!(
-                                    parent.status,
-                                    RecommendationStatus::Proposed
-                                        | RecommendationStatus::Executing
-                                )
+                                && parent.status == RecommendationStatus::Proposed
                                 && parent.rollup_member_ids.contains(&recommendation.id)
                         })
                     })
@@ -456,9 +452,11 @@ pub(crate) fn build_fix_prompt(recommendation: &Recommendation) -> String {
     let improvement = &recommendation.workflow_improvement;
     if !recommendation.rollup_member_ids.is_empty() {
         let rollup_reference = build_rollup_reference(recommendation);
+        let rollup_id = clean_rollup_reference_text(&recommendation.id, 64);
         return format!(
             "Work on the Taskmaster rollup recommendation described in the delimited reference data below.\n\n\
-             Before acting, read the recommendation directly from GET /taskmaster/recommendations/{{rollupId}}. \
+             Extract rollupId from the delimited reference data, then substitute that value into both API paths below. \
+             Before acting, read the recommendation directly from GET /taskmaster/recommendations/{rollup_id}. \
              It contains the authoritative rationale, evidence, and source sessions included in the delimited reference data.\n\n\
              Start by following the repository skill `working-on-recommendation`; use it to inspect the recommendation and the sessions that spawned it.\n\n\
              Investigate and implement the following workflow improvement where the current evidence supports it: \
@@ -470,7 +468,7 @@ pub(crate) fn build_fix_prompt(recommendation: &Recommendation) -> String {
              Proactive findings are experimental hypotheses, not proof of recurrence or of absent policies. Recheck current files; repository instructions and explicit owner decisions govern applicability.\n\n\
              Scope: only modify repository-level instructions, skills, tests, tooling, or documentation to address this improvement. \
              Work only in the current session. Do not resume, reopen, or modify any other session.\n\n\
-             After acting, verify the change. When the recommendation is genuinely addressed, report completion by POSTing to /taskmaster/recommendations/{{rollupId}}/complete \
+             After acting, verify the change. When the recommendation is genuinely addressed, report completion by POSTing to /taskmaster/recommendations/{rollup_id}/complete \
              with Authorization: Bearer $ORKWORKS_REPORT_TOKEN and an optional JSON summary. Do not mark it complete before verification.\r",
         );
     }
@@ -1069,10 +1067,8 @@ mod tests {
             (0..64).map(|index| format!("affected-{index}")).collect();
 
         let prompt = build_fix_prompt(&recommendation);
-        assert!(prompt.contains("/taskmaster/recommendations/{rollupId}/complete"));
-        assert!(!prompt.contains(
-            "/taskmaster/recommendations/the rollup ID from the delimited reference data/complete"
-        ));
+        assert!(prompt.contains("Extract rollupId from the delimited reference data"));
+        assert!(prompt.contains("/taskmaster/recommendations/rollup-injectedid/complete"));
         let opening_tag = "<orkworks-untrusted-rollup-reference>";
         let closing_tag = "</orkworks-untrusted-rollup-reference>";
         let start = prompt.find(opening_tag).expect("expected rollup reference");
@@ -1094,7 +1090,8 @@ mod tests {
         assert!(reference["affectedSessionIds"].as_array().unwrap().len() <= 16);
         assert_eq!(reference["truncated"], true);
         assert!(serialized.contains("rollup-injected"));
-        assert!(!prompt[..start].contains("rollup-injected"));
+        assert!(!prompt[..start].contains('\0'));
+        assert!(!prompt[..start].contains("<id>"));
         assert!(!serialized
             .chars()
             .any(|character| character.is_control() || matches!(character, '<' | '>')));
@@ -1196,14 +1193,14 @@ mod tests {
         );
 
         assert_eq!(updated.len(), 1);
-        assert_eq!(updated[0].id, member.id);
-        assert_eq!(updated[0].status, RecommendationStatus::RolledUp);
-        assert_eq!(updated[0].rolled_up_by, member.rolled_up_by);
-        assert_eq!(updated[0].rollup_generation, member.rollup_generation);
+        assert_ne!(updated[0].id, member.id);
+        assert_eq!(updated[0].status, RecommendationStatus::Proposed);
+        assert_eq!(updated[0].rolled_up_by, None);
+        assert_eq!(updated[0].rollup_generation, Some(5));
         assert_eq!(updated[0].evidence.len(), 3);
         assert_eq!(
             updated[0].workflow_improvement.supersedes_recommendation_id,
-            Some("earlier-generation".into())
+            Some(member.id)
         );
     }
 }

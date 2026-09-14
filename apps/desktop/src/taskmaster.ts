@@ -26,14 +26,18 @@ export function buildFixPromptDraft(recommendation: WorkflowRecommendation): str
   const improvement = recommendation.workflowImprovement;
   const isRollup = recommendation.rollupMemberIds.length > 0;
   const rollupReference = buildRollupReference(recommendation);
-  const id = isRollup ? "{rollupId}" : recommendation.id;
+  const id = cleanReferenceText(recommendation.id, 64);
   const sourceSessions = isRollup ? "included in the delimited reference data" : recommendation.sourceSessionIds.join(", ");
   return [
     isRollup
       ? "Work on the Taskmaster rollup recommendation described in the delimited reference data below."
       : `Work on Taskmaster recommendation ${recommendation.id}.`,
     "",
-    `Before acting, read the recommendation directly from GET /taskmaster/recommendations/${id}. It contains the authoritative rationale, evidence, and source sessions (${sourceSessions}).`,
+    ...(isRollup ? [
+      `Extract rollupId from the delimited reference data and substitute that value into both API paths below. Before acting, read the recommendation directly from GET /taskmaster/recommendations/${id}. It contains the authoritative rationale, evidence, and source sessions (${sourceSessions}).`,
+    ] : [
+      `Before acting, read the recommendation directly from GET /taskmaster/recommendations/${id}. It contains the authoritative rationale, evidence, and source sessions (${sourceSessions}).`,
+    ]),
     "",
     "Start by following the repository skill `working-on-recommendation`; use it to inspect the recommendation and the sessions that spawned it.",
     "",
