@@ -40,7 +40,7 @@ interface MemberDetails {
 export default function RecommendationEvidence({ recommendation, onSelectSession }: EvidenceProps) {
   const [expanded, setExpanded] = useState(false);
   const [retry, setRetry] = useState(0);
-  const key = JSON.stringify([recommendation.id, recommendation.updatedAt, recommendation.rollupMemberIds]);
+  const key = JSON.stringify([recommendation.id, recommendation.updatedAt, recommendation.rollupMemberIds, recommendation.workspaceId]);
   const cache = useRef<MemberDetails>({ key: "", members: new Map(), loading: false, failed: false });
   const [details, setDetails] = useState(cache.current);
 

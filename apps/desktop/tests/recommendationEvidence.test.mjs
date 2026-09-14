@@ -140,3 +140,16 @@ test("ordinary exact family evidence remains local and never requests member det
   assert.deepEqual(view.requests, []);
   assert.match(text(view.render()), /Full evidence exact/);
 });
+
+test("changing only the workspace identity discards cached family details", async (t) => {
+  let activeWorkspace = "first";
+  const view = await fixture(t, async (id) => ({ ...family(id), title: `${activeWorkspace} family ${id}` }));
+  view.render({ recommendation: { ...parent, workspaceId: "first" } }); await view.settle();
+  await view.toggle(true);
+  assert.match(text(view.render()), /first family a/);
+  activeWorkspace = "second";
+  view.render({ recommendation: { ...parent, workspaceId: "second" } }); await view.settle();
+  assert.deepEqual(view.requests, ["a", "b", "a", "b"]);
+  assert.match(text(view.render()), /second family a/);
+  assert.doesNotMatch(text(view.render()), /first family/);
+});
