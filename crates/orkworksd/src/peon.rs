@@ -463,6 +463,44 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
         "wording",
     ];
     const ALTERNATIVE_REFERENCES: &[&str] = &["instead", "other", "rather"];
+    const TASK_ACTIONS: &[&str] = &[
+        "add",
+        "address",
+        "analyze",
+        "audit",
+        "build",
+        "check",
+        "clean",
+        "configure",
+        "debug",
+        "define",
+        "detect",
+        "diagnose",
+        "document",
+        "enable",
+        "ensure",
+        "fix",
+        "handle",
+        "harden",
+        "implement",
+        "improve",
+        "inspect",
+        "investigate",
+        "migrate",
+        "monitor",
+        "optimize",
+        "refactor",
+        "remove",
+        "repair",
+        "resolve",
+        "review",
+        "run",
+        "support",
+        "test",
+        "trace",
+        "update",
+        "verify",
+    ];
 
     input_hint
         .split([';', ',', '.', '!', '?', '\n'])
@@ -474,20 +512,65 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
                     .iter()
                     .any(|word| words.iter().any(|input_word| input_word == word))
             });
-            let negated = words
+            let topic_start = PROMPT_EXAMPLE_TOPIC
+                .iter()
+                .filter_map(|variants| {
+                    variants
+                        .iter()
+                        .filter_map(|word| words.iter().position(|input_word| input_word == word))
+                        .min()
+                })
+                .min()
+                .unwrap_or(words.len());
+            let task_segment_start = words[..topic_start]
+                .iter()
+                .rposition(|word| matches!(*word, "and" | "but" | "while" | "whereas"))
+                .map_or(0, |index| index + 1);
+            let task_segment = &words[task_segment_start..];
+            let task_action = words[task_segment_start..topic_start]
+                .iter()
+                .any(|word| TASK_ACTIONS.contains(word));
+            let negated = task_segment
                 .iter()
                 .any(|word| matches!(*word, "not" | "never" | "without"))
-                || words
-                    .windows(2)
-                    .any(|pair| matches!(pair, ["do", "not"] | ["don", "t"]));
-            let incidental_reference = words
+                || task_segment.windows(2).any(|pair| {
+                    matches!(
+                        pair,
+                        [
+                            "aren"
+                                | "can"
+                                | "couldn"
+                                | "didn"
+                                | "doesn"
+                                | "don"
+                                | "hadn"
+                                | "hasn"
+                                | "haven"
+                                | "isn"
+                                | "mightn"
+                                | "mustn"
+                                | "needn"
+                                | "shouldn"
+                                | "wasn"
+                                | "weren"
+                                | "won"
+                                | "wouldn",
+                            "t"
+                        ]
+                    )
+                });
+            let incidental_reference = task_segment
                 .iter()
                 .any(|word| INCIDENTAL_REFERENCES.contains(word));
-            let alternative_reference = words
+            let alternative_reference = task_segment
                 .iter()
                 .any(|word| ALTERNATIVE_REFERENCES.contains(word));
 
-            mentions_topic && !negated && !incidental_reference && !alternative_reference
+            mentions_topic
+                && task_action
+                && !negated
+                && !incidental_reference
+                && !alternative_reference
         })
 }
 
@@ -2263,6 +2346,14 @@ mod tests {
         assert!(!is_usable_input_label(
             "Fixing peon model detection",
             "fix the login redirect instead of peon model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "The login redirect is broken; peon model detection is a separate concern",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "The login redirect doesn't involve peon model detection",
         ));
         assert!(is_usable_input_label(
             "Fixing peon model detection",
