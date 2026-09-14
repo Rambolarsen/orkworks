@@ -64,6 +64,11 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   const [models, setModels] = useState<string[]>([]);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const harnessSelectRef = useRef<HTMLSelectElement>(null);
+  const confirmationGeneration = useRef(0);
+  const handleCancel = useCallback(() => {
+    confirmationGeneration.current += 1;
+    onCancel();
+  }, [onCancel]);
   const pendingHarness = !detectionComplete && draft.harnessId
     ? harnesses.find((harness) => harness.id === draft.harnessId && !harness.retired && !selectable.some((entry) => entry.id === harness.id))
     : undefined;
@@ -104,12 +109,12 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     function onDocKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
-        onCancel();
+        handleCancel();
       }
     }
     document.addEventListener("keydown", onDocKeyDown);
     return () => document.removeEventListener("keydown", onDocKeyDown);
-  }, [onCancel]);
+  }, [handleCancel]);
 
   useEffect(() => {
     if (!detectionComplete) return;
@@ -145,14 +150,17 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     if (confirmBusy) return;
     if (!canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) return;
     const selectedHarness = selectable.find((harness) => harness.id === draft.harnessId);
+    const generation = confirmationGeneration.current;
     setConfirmBusy(true);
     try {
       if (selectedHarness && selectedHarness.id !== "generic-shell") {
         try {
           const freshStatus = await getHarnessDetectionStatus(selectedHarness);
+          if (generation !== confirmationGeneration.current) return;
           setDetectionStatuses((current) => ({ ...current, [selectedHarness.id]: freshStatus }));
           if (freshStatus.ok !== true || !freshStatus.status.toolDetected) return;
         } catch (error) {
+          if (generation !== confirmationGeneration.current) return;
           setDetectionStatuses((current) => ({
             ...current,
             [selectedHarness.id]: {
@@ -163,6 +171,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
           return;
         }
       }
+      if (generation !== confirmationGeneration.current) return;
       const harnessId = draft.harnessId || undefined;
       const model = draft.model.trim() || undefined;
       if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
@@ -270,7 +279,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
         </div>
 
         <footer className="new-session-footer">
-          <button type="button" className="new-session-cancel" onClick={onCancel}>Cancel</button>
+          <button type="button" className="new-session-cancel" onClick={handleCancel}>Cancel</button>
           <button
             type="button"
             className="new-session-confirm"
