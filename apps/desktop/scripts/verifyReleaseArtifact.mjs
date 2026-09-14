@@ -76,6 +76,7 @@ export function verifyReleaseArtifact(
   expectation,
   fsModule = { statSync: defaultStatSync },
   metadataModule = defaultMetadataModule,
+  { preChecksum = false } = {},
 ) {
   for (const distributablePath of expectation.distributablePaths) {
     assertPath(fsModule, distributablePath, "distributable", "file");
@@ -86,7 +87,9 @@ export function verifyReleaseArtifact(
   }
   assertPath(fsModule, expectation.appUpdateMetadataPath, "app update metadata", "file");
   assertPath(fsModule, expectation.appPath, "packaged app executable", "file");
-  assertPath(fsModule, expectation.checksumPath, "checksum manifest", "file");
+  if (!preChecksum) {
+    assertPath(fsModule, expectation.checksumPath, "checksum manifest", "file");
+  }
   assertPath(fsModule, expectation.appDir, "unpacked app", "directory");
   assertPath(fsModule, expectation.sidecarPath, "Rust sidecar", "file");
   assertPath(fsModule, expectation.scriptsDir, "hook scripts", "directory");
@@ -115,6 +118,7 @@ export function runCli({
   releaseDir = resolve(import.meta.dirname, "..", "release"),
   fsModule = { statSync: defaultStatSync },
   metadataModule = defaultMetadataModule,
+  preChecksum = false,
   output = (message) => console.log(message),
 } = {}) {
   const packageJson = JSON.parse(
@@ -126,11 +130,15 @@ export function runCli({
     version ?? packageJson.version,
     releaseDir,
   );
-  verifyReleaseArtifact(expectation, fsModule, metadataModule);
+  verifyReleaseArtifact(expectation, fsModule, metadataModule, { preChecksum });
   output(`Verified release artifact: ${expectation.installerPath}; sidecar: ${expectation.sidecarPath}`);
   return expectation;
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  runCli();
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--pre-checksum")) {
+    throw new Error(`Unsupported release verification arguments: ${args.join(" ")}`);
+  }
+  runCli({ preChecksum: args[0] === "--pre-checksum" });
 }

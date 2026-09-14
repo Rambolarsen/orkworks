@@ -19,9 +19,10 @@ macOS job decodes the base64 App Store Connect Team Key to a mode-600 `.p8`
 under `RUNNER_TEMP`, passes its path to electron-builder, and removes it after
 packaging. The Windows job currently supports base64 `.pfx`/`.p12` secrets;
 managed signing is not wired and requires separate workflow integration. The
-workflow verifies packaged metadata and resources, runs macOS and Windows
-native checks, runs the Windows installer smoke test, generates
-`SHA256SUMS.txt`, and publishes a draft only after both platform jobs pass.
+workflow runs a pre-checksum packaged-artifact gate, macOS and Windows native
+checks, and the Windows installer smoke test; it then generates
+`SHA256SUMS.txt` and reruns the full verifier before upload. It publishes a
+draft only after both platform jobs pass.
 
 The exact credential contract and operator steps are in the [signed release
 runbook](../docs/agents/release-signing.md). Source tests can prove this
@@ -80,8 +81,10 @@ needed. Keep provider configuration and network/download operations in Electron
 main; the renderer cannot supply a feed URL, executable path, or release token.
 
 macOS builds require a Developer ID signature, notarization, and stapling of
-the distributed app/installer as applicable. Sign the bundled Rust executable
-and any other nested executable code. Publish both DMG (manual install) and ZIP
+the app bundle before it is packaged. Sign the bundled Rust executable and any
+other nested executable code. The DMG container is not treated as separately
+stapled; verification mounts it and validates the contained app. Publish both
+DMG (manual install) and ZIP
 (updater payload), with the generated channel metadata and checksums. Windows
 NSIS releases require Authenticode signing and verification against the expected
 publisher. Keep checksum and publisher/signature verification enabled.

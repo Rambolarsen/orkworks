@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 
 import {
   createReleaseArtifactExpectation,
@@ -13,8 +15,18 @@ import {
   readAuthenticodeSignature,
   verifyInstalledWindowsApp,
 } from "../scripts/windowsInstallerSmokeTest.mjs";
+import { writeChecksumManifest } from "../scripts/releaseMetadata.mjs";
 
 const passingMetadataModule = { verifyUpdateMetadata() {} };
+
+function withTempDir(run) {
+  const directory = mkdtempSync(join(tmpdir(), "orkworks-release-verifier-"));
+  try {
+    return run(directory);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+}
 
 test("macOS expectation points at the DMG and packaged resources", () => {
   const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
@@ -243,6 +255,59 @@ test("packaged app includes the runtime icon assets used by Electron main", () =
     assert.match(electronBuilderConfig, new RegExp(`^\\s*- ${asset.replaceAll(".", "\\.")}$`, "m"));
   }
 });
+
+test("pre-checksum mode passes before checksum generation and the final gate does not", () => withTempDir((releaseDir) => {
+  const version = "0.1.0";
+  const expectation = createReleaseArtifactExpectation("win32", "x64", version, releaseDir);
+  const payload = "signed installer";
+
+  for (const directory of [expectation.appDir, expectation.scriptsDir]) {
+    mkdirSync(directory, { recursive: true });
+  }
+  for (const path of [
+    ...expectation.distributablePaths,
+    ...expectation.blockmapPaths,
+    expectation.appUpdateMetadataPath,
+    expectation.appPath,
+    expectation.sidecarPath,
+    ...expectation.scriptPaths,
+    join(expectation.scriptsDir, "..", "knowledge", "starter.json"),
+    join(expectation.scriptsDir, "..", "knowledge", "public-key.pem"),
+  ]) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, path === expectation.installerPath ? payload : "fixture");
+  }
+  writeFileSync(expectation.metadataPath, [
+    `version: ${version}`,
+    "files:",
+    `  - url: ${basename(expectation.installerPath)}`,
+    `    sha512: ${createHash("sha512").update(payload).digest("base64")}`,
+    `    size: ${Buffer.byteLength(payload)}`,
+  ].join("\n"));
+
+  assert.doesNotThrow(() => runCli({
+    platform: "win32",
+    arch: "x64",
+    version,
+    releaseDir,
+    preChecksum: true,
+    output() {},
+  }));
+  assert.throws(
+    () => runCli({ platform: "win32", arch: "x64", version, releaseDir, output() {} }),
+    /checksum manifest/i,
+  );
+
+  writeChecksumManifest({ releaseDir, outputPath: expectation.checksumPath, expectedVersion: version });
+
+  assert.doesNotThrow(() => runCli({
+    platform: "win32",
+    arch: "x64",
+    version,
+    releaseDir,
+    output() {},
+  }));
+}));
 
 function createInstalledWindowsFixture() {
   const expectation = {

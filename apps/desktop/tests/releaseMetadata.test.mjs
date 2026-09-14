@@ -34,12 +34,12 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function writeMetadata(releaseDir, { payloadName, payload, size = Buffer.byteLength(payload), version = "0.2.0", digest = sha512(payload), blockmap = true }) {
+function writeMetadata(releaseDir, { payloadName, payload, size = Buffer.byteLength(payload), version = "0.2.0", digest = sha512(payload), blockmap = true, metadataName = "latest.yml" }) {
   writeFileSync(join(releaseDir, payloadName), payload);
   if (blockmap) {
     writeFileSync(join(releaseDir, payloadName + ".blockmap"), "blockmap");
   }
-  const metadataPath = join(releaseDir, "latest.yml");
+  const metadataPath = join(releaseDir, metadataName);
   writeFileSync(metadataPath, [
     `version: ${version}`,
     "files:",
@@ -180,7 +180,11 @@ test("rejects a broken checksum output symlink", (t) => withTempDir((releaseDir)
 
 test("verifies metadata version, payload digest, size, and blockmap", () => withTempDir((releaseDir) => {
   const payloadName = "OrkWorks-0.2.0-mac-arm64.zip";
-  const metadataPath = writeMetadata(releaseDir, { payloadName, payload: "zip payload" });
+  const metadataPath = writeMetadata(releaseDir, {
+    metadataName: "latest-mac.yml",
+    payloadName,
+    payload: "zip payload",
+  });
 
   assert.equal(
     verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }).files[0].url,
@@ -219,7 +223,7 @@ test("rejects an incorrect SHA-512 for a real payload", () => withTempDir((relea
 }));
 
 test("rejects a payload with a mismatched size", () => withTempDir((releaseDir) => {
-  const payloadName = "OrkWorks-0.2.0-linux-x64.AppImage";
+  const payloadName = "OrkWorks-0.2.0-win-x64.exe";
   const metadataPath = writeMetadata(releaseDir, { payloadName, payload: "installer", size: 99 });
 
   assert.throws(
@@ -229,7 +233,7 @@ test("rejects a payload with a mismatched size", () => withTempDir((releaseDir) 
 }));
 
 test("rejects a missing blockmap for a real payload", () => withTempDir((releaseDir) => {
-  const payloadName = "OrkWorks-0.2.0-linux-x64.AppImage";
+  const payloadName = "OrkWorks-0.2.0-win-x64.exe";
   const metadataPath = writeMetadata(releaseDir, { blockmap: false, payloadName, payload: "installer" });
 
   assert.throws(
@@ -251,6 +255,41 @@ test("rejects payload traversal outside the release directory", () => withTempDi
   assert.throws(
     () => verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }),
     /escapes release directory/i,
+  );
+}));
+
+test("rejects nested updater payload URLs even when the files exist", () => withTempDir((releaseDir) => {
+  const payloadName = join("nested", "OrkWorks-0.2.0-win-x64.exe");
+  mkdirSync(join(releaseDir, "nested"));
+  const metadataPath = writeMetadata(releaseDir, { payloadName, payload: "installer" });
+
+  assert.throws(
+    () => verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }),
+    /top-level updater payload/i,
+  );
+}));
+
+test("rejects updater payload URLs for a stale version even when the files exist", () => withTempDir((releaseDir) => {
+  const payloadName = "OrkWorks-0.1.9-win-x64.exe";
+  const metadataPath = writeMetadata(releaseDir, { payloadName, payload: "installer" });
+
+  assert.throws(
+    () => verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }),
+    /supported updater payload.*0\.2\.0/i,
+  );
+}));
+
+test("rejects non-updater macOS payload URLs even when the files exist", () => withTempDir((releaseDir) => {
+  const payloadName = "OrkWorks-0.2.0-mac-arm64.dmg";
+  const metadataPath = writeMetadata(releaseDir, {
+    metadataName: "latest-mac.yml",
+    payloadName,
+    payload: "disk image",
+  });
+
+  assert.throws(
+    () => verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }),
+    /supported updater payload.*0\.2\.0/i,
   );
 }));
 

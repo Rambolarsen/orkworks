@@ -1,15 +1,16 @@
 # Release Signing and Notarization Design
 
-**Date:** 2026-09-14  
-**Issue:** [#509](https://github.com/Rambolarsen/orkworks/issues/509)  
+**Date:** 2026-09-14
+**Issue:** [#509](https://github.com/Rambolarsen/orkworks/issues/509)
 **Status:** Approved for implementation planning
 
 ## Goal
 
 Upgrade the existing tag-driven Electron release pipeline from unsigned alpha
 artifacts to signed release artifacts that are ready for the later in-app
-updater work. macOS releases will be Developer ID signed, notarized, and
-stapled. Windows releases will be Authenticode signed and verified. macOS ZIP
+updater work. The macOS app bundle will be Developer ID signed, notarized, and
+stapled before it is packaged in the DMG and ZIP. Windows releases will be
+Authenticode signed and verified. macOS ZIP
 artifacts and electron-builder update metadata will be published alongside the
 existing DMG and NSIS artifacts.
 
@@ -122,16 +123,19 @@ For each tagged release:
 4. electron-builder signs the app, nested Electron code, and Rust sidecar;
    notarizes and staples the macOS app; and generates the DMG, ZIP, NSIS
    installer, `latest*.yml`, and blockmap metadata.
-5. A release verifier checks the expected artifacts, updater metadata, and
-   packaged resources. Platform-native signature checks then validate the
+5. A pre-checksum release-verifier mode checks the expected artifacts, updater
+   metadata, and packaged resources, skipping only the checksum manifest that
+   does not exist yet. Platform-native signature checks then validate the
    actual signatures and certificate chains in the staged app.
 6. The native smoke checks validate the actual downloadable artifacts: macOS
    mounts the DMG and extracts the ZIP before checking the contained app;
    Windows runs the existing installer smoke flow against the signed NSIS
    artifact and checks the installed app and sidecar.
 7. A Node checksum helper writes `SHA256SUMS.txt` for all distributable files.
-8. The job uploads the distributables and metadata as a workflow artifact.
-9. The existing publish job creates the draft GitHub release only after both
+8. The full release verifier runs again and requires the generated checksum
+   manifest.
+9. The job uploads the distributables and metadata as a workflow artifact.
+10. The existing publish job creates the draft GitHub release only after both
    platform jobs succeed.
 
 The platform jobs remain independent for build execution, but `publish.needs`
@@ -141,7 +145,7 @@ replace the last usable release with a partial one.
 
 ## Verification
 
-The existing `verifyReleaseArtifact.mjs` contract will be extended to require:
+The final `verifyReleaseArtifact.mjs` contract will be extended to require:
 
 - macOS DMG, ZIP, `latest-mac.yml`, ZIP blockmap, `SHA256SUMS.txt`, unpacked
   app-update metadata, unpacked app, signed Rust sidecar, hook scripts, and
@@ -156,13 +160,19 @@ SHA-512 digest matches the referenced file, and the blockmap points at the
 same artifact. The checksum helper will sort entries deterministically and
 will exclude `SHA256SUMS.txt` from its own manifest.
 
+The explicit pre-checksum verifier mode skips only `SHA256SUMS.txt`; every
+other artifact, metadata, digest, blockmap, and packaged-resource check remains
+enabled. After checksum generation, the workflow runs the default verifier as
+a final gate before upload, and that default mode always requires the manifest.
+
 The release workflow will run these native checks before artifact upload:
 
 - macOS: mount the produced DMG read-only and extract the produced ZIP; for
   each contained app run `codesign --verify --deep --strict --verbose=2`,
   `spctl --assess --type execute`, and `xcrun stapler validate`. Verify the
-  Rust sidecar directly as an in-bundle executable. Detach the DMG in cleanup
-  even when validation fails.
+  Rust sidecar directly as an in-bundle executable. The DMG container itself
+  is not stapler-validated because electron-builder staples the app bundle,
+  not the DMG. Detach the DMG in cleanup even when validation fails.
 - Windows: run the existing installer smoke test against the exact signed
   NSIS artifact, then run `signtool verify /pa /all /v` or the runner's
   equivalent native Authenticode verifier on the installer, installed app
@@ -194,8 +204,9 @@ Add or extend Node tests to pin:
 - metadata versions, referenced filenames, SHA-512 digests, blockmap targets,
   deterministic checksum ordering, and exclusion of the checksum file from
   itself;
-- release workflow secret mapping and ordering of packaging, verification,
-  checksum generation, and upload;
+- release workflow secret mapping and ordering of packaging, pre-checksum
+  verification, native verification, checksum generation, final verification,
+  and upload;
 - rejection of unsigned/missing expected files in the release verifier.
 
 The platform smoke tests will additionally prove that the signed DMG and ZIP

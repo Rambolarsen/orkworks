@@ -138,7 +138,10 @@ test("release workflow smoke-tests Windows installers before upload", () => {
 
   assert.ok(verifyIndex < smokeIndex);
   assert.ok(smokeIndex < uploadIndex);
-  assert.equal(findStep(buildJob, "Verify packaged artifact").run, "pnpm verify:release");
+  assert.equal(
+    findStep(buildJob, "Verify packaged artifact").run,
+    "pnpm verify:release:pre-checksum",
+  );
   assert.equal(findStep(buildJob, "Smoke-test Windows installer").run, "pnpm smoke:windows-installer");
   assert.match(findStep(buildJob, "Smoke-test Windows installer").if, /matrix\.target == ['"]win['"]/);
 });
@@ -232,6 +235,7 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
   const releaseVerifyIndex = names.indexOf("Verify packaged artifact");
   const smokeIndex = names.indexOf("Smoke-test Windows installer");
   const checksumIndex = names.indexOf("Generate release checksums");
+  const finalVerifyIndex = names.indexOf("Verify checksummed release artifact");
   const uploadIndex = names.indexOf("Upload artifacts");
 
   for (const packageStep of ["Package macOS (electron-builder)", "Package Windows (electron-builder)"]) {
@@ -242,16 +246,20 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
     assert.ok(names.indexOf(nativeStep) < checksumIndex);
   }
   assert.ok(smokeIndex < checksumIndex);
-  assert.ok(checksumIndex < uploadIndex);
+  assert.ok(checksumIndex < finalVerifyIndex);
+  assert.ok(finalVerifyIndex < uploadIndex);
   assert.match(findStep(job, "Package macOS (electron-builder)").run, /pnpm package:release/);
   assert.match(findStep(job, "Package Windows (electron-builder)").run, /pnpm package:release/);
   assert.equal(findStep(job, "Generate release checksums").run, "pnpm checksum:release");
+  assert.equal(findStep(job, "Verify packaged artifact").run, "pnpm verify:release:pre-checksum");
+  assert.equal(findStep(job, "Verify checksummed release artifact").run, "pnpm verify:release");
   assert.equal(findStep(job, "Upload artifacts").with.path.trim(), expectedUploadPath);
 
   const macVerification = findStep(job, "Verify native macOS signatures").run;
   assert.match(macVerification, /codesign --verify --deep --strict --verbose=2/);
   assert.match(macVerification, /spctl --assess --type execute/);
-  assert.match(macVerification, /xcrun stapler validate/);
+  assert.match(macVerification, /xcrun stapler validate "\$app_path"/);
+  assert.doesNotMatch(macVerification, /stapler validate "\$DMG_PATH"/);
   assert.match(macVerification, /hdiutil attach .* -readonly/);
   assert.match(macVerification, /trap .*EXIT/);
   assert.match(macVerification, /TEMP_ROOT="\$\(mktemp -d\)"/);
@@ -297,5 +305,9 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
 
 test("desktop package exposes deterministic release checksum generation", () => {
   const packageJson = JSON.parse(readFileSync(resolve(desktopRoot, "package.json"), "utf8"));
+  assert.equal(
+    packageJson.scripts["verify:release:pre-checksum"],
+    "node scripts/verifyReleaseArtifact.mjs --pre-checksum",
+  );
   assert.equal(packageJson.scripts["checksum:release"], "node scripts/releaseMetadata.mjs --checksums");
 });

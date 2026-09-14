@@ -150,7 +150,7 @@ jobs:
 
       - name: Verify packaged artifact
         working-directory: apps/desktop
-        run: pnpm verify:release
+        run: pnpm verify:release:pre-checksum
 
       - name: Verify native macOS signatures
         if: matrix.target == 'mac'
@@ -187,7 +187,6 @@ jobs:
           mkdir -p "$MOUNT_DIR" "$ZIP_DIR"
 
           verify_app "$STAGED_APP"
-          xcrun stapler validate "$DMG_PATH"
           hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_DIR"
           MOUNTED=1
           verify_app "$MOUNT_DIR/OrkWorks.app"
@@ -266,6 +265,10 @@ jobs:
       - name: Generate release checksums
         working-directory: apps/desktop
         run: pnpm checksum:release
+
+      - name: Verify checksummed release artifact
+        working-directory: apps/desktop
+        run: pnpm verify:release
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -22,12 +22,13 @@ The source wiring produces and verifies:
   resources; and
 - `SHA256SUMS.txt` for the distributable files.
 
-The platform jobs run packaging, repository artifact verification, native
+The platform jobs run packaging, pre-checksum artifact verification, native
 signature checks, and the Windows installer smoke test before checksum
-generation and upload. The publish job is matrix-gated and creates a draft
-GitHub Release. A successful source-only test or packaging run is not evidence
-that a release is trusted: the real credential-backed run on the native
-runners is still required.
+generation. They then run the full artifact verifier, which requires the
+checksum manifest, before upload. The publish job is matrix-gated and creates a
+draft GitHub Release. A successful source-only test or packaging run is not
+evidence that a release is trusted: the real credential-backed run on the
+native runners is still required.
 
 ## Provision external signing material
 
@@ -137,15 +138,18 @@ The checked-in workflow is the authoritative command sequence. From
 `apps/desktop`, the source-level and metadata gates are:
 
 ```bash
-pnpm verify:release
+pnpm verify:release:pre-checksum
 pnpm smoke:windows-installer       # Windows release runner only
 pnpm checksum:release
+pnpm verify:release
 ```
 
-The workflow runs the first command before native verification, the Windows
-smoke test before checksum generation, and checksum generation before artifact
-upload. Its platform-native checks are the evidence that must be present in a
-real signed run.
+The workflow runs the pre-checksum command before native verification; that
+mode skips only the not-yet-generated `SHA256SUMS.txt`. It runs the Windows
+smoke test before checksum generation, then runs the default verifier after
+checksum generation and before artifact upload. The default gate requires the
+manifest. Its platform-native checks are the evidence that must be present in
+a real signed run.
 
 On macOS, for the staged app and the app extracted from the DMG and ZIP, the
 workflow runs commands equivalent to:
@@ -155,13 +159,14 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH/Contents/Resources/orkworksd"
 spctl --assess --type execute --verbose=4 "$APP_PATH"
 xcrun stapler validate "$APP_PATH"
-xcrun stapler validate "$DMG_PATH"
 ```
 
 It mounts the DMG read-only with `hdiutil attach`, extracts the ZIP with
 `ditto -x -k`, checks the contained apps, and detaches the DMG during cleanup.
 The expected evidence is a successful check for the staged app, nested
-sidecar, mounted-DMG app, extracted-ZIP app, and stapled DMG.
+sidecar, mounted-DMG app, and extracted-ZIP app. electron-builder notarizes and
+staples the app bundle; the workflow does not claim or validate a staple on the
+DMG container.
 
 On Windows, for the NSIS installer, unpacked app, and bundled sidecar, the
 workflow runs:

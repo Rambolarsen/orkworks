@@ -98,6 +98,27 @@ function resolvePayloadPath(releaseDir, url) {
   return payloadPath;
 }
 
+function requireSupportedUpdaterPayload(metadataPath, url, expectedVersion) {
+  if (url.includes("/") || url.includes("\\") || basename(url) !== url) {
+    throw new Error(`release metadata must reference a top-level updater payload: ${url}`);
+  }
+
+  const metadataName = basename(metadataPath);
+  const supportedNames = metadataName === "latest-mac.yml"
+    ? [
+        `OrkWorks-${expectedVersion}-mac-arm64.zip`,
+        `OrkWorks-${expectedVersion}-mac-x64.zip`,
+      ]
+    : metadataName === "latest.yml"
+      ? [`OrkWorks-${expectedVersion}-win-x64.exe`]
+      : [];
+  if (!supportedNames.includes(url)) {
+    throw new Error(
+      `release metadata must reference a supported updater payload for ${expectedVersion}: ${url}`,
+    );
+  }
+}
+
 function requireFile(path, description) {
   let stats;
   try {
@@ -202,6 +223,7 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
     }
 
     const payloadPath = resolvePayloadPath(releaseDir, entry.url);
+    requireSupportedUpdaterPayload(metadataPath, entry.url, expectedVersion);
     const realPayloadPath = resolveContainedRealPath(
       realReleaseRoot,
       payloadPath,
