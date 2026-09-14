@@ -22,6 +22,10 @@ The source wiring produces and verifies:
   resources; and
 - `SHA256SUMS.txt` for the distributable files.
 
+The DMG target has update-info generation disabled. It remains a manual
+installer and is included in checksums, while `latest-mac.yml` and its blockmap
+describe only the ZIP updater payload.
+
 The platform jobs run packaging, pre-checksum artifact verification, native
 signature checks, and the Windows installer smoke test before checksum
 generation. They then run the full artifact verifier, which requires the

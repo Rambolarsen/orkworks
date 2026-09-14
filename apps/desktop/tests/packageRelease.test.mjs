@@ -27,6 +27,7 @@ test("electron-builder config declares signed release targets", () => {
     repo: "orkworks",
   });
   assert.deepEqual(config.mac.target, ["dmg", "zip"]);
+  assert.equal(config.dmg.writeUpdateInfo, false);
   assert.equal(config.mac.notarize, true);
   assert.equal(config.mac.hardenedRuntime, true);
   assert.deepEqual(config.mac.binaries, ["Contents/Resources/orkworksd"]);

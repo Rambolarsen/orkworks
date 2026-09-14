@@ -55,6 +55,8 @@ Update `apps/desktop/electron-builder.yml` as follows:
 - Add top-level `publish.provider: github` with owner `Rambolarsen` and repo
   `orkworks`.
 - Change the macOS targets to `dmg` and `zip`.
+- Set `dmg.writeUpdateInfo: false` so the DMG remains a manual installer and
+  only the ZIP is represented in `latest-mac.yml` as an updater payload.
 - Enable `mac.notarize` and `mac.hardenedRuntime`.
 - Add minimal parent and inherited entitlement files under
   `apps/desktop/build/` containing Electron's JIT and unsigned-executable
@@ -122,7 +124,8 @@ For each tagged release:
    platform-specific signing variables and no GitHub publishing token.
 4. electron-builder signs the app, nested Electron code, and Rust sidecar;
    notarizes and staples the macOS app; and generates the DMG, ZIP, NSIS
-   installer, `latest*.yml`, and blockmap metadata.
+   installer, `latest*.yml`, and updater blockmaps. DMG update info is disabled,
+   so `latest-mac.yml` describes only the ZIP updater payload.
 5. A pre-checksum release-verifier mode checks the expected artifacts, updater
    metadata, and packaged resources, skipping only the checksum manifest that
    does not exist yet. Platform-native signature checks then validate the
@@ -155,9 +158,10 @@ The final `verifyReleaseArtifact.mjs` contract will be extended to require:
   sidecar, hook scripts, and knowledge resources.
 
 The metadata verifier will parse each `latest*.yml` and assert that its version
-matches the package version, every referenced artifact exists, every declared
-SHA-512 digest matches the referenced file, and the blockmap points at the
-same artifact. The checksum helper will sort entries deterministically and
+matches the package version, every referenced updater artifact exists, every
+declared SHA-512 digest matches the referenced file, and the blockmap points at
+the same artifact. The macOS metadata accepts the ZIP updater payload, not the
+manual-install DMG. The checksum helper will sort entries deterministically and
 will exclude `SHA256SUMS.txt` from its own manifest.
 
 The explicit pre-checksum verifier mode skips only `SHA256SUMS.txt`; every

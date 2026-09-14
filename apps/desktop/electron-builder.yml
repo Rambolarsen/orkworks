@@ -35,6 +35,8 @@ mac:
       to: scripts
     - from: resources/knowledge
       to: knowledge
+dmg:
+  writeUpdateInfo: false
 win:
   target:
     - nsis

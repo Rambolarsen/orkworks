@@ -9,6 +9,10 @@ and are excluded from this fix commit.
 
 ## Changes
 
+- Disabled electron-builder DMG update-info generation with
+  `dmg.writeUpdateInfo: false`, keeping the ZIP as the sole macOS updater
+  payload while the DMG remains the manual installer.
+- Added a static configuration regression assertion for that producer contract.
 - Added an explicit `verify:release:pre-checksum` mode that skips only the
   not-yet-generated `SHA256SUMS.txt` requirement.
 - Added a final default `pnpm verify:release` gate after checksum generation and
@@ -27,8 +31,9 @@ and are excluded from this fix commit.
 - Added real-file rejection tests for nested, stale-version, and non-updater
   payload references.
 - Updated the release runbook, release-pipeline spec, and approved design to
-  describe the two verifier gates and app-bundle stapling accurately. Removed
-  trailing whitespace from the design header.
+  describe the two verifier gates, app-bundle stapling, and the ZIP-only macOS
+  updater payload accurately. Removed trailing whitespace from the design
+  header.
 
 ## TDD evidence
 
@@ -37,7 +42,17 @@ and final workflow gate, three accepted invalid updater URLs, and pre-checksum
 verification still requiring `SHA256SUMS.txt`. After the minimal implementation,
 the focused release suite passed 51 tests with zero failures.
 
+For the final DMG producer-contract blocker, the new static assertion first
+failed because `config.dmg` was absent. After adding the setting, the focused
+package-release test passed 13 tests and the complete release-specific suite
+passed 64 tests with zero failures.
+
 ## Verification
+
+- Current final-blocker run:
+  `node --experimental-strip-types --test tests/packageRelease.test.mjs tests/releaseMetadata.test.mjs tests/verifyReleaseArtifact.test.mjs tests/windowsInstallerSmokeTest.test.mjs`
+  — PASS, 64 tests.
+- Current direct TypeScript run: `.\node_modules\.bin\tsc.cmd --noEmit` — PASS.
 
 - `node --experimental-strip-types --test tests/releaseMetadata.test.mjs tests/verifyReleaseArtifact.test.mjs tests/packageRelease.test.mjs` — PASS, 51 tests.
 - `pnpm.cmd exec tsc --noEmit` — PASS.
@@ -55,5 +70,7 @@ extracted-ZIP app validation, and signed Windows installer validation.
 
 ## Commit
 
-Included in `fix: close release signing review findings`; the commit hash is
-reported at handoff because embedding it here would change the hash.
+The earlier findings were included in `fix: close release signing review
+findings`. The DMG producer-contract fix is included in `build: keep DMG out of
+update metadata`; its hash is reported at handoff because embedding it here
+would change the hash.
