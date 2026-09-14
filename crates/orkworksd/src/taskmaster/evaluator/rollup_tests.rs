@@ -664,6 +664,14 @@ fn stale_evaluator_result_cannot_reparent_a_member_after_parent_membership_chang
         &stale,
         &output(&[cluster(&["a", "b"])]),
     ));
+    assert!(!apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &stale,
+        &output(&[]),
+    ));
     assert_eq!(stored_recommendations(&state), after_change);
 }
 
@@ -708,6 +716,14 @@ fn stale_evaluator_result_cannot_mutate_an_executing_parent() {
         directory.path(),
         &stale,
         &output(&[cluster(&["a", "b"])]),
+    ));
+    assert!(!apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &stale,
+        &output(&[]),
     ));
     assert_eq!(stored_recommendations(&state), before);
 }
@@ -963,4 +979,276 @@ fn stale_rollup_cannot_reparent_a_member_from_an_active_parent() {
         .list()
         .unwrap();
     assert_eq!(after, before);
+}
+
+#[test]
+fn composed_rollup_prompt_enforces_the_final_utf8_byte_limit() {
+    let request = build_rollup_request(
+        17,
+        &evaluation_snapshot(),
+        &[recommendation("a", 1), recommendation("b", 2)],
+    )
+    .unwrap();
+    let overhead = compose_provider_prompt(String::new(), Some(&request))
+        .unwrap()
+        .len();
+    let remaining = MAX_ROLLUP_INPUT_BYTES - overhead;
+    let legacy = format!("{}{}", "é".repeat(remaining / 2), "x".repeat(remaining % 2));
+    assert_eq!(
+        compose_provider_prompt(legacy.clone(), Some(&request))
+            .unwrap()
+            .len(),
+        MAX_ROLLUP_INPUT_BYTES
+    );
+    assert!(compose_provider_prompt(format!("{legacy}x"), Some(&request)).is_err());
+}
+
+#[test]
+fn rollup_cache_identity_changes_with_workspace_instance_and_prompt_version() {
+    let snapshot = evaluation_snapshot();
+    let request = build_rollup_request(
+        17,
+        &snapshot,
+        &[recommendation("a", 1), recommendation("b", 2)],
+    )
+    .unwrap();
+    let prompt = compose_provider_prompt("legacy".into(), Some(&request)).unwrap();
+    let key = provider_cache_key(&snapshot, &prompt, Some(&request)).unwrap();
+    assert_eq!(
+        key,
+        provider_cache_key(&snapshot, &prompt, Some(&request.clone())).unwrap()
+    );
+    let mut reopened = request.clone();
+    reopened.token.workspace_instance += 1;
+    assert_ne!(
+        key,
+        provider_cache_key(&snapshot, &prompt, Some(&reopened)).unwrap()
+    );
+    let mut revised = request.clone();
+    revised.token.prompt_version.push_str("-next");
+    assert_ne!(
+        key,
+        provider_cache_key(&snapshot, &prompt, Some(&revised)).unwrap()
+    );
+    assert_eq!(
+        provider_cache_key(&snapshot, &prompt, None).unwrap(),
+        snapshot.cache_key(&prompt).unwrap()
+    );
+}
+
+#[test]
+fn empty_rollup_result_releases_only_supplied_active_parent_groups() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c", "d"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &request.token,
+        &request.snapshots,
+        &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])])
+    ));
+    let current = stored_recommendations(&state);
+    let supplied = current
+        .iter()
+        .filter(|item| item.id == "a" || item.id == "b" || item.rollup_member_ids == ["a", "b"])
+        .cloned()
+        .collect::<Vec<_>>();
+    let refresh = build_rollup_request(workspace_instance(&state), &snapshot, &supplied).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &refresh,
+        &output(&[])
+    ));
+    let after = stored_recommendations(&state);
+    let parent = after
+        .iter()
+        .find(|item| item.rollup_member_ids == ["a", "b"])
+        .unwrap();
+    assert_eq!(parent.status, RecommendationStatus::Superseded);
+    for id in ["a", "b"] {
+        let member = after.iter().find(|item| item.id == id).unwrap();
+        assert_eq!(member.status, RecommendationStatus::Proposed);
+        assert!(member.rolled_up_by.is_none());
+        assert_eq!(
+            member.evidence,
+            current.iter().find(|item| item.id == id).unwrap().evidence
+        );
+    }
+    for original in current
+        .iter()
+        .filter(|item| item.id == "c" || item.id == "d" || item.rollup_member_ids == ["c", "d"])
+    {
+        assert_eq!(
+            after.iter().find(|item| item.id == original.id).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
+fn valid_subset_result_dissolves_an_omitted_supplied_parent() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c", "d"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_rollup_model_output(
+        &state,
+        &runtime,
+        &snapshot,
+        &request.token,
+        &request.snapshots,
+        &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])])
+    ));
+    let refresh = build_rollup_request(
+        workspace_instance(&state),
+        &snapshot,
+        &stored_recommendations(&state),
+    )
+    .unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &refresh,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let after = stored_recommendations(&state);
+    assert_eq!(
+        after
+            .iter()
+            .find(|item| item.rollup_member_ids == ["a", "b"])
+            .unwrap()
+            .status,
+        RecommendationStatus::Proposed
+    );
+    assert_eq!(
+        after
+            .iter()
+            .find(|item| item.rollup_member_ids == ["c", "d"])
+            .unwrap()
+            .status,
+        RecommendationStatus::Superseded
+    );
+    for id in ["c", "d"] {
+        let member = after.iter().find(|item| item.id == id).unwrap();
+        assert_eq!(member.status, RecommendationStatus::Proposed);
+        assert!(member.rolled_up_by.is_none());
+    }
+}
+
+#[test]
+fn stale_empty_rollup_result_cannot_bypass_validation() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let mut request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    request.token.generation += 1;
+    assert!(!apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &output(&[])
+    ));
+    assert_eq!(stored_recommendations(&state), recommendations);
+}
+
+#[test]
+fn empty_result_cannot_dissolve_a_partially_supplied_parent() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let before = stored_recommendations(&state);
+    let mut partial = build_rollup_request(workspace_instance(&state), &snapshot, &before).unwrap();
+    partial.snapshots.pop();
+    partial.token.family_snapshot_hash = hex::encode(sha2::Sha256::digest(
+        serde_json::to_vec(&partial.snapshots).unwrap(),
+    ));
+    assert!(!apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &partial,
+        &output(&[])
+    ));
+    assert_eq!(stored_recommendations(&state), before);
+}
+
+#[test]
+fn empty_result_preserves_changed_evidence_and_terminal_parent_state() {
+    for parent_status in [
+        RecommendationStatus::Proposed,
+        RecommendationStatus::Dismissed,
+        RecommendationStatus::Completed,
+        RecommendationStatus::Superseded,
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+        let snapshot = bound_snapshot(&state, &runtime, directory.path());
+        let initial =
+            build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+        assert!(apply_combined_output(
+            &state,
+            &runtime,
+            &snapshot,
+            directory.path(),
+            &initial,
+            &output(&[cluster(&["a", "b"])])
+        ));
+        let mut current = stored_recommendations(&state);
+        let stale = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+        let changed = if parent_status == RecommendationStatus::Proposed {
+            let member = current.iter_mut().find(|item| item.id == "a").unwrap();
+            member.evidence[0].evidence = "New evidence arrived after evaluation began".into();
+            member
+        } else {
+            let parent = current
+                .iter_mut()
+                .find(|item| !item.rollup_member_ids.is_empty())
+                .unwrap();
+            parent.status = parent_status;
+            parent
+        };
+        {
+            let guard = state.workspace.lock().unwrap();
+            guard
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .put(changed)
+                .unwrap();
+        }
+        let before = stored_recommendations(&state);
+        assert!(!apply_combined_output(
+            &state,
+            &runtime,
+            &snapshot,
+            directory.path(),
+            &stale,
+            &output(&[])
+        ));
+        assert_eq!(stored_recommendations(&state), before);
+    }
 }

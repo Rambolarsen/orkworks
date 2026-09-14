@@ -6,8 +6,9 @@ import {
   type ObservationDiagnostic,
   type WorkflowRecommendation,
 } from "../api.ts";
-import { formatImpact, formatRecurrence, formatTargetSurface, sortedEvidence } from "../taskmaster.ts";
+import { formatImpact, formatRecurrence, formatTargetSurface } from "../taskmaster.ts";
 import EmptyState from "./EmptyState";
+import RecommendationEvidence from "./RecommendationEvidence";
 
 interface RecommendationsPanelProps {
   hasWorkspace: boolean;
@@ -86,27 +87,7 @@ function RecommendationCard({
           </button>
         ))}
       </div>
-      <details className="recommendation-evidence">
-        <summary>Evidence ({recommendation.evidence.length + (recommendation.repositoryEvidence?.length ?? 0) + (recommendation.knowledgeEvidence?.length ?? 0)})</summary>
-        {recommendation.repositoryEvidence?.map((item) => <div className="recommendation-evidence-row" key={`${item.path}:${item.sha256}`}>
-          <strong>{item.path}</strong><span>Repository snapshot · {item.observedAt}</span><p>{item.excerpt}</p>
-        </div>)}
-        {recommendation.knowledgeEvidence?.map((item) => <div className="recommendation-evidence-row" key={`${item.pageId}:${item.sha256}`}>
-          <strong>{item.title}</strong><span>Knowledge {item.bundleVersion} · {item.status}</span><p>{item.excerpt}</p>
-          <span>{item.pageId}</span>
-        </div>)}
-        {sortedEvidence(recommendation.evidence).map((item) => (
-          <div className="recommendation-evidence-row" key={item.observationId}>
-            <strong>{item.description}</strong>
-            <span>{item.source} · {item.observedAt}</span>
-            {item.problemArea && <span>Problem area · {item.problemArea}</span>}
-            <p>{item.evidence}</p>
-            <button type="button" onClick={() => onSelectSession?.(item.sessionId)}>
-              Open session {item.sessionId.slice(0, 8)}
-            </button>
-          </div>
-        ))}
-      </details>
+      <RecommendationEvidence recommendation={recommendation} onSelectSession={onSelectSession} />
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       {recommendation.status === "proposed" && (
         <div className="recommendation-actions">
@@ -208,11 +189,11 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
     }
   }
 
-  const visibleRecommendations = recommendations.filter(
+  const visibleRecommendations = hasWorkspace ? recommendations.filter(
     (item) => item.status === "proposed"
       || (item.status === "executing" && item.rollupMemberIds.length > 0)
       || item.id === focusedRecommendationId,
-  );
+  ) : [];
 
   return (
     <section className="recommendations-panel">

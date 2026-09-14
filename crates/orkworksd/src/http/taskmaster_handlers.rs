@@ -276,7 +276,7 @@ mod tests {
 
     fn persist_rollup_fixture(state: &std::sync::Arc<crate::AppState>) -> (String, String) {
         let member_id = "rollup-member".to_string();
-        let parent_id = "rollup-parent".to_string();
+        let parent_id = crate::taskmaster::rollup::stable_rollup_id(&[member_id.clone()]);
         let mut parent =
             recommendation_fixture(&parent_id, RecommendationStatus::Proposed, "session-parent");
         parent.rollup_member_ids = vec![member_id.clone()];
@@ -638,7 +638,7 @@ mod tests {
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["status"], "rolled_up");
-        assert_eq!(body["rolledUpBy"], "rollup-parent");
+        assert_eq!(body["rolledUpBy"], parent_id);
     }
 
     #[tokio::test]

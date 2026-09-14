@@ -130,6 +130,42 @@ pub(crate) fn build_rollup_request(
     })
 }
 
+fn compose_provider_prompt(
+    prompt: String,
+    rollup_request: Option<&RollupEvaluationRequest>,
+) -> Result<String, String> {
+    let Some(request) = rollup_request else {
+        return Ok(prompt);
+    };
+    let prompt = format!(
+        "{prompt}\n\nThe following is a separate semantic rollup pass. {rollup_prompt}",
+        rollup_prompt = request.prompt
+    );
+    if prompt.len() > MAX_ROLLUP_INPUT_BYTES {
+        return Err("Taskmaster rollup provider input is too large".into());
+    }
+    Ok(prompt)
+}
+
+fn provider_cache_key(
+    snapshot: &EvaluationSnapshot,
+    prompt: &str,
+    rollup_request: Option<&RollupEvaluationRequest>,
+) -> Result<String, String> {
+    let key = snapshot.cache_key(prompt)?;
+    let Some(request) = rollup_request else {
+        return Ok(key);
+    };
+    let identity = serde_json::to_vec(&(
+        key,
+        request.token.workspace_instance,
+        &request.token.prompt_version,
+        &request.token.family_snapshot_hash,
+    ))
+    .map_err(|error| error.to_string())?;
+    Ok(hex::encode(sha2::Sha256::digest(identity)))
+}
+
 pub(crate) fn parse_rollup_model_output(
     output: &str,
     snapshots: &[RollupFamilySnapshot],
@@ -199,9 +235,6 @@ fn apply_rollup_model_clusters(
     snapshots: &[RollupFamilySnapshot],
     clusters: &[RollupCluster],
 ) -> bool {
-    if clusters.is_empty() {
-        return true;
-    }
     let workspace_path = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
@@ -374,13 +407,19 @@ fn run_model_evaluation_with_context(
         &recommendations,
         rollup_request.is_some(),
     );
-    let prompt = rollup_request.as_ref().map_or(prompt.clone(), |request| {
-        format!(
-            "{prompt}\n\nThe following is a separate semantic rollup pass. {rollup_prompt}",
-            rollup_prompt = request.prompt
-        )
-    });
-    let Ok(cache_key) = snapshot.cache_key(&prompt) else {
+    let prompt = match compose_provider_prompt(prompt, rollup_request.as_ref()) {
+        Ok(prompt) => prompt,
+        Err(error) => {
+            let _ = runtime.record_evaluation_error(
+                &state.harness_store,
+                &workspace_path,
+                &snapshot,
+                Some(error),
+            );
+            return;
+        }
+    };
+    let Ok(cache_key) = provider_cache_key(&snapshot, &prompt, rollup_request.as_ref()) else {
         return;
     };
     let Ok(true) = runtime.reserve_snapshot(
@@ -588,7 +627,6 @@ fn apply_provider_output(
     }
     let rollups = model.rollups.clone();
     if rollup_request.is_some()
-        && !rollups.is_empty()
         && !rollup_application_is_current(state, runtime, snapshot, rollup_request.unwrap())
     {
         let _ = runtime.record_evaluation_error(
