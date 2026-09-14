@@ -177,12 +177,16 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   }
 
   function refreshDetection(harnessId: string) {
+    invalidateDetection(harnessId);
+    void onRefreshHarnesses().catch(() => undefined);
+  }
+
+  function invalidateDetection(harnessId: string) {
     setDetectionGenerations((current) => ({
       ...current,
       [harnessId]: (current[harnessId] ?? 0) + 1,
     }));
     setIntegrationStatusGeneration((current) => current + 1);
-    void onRefreshHarnesses().catch(() => undefined);
   }
 
   const handleDetectionResult = useCallback((harnessId: string, result: IntegrationStatusResult | null) => {
@@ -745,6 +749,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   async function handleHarnessSaved(result: HarnessMutationResponse) {
     try {
       await onRefreshHarnesses();
+      invalidateDetection(result.harness.id);
       setHarnessEditor(null);
       setHarnessActionStatus("Configuration saved.");
     } catch {
@@ -870,7 +875,6 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                                   coupled through refreshGeneration-driven
                                   reloads and the shared refreshDetection path. */}
                               <HarnessDetectionStatus harnessId={h.id}
-                                integrationKey={integrationKeyForHarness(h) ?? undefined}
                                 onResult={handleDetectionResult}
                                 refreshGeneration={detectionGenerations[h.id] ?? 0}
                               />

@@ -240,6 +240,22 @@ test("NewSessionDialog only offers detected coding tools and rechecks before sta
   assert.match(source, /detectedSelectableHarnesses/);
   assert.match(source, /const freshStatus = await getHarnessDetectionStatus\(selectedHarness\);/);
   assert.match(source, /if \(freshStatus\.ok !== true \|\| !freshStatus\.status\.toolDetected\) return;/);
+  assert.match(source, /const harnessesKey = useMemo/);
+  assert.match(source, /\}, \[harnessesKey\]\);/);
+  assert.match(source, /savedDraft && harnesses\.some\(\(harness\) => harness\.id === savedDraft\.harnessId/);
+});
+
+test("coding-tool availability uses the selected harness executable, not a shared integration representative", () => {
+  const source = readFileSync(new URL("../src/harnessDetection.ts", import.meta.url), "utf8");
+
+  assert.match(source, /return window\.orkworks\.getHarnessIntegrationStatus\(harnessId\);/);
+  assert.doesNotMatch(source, /getGroupedHarnessIntegrationStatus/);
+});
+
+test("SettingsModal invalidates detection after saving a harness definition", () => {
+  const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /await onRefreshHarnesses\(\);\s*invalidateDetection\(result\.harness\.id\);/);
 });
 
 test("SettingsModal keeps the command-path control mounted while its subsection is collapsed instead of unmounting its draft state", () => {

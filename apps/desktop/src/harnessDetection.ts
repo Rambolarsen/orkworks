@@ -14,17 +14,10 @@ export function isHarnessDetected(result: IntegrationStatusResult | undefined): 
 }
 
 export async function getHarnessDetectionStatus(harness: HarnessConfig): Promise<IntegrationStatusResult>;
-export async function getHarnessDetectionStatus(harnessId: string, integrationKey?: IntegrationKey): Promise<IntegrationStatusResult>;
+export async function getHarnessDetectionStatus(harnessId: string): Promise<IntegrationStatusResult>;
 export async function getHarnessDetectionStatus(
   harnessOrId: HarnessConfig | string,
-  integrationKeyOverride?: IntegrationKey,
 ): Promise<IntegrationStatusResult> {
   const harnessId = typeof harnessOrId === "string" ? harnessOrId : harnessOrId.id;
-  const key = typeof harnessOrId === "string"
-    ? integrationKeyOverride
-    : integrationKeyOverride ?? integrationKeyForHarness(harnessOrId);
-  if (!key) return window.orkworks.getHarnessIntegrationStatus(harnessId);
-
-  const result = await window.orkworks.getGroupedHarnessIntegrationStatus(key.adapterId, key.targetId);
-  return result.ok ? { ok: true, status: result.group.status } : result;
+  return window.orkworks.getHarnessIntegrationStatus(harnessId);
 }

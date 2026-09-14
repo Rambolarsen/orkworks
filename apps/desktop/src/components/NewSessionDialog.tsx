@@ -32,6 +32,10 @@ function getSavedDraft(): NewSessionDraft | null {
 }
 
 function resolveInitialDraft(harnesses: HarnessConfig[], detectedHarnessIds: ReadonlySet<string>) {
+  const savedDraft = getSavedDraft();
+  if (savedDraft && harnesses.some((harness) => harness.id === savedDraft.harnessId && !harness.retired)) {
+    return savedDraft;
+  }
   return syncDraftWithHarnesses(
     { harnessId: "", model: "" },
     detectedSelectableHarnesses(harnesses, detectedHarnessIds),
@@ -40,7 +44,12 @@ function resolveInitialDraft(harnesses: HarnessConfig[], detectedHarnessIds: Rea
 }
 
 export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
+  const harnessesKey = useMemo(
+    () => JSON.stringify(harnesses.map((harness) => [harness.id, harness.name, harness.retired, harness.launch, harness.integration])),
+    [harnesses],
+  );
   const [detectionStatuses, setDetectionStatuses] = useState<Record<string, IntegrationStatusResult | undefined>>({});
+  const [detectionComplete, setDetectionComplete] = useState(false);
   const detectedHarnessIds = useMemo(() => new Set([
     "generic-shell",
     ...Object.entries(detectionStatuses)
@@ -49,16 +58,20 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   ]), [detectionStatuses]);
   const selectable = useMemo(
     () => detectedSelectableHarnesses(harnesses, detectedHarnessIds),
-    [detectedHarnessIds, harnesses],
+    [detectedHarnessIds, harnessesKey],
   );
   const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses, new Set(["generic-shell"])));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const harnessSelectRef = useRef<HTMLSelectElement>(null);
+  const pendingHarness = !detectionComplete && draft.harnessId
+    ? harnesses.find((harness) => harness.id === draft.harnessId && !harness.retired && !selectable.some((entry) => entry.id === harness.id))
+    : undefined;
 
   useEffect(() => {
     let cancelled = false;
+    setDetectionComplete(false);
     setDetectionStatuses({});
     void Promise.all(
       harnesses
@@ -74,12 +87,15 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
           }
         }),
     ).then((entries) => {
-      if (!cancelled) setDetectionStatuses(Object.fromEntries(entries));
+      if (!cancelled) {
+        setDetectionStatuses(Object.fromEntries(entries));
+        setDetectionComplete(true);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [harnesses]);
+  }, [harnessesKey]);
 
   useEffect(() => {
     harnessSelectRef.current?.focus();
@@ -97,8 +113,9 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [onCancel]);
 
   useEffect(() => {
+    if (!detectionComplete) return;
     setDraft((current) => syncDraftWithHarnesses(current, selectable, getSavedDraft()));
-  }, [selectable]);
+  }, [detectionComplete, selectable]);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,15 +216,22 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
               className="new-session-select"
               value={draft.harnessId}
               onChange={(e) => handleHarnessChange(e.target.value)}
-              disabled={selectable.length === 0}
+              disabled={selectable.length === 0 && !pendingHarness}
             >
-              {selectable.length === 0 ? (
+              {selectable.length === 0 && !pendingHarness ? (
                 <option value="">Default shell</option>
               ) : (
-                selectable.map((h) => {
+                <>
+                {pendingHarness && (
+                  <option value={pendingHarness.id} disabled>
+                    {pendingHarness.name} (checking availability…)
+                  </option>
+                )}
+                {selectable.map((h) => {
                   const state = providerRuntime?.providers.find((p) => p.id === h.id)?.effectiveState;
                   return <option key={h.id} value={h.id}>{harnessLabel(h.name, state)}</option>;
-                })
+                })}
+                </>
               )}
             </select>
           </div>
