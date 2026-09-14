@@ -54,9 +54,9 @@ test("macOS entitlements allow the sidecar runtime requirements", () => {
       entitlements,
       /<key>com\.apple\.security\.cs\.allow-jit<\/key>\s*<true\/>/,
     );
-    assert.match(
+    assert.doesNotMatch(
       entitlements,
-      /<key>com\.apple\.security\.cs\.allow-unsigned-executable-memory<\/key>\s*<true\/>/,
+      /com\.apple\.security\.cs\.allow-unsigned-executable-memory/,
     );
   }
 });
