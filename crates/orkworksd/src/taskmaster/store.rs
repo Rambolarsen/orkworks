@@ -566,6 +566,7 @@ impl RecommendationStore {
     }
 
     pub(crate) fn delete_referencing_session(&self, session_id: &str) -> Result<(), StoreError> {
+        self.recover_transactions()?;
         let recommendations = self.read_all()?;
         validate_graph_records(&recommendations)?;
         let mut ids = BTreeSet::new();
@@ -581,6 +582,7 @@ impl RecommendationStore {
         &self,
         retained_session_ids: &HashSet<String>,
     ) -> Result<(), StoreError> {
+        self.recover_transactions()?;
         let recommendations = self.read_all()?;
         validate_graph_records(&recommendations)?;
         let mut ids = BTreeSet::new();
@@ -2047,6 +2049,64 @@ mod tests {
 
         assert!(store.get("parent").unwrap().is_none());
         assert!(store.get("member").unwrap().is_none());
+    }
+
+    #[test]
+    fn session_cleanup_recovers_pending_rollup_before_deleting_references() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let member_a = recommendation("member-a", "session-to-remove");
+        let member_b = recommendation("member-b", "session-keep");
+        store.put(&member_a).unwrap();
+        store.put(&member_b).unwrap();
+        let parent = rollup_parent("parent", &["member-a", "member-b"]);
+        let expected = BTreeMap::from([
+            (member_a.id.clone(), Some(expected_hash(&member_a))),
+            (member_b.id.clone(), Some(expected_hash(&member_b))),
+            (parent.id.clone(), None),
+        ]);
+        set_fault_point(Some(FaultPoint::Publication(1)));
+        assert!(store
+            .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
+            .is_err());
+        set_fault_point(None);
+
+        store
+            .delete_referencing_session("session-to-remove")
+            .unwrap();
+
+        assert!(store.get("parent").unwrap().is_none());
+        assert!(store.get("member-a").unwrap().is_none());
+        assert!(store.get("member-b").unwrap().is_none());
+    }
+
+    #[test]
+    fn orphan_cleanup_recovers_pending_rollup_before_scrubbing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let member_a = recommendation("member-a", "session-orphan");
+        let member_b = recommendation("member-b", "session-keep");
+        store.put(&member_a).unwrap();
+        store.put(&member_b).unwrap();
+        let parent = rollup_parent("parent", &["member-a", "member-b"]);
+        let expected = BTreeMap::from([
+            (member_a.id.clone(), Some(expected_hash(&member_a))),
+            (member_b.id.clone(), Some(expected_hash(&member_b))),
+            (parent.id.clone(), None),
+        ]);
+        set_fault_point(Some(FaultPoint::Publication(1)));
+        assert!(store
+            .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
+            .is_err());
+        set_fault_point(None);
+
+        store
+            .scrub_orphans(&HashSet::from(["session-keep".to_string()]))
+            .unwrap();
+
+        assert!(store.get("parent").unwrap().is_none());
+        assert!(store.get("member-a").unwrap().is_none());
+        assert!(store.get("member-b").unwrap().is_none());
     }
 
     #[test]
