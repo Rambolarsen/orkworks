@@ -434,6 +434,71 @@ fn normalize_generic_instruction(label: &str) -> String {
         .to_ascii_lowercase()
 }
 
+fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
+    const PROMPT_EXAMPLE_TOPIC: &[&str] = &["peon", "model", "detection"];
+    const TASK_ACTIONS: &[&str] = &[
+        "debug",
+        "debugging",
+        "detect",
+        "detecting",
+        "fix",
+        "fixing",
+        "improve",
+        "improving",
+        "investigate",
+        "investigating",
+        "review",
+        "reviewing",
+        "test",
+        "testing",
+        "update",
+        "updating",
+    ];
+    const INCIDENTAL_REFERENCES: &[&str] = &[
+        "about",
+        "context",
+        "mention",
+        "mentions",
+        "mentioned",
+        "note",
+        "notes",
+        "regarding",
+        "related",
+    ];
+
+    input_hint
+        .split([';', '.', '!', '?', '\n'])
+        .map(normalize_generic_instruction)
+        .any(|clause| {
+            let words: Vec<_> = clause.split_whitespace().collect();
+            let mentions_topic = PROMPT_EXAMPLE_TOPIC
+                .iter()
+                .all(|word| words.iter().any(|input_word| input_word == word));
+            let topic_start = PROMPT_EXAMPLE_TOPIC
+                .iter()
+                .filter_map(|word| words.iter().position(|input_word| input_word == word))
+                .min()
+                .unwrap_or(words.len());
+            let negated = words.iter().enumerate().any(|(index, word)| {
+                index <= topic_start && matches!(*word, "not" | "never" | "without")
+            }) || words.windows(2).enumerate().any(|(index, pair)| {
+                index <= topic_start && matches!(pair, ["do", "not"] | ["don", "t"])
+            });
+            let incidental_reference = words
+                .iter()
+                .any(|word| INCIDENTAL_REFERENCES.contains(word));
+            let starts_with_topic = words
+                .first()
+                .is_some_and(|word| PROMPT_EXAMPLE_TOPIC.contains(word));
+            let names_a_task = words.iter().any(|word| TASK_ACTIONS.contains(word));
+
+            mentions_topic
+                && !negated
+                && !incidental_reference
+                && (starts_with_topic || names_a_task)
+        })
+}
+
 /// Returns whether an input-triggered label names the task and retains all PR
 /// numbers explicitly mentioned in the submitted input.
 pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
@@ -444,18 +509,11 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
         "instructing the agent",
     ];
     const PROMPT_EXAMPLE_LABEL: &str = "fixing peon model detection";
-    const PROMPT_EXAMPLE_TOPIC: &[&str] = &["peon", "model", "detection"];
 
-    let normalized = normalize_generic_instruction(label);
-    let normalized_input = normalize_generic_instruction(input_hint);
-    let input_mentions_prompt_example_topic = PROMPT_EXAMPLE_TOPIC.iter().all(|word| {
-        normalized_input
-            .split_whitespace()
-            .any(|input_word| input_word == *word)
-    });
+    let normalized = normalize_generic_instruction(&normalize_summary(label));
     let candidate_pr_numbers = referenced_pr_numbers(label);
     !normalized.is_empty()
-        && (normalized != PROMPT_EXAMPLE_LABEL || input_mentions_prompt_example_topic)
+        && (normalized != PROMPT_EXAMPLE_LABEL || input_mentions_prompt_example_topic(input_hint))
         && !GENERIC_PREFIXES
             .iter()
             .any(|prefix| normalized.starts_with(prefix))
@@ -2159,6 +2217,22 @@ mod tests {
         assert!(is_usable_input_label(
             "Fixing peon model detection",
             "fix model detection in Peon",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix peon model detection, not the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "User is fixing peon model detection",
+            "fix the Peon's model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "Do not fix peon model detection; fix the login redirect",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "review the login redirect and mention peon model detection in the notes",
         ));
     }
 
