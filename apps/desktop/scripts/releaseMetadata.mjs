@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import {
+  lstatSync,
   readdirSync,
   readFileSync,
   realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import yaml from "js-yaml";
 
@@ -20,18 +21,33 @@ function isDistributableFile(name) {
 }
 
 export function writeChecksumManifest({ releaseDir, outputPath }) {
-  const entries = readdirSync(releaseDir)
+  const releaseRoot = resolve(releaseDir);
+  const realReleaseRoot = realpathSync(releaseRoot);
+  const validatedOutputPath = resolveChecksumOutputPath(
+    releaseRoot,
+    realReleaseRoot,
+    outputPath,
+  );
+  const entries = readdirSync(releaseRoot)
     .filter(isDistributableFile)
-    .filter((name) => statSync(join(releaseDir, name)).isFile())
-    .sort()
-    .map((name) => {
+    .map((name) => ({
+      name,
+      path: resolveContainedRealPath(
+        realReleaseRoot,
+        join(releaseRoot, name),
+        "checksum input",
+      ),
+    }))
+    .filter(({ path }) => statSync(path).isFile())
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    .map(({ name, path }) => {
       const digest = createHash("sha256")
-        .update(readFileSync(join(releaseDir, name)))
+        .update(readFileSync(path))
         .digest("hex");
       return `${digest}  ${name}`;
     });
 
-  writeFileSync(outputPath, `${entries.join("\n")}\n`);
+  writeFileSync(validatedOutputPath, `${entries.join("\n")}\n`);
   return outputPath;
 }
 
@@ -71,7 +87,7 @@ function requireFile(path, description) {
   return stats;
 }
 
-function resolveContainedRealPath(realReleaseRoot, path, description) {
+function resolveContainedRealPath(realReleaseRoot, path, description, allowRoot = false) {
   let realPath;
   try {
     realPath = realpathSync(path);
@@ -81,7 +97,7 @@ function resolveContainedRealPath(realReleaseRoot, path, description) {
 
   const relativePath = relative(realReleaseRoot, realPath);
   if (
-    relativePath.length === 0
+    (relativePath.length === 0 && !allowRoot)
     || relativePath === ".."
     || relativePath.startsWith(`..${sep}`)
     || isAbsolute(relativePath)
@@ -91,12 +107,53 @@ function resolveContainedRealPath(realReleaseRoot, path, description) {
   return realPath;
 }
 
+function resolveChecksumOutputPath(releaseRoot, realReleaseRoot, outputPath) {
+  if (typeof outputPath !== "string" || outputPath.length === 0 || outputPath.includes("\0")) {
+    throw new Error("checksum output path is invalid");
+  }
+
+  const resolvedOutputPath = resolve(outputPath);
+  const relativePath = relative(releaseRoot, resolvedOutputPath);
+  if (
+    relativePath.length === 0
+    || relativePath === ".."
+    || relativePath.startsWith(`..${sep}`)
+    || isAbsolute(relativePath)
+  ) {
+    throw new Error(`checksum output path escapes release directory: ${outputPath}`);
+  }
+
+  try {
+    lstatSync(resolvedOutputPath);
+    return resolveContainedRealPath(realReleaseRoot, resolvedOutputPath, "checksum output path");
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+    const realParentPath = resolveContainedRealPath(
+      realReleaseRoot,
+      dirname(resolvedOutputPath),
+      "checksum output path",
+      true,
+    );
+    return join(realParentPath, basename(resolvedOutputPath));
+  }
+}
+
 export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion }) {
   if (typeof expectedVersion !== "string" || expectedVersion.length === 0) {
     throw new Error("expected release version is invalid");
   }
 
-  const metadata = yaml.load(readFileSync(metadataPath, "utf8"));
+  const releaseRoot = resolve(releaseDir);
+  const realReleaseRoot = realpathSync(releaseRoot);
+  const realMetadataPath = resolveContainedRealPath(
+    realReleaseRoot,
+    metadataPath,
+    "metadata path",
+  );
+  requireFile(realMetadataPath, "metadata path");
+  const metadata = yaml.load(readFileSync(realMetadataPath, "utf8"));
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error(`release metadata is not an object: ${metadataPath}`);
   }
@@ -109,8 +166,6 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
     throw new Error(`release metadata has no files: ${metadataPath}`);
   }
 
-  const releaseRoot = resolve(releaseDir);
-  const realReleaseRoot = realpathSync(releaseRoot);
   const files = metadata.files.map((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error("release metadata contains an invalid files entry");

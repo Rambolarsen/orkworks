@@ -84,6 +84,68 @@ test("writes complete sorted SHA-256 entries without including the manifest itse
   );
 }));
 
+test("rejects a checksum input symlink whose real path escapes the release directory", (t) => withTempDir((releaseDir) => {
+  const outsideDir = mkdtempSync(join(tmpdir(), "orkworks-outside-"));
+  try {
+    const fileName = "OrkWorks-0.2.0-win-x64.exe";
+    const outsidePath = join(outsideDir, fileName);
+    writeFileSync(outsidePath, "external installer");
+    if (!createFileSymlinkOrSkip(t, outsidePath, join(releaseDir, fileName))) {
+      return;
+    }
+
+    assert.throws(
+      () => writeChecksumManifest({
+        releaseDir,
+        outputPath: join(releaseDir, "SHA256SUMS.txt"),
+      }),
+      /escapes release directory/i,
+    );
+  } finally {
+    rmSync(outsideDir, { force: true, recursive: true });
+  }
+}));
+
+test("rejects a checksum output symlink whose real path escapes the release directory", (t) => withTempDir((releaseDir) => {
+  const outsideDir = mkdtempSync(join(tmpdir(), "orkworks-outside-"));
+  try {
+    const fileName = "OrkWorks-0.2.0-win-x64.exe";
+    writeFileSync(join(releaseDir, fileName), "installer");
+    const outsideOutputPath = join(outsideDir, "SHA256SUMS.txt");
+    writeFileSync(outsideOutputPath, "must not be overwritten");
+    const outputPath = join(releaseDir, "SHA256SUMS.txt");
+    if (!createFileSymlinkOrSkip(t, outsideOutputPath, outputPath)) {
+      return;
+    }
+
+    assert.throws(
+      () => writeChecksumManifest({ releaseDir, outputPath }),
+      /escapes release directory/i,
+    );
+  } finally {
+    rmSync(outsideDir, { force: true, recursive: true });
+  }
+}));
+
+test("rejects a broken checksum output symlink", (t) => withTempDir((releaseDir) => {
+  const outsideDir = mkdtempSync(join(tmpdir(), "orkworks-outside-"));
+  try {
+    const fileName = "OrkWorks-0.2.0-win-x64.exe";
+    writeFileSync(join(releaseDir, fileName), "installer");
+    const outputPath = join(releaseDir, "SHA256SUMS.txt");
+    if (!createFileSymlinkOrSkip(t, join(outsideDir, "missing-SHA256SUMS.txt"), outputPath)) {
+      return;
+    }
+
+    assert.throws(
+      () => writeChecksumManifest({ releaseDir, outputPath }),
+      /checksum output path/i,
+    );
+  } finally {
+    rmSync(outsideDir, { force: true, recursive: true });
+  }
+}));
+
 test("verifies metadata version, payload digest, size, and blockmap", () => withTempDir((releaseDir) => {
   const payloadName = "OrkWorks-0.2.0-mac-arm64.zip";
   const metadataPath = writeMetadata(releaseDir, { payloadName, payload: "zip payload" });
@@ -217,6 +279,59 @@ test("rejects a symlinked blockmap whose real path escapes the release directory
   } finally {
     rmSync(outsideDir, { force: true, recursive: true });
   }
+}));
+
+test("rejects metadata whose real path escapes the release directory", (t) => withTempDir((releaseDir) => {
+  const outsideDir = mkdtempSync(join(tmpdir(), "orkworks-outside-"));
+  try {
+    const payloadName = "OrkWorks-0.2.0-win-x64.exe";
+    const payload = "installer";
+    writeFileSync(join(releaseDir, payloadName), payload);
+    writeFileSync(join(releaseDir, payloadName + ".blockmap"), "blockmap");
+    const outsideMetadataPath = join(outsideDir, "latest.yml");
+    writeFileSync(outsideMetadataPath, [
+      "version: 0.2.0",
+      "files:",
+      `  - url: ${payloadName}`,
+      `    sha512: ${sha512(payload)}`,
+      `    size: ${Buffer.byteLength(payload)}`,
+    ].join("\n"));
+    const metadataPath = join(releaseDir, "latest.yml");
+    if (!createFileSymlinkOrSkip(t, outsideMetadataPath, metadataPath)) {
+      return;
+    }
+
+    assert.throws(
+      () => verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }),
+      /metadata.*escapes release directory/i,
+    );
+  } finally {
+    rmSync(outsideDir, { force: true, recursive: true });
+  }
+}));
+
+test("rejects malformed YAML metadata", () => withTempDir((releaseDir) => {
+  const metadataPath = join(releaseDir, "latest.yml");
+  writeFileSync(metadataPath, "version: [0.2.0\nfiles:\n");
+
+  assert.throws(
+    () => verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }),
+    /YAML|unexpected|flow sequence/i,
+  );
+}));
+
+test("rejects non-object metadata file entries", () => withTempDir((releaseDir) => {
+  const metadataPath = join(releaseDir, "latest.yml");
+  writeFileSync(metadataPath, [
+    "version: 0.2.0",
+    "files:",
+    "  - []",
+  ].join("\n"));
+
+  assert.throws(
+    () => verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }),
+    /invalid files entry/i,
+  );
 }));
 
 test("rejects metadata with the wrong version", () => withTempDir((releaseDir) => {
