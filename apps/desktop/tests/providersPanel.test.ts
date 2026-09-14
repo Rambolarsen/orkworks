@@ -263,6 +263,8 @@ test("NewSessionDialog cancels an in-flight confirmation before it can start a s
   assert.match(source, /const handleCancel = useCallback\(\(\) => \{\s*confirmationGeneration\.current \+= 1;\s*onCancel\(\);\s*\}, \[onCancel\]\);/);
   assert.match(source, /const generation = confirmationGeneration\.current;/);
   assert.match(source, /if \(generation !== confirmationGeneration\.current\) return;/);
+  assert.match(source, /if \(e\.key === "Escape"\)[\s\S]{0,100}handleCancel\(\);/);
+  assert.match(source, /finally \{\s*if \(generation === confirmationGeneration\.current\) setConfirmBusy\(false\);\s*\}/);
   assert.match(source, /onClick=\{handleCancel\}/);
 });
 

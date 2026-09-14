@@ -179,7 +179,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
       else localStorage.removeItem(LS_MODEL_KEY);
       onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
     } finally {
-      setConfirmBusy(false);
+      if (generation === confirmationGeneration.current) setConfirmBusy(false);
     }
   }, [confirmBusy, detectedHarnessIds, draft.harnessId, draft.model, initialPrompt, onConfirm, selectable]);
 
