@@ -440,35 +440,29 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
         &["model"],
         &["detection", "detector", "detecting", "detect"],
     ];
-    const TASK_ACTIONS: &[&str] = &[
-        "debug",
-        "debugging",
-        "detect",
-        "detecting",
-        "fix",
-        "fixing",
-        "improve",
-        "improving",
-        "investigate",
-        "investigating",
-        "review",
-        "reviewing",
-        "test",
-        "testing",
-        "update",
-        "updating",
-    ];
     const INCIDENTAL_REFERENCES: &[&str] = &[
         "about",
         "context",
+        "describe",
+        "described",
+        "documentation",
+        "example",
+        "literally",
         "mention",
         "mentions",
         "mentioned",
         "note",
         "notes",
+        "phrase",
+        "prompt",
+        "quote",
+        "quoted",
         "regarding",
         "related",
+        "text",
+        "wording",
     ];
+    const ALTERNATIVE_REFERENCES: &[&str] = &["instead", "other", "rather"];
 
     input_hint
         .split([';', ',', '.', '!', '?', '\n'])
@@ -480,35 +474,20 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
                     .iter()
                     .any(|word| words.iter().any(|input_word| input_word == word))
             });
-            let topic_start = PROMPT_EXAMPLE_TOPIC
+            let negated = words
                 .iter()
-                .filter_map(|variants| {
-                    variants
-                        .iter()
-                        .filter_map(|word| words.iter().position(|input_word| input_word == word))
-                        .min()
-                })
-                .min()
-                .unwrap_or(words.len());
-            let negated = words.iter().enumerate().any(|(index, word)| {
-                index <= topic_start && matches!(*word, "not" | "never" | "without")
-            }) || words.windows(2).enumerate().any(|(index, pair)| {
-                index <= topic_start && matches!(pair, ["do", "not"] | ["don", "t"])
-            });
+                .any(|word| matches!(*word, "not" | "never" | "without"))
+                || words
+                    .windows(2)
+                    .any(|pair| matches!(pair, ["do", "not"] | ["don", "t"]));
             let incidental_reference = words
                 .iter()
                 .any(|word| INCIDENTAL_REFERENCES.contains(word));
-            let starts_with_topic = words.first().is_some_and(|word| {
-                PROMPT_EXAMPLE_TOPIC
-                    .iter()
-                    .any(|variants| variants.contains(word))
-            });
-            let names_a_task = words.iter().any(|word| TASK_ACTIONS.contains(word));
+            let alternative_reference = words
+                .iter()
+                .any(|word| ALTERNATIVE_REFERENCES.contains(word));
 
-            mentions_topic
-                && !negated
-                && !incidental_reference
-                && (starts_with_topic || names_a_task)
+            mentions_topic && !negated && !incidental_reference && !alternative_reference
         })
 }
 
@@ -2272,6 +2251,22 @@ mod tests {
         assert!(!is_usable_input_label(
             "Fixing peon model detection",
             "review the login redirect and mention peon model detection in the notes",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "peon model detection is not needed",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "fix the login redirect and quote the prompt example \"Fixing peon model detection\"",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "fix the login redirect instead of peon model detection",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "resolve peon model detection",
         ));
     }
 
