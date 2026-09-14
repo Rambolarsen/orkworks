@@ -13,14 +13,17 @@ import yaml from "js-yaml";
 
 const CHECKSUM_MANIFEST = "SHA256SUMS.txt";
 
-function isDistributableFile(name) {
+function isDistributableFile(name, expectedVersion) {
+  if (expectedVersion) {
+    return name.startsWith(`OrkWorks-${expectedVersion}-`) || /^latest.*\.yml$/.test(name);
+  }
   return name !== CHECKSUM_MANIFEST
     && (name.startsWith("OrkWorks-")
       || /^latest.*\.yml$/.test(name)
       || name.endsWith(".blockmap"));
 }
 
-export function writeChecksumManifest({ releaseDir, outputPath }) {
+export function writeChecksumManifest({ releaseDir, outputPath, expectedVersion }) {
   const releaseRoot = resolve(releaseDir);
   const realReleaseRoot = realpathSync(releaseRoot);
   const validatedOutputPath = resolveChecksumOutputPath(
@@ -29,7 +32,7 @@ export function writeChecksumManifest({ releaseDir, outputPath }) {
     outputPath,
   );
   const entries = readdirSync(releaseRoot)
-    .filter(isDistributableFile)
+    .filter((name) => isDistributableFile(name, expectedVersion))
     .map((name) => ({
       name,
       path: resolveContainedRealPath(
@@ -49,6 +52,27 @@ export function writeChecksumManifest({ releaseDir, outputPath }) {
 
   writeFileSync(validatedOutputPath, `${entries.join("\n")}\n`);
   return outputPath;
+}
+
+export function runChecksumCli({
+  appRoot = resolve(import.meta.dirname, ".."),
+  output = console.log,
+} = {}) {
+  const packageJson = JSON.parse(readFileSync(join(appRoot, "package.json"), "utf8"));
+  const version = packageJson.version;
+  if (
+    typeof version !== "string"
+    || version.length === 0
+    || version !== version.trim()
+    || /[\\/\0]/.test(version)
+  ) {
+    throw new Error("package version is invalid for release checksum generation");
+  }
+  const releaseDir = join(appRoot, "release");
+  const outputPath = join(releaseDir, CHECKSUM_MANIFEST);
+  const result = writeChecksumManifest({ releaseDir, outputPath, expectedVersion: version });
+  output(result);
+  return result;
 }
 
 function resolvePayloadPath(releaseDir, url) {
@@ -211,9 +235,6 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   if (process.argv[2] === "--checksums") {
-    const appRoot = resolve(import.meta.dirname, "..");
-    const releaseDir = join(appRoot, "release");
-    const outputPath = join(releaseDir, CHECKSUM_MANIFEST);
-    console.log(writeChecksumManifest({ releaseDir, outputPath }));
+    runChecksumCli();
   }
 }

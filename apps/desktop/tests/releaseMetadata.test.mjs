@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -11,6 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import {
+  runChecksumCli,
   verifyUpdateMetadata,
   writeChecksumManifest,
 } from "../scripts/releaseMetadata.mjs";
@@ -82,6 +84,36 @@ test("writes complete sorted SHA-256 entries without including the manifest itse
       "",
     ].join("\n"),
   );
+}));
+
+test("checksum CLI reads package version, scopes release artifacts, and prints only its output path", () => withTempDir((appRoot) => {
+  const releaseDir = join(appRoot, "release");
+  const output = [];
+  const version = "1.2.3";
+  const currentArtifact = `OrkWorks-${version}-win-x64.exe`;
+  const staleArtifact = "OrkWorks-1.2.2-win-x64.exe";
+  writeFileSync(join(appRoot, "package.json"), JSON.stringify({ version }));
+  mkdirSync(releaseDir);
+  writeFileSync(join(releaseDir, currentArtifact), "current");
+  writeFileSync(join(releaseDir, `${currentArtifact}.blockmap`), "current blockmap");
+  writeFileSync(join(releaseDir, staleArtifact), "stale");
+  writeFileSync(join(releaseDir, `${staleArtifact}.blockmap`), "stale blockmap");
+  writeFileSync(join(releaseDir, "latest.yml"), "metadata");
+
+  const outputPath = runChecksumCli({ appRoot, output: (value) => output.push(value) });
+
+  assert.deepEqual(output, [outputPath]);
+  assert.equal(outputPath, join(releaseDir, "SHA256SUMS.txt"));
+  const manifest = readFileSync(outputPath, "utf8");
+  assert.match(manifest, new RegExp(currentArtifact.replaceAll(".", "\\.")));
+  assert.doesNotMatch(manifest, /1\.2\.2/);
+}));
+
+test("checksum CLI rejects a package version that could escape its artifact-name scope", () => withTempDir((appRoot) => {
+  writeFileSync(join(appRoot, "package.json"), JSON.stringify({ version: "../1.2.3" }));
+  mkdirSync(join(appRoot, "release"));
+
+  assert.throws(() => runChecksumCli({ appRoot }), /package version is invalid/i);
 }));
 
 test("rejects a checksum input symlink whose real path escapes the release directory", (t) => withTempDir((releaseDir) => {

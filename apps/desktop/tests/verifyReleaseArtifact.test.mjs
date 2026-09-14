@@ -10,6 +10,7 @@ import {
 } from "../scripts/verifyReleaseArtifact.mjs";
 import {
   createWindowsInstallerExpectation,
+  readAuthenticodeSignature,
   verifyInstalledWindowsApp,
 } from "../scripts/windowsInstallerSmokeTest.mjs";
 
@@ -270,7 +271,7 @@ test("installed Windows executables require valid Authenticode signatures", () =
 
   verifyInstalledWindowsApp(expectation, fsModule, (path) => {
     verifiedPaths.push(path);
-    return { status: "Valid", subject: expectation.expectedPublisher };
+    return { status: "Valid", publisher: expectation.expectedPublisher };
   });
 
   assert.deepEqual(verifiedPaths, [expectation.appPath, expectation.sidecarPath]);
@@ -282,7 +283,7 @@ test("installed Windows verification rejects invalid Authenticode status", () =>
   assert.throws(
     () => verifyInstalledWindowsApp(expectation, fsModule, () => ({
       status: "NotSigned",
-      subject: "",
+      publisher: "",
     })),
     /Authenticode status.*NotSigned/i,
   );
@@ -294,10 +295,41 @@ test("installed Windows verification rejects a publisher mismatch", () => {
   assert.throws(
     () => verifyInstalledWindowsApp(expectation, fsModule, (path) => ({
       status: "Valid",
-      subject: path === expectation.appPath
+      publisher: path === expectation.appPath
         ? expectation.expectedPublisher
         : `CN=Unexpected Publisher, OU=${expectation.expectedPublisher}`,
     })),
     /publisher mismatch.*orkworksd\.exe/i,
+  );
+});
+
+test("Authenticode reader passes the real executable path through a dedicated environment variable", () => {
+  const executablePath = "C:\\Program Files\\OrkWorks\\OrkWorks.exe";
+  const calls = [];
+
+  const signature = readAuthenticodeSignature(executablePath, (file, args, options) => {
+    calls.push({ file, args, options });
+    return JSON.stringify({ status: "Valid", publisher: "OrkWorks AS" });
+  });
+
+  assert.deepEqual(signature, { status: "Valid", publisher: "OrkWorks AS" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, "powershell.exe");
+  assert.deepEqual(calls[0].args.slice(0, 3), ["-NoProfile", "-NonInteractive", "-Command"]);
+  assert.equal(calls[0].args.length, 4);
+  assert.match(calls[0].args[3], /\$env:ORKWORKS_SIGNATURE_PATH/);
+  assert.equal(calls[0].options.env.ORKWORKS_SIGNATURE_PATH, executablePath);
+});
+
+test("Authenticode reader preserves the executable path in command failure diagnostics", () => {
+  const executablePath = "C:\\Program Files\\OrkWorks\\resources\\orkworksd.exe";
+
+  assert.throws(
+    () => readAuthenticodeSignature(executablePath, () => {
+      throw new Error("PowerShell failed");
+    }),
+    (error) => error instanceof Error
+      && error.message.includes(executablePath)
+      && error.cause?.message === "PowerShell failed",
   );
 });

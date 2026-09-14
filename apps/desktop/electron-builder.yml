@@ -38,6 +38,11 @@ mac:
 win:
   target:
     - nsis
+  publish:
+    provider: github
+    owner: Rambolarsen
+    repo: orkworks
+    publisherName: []
   verifyUpdateCodeSignature: true
   forceCodeSigning: true
   artifactName: OrkWorks-${version}-win-${arch}.${ext}

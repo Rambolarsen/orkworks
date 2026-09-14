@@ -67,10 +67,11 @@ export function createWindowsInstallerExpectation({
   };
 }
 
-function readAuthenticodeSignature(path, execFileSync = defaultExecFileSync) {
+export function readAuthenticodeSignature(path, execFileSync = defaultExecFileSync) {
   const script = [
-    "$signature = Get-AuthenticodeSignature -LiteralPath $args[0]",
-    "[pscustomobject]@{ status = [string]$signature.Status; subject = [string]$signature.SignerCertificate.Subject } | ConvertTo-Json -Compress",
+    "$signature = Get-AuthenticodeSignature -LiteralPath $env:ORKWORKS_SIGNATURE_PATH",
+    "$publisher = if ($signature.SignerCertificate) { $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { '' }",
+    "[pscustomobject]@{ status = [string]$signature.Status; publisher = [string]$publisher } | ConvertTo-Json -Compress",
   ].join("; ");
   let output;
   try {
@@ -79,9 +80,9 @@ function readAuthenticodeSignature(path, execFileSync = defaultExecFileSync) {
       "-NonInteractive",
       "-Command",
       script,
-      path,
     ], {
       encoding: "utf8",
+      env: { ...process.env, ORKWORKS_SIGNATURE_PATH: path },
       stdio: ["ignore", "pipe", "inherit"],
       shell: false,
       windowsHide: true,
@@ -116,8 +117,8 @@ export function verifyInstalledWindowsApp(
         );
       }
       if (
-        typeof signature.subject !== "string"
-        || signature.subject !== expectation.expectedPublisher
+        typeof signature.publisher !== "string"
+        || signature.publisher !== expectation.expectedPublisher
       ) {
         throw new Error(
           `Windows installer smoke test failed: publisher mismatch for ${path}; expected ${expectation.expectedPublisher}`,

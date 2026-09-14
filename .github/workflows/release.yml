@@ -90,8 +90,25 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           WIN_EXPECTED_PUBLISHER: ${{ vars.WIN_EXPECTED_PUBLISHER }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_EXPECTED_PUBLISHER)) {
+            throw "WIN_EXPECTED_PUBLISHER is required"
+          }
+          if ($env:WIN_EXPECTED_PUBLISHER -ne $env:WIN_EXPECTED_PUBLISHER.Trim()) {
+            throw "WIN_EXPECTED_PUBLISHER must be the exact certificate common name"
+          }
           $env:CSC_LINK = $env:WIN_CSC_LINK
           $env:CSC_KEY_PASSWORD = $env:WIN_CSC_KEY_PASSWORD
+          node -e @'
+          const fs = require("node:fs");
+          const yaml = require("js-yaml");
+          const configPath = "electron-builder.yml";
+          const config = yaml.load(fs.readFileSync(configPath, "utf8"));
+          if (!Array.isArray(config.win?.publish?.publisherName) || config.win.publish.publisherName.length !== 0) {
+            throw new Error("electron-builder Windows publisher placeholder is invalid");
+          }
+          config.win.publish.publisherName = [process.env.WIN_EXPECTED_PUBLISHER];
+          fs.writeFileSync(configPath, yaml.dump(config, { lineWidth: -1 }));
+          '@
           pnpm package:release
 
       - name: Verify packaged artifact
@@ -176,16 +193,28 @@ jobs:
             if ($signature.Status -ne "Valid") {
               throw "Authenticode status $($signature.Status) for $path"
             }
-            if (
-              -not $signature.SignerCertificate -or
-              $signature.SignerCertificate.Subject -ne $env:WIN_EXPECTED_PUBLISHER
-            ) {
+            $publisher = if ($signature.SignerCertificate) {
+              $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+            }
+            if ($publisher -ne $env:WIN_EXPECTED_PUBLISHER) {
               throw "Publisher mismatch for $path"
             }
           }
 
-          $appUpdateContents = Get-Content -Raw -LiteralPath $appUpdate
-          if (-not $appUpdateContents.Contains($env:WIN_EXPECTED_PUBLISHER)) {
+          $env:ORKWORKS_APP_UPDATE_PATH = $appUpdate
+          node -e @'
+          const fs = require("node:fs");
+          const yaml = require("js-yaml");
+          const metadata = yaml.load(fs.readFileSync(process.env.ORKWORKS_APP_UPDATE_PATH, "utf8"));
+          if (
+            !Array.isArray(metadata?.publisherName)
+            || metadata.publisherName.length !== 1
+            || metadata.publisherName[0] !== process.env.WIN_EXPECTED_PUBLISHER
+          ) {
+            process.exitCode = 1;
+          }
+          '@
+          if ($LASTEXITCODE -ne 0) {
             throw "app-update.yml publisher identity mismatch"
           }
 

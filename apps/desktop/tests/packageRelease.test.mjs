@@ -34,6 +34,12 @@ test("electron-builder config declares signed release targets", () => {
   assert.deepEqual(config.win.target, ["nsis"]);
   assert.equal(config.win.verifyUpdateCodeSignature, true);
   assert.equal(config.win.forceCodeSigning, true);
+  assert.deepEqual(config.win.publish, {
+    provider: "github",
+    owner: "Rambolarsen",
+    repo: "orkworks",
+    publisherName: [],
+  });
 });
 
 test("macOS entitlements allow the sidecar runtime requirements", () => {
@@ -157,6 +163,15 @@ test("release workflow protects platform jobs and maps only their signing creden
     WIN_CSC_KEY_PASSWORD: "${{ secrets.WIN_CSC_KEY_PASSWORD }}",
     WIN_EXPECTED_PUBLISHER: "${{ vars.WIN_EXPECTED_PUBLISHER }}",
   });
+  assert.match(
+    findStep(buildJob, "Package Windows (electron-builder)").run,
+    /config\.win\.publish\.publisherName = \[process\.env\.WIN_EXPECTED_PUBLISHER\]/,
+  );
+  const windowsPackageRun = findStep(buildJob, "Package Windows (electron-builder)").run;
+  assert.ok(
+    windowsPackageRun.indexOf("config.win.publish.publisherName")
+      < windowsPackageRun.indexOf("pnpm package:release"),
+  );
   assert.equal(
     findStep(buildJob, "Verify native Windows signatures").env.WIN_EXPECTED_PUBLISHER,
     "${{ vars.WIN_EXPECTED_PUBLISHER }}",
@@ -181,6 +196,7 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
   const job = workflow.jobs.build;
   const names = job.steps.map((step) => step.name).filter(Boolean);
   const releaseVerifyIndex = names.indexOf("Verify packaged artifact");
+  const smokeIndex = names.indexOf("Smoke-test Windows installer");
   const checksumIndex = names.indexOf("Generate release checksums");
   const uploadIndex = names.indexOf("Upload artifacts");
 
@@ -191,6 +207,7 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
     assert.ok(releaseVerifyIndex < names.indexOf(nativeStep));
     assert.ok(names.indexOf(nativeStep) < checksumIndex);
   }
+  assert.ok(smokeIndex < checksumIndex);
   assert.ok(checksumIndex < uploadIndex);
   assert.equal(findStep(job, "Package macOS (electron-builder)").run, "pnpm package:release");
   assert.match(findStep(job, "Package Windows (electron-builder)").run, /pnpm package:release/);
@@ -214,12 +231,20 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
   assert.match(windowsVerification, /Get-AuthenticodeSignature/);
   assert.match(
     windowsVerification,
-    /SignerCertificate\.Subject -ne \$env:WIN_EXPECTED_PUBLISHER/,
+    /GetNameInfo\(\[System\.Security\.Cryptography\.X509Certificates\.X509NameType\]::SimpleName, \$false\)/,
   );
+  assert.match(windowsVerification, /\$publisher -ne \$env:WIN_EXPECTED_PUBLISHER/);
   assert.match(windowsVerification, /OrkWorks-\$version-win-x64\.exe/i);
   assert.match(windowsVerification, /win-unpacked[\\/]OrkWorks\.exe/i);
   assert.match(windowsVerification, /win-unpacked[\\/]resources[\\/]orkworksd\.exe/i);
   assert.match(windowsVerification, /app-update\.yml/);
+  assert.match(windowsVerification, /yaml\.load/);
+  assert.match(windowsVerification, /publisherName\.length !== 1/);
+  assert.match(
+    windowsVerification,
+    /metadata\.publisherName\[0\] !== process\.env\.WIN_EXPECTED_PUBLISHER/,
+  );
+  assert.doesNotMatch(windowsVerification, /\.Contains\(/);
 
   assert.equal(workflow.jobs.publish.needs, "build");
   const publishNames = workflow.jobs.publish.steps.map((step) => step.name).filter(Boolean);
@@ -229,6 +254,9 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
   assert.match(assembleStep.run, /release-mac-arm64\/SHA256SUMS\.txt/);
   assert.match(assembleStep.run, /release-win-x64\/SHA256SUMS\.txt/);
   assert.match(assembleStep.run, /sort > artifacts\/publish\/SHA256SUMS\.txt/);
+  const metadataAssertion = findStep(workflow.jobs.publish, "Assert platform update metadata").run;
+  assert.match(metadataAssertion, /^test -f artifacts\/publish\/latest-mac\.yml$/m);
+  assert.match(metadataAssertion, /^test -f artifacts\/publish\/latest\.yml$/m);
   assert.ok(publishNames.indexOf("Assemble release assets") < publishNames.indexOf("Assert platform update metadata"));
   assert.ok(publishNames.indexOf("Assert platform update metadata") < publishNames.indexOf("Publish draft GitHub Release"));
 });
