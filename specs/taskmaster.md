@@ -266,7 +266,7 @@ From `.orkworks/events/<session-id>.ndjson`:
 
 From the shared workflow-evidence module (`workspace_observations`), not from raw event or terminal text:
 
-- immutable `WorkflowObservation` records: `id`, `sequence`, `sessionId`, `observedAt`, `kind`, `description`, `evidence`, `reportedImpact`, `source`, `confidence`, `fingerprint`
+- immutable `WorkflowObservation` records: `id`, `sequence`, `sessionId`, `observedAt`, `kind`, `description`, optional `problemArea`, `evidence`, `reportedImpact`, `source`, `confidence`, `fingerprint`
 - accepted within the active workspace only, ordered by `sequence`
 
 Taskmaster reads workflow observations for a different purpose than session snapshots: session snapshots (including the current-summary snapshot — `summary`/`summarySource`/`summaryConfidence`/`summaryObservedAt`, see `specs/orkworks-mvp.md`) describe current work for coordination and handoff prompts; workflow observations describe durable friction used only to propose workflow improvements. Taskmaster never parses activity-summary prose to manufacture workflow evidence, and it never mutates or amends a stored observation. See [ADR 0042](../docs/adr/0042-workflow-observations-replace-summary-checkpoints.md) for the full rationale.
@@ -411,7 +411,74 @@ Taskmaster reevaluates five seconds after the latest accepted workflow observati
 - it contains at least two distinct observations sharing a fingerprint, each with confidence ≥ `0.6`; or
 - it contains one observation with `reportedImpact: high` and confidence ≥ `0.8`.
 
-Two inference results over the same unchanged Peon evidence window count as one observation; a genuinely repeated action produces a later evidence range and therefore a distinct, separately-countable occurrence. Recurrence may span one session or multiple sessions; the recommendation states which. Version 1 never combines different fingerprints — this keeps the evaluator deterministic. Observations below `0.6` confidence, and high-impact observations below `0.8` confidence, are not cited or counted, though they may remain stored as supporting context.
+Two inference results over the same unchanged Peon evidence window count as one observation; a genuinely repeated action produces a later evidence range and therefore a distinct, separately-countable occurrence. Recurrence may span one session or multiple sessions; the recommendation states which. Exact evidence families remain deterministic audit units. A separate bounded rollup layer may combine related proposed exact families; it does not replace exact identity or allow generated prose to become evidence. Observations below `0.6` confidence, and high-impact observations below `0.8` confidence, are not cited or counted, though they may remain stored as supporting context.
+
+### Identity and rollup contract
+
+New workflow observations may include an optional, short `problemArea`
+separate from the user-visible `description`. The sidecar validates and
+normalizes this field with Unicode NFKC, Unicode lowercase, trimmed edges, and
+every run of Unicode whitespace collapsed to one ASCII space; punctuation is
+retained. The fingerprint input concatenates `kind`, one NUL byte (`U+0000`),
+and `canonical_problem_area`; new records store
+`v2:<kind>:<sha256-hex>`. The field is bounded to a non-empty,
+non-control value of at most 120 characters. Explicit overlong values are
+truncated; explicit empty or control-bearing values are rejected. Missing
+`problemArea` preserves the legacy v1 description-based fingerprint, may be
+derived in memory for model context, and is never rewritten during a read.
+Wire and persisted values default to `null`.
+
+After exact-family evaluation, only currently proposed exact families are
+eligible for a semantic rollup. If a configured Taskmaster model is
+unavailable, exact recommendations continue to work and no rollup is
+created. A rollup request contains at most 32 family snapshots, three
+deterministic representative observations per family (earliest, latest, and
+highest-impact when distinct), 96 observations total, eight source-session
+IDs per family, and 128 KiB of serialized input. The model response is bounded
+to 64 KiB and at most eight clusters, each containing two to eight distinct
+supplied family IDs, with a title of at most 240 characters and a summary of
+at most 1,000 characters. The sidecar rejects unknown, empty, duplicate,
+overlapping, invalid, or cross-target clusters as a whole; no partial result
+is applied. Cluster and member ordering is normalized before identity is
+computed, and the parent ID is `rollup:<sha256-hex>` over sorted member
+recommendation IDs. A server-owned evaluation token contains the workspace
+instance ID, a monotonic generation within that workspace instance, the
+provider/model identity, and a hash of the supplied family snapshot; it is not
+model-supplied or persisted as authority. Applying model output requires the
+same workspace instance and generation, followed by locked revalidation that
+every supplied family is still proposed, has the same evidence snapshot, and
+has no changed active parent. Stale output is discarded without changing exact
+recommendations or observations.
+
+`RecommendationStatus` includes `rolled_up`. Rollup parents add
+`rollupMemberIds`, `rollupMemberDedupeKeys`, `rollupGeneration`,
+`supersedesRecommendationId`, and a bounded projection of member evidence;
+rolled-up members add `rolledUpBy`. These fields default to empty lists or
+`null` for legacy records. The parent projection is limited to 64 evidence
+entries and 128 KiB. The sidecar derives the parent's evidence, recurrence
+count, affected sessions, impact, confidence, and target surface from member
+evidence; all v1 members must share one target surface. It also stores the
+sorted, de-duplicated union of member source-session IDs within existing
+metadata bounds.
+
+Parent/member changes are one recoverable store transaction under the
+workspace lock. Staged files, durable backups, expected old-file hashes, and
+a fsynced manifest allow startup recovery to roll back an uncommitted graph or
+complete a committed graph. Recommendation reads remain unavailable with a
+diagnostic if neither complete graph can be established. A member belongs to
+at most one active parent, every `rolled_up` member has exactly one existing
+parent, and every active parent lists existing members.
+
+The normal list returns active rollup parents and proposed exact families with
+no active parent; it never returns a `rolled_up` member as an actionable card.
+Detail retains parent/member relationships for audit and handoff, while an
+action against a rolled-up member returns the existing invalid-transition
+response. A changed proposed membership supersedes the old parent and
+transactionally releases or assigns members; a same-member-set result updates
+in place. Dismissed, accepted, completed, expired, failed, and other terminal
+parents remain immutable history with hidden `rolled_up` members. New
+qualifying evidence creates a new exact-family generation rather than
+reopening a terminal graph.
 
 ### Kind-to-target mapping
 
@@ -440,13 +507,13 @@ workflowImprovement
   affectedSessionIds
   impact
   expectedBenefit
-  supersedesRecommendationId null or dismissed predecessor ID
+  supersedesRecommendationId null, dismissed predecessor ID, or superseded rollup parent ID
   dismissalWatermark null or dismissed evidence watermark
 ```
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For this passive variant, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses, including `superseded`, stay valid for shared deserialization but are never produced by this evaluator. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. `executing`, `accepted`, and `completed` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
+For exact-family evaluation, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses stay valid for shared deserialization but are never produced by that evaluator. The separate rollup evaluator may produce `superseded` when a proposed rollup's membership changes. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. For exact-family recommendations and unchanged rollup membership, `executing`, `accepted`, and `completed` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
 
 ### Deduplication and dismissal watermark
 
@@ -587,6 +654,12 @@ Required recommendation fields:
 - deduplication key
 - timestamps
 
+Rollup records additionally expose `rollupMemberIds`,
+`rollupMemberDedupeKeys`, `rollupGeneration`, `rolledUpBy`, and
+`supersedesRecommendationId`. For a replacement rollup, that last field links
+the new parent to its superseded rollup parent. Legacy records deserialize
+these as empty lists or `null`.
+
 ## Recommendation lifecycle
 
 Valid statuses:
@@ -596,6 +669,7 @@ Valid statuses:
 - `executing` — linked action or session has started
 - `completed` — the action reached its intended terminal state
 - `dismissed` — rejected by the user
+- `rolled_up` — retained as an internal exact-family record under a rollup parent
 - `superseded` — replaced by newer workspace state
 - `expired` — no longer relevant after a configured time or state change
 - `failed` — OrkWorks could not execute the accepted action

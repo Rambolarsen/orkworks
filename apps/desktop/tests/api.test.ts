@@ -10,6 +10,7 @@ import {
   duplicateHarness,
   forgetSession,
   getTaskmasterRecommendations,
+  getTaskmasterRecommendation,
   listHarnesses,
   removeHarnessProfile,
   saveHarnessConfiguration,
@@ -368,6 +369,32 @@ test("Taskmaster API reads the recommendations envelope and encodes recommendati
     assert.deepEqual(response, { recommendations: [], diagnostics: [] });
     await dismissTaskmasterRecommendation("http://localhost:0", "rec/with spaces");
     assert.match(requestUrl, /rec%2Fwith%20spaces\/dismiss$/);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Taskmaster recommendation types include rollup lifecycle and evidence fields", () => {
+  const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  assert.match(source, /\| \"dismissed\" \| \"rolled_up\"/);
+  assert.match(source, /problemArea\?: string \| null/);
+  assert.match(source, /rollupMemberIds: string\[\]/);
+  assert.match(source, /rollupMemberDedupeKeys: string\[\]/);
+  assert.match(source, /rollupGeneration: number \| null/);
+  assert.match(source, /rolledUpBy: string \| null/);
+});
+
+test("Taskmaster detail fetch encodes hidden recommendation ids", async () => {
+  const origFetch = globalThis.fetch;
+  let requestUrl = "";
+  globalThis.fetch = (url: string | URL | Request) => {
+    requestUrl = String(url);
+    return Promise.resolve(new Response(JSON.stringify({ id: "rollup:member" }), { status: 200 }));
+  };
+  try {
+    const response = await getTaskmasterRecommendation("http://localhost:0", "rollup:member/1");
+    assert.equal(response.id, "rollup:member");
+    assert.match(requestUrl, /rollup%3Amember%2F1$/);
   } finally {
     globalThis.fetch = origFetch;
   }

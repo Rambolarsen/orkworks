@@ -1796,6 +1796,7 @@ mod tests {
                 kind: crate::workflow_observations::ObservationKind::Obstacle,
                 description: "old runtime observation".into(),
                 evidence: "old runtime evidence".into(),
+                problem_area: None,
                 reported_impact: crate::workflow_observations::Impact::Low,
                 confidence: 0.8,
             }],

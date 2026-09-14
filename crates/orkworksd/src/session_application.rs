@@ -5,6 +5,9 @@ use crate::plan_handoff::{
 use crate::runtime::observed_status::apply_live_attention_fields;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
+use crate::taskmaster::rollup::{
+    project_parent_evidence, stable_rollup_id, RollupCluster, RollupFamilySnapshot,
+};
 use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
 use crate::workspace_runtime::{iso_now, orkworks_global_dir, WorkspaceLease};
@@ -12,6 +15,7 @@ use crate::{git, metadata, migration, plan_handoff, watcher, AppState, Workspace
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -193,6 +197,58 @@ fn is_placeholder_label(label: &str, id: &str) -> bool {
     label == crate::session_types::placeholder_label(id)
 }
 
+fn refresh_rollup_parent_projection(
+    parent: &mut Recommendation,
+    members: &[Recommendation],
+    now: &str,
+) {
+    let all_evidence = members
+        .iter()
+        .flat_map(|member| member.evidence.clone())
+        .collect::<Vec<_>>();
+    let projected_evidence = project_parent_evidence(&all_evidence);
+    let mut source_session_ids = members
+        .iter()
+        .flat_map(|member| {
+            member.source_session_ids.iter().cloned().chain(
+                member
+                    .evidence
+                    .iter()
+                    .map(|evidence| evidence.session_id.clone()),
+            )
+        })
+        .collect::<Vec<_>>();
+    source_session_ids.sort();
+    source_session_ids.dedup();
+    let priority = all_evidence
+        .iter()
+        .map(|evidence| evidence.reported_impact)
+        .max()
+        .unwrap_or(parent.priority);
+    let confidence = if all_evidence
+        .iter()
+        .all(|evidence| evidence.confidence >= 0.8)
+    {
+        crate::taskmaster::RecommendationConfidence::High
+    } else {
+        crate::taskmaster::RecommendationConfidence::Medium
+    };
+    let observation_ids = projected_evidence
+        .iter()
+        .map(|evidence| evidence.observation_id.clone())
+        .collect::<Vec<_>>();
+
+    parent.evidence = projected_evidence;
+    parent.source_session_ids = source_session_ids.clone();
+    parent.priority = priority;
+    parent.confidence = confidence;
+    parent.updated_at = now.to_string();
+    parent.workflow_improvement.observation_ids = observation_ids;
+    parent.workflow_improvement.recurrence_count = all_evidence.len();
+    parent.workflow_improvement.affected_session_ids = source_session_ids;
+    parent.workflow_improvement.impact = priority;
+}
+
 // Serializes authoritative terminal-transition writes and best-effort live
 // resize writes together. The operation re-reads the current runtime size
 // under the sessions lock and checks the lifecycle while holding the shared
@@ -215,7 +271,8 @@ impl SessionApplication {
         let Ok(observations) = workspace.workflow_observations.workspace_observations() else {
             return;
         };
-        let Ok(existing) = workspace.recommendation_store.list() else {
+        let Ok((existing, existing_hashes)) = workspace.recommendation_store.list_with_hashes()
+        else {
             return;
         };
         let now = chrono::Utc::now().to_rfc3339();
@@ -225,11 +282,361 @@ impl SessionApplication {
             &workspace.path.display().to_string(),
             &now,
         );
+        let existing_by_id = existing
+            .iter()
+            .cloned()
+            .map(|recommendation| (recommendation.id.clone(), recommendation))
+            .collect::<BTreeMap<_, _>>();
+        let mut next = existing_by_id.clone();
+        let mut expected = BTreeMap::new();
+        let mut changed_parent_ids = BTreeSet::new();
         for proposal in proposals {
-            if let Err(error) = workspace.recommendation_store.put(&proposal) {
-                tracing::warn!(recommendation_id = %proposal.id, %error, "failed to persist Taskmaster recommendation");
+            let changed = existing_by_id.get(&proposal.id) != Some(&proposal);
+            if changed {
+                expected.insert(
+                    proposal.id.clone(),
+                    existing_by_id.get(&proposal.id).and_then(|recommendation| {
+                        existing_hashes.get(&recommendation.id).cloned()
+                    }),
+                );
+                if let Some(parent_id) = proposal.rolled_up_by.as_deref() {
+                    changed_parent_ids.insert(parent_id.to_string());
+                }
+            }
+            next.insert(proposal.id.clone(), proposal);
+        }
+        for parent_id in changed_parent_ids {
+            let Some(parent) = next.get(&parent_id).cloned() else {
+                continue;
+            };
+            if parent.status != RecommendationStatus::Proposed {
+                continue;
+            }
+            let Some(members) = parent
+                .rollup_member_ids
+                .iter()
+                .map(|member_id| next.get(member_id).cloned())
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let mut refreshed = parent;
+            refresh_rollup_parent_projection(&mut refreshed, &members, &now);
+            expected.insert(
+                refreshed.id.clone(),
+                existing_by_id
+                    .get(&refreshed.id)
+                    .and_then(|recommendation| existing_hashes.get(&recommendation.id).cloned()),
+            );
+            next.insert(refreshed.id.clone(), refreshed);
+        }
+        if expected.is_empty() {
+            return;
+        }
+        if let Err(error) = workspace
+            .recommendation_store
+            .apply_recommendation_graph_transaction(
+                &expected,
+                &next.into_values().collect::<Vec<_>>(),
+            )
+        {
+            tracing::warn!(%error, "failed to persist Taskmaster recommendations");
+        }
+    }
+
+    pub(crate) fn rollup_inputs_match(
+        &self,
+        workspace_instance: u64,
+        supplied_snapshots: &[RollupFamilySnapshot],
+    ) -> bool {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return false;
+        };
+        Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots)
+    }
+
+    fn rollup_inputs_match_locked(
+        workspace: &WorkspaceState,
+        workspace_instance: u64,
+        supplied_snapshots: &[RollupFamilySnapshot],
+    ) -> bool {
+        if workspace.workflow_observations.instance_id() != workspace_instance {
+            return false;
+        }
+        let Ok(current) = workspace.recommendation_store.list() else {
+            return false;
+        };
+        supplied_snapshots.iter().all(|snapshot| {
+            let Some(recommendation) = current
+                .iter()
+                .find(|recommendation| recommendation.id == snapshot.recommendation_id)
+            else {
+                return false;
+            };
+            let mut comparable = recommendation.clone();
+            let active_parent =
+                if let Some(expected_parent_id) = snapshot.active_parent_id.as_deref() {
+                    let Some(parent) = current
+                        .iter()
+                        .find(|parent| parent.id == expected_parent_id)
+                    else {
+                        return false;
+                    };
+                    let mut current_member_ids = parent.rollup_member_ids.clone();
+                    current_member_ids.sort();
+                    current_member_ids.dedup();
+                    if parent.status != RecommendationStatus::Proposed
+                        || recommendation.status != RecommendationStatus::RolledUp
+                        || recommendation.rolled_up_by.as_deref() != Some(expected_parent_id)
+                        || current_member_ids != snapshot.active_parent_member_ids
+                    {
+                        return false;
+                    }
+                    comparable.status = RecommendationStatus::Proposed;
+                    comparable.rolled_up_by = None;
+                    Some(parent)
+                } else {
+                    if recommendation.status != RecommendationStatus::Proposed
+                        || !recommendation.rollup_member_ids.is_empty()
+                        || recommendation.rolled_up_by.is_some()
+                    {
+                        return false;
+                    }
+                    None
+                };
+            RollupFamilySnapshot::from_recommendation_with_active_parent(&comparable, active_parent)
+                .ok()
+                == Some(snapshot.clone())
+        })
+    }
+
+    /// Applies validated semantic clusters while the active workspace lock is
+    /// held. Exact recommendations are re-read and matched to the supplied
+    /// evidence snapshots before the recoverable graph transaction runs.
+    pub(crate) fn apply_rollup_clusters(
+        &self,
+        workspace_instance: u64,
+        supplied_snapshots: &[RollupFamilySnapshot],
+        clusters: &[RollupCluster],
+        generation: u64,
+    ) -> bool {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return false;
+        };
+        if !Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots) {
+            return false;
+        }
+        let Ok((current, current_hashes)) = workspace.recommendation_store.list_with_hashes()
+        else {
+            return false;
+        };
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut working = current
+            .iter()
+            .cloned()
+            .map(|recommendation| (recommendation.id.clone(), recommendation))
+            .collect::<BTreeMap<_, _>>();
+        let assigned_member_ids = clusters
+            .iter()
+            .flat_map(|cluster| cluster.member_recommendation_ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let mut expected = BTreeMap::new();
+        for cluster in clusters {
+            let member_ids = cluster
+                .member_recommendation_ids
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let Some(first_member) = member_ids
+                .iter()
+                .find_map(|id| current.iter().find(|item| item.id == *id))
+            else {
+                return false;
+            };
+            let members = member_ids
+                .iter()
+                .filter_map(|id| current.iter().find(|item| item.id == *id).cloned())
+                .collect::<Vec<_>>();
+            if members.len() != member_ids.len() {
+                return false;
+            }
+            let parent_id = stable_rollup_id(&cluster.member_recommendation_ids);
+            if members.iter().any(|member| {
+                member.status == RecommendationStatus::RolledUp
+                    && !supplied_snapshots.iter().any(|snapshot| {
+                        snapshot.recommendation_id == member.id
+                            && snapshot.active_parent_id.as_deref()
+                                == member.rolled_up_by.as_deref()
+                    })
+            }) {
+                return false;
+            }
+            let existing_parent = current.iter().find(|item| item.id == parent_id);
+            if existing_parent.is_some_and(|parent| {
+                parent.rollup_member_ids.is_empty()
+                    || !matches!(
+                        parent.status,
+                        RecommendationStatus::Proposed | RecommendationStatus::Executing
+                    )
+            }) {
+                return false;
+            }
+            if existing_parent.is_some_and(|parent| {
+                parent.status == RecommendationStatus::Executing
+                    && parent
+                        .rollup_member_ids
+                        .iter()
+                        .cloned()
+                        .collect::<BTreeSet<_>>()
+                        != member_ids
+            }) {
+                return false;
+            }
+            let superseded_parents = current
+                .iter()
+                .filter(|item| {
+                    matches!(item.status, RecommendationStatus::Proposed)
+                        && !item.rollup_member_ids.is_empty()
+                        && item.id != parent_id
+                        && item
+                            .rollup_member_ids
+                            .iter()
+                            .any(|member_id| member_ids.contains(member_id))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if superseded_parents.len() > 1 {
+                return false;
+            }
+            let mut parent = existing_parent
+                .cloned()
+                .unwrap_or_else(|| first_member.clone());
+            if existing_parent.is_none() {
+                parent.created_at = now.clone();
+            }
+            let supersedes_recommendation_id = existing_parent
+                .and_then(|parent| {
+                    parent
+                        .workflow_improvement
+                        .supersedes_recommendation_id
+                        .clone()
+                })
+                .or_else(|| superseded_parents.first().map(|parent| parent.id.clone()));
+            parent.id = parent_id.clone();
+            parent.status = if existing_parent
+                .is_some_and(|existing| existing.status == RecommendationStatus::Executing)
+            {
+                RecommendationStatus::Executing
+            } else {
+                RecommendationStatus::Proposed
+            };
+            parent.workspace_id = workspace.path.display().to_string();
+            parent.chain_id = parent_id.clone();
+            parent.chain_depth = members
+                .iter()
+                .map(|member| member.chain_depth)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            parent.title = cluster.title.clone();
+            parent.summary = cluster.summary.clone();
+            parent.reason = vec![format!(
+                "Bounded semantic rollup of {} exact recommendation families; derived evidence and counts remain sidecar-owned.",
+                members.len()
+            )];
+            parent.repository_evidence.clear();
+            parent.knowledge_evidence.clear();
+            if existing_parent
+                .is_none_or(|existing| existing.status != RecommendationStatus::Executing)
+            {
+                parent.target_session_id = None;
+            }
+            parent.suggested_harness_id = None;
+            parent.suggested_model = None;
+            parent.suggested_working_directory = None;
+            parent.suggested_prompt = None;
+            parent.requires_approval = false;
+            parent.dedupe_key = format!("rollup:v1:{parent_id}");
+            parent.expires_at = None;
+            parent.rollup_member_ids = member_ids.iter().cloned().collect();
+            parent.rollup_member_dedupe_keys = members
+                .iter()
+                .map(|member| member.dedupe_key.clone())
+                .collect();
+            parent.rollup_member_dedupe_keys.sort();
+            parent.rollup_generation = Some(generation);
+            parent.rolled_up_by = None;
+            refresh_rollup_parent_projection(&mut parent, &members, &now);
+            parent.workflow_improvement.proposed_improvement = cluster.summary.clone();
+            parent.workflow_improvement.target_surface = cluster.target_surface;
+            parent.workflow_improvement.expected_benefit =
+                first_member.workflow_improvement.expected_benefit.clone();
+            parent.workflow_improvement.supersedes_recommendation_id = supersedes_recommendation_id;
+            parent.workflow_improvement.dismissal_watermark = None;
+
+            let add_expected = |id: &String, expected: &mut BTreeMap<String, Option<String>>| {
+                expected.entry(id.clone()).or_insert_with(|| {
+                    current
+                        .iter()
+                        .find(|item| item.id == *id)
+                        .and_then(|item| current_hashes.get(&item.id).cloned())
+                });
+            };
+            for id in parent
+                .rollup_member_ids
+                .iter()
+                .chain(
+                    parent
+                        .workflow_improvement
+                        .supersedes_recommendation_id
+                        .iter(),
+                )
+                .chain(std::iter::once(&parent.id))
+            {
+                add_expected(id, &mut expected);
+            }
+            working.insert(parent.id.clone(), parent.clone());
+            for member in &members {
+                let mut member = member.clone();
+                member.status = RecommendationStatus::RolledUp;
+                member.rolled_up_by = Some(parent.id.clone());
+                add_expected(&member.id, &mut expected);
+                working.insert(member.id.clone(), member);
+            }
+            for old_parent in superseded_parents {
+                let mut superseded = old_parent.clone();
+                superseded.status = RecommendationStatus::Superseded;
+                superseded.updated_at = now.clone();
+                add_expected(&superseded.id, &mut expected);
+                working.insert(superseded.id.clone(), superseded);
+                for old_member_id in &old_parent.rollup_member_ids {
+                    if assigned_member_ids.contains(old_member_id) {
+                        continue;
+                    }
+                    let Some(old_member) = current.iter().find(|item| item.id == *old_member_id)
+                    else {
+                        return false;
+                    };
+                    if old_member.rolled_up_by.as_deref() == Some(old_parent.id.as_str()) {
+                        let mut released = old_member.clone();
+                        released.status = RecommendationStatus::Proposed;
+                        released.rolled_up_by = None;
+                        add_expected(&released.id, &mut expected);
+                        working.insert(released.id.clone(), released);
+                    }
+                }
             }
         }
+        workspace
+            .recommendation_store
+            .apply_recommendation_graph_transaction(
+                &expected,
+                &working.into_values().collect::<Vec<_>>(),
+            )
+            .is_ok()
     }
 
     pub(crate) fn list_recommendations(
@@ -679,6 +1086,7 @@ impl SessionApplication {
                             kind: candidate.kind,
                             description: candidate.description.clone(),
                             evidence: candidate.evidence.clone(),
+                            problem_area: candidate.problem_area.clone(),
                             reported_impact: candidate.reported_impact,
                             confidence: Some(candidate.confidence),
                         },
@@ -836,6 +1244,7 @@ impl SessionApplication {
                     kind: candidate.kind,
                     description: candidate.description.clone(),
                     evidence: candidate.evidence.clone(),
+                    problem_area: candidate.problem_area.clone(),
                     reported_impact: candidate.reported_impact,
                     confidence: Some(candidate.confidence),
                 },
@@ -3521,6 +3930,7 @@ mod tests {
                 kind: crate::workflow_observations::ObservationKind::Obstacle,
                 description: "The same command needed another retry".into(),
                 evidence: "cargo test failed again".into(),
+                problem_area: None,
                 reported_impact: crate::workflow_observations::Impact::Medium,
                 confidence: Some(0.1),
             },
@@ -3546,6 +3956,7 @@ mod tests {
             kind: crate::workflow_observations::ObservationKind::Obstacle,
             description: "The command needed another retry".into(),
             evidence: "cargo test failed again".into(),
+            problem_area: None,
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: None,
         };
@@ -3601,6 +4012,7 @@ mod tests {
             kind: crate::workflow_observations::ObservationKind::Obstacle,
             description: "A command required an extra retry".into(),
             evidence: "retry output".into(),
+            problem_area: Some("command retry".into()),
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: 0.8,
         }];
@@ -3636,6 +4048,10 @@ mod tests {
             observations[0].source,
             crate::workflow_observations::ObservationSource::Peon
         );
+        assert_eq!(
+            observations[0].problem_area.as_deref(),
+            Some("command retry")
+        );
     }
 
     #[test]
@@ -3667,6 +4083,7 @@ mod tests {
             kind: crate::workflow_observations::ObservationKind::Obstacle,
             description: "The final scan found a retry".into(),
             evidence: "retry output".into(),
+            problem_area: None,
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: 0.9,
         };
@@ -7820,6 +8237,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: evidence.into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -7845,6 +8263,201 @@ mod tests {
     }
 
     #[test]
+    fn refresh_workflow_recommendations_refreshes_derived_active_rollup_parent() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for (problem_area, prefix) in [("network", "network"), ("storage", "storage")] {
+                for index in 0..5 {
+                    let key = format!("{prefix}-{index}");
+                    let session_id =
+                        format!("workflow-rollup-refresh-session-{problem_area}-{index}");
+                    workspace
+                        .workflow_observations
+                        .record_observation(
+                            &session_id,
+                            crate::workflow_observations::ObservationOrigin::Peon,
+                            &key,
+                            crate::workflow_observations::ObservationCandidate {
+                                kind: crate::workflow_observations::ObservationKind::Obstacle,
+                                description: "The setup blocks progress".into(),
+                                evidence: format!("The {problem_area} setup failed again"),
+                                problem_area: Some(problem_area.into()),
+                                reported_impact: crate::workflow_observations::Impact::Medium,
+                                confidence: Some(0.8),
+                            },
+                        )
+                        .unwrap();
+                }
+            }
+        }
+        application.refresh_workflow_recommendations();
+        let exact_families = application.list_recommendations().unwrap().0;
+        assert_eq!(exact_families.len(), 2);
+        let member_ids = exact_families
+            .iter()
+            .map(|recommendation| recommendation.id.clone())
+            .collect::<Vec<_>>();
+        let snapshots =
+            crate::taskmaster::rollup::build_rollup_family_snapshots(&exact_families).unwrap();
+        let instance_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .instance_id();
+
+        assert!(application.apply_rollup_clusters(
+            instance_id,
+            &snapshots,
+            &[RollupCluster {
+                member_recommendation_ids: member_ids.clone(),
+                target_surface: crate::taskmaster::TargetSurface::Tooling,
+                title: "Combined setup problems".into(),
+                summary: "Keep the setup reliable".into(),
+            }],
+            1,
+        ));
+        let parent_id = stable_rollup_id(&member_ids);
+        let before = application.get_recommendation(&parent_id).unwrap().unwrap();
+        assert_eq!(before.workflow_improvement.recurrence_count, 10);
+        assert_eq!(before.source_session_ids.len(), 10);
+        assert_eq!(
+            before.workflow_improvement.affected_session_ids,
+            before.source_session_ids
+        );
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .workflow_observations
+                .record_observation(
+                    "workflow-rollup-refresh-session-network-new",
+                    crate::workflow_observations::ObservationOrigin::Peon,
+                    "network-third",
+                    crate::workflow_observations::ObservationCandidate {
+                        kind: crate::workflow_observations::ObservationKind::Obstacle,
+                        description: "The setup blocks progress".into(),
+                        evidence: "The network setup failed a third time".into(),
+                        problem_area: Some("network".into()),
+                        reported_impact: crate::workflow_observations::Impact::Medium,
+                        confidence: Some(0.8),
+                    },
+                )
+                .unwrap();
+        }
+        application.refresh_workflow_recommendations();
+
+        let after = application.get_recommendation(&parent_id).unwrap().unwrap();
+        assert_eq!(after.workflow_improvement.recurrence_count, 11);
+        assert_eq!(after.evidence.len(), 11);
+        assert_eq!(after.source_session_ids.len(), 11);
+        assert!(after
+            .workflow_improvement
+            .observation_ids
+            .iter()
+            .any(|id| !before.workflow_improvement.observation_ids.contains(id)));
+    }
+
+    #[test]
+    fn applying_an_unchanged_executing_rollup_preserves_its_target_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for key in ["first", "second"] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        "workflow-executing-rollup-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            problem_area: None,
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        application.refresh_workflow_recommendations();
+        let members = application.list_recommendations().unwrap().0;
+        let member_ids = members
+            .iter()
+            .map(|recommendation| recommendation.id.clone())
+            .collect::<Vec<_>>();
+        let snapshots = crate::taskmaster::rollup::build_rollup_family_snapshots(&members).unwrap();
+        let instance_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .instance_id();
+        assert!(application.apply_rollup_clusters(
+            instance_id,
+            &snapshots,
+            &[RollupCluster {
+                member_recommendation_ids: member_ids.clone(),
+                target_surface: crate::taskmaster::TargetSurface::Tooling,
+                title: "Combined setup problems".into(),
+                summary: "Keep the setup reliable".into(),
+            }],
+            1,
+        ));
+        let parent_id = stable_rollup_id(&member_ids);
+        let parent = application.get_recommendation(&parent_id).unwrap().unwrap();
+        let rolled_up_records = application.list_recommendations().unwrap().0;
+        let rollup_snapshots =
+            crate::taskmaster::rollup::build_rollup_family_snapshots(&rolled_up_records).unwrap();
+        let mut executing = parent.clone();
+        executing.status = RecommendationStatus::Executing;
+        executing.target_session_id = Some("active-session".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&executing)
+            .unwrap();
+        assert!(!application.apply_rollup_clusters(
+            instance_id,
+            &rollup_snapshots,
+            &[RollupCluster {
+                member_recommendation_ids: member_ids,
+                target_surface: crate::taskmaster::TargetSurface::Tooling,
+                title: "Combined setup problems".into(),
+                summary: "Keep the setup reliable".into(),
+            }],
+            2,
+        ));
+        assert_eq!(
+            application
+                .get_recommendation(&parent_id)
+                .unwrap()
+                .unwrap()
+                .target_session_id,
+            Some("active-session".into())
+        );
+    }
+
+    #[test]
     fn dismiss_recommendation_persists_the_transition_under_the_application() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
@@ -7862,6 +8475,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -7928,6 +8542,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -8316,6 +8931,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },
@@ -8355,6 +8971,7 @@ mod tests {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
                             description: "The setup blocks progress".into(),
                             evidence: "The same command failed twice".into(),
+                            problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
                             confidence: Some(0.8),
                         },

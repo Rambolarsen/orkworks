@@ -14,7 +14,7 @@
 //!   which is distinct from `workflow_observations`' own post-persistence
 //!   60-accepted/minute cap;
 //! - `Idempotency-Key` header validation and the fixed request vocabulary
-//!   (`kind`, `description`, `evidence`, `reportedImpact` only, via
+//!   (`kind`, `description`, `problemArea`, `evidence`, `reportedImpact`, via
 //!   `#[serde(deny_unknown_fields)]`); and
 //! - mapping the validated request onto an Agent observation candidate and
 //!   handing it to `SessionApplication` for workspace-scoped persistence.
@@ -53,6 +53,8 @@ pub(crate) struct WorkflowObservationReport {
     kind: workflow_observations::ObservationKind,
     description: String,
     evidence: String,
+    #[serde(rename = "problemArea", default)]
+    problem_area: Option<String>,
     #[serde(rename = "reportedImpact")]
     reported_impact: workflow_observations::Impact,
 }
@@ -113,6 +115,7 @@ pub(crate) async fn report_workflow_observation(
         kind: report.kind,
         description: report.description,
         evidence: report.evidence,
+        problem_area: report.problem_area,
         reported_impact: report.reported_impact,
         // Ignored for ObservationOrigin::Agent: the module enforces the
         // fixed 0.9 confidence policy regardless of what is set here.
@@ -179,7 +182,9 @@ pub(crate) async fn report_workflow_observation(
             | RecordError::EmptyDescription
             | RecordError::DescriptionTooLong
             | RecordError::EmptyEvidence
-            | RecordError::EvidenceTooLong,
+            | RecordError::EvidenceTooLong
+            | RecordError::EmptyProblemArea
+            | RecordError::ProblemAreaContainsControl,
         )) => StatusCode::BAD_REQUEST.into_response(),
         // Unreachable via this adapter: ObservationOrigin::Agent never
         // consults the candidate's confidence, so the module can never
@@ -308,6 +313,19 @@ mod tests {
                 "description": "Re-ran the same failing command three times",
                 "evidence": "cargo test foo failed identically at 10:01, 10:03, 10:05",
                 "reportedImpact": "medium",
+            })
+            .to_string(),
+        )
+    }
+
+    fn valid_body_with_problem_area() -> Bytes {
+        Bytes::from(
+            json!({
+                "kind": "obstacle",
+                "description": "The selected model was not detected",
+                "problemArea": "Model detection",
+                "evidence": "The model probe returned no match",
+                "reportedImpact": "high",
             })
             .to_string(),
         )
@@ -458,6 +476,41 @@ mod tests {
             .unwrap();
         assert_eq!(observations.len(), 1);
         assert_eq!(observations[0].session_id, id);
+    }
+
+    #[tokio::test]
+    async fn authenticated_report_persists_explicit_problem_area() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = unique_session_id();
+        insert_live_session_with_workspace_metadata(&state, &id);
+        set_workflow_report_token(&id, "the-token".to_string());
+
+        let response = report_workflow_observation(
+            State(state.clone()),
+            Path(id.clone()),
+            headers_with(Some("the-token"), Some("key-problem-area")),
+            valid_body_with_problem_area(),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let observations = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(
+            observations[0].problem_area.as_deref(),
+            Some("model detection")
+        );
+        assert!(observations[0].fingerprint.starts_with("v2:obstacle:"));
     }
 
     #[tokio::test]

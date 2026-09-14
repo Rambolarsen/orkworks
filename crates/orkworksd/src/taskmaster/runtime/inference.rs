@@ -2,7 +2,8 @@
 
 use super::{
     canonical_workspace_key, effective_settings, reload_durable, validate_selection,
-    EvaluationSnapshot, PersistenceGuard, TaskmasterRuntime, TaskmasterSettings,
+    EvaluationSnapshot, PersistenceGuard, RollupEvaluationToken, TaskmasterRuntime,
+    TaskmasterSettings,
 };
 use crate::harness::{
     inference::InferenceCapability,
@@ -58,6 +59,33 @@ fn resolve(snapshot: &HarnessSnapshot, id: &str) -> Option<(AdapterIdentity, Inf
 }
 
 impl TaskmasterRuntime {
+    pub(super) fn with_current_native_rollup_evaluation(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        token: &RollupEvaluationToken,
+        apply: impl FnOnce(),
+    ) -> Result<bool, String> {
+        let Some(revision) = &snapshot.native_revision else {
+            return Ok(false);
+        };
+        harnesses
+            .with_locked_snapshot(|current| {
+                if current.document_revision != revision.document_revision {
+                    return Ok(false);
+                }
+                self.with_current_generation_and_selection(
+                    workspace,
+                    snapshot.generation,
+                    &token.provider,
+                    &token.model,
+                    apply,
+                )
+            })
+            .map_err(|_| "inference harness configuration unavailable".to_string())?
+    }
+
     /// Retain the inspected native document revision through each mutation.
     /// Unbound snapshots carry no authority, even if a custom identity was lost.
     fn with_native_revision<T>(

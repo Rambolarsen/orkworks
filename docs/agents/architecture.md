@@ -268,9 +268,9 @@ Every spawned PTY session receives `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` in 
 - `~/.orkworks/workspaces/<hash>/events/<id>.ndjson` — append-only event log with durable, exact consecutive-deduplicated summary checkpoints and accepted provenance
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal` — recent raw terminal replay, bounded on append to the newest 1,000 lines and 1 MiB; existing oversized dormant files remain unchanged until their next append
 - `~/.orkworks/workspaces/<hash>/events/<id>.terminal-size` — the PTY's `cols`x`rows`, used to render dead-session terminal replay at its recorded size instead of the current panel width. Written authoritatively at the moment a session reaches a terminal status (`killed`/`ended`/`error`), and best-effort on every live resize so a daemon restart mid-session still leaves a usable last-known size for orphan reconciliation (`metadata::reconcile_orphaned_session`), which has no in-memory runtime handle to read a size from and never reaches the terminal-status transition itself. Still absent for sessions that ended before this file existed and for sessions that never lived long enough to receive a resize before an untimely daemon restart — both cases fall back to fit-to-container replay, which can misrender recorded output that used absolute-column cursor addressing computed for a different width than the container happens to fit to.
-- `~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson` and `~/.orkworks/workspaces/<hash>/workflow-observations/sequence` — bounded (1,000 records/2 MiB per session), sequenced, immutable `WorkflowObservation` evidence recorded through one shared module (`workflow_observations.rs`) from the authenticated `POST /sessions/:id/workflow-observations` agent-report route (`http/workflow_observation_handlers.rs`); durable improvement evidence for Taskmaster, deliberately separate from the current-summary snapshot above (ADR 0042). The route authenticates with a per-session `ORKWORKS_REPORT_TOKEN` bearer capability, generated from OS randomness (`getrandom`) at session start/resume and never persisted, logged, or serialized; session creation/resume fails closed if OS randomness is unavailable rather than spawning with a weak or empty token. Peon-inferred recording and Taskmaster's `improve_workflow` correlation are implemented.
+- `~/.orkworks/workspaces/<hash>/workflow-observations/<session-id>.ndjson` and `~/.orkworks/workspaces/<hash>/workflow-observations/sequence` — bounded (1,000 records/2 MiB per session), sequenced, immutable `WorkflowObservation` evidence recorded through one shared module (`workflow_observations.rs`) from the authenticated `POST /sessions/:id/workflow-observations` agent-report route (`http/workflow_observation_handlers.rs`); records contain an optional `problemArea` in addition to the existing `kind`, `description`, `evidence`, impact, source, confidence, and fingerprint fields. New explicit problem areas use sidecar-owned v2 identity; omitted values preserve the legacy v1 description-based fingerprint. This evidence is durable improvement input for Taskmaster and deliberately separate from the current-summary snapshot above (ADR 0042). The route authenticates with a per-session `ORKWORKS_REPORT_TOKEN` bearer capability, generated from OS randomness (`getrandom`) at session start/resume and never persisted, logged, or serialized; session creation/resume fails closed if OS randomness is unavailable rather than spawning with a weak or empty token. Peon-inferred recording and Taskmaster's `improve_workflow` correlation are implemented.
 - `~/.orkworks/workspaces/<hash>/capacity/<id>.json` — capacity per model/harness
-- `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
+- `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history, including rollup parents and `rolled_up` member records. A parent stores sorted member IDs/dedupe keys, generation, bounded projected evidence, and target surface; a member stores its current `rolledUpBy` parent ID. The sidecar owns validation and writes parent/member transitions as a recoverable graph transaction under the workspace lock. It stages replacements and durable backups in a fsynced manifest, rolls back uncommitted manifests, completes committed manifests during startup/read recovery, and withholds recommendation reads with a diagnostic if neither complete graph can be established.
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/workspaces/<hash>/codex-hook-observation.json` — the last Codex hook fingerprint observed executing; Settings reports Codex activation only when it matches the currently installed hook definition
 - `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
@@ -305,7 +305,7 @@ containing the superseded checkpoint fields remain readable.
 
 Implemented separately: `workflow_observations.rs` owns `WorkflowObservation`
 records (`id`, `sequence`, `sessionId`, `observedAt`, `kind`, `description`,
-`evidence`, `reportedImpact`, `source`, `confidence`, `fingerprint`,
+optional `problemArea`, `evidence`, `reportedImpact`, `source`, `confidence`, `fingerprint`,
 `idempotencyKeyHash`) behind a small interface — `record_observation`,
 `workspace_observations`, `delete_session_observations`. The authenticated
 explicit-report HTTP adapter (`http/workflow_observation_handlers.rs`) and Peon
@@ -320,8 +320,8 @@ every recommendation derived from it.
 
 The workflow-observation and Taskmaster routes this design introduces or repurposes:
 
-- `POST /sessions/:id/workflow-observations` — implemented. Harness-neutral explicit report, authenticated with a per-session, non-persisted `ORKWORKS_REPORT_TOKEN` bearer capability (alongside the existing `ORKWORKS_SESSION_ID`/`ORKWORKS_PORT` env vars, generated from OS randomness at session start/resume and never persisted, logged, or serialized) and an `Idempotency-Key` header; body limited to `kind`/`description`/`evidence`/`reportedImpact`, 8 KiB total, rate-limited to 30/session/60s ahead of the store's own 60/session/minute acceptance cap.
-- `GET /taskmaster/recommendations` and `GET /taskmaster/recommendations/:id` — implemented; list responses include persisted observation diagnostics.
+- `POST /sessions/:id/workflow-observations` — implemented. Harness-neutral explicit report, authenticated with a per-session, non-persisted `ORKWORKS_REPORT_TOKEN` bearer capability (alongside the existing `ORKWORKS_SESSION_ID`/`ORKWORKS_PORT` env vars, generated from OS randomness at session start/resume and never persisted, logged, or serialized) and an `Idempotency-Key` header; body limited to `kind`/`description`/optional `problemArea`/`evidence`/`reportedImpact`, 8 KiB total, rate-limited to 30/session/60s ahead of the store's own 60/session/minute acceptance cap. Missing `problemArea` preserves v1 identity for compatibility; explicit malformed optional fields are rejected without discarding an otherwise valid legacy report.
+- `GET /taskmaster/recommendations` and `GET /taskmaster/recommendations/:id` — implemented; list responses include persisted observation diagnostics. The list contract returns active rollup parents and proposed exact families without an active parent, never a `rolled_up` member. Detail responses retain parent/member relationship fields for audit and handoff; actions against a rolled-up member return the existing invalid-transition response.
 - `POST /taskmaster/recommendations/:id/dismiss` — implemented. `improve_workflow` exposes no `refresh` action, since Taskmaster's five-second correlation debounce drives its own reevaluation.
 - `POST /taskmaster/recommendations/:id/accept` — implemented (ADR 0048). Takes a caller-supplied `sessionId` (the desktop's current `activeSessionId`, never the backend's best-effort-persisted last-active value) and an optional `prompt` override, and sends a generated fix prompt into that session's live PTY via `terminal_runtime::submit_approved_input` — the same path `request_plan_review` uses. No session is created, resumed, or reconfigured. The recommendation is reserved (`proposed` → `executing`) synchronously before the PTY write, so two concurrent accept requests for the same recommendation can't both write to the terminal; on delivery success `executing` resolves to `accepted` with `targetSessionId` set, on failure it rolls back to `proposed`, and `dismiss` also accepts `executing` as a manual recovery path if a crash ever leaves one stuck there.
 - `POST /taskmaster/recommendations/:id/complete` — implemented by the recommendation-aware handoff. It accepts only an optional summary with a bearer `ORKWORKS_REPORT_TOKEN`; the sidecar reverse-resolves the token to the live session, requires that session to equal `targetSessionId`, transitions `accepted` to `completed`, and records the recommendation ID in session history. Repeating the same call is idempotent; callers cannot supply a different session or status.
@@ -336,6 +336,26 @@ resurfaced past a dismissal watermark only on higher impact or two
 newly-qualifying observations including a new session. See
 `specs/taskmaster.md`'s "Workflow-improvement recommendations" section for
 the full eligibility, kind-to-target mapping, and dismissal-watermark rules.
+
+Exact recommendations remain deterministic audit units. After that pass, the
+sidecar may run one bounded model rollup over currently proposed exact-family
+snapshots: at most 32 families, three representative observations per family,
+96 observations, eight source sessions per family, and 128 KiB input. The
+model may return at most eight two-to-eight-family clusters with bounded title
+and summary text; the sidecar rejects unknown, duplicate, overlapping, or
+cross-target clusters as a whole. A parent uses the stable
+`rollup:<sha256-hex>` identity over sorted member IDs, while generated prose
+cannot alter evidence-derived counts or claims. Exact recommendations remain
+available when the model is unavailable.
+
+The recommendation graph is recovered before reads are served. Parent/member
+updates are staged and published through the fsynced manifest transaction
+described above, so recovery produces either the complete old graph or the
+complete new graph. The API exposes `rolled_up`, optional observation
+`problemArea`, and `rollupMemberIds`, `rollupMemberDedupeKeys`,
+`rollupGeneration`, and `rolledUpBy`; terminal parent/member history is kept
+for audit while only active parents and unparented proposed exact families
+appear in the normal actionable list.
 
 ## Rust sidecar (`crates/orkworksd/src/`)
 

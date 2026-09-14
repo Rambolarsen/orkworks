@@ -290,6 +290,7 @@ mod tests {
                     kind: ObservationKind::VerificationGap,
                     description: "test observation".into(),
                     evidence: "test evidence".into(),
+                    problem_area: None,
                     reported_impact: Impact::Low,
                     confidence: None,
                 },

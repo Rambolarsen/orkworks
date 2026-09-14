@@ -212,6 +212,20 @@ pub(crate) struct EvaluationSnapshot {
     pub native_revision: Option<super::provider_catalog::NativeRevision>,
 }
 
+/// Server-owned identity for one bounded semantic rollup evaluation.
+///
+/// The token is carried only in memory between request construction and result
+/// application. It is never accepted from or persisted as model authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RollupEvaluationToken {
+    pub workspace_instance: u64,
+    pub generation: u64,
+    pub provider: String,
+    pub model: String,
+    pub prompt_version: String,
+    pub family_snapshot_hash: String,
+}
+
 impl EvaluationSnapshot {
     pub(crate) fn cache_key(&self, prompt: &str) -> Result<String, String> {
         let custom = self
@@ -507,6 +521,61 @@ impl TaskmasterRuntime {
         }
         apply();
         Ok(true)
+    }
+
+    pub(super) fn with_current_generation_and_selection(
+        &self,
+        workspace: &Path,
+        generation: u64,
+        provider: &str,
+        model: &str,
+        apply: impl FnOnce(),
+    ) -> Result<bool, String> {
+        let _guard = PersistenceGuard::acquire(&self.root)?;
+        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+        reload_durable(&self.root, &mut data);
+        let Some(workspace) = canonical_workspace_key(workspace) else {
+            return Ok(false);
+        };
+        let Some(selection) = effective_settings(&data.settings, &workspace).selection else {
+            return Ok(false);
+        };
+        if !data.ledger_readable
+            || data.ledger.generation != generation
+            || selection.provider != provider
+            || selection.model != model
+        {
+            return Ok(false);
+        }
+        apply();
+        Ok(true)
+    }
+
+    /// Revalidates the selected provider/model and generation before applying
+    /// a semantic rollup. The caller performs workspace and evidence checks in
+    /// the application layer while this guard owns durable Taskmaster config.
+    pub(crate) fn with_current_rollup_evaluation(
+        &self,
+        harnesses: &crate::harness::store::HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        token: &RollupEvaluationToken,
+        apply: impl FnOnce(),
+    ) -> Result<bool, String> {
+        let Some(selection) = snapshot.settings.selection.as_ref() else {
+            return Ok(false);
+        };
+        if snapshot.generation != token.generation
+            || selection.provider != token.provider
+            || selection.model != token.model
+        {
+            return Ok(false);
+        }
+        if snapshot.custom_inference.is_some() {
+            self.with_current_evaluation(harnesses, workspace, snapshot, apply)
+        } else {
+            self.with_current_native_rollup_evaluation(harnesses, workspace, snapshot, token, apply)
+        }
     }
 }
 
