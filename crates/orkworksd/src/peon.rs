@@ -444,12 +444,18 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
         "instructing the agent",
     ];
     const PROMPT_EXAMPLE_LABEL: &str = "fixing peon model detection";
+    const PROMPT_EXAMPLE_TOPIC: &[&str] = &["peon", "model", "detection"];
 
     let normalized = normalize_generic_instruction(label);
     let normalized_input = normalize_generic_instruction(input_hint);
+    let input_mentions_prompt_example_topic = PROMPT_EXAMPLE_TOPIC.iter().all(|word| {
+        normalized_input
+            .split_whitespace()
+            .any(|input_word| input_word == *word)
+    });
     let candidate_pr_numbers = referenced_pr_numbers(label);
     !normalized.is_empty()
-        && (normalized != PROMPT_EXAMPLE_LABEL || normalized_input.contains("peon model detection"))
+        && (normalized != PROMPT_EXAMPLE_LABEL || input_mentions_prompt_example_topic)
         && !GENERIC_PREFIXES
             .iter()
             .any(|prefix| normalized.starts_with(prefix))
@@ -2145,6 +2151,14 @@ mod tests {
         assert!(is_usable_input_label(
             "Fixing peon model detection",
             "fix peon model detection",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix Peon's model detection",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix model detection in Peon",
         ));
     }
 
