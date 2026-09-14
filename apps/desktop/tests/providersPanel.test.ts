@@ -256,6 +256,18 @@ test("NewSessionDialog only offers detected coding tools and rechecks before sta
   assert.match(source, /savedDraft && harnesses\.some\(\(harness\) => harness\.id === savedDraft\.harnessId/);
 });
 
+test("NewSessionDialog cancels an in-flight confirmation before it can start a session", () => {
+  const source = readFileSync(new URL("../src/components/NewSessionDialog.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const confirmationGeneration = useRef\(0\);/);
+  assert.match(source, /const handleCancel = useCallback\(\(\) => \{\s*confirmationGeneration\.current \+= 1;\s*onCancel\(\);\s*\}, \[onCancel\]\);/);
+  assert.match(source, /const generation = confirmationGeneration\.current;/);
+  assert.match(source, /if \(generation !== confirmationGeneration\.current\) return;/);
+  assert.match(source, /if \(e\.key === "Escape"\)[\s\S]{0,100}handleCancel\(\);/);
+  assert.match(source, /finally \{\s*if \(generation === confirmationGeneration\.current\) setConfirmBusy\(false\);\s*\}/);
+  assert.match(source, /onClick=\{handleCancel\}/);
+});
+
 test("coding-tool availability uses the selected harness executable, not a shared integration representative", () => {
   const source = readFileSync(new URL("../src/harnessDetection.ts", import.meta.url), "utf8");
 
