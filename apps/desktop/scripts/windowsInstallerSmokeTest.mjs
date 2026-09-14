@@ -51,6 +51,7 @@ export function createWindowsInstallerExpectation({
   releaseDir,
   installDir,
   productName,
+  expectedPublisher,
 }) {
   const packaged = createReleaseArtifactExpectation("win32", "x64", version, releaseDir);
   const scriptsDir = join(installDir, "resources", "scripts");
@@ -60,14 +61,70 @@ export function createWindowsInstallerExpectation({
     appPath: join(installDir, `${productName}.exe`),
     uninstallerPath: join(installDir, `Uninstall ${productName}.exe`),
     sidecarPath: join(installDir, "resources", "orkworksd.exe"),
+    expectedPublisher,
     scriptsDir,
     scriptPaths: packaged.scriptPaths.map((path) => join(scriptsDir, basename(path))),
   };
 }
 
-export function verifyInstalledWindowsApp(expectation, fsModule = fs) {
+function readAuthenticodeSignature(path, execFileSync = defaultExecFileSync) {
+  const script = [
+    "$signature = Get-AuthenticodeSignature -LiteralPath $args[0]",
+    "[pscustomobject]@{ status = [string]$signature.Status; subject = [string]$signature.SignerCertificate.Subject } | ConvertTo-Json -Compress",
+  ].join("; ");
+  let output;
+  try {
+    output = execFileSync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      script,
+      path,
+    ], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+      shell: false,
+      windowsHide: true,
+    });
+  } catch (error) {
+    throw new Error(`Windows installer smoke test failed during Authenticode verification: ${path}`, {
+      cause: error,
+    });
+  }
+  try {
+    return JSON.parse(output);
+  } catch (error) {
+    throw new Error(`Windows installer smoke test failed: invalid Authenticode result for ${path}`, {
+      cause: error,
+    });
+  }
+}
+
+export function verifyInstalledWindowsApp(
+  expectation,
+  fsModule = fs,
+  signatureVerifier = readAuthenticodeSignature,
+) {
   assertNonEmptyFile(fsModule, expectation.appPath, "installed application");
   assertNonEmptyFile(fsModule, expectation.sidecarPath, "installed Rust sidecar");
+  if (expectation.expectedPublisher) {
+    for (const path of [expectation.appPath, expectation.sidecarPath]) {
+      const signature = signatureVerifier(path);
+      if (signature?.status !== "Valid") {
+        throw new Error(
+          `Windows installer smoke test failed: Authenticode status ${signature?.status ?? "unknown"} for ${path}`,
+        );
+      }
+      if (
+        typeof signature.subject !== "string"
+        || signature.subject !== expectation.expectedPublisher
+      ) {
+        throw new Error(
+          `Windows installer smoke test failed: publisher mismatch for ${path}; expected ${expectation.expectedPublisher}`,
+        );
+      }
+    }
+  }
   assertDirectory(fsModule, expectation.scriptsDir, "installed hook scripts");
   for (const scriptPath of expectation.scriptPaths) {
     assertNonEmptyFile(fsModule, scriptPath, "installed hook script");
@@ -150,8 +207,10 @@ export async function runWindowsInstallerSmokeTest(options = {}) {
     releaseDir = resolve(import.meta.dirname, "..", "release"),
     installDir = createDefaultInstallDir(),
     productName = packageJson.productName,
+    expectedPublisher,
     fsModule = fs,
     execFileSync = defaultExecFileSync,
+    signatureVerifier,
     registryProbe,
     waitForDirectoryRemoval: waitForDirectoryRemovalFn = waitForDirectoryRemoval,
     waitOptions = {},
@@ -166,6 +225,7 @@ export async function runWindowsInstallerSmokeTest(options = {}) {
     releaseDir,
     installDir,
     productName,
+    expectedPublisher,
   });
 
   if (fsModule.existsSync(installDir)) {
@@ -186,7 +246,7 @@ export async function runWindowsInstallerSmokeTest(options = {}) {
     ["/S", `/D=${expectation.installDir}`],
     "silent install",
   );
-  verifyInstalledWindowsApp(expectation, fsModule);
+  verifyInstalledWindowsApp(expectation, fsModule, signatureVerifier);
   assertNonEmptyFile(fsModule, expectation.uninstallerPath, "uninstaller");
   runInstallerProcess(execFileSync, expectation.uninstallerPath, ["/S"], "silent uninstall");
   await waitForDirectoryRemovalFn(expectation.installDir, waitOptions);
@@ -195,5 +255,9 @@ export async function runWindowsInstallerSmokeTest(options = {}) {
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  await runWindowsInstallerSmokeTest();
+  const expectedPublisher = process.env.WIN_EXPECTED_PUBLISHER;
+  if (!expectedPublisher) {
+    throw new Error("Windows installer smoke test failed: WIN_EXPECTED_PUBLISHER is required");
+  }
+  await runWindowsInstallerSmokeTest({ expectedPublisher });
 }

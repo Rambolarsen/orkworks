@@ -5,8 +5,12 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    environment: release
     strategy:
       matrix:
         include:
@@ -65,28 +69,147 @@ jobs:
             exit 1
           fi
 
-      - name: Package (electron-builder)
+      - name: Package macOS (electron-builder)
+        if: matrix.target == 'mac'
         working-directory: apps/desktop
         run: pnpm package:release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Package Windows (electron-builder)
+        if: matrix.target == 'win'
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          WIN_EXPECTED_PUBLISHER: ${{ vars.WIN_EXPECTED_PUBLISHER }}
+        run: |
+          $env:CSC_LINK = $env:WIN_CSC_LINK
+          $env:CSC_KEY_PASSWORD = $env:WIN_CSC_KEY_PASSWORD
+          pnpm package:release
 
       - name: Verify packaged artifact
         working-directory: apps/desktop
         run: pnpm verify:release
+
+      - name: Verify native macOS signatures
+        if: matrix.target == 'mac'
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          RELEASE_DIR="$PWD/release"
+          STAGED_APP="$RELEASE_DIR/mac-arm64/OrkWorks.app"
+          DMG_PATH="$RELEASE_DIR/OrkWorks-${VERSION}-mac-arm64.dmg"
+          ZIP_PATH="$RELEASE_DIR/OrkWorks-${VERSION}-mac-arm64.zip"
+          TEMP_ROOT="$(mktemp -d)"
+          MOUNT_DIR="$TEMP_ROOT/dmg"
+          ZIP_DIR="$TEMP_ROOT/zip"
+          MOUNTED=0
+
+          verify_app() {
+            local app_path="$1"
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            codesign --verify --deep --strict --verbose=2 "$app_path/Contents/Resources/orkworksd"
+            spctl --assess --type execute --verbose=4 "$app_path"
+            xcrun stapler validate "$app_path"
+          }
+
+          cleanup() {
+            set +e
+            if [ "$MOUNTED" -eq 1 ]; then
+              hdiutil detach "$MOUNT_DIR"
+            fi
+            rm -rf "$TEMP_ROOT"
+          }
+          trap cleanup EXIT
+          mkdir -p "$MOUNT_DIR" "$ZIP_DIR"
+
+          verify_app "$STAGED_APP"
+          xcrun stapler validate "$DMG_PATH"
+          hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_DIR"
+          MOUNTED=1
+          verify_app "$MOUNT_DIR/OrkWorks.app"
+          hdiutil detach "$MOUNT_DIR"
+          MOUNTED=0
+          ditto -x -k "$ZIP_PATH" "$ZIP_DIR"
+          verify_app "$ZIP_DIR/OrkWorks.app"
+
+      - name: Verify native Windows signatures
+        if: matrix.target == 'win'
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          WIN_EXPECTED_PUBLISHER: ${{ vars.WIN_EXPECTED_PUBLISHER }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:WIN_EXPECTED_PUBLISHER)) {
+            throw "WIN_EXPECTED_PUBLISHER is required"
+          }
+
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $releaseDir = (Resolve-Path release).Path
+          $installer = Join-Path $releaseDir "OrkWorks-$version-win-x64.exe"
+          $app = Join-Path $releaseDir "win-unpacked/OrkWorks.exe"
+          $sidecar = Join-Path $releaseDir "win-unpacked/resources/orkworksd.exe"
+          $appUpdate = Join-Path $releaseDir "win-unpacked/resources/app-update.yml"
+          $signtoolPath = Get-ChildItem -Path "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/signtool.exe" |
+            Sort-Object FullName |
+            Select-Object -Last 1 -ExpandProperty FullName
+          if (-not $signtoolPath) {
+            throw "signtool.exe was not found"
+          }
+
+          foreach ($path in @($installer, $app, $sidecar)) {
+            & $signtoolPath verify /pa /all /v $path
+            if ($LASTEXITCODE -ne 0) {
+              throw "signtool verification failed for $path"
+            }
+            $signature = Get-AuthenticodeSignature -LiteralPath $path
+            if ($signature.Status -ne "Valid") {
+              throw "Authenticode status $($signature.Status) for $path"
+            }
+            if (
+              -not $signature.SignerCertificate -or
+              $signature.SignerCertificate.Subject -ne $env:WIN_EXPECTED_PUBLISHER
+            ) {
+              throw "Publisher mismatch for $path"
+            }
+          }
+
+          $appUpdateContents = Get-Content -Raw -LiteralPath $appUpdate
+          if (-not $appUpdateContents.Contains($env:WIN_EXPECTED_PUBLISHER)) {
+            throw "app-update.yml publisher identity mismatch"
+          }
 
       - name: Smoke-test Windows installer
         if: matrix.target == 'win'
         working-directory: apps/desktop
         run: pnpm smoke:windows-installer
         env:
+          WIN_EXPECTED_PUBLISHER: ${{ vars.WIN_EXPECTED_PUBLISHER }}
           ORKWORKS_INSTALLER_SMOKE_DIR: ${{ runner.temp }}\orkworks-installer-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Generate release checksums
+        working-directory: apps/desktop
+        run: pnpm checksum:release
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}-${{ matrix.arch }}
-          path: apps/desktop/release/OrkWorks-*
+          path: |
+            apps/desktop/release/OrkWorks-*
+            apps/desktop/release/latest*.yml
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/SHA256SUMS.txt
           if-no-files-found: error
 
   publish:
@@ -100,11 +223,32 @@ jobs:
         with:
           path: artifacts
           pattern: release-*
-          merge-multiple: true
+          merge-multiple: false
+
+      - name: Assemble release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/publish
+          for artifact_dir in artifacts/release-mac-arm64 artifacts/release-win-x64; do
+            find "$artifact_dir" -maxdepth 1 -type f \
+              \( -name 'OrkWorks-*' -o -name 'latest*.yml' -o -name '*.blockmap' \) \
+              -exec cp {} artifacts/publish/ \;
+          done
+          cat \
+            artifacts/release-mac-arm64/SHA256SUMS.txt \
+            artifacts/release-win-x64/SHA256SUMS.txt \
+            | sort > artifacts/publish/SHA256SUMS.txt
+
+      - name: Assert platform update metadata
+        shell: bash
+        run: |
+          test -f artifacts/publish/latest-mac.yml
+          test -f artifacts/publish/latest.yml
 
       - name: Publish draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          files: artifacts/*
+          files: artifacts/publish/*
           fail_on_unmatched_files: true

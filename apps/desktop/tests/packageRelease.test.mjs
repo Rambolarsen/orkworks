@@ -10,6 +10,11 @@ import {
 } from "../scripts/packageReleaseConfig.mjs";
 
 const desktopRoot = resolve(import.meta.dirname, "..");
+const releaseWorkflowPath = resolve(desktopRoot, "..", "..", ".github", "workflows", "release.yml");
+
+function findStep(job, name) {
+  return job.steps.find((step) => step.name === name);
+}
 
 test("electron-builder config declares signed release targets", () => {
   const config = yaml.load(
@@ -118,16 +123,117 @@ test("Linux release plan uses the Linux GNU target", () => {
 });
 
 test("release workflow smoke-tests Windows installers before upload", () => {
-  const workflow = readFileSync(resolve(import.meta.dirname, "../../../.github/workflows/release.yml"), "utf8");
-  const verifyIndex = workflow.indexOf("Verify packaged artifact");
-  const smokeIndex = workflow.indexOf("Smoke-test Windows installer");
-  const uploadIndex = workflow.indexOf("Upload artifacts");
-  assert.ok(verifyIndex >= 0);
-  assert.ok(smokeIndex >= 0);
-  assert.ok(uploadIndex >= 0);
+  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const buildJob = workflow.jobs.build;
+  const names = buildJob.steps.map((step) => step.name).filter(Boolean);
+  const verifyIndex = names.indexOf("Verify packaged artifact");
+  const smokeIndex = names.indexOf("Smoke-test Windows installer");
+  const uploadIndex = names.indexOf("Upload artifacts");
+
   assert.ok(verifyIndex < smokeIndex);
   assert.ok(smokeIndex < uploadIndex);
-  assert.match(workflow.slice(verifyIndex, smokeIndex), /run: pnpm verify:release/);
-  assert.match(workflow.slice(smokeIndex, uploadIndex), /if: matrix\.target == ['\"]win['\"]/);
-  assert.match(workflow.slice(smokeIndex, uploadIndex), /run: pnpm smoke:windows-installer/);
+  assert.equal(findStep(buildJob, "Verify packaged artifact").run, "pnpm verify:release");
+  assert.equal(findStep(buildJob, "Smoke-test Windows installer").run, "pnpm smoke:windows-installer");
+  assert.match(findStep(buildJob, "Smoke-test Windows installer").if, /matrix\.target == ['"]win['"]/);
+});
+
+test("release workflow protects platform jobs and maps only their signing credentials", () => {
+  const source = readFileSync(releaseWorkflowPath, "utf8");
+  const workflow = yaml.load(source);
+  const buildJob = workflow.jobs.build;
+
+  assert.deepEqual(workflow.permissions, { contents: "read" });
+  assert.equal(buildJob.environment, "release");
+  assert.deepEqual(findStep(buildJob, "Package macOS (electron-builder)").env, {
+    CSC_LINK: "${{ secrets.MAC_CSC_LINK }}",
+    CSC_KEY_PASSWORD: "${{ secrets.MAC_CSC_KEY_PASSWORD }}",
+    APPLE_API_KEY: "${{ secrets.APPLE_API_KEY }}",
+    APPLE_API_KEY_ID: "${{ secrets.APPLE_API_KEY_ID }}",
+    APPLE_API_ISSUER: "${{ secrets.APPLE_API_ISSUER }}",
+    APPLE_TEAM_ID: "${{ secrets.APPLE_TEAM_ID }}",
+  });
+  assert.deepEqual(findStep(buildJob, "Package Windows (electron-builder)").env, {
+    WIN_CSC_LINK: "${{ secrets.WIN_CSC_LINK }}",
+    WIN_CSC_KEY_PASSWORD: "${{ secrets.WIN_CSC_KEY_PASSWORD }}",
+    WIN_EXPECTED_PUBLISHER: "${{ vars.WIN_EXPECTED_PUBLISHER }}",
+  });
+  assert.equal(
+    findStep(buildJob, "Verify native Windows signatures").env.WIN_EXPECTED_PUBLISHER,
+    "${{ vars.WIN_EXPECTED_PUBLISHER }}",
+  );
+  assert.equal(
+    findStep(buildJob, "Smoke-test Windows installer").env.WIN_EXPECTED_PUBLISHER,
+    "${{ vars.WIN_EXPECTED_PUBLISHER }}",
+  );
+  assert.doesNotMatch(source, /GH_TOKEN/);
+  assert.deepEqual(workflow.jobs.publish.permissions, { contents: "write" });
+});
+
+test("release workflow verifies real artifacts, creates checksums, and uploads only release files", () => {
+  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const expectedUploadPath = [
+    "apps/desktop/release/OrkWorks-*",
+    "apps/desktop/release/latest*.yml",
+    "apps/desktop/release/*.blockmap",
+    "apps/desktop/release/SHA256SUMS.txt",
+  ].join("\n");
+
+  const job = workflow.jobs.build;
+  const names = job.steps.map((step) => step.name).filter(Boolean);
+  const releaseVerifyIndex = names.indexOf("Verify packaged artifact");
+  const checksumIndex = names.indexOf("Generate release checksums");
+  const uploadIndex = names.indexOf("Upload artifacts");
+
+  for (const packageStep of ["Package macOS (electron-builder)", "Package Windows (electron-builder)"]) {
+    assert.ok(names.indexOf(packageStep) < releaseVerifyIndex);
+  }
+  for (const nativeStep of ["Verify native macOS signatures", "Verify native Windows signatures"]) {
+    assert.ok(releaseVerifyIndex < names.indexOf(nativeStep));
+    assert.ok(names.indexOf(nativeStep) < checksumIndex);
+  }
+  assert.ok(checksumIndex < uploadIndex);
+  assert.equal(findStep(job, "Package macOS (electron-builder)").run, "pnpm package:release");
+  assert.match(findStep(job, "Package Windows (electron-builder)").run, /pnpm package:release/);
+  assert.equal(findStep(job, "Generate release checksums").run, "pnpm checksum:release");
+  assert.equal(findStep(job, "Upload artifacts").with.path.trim(), expectedUploadPath);
+
+  const macVerification = findStep(job, "Verify native macOS signatures").run;
+  assert.match(macVerification, /codesign --verify --deep --strict --verbose=2/);
+  assert.match(macVerification, /spctl --assess --type execute/);
+  assert.match(macVerification, /xcrun stapler validate/);
+  assert.match(macVerification, /hdiutil attach .* -readonly/);
+  assert.match(macVerification, /trap .*EXIT/);
+  assert.match(macVerification, /TEMP_ROOT="\$\(mktemp -d\)"/);
+  assert.ok(macVerification.indexOf("trap cleanup EXIT") < macVerification.indexOf("mkdir -p"));
+  assert.match(macVerification, /ditto -x -k/);
+  assert.match(macVerification, /OrkWorks-\$\{VERSION\}-mac-arm64\.dmg/);
+  assert.match(macVerification, /OrkWorks-\$\{VERSION\}-mac-arm64\.zip/);
+
+  const windowsVerification = findStep(job, "Verify native Windows signatures").run;
+  assert.match(windowsVerification, /signtool.*verify \/pa \/all \/v/is);
+  assert.match(windowsVerification, /Get-AuthenticodeSignature/);
+  assert.match(
+    windowsVerification,
+    /SignerCertificate\.Subject -ne \$env:WIN_EXPECTED_PUBLISHER/,
+  );
+  assert.match(windowsVerification, /OrkWorks-\$version-win-x64\.exe/i);
+  assert.match(windowsVerification, /win-unpacked[\\/]OrkWorks\.exe/i);
+  assert.match(windowsVerification, /win-unpacked[\\/]resources[\\/]orkworksd\.exe/i);
+  assert.match(windowsVerification, /app-update\.yml/);
+
+  assert.equal(workflow.jobs.publish.needs, "build");
+  const publishNames = workflow.jobs.publish.steps.map((step) => step.name).filter(Boolean);
+  const downloadStep = workflow.jobs.publish.steps.find((step) => step.uses === "actions/download-artifact@v4");
+  const assembleStep = findStep(workflow.jobs.publish, "Assemble release assets");
+  assert.equal(downloadStep.with["merge-multiple"], false);
+  assert.match(assembleStep.run, /release-mac-arm64\/SHA256SUMS\.txt/);
+  assert.match(assembleStep.run, /release-win-x64\/SHA256SUMS\.txt/);
+  assert.match(assembleStep.run, /sort > artifacts\/publish\/SHA256SUMS\.txt/);
+  assert.ok(publishNames.indexOf("Assemble release assets") < publishNames.indexOf("Assert platform update metadata"));
+  assert.ok(publishNames.indexOf("Assert platform update metadata") < publishNames.indexOf("Publish draft GitHub Release"));
+});
+
+test("desktop package exposes deterministic release checksum generation", () => {
+  const packageJson = JSON.parse(readFileSync(resolve(desktopRoot, "package.json"), "utf8"));
+  assert.equal(packageJson.scripts["checksum:release"], "node scripts/releaseMetadata.mjs --checksums");
 });

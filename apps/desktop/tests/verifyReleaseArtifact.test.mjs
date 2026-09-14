@@ -8,6 +8,10 @@ import {
   runCli,
   verifyReleaseArtifact,
 } from "../scripts/verifyReleaseArtifact.mjs";
+import {
+  createWindowsInstallerExpectation,
+  verifyInstalledWindowsApp,
+} from "../scripts/windowsInstallerSmokeTest.mjs";
 
 const passingMetadataModule = { verifyUpdateMetadata() {} };
 
@@ -237,4 +241,63 @@ test("packaged app includes the runtime icon assets used by Electron main", () =
   ]) {
     assert.match(electronBuilderConfig, new RegExp(`^\\s*- ${asset.replaceAll(".", "\\.")}$`, "m"));
   }
+});
+
+function createInstalledWindowsFixture() {
+  const expectation = {
+    ...createWindowsInstallerExpectation({
+      version: "0.1.0",
+      releaseDir: "C:\\release",
+      installDir: "C:\\temp\\orkworks-smoke",
+      productName: "OrkWorks",
+    }),
+    expectedPublisher: "CN=OrkWorks Release, O=OrkWorks",
+  };
+  const fsModule = {
+    statSync(path) {
+      if (path === expectation.scriptsDir) {
+        return { isFile: () => false, isDirectory: () => true, size: 0 };
+      }
+      return { isFile: () => true, isDirectory: () => false, size: 1 };
+    },
+  };
+  return { expectation, fsModule };
+}
+
+test("installed Windows executables require valid Authenticode signatures", () => {
+  const { expectation, fsModule } = createInstalledWindowsFixture();
+  const verifiedPaths = [];
+
+  verifyInstalledWindowsApp(expectation, fsModule, (path) => {
+    verifiedPaths.push(path);
+    return { status: "Valid", subject: expectation.expectedPublisher };
+  });
+
+  assert.deepEqual(verifiedPaths, [expectation.appPath, expectation.sidecarPath]);
+});
+
+test("installed Windows verification rejects invalid Authenticode status", () => {
+  const { expectation, fsModule } = createInstalledWindowsFixture();
+
+  assert.throws(
+    () => verifyInstalledWindowsApp(expectation, fsModule, () => ({
+      status: "NotSigned",
+      subject: "",
+    })),
+    /Authenticode status.*NotSigned/i,
+  );
+});
+
+test("installed Windows verification rejects a publisher mismatch", () => {
+  const { expectation, fsModule } = createInstalledWindowsFixture();
+
+  assert.throws(
+    () => verifyInstalledWindowsApp(expectation, fsModule, (path) => ({
+      status: "Valid",
+      subject: path === expectation.appPath
+        ? expectation.expectedPublisher
+        : `CN=Unexpected Publisher, OU=${expectation.expectedPublisher}`,
+    })),
+    /publisher mismatch.*orkworksd\.exe/i,
+  );
 });
