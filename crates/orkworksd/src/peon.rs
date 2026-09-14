@@ -529,7 +529,15 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
             let task_segment = &words[task_segment_start..];
             let task_action = words[task_segment_start..topic_start]
                 .iter()
-                .any(|word| TASK_ACTIONS.contains(word));
+                .any(|word| TASK_ACTIONS.contains(word))
+                || words[..topic_start]
+                    .iter()
+                    .rposition(|word| *word == "and")
+                    .is_some_and(|and_index| {
+                        words[..and_index]
+                            .iter()
+                            .any(|word| TASK_ACTIONS.contains(word))
+                    });
             let negated = task_segment
                 .iter()
                 .any(|word| matches!(*word, "not" | "never" | "without"))
@@ -576,13 +584,9 @@ fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
 
 fn is_prompt_example_label(normalized_label: &str) -> bool {
     const PROMPT_EXAMPLE_LABEL: &[&str] = &["fixing", "peon", "model", "detection"];
-    const PR_SUFFIX_WORDS: &[&str] = &["pr", "pull", "request"];
 
     let words: Vec<_> = normalized_label.split_whitespace().collect();
     words.starts_with(PROMPT_EXAMPLE_LABEL)
-        && words[PROMPT_EXAMPLE_LABEL.len()..]
-            .iter()
-            .all(|word| PR_SUFFIX_WORDS.contains(word) || word.parse::<u64>().is_ok())
 }
 
 /// Returns whether an input-triggered label names the task and retains all PR
@@ -2354,6 +2358,18 @@ mod tests {
         assert!(!is_usable_input_label(
             "Fixing peon model detection",
             "The login redirect doesn't involve peon model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection issue",
+            "fix the login redirect",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection for the login redirect",
+            "fix the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection issue",
+            "fix the login redirect and peon model detection",
         ));
         assert!(is_usable_input_label(
             "Fixing peon model detection",
