@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
@@ -14,6 +14,7 @@ import {
   type ActiveHarnessSaveResult,
   type IntegrationDisplayState,
 } from "../harnessIntegrationPresentation";
+import { integrationKeyForHarness, isHarnessDetected as isDetectedResult } from "../harnessDetection";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import { mergeIntegrationOperationFailures } from "../settingsController";
 import HarnessCommandPathControl, { looksAbsolute } from "./HarnessCommandPathControl";
@@ -61,14 +62,6 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
 ];
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function integrationKeyForHarness(harness: HarnessConfig): IntegrationKey | null {
-  if (!harness.integration || typeof harness.integration !== "object") return null;
-  const kind = (harness.integration as { kind?: unknown }).kind;
-  return typeof kind === "string" && kind.length > 0
-    ? { adapterId: kind, targetId: "workspace" }
-    : null;
-}
 
 function jsonText(value: unknown): string {
   return `${JSON.stringify(value ?? {}, null, 2)}\n`;
@@ -155,6 +148,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     return saveActivity.kind === "modal" || (saveActivity.kind === "tool" && saveActivity.harnessId === harnessId);
   }
   const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
+  const [detectionStatuses, setDetectionStatuses] = useState<Record<string, IntegrationStatusResult | undefined>>({});
   const [integrationStatuses, setIntegrationStatuses] = useState<Record<string, IntegrationStatusResult>>({});
   const [integrationOperationFailures, setIntegrationOperationFailures] = useState<Record<string, ActiveHarnessIntegrationResult>>({});
   const [integrationStatusGeneration, setIntegrationStatusGeneration] = useState(0);
@@ -189,6 +183,14 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     }));
     setIntegrationStatusGeneration((current) => current + 1);
     void onRefreshHarnesses().catch(() => undefined);
+  }
+
+  const handleDetectionResult = useCallback((harnessId: string, result: IntegrationStatusResult | null) => {
+    setDetectionStatuses((current) => ({ ...current, [harnessId]: result ?? undefined }));
+  }, []);
+
+  function isHarnessDetected(harnessId: string): boolean {
+    return isDetectedResult(detectionStatuses[harnessId]);
   }
 
   function refreshDetections(harnessIds: readonly string[]) {
@@ -448,6 +450,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   // change only — disable-time cleanup remains a Save-time retry action.
   function handleToolToggle(h: HarnessConfig) {
     const turningOn = !activeDraft.includes(h.id);
+    if (turningOn && !isHarnessDetected(h.id)) return;
     const nextDraft = turningOn ? [...activeDraft, h.id] : activeDraft.filter((x) => x !== h.id);
     setActiveDraft(nextDraft);
     if (!turningOn) return;
@@ -868,6 +871,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                                   reloads and the shared refreshDetection path. */}
                               <HarnessDetectionStatus harnessId={h.id}
                                 integrationKey={integrationKeyForHarness(h) ?? undefined}
+                                onResult={handleDetectionResult}
                                 refreshGeneration={detectionGenerations[h.id] ?? 0}
                               />
                             </div>
@@ -880,7 +884,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                                 checked={activeDraft.includes(h.id)}
                                 onChange={() => handleToolToggle(h)}
                                 ariaLabel={h.name}
-                                disabled={rowBusy(h.id)}
+                                disabled={rowBusy(h.id) || (!activeDraft.includes(h.id) && !isHarnessDetected(h.id))}
                                 visualState={display.appearance}
                                 describedById={statusId}
                                 tooltip={display.tooltip}

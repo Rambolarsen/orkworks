@@ -185,7 +185,7 @@ test("SettingsModal computes the immediate-enable id set from the live draft, no
   // straight through, so enableToolImmediate never reads the prop.
   assert.match(
     source,
-    /function handleToolToggle\(h: HarnessConfig\) \{\s*const turningOn = !activeDraft\.includes\(h\.id\);\s*const nextDraft = turningOn \? \[\.\.\.activeDraft, h\.id\] : activeDraft\.filter\(\(x\) => x !== h\.id\);\s*setActiveDraft\(nextDraft\);\s*if \(!turningOn\) return;\s*const key = integrationKeyForHarness\(h\);\s*if \(key\) void enableToolImmediate\(nextDraft, h\.id, key\);/,
+    /function handleToolToggle\(h: HarnessConfig\) \{\s*const turningOn = !activeDraft\.includes\(h\.id\);\s*if \(turningOn && !isHarnessDetected\(h\.id\)\) return;\s*const nextDraft = turningOn \? \[\.\.\.activeDraft, h\.id\] : activeDraft\.filter\(\(x\) => x !== h\.id\);\s*setActiveDraft\(nextDraft\);\s*if \(!turningOn\) return;\s*const key = integrationKeyForHarness\(h\);\s*if \(key\) void enableToolImmediate\(nextDraft, h\.id, key\);/,
   );
   assert.match(source, /async function enableToolImmediate\(ids: string\[\], harnessId: string, key: IntegrationKey\)/);
   assert.match(source, /const normalizedIds = normalizeActiveHarnessIds\(harnesses, ids\);/);
@@ -224,6 +224,21 @@ test("SettingsModal keeps each tool's subsection (status, actions, custom-path c
   const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(settingsSource, /useState<Record<string,\s*boolean>>\(\{\}\)/);
   assert.match(settingsSource, /<div className="settings-config-item-subsection" hidden=\{!expanded\}>[\s\S]{0,1200}isCommandTemplate && \([\s\S]{0,200}<HarnessCommandPathControl/);
+});
+
+test("SettingsModal gates enabling a coding tool on live detection", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+
+  assert.match(settingsSource, /function handleToolToggle\(h: HarnessConfig\)[\s\S]*?if \(turningOn && !isHarnessDetected\(h\.id\)\) return;/);
+  assert.match(settingsSource, /disabled=\{rowBusy\(h\.id\) \|\| \(!activeDraft\.includes\(h\.id\) && !isHarnessDetected\(h\.id\)\)\}/);
+});
+
+test("NewSessionDialog only offers detected coding tools and rechecks before starting", () => {
+  const source = readFileSync(new URL("../src/components/NewSessionDialog.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /getHarnessDetectionStatus/);
+  assert.match(source, /detectedSelectableHarnesses/);
+  assert.match(source, /if \(!canStartNewSession\(selectable, draft\.harnessId, detectedHarnessIds\)\) return;/);
 });
 
 test("SettingsModal keeps the command-path control mounted while its subsection is collapsed instead of unmounting its draft state", () => {

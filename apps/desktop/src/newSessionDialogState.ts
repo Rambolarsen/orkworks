@@ -9,6 +9,15 @@ export function selectableHarnesses<T extends HarnessConfig>(harnesses: T[]): T[
   return harnesses.filter((harness) => !harness.retired);
 }
 
+export function detectedSelectableHarnesses<T extends HarnessConfig>(
+  harnesses: T[],
+  detectedHarnessIds: ReadonlySet<string>,
+): T[] {
+  return selectableHarnesses(harnesses).filter(
+    (harness) => harness.id === "generic-shell" || detectedHarnessIds.has(harness.id),
+  );
+}
+
 export function normalizeActiveHarnessIds(
   harnesses: HarnessConfig[],
   activeHarnessIds: string[],
@@ -66,7 +75,13 @@ export function syncDraftWithHarnesses(
   };
 }
 
-export function canStartNewSession(harnesses: HarnessConfig[], harnessId: string): boolean {
-  const selectable = selectableHarnesses(harnesses);
+export function canStartNewSession(
+  harnesses: HarnessConfig[],
+  harnessId: string,
+  detectedHarnessIds?: ReadonlySet<string>,
+): boolean {
+  const selectable = detectedHarnessIds
+    ? detectedSelectableHarnesses(harnesses, detectedHarnessIds)
+    : selectableHarnesses(harnesses);
   return selectable.length === 0 || selectable.some((harness) => harness.id === harnessId);
 }

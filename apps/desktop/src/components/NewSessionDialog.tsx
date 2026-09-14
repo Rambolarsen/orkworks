@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { HarnessConfig, CreateSessionOptions, IntegrationStatusResult } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import { canStartNewSession, selectableHarnesses, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
+import { getHarnessDetectionStatus } from "../harnessDetection";
+import { canStartNewSession, detectedSelectableHarnesses, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
 
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
@@ -30,16 +31,54 @@ function getSavedDraft(): NewSessionDraft | null {
   };
 }
 
-function resolveInitialDraft(harnesses: HarnessConfig[]) {
-  return syncDraftWithHarnesses({ harnessId: "", model: "" }, harnesses, getSavedDraft());
+function resolveInitialDraft(harnesses: HarnessConfig[], detectedHarnessIds: ReadonlySet<string>) {
+  return syncDraftWithHarnesses(
+    { harnessId: "", model: "" },
+    detectedSelectableHarnesses(harnesses, detectedHarnessIds),
+    getSavedDraft(),
+  );
 }
 
 export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
-  const selectable = selectableHarnesses(harnesses);
-  const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses));
+  const [detectionStatuses, setDetectionStatuses] = useState<Record<string, IntegrationStatusResult | undefined>>({});
+  const detectedHarnessIds = useMemo(() => new Set([
+    "generic-shell",
+    ...Object.entries(detectionStatuses)
+      .filter(([, result]) => result?.ok === true && result.status.toolDetected)
+      .map(([harnessId]) => harnessId),
+  ]), [detectionStatuses]);
+  const selectable = useMemo(
+    () => detectedSelectableHarnesses(harnesses, detectedHarnessIds),
+    [detectedHarnessIds, harnesses],
+  );
+  const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses, new Set(["generic-shell"])));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const harnessSelectRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDetectionStatuses({});
+    void Promise.all(
+      harnesses
+        .filter((harness) => harness.id !== "generic-shell" && !harness.retired)
+        .map(async (harness) => {
+          try {
+            return [harness.id, await getHarnessDetectionStatus(harness)] as const;
+          } catch (error) {
+            return [harness.id, {
+              ok: false as const,
+              error: error instanceof Error ? error.message : "Coding tool detection unavailable.",
+            }] as const;
+          }
+        }),
+    ).then((entries) => {
+      if (!cancelled) setDetectionStatuses(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [harnesses]);
 
   useEffect(() => {
     harnessSelectRef.current?.focus();
@@ -57,8 +96,8 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [onCancel]);
 
   useEffect(() => {
-    setDraft((current) => syncDraftWithHarnesses(current, harnesses, getSavedDraft()));
-  }, [harnesses]);
+    setDraft((current) => syncDraftWithHarnesses(current, selectable, getSavedDraft()));
+  }, [selectable]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,18 +123,19 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }
 
   const handleConfirm = useCallback(() => {
+    if (!canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) return;
     const harnessId = draft.harnessId || undefined;
     const model = draft.model.trim() || undefined;
     if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
     if (model) localStorage.setItem(LS_MODEL_KEY, model);
     else localStorage.removeItem(LS_MODEL_KEY);
     onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
-  }, [draft.harnessId, draft.model, initialPrompt, onConfirm]);
+  }, [detectedHarnessIds, draft.harnessId, draft.model, initialPrompt, onConfirm, selectable]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       if (e.target instanceof HTMLTextAreaElement) return;
-      if (canStartNewSession(harnesses, draft.harnessId)) {
+      if (canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) {
         e.preventDefault();
         handleConfirm();
       }
@@ -186,7 +226,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
             type="button"
             className="new-session-confirm"
             onClick={handleConfirm}
-            disabled={!canStartNewSession(harnesses, draft.harnessId)}
+            disabled={!canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
           >
             Start
           </button>
