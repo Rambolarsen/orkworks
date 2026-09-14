@@ -2,8 +2,8 @@
 
 ## Status
 
-Complete. Release metadata validation and deterministic checksum generation
-are implemented, and the Task 1 review findings are fixed.
+Complete. Release metadata validation and deterministic checksum generation are
+implemented, and the remaining Task 1 review findings are fixed.
 
 ## Complete implementation
 
@@ -19,38 +19,53 @@ are implemented, and the Task 1 review findings are fixed.
 - `apps/desktop/tests/releaseMetadata.test.mjs` uses real temporary files and
   covers complete checksum lines, valid metadata, missing payloads, incorrect
   real-file SHA-512 values, size mismatches, missing blockmaps, traversal,
-  payload symlink escapes, blockmap symlink escapes, and version rejection.
-  Temporary directories are cleaned up in `finally` blocks.
+  payload and blockmap symlink escapes, checksum input/output symlink escapes,
+  broken checksum output symlinks, metadata symlink escapes, malformed YAML,
+  invalid `files[]` entry shapes, and version rejection.
 
-## Review fix summary
+## Review fixes
 
-Metadata paths still undergo lexical containment checks, then existing
-payloads and blockmaps are resolved with `realpathSync` and compared against
-the real release root before `statSync` or `readFileSync`. Missing or
-unresolvable paths fail closed, and symlink/junction escapes are rejected.
+- Checksum inputs are resolved with `realpathSync` and compared with the real
+  release root before `statSync` or `readFileSync`; distributable symlinks that
+  resolve outside the release are rejected.
+- The checksum output is lexically constrained to the release directory,
+  checked with `lstatSync`/`realpathSync` when present, and validated through
+  its real parent before a new file is written. Existing, broken, or escaping
+  output symlinks fail closed.
+- Metadata is resolved and checked against the real release root before it is
+  read or parsed. Outside metadata symlinks and traversal paths are rejected.
+- YAML parsing and `files[]` shape validation remain fail-closed with focused
+  real-filesystem regression coverage.
 
 ## Tests and results
 
 - `pnpm.cmd install --frozen-lockfile --ignore-scripts --reporter append-only` —
   passed for the original implementation.
-- TDD red stage after adding the review tests:
-  `node --experimental-strip-types --test apps/desktop/tests/releaseMetadata.test.mjs`
-  — 8 passed, 2 failed as expected because symlink escapes were accepted.
-- TDD green stage after the minimal helper fix:
-  `node --experimental-strip-types --test apps/desktop/tests/releaseMetadata.test.mjs`
-  — 10 passed, 0 failed, 0 skipped.
-- `git diff --check` — passed.
-- `bash scripts/verify-repo.sh` — unable to complete in this environment;
-  it stopped at Rust formatting because `cargo` is not available. The focused
-  Task 1 verification above passed.
+- TDD red stage after adding checksum input/output and metadata symlink tests:
+  `node --experimental-strip-types --test tests/releaseMetadata.test.mjs`
+  — 12 passed, 3 failed as expected because those escapes were accepted.
+- TDD red stage after adding the broken-output-symlink test:
+  `node --experimental-strip-types --test tests/releaseMetadata.test.mjs`
+  — 15 passed, 1 failed as expected because the broken symlink could be
+  followed during output.
+- TDD green stage:
+  `node --experimental-strip-types --test tests/releaseMetadata.test.mjs`
+  — 16 passed, 0 failed, 0 skipped.
+- `git diff --check` — passed before commit.
+- `bash scripts/verify-repo.sh` — previously unable to complete in this
+  environment because `cargo` is unavailable; the focused Task 1 suite above
+  is the verified scope for this fix.
 
 ## Commits
 
 - `6b84b9b` — `build: validate release metadata and checksums`
 - `09f3fbb` — `fix: reject release metadata symlink escapes`
+- `04e4c3e` — `fix: contain release metadata and checksum paths`
 
-## Scope notes
+## Concerns
 
-No signing workflow, packaging configuration, runtime update behavior, #510,
-or #511 work was included. Credential-backed native artifact verification
-remains outside Task 1.
+- Full repository verification remains environment-limited by the missing
+  `cargo` executable; no Rust or unrelated files were changed here.
+- Credential-backed native artifact verification remains outside Task 1.
+- No signing workflow, packaging configuration, runtime update behavior, #510,
+  or #511 work was included.
