@@ -69,17 +69,54 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare App Store Connect API key
+        if: matrix.target == 'mac'
+        shell: bash
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/orkworks-app-store-connect.p8"
+          cleanup() {
+            rm -f -- "$KEY_PATH"
+          }
+          trap cleanup ERR INT TERM
+          if [ -z "$APPLE_API_KEY_BASE64" ]; then
+            echo "APPLE_API_KEY is required"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          printf 'APPLE_API_KEY=%s\n' "$KEY_PATH" >> "$GITHUB_ENV"
+          trap - ERR INT TERM
+
       - name: Package macOS (electron-builder)
         if: matrix.target == 'mac'
         working-directory: apps/desktop
-        run: pnpm package:release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            rm -f -- "$APPLE_API_KEY"
+          }
+          trap cleanup EXIT
+          test -f "$APPLE_API_KEY"
+          pnpm package:release
         env:
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Clean up App Store Connect API key
+        if: ${{ always() && matrix.target == 'mac' }}
+        shell: bash
+        run: |
+          if [ -n "${APPLE_API_KEY:-}" ]; then
+            rm -f -- "$APPLE_API_KEY"
+          fi
 
       - name: Package Windows (electron-builder)
         if: matrix.target == 'win'

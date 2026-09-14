@@ -13,9 +13,9 @@ installer may not include every feature described here.
 The release pipeline targets Apple Silicon macOS and Windows x64. Historical
 alpha installers were unsigned and may require the platform-specific bypasses
 described in their release notes. A credential-backed release is a separate
-artifact: its macOS DMG/ZIP and Windows NSIS installer are published only
-after the protected release workflow passes signing, metadata, checksum, and
-native verification gates. Check the [releases page](https://github.com/Rambolarsen/orkworks/releases)
+artifact: its macOS DMG/ZIP and Windows NSIS installer are uploaded to a draft
+GitHub Release only after the protected workflow passes signing, metadata,
+checksum, and native verification gates. Check the [releases page](https://github.com/Rambolarsen/orkworks/releases)
 for the notes attached to the specific artifact you downloaded. Linux and
 Intel macOS remain source/local-build paths.
 

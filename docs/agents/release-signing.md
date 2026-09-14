@@ -35,11 +35,11 @@ Before adding any value to GitHub, the release operator must have:
 
 1. An active Apple Developer Program membership, the Apple Developer Team ID,
    a Developer ID Application certificate exported as a password-protected
-   `.p12`, and an App Store Connect API key downloaded as `.p8`. The API key
-   must have its key ID and issuer ID available to the operator.
+   `.p12`, and an App Store Connect Team Key downloaded as `.p8`. The Team Key
+   must have App Manager access, and its key ID and issuer ID must be available
+   to the operator.
 2. A trusted Authenticode certificate exported as a password-protected
-   `.pfx` (or the supported `.p12` form), or an approved managed-signing
-   service that supplies the equivalent trusted signing operation.
+   `.pfx` (or the supported `.p12` form).
 3. A Windows publisher value equal to the certificate's exact X.509
    `SimpleName` (the certificate common name used by the workflow's native
    check). Do not use a guessed value or the complete distinguished subject.
@@ -47,6 +47,11 @@ Before adding any value to GitHub, the release operator must have:
 Self-signed Windows certificates are local-testing-only. They do not satisfy
 the trusted Authenticode or SmartScreen release gate and must not be used for
 the protected release environment.
+
+The current workflow supports file-backed signing through base64 `.p12`/`.pfx`
+secrets. Managed Windows signing is not wired by this workflow; adopting a
+managed-signing service requires separate workflow integration and native
+release validation.
 
 ## GitHub Environment setup
 
@@ -77,10 +82,15 @@ Create these exact environment secrets and variable:
 | `WIN_CSC_KEY_PASSWORD` | Secret | Password for the Windows certificate. |
 | `WIN_EXPECTED_PUBLISHER` | Environment variable | Exact Windows certificate `SimpleName`; it is verifier input, not a secret. |
 
-The workflow maps the macOS names to `CSC_LINK` and `CSC_KEY_PASSWORD` only in
-the macOS packaging step. It maps the Windows certificate names to the
-corresponding electron-builder `CSC_*` inputs only in the Windows step, then
-uses `WIN_EXPECTED_PUBLISHER` for native and updater-metadata verification.
+The workflow maps the macOS certificate names to `CSC_LINK` and
+`CSC_KEY_PASSWORD` only in the macOS packaging step. Before that step, it maps
+the `APPLE_API_KEY` secret to a differently named, non-logged environment
+value, decodes the `.p8` under `RUNNER_TEMP`, restricts the file to mode 600,
+and exports `APPLE_API_KEY` as the temporary path through `GITHUB_ENV`.
+Packaging and an always-run fallback cleanup remove the temporary file. The
+workflow maps the Windows certificate names to the corresponding
+electron-builder `CSC_*` inputs only in the Windows step, then uses
+`WIN_EXPECTED_PUBLISHER` for native and updater-metadata verification.
 
 ## Base64 export without printing values
 

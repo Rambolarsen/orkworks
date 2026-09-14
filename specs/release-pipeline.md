@@ -15,6 +15,10 @@ prerequisites.
 for the macOS and Windows build jobs. `apps/desktop/electron-builder.yml`
 requests macOS DMG/ZIP signing and notarization, nested sidecar signing, and
 Windows NSIS Authenticode signing with updater signature verification. The
+macOS job decodes the base64 App Store Connect Team Key to a mode-600 `.p8`
+under `RUNNER_TEMP`, passes its path to electron-builder, and removes it after
+packaging. The Windows job currently supports base64 `.pfx`/`.p12` secrets;
+managed signing is not wired and requires separate workflow integration. The
 workflow verifies packaged metadata and resources, runs macOS and Windows
 native checks, runs the Windows installer smoke test, generates
 `SHA256SUMS.txt`, and publishes a draft only after both platform jobs pass.

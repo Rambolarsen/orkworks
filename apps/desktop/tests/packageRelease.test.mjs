@@ -153,7 +153,6 @@ test("release workflow protects platform jobs and maps only their signing creden
   assert.deepEqual(findStep(buildJob, "Package macOS (electron-builder)").env, {
     CSC_LINK: "${{ secrets.MAC_CSC_LINK }}",
     CSC_KEY_PASSWORD: "${{ secrets.MAC_CSC_KEY_PASSWORD }}",
-    APPLE_API_KEY: "${{ secrets.APPLE_API_KEY }}",
     APPLE_API_KEY_ID: "${{ secrets.APPLE_API_KEY_ID }}",
     APPLE_API_ISSUER: "${{ secrets.APPLE_API_ISSUER }}",
     APPLE_TEAM_ID: "${{ secrets.APPLE_TEAM_ID }}",
@@ -184,6 +183,41 @@ test("release workflow protects platform jobs and maps only their signing creden
   assert.deepEqual(workflow.jobs.publish.permissions, { contents: "write" });
 });
 
+test("release workflow materializes the App Store Connect API key as a temporary path", () => {
+  const source = readFileSync(releaseWorkflowPath, "utf8");
+  const workflow = yaml.load(source);
+  const buildJob = workflow.jobs.build;
+  const names = buildJob.steps.map((step) => step.name).filter(Boolean);
+  const prepareStep = findStep(buildJob, "Prepare App Store Connect API key");
+  const packageStep = findStep(buildJob, "Package macOS (electron-builder)");
+  const cleanupStep = findStep(buildJob, "Clean up App Store Connect API key");
+
+  assert.ok(prepareStep, "missing API key preparation step");
+  assert.ok(cleanupStep, "missing API key cleanup step");
+  assert.ok(names.indexOf(prepareStep.name) < names.indexOf(packageStep.name));
+  assert.ok(names.indexOf(packageStep.name) < names.indexOf(cleanupStep.name));
+  assert.match(prepareStep.if, /matrix\.target == ['"]mac['"]/);
+  assert.deepEqual(prepareStep.env, {
+    APPLE_API_KEY_BASE64: "${{ secrets.APPLE_API_KEY }}",
+  });
+  assert.match(prepareStep.run, /KEY_PATH="\$RUNNER_TEMP\/orkworks-app-store-connect\.p8"/);
+  assert.match(prepareStep.run, /base64 --decode > "\$KEY_PATH"/);
+  assert.match(prepareStep.run, /chmod 600 "\$KEY_PATH"/);
+  assert.match(
+    prepareStep.run,
+    /printf 'APPLE_API_KEY=%s\\n' "\$KEY_PATH" >> "\$GITHUB_ENV"/,
+  );
+  assert.doesNotMatch(prepareStep.run, /echo .*APPLE_API_KEY_BASE64/);
+
+  assert.match(packageStep.run, /test -f "\$APPLE_API_KEY"/);
+  assert.match(packageStep.run, /trap cleanup EXIT/);
+  assert.match(packageStep.run, /rm -f -- "\$APPLE_API_KEY"/);
+  assert.ok(packageStep.run.indexOf('test -f "$APPLE_API_KEY"') < packageStep.run.indexOf("pnpm package:release"));
+  assert.match(cleanupStep.if, /always\(\).*matrix\.target == ['"]mac['"]/);
+  assert.match(cleanupStep.run, /rm -f -- "\$APPLE_API_KEY"/);
+  assert.doesNotMatch(source, /APPLE_API_KEY:\s*\$\{\{ secrets\.APPLE_API_KEY \}\}/);
+});
+
 test("release workflow verifies real artifacts, creates checksums, and uploads only release files", () => {
   const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
   const expectedUploadPath = [
@@ -209,7 +243,7 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
   }
   assert.ok(smokeIndex < checksumIndex);
   assert.ok(checksumIndex < uploadIndex);
-  assert.equal(findStep(job, "Package macOS (electron-builder)").run, "pnpm package:release");
+  assert.match(findStep(job, "Package macOS (electron-builder)").run, /pnpm package:release/);
   assert.match(findStep(job, "Package Windows (electron-builder)").run, /pnpm package:release/);
   assert.equal(findStep(job, "Generate release checksums").run, "pnpm checksum:release");
   assert.equal(findStep(job, "Upload artifacts").with.path.trim(), expectedUploadPath);

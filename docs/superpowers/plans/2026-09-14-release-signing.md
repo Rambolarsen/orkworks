@@ -323,7 +323,7 @@ git commit -m "build: configure signed macOS and Windows releases"
 
 **Interfaces:**
 - Both platform jobs use GitHub Environment `release`.
-- macOS receives `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, and `APPLE_TEAM_ID`.
+- macOS decodes the protected `APPLE_API_KEY` content to a temporary `.p8`; packaging receives its path as `APPLE_API_KEY` plus `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, and `APPLE_TEAM_ID`.
 - Windows receives `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, and `WIN_EXPECTED_PUBLISHER`.
 - Packaging, release verification, native signature checks, checksum generation, and upload occur in that order.
 
@@ -346,12 +346,11 @@ Add `"checksum:release": "node scripts/releaseMetadata.mjs --checksums"` to `app
 
 - [ ] **Step 4: Protect jobs and map secrets.**
 
-Set workflow-level `permissions: contents: read` and `environment: release` on the matrix build job. In the macOS packaging step map:
+Set workflow-level `permissions: contents: read` and `environment: release` on the matrix build job. Before macOS packaging, map the protected secret to a differently named step environment value, decode it to a mode-600 `.p8` under `RUNNER_TEMP`, and export only that path as `APPLE_API_KEY` through `GITHUB_ENV`. The package step must verify the path and remove the file with an exit trap, followed by an `always()` cleanup step. In the macOS packaging step map only:
 
 ```yaml
 CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
 CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
 APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

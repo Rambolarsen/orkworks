@@ -200,7 +200,11 @@ Rust sidecar, notarizes and staples the macOS artifacts, and signs the Windows
 NSIS output with Authenticode. The workflow then verifies the generated
 metadata/checksums and performs native platform checks before upload. Signing
 credentials are injected only in the trusted release jobs; they are not stored
-in source control or packaged into the application.
+in source control or packaged into the application. The base64 App Store
+Connect Team Key is decoded to a mode-600 file under the macOS runner's
+temporary directory, passed to electron-builder by path, and removed after
+packaging. Windows signing currently uses base64 `.pfx`/`.p12` secrets;
+managed signing requires separate workflow integration and is not wired here.
 
 Runtime updater network/download and restart operations remain Electron-main
 work owned by issue #511. The signing wiring here does not implement or claim
