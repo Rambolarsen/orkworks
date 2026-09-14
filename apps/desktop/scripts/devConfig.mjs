@@ -2,7 +2,7 @@ import { resolve } from "path";
 
 export function createViteServerOptions(root) {
   return {
-    configFile: resolve(root, "vite.config.ts"),
+    configFile: resolve(root, "vite.config.mjs"),
     root,
     server: {
       port: 5173,
