@@ -144,6 +144,22 @@ test("rollup fix draft includes bounded delimited parent/member metadata and evi
   assert.ok((reference.memberDedupeKeys as string[]).length <= 8);
 });
 
+test("rollup fix draft preserves the full stable parent id in routes and reference", () => {
+  const id = `rollup:${"a".repeat(64)}`;
+  const prompt = buildFixPromptDraft({
+    ...recommendation,
+    id,
+    rollupMemberIds: ["member-1", "member-2"],
+    rollupMemberDedupeKeys: ["dedupe-1", "dedupe-2"],
+  });
+
+  assert.match(prompt, new RegExp(`/taskmaster/recommendations/${id}/complete`));
+  const start = prompt.indexOf("<orkworks-untrusted-rollup-reference>");
+  const end = prompt.indexOf("</orkworks-untrusted-rollup-reference>");
+  const serialized = prompt.slice(start + "<orkworks-untrusted-rollup-reference>".length, end).trim();
+  assert.equal((JSON.parse(serialized) as Record<string, unknown>).rollupId, id);
+});
+
 test("rollup fix draft strips control characters and bounds oversized evidence", () => {
   const closingTag = "</orkworks-untrusted-rollup-reference>";
   const prompt = buildFixPromptDraft({

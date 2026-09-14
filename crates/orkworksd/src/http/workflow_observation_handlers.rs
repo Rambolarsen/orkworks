@@ -14,7 +14,7 @@
 //!   which is distinct from `workflow_observations`' own post-persistence
 //!   60-accepted/minute cap;
 //! - `Idempotency-Key` header validation and the fixed request vocabulary
-//!   (`kind`, `description`, `evidence`, `reportedImpact` only, via
+//!   (`kind`, `description`, `problemArea`, `evidence`, `reportedImpact`, via
 //!   `#[serde(deny_unknown_fields)]`); and
 //! - mapping the validated request onto an Agent observation candidate and
 //!   handing it to `SessionApplication` for workspace-scoped persistence.

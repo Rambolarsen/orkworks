@@ -26,7 +26,7 @@ export function buildFixPromptDraft(recommendation: WorkflowRecommendation): str
   const improvement = recommendation.workflowImprovement;
   const isRollup = recommendation.rollupMemberIds.length > 0;
   const rollupReference = buildRollupReference(recommendation);
-  const id = cleanReferenceText(recommendation.id, 64);
+  const id = cleanReferenceText(recommendation.id, 256);
   const sourceSessions = isRollup ? "included in the delimited reference data" : recommendation.sourceSessionIds.join(", ");
   return [
     isRollup
@@ -180,7 +180,7 @@ function buildRollupReference(recommendation: WorkflowRecommendation): string {
   }
   if (referenceByteLength(serialized) > MAX_ROLLUP_PROMPT_REFERENCE_BYTES) {
     serialized = JSON.stringify({
-      rollupId: cleanReferenceText(recommendation.id, 64),
+      rollupId: cleanReferenceText(recommendation.id, 256),
       instruction: baseReference.instruction,
       truncated: true,
     });
