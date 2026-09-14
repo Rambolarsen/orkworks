@@ -443,10 +443,13 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
         "instructing agent",
         "instructing the agent",
     ];
+    const PROMPT_EXAMPLE_LABEL: &str = "fixing peon model detection";
 
     let normalized = normalize_generic_instruction(label);
+    let normalized_input = normalize_generic_instruction(input_hint);
     let candidate_pr_numbers = referenced_pr_numbers(label);
     !normalized.is_empty()
+        && (normalized != PROMPT_EXAMPLE_LABEL || normalized_input.contains("peon model detection"))
         && !GENERIC_PREFIXES
             .iter()
             .any(|prefix| normalized.starts_with(prefix))
@@ -847,7 +850,7 @@ Available fields:
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
 - workflowObservations: array of at most five concrete workflow-friction candidates. Each candidate must have kind (one of repetition, obstacle, missing_context, assumption, correction, workaround, verification_gap), description, optional problemArea (a short neutral recurring-problem identity, under eight words; omit task verbs, IDs, PR numbers, timestamps, and transient evidence), evidence, reportedImpact (low, medium, or high), and confidence from 0.0 to 1.0. Only report friction that made the work harder than necessary; never report ordinary progress, terminal redraws, or speculative advice.
 
-If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
+If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Keep it under 8 words and use only concrete task information present in the terminal output. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
 const MAX_WORKFLOW_CANDIDATES: usize = 5;
 
@@ -2130,6 +2133,22 @@ mod tests {
     }
 
     #[test]
+    fn input_label_validator_rejects_the_prompt_example_label() {
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "fix the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing the login redirect",
+            "fix the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix peon model detection",
+        ));
+    }
+
+    #[test]
     fn input_label_contract_preserves_explicit_prs_and_rejects_generic_controls() {
         // The prompt instructs the provider to retain every explicit PR
         // reference and avoid generic control-language labels. Validation
@@ -2170,6 +2189,13 @@ mod tests {
         let prompt = build_prompt(&[long_input]);
 
         assert!(prompt.contains("Required PR references: #249"));
+    }
+
+    #[test]
+    fn build_prompt_does_not_include_a_task_specific_label_example() {
+        let prompt = build_prompt(&[]);
+
+        assert!(!prompt.contains("Fixing peon model detection"));
     }
 
     #[test]
