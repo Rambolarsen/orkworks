@@ -133,12 +133,12 @@ apm install
 
 ## Build and release
 
-Daily signed builds and user-controlled in-app updates are planned in the
-[release specification](specs/release-pipeline.md#approved-scope-extension--2026-09-10).
-Implementation is tracked as [signing #509](https://github.com/Rambolarsen/orkworks/issues/509),
-[daily builds #510](https://github.com/Rambolarsen/orkworks/issues/510), and
-[in-app updates #511](https://github.com/Rambolarsen/orkworks/issues/511).
-The workflow below remains the currently implemented release path.
+The source wiring for the existing tag-driven signed release path is
+implemented in `.github/workflows/release.yml` and
+`apps/desktop/electron-builder.yml`. The operator setup and external
+credential boundary are documented in the [signed release runbook](docs/agents/release-signing.md).
+This does not claim that a trusted signed release is ready until the protected
+GitHub `release` environment is provisioned and a real native run passes.
 
 ```bash
 # frontend + Electron build
@@ -151,14 +151,20 @@ cd apps/desktop && pnpm build:rust
 cd apps/desktop && pnpm package:release
 ```
 
-GitHub Releases are tag-driven. Pushing `vX.Y.Z` runs `.github/workflows/release.yml`, which builds:
+GitHub Releases are tag-driven. Pushing a protected `vX.Y.Z` tag runs
+`.github/workflows/release.yml`, which builds:
 
 - macOS arm64 on `macos-latest`
 - Windows x64 on `windows-latest`
 
-Each release build verifies the installer, packaged Rust sidecar, and hook
-scripts before uploading the top-level `OrkWorks-*` artifacts to the draft
-GitHub Release.
+After credentials are provisioned, the workflow is intended to produce signed
+macOS DMG and ZIP artifacts plus a signed Windows NSIS installer. It also
+stages `latest-mac.yml`/`latest.yml`, blockmaps, and `SHA256SUMS.txt`. Each
+platform must pass packaged-artifact verification and native signature checks
+before upload; the Windows job additionally runs the installer smoke test.
+The publish job creates a draft GitHub Release only after both platform jobs
+pass. Source tests and successful packaging without those credentials are not
+evidence of release trust.
 
 The Windows release job also silently installs and uninstalls its NSIS artifact
 in a temporary directory, checking the installed executable, Rust sidecar, and

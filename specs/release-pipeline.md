@@ -3,8 +3,27 @@
 ## Approved scope extension — 2026-09-10
 
 This section defines the next release increment and supersedes conflicting
-alpha-only requirements below. The remainder records the existing baseline;
-daily builds, signing, and in-app updating are specified here, not yet implemented.
+alpha-only requirements below. The source wiring for signing and native
+artifact verification of the existing tag-driven release path is implemented;
+daily builds and in-app updating are not. Credential-backed trust, native
+certificate validation, and installed-app validation remain external delivery
+prerequisites.
+
+### Source-wiring status — 2026-09-14
+
+`.github/workflows/release.yml` now uses the protected `release` environment
+for the macOS and Windows build jobs. `apps/desktop/electron-builder.yml`
+requests macOS DMG/ZIP signing and notarization, nested sidecar signing, and
+Windows NSIS Authenticode signing with updater signature verification. The
+workflow verifies packaged metadata and resources, runs macOS and Windows
+native checks, runs the Windows installer smoke test, generates
+`SHA256SUMS.txt`, and publishes a draft only after both platform jobs pass.
+
+The exact credential contract and operator steps are in the [signed release
+runbook](../docs/agents/release-signing.md). Source tests can prove this
+wiring, but cannot prove a trusted certificate chain, Apple notarization,
+stapling, or a credential-backed native release. Issue #511 owns installed
+older-build update testing.
 
 ### Purpose and distribution channels
 
