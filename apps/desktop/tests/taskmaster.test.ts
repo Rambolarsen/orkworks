@@ -328,7 +328,7 @@ test("Recommendations panel exposes evidence, dismissal, and an explicit fix-wit
     "utf8",
   );
 
-  assert.match(source, /<details\b/);
+  assert.match(source, /<RecommendationEvidence\b/);
   assert.match(source, /Dismiss/);
   assert.match(source, /Fix with AI/);
   assert.doesNotMatch(source, />Accept</);
@@ -347,7 +347,8 @@ test("Recommendations panel presents rollup family metadata with combined eviden
   assert.match(source, /exact famil/);
   assert.match(source, /formatRecurrence\(recommendation\)/);
   assert.match(source, /affectedSessionIds/);
-  assert.match(source, /problemArea/);
+  const evidence = readFileSync(new URL("../src/components/RecommendationEvidence.tsx", import.meta.url), "utf8");
+  assert.match(evidence, /problemArea/);
 });
 
 test("Recommendations panel keeps active executing rollup parents visible without member actions", () => {

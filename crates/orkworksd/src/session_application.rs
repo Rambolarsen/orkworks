@@ -425,6 +425,26 @@ impl SessionApplication {
         let Some(workspace) = workspace_guard.as_ref() else {
             return false;
         };
+        Self::apply_rollup_clusters_locked(
+            workspace,
+            workspace_instance,
+            supplied_snapshots,
+            clusters,
+            generation,
+            &[],
+        )
+    }
+
+    /// The caller holds the workspace lock. Legacy updates and the rollup graph
+    /// are staged together so any validation failure leaves both unchanged.
+    pub(crate) fn apply_rollup_clusters_locked(
+        workspace: &WorkspaceState,
+        workspace_instance: u64,
+        supplied_snapshots: &[RollupFamilySnapshot],
+        clusters: &[RollupCluster],
+        generation: u64,
+        legacy_updates: &[Recommendation],
+    ) -> bool {
         if !Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots) {
             return false;
         }
@@ -433,6 +453,14 @@ impl SessionApplication {
             return false;
         };
 
+        let mut projected = current
+            .into_iter()
+            .map(|item| (item.id.clone(), item))
+            .collect::<BTreeMap<_, _>>();
+        for update in legacy_updates {
+            projected.insert(update.id.clone(), update.clone());
+        }
+        let current = projected.into_values().collect::<Vec<_>>();
         let now = chrono::Utc::now().to_rfc3339();
         let mut working = current
             .iter()
@@ -443,7 +471,27 @@ impl SessionApplication {
             .iter()
             .flat_map(|cluster| cluster.member_recommendation_ids.iter().cloned())
             .collect::<BTreeSet<_>>();
+        let add_expected = |id: &String, expected: &mut BTreeMap<String, Option<String>>| {
+            expected
+                .entry(id.clone())
+                .or_insert_with(|| current_hashes.get(id).cloned());
+        };
+        let supplied_member_ids = supplied_snapshots
+            .iter()
+            .map(|snapshot| snapshot.recommendation_id.clone())
+            .collect::<BTreeSet<_>>();
+        let supplied_parent_ids = supplied_snapshots
+            .iter()
+            .filter_map(|snapshot| snapshot.active_parent_id.clone())
+            .collect::<BTreeSet<_>>();
+        let retained_parent_ids = clusters
+            .iter()
+            .map(|cluster| stable_rollup_id(&cluster.member_recommendation_ids))
+            .collect::<BTreeSet<_>>();
         let mut expected = BTreeMap::new();
+        for update in legacy_updates {
+            add_expected(&update.id, &mut expected);
+        }
         for cluster in clusters {
             let member_ids = cluster
                 .member_recommendation_ids
@@ -577,14 +625,6 @@ impl SessionApplication {
             parent.workflow_improvement.supersedes_recommendation_id = supersedes_recommendation_id;
             parent.workflow_improvement.dismissal_watermark = None;
 
-            let add_expected = |id: &String, expected: &mut BTreeMap<String, Option<String>>| {
-                expected.entry(id.clone()).or_insert_with(|| {
-                    current
-                        .iter()
-                        .find(|item| item.id == *id)
-                        .and_then(|item| current_hashes.get(&item.id).cloned())
-                });
-            };
             for id in parent
                 .rollup_member_ids
                 .iter()
@@ -606,29 +646,43 @@ impl SessionApplication {
                 add_expected(&member.id, &mut expected);
                 working.insert(member.id.clone(), member);
             }
-            for old_parent in superseded_parents {
-                let mut superseded = old_parent.clone();
-                superseded.status = RecommendationStatus::Superseded;
-                superseded.updated_at = now.clone();
-                add_expected(&superseded.id, &mut expected);
-                working.insert(superseded.id.clone(), superseded);
-                for old_member_id in &old_parent.rollup_member_ids {
-                    if assigned_member_ids.contains(old_member_id) {
-                        continue;
-                    }
-                    let Some(old_member) = current.iter().find(|item| item.id == *old_member_id)
-                    else {
-                        return false;
-                    };
-                    if old_member.rolled_up_by.as_deref() == Some(old_parent.id.as_str()) {
-                        let mut released = old_member.clone();
-                        released.status = RecommendationStatus::Proposed;
-                        released.rolled_up_by = None;
-                        add_expected(&released.id, &mut expected);
-                        working.insert(released.id.clone(), released);
-                    }
+        }
+        // A valid clustering result is authoritative for the complete active
+        // groups supplied to it, including groups omitted from an empty result.
+        for old_parent in current.iter().filter(|parent| {
+            supplied_parent_ids.contains(&parent.id) && !retained_parent_ids.contains(&parent.id)
+        }) {
+            if old_parent.status != RecommendationStatus::Proposed
+                || !old_parent
+                    .rollup_member_ids
+                    .iter()
+                    .all(|id| supplied_member_ids.contains(id))
+            {
+                return false;
+            }
+            let mut superseded = old_parent.clone();
+            superseded.status = RecommendationStatus::Superseded;
+            superseded.updated_at = now.clone();
+            add_expected(&superseded.id, &mut expected);
+            working.insert(superseded.id.clone(), superseded);
+            for old_member_id in &old_parent.rollup_member_ids {
+                if assigned_member_ids.contains(old_member_id) {
+                    continue;
+                }
+                let Some(old_member) = current.iter().find(|item| item.id == *old_member_id) else {
+                    return false;
+                };
+                if old_member.rolled_up_by.as_deref() == Some(old_parent.id.as_str()) {
+                    let mut released = old_member.clone();
+                    released.status = RecommendationStatus::Proposed;
+                    released.rolled_up_by = None;
+                    add_expected(&released.id, &mut expected);
+                    working.insert(released.id.clone(), released);
                 }
             }
+        }
+        if expected.is_empty() {
+            return true;
         }
         workspace
             .recommendation_store

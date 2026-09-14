@@ -83,7 +83,7 @@ struct ModelOutput {
     #[serde(default)]
     proposals: Vec<ModelProposal>,
     #[serde(default)]
-    rollups: Vec<RollupCluster>,
+    rollups: Option<Vec<RollupCluster>>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +130,42 @@ pub(crate) fn build_rollup_request(
     })
 }
 
+fn compose_provider_prompt(
+    prompt: String,
+    rollup_request: Option<&RollupEvaluationRequest>,
+) -> Result<String, String> {
+    let Some(request) = rollup_request else {
+        return Ok(prompt);
+    };
+    let prompt = format!(
+        "{prompt}\n\nThe following is a separate semantic rollup pass. {rollup_prompt}",
+        rollup_prompt = request.prompt
+    );
+    if prompt.len() > MAX_ROLLUP_INPUT_BYTES {
+        return Err("Taskmaster rollup provider input is too large".into());
+    }
+    Ok(prompt)
+}
+
+fn provider_cache_key(
+    snapshot: &EvaluationSnapshot,
+    prompt: &str,
+    rollup_request: Option<&RollupEvaluationRequest>,
+) -> Result<String, String> {
+    let key = snapshot.cache_key(prompt)?;
+    let Some(request) = rollup_request else {
+        return Ok(key);
+    };
+    let identity = serde_json::to_vec(&(
+        key,
+        request.token.workspace_instance,
+        &request.token.prompt_version,
+        &request.token.family_snapshot_hash,
+    ))
+    .map_err(|error| error.to_string())?;
+    Ok(hex::encode(sha2::Sha256::digest(identity)))
+}
+
 pub(crate) fn parse_rollup_model_output(
     output: &str,
     snapshots: &[RollupFamilySnapshot],
@@ -139,7 +175,13 @@ pub(crate) fn parse_rollup_model_output(
     }
     let model = serde_json::from_str::<ModelOutput>(output)
         .map_err(|_| RollupValidationError::MalformedResponse)?;
-    validate_rollup_clusters(snapshots, &model.rollups)
+    validate_rollup_clusters(
+        snapshots,
+        model
+            .rollups
+            .as_deref()
+            .ok_or(RollupValidationError::MalformedResponse)?,
+    )
 }
 
 fn parse_provider_response(
@@ -154,11 +196,20 @@ fn parse_provider_response(
     match snapshots {
         Some(snapshots) => {
             let mut model = model;
-            model.rollups = validate_rollup_clusters(snapshots, &model.rollups)
-                .map_err(|error| format!("invalid Taskmaster rollups: {error:?}"))?;
+            let rollups = model.rollups.as_deref().ok_or_else(|| {
+                "Taskmaster rollup response must include a rollups array".to_string()
+            })?;
+            model.rollups = Some(
+                validate_rollup_clusters(snapshots, rollups)
+                    .map_err(|error| format!("invalid Taskmaster rollups: {error:?}"))?,
+            );
             return Ok(model);
         }
-        None if !model.rollups.is_empty() => {
+        None if model
+            .rollups
+            .as_ref()
+            .is_some_and(|rollups| !rollups.is_empty()) =>
+        {
             return Err("Taskmaster response contained rollups without supplied families".into())
         }
         None => {}
@@ -187,7 +238,7 @@ pub(crate) fn apply_rollup_model_output(
     let Ok(model) = parse_provider_response(output, Some(snapshots)) else {
         return false;
     };
-    let clusters = model.rollups;
+    let clusters = model.rollups.unwrap_or_default();
     apply_rollup_model_clusters(state, runtime, snapshot, token, snapshots, &clusters)
 }
 
@@ -199,9 +250,6 @@ fn apply_rollup_model_clusters(
     snapshots: &[RollupFamilySnapshot],
     clusters: &[RollupCluster],
 ) -> bool {
-    if clusters.is_empty() {
-        return true;
-    }
     let workspace_path = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
@@ -374,13 +422,19 @@ fn run_model_evaluation_with_context(
         &recommendations,
         rollup_request.is_some(),
     );
-    let prompt = rollup_request.as_ref().map_or(prompt.clone(), |request| {
-        format!(
-            "{prompt}\n\nThe following is a separate semantic rollup pass. {rollup_prompt}",
-            rollup_prompt = request.prompt
-        )
-    });
-    let Ok(cache_key) = snapshot.cache_key(&prompt) else {
+    let prompt = match compose_provider_prompt(prompt, rollup_request.as_ref()) {
+        Ok(prompt) => prompt,
+        Err(error) => {
+            let _ = runtime.record_evaluation_error(
+                &state.harness_store,
+                &workspace_path,
+                &snapshot,
+                Some(error),
+            );
+            return;
+        }
+    };
+    let Ok(cache_key) = provider_cache_key(&snapshot, &prompt, rollup_request.as_ref()) else {
         return;
     };
     let Ok(true) = runtime.reserve_snapshot(
@@ -586,9 +640,7 @@ fn apply_provider_output(
         );
         return false;
     }
-    let rollups = model.rollups.clone();
     if rollup_request.is_some()
-        && !rollups.is_empty()
         && !rollup_application_is_current(state, runtime, snapshot, rollup_request.unwrap())
     {
         let _ = runtime.record_evaluation_error(
@@ -599,7 +651,7 @@ fn apply_provider_output(
         );
         return false;
     }
-    let model_applied = apply_model_output_parsed(
+    apply_model_output_parsed(
         state.as_ref(),
         runtime,
         snapshot,
@@ -608,22 +660,8 @@ fn apply_provider_output(
         facts,
         supplied_recommendations,
         model,
-    );
-    let rollup_applied = rollup_request.is_some_and(|request| {
-        apply_rollup_model_clusters(
-            state,
-            runtime,
-            snapshot,
-            &request.token,
-            &request.snapshots,
-            &rollups,
-        )
-    });
-    if rollup_request.is_some() {
-        model_applied && rollup_applied
-    } else {
-        model_applied
-    }
+        rollup_request,
+    )
 }
 
 fn rollup_application_is_current(
@@ -750,6 +788,7 @@ fn apply_model_output_parsed(
     facts: &[crate::taskmaster::RepositoryEvidence],
     supplied_recommendations: &[Recommendation],
     model: ModelOutput,
+    rollup_request: Option<&RollupEvaluationRequest>,
 ) -> bool {
     let bundle = snapshot.knowledge.as_ref();
     let page_map = bundle
@@ -811,6 +850,7 @@ fn apply_model_output_parsed(
     {
         return false;
     }
+    let rollups = model.rollups.clone().unwrap_or_default();
     let mut accepted = false;
     let _ = runtime.with_current_evaluation(&state.harness_store, workspace_path, snapshot, || {
     let workspace = state.workspace.lock().expect("workspace lock poisoned");
@@ -825,6 +865,7 @@ fn apply_model_output_parsed(
     let Ok(recommendations) = workspace.recommendation_store.list() else {
         return;
     };
+    let mut updates = Vec::new();
     for enrichment in model.enrichments {
         let Some(mut recommendation) = recommendations
             .iter()
@@ -856,7 +897,7 @@ fn apply_model_output_parsed(
             });
         }
         recommendation.updated_at = chrono::Utc::now().to_rfc3339();
-        if workspace.recommendation_store.put(&recommendation).is_err() { return; }
+        updates.push(recommendation);
     }
     for proposal in model.proposals {
         let target_surface =
@@ -915,9 +956,19 @@ fn apply_model_output_parsed(
             workflow_improvement: WorkflowImprovement { proposed_improvement: proposal.summary, target_surface, observation_ids: Vec::new(), recurrence_count: 0, affected_session_ids: Vec::new(), impact: Impact::Low, expected_benefit: "Hypothesis based on the cited repository facts.".into(), supersedes_recommendation_id: None, dismissal_watermark: None },
             rollup_member_ids: Vec::new(), rollup_member_dedupe_keys: Vec::new(), rollup_generation: None, rolled_up_by: None,
         };
-        if workspace.recommendation_store.put(&recommendation).is_err() { return; }
+        updates.push(recommendation);
     }
-    accepted = true;
+    if let Some(request) = rollup_request {
+        accepted = SessionApplication::apply_rollup_clusters_locked(
+            workspace, request.token.workspace_instance, &request.snapshots,
+            &rollups, request.token.generation, &updates,
+        );
+    } else {
+        for recommendation in updates {
+            if workspace.recommendation_store.put(&recommendation).is_err() { return; }
+        }
+        accepted = true;
+    }
     });
     accepted
 }
