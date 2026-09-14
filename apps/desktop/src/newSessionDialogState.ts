@@ -80,8 +80,10 @@ export function canStartNewSession(
   harnessId: string,
   detectedHarnessIds?: ReadonlySet<string>,
 ): boolean {
-  const selectable = detectedHarnessIds
-    ? detectedSelectableHarnesses(harnesses, detectedHarnessIds)
-    : selectableHarnesses(harnesses);
+  if (detectedHarnessIds) {
+    const selectable = detectedSelectableHarnesses(harnesses, detectedHarnessIds);
+    return harnessId === "" ? selectable.length === 0 : selectable.some((harness) => harness.id === harnessId);
+  }
+  const selectable = selectableHarnesses(harnesses);
   return selectable.length === 0 || selectable.some((harness) => harness.id === harnessId);
 }

@@ -120,3 +120,8 @@ test("detectedSelectableHarnesses keeps Shell and filters unavailable coding too
   assert.equal(canStartNewSession(harnesses, "opencode", new Set(["generic-shell"])), false);
   assert.equal(canStartNewSession(harnesses, "generic-shell", new Set(["generic-shell"])), true);
 });
+
+test("canStartNewSession rejects a stale harness when detection filters every tool", () => {
+  assert.equal(canStartNewSession([harness("opencode", "OpenCode")], "opencode", new Set()), false);
+  assert.equal(canStartNewSession([harness("opencode", "OpenCode")], "", new Set()), true);
+});

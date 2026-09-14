@@ -233,6 +233,17 @@ test("SettingsModal gates enabling a coding tool on live detection", () => {
   assert.match(settingsSource, /disabled=\{rowBusy\(h\.id\) \|\| \(!activeDraft\.includes\(h\.id\) && !isHarnessDetected\(h\.id\)\)\}/);
 });
 
+test("SettingsModal rechecks a coding tool immediately before enabling it", () => {
+  const settingsSource = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
+  const enableBody = settingsSource.slice(
+    settingsSource.indexOf("async function enableToolImmediate"),
+    settingsSource.indexOf("async function saveHotkeysHandler"),
+  );
+
+  assert.match(enableBody, /await getHarnessDetectionStatus\(harnessId\)/);
+  assert.ok(enableBody.indexOf("await getHarnessDetectionStatus(harnessId)") < enableBody.indexOf("await onSaveActiveHarnesses"));
+});
+
 test("NewSessionDialog only offers detected coding tools and rechecks before starting", () => {
   const source = readFileSync(new URL("../src/components/NewSessionDialog.tsx", import.meta.url), "utf8");
 
@@ -255,7 +266,7 @@ test("coding-tool availability uses the selected harness executable, not a share
 test("SettingsModal invalidates detection after saving a harness definition", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /await onRefreshHarnesses\(\);\s*invalidateDetection\(result\.harness\.id\);/);
+  assert.match(source, /invalidateDetection\(result\.harness\.id\);\s*await onRefreshHarnesses\(\);/);
 });
 
 test("SettingsModal keeps the command-path control mounted while its subsection is collapsed instead of unmounting its draft state", () => {

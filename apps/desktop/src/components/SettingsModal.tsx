@@ -14,7 +14,7 @@ import {
   type ActiveHarnessSaveResult,
   type IntegrationDisplayState,
 } from "../harnessIntegrationPresentation";
-import { integrationKeyForHarness, isHarnessDetected as isDetectedResult } from "../harnessDetection";
+import { getHarnessDetectionStatus, integrationKeyForHarness, isHarnessDetected as isDetectedResult } from "../harnessDetection";
 import { normalizeActiveHarnessIds, selectableHarnesses } from "../newSessionDialogState";
 import { mergeIntegrationOperationFailures } from "../settingsController";
 import HarnessCommandPathControl, { looksAbsolute } from "./HarnessCommandPathControl";
@@ -499,6 +499,14 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     setActiveSaveStatus(null);
     setSaveActivity({ kind: "tool", harnessId });
     try {
+      const detection = await getHarnessDetectionStatus(harnessId);
+      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
+      setDetectionStatuses((current) => ({ ...current, [harnessId]: detection }));
+      if (!isDetectedResult(detection)) {
+        setActiveDraft((current) => current.filter((id) => id !== harnessId));
+        setActiveSaveStatus(detection.ok ? "This coding tool is no longer available." : detection.error);
+        return;
+      }
       const normalizedIds = normalizeActiveHarnessIds(harnesses, ids);
       const result = await onSaveActiveHarnesses(normalizedIds, key);
       if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
@@ -748,8 +756,8 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
 
   async function handleHarnessSaved(result: HarnessMutationResponse) {
     try {
-      await onRefreshHarnesses();
       invalidateDetection(result.harness.id);
+      await onRefreshHarnesses();
       setHarnessEditor(null);
       setHarnessActionStatus("Configuration saved.");
     } catch {

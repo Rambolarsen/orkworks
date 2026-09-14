@@ -31,15 +31,14 @@ function getSavedDraft(): NewSessionDraft | null {
   };
 }
 
-function resolveInitialDraft(harnesses: HarnessConfig[], detectedHarnessIds: ReadonlySet<string>) {
+function resolveInitialDraft(harnesses: HarnessConfig[]) {
   const savedDraft = getSavedDraft();
   if (savedDraft && harnesses.some((harness) => harness.id === savedDraft.harnessId && !harness.retired)) {
     return savedDraft;
   }
   return syncDraftWithHarnesses(
     { harnessId: "", model: "" },
-    detectedSelectableHarnesses(harnesses, detectedHarnessIds),
-    getSavedDraft(),
+    harnesses,
   );
 }
 
@@ -60,7 +59,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     () => detectedSelectableHarnesses(harnesses, detectedHarnessIds),
     [detectedHarnessIds, harnessesKey],
   );
-  const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses, new Set(["generic-shell"])));
+  const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -114,7 +113,9 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
 
   useEffect(() => {
     if (!detectionComplete) return;
-    setDraft((current) => syncDraftWithHarnesses(current, selectable, getSavedDraft()));
+    setDraft((current) => selectable.length === 0
+      ? { harnessId: "", model: "" }
+      : syncDraftWithHarnesses(current, selectable, getSavedDraft()));
   }, [detectionComplete, selectable]);
 
   useEffect(() => {
@@ -216,7 +217,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
               className="new-session-select"
               value={draft.harnessId}
               onChange={(e) => handleHarnessChange(e.target.value)}
-              disabled={selectable.length === 0 && !pendingHarness}
+              disabled={confirmBusy || (selectable.length === 0 && !pendingHarness)}
             >
               {selectable.length === 0 && !pendingHarness ? (
                 <option value="">Default shell</option>
