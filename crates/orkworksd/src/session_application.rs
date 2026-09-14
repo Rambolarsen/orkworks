@@ -197,12 +197,6 @@ fn is_placeholder_label(label: &str, id: &str) -> bool {
     label == crate::session_types::placeholder_label(id)
 }
 
-fn expected_recommendation_hash(recommendation: &Recommendation) -> String {
-    let bytes = serde_json::to_vec_pretty(recommendation)
-        .expect("recommendation is serializable for optimistic concurrency");
-    hex::encode(Sha256::digest(bytes))
-}
-
 fn refresh_rollup_parent_projection(
     parent: &mut Recommendation,
     members: &[Recommendation],
@@ -278,7 +272,8 @@ impl SessionApplication {
         let Ok(observations) = workspace.workflow_observations.workspace_observations() else {
             return;
         };
-        let Ok(existing) = workspace.recommendation_store.list() else {
+        let Ok((existing, existing_hashes)) = workspace.recommendation_store.list_with_hashes()
+        else {
             return;
         };
         let now = chrono::Utc::now().to_rfc3339();
@@ -301,9 +296,9 @@ impl SessionApplication {
             if changed {
                 expected.insert(
                     proposal.id.clone(),
-                    existing_by_id
-                        .get(&proposal.id)
-                        .map(expected_recommendation_hash),
+                    existing_by_id.get(&proposal.id).and_then(|recommendation| {
+                        existing_hashes.get(&recommendation.id).cloned()
+                    }),
                 );
                 if let Some(parent_id) = proposal.rolled_up_by.as_deref() {
                     changed_parent_ids.insert(parent_id.to_string());
@@ -332,7 +327,7 @@ impl SessionApplication {
                 refreshed.id.clone(),
                 existing_by_id
                     .get(&refreshed.id)
-                    .map(expected_recommendation_hash),
+                    .and_then(|recommendation| existing_hashes.get(&recommendation.id).cloned()),
             );
             next.insert(refreshed.id.clone(), refreshed);
         }
@@ -359,6 +354,14 @@ impl SessionApplication {
         let Some(workspace) = workspace_guard.as_ref() else {
             return false;
         };
+        Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots)
+    }
+
+    fn rollup_inputs_match_locked(
+        workspace: &WorkspaceState,
+        workspace_instance: u64,
+        supplied_snapshots: &[RollupFamilySnapshot],
+    ) -> bool {
         if workspace.workflow_observations.instance_id() != workspace_instance {
             return false;
         }
@@ -419,15 +422,15 @@ impl SessionApplication {
         clusters: &[RollupCluster],
         generation: u64,
     ) -> bool {
-        if !self.rollup_inputs_match(workspace_instance, supplied_snapshots) {
-            return false;
-        }
-
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
             return false;
         };
-        let Ok(current) = workspace.recommendation_store.list() else {
+        if !Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots) {
+            return false;
+        }
+        let Ok((current, current_hashes)) = workspace.recommendation_store.list_with_hashes()
+        else {
             return false;
         };
 
@@ -583,7 +586,11 @@ impl SessionApplication {
             parent.repository_evidence.clear();
             parent.knowledge_evidence.clear();
             parent.source_session_ids = source_session_ids.clone();
-            parent.target_session_id = None;
+            if existing_parent
+                .is_none_or(|existing| existing.status != RecommendationStatus::Executing)
+            {
+                parent.target_session_id = None;
+            }
             parent.suggested_harness_id = None;
             parent.suggested_model = None;
             parent.suggested_working_directory = None;
@@ -617,7 +624,7 @@ impl SessionApplication {
                     current
                         .iter()
                         .find(|item| item.id == *id)
-                        .map(expected_recommendation_hash)
+                        .and_then(|item| current_hashes.get(&item.id).cloned())
                 });
             };
             for id in parent
@@ -8393,6 +8400,97 @@ mod tests {
             .observation_ids
             .iter()
             .any(|id| !before.workflow_improvement.observation_ids.contains(id)));
+    }
+
+    #[test]
+    fn applying_an_unchanged_executing_rollup_preserves_its_target_session() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            for key in ["first", "second"] {
+                workspace
+                    .workflow_observations
+                    .record_observation(
+                        "workflow-executing-rollup-session",
+                        crate::workflow_observations::ObservationOrigin::Peon,
+                        key,
+                        crate::workflow_observations::ObservationCandidate {
+                            kind: crate::workflow_observations::ObservationKind::Obstacle,
+                            description: "The setup blocks progress".into(),
+                            evidence: "The same command failed twice".into(),
+                            problem_area: None,
+                            reported_impact: crate::workflow_observations::Impact::Medium,
+                            confidence: Some(0.8),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        application.refresh_workflow_recommendations();
+        let members = application.list_recommendations().unwrap().0;
+        let member_ids = members
+            .iter()
+            .map(|recommendation| recommendation.id.clone())
+            .collect::<Vec<_>>();
+        let snapshots = crate::taskmaster::rollup::build_rollup_family_snapshots(&members).unwrap();
+        let instance_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .instance_id();
+        assert!(application.apply_rollup_clusters(
+            instance_id,
+            &snapshots,
+            &[RollupCluster {
+                member_recommendation_ids: member_ids.clone(),
+                target_surface: crate::taskmaster::TargetSurface::Tooling,
+                title: "Combined setup problems".into(),
+                summary: "Keep the setup reliable".into(),
+            }],
+            1,
+        ));
+        let parent_id = stable_rollup_id(&member_ids);
+        let parent = application.get_recommendation(&parent_id).unwrap().unwrap();
+        let rolled_up_records = application.list_recommendations().unwrap().0;
+        let rollup_snapshots =
+            crate::taskmaster::rollup::build_rollup_family_snapshots(&rolled_up_records).unwrap();
+        let mut executing = parent.clone();
+        executing.status = RecommendationStatus::Executing;
+        executing.target_session_id = Some("active-session".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&executing)
+            .unwrap();
+        assert!(!application.apply_rollup_clusters(
+            instance_id,
+            &rollup_snapshots,
+            &[RollupCluster {
+                member_recommendation_ids: member_ids,
+                target_surface: crate::taskmaster::TargetSurface::Tooling,
+                title: "Combined setup problems".into(),
+                summary: "Keep the setup reliable".into(),
+            }],
+            2,
+        ));
+        assert_eq!(
+            application
+                .get_recommendation(&parent_id)
+                .unwrap()
+                .unwrap()
+                .target_session_id,
+            Some("active-session".into())
+        );
     }
 
     #[test]

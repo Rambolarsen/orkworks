@@ -71,6 +71,12 @@ struct Replacement {
     new: Option<Vec<u8>>,
 }
 
+struct StoredRecommendation {
+    recommendation: Recommendation,
+    bytes: Vec<u8>,
+    hash: String,
+}
+
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 enum FaultPoint {
@@ -128,6 +134,34 @@ impl RecommendationStore {
         Ok(recommendations)
     }
 
+    pub(crate) fn list_with_hashes(
+        &self,
+    ) -> Result<(Vec<Recommendation>, BTreeMap<String, String>), StoreError> {
+        self.recover_transactions()?;
+        let mut stored = self.read_all_stored()?;
+        validate_graph_records(
+            &stored
+                .iter()
+                .map(|record| record.recommendation.clone())
+                .collect::<Vec<_>>(),
+        )?;
+        stored.sort_by(|left, right| {
+            left.recommendation
+                .created_at
+                .cmp(&right.recommendation.created_at)
+                .then(left.recommendation.id.cmp(&right.recommendation.id))
+        });
+        let hashes = stored
+            .iter()
+            .map(|record| (record.recommendation.id.clone(), record.hash.clone()))
+            .collect();
+        let recommendations = stored
+            .into_iter()
+            .map(|record| record.recommendation)
+            .collect();
+        Ok((recommendations, hashes))
+    }
+
     pub(crate) fn get(&self, id: &str) -> Result<Option<Recommendation>, StoreError> {
         self.recover_transactions()?;
         self.validate_graph()?;
@@ -170,7 +204,11 @@ impl RecommendationStore {
     ) -> Result<(), StoreError> {
         self.recover_transactions()?;
         self.validate_graph()?;
-        let current = self.read_all_by_id()?;
+        let stored = self.read_all_stored_by_id()?;
+        let current = stored
+            .iter()
+            .map(|(id, record)| (id.clone(), record.recommendation.clone()))
+            .collect::<BTreeMap<_, _>>();
         self.verify_expected(expected, &current)?;
 
         let member_ids = members
@@ -345,9 +383,7 @@ impl RecommendationStore {
         let replacements: BTreeMap<String, Replacement> = replacements
             .into_iter()
             .map(|(id, new)| {
-                let old = current.get(&id).map(|record| {
-                    serde_json::to_vec_pretty(record).expect("recommendation is serializable")
-                });
+                let old = stored.get(&id).map(|record| record.bytes.clone());
                 (
                     id,
                     Replacement {
@@ -380,7 +416,11 @@ impl RecommendationStore {
     ) -> Result<(), StoreError> {
         self.recover_transactions()?;
         self.validate_graph()?;
-        let current = self.read_all_by_id()?;
+        let stored = self.read_all_stored_by_id()?;
+        let current = stored
+            .iter()
+            .map(|(id, record)| (id.clone(), record.recommendation.clone()))
+            .collect::<BTreeMap<_, _>>();
         self.verify_expected(expected, &current)?;
         let next = records
             .iter()
@@ -415,9 +455,7 @@ impl RecommendationStore {
         let mut replacements = BTreeMap::new();
         for (id, record) in &next {
             let new = serde_json::to_vec_pretty(record).map_err(StoreError::Json)?;
-            let old = current.get(id).map(|previous| {
-                serde_json::to_vec_pretty(previous).expect("recommendation is serializable")
-            });
+            let old = stored.get(id).map(|previous| previous.bytes.clone());
             if old.as_ref() != Some(&new) {
                 replacements.insert(
                     id.clone(),
@@ -654,6 +692,16 @@ impl RecommendationStore {
         serde_json::from_str(&json).map_err(StoreError::Json)
     }
 
+    fn read_stored_path(&self, path: &Path) -> Result<StoredRecommendation, StoreError> {
+        let bytes = fs::read(path).map_err(StoreError::Io)?;
+        let recommendation = serde_json::from_slice(&bytes).map_err(StoreError::Json)?;
+        Ok(StoredRecommendation {
+            recommendation,
+            hash: hash_bytes(&bytes),
+            bytes,
+        })
+    }
+
     fn read_all(&self) -> Result<Vec<Recommendation>, StoreError> {
         let mut recommendations = Vec::new();
         for entry in fs::read_dir(&self.dir).map_err(StoreError::Io)? {
@@ -673,6 +721,28 @@ impl RecommendationStore {
             .read_all()?
             .into_iter()
             .map(|recommendation| (recommendation.id.clone(), recommendation))
+            .collect())
+    }
+
+    fn read_all_stored(&self) -> Result<Vec<StoredRecommendation>, StoreError> {
+        let mut recommendations = Vec::new();
+        for entry in fs::read_dir(&self.dir).map_err(StoreError::Io)? {
+            let path = entry.map_err(StoreError::Io)?.path();
+            if !path.is_file()
+                || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+            {
+                continue;
+            }
+            recommendations.push(self.read_stored_path(&path)?);
+        }
+        Ok(recommendations)
+    }
+
+    fn read_all_stored_by_id(&self) -> Result<BTreeMap<String, StoredRecommendation>, StoreError> {
+        Ok(self
+            .read_all_stored()?
+            .into_iter()
+            .map(|record| (record.recommendation.id.clone(), record))
             .collect())
     }
 
@@ -730,26 +800,33 @@ impl RecommendationStore {
                     changed |= ids.insert(member_id.clone());
                 }
             }
+            for recommendation in recommendations {
+                if recommendation
+                    .rollup_member_ids
+                    .iter()
+                    .any(|member_id| ids.contains(member_id))
+                {
+                    changed |= ids.insert(recommendation.id.clone());
+                }
+            }
         }
+        let stored = self.read_all_stored_by_id()?;
         let expected = ids
             .iter()
             .filter_map(|id| {
-                by_id
+                stored
                     .get(id.as_str())
-                    .map(|recommendation| (id.clone(), Some(expected_hash_for(recommendation))))
+                    .map(|record| (id.clone(), Some(record.hash.clone())))
             })
             .collect::<BTreeMap<_, _>>();
         let replacements = ids
             .iter()
             .filter_map(|id| {
-                by_id.get(id.as_str()).map(|recommendation| {
+                stored.get(id.as_str()).map(|record| {
                     (
                         id.clone(),
                         Replacement {
-                            old: Some(
-                                serde_json::to_vec_pretty(recommendation)
-                                    .expect("recommendation is serializable"),
-                            ),
+                            old: Some(record.bytes.clone()),
                             new: None,
                         },
                     )
@@ -1126,11 +1203,6 @@ fn migrate_transaction_path(source: &Path, destination: &Path, id: &str) -> Resu
 
 fn hash_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
-}
-
-fn expected_hash_for(recommendation: &Recommendation) -> String {
-    let bytes = serde_json::to_vec_pretty(recommendation).expect("recommendation is serializable");
-    hash_bytes(&bytes)
 }
 
 fn write_sync(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
@@ -1519,6 +1591,45 @@ mod tests {
                 .get("recommendation-1")
                 .unwrap(),
             Some(original)
+        );
+    }
+
+    #[test]
+    fn graph_transaction_uses_original_bytes_for_legacy_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let original = recommendation("legacy-recommendation", "session-1");
+        let mut legacy_json = serde_json::to_value(&original).unwrap();
+        let object = legacy_json.as_object_mut().unwrap();
+        object.remove("rollupMemberIds");
+        object.remove("rollupMemberDedupeKeys");
+        object.remove("rollupGeneration");
+        object.remove("rolledUpBy");
+        let legacy_bytes = serde_json::to_vec_pretty(&legacy_json).unwrap();
+        let path = dir
+            .path()
+            .join("recommendations/legacy-recommendation.json");
+        std::fs::write(&path, &legacy_bytes).unwrap();
+
+        let (records, hashes) = store.list_with_hashes().unwrap();
+        assert_eq!(hashes["legacy-recommendation"], hash_bytes(&legacy_bytes));
+        let mut changed = records[0].clone();
+        changed.updated_at = "2026-08-21T12:00:00Z".into();
+        let expected = BTreeMap::from([(
+            changed.id.clone(),
+            Some(hashes[changed.id.as_str()].clone()),
+        )]);
+
+        store
+            .apply_recommendation_graph_transaction(&expected, &[changed])
+            .unwrap();
+        assert_eq!(
+            store
+                .get("legacy-recommendation")
+                .unwrap()
+                .unwrap()
+                .updated_at,
+            "2026-08-21T12:00:00Z"
         );
     }
 
@@ -2076,6 +2187,43 @@ mod tests {
             .unwrap();
 
         assert!(store.get("parent").unwrap().is_none());
+        assert!(store.get("member-a").unwrap().is_none());
+        assert!(store.get("member-b").unwrap().is_none());
+    }
+
+    #[test]
+    fn session_cleanup_deletes_superseded_parents_that_still_reference_deleted_members() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let member_a = recommendation("member-a", "session-to-remove");
+        let member_b = recommendation("member-b", "session-keep");
+        let old_parent = rollup_parent("parent-old", &["member-a", "member-b"]);
+        let mut old_member_a = member_a.clone();
+        old_member_a.status = RecommendationStatus::RolledUp;
+        old_member_a.rolled_up_by = Some(old_parent.id.clone());
+        let mut old_member_b = member_b.clone();
+        old_member_b.status = RecommendationStatus::RolledUp;
+        old_member_b.rolled_up_by = Some(old_parent.id.clone());
+        store.put(&old_parent).unwrap();
+        store.put(&old_member_a).unwrap();
+        store.put(&old_member_b).unwrap();
+
+        let mut successor = rollup_parent("parent-new", &["member-a"]);
+        successor.workflow_improvement.supersedes_recommendation_id = Some(old_parent.id.clone());
+        store
+            .apply_rollup_transaction(
+                &expected_present(&[&old_parent, &old_member_a, &old_member_b]),
+                &successor,
+                &[member_a],
+            )
+            .unwrap();
+
+        store
+            .delete_referencing_session("session-to-remove")
+            .unwrap();
+
+        assert!(store.get("parent-old").unwrap().is_none());
+        assert!(store.get("parent-new").unwrap().is_none());
         assert!(store.get("member-a").unwrap().is_none());
         assert!(store.get("member-b").unwrap().is_none());
     }

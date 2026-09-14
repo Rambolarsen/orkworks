@@ -257,10 +257,21 @@ pub(crate) fn evaluate_workflow_improvements(
         }) {
             continue;
         }
-        if terminal_predecessor.is_some_and(|recommendation| {
-            !qualifying.iter().any(|observation| {
-                !recommendation
+        let terminal_evidence = terminal_predecessor.map(|recommendation| {
+            if prior.is_some_and(|recommendation| {
+                recommendation.status == RecommendationStatus::RolledUp
+            }) {
+                prior
+                    .expect("a rolled-up prior recommendation must exist")
                     .evidence
+                    .as_slice()
+            } else {
+                recommendation.evidence.as_slice()
+            }
+        });
+        if terminal_evidence.is_some_and(|evidence| {
+            !qualifying.iter().any(|observation| {
+                !evidence
                     .iter()
                     .any(|evidence| evidence.observation_id == observation.id)
             })
@@ -1298,5 +1309,44 @@ mod tests {
             Some("rollup-parent".into())
         );
         assert_eq!(updated[0].rollup_generation, Some(5));
+    }
+
+    #[test]
+    fn terminal_rollup_generation_compares_against_complete_member_evidence() {
+        let observations = (0..66)
+            .map(|sequence| {
+                observation(
+                    &format!("observation-{sequence}"),
+                    sequence + 1,
+                    &format!("session-{sequence}"),
+                    0.8,
+                    Impact::Medium,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut member = evaluate_workflow_improvements(
+            &observations,
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        )
+        .remove(0);
+        let mut parent = member.clone();
+        parent.id = "rollup-terminal-parent".into();
+        parent.status = RecommendationStatus::Dismissed;
+        parent.rollup_member_ids = vec![member.id.clone()];
+        parent.rollup_member_dedupe_keys = vec![member.dedupe_key.clone()];
+        parent.evidence.truncate(64);
+        member.status = RecommendationStatus::RolledUp;
+        member.rolled_up_by = Some(parent.id.clone());
+
+        let updated = evaluate_workflow_improvements(
+            &observations,
+            &[member, parent],
+            "workspace-1",
+            "2026-08-21T12:01:00Z",
+        );
+
+        assert!(updated.is_empty());
     }
 }
