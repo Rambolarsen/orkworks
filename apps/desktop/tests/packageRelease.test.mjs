@@ -35,11 +35,11 @@ test("electron-builder config declares signed release targets", () => {
   assert.deepEqual(config.win.target, ["nsis"]);
   assert.equal(config.win.verifyUpdateCodeSignature, true);
   assert.equal(config.win.forceCodeSigning, true);
+  assert.deepEqual(config.win.publisherName, []);
   assert.deepEqual(config.win.publish, {
     provider: "github",
     owner: "Rambolarsen",
     repo: "orkworks",
-    publisherName: [],
   });
 });
 
@@ -168,11 +168,11 @@ test("release workflow protects platform jobs and maps only their signing creden
   });
   assert.match(
     findStep(buildJob, "Package Windows (electron-builder)").run,
-    /config\.win\.publish\.publisherName = \[process\.env\.WIN_EXPECTED_PUBLISHER\]/,
+    /config\.win\.publisherName = \[process\.env\.WIN_EXPECTED_PUBLISHER\]/,
   );
   const windowsPackageRun = findStep(buildJob, "Package Windows (electron-builder)").run;
   assert.ok(
-    windowsPackageRun.indexOf("config.win.publish.publisherName")
+    windowsPackageRun.indexOf("config.win.publisherName")
       < windowsPackageRun.indexOf("pnpm package:release"),
   );
   assert.equal(

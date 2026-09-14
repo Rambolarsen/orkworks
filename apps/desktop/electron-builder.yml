@@ -44,7 +44,7 @@ win:
     provider: github
     owner: Rambolarsen
     repo: orkworks
-    publisherName: []
+  publisherName: []
   verifyUpdateCodeSignature: true
   forceCodeSigning: true
   artifactName: OrkWorks-${version}-win-${arch}.${ext}

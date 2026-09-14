@@ -140,10 +140,10 @@ jobs:
           const yaml = require("js-yaml");
           const configPath = "electron-builder.yml";
           const config = yaml.load(fs.readFileSync(configPath, "utf8"));
-          if (!Array.isArray(config.win?.publish?.publisherName) || config.win.publish.publisherName.length !== 0) {
+          if (!Array.isArray(config.win?.publisherName) || config.win.publisherName.length !== 0) {
             throw new Error("electron-builder Windows publisher placeholder is invalid");
           }
-          config.win.publish.publisherName = [process.env.WIN_EXPECTED_PUBLISHER];
+          config.win.publisherName = [process.env.WIN_EXPECTED_PUBLISHER];
           fs.writeFileSync(configPath, yaml.dump(config, { lineWidth: -1 }));
           '@
           pnpm package:release
