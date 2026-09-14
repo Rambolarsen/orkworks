@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { activeNewSessionHarnesses, canStartNewSession, normalizeActiveHarnessIds, syncDraftWithHarnesses } from "../src/newSessionDialogState.ts";
+import { activeNewSessionHarnesses, canStartNewSession, detectedSelectableHarnesses, normalizeActiveHarnessIds, syncDraftWithHarnesses } from "../src/newSessionDialogState.ts";
 import type { HarnessConfig } from "../src/harnessTypes.ts";
 
 function harness(id: string, name = id, defaultModel = ""): HarnessConfig {
@@ -108,4 +108,20 @@ test("canStartNewSession allows the empty-harness fallback when harnesses are un
   assert.equal(canStartNewSession([], ""), true);
   assert.equal(canStartNewSession([harness("codex")], ""), false);
   assert.equal(canStartNewSession([harness("codex")], "codex"), true);
+});
+
+test("detectedSelectableHarnesses keeps Shell and filters unavailable coding tools", () => {
+  const harnesses = [harness("opencode", "OpenCode"), harness("generic-shell", "Shell")];
+
+  assert.deepEqual(
+    detectedSelectableHarnesses(harnesses, new Set(["generic-shell"])).map((entry) => entry.id),
+    ["generic-shell"],
+  );
+  assert.equal(canStartNewSession(harnesses, "opencode", new Set(["generic-shell"])), false);
+  assert.equal(canStartNewSession(harnesses, "generic-shell", new Set(["generic-shell"])), true);
+});
+
+test("canStartNewSession rejects a stale harness when detection filters every tool", () => {
+  assert.equal(canStartNewSession([harness("opencode", "OpenCode")], "opencode", new Set()), false);
+  assert.equal(canStartNewSession([harness("opencode", "OpenCode")], "", new Set()), true);
 });

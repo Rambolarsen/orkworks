@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import type { IntegrationStatusResult } from "../harnessTypes";
-import type { IntegrationKey } from "../harnessIntegrationPresentation";
+import { getHarnessDetectionStatus } from "../harnessDetection";
 
 interface HarnessDetectionStatusProps {
   harnessId: string;
-  integrationKey?: IntegrationKey;
+  onResult?: (harnessId: string, result: IntegrationStatusResult | null) => void;
   refreshGeneration?: number;
 }
 
@@ -15,25 +15,24 @@ type DetectionState = "loading" | "detected" | "not-detected" | "unknown";
  * Independent of whether the tool is enabled. The row header shows this
  * regardless so the list is scannable at a glance, matching the design handoff.
  */
-export default function HarnessDetectionStatus({ harnessId, integrationKey, refreshGeneration = 0 }: HarnessDetectionStatusProps) {
+export default function HarnessDetectionStatus({ harnessId, onResult, refreshGeneration = 0 }: HarnessDetectionStatusProps) {
   const [result, setResult] = useState<IntegrationStatusResult | null>(null);
-  const integrationAdapterId = integrationKey?.adapterId;
-  const integrationTargetId = integrationKey?.targetId;
 
   useEffect(() => {
     let cancelled = false;
     setResult(null);
-    const request = integrationAdapterId && integrationTargetId
-      ? window.orkworks.getGroupedHarnessIntegrationStatus(integrationAdapterId, integrationTargetId).then((r) =>
-        r.ok ? { ok: true as const, status: r.group.status } : r)
-      : window.orkworks.getHarnessIntegrationStatus(harnessId);
+    onResult?.(harnessId, null);
+    const request = getHarnessDetectionStatus(harnessId);
     request.then((r) => {
-      if (!cancelled) setResult(r);
+      if (!cancelled) {
+        setResult(r);
+        onResult?.(harnessId, r);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [harnessId, integrationAdapterId, integrationTargetId, refreshGeneration]);
+  }, [harnessId, onResult, refreshGeneration]);
 
   const state: DetectionState =
     result === null

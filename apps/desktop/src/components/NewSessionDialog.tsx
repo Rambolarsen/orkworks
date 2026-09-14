@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { HarnessConfig, CreateSessionOptions } from "../harnessTypes";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { HarnessConfig, CreateSessionOptions, IntegrationStatusResult } from "../harnessTypes";
 import type { ProviderModelsResponse } from "../providerTypes";
 import type { ProviderRuntimeResponse } from "../api";
-import { canStartNewSession, selectableHarnesses, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
+import { getHarnessDetectionStatus } from "../harnessDetection";
+import { canStartNewSession, detectedSelectableHarnesses, syncDraftWithHarnesses, type NewSessionDraft } from "../newSessionDialogState";
 
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
@@ -31,15 +32,69 @@ function getSavedDraft(): NewSessionDraft | null {
 }
 
 function resolveInitialDraft(harnesses: HarnessConfig[]) {
-  return syncDraftWithHarnesses({ harnessId: "", model: "" }, harnesses, getSavedDraft());
+  const savedDraft = getSavedDraft();
+  if (savedDraft && harnesses.some((harness) => harness.id === savedDraft.harnessId && !harness.retired)) {
+    return savedDraft;
+  }
+  return syncDraftWithHarnesses(
+    { harnessId: "", model: "" },
+    harnesses,
+  );
 }
 
 export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm, onCancel }: NewSessionDialogProps) {
-  const selectable = selectableHarnesses(harnesses);
+  const harnessesKey = useMemo(
+    () => JSON.stringify(harnesses.map((harness) => [harness.id, harness.name, harness.retired, harness.launch, harness.integration])),
+    [harnesses],
+  );
+  const [detectionStatuses, setDetectionStatuses] = useState<Record<string, IntegrationStatusResult | undefined>>({});
+  const [detectionComplete, setDetectionComplete] = useState(false);
+  const detectedHarnessIds = useMemo(() => new Set([
+    "generic-shell",
+    ...Object.entries(detectionStatuses)
+      .filter(([, result]) => result?.ok === true && result.status.toolDetected)
+      .map(([harnessId]) => harnessId),
+  ]), [detectionStatuses]);
+  const selectable = useMemo(
+    () => detectedSelectableHarnesses(harnesses, detectedHarnessIds),
+    [detectedHarnessIds, harnessesKey],
+  );
   const [draft, setDraft] = useState(() => resolveInitialDraft(harnesses));
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const harnessSelectRef = useRef<HTMLSelectElement>(null);
+  const pendingHarness = !detectionComplete && draft.harnessId
+    ? harnesses.find((harness) => harness.id === draft.harnessId && !harness.retired && !selectable.some((entry) => entry.id === harness.id))
+    : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    setDetectionComplete(false);
+    setDetectionStatuses({});
+    void Promise.all(
+      harnesses
+        .filter((harness) => harness.id !== "generic-shell" && !harness.retired)
+        .map(async (harness) => {
+          try {
+            return [harness.id, await getHarnessDetectionStatus(harness)] as const;
+          } catch (error) {
+            return [harness.id, {
+              ok: false as const,
+              error: error instanceof Error ? error.message : "Coding tool detection unavailable.",
+            }] as const;
+          }
+        }),
+    ).then((entries) => {
+      if (!cancelled) {
+        setDetectionStatuses(Object.fromEntries(entries));
+        setDetectionComplete(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [harnessesKey]);
 
   useEffect(() => {
     harnessSelectRef.current?.focus();
@@ -57,8 +112,11 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [onCancel]);
 
   useEffect(() => {
-    setDraft((current) => syncDraftWithHarnesses(current, harnesses, getSavedDraft()));
-  }, [harnesses]);
+    if (!detectionComplete) return;
+    setDraft((current) => selectable.length === 0
+      ? { harnessId: "", model: "" }
+      : syncDraftWithHarnesses(current, selectable, getSavedDraft()));
+  }, [detectionComplete, selectable]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,19 +141,43 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
     });
   }
 
-  const handleConfirm = useCallback(() => {
-    const harnessId = draft.harnessId || undefined;
-    const model = draft.model.trim() || undefined;
-    if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
-    if (model) localStorage.setItem(LS_MODEL_KEY, model);
-    else localStorage.removeItem(LS_MODEL_KEY);
-    onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
-  }, [draft.harnessId, draft.model, initialPrompt, onConfirm]);
+  const handleConfirm = useCallback(async () => {
+    if (confirmBusy) return;
+    if (!canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) return;
+    const selectedHarness = selectable.find((harness) => harness.id === draft.harnessId);
+    setConfirmBusy(true);
+    try {
+      if (selectedHarness && selectedHarness.id !== "generic-shell") {
+        try {
+          const freshStatus = await getHarnessDetectionStatus(selectedHarness);
+          setDetectionStatuses((current) => ({ ...current, [selectedHarness.id]: freshStatus }));
+          if (freshStatus.ok !== true || !freshStatus.status.toolDetected) return;
+        } catch (error) {
+          setDetectionStatuses((current) => ({
+            ...current,
+            [selectedHarness.id]: {
+              ok: false,
+              error: error instanceof Error ? error.message : "Coding tool detection unavailable.",
+            },
+          }));
+          return;
+        }
+      }
+      const harnessId = draft.harnessId || undefined;
+      const model = draft.model.trim() || undefined;
+      if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
+      if (model) localStorage.setItem(LS_MODEL_KEY, model);
+      else localStorage.removeItem(LS_MODEL_KEY);
+      onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
+    } finally {
+      setConfirmBusy(false);
+    }
+  }, [confirmBusy, detectedHarnessIds, draft.harnessId, draft.model, initialPrompt, onConfirm, selectable]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
       if (e.target instanceof HTMLTextAreaElement) return;
-      if (canStartNewSession(harnesses, draft.harnessId)) {
+      if (canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)) {
         e.preventDefault();
         handleConfirm();
       }
@@ -135,15 +217,22 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
               className="new-session-select"
               value={draft.harnessId}
               onChange={(e) => handleHarnessChange(e.target.value)}
-              disabled={selectable.length === 0}
+              disabled={confirmBusy || (selectable.length === 0 && !pendingHarness)}
             >
-              {selectable.length === 0 ? (
+              {selectable.length === 0 && !pendingHarness ? (
                 <option value="">Default shell</option>
               ) : (
-                selectable.map((h) => {
+                <>
+                {pendingHarness && (
+                  <option value={pendingHarness.id} disabled>
+                    {pendingHarness.name} (checking availability…)
+                  </option>
+                )}
+                {selectable.map((h) => {
                   const state = providerRuntime?.providers.find((p) => p.id === h.id)?.effectiveState;
                   return <option key={h.id} value={h.id}>{harnessLabel(h.name, state)}</option>;
-                })
+                })}
+                </>
               )}
             </select>
           </div>
@@ -186,7 +275,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
             type="button"
             className="new-session-confirm"
             onClick={handleConfirm}
-            disabled={!canStartNewSession(harnesses, draft.harnessId)}
+            disabled={confirmBusy || !canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
           >
             Start
           </button>
