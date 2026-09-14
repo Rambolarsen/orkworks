@@ -13,10 +13,12 @@ stapled. Windows releases will be Authenticode signed and verified. macOS ZIP
 artifacts and electron-builder update metadata will be published alongside the
 existing DMG and NSIS artifacts.
 
-This unit wires the build and verification path. It does not implement runtime
+This unit wires the build and verification path, including verification of the
+actual downloadable/installable artifacts. It does not implement runtime
 update checks, downloads, restart/install UI, nightly publication, channel
-selection, or installed-app update testing; those remain issues #511 and #510
-respectively.
+selection, or older-installed-build-to-newer-build update testing. Runtime
+updating and installed update testing remain issue #511; nightly publication
+remains issue #510.
 
 ## Decisions
 
@@ -35,6 +37,10 @@ respectively.
 - Keep `--publish never` in the platform build jobs. They produce complete
   local artifacts and metadata; the existing publish job uploads them only
   after every platform has passed verification.
+- Require the platform jobs to use the protected GitHub Actions `release`
+  environment. The repository must configure required reviewers for that
+  environment and restrict the release workflow to protected `v*` tags before
+  signing credentials are added.
 - Do not hard-code a Windows publisher name before a certificate exists.
   electron-builder derives the publisher from the signing certificate and
   embeds it for updater verification. CI will compare the signed subject to
@@ -52,8 +58,9 @@ Update `apps/desktop/electron-builder.yml` as follows:
 - Add minimal parent and inherited entitlement files under
   `apps/desktop/build/` containing Electron's JIT and unsigned-executable
   memory entitlements.
-- Set `mac.binaries` to `Contents/Resources/orkworksd`, the path of the
-  bundled Rust executable inside the packaged app bundle.
+- Set `mac.binaries` to an explicit list containing
+  `Contents/Resources/orkworksd`, the path of the bundled Rust executable
+  relative to the `.app` bundle.
 - Set `mac.forceCodeSigning: true`.
 - Keep the Windows NSIS target and set `win.verifyUpdateCodeSignature: true`
   and `win.forceCodeSigning: true`.
@@ -84,6 +91,20 @@ The workflow maps the macOS certificate secret to electron-builder's shared
 only in the macOS job. Secret values are never printed, written to tracked
 files, or passed to the packaged application.
 
+`APPLE_TEAM_ID` is retained in the macOS environment contract because it
+identifies the Apple Developer team associated with the Developer ID
+certificate and notarization key. The API-key activation set is
+`APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`; the team ID is
+also supplied as required by the selected electron-builder/notarization
+configuration.
+
+`WIN_EXPECTED_PUBLISHER` is a protected environment variable rather than a
+secret: it must equal the exact publisher subject/CN represented by the
+Windows certificate. The verifier will compare the certificate subject and
+the generated `app-update.yml` publisher value with this variable. This binds
+the artifact to the intended identity without guessing that identity in
+source control.
+
 The operator documentation will explain how to export and base64-encode the
 `.p12`, `.pfx`, and `.p8` files, create the protected environment, and rotate
 credentials. It will explicitly state that self-signed Windows certificates
@@ -103,10 +124,14 @@ For each tagged release:
    installer, `latest*.yml`, and blockmap metadata.
 5. A release verifier checks the expected artifacts, updater metadata, and
    packaged resources. Platform-native signature checks then validate the
-   actual signatures and certificate chains.
-6. A Node checksum helper writes `SHA256SUMS.txt` for all distributable files.
-7. The job uploads the distributables and metadata as a workflow artifact.
-8. The existing publish job creates the draft GitHub release only after both
+   actual signatures and certificate chains in the staged app.
+6. The native smoke checks validate the actual downloadable artifacts: macOS
+   mounts the DMG and extracts the ZIP before checking the contained app;
+   Windows runs the existing installer smoke flow against the signed NSIS
+   artifact and checks the installed app and sidecar.
+7. A Node checksum helper writes `SHA256SUMS.txt` for all distributable files.
+8. The job uploads the distributables and metadata as a workflow artifact.
+9. The existing publish job creates the draft GitHub release only after both
    platform jobs succeed.
 
 The platform jobs remain independent for build execution, but `publish.needs`
@@ -119,25 +144,42 @@ replace the last usable release with a partial one.
 The existing `verifyReleaseArtifact.mjs` contract will be extended to require:
 
 - macOS DMG, ZIP, `latest-mac.yml`, ZIP blockmap, `SHA256SUMS.txt`, unpacked
-  app, signed Rust sidecar, hook scripts, and knowledge resources;
+  app-update metadata, unpacked app, signed Rust sidecar, hook scripts, and
+  knowledge resources;
 - Windows NSIS, `latest.yml`, installer blockmap, `SHA256SUMS.txt`, unpacked
-  app, signed app executable, signed Rust sidecar, hook scripts, and knowledge
-  resources.
+  app-update metadata, unpacked app, signed app executable, signed Rust
+  sidecar, hook scripts, and knowledge resources.
+
+The metadata verifier will parse each `latest*.yml` and assert that its version
+matches the package version, every referenced artifact exists, every declared
+SHA-512 digest matches the referenced file, and the blockmap points at the
+same artifact. The checksum helper will sort entries deterministically and
+will exclude `SHA256SUMS.txt` from its own manifest.
 
 The release workflow will run these native checks before artifact upload:
 
-- macOS: `codesign --verify --deep --strict --verbose=2` on the app and
-  sidecar, `spctl --assess --type execute` on the app, and
-  `xcrun stapler validate` on the app.
-- Windows: `signtool verify /pa /all /v` or the runner's equivalent native
-  Authenticode verifier on the NSIS installer, unpacked app executable, and
-  Rust sidecar; the verifier will compare the certificate subject with
+- macOS: mount the produced DMG read-only and extract the produced ZIP; for
+  each contained app run `codesign --verify --deep --strict --verbose=2`,
+  `spctl --assess --type execute`, and `xcrun stapler validate`. Verify the
+  Rust sidecar directly as an in-bundle executable. Detach the DMG in cleanup
+  even when validation fails.
+- Windows: run the existing installer smoke test against the exact signed
+  NSIS artifact, then run `signtool verify /pa /all /v` or the runner's
+  equivalent native Authenticode verifier on the installer, installed app
+  executable, and installed Rust sidecar. Compare the certificate subject and
+  generated `resources/app-update.yml` publisher with
   `WIN_EXPECTED_PUBLISHER`.
 
 No source-only test will claim that an artifact is trusted. The repository can
-test configuration and workflow wiring without credentials; actual signing,
-notarization, certificate-chain, and stapling checks require the trusted
+test configuration, metadata contents, checksum generation, and workflow
+wiring without credentials; actual signing, notarization, certificate-chain,
+stapling, DMG/ZIP validation, and installer validation require the trusted
 release environment and real platform runners.
+
+Because `forceCodeSigning` is platform-specific, release-equivalent macOS and
+Windows packaging intentionally requires signing credentials. Linux packaging
+and normal local development commands are unaffected; there is no need to add
+an unsigned release mode that could weaken the tagged release gate.
 
 ## Tests
 
@@ -149,9 +191,17 @@ Add or extend Node tests to pin:
 - platform-specific forced signing;
 - GitHub provider ownership and repository;
 - expected updater metadata, blockmaps, and checksum manifest;
+- metadata versions, referenced filenames, SHA-512 digests, blockmap targets,
+  deterministic checksum ordering, and exclusion of the checksum file from
+  itself;
 - release workflow secret mapping and ordering of packaging, verification,
   checksum generation, and upload;
 - rejection of unsigned/missing expected files in the release verifier.
+
+The platform smoke tests will additionally prove that the signed DMG and ZIP
+contain a verifiable app and that the signed NSIS installer produces a
+verifiable installed app and sidecar. The Windows tests will pin the
+`app-update.yml` publisher identity to `WIN_EXPECTED_PUBLISHER`.
 
 The existing desktop test commands remain the local verification baseline. A
 real credential-backed macOS and Windows release run is an external delivery
