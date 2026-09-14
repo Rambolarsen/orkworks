@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -70,6 +71,26 @@ function requireFile(path, description) {
   return stats;
 }
 
+function resolveContainedRealPath(realReleaseRoot, path, description) {
+  let realPath;
+  try {
+    realPath = realpathSync(path);
+  } catch (error) {
+    throw new Error(`${description}: ${path}`, { cause: error });
+  }
+
+  const relativePath = relative(realReleaseRoot, realPath);
+  if (
+    relativePath.length === 0
+    || relativePath === ".."
+    || relativePath.startsWith(`..${sep}`)
+    || isAbsolute(relativePath)
+  ) {
+    throw new Error(`${description} escapes release directory: ${path}`);
+  }
+  return realPath;
+}
+
 export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion }) {
   if (typeof expectedVersion !== "string" || expectedVersion.length === 0) {
     throw new Error("expected release version is invalid");
@@ -88,6 +109,8 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
     throw new Error(`release metadata has no files: ${metadataPath}`);
   }
 
+  const releaseRoot = resolve(releaseDir);
+  const realReleaseRoot = realpathSync(releaseRoot);
   const files = metadata.files.map((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error("release metadata contains an invalid files entry");
@@ -100,7 +123,12 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
     }
 
     const payloadPath = resolvePayloadPath(releaseDir, entry.url);
-    const payloadStats = requireFile(payloadPath, "missing payload");
+    const realPayloadPath = resolveContainedRealPath(
+      realReleaseRoot,
+      payloadPath,
+      "missing payload",
+    );
+    const payloadStats = requireFile(realPayloadPath, "missing payload");
     if (payloadStats.size !== entry.size) {
       throw new Error(
         `release metadata size mismatch for ${entry.url}: expected ${entry.size}, got ${payloadStats.size}`,
@@ -108,13 +136,18 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
     }
 
     const digest = createHash("sha512")
-      .update(readFileSync(payloadPath))
+      .update(readFileSync(realPayloadPath))
       .digest("base64");
     if (digest !== entry.sha512) {
       throw new Error(`release metadata SHA-512 digest mismatch for ${entry.url}`);
     }
 
-    requireFile(`${payloadPath}.blockmap`, "missing blockmap");
+    const blockmapPath = resolveContainedRealPath(
+      realReleaseRoot,
+      `${payloadPath}.blockmap`,
+      "missing blockmap",
+    );
+    requireFile(blockmapPath, "missing blockmap");
     return entry;
   });
 
