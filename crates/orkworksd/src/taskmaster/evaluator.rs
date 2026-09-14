@@ -640,7 +640,6 @@ fn apply_provider_output(
         );
         return false;
     }
-    let rollups = model.rollups.clone().unwrap_or_default();
     if rollup_request.is_some()
         && !rollup_application_is_current(state, runtime, snapshot, rollup_request.unwrap())
     {
@@ -652,7 +651,7 @@ fn apply_provider_output(
         );
         return false;
     }
-    let model_applied = apply_model_output_parsed(
+    apply_model_output_parsed(
         state.as_ref(),
         runtime,
         snapshot,
@@ -661,22 +660,8 @@ fn apply_provider_output(
         facts,
         supplied_recommendations,
         model,
-    );
-    let rollup_applied = rollup_request.is_some_and(|request| {
-        apply_rollup_model_clusters(
-            state,
-            runtime,
-            snapshot,
-            &request.token,
-            &request.snapshots,
-            &rollups,
-        )
-    });
-    if rollup_request.is_some() {
-        model_applied && rollup_applied
-    } else {
-        model_applied
-    }
+        rollup_request,
+    )
 }
 
 fn rollup_application_is_current(
@@ -803,6 +788,7 @@ fn apply_model_output_parsed(
     facts: &[crate::taskmaster::RepositoryEvidence],
     supplied_recommendations: &[Recommendation],
     model: ModelOutput,
+    rollup_request: Option<&RollupEvaluationRequest>,
 ) -> bool {
     let bundle = snapshot.knowledge.as_ref();
     let page_map = bundle
@@ -864,6 +850,7 @@ fn apply_model_output_parsed(
     {
         return false;
     }
+    let rollups = model.rollups.clone().unwrap_or_default();
     let mut accepted = false;
     let _ = runtime.with_current_evaluation(&state.harness_store, workspace_path, snapshot, || {
     let workspace = state.workspace.lock().expect("workspace lock poisoned");
@@ -878,6 +865,7 @@ fn apply_model_output_parsed(
     let Ok(recommendations) = workspace.recommendation_store.list() else {
         return;
     };
+    let mut updates = Vec::new();
     for enrichment in model.enrichments {
         let Some(mut recommendation) = recommendations
             .iter()
@@ -909,7 +897,7 @@ fn apply_model_output_parsed(
             });
         }
         recommendation.updated_at = chrono::Utc::now().to_rfc3339();
-        if workspace.recommendation_store.put(&recommendation).is_err() { return; }
+        updates.push(recommendation);
     }
     for proposal in model.proposals {
         let target_surface =
@@ -968,9 +956,19 @@ fn apply_model_output_parsed(
             workflow_improvement: WorkflowImprovement { proposed_improvement: proposal.summary, target_surface, observation_ids: Vec::new(), recurrence_count: 0, affected_session_ids: Vec::new(), impact: Impact::Low, expected_benefit: "Hypothesis based on the cited repository facts.".into(), supersedes_recommendation_id: None, dismissal_watermark: None },
             rollup_member_ids: Vec::new(), rollup_member_dedupe_keys: Vec::new(), rollup_generation: None, rolled_up_by: None,
         };
-        if workspace.recommendation_store.put(&recommendation).is_err() { return; }
+        updates.push(recommendation);
     }
-    accepted = true;
+    if let Some(request) = rollup_request {
+        accepted = SessionApplication::apply_rollup_clusters_locked(
+            workspace, request.token.workspace_instance, &request.snapshots,
+            &rollups, request.token.generation, &updates,
+        );
+    } else {
+        for recommendation in updates {
+            if workspace.recommendation_store.put(&recommendation).is_err() { return; }
+        }
+        accepted = true;
+    }
     });
     accepted
 }

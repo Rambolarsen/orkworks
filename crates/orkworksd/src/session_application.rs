@@ -425,6 +425,26 @@ impl SessionApplication {
         let Some(workspace) = workspace_guard.as_ref() else {
             return false;
         };
+        Self::apply_rollup_clusters_locked(
+            workspace,
+            workspace_instance,
+            supplied_snapshots,
+            clusters,
+            generation,
+            &[],
+        )
+    }
+
+    /// The caller holds the workspace lock. Legacy updates and the rollup graph
+    /// are staged together so any validation failure leaves both unchanged.
+    pub(crate) fn apply_rollup_clusters_locked(
+        workspace: &WorkspaceState,
+        workspace_instance: u64,
+        supplied_snapshots: &[RollupFamilySnapshot],
+        clusters: &[RollupCluster],
+        generation: u64,
+        legacy_updates: &[Recommendation],
+    ) -> bool {
         if !Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots) {
             return false;
         }
@@ -433,6 +453,14 @@ impl SessionApplication {
             return false;
         };
 
+        let mut projected = current
+            .into_iter()
+            .map(|item| (item.id.clone(), item))
+            .collect::<BTreeMap<_, _>>();
+        for update in legacy_updates {
+            projected.insert(update.id.clone(), update.clone());
+        }
+        let current = projected.into_values().collect::<Vec<_>>();
         let now = chrono::Utc::now().to_rfc3339();
         let mut working = current
             .iter()
@@ -461,6 +489,9 @@ impl SessionApplication {
             .map(|cluster| stable_rollup_id(&cluster.member_recommendation_ids))
             .collect::<BTreeSet<_>>();
         let mut expected = BTreeMap::new();
+        for update in legacy_updates {
+            add_expected(&update.id, &mut expected);
+        }
         for cluster in clusters {
             let member_ids = cluster
                 .member_recommendation_ids

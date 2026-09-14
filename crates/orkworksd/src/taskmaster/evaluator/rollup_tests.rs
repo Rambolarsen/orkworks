@@ -1283,3 +1283,80 @@ fn omitted_rollups_are_not_an_authoritative_empty_result() {
     assert!(parse_rollup_model_output(legacy_only, &request.snapshots).is_err());
     assert!(parse_provider_response(legacy_only, None).is_ok());
 }
+
+#[test]
+fn evidence_change_after_preflight_cannot_apply_legacy_enrichment() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(rollup_application_is_current(
+        &state, &runtime, &snapshot, &request
+    ));
+    {
+        let guard = state.workspace.lock().unwrap();
+        let store = &guard.as_ref().unwrap().recommendation_store;
+        let mut changed = store.get("a").unwrap().unwrap();
+        changed.evidence[0].evidence = "Changed after preflight".into();
+        store.put(&changed).unwrap();
+    }
+    let before = stored_recommendations(&state);
+    let response = serde_json::json!({"enrichments":[{"dedupeKey":"exact:c","knowledgePageIds":[]}],"rollups":[cluster(&["a", "b"])]}).to_string();
+    let model = parse_provider_response(&response, Some(&request.snapshots)).unwrap();
+    assert!(!apply_model_output_parsed(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        workspace_instance(&state),
+        &[],
+        &recommendations,
+        model,
+        Some(&request)
+    ));
+    assert_eq!(stored_recommendations(&state), before);
+}
+
+#[test]
+fn dissolved_parent_cannot_reopen_without_a_new_family_generation() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let request = build_rollup_request(
+        workspace_instance(&state),
+        &snapshot,
+        &stored_recommendations(&state),
+    )
+    .unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &output(&[])
+    ));
+    let before = stored_recommendations(&state);
+    let request = build_rollup_request(workspace_instance(&state), &snapshot, &before).unwrap();
+    let response = serde_json::json!({"enrichments":[{"dedupeKey":"exact:c","knowledgePageIds":[]}],"rollups":[cluster(&["a", "b"])]}).to_string();
+    assert!(!apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &response
+    ));
+    assert_eq!(stored_recommendations(&state), before);
+}
