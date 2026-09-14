@@ -434,6 +434,161 @@ fn normalize_generic_instruction(label: &str) -> String {
         .to_ascii_lowercase()
 }
 
+fn input_mentions_prompt_example_topic(input_hint: &str) -> bool {
+    const PROMPT_EXAMPLE_TOPIC: &[&[&str]] = &[
+        &["peon"],
+        &["model"],
+        &["detection", "detector", "detecting", "detect"],
+    ];
+    const INCIDENTAL_REFERENCES: &[&str] = &[
+        "about",
+        "context",
+        "describe",
+        "described",
+        "documentation",
+        "example",
+        "literally",
+        "mention",
+        "mentions",
+        "mentioned",
+        "note",
+        "notes",
+        "phrase",
+        "prompt",
+        "quote",
+        "quoted",
+        "regarding",
+        "related",
+        "text",
+        "wording",
+    ];
+    const ALTERNATIVE_REFERENCES: &[&str] = &["instead", "other", "rather"];
+    const TASK_ACTIONS: &[&str] = &[
+        "add",
+        "address",
+        "analyze",
+        "audit",
+        "build",
+        "check",
+        "clean",
+        "configure",
+        "debug",
+        "define",
+        "detect",
+        "diagnose",
+        "document",
+        "enable",
+        "ensure",
+        "fix",
+        "handle",
+        "harden",
+        "implement",
+        "improve",
+        "inspect",
+        "investigate",
+        "migrate",
+        "monitor",
+        "optimize",
+        "refactor",
+        "remove",
+        "repair",
+        "resolve",
+        "review",
+        "run",
+        "support",
+        "test",
+        "trace",
+        "update",
+        "verify",
+    ];
+
+    input_hint
+        .split([';', ',', '.', '!', '?', '\n'])
+        .map(normalize_generic_instruction)
+        .any(|clause| {
+            let words: Vec<_> = clause.split_whitespace().collect();
+            let mentions_topic = PROMPT_EXAMPLE_TOPIC.iter().all(|variants| {
+                variants
+                    .iter()
+                    .any(|word| words.iter().any(|input_word| input_word == word))
+            });
+            let topic_start = PROMPT_EXAMPLE_TOPIC
+                .iter()
+                .filter_map(|variants| {
+                    variants
+                        .iter()
+                        .filter_map(|word| words.iter().position(|input_word| input_word == word))
+                        .min()
+                })
+                .min()
+                .unwrap_or(words.len());
+            let task_segment_start = words[..topic_start]
+                .iter()
+                .rposition(|word| matches!(*word, "and" | "but" | "while" | "whereas"))
+                .map_or(0, |index| index + 1);
+            let task_segment = &words[task_segment_start..];
+            let task_action = words[task_segment_start..topic_start]
+                .iter()
+                .any(|word| TASK_ACTIONS.contains(word))
+                || words[..topic_start]
+                    .iter()
+                    .rposition(|word| *word == "and")
+                    .is_some_and(|and_index| {
+                        words[..and_index]
+                            .iter()
+                            .any(|word| TASK_ACTIONS.contains(word))
+                    });
+            let negated = task_segment
+                .iter()
+                .any(|word| matches!(*word, "not" | "never" | "without"))
+                || task_segment.windows(2).any(|pair| {
+                    matches!(
+                        pair,
+                        [
+                            "aren"
+                                | "can"
+                                | "couldn"
+                                | "didn"
+                                | "doesn"
+                                | "don"
+                                | "hadn"
+                                | "hasn"
+                                | "haven"
+                                | "isn"
+                                | "mightn"
+                                | "mustn"
+                                | "needn"
+                                | "shouldn"
+                                | "wasn"
+                                | "weren"
+                                | "won"
+                                | "wouldn",
+                            "t"
+                        ]
+                    )
+                });
+            let incidental_reference = task_segment
+                .iter()
+                .any(|word| INCIDENTAL_REFERENCES.contains(word));
+            let alternative_reference = task_segment
+                .iter()
+                .any(|word| ALTERNATIVE_REFERENCES.contains(word));
+
+            mentions_topic
+                && task_action
+                && !negated
+                && !incidental_reference
+                && !alternative_reference
+        })
+}
+
+fn is_prompt_example_label(normalized_label: &str) -> bool {
+    const PROMPT_EXAMPLE_LABEL: &[&str] = &["fixing", "peon", "model", "detection"];
+
+    let words: Vec<_> = normalized_label.split_whitespace().collect();
+    words.starts_with(PROMPT_EXAMPLE_LABEL)
+}
+
 /// Returns whether an input-triggered label names the task and retains all PR
 /// numbers explicitly mentioned in the submitted input.
 pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
@@ -443,10 +598,11 @@ pub fn is_usable_input_label(label: &str, input_hint: &str) -> bool {
         "instructing agent",
         "instructing the agent",
     ];
-
-    let normalized = normalize_generic_instruction(label);
+    let normalized = normalize_generic_instruction(&normalize_summary(label));
     let candidate_pr_numbers = referenced_pr_numbers(label);
     !normalized.is_empty()
+        && (!is_prompt_example_label(&normalized)
+            || input_mentions_prompt_example_topic(input_hint))
         && !GENERIC_PREFIXES
             .iter()
             .any(|prefix| normalized.starts_with(prefix))
@@ -847,7 +1003,7 @@ Available fields:
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
 - workflowObservations: array of at most five concrete workflow-friction candidates. Each candidate must have kind (one of repetition, obstacle, missing_context, assumption, correction, workaround, verification_gap), description, optional problemArea (a short neutral recurring-problem identity, under eight words; omit task verbs, IDs, PR numbers, timestamps, and transient evidence), evidence, reportedImpact (low, medium, or high), and confidence from 0.0 to 1.0. Only report friction that made the work harder than necessary; never report ordinary progress, terminal redraws, or speculative advice.
 
-If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Examples: \"Fixing peon model detection\" not \"User is fixing peon model detection\". \"Reviewing PR feedback\" not \"User wants to review PR feedback\". Keep it under 8 words. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
+If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Keep it under 8 words and use only concrete task information present in the terminal output. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
 const MAX_WORKFLOW_CANDIDATES: usize = 5;
 
@@ -2130,6 +2286,98 @@ mod tests {
     }
 
     #[test]
+    fn input_label_validator_rejects_the_prompt_example_label() {
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "fix the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing the login redirect",
+            "fix the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix peon model detection",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix Peon's model detection",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix model detection in Peon",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix peon model detection, not the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "fix Peon's model detector",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "Do not change the UI, just fix peon model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection PR #249",
+            "review PR #249 login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection PR #249",
+            "fix peon model detection for PR #249",
+        ));
+        assert!(is_usable_input_label(
+            "User is fixing peon model detection",
+            "fix the Peon's model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "Do not fix peon model detection; fix the login redirect",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "review the login redirect and mention peon model detection in the notes",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "peon model detection is not needed",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "fix the login redirect and quote the prompt example \"Fixing peon model detection\"",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "fix the login redirect instead of peon model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "The login redirect is broken; peon model detection is a separate concern",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection",
+            "The login redirect doesn't involve peon model detection",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection issue",
+            "fix the login redirect",
+        ));
+        assert!(!is_usable_input_label(
+            "Fixing peon model detection for the login redirect",
+            "fix the login redirect",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection issue",
+            "fix the login redirect and peon model detection",
+        ));
+        assert!(is_usable_input_label(
+            "Fixing peon model detection",
+            "resolve peon model detection",
+        ));
+    }
+
+    #[test]
     fn input_label_contract_preserves_explicit_prs_and_rejects_generic_controls() {
         // The prompt instructs the provider to retain every explicit PR
         // reference and avoid generic control-language labels. Validation
@@ -2170,6 +2418,13 @@ mod tests {
         let prompt = build_prompt(&[long_input]);
 
         assert!(prompt.contains("Required PR references: #249"));
+    }
+
+    #[test]
+    fn build_prompt_does_not_include_a_task_specific_label_example() {
+        let prompt = build_prompt(&[]);
+
+        assert!(!prompt.contains("Fixing peon model detection"));
     }
 
     #[test]
