@@ -122,6 +122,21 @@ test("missing packaged resources identify the failing path", () => {
   );
 });
 
+test("installer is verified once when it is also the first distributable", () => {
+  const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
+  const installerStats = [];
+  const fakeFs = {
+    statSync(path) {
+      if (path === expectation.installerPath) installerStats.push(path);
+      return { isFile: () => true, isDirectory: () => true, size: 1 };
+    },
+  };
+
+  verifyReleaseArtifact(expectation, fakeFs, passingMetadataModule);
+
+  assert.deepEqual(installerStats, [expectation.installerPath]);
+});
+
 test("metadata validation failures identify the metadata path", () => {
   const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
   const fakeFs = {
@@ -129,15 +144,22 @@ test("metadata validation failures identify the metadata path", () => {
       return { isFile: () => true, isDirectory: () => true, size: 1 };
     },
   };
+  const metadataCalls = [];
 
   assert.throws(
     () => verifyReleaseArtifact(expectation, fakeFs, {
-      verifyUpdateMetadata() {
+      verifyUpdateMetadata(...args) {
+        metadataCalls.push(args);
         throw new Error("invalid metadata");
       },
     }),
     (error) => error instanceof Error && error.message.includes(expectation.metadataPath),
   );
+  assert.deepEqual(metadataCalls, [[{
+    metadataPath: expectation.metadataPath,
+    releaseDir: expectation.releaseDir,
+    expectedVersion: expectation.version,
+  }]]);
 });
 
 test("missing hook scripts identify the exact packaged file", () => {

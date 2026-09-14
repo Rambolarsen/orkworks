@@ -77,7 +77,6 @@ export function verifyReleaseArtifact(
   fsModule = { statSync: defaultStatSync },
   metadataModule = defaultMetadataModule,
 ) {
-  assertPath(fsModule, expectation.installerPath, "installer", "file");
   for (const distributablePath of expectation.distributablePaths) {
     assertPath(fsModule, distributablePath, "distributable", "file");
   }
