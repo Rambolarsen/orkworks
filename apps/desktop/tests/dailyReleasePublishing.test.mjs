@@ -6,7 +6,11 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { expectedReleaseAssetNames, sourceMarker } from "../scripts/dailyRelease.mjs";
-import { prepareDailyRelease, stageNightlyVersions } from "../scripts/prepareDailyRelease.mjs";
+import {
+  loadNightlyReleaseState,
+  prepareDailyRelease,
+  stageNightlyVersions,
+} from "../scripts/prepareDailyRelease.mjs";
 import { publishDailyRelease, readReleaseAssets } from "../scripts/publishDailyRelease.mjs";
 
 const SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -65,6 +69,92 @@ function createAssets() {
     .join("\n") + "\n");
   return assets;
 }
+
+function publishedRelease({
+  id,
+  version = VERSION,
+  sourceSha = SOURCE_SHA,
+  assets = createAssets(),
+  tag = `v${version}`,
+}) {
+  return {
+    id,
+    tag_name: tag,
+    body: sourceMarker(sourceSha),
+    draft: false,
+    prerelease: true,
+    assets: Object.entries(assets).map(([name, value], index) => ({
+      id: id * 100 + index,
+      name,
+      size: value.length,
+      digest: `sha256:${sha256(value)}`,
+      browser_download_url: `https://github.com/Rambolarsen/orkworks/releases/download/${tag}/${encodeURIComponent(name)}`,
+    })),
+  };
+}
+
+test("loads validated nightly state across pagination and tag kinds", async () => {
+  const assets = createAssets();
+  const damagedVersion = "0.2.0-nightly.20260914.9.1";
+  const damagedSourceSha = "f".repeat(40);
+  const damaged = publishedRelease({ id: 4, version: damagedVersion, sourceSha: damagedSourceSha });
+  damaged.assets = damaged.assets.filter((asset) => asset.name !== "nightly.yml");
+  const valid = publishedRelease({ id: 5, assets });
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    if (url.endsWith("/releases?per_page=100")) {
+      return Response.json([damaged], {
+        headers: { link: '<https://api.github.com/repos/Rambolarsen/orkworks/releases?per_page=100&page=2>; rel="next"' },
+      });
+    }
+    if (url.endsWith("/releases?per_page=100&page=2")) return Response.json([valid]);
+    if (url.endsWith(`/git/ref/tags/${encodeURIComponent(damaged.tag_name)}`)) {
+      return Response.json({ ref: `refs/tags/${damaged.tag_name}`, object: { type: "commit", sha: damagedSourceSha } });
+    }
+    if (url.endsWith(`/git/ref/tags/${encodeURIComponent(valid.tag_name)}`)) {
+      return Response.json({ ref: `refs/tags/${valid.tag_name}`, object: { type: "tag", sha: "a".repeat(40) } });
+    }
+    if (url.endsWith(`/git/tags/${"a".repeat(40)}`)) {
+      return Response.json({ object: { type: "commit", sha: SOURCE_SHA } });
+    }
+    const asset = valid.assets.find((candidate) => candidate.browser_download_url === url);
+    if (asset) return new Response(assets[asset.name]);
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl,
+  });
+
+  assert.deepEqual(state.publishedNightlyVersions, [damagedVersion, VERSION]);
+  assert.deepEqual(state.validated.map(({ sourceSha, version }) => ({ sourceSha, version })), [
+    { sourceSha: SOURCE_SHA, version: VERSION },
+  ]);
+  assert.ok(calls.some((url) => url.includes("page=2")));
+  assert.ok(calls.some((url) => url.includes("/git/tags/")));
+});
+
+test("remote nightly state rejects duplicate source markers", async () => {
+  const first = publishedRelease({ id: 6 });
+  const second = publishedRelease({ id: 7, version: "0.2.0-nightly.20260916.123456790.1" });
+  first.assets = [];
+  second.assets = [];
+  await assert.rejects(() => loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([first, second]);
+      if (url.includes("/git/ref/tags/")) {
+        const tag = decodeURIComponent(url.slice(url.lastIndexOf("/") + 1));
+        return Response.json({ ref: `refs/tags/${tag}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    },
+  }), /multiple published nightlies claim source SHA/i);
+});
 
 test("publishes only after the uploaded draft passes the full integrity predicate", async () => {
   const localAssets = createAssets();

@@ -342,6 +342,34 @@ test("tag creation adopts only the exact source and retries an absent ambiguous 
   assert.equal(calls.filter((call) => call.method === "POST").length, 2);
 });
 
+test("tag creation adopts an exact tag after a malformed success response", async () => {
+  const tag = `v${VERSION}`;
+  let reads = 0;
+  let writes = 0;
+  const fetchImpl = async (_url, options = {}) => {
+    if ((options.method ?? "GET") === "POST") {
+      writes += 1;
+      return new Response("not json", { status: 201 });
+    }
+    reads += 1;
+    return reads === 1
+      ? jsonResponse(404, { message: "missing" })
+      : jsonResponse(200, {
+        ref: `refs/tags/${tag}`,
+        object: { type: "commit", sha: SOURCE_SHA },
+      });
+  };
+
+  assert.deepEqual(await ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    tag,
+    sourceSha: SOURCE_SHA,
+    fetchImpl,
+  }), { tag, sourceSha: SOURCE_SHA });
+  assert.equal(writes, 1);
+});
+
 test("tag creation never overwrites a mismatched existing tag", async () => {
   let writes = 0;
   await assert.rejects(() => ensureTagAtSource({

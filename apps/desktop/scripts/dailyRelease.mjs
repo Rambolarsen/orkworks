@@ -415,18 +415,14 @@ export async function ensureTagAtSource({ repository, token, tag, sourceSha, fet
   }
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    let response;
     try {
-      response = await fetchImpl(`${repositoryApiBase(repository)}/git/refs`, {
+      await fetchImpl(`${repositoryApiBase(repository)}/git/refs`, {
         method: "POST",
         headers: { ...githubHeaders(token), "content-type": "application/json" },
         body: JSON.stringify({ ref: `refs/tags/${tag}`, sha: sourceSha }),
       });
     } catch {
-      response = null;
-    }
-    if (response?.status === 201) {
-      await readJson(response, `create tag ${tag}`);
+      // A failed write is ambiguous until the authoritative tag read below.
     }
     const observed = await readTag({ repository, token, tag, fetchImpl });
     if (observed === sourceSha) return { tag, sourceSha };
