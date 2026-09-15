@@ -9,6 +9,7 @@ import {
   expectedReleaseAssetNames,
   getTagTarget,
   listAllReleases,
+  listNightlyTagVersions,
   parseNightlyChannelTag,
   parseNightlyTag,
   parseSourceMarker,
@@ -81,11 +82,20 @@ export function stageNightlyVersionFiles({ repoRoot, version }) {
   writeFileSync(lockPath, staged.cargoLock);
 }
 
-export async function loadNightlyReleaseState({ repository, token, sourceSha, fetchImpl = fetch }) {
+export async function loadNightlyReleaseState({
+  repository,
+  token,
+  sourceSha,
+  fetchImpl = fetch,
+  listTagVersions = listNightlyTagVersions,
+}) {
   sourceMarker(sourceSha);
-  const releases = await listAllReleases({ repository, token, fetchImpl });
+  const [releases, tagVersions] = await Promise.all([
+    listAllReleases({ repository, token, fetchImpl }),
+    listTagVersions({ repository, token, fetchImpl }),
+  ]);
   const validated = [];
-  const publishedNightlyVersions = [];
+  const publishedNightlyVersions = new Set(tagVersions);
   const markerCounts = new Map();
   for (const release of releases) {
     if (!release || typeof release !== "object") throw new Error("GitHub release list contains an invalid entry");
@@ -100,7 +110,7 @@ export async function loadNightlyReleaseState({ repository, token, sourceSha, fe
     } catch {
       continue;
     }
-    publishedNightlyVersions.push(version);
+    publishedNightlyVersions.add(version);
     try {
       parseNightlyTag(release.tag_name);
     } catch {
@@ -162,7 +172,7 @@ export async function loadNightlyReleaseState({ repository, token, sourceSha, fe
   for (const [sourceSha, count] of markerCounts) {
     if (count > 1) throw new Error(`multiple published nightlies claim source SHA ${sourceSha}`);
   }
-  return { publishedNightlyVersions, validated };
+  return { publishedNightlyVersions: [...publishedNightlyVersions], validated };
 }
 
 export async function prepareDailyRelease({

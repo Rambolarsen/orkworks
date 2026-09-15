@@ -44,6 +44,8 @@ All public SemVer-valid nightly-channel tags constrain ordering even if they
 fail the stricter delivery identity. Identity years remain four digits, an
 existing exact tag must pass a non-mutating write-scope probe before packaging,
 and an explicitly null packaged channel is invalid rather than stable.
+Ordering includes dangling public nightly tags from the matching-ref snapshot,
+and four-digit years use a calculation that preserves JavaScript years 0–99.
 
 Every job that signs artifacts or receives `contents: write` authority uses the
 protected `release` environment. The environment permits only `main` and

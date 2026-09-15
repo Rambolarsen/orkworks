@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { expectedReleaseAssetNames, sourceMarker } from "../scripts/dailyRelease.mjs";
 import {
-  loadNightlyReleaseState,
+  loadNightlyReleaseState as loadNightlyReleaseStateWithTags,
   prepareDailyRelease,
   stageNightlyVersions,
 } from "../scripts/prepareDailyRelease.mjs";
@@ -16,6 +16,11 @@ import { publishDailyRelease, readReleaseAssets } from "../scripts/publishDailyR
 const SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567";
 const VERSION = "0.2.0-nightly.20260915.123456789.2";
 const TAG = `v${VERSION}`;
+
+const loadNightlyReleaseState = (options) => loadNightlyReleaseStateWithTags({
+  listTagVersions: async () => [],
+  ...options,
+});
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -186,6 +191,30 @@ test("remote nightly state ignores malformed nightly-shaped tags", async () => {
 
   assert.deepEqual(state, { publishedNightlyVersions: [], validated: [] });
   assert.equal(tagReads, 0);
+});
+
+test("remote nightly state includes dangling public nightly tags in ordering", async () => {
+  const danglingVersion = "0.2.0-nightly.20260916.123456790.1";
+  const calls = [];
+  const state = await loadNightlyReleaseStateWithTags({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.endsWith("/releases?per_page=100")) return Response.json([]);
+      if (url.endsWith("/git/matching-refs/tags/v")) {
+        return Response.json([
+          { ref: `refs/tags/v${danglingVersion}`, object: { type: "commit", sha: SOURCE_SHA } },
+          { ref: "refs/tags/v0.2.0", object: { type: "commit", sha: SOURCE_SHA } },
+        ]);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [danglingVersion], validated: [] });
+  assert.ok(calls.some((url) => url.endsWith("/git/matching-refs/tags/v")));
 });
 
 test("remote nightly state retains SemVer-valid channel tags that fail strict identity validation", async () => {

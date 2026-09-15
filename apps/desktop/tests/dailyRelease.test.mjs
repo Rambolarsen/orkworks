@@ -8,6 +8,7 @@ import {
   expectedReleaseAssetNames,
   ensureTagAtSource,
   listAllReleases,
+  listNightlyTagVersions,
   parseNightlyTag,
   parseSourceMarker,
   parseStableTag,
@@ -175,6 +176,19 @@ test("native nightly versions are collision-free and increasing", () => {
     [first.macBundleVersion, retry.macBundleVersion, next.macBundleVersion],
     ["1.41.1", "1.41.2", "1.42.1"],
   );
+
+  const earlyDate = new Date(0);
+  earlyDate.setUTCFullYear(10, 0, 2);
+  earlyDate.setUTCHours(0, 0, 0, 0);
+  const early = createNightlyIdentity({
+    baseVersion: "0.2.0",
+    utcDate: earlyDate,
+    runId: "1",
+    runNumber: "1",
+    runAttempt: "1",
+  });
+  assert.equal(early.version, "0.2.0-nightly.00100102.1.1");
+  assert.equal(early.windowsBuildVersion, "10.2.1.1");
 });
 
 test("source markers require one exact lowercase SHA line", () => {
@@ -330,6 +344,30 @@ test("release listing fails closed on API and schema errors", async () => {
     token: "secret",
     fetchImpl: async () => jsonResponse(200, { id: 1 }),
   }), /release list.*array/i);
+});
+
+test("matching tag listing returns only valid nightly-channel SemVer and fails closed on schema errors", async () => {
+  const fetchImpl = async (url, options) => {
+    assert.equal(url, "https://api.github.com/repos/Rambolarsen/orkworks/git/matching-refs/tags/v");
+    assert.equal(options.headers.authorization, "Bearer secret");
+    return jsonResponse(200, [
+      { ref: `refs/tags/v${VERSION}`, object: { type: "commit", sha: SOURCE_SHA } },
+      { ref: "refs/tags/v0.2.0", object: { type: "commit", sha: SOURCE_SHA } },
+      { ref: "refs/tags/v0.2.0-nightly.not-a-daily-identity", object: { type: "tag", sha: "a".repeat(40) } },
+    ]);
+  };
+
+  assert.deepEqual(await listNightlyTagVersions({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl,
+  }), [VERSION, "0.2.0-nightly.not-a-daily-identity"]);
+
+  await assert.rejects(() => listNightlyTagVersions({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl: async () => jsonResponse(200, [{ ref: null }]),
+  }), /matching tag list.*invalid entry/i);
 });
 
 test("tag creation adopts only the exact source and retries an absent ambiguous result", async () => {

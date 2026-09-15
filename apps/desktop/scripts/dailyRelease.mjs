@@ -57,8 +57,10 @@ export function createNightlyIdentity({
   if (year < 0 || year > 9999) {
     throw new Error("UTC year is outside the release identity range");
   }
-  const yearStart = Date.UTC(year, 0, 1);
-  const dayOfYear = Math.floor((utcDate.getTime() - yearStart) / 86_400_000) + 1;
+  const yearStart = new Date(0);
+  yearStart.setUTCFullYear(year, 0, 1);
+  yearStart.setUTCHours(0, 0, 0, 0);
+  const dayOfYear = Math.floor((utcDate.getTime() - yearStart.getTime()) / 86_400_000) + 1;
   const date = [
     String(year).padStart(4, "0"),
     String(utcDate.getUTCMonth() + 1).padStart(2, "0"),
@@ -432,6 +434,36 @@ export async function listAllReleases({ repository, token, fetchImpl = fetch }) 
     url = nextLink(response.headers.get("link"));
   }
   return releases;
+}
+
+export async function listNightlyTagVersions({ repository, token, fetchImpl = fetch }) {
+  const response = await fetchImpl(`${repositoryApiBase(repository)}/git/matching-refs/tags/v`, {
+    headers: githubHeaders(token),
+  });
+  const references = await readJson(response, "matching tag list");
+  if (!Array.isArray(references)) {
+    throw new Error("GitHub matching tag list must be an array");
+  }
+  const versions = [];
+  for (const reference of references) {
+    if (
+      !reference
+      || typeof reference !== "object"
+      || typeof reference.ref !== "string"
+      || !reference.ref.startsWith("refs/tags/")
+      || !reference.object
+      || (reference.object.type !== "commit" && reference.object.type !== "tag")
+      || typeof reference.object.sha !== "string"
+    ) {
+      throw new Error("GitHub matching tag list contains an invalid entry");
+    }
+    try {
+      versions.push(parseNightlyChannelTag(reference.ref.slice("refs/tags/".length)));
+    } catch {
+      // Non-nightly tags are outside this ordering snapshot.
+    }
+  }
+  return versions;
 }
 
 async function readTag({ repository, token, tag, fetchImpl }) {

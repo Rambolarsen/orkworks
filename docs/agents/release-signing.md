@@ -114,6 +114,8 @@ If preparation finds its exact immutable candidate tag already present, it
 proves write capability without changing the ref by repeating the create-ref
 request: GitHub authorizes the endpoint and returns 422 for the duplicate;
 read-only credentials return 403 and fail before native builds begin.
+Preparation also reads the complete `tags/v` matching-ref snapshot so a tag
+left by a failed pre-publication run still constrains later nightly ordering.
 
 The workflow maps the macOS certificate names to `CSC_LINK` and
 `CSC_KEY_PASSWORD` only in the macOS packaging step. Before that step, it maps

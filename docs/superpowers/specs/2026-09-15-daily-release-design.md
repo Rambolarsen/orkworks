@@ -50,7 +50,9 @@ tag/package-version guard.
    the live rule; repository tests can only prove the workflow references it.
 3. A nightly concurrency group with `cancel-in-progress: false` prevents two
    runs from publishing concurrently. Before expensive work, preparation walks
-   every page of GitHub releases. Every public canonical nightly version
+   every page of GitHub releases and the complete `tags/v` matching-ref
+   snapshot. Every public canonical nightly version, including a dangling tag
+   left by a failed run before Release creation,
    constrains ordering even if its prerelease flag is damaged; only releases
    with the required prerelease flag can count as successful delivery. It
    validates every eligible nightly carrying an exact
@@ -145,7 +147,9 @@ Native identifiers do not reuse one cross-platform format:
   those explicit bounds.
 
 The shared UTC year is limited to four digits (`0..9999`) so the generated
-`YYYYMMDD` identity always remains parseable by the release-tag grammar.
+`YYYYMMDD` identity always remains parseable by the release-tag grammar. The
+day-of-year calculation sets the full UTC year explicitly, avoiding
+JavaScript's legacy `Date.UTC` remapping for years `0..99`.
 
 Stable packaging retains `latest.yml` and `latest-mac.yml`. Nightly packaging
 sets the fixed GitHub publisher channel to `nightly` and keeps

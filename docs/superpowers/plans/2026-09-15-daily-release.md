@@ -119,6 +119,7 @@
   - packaged `app-update.yml` files match the expected GitHub repository and normalized stable or explicit nightly channel;
   - public SemVer-valid nightly-channel tags constrain ordering even when their strict workflow identity is invalid;
   - four-digit UTC years and a non-mutating duplicate-ref write-scope probe fail before packaging;
+  - dangling nightly tags from failed pre-publication runs participate in ordering through GitHub's matching-ref snapshot;
   - a complete published prerelease succeeds and a candidate version must exceed every validated published nightly.
 
 - [ ] Run the new test and confirm the red state:

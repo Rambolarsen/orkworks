@@ -133,7 +133,7 @@ apm install
 
 ## Build and release
 
-The source wiring for the existing tag-driven signed release path is
+The source wiring for stable-tag releases and daily `main` prereleases is
 implemented in `.github/workflows/release.yml` and
 `apps/desktop/electron-builder.yml`. The operator setup and external
 credential boundary are documented in the [signed release runbook](docs/agents/release-signing.md).
@@ -151,20 +151,25 @@ cd apps/desktop && pnpm build:rust
 cd apps/desktop && pnpm package:release
 ```
 
-GitHub Releases are tag-driven. Pushing a protected `vX.Y.Z` tag runs
-`.github/workflows/release.yml`, which builds:
+Stable GitHub Releases are tag-driven: pushing a protected `vX.Y.Z` tag runs
+`.github/workflows/release.yml`. The same workflow runs a serialized nightly
+path from `main` at 03:23 UTC and by manual dispatch. Both paths build:
 
 - macOS arm64 on `macos-latest`
 - Windows x64 on `windows-latest`
 
 After credentials are provisioned, the workflow is intended to produce signed
-macOS DMG and ZIP artifacts plus a signed Windows NSIS installer. It also
-stages `latest-mac.yml`/`latest.yml`, blockmaps, and `SHA256SUMS.txt`. Each
+macOS DMG and ZIP artifacts plus a signed Windows NSIS installer. Stable builds
+stage `latest-mac.yml`/`latest.yml`; nightlies use isolated
+`nightly-mac.yml`/`nightly.yml`. Both include blockmaps and `SHA256SUMS.txt`. Each
 platform must pass packaged-artifact verification and native signature checks
 before upload; the Windows job additionally runs the installer smoke test.
-The publish job creates a draft GitHub Release only after both platform jobs
-pass. Source tests and successful packaging without those credentials are not
-evidence of release trust.
+The stable publish job creates a draft GitHub Release after both platforms
+pass. The nightly job uses an immutable source tag, uploads to a draft, verifies
+the complete remote asset set, and only then publishes a prerelease. Nightly
+tag/release writes require the protected environment's CI-only
+`RELEASE_GITHUB_TOKEN`; source tests and packaging without that external setup
+are not evidence of release trust.
 
 The Windows release job also silently installs and uninstalls its NSIS artifact
 in a temporary directory, checking the installed executable, Rust sidecar, and
