@@ -104,7 +104,8 @@ jobs:
           ORKWORKS_RUN_STARTED_AT: ${{ needs.preflight.outputs.run_started_at }}
 
   validate:
-    needs: preflight
+    needs: [preflight, prepare_nightly]
+    if: ${{ always() && needs.preflight.result == 'success' && (github.event_name == 'push' || (needs.prepare_nightly.result == 'success' && needs.prepare_nightly.outputs.should_build == 'true')) }}
     uses: ./.github/workflows/main-ci.yml
     with:
       source_sha: ${{ needs.preflight.outputs.source_sha }}

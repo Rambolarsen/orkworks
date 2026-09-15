@@ -245,7 +245,8 @@ For a successful run, record the workflow and release URLs and verify:
 - the exact expected assets are nonempty and have GitHub SHA-256 digests;
 - `SHA256SUMS.txt`, `nightly.yml`, and `nightly-mac.yml` cross-check those
   assets, with no `latest*.yml` asset present; and
-- a second dispatch at the unchanged SHA is a successful no-op.
+- a second dispatch at the unchanged SHA is a successful preparation-only
+  no-op that skips Main CI and packaging.
 
 The nightly source wiring is implemented, but issue #510 remains incomplete
 until this credential-backed run is recorded. Installed applications do not

@@ -88,7 +88,7 @@ export async function loadNightlyReleaseState({ repository, token, sourceSha, fe
   const markerCounts = new Map();
   for (const release of releases) {
     if (!release || typeof release !== "object") throw new Error("GitHub release list contains an invalid entry");
-    if (release.draft || !release.prerelease) continue;
+    if (release.draft) continue;
     if (typeof release.tag_name !== "string" || !release.tag_name.includes("-nightly.")) continue;
     let version;
     try {
@@ -96,8 +96,9 @@ export async function loadNightlyReleaseState({ repository, token, sourceSha, fe
     } catch {
       continue;
     }
-    const expectedAssetNames = expectedReleaseAssetNames({ version, channel: "nightly" });
     publishedNightlyVersions.push(version);
+    if (!release.prerelease) continue;
+    const expectedAssetNames = expectedReleaseAssetNames({ version, channel: "nightly" });
     let marker;
     try {
       marker = parseSourceMarker(release.body);

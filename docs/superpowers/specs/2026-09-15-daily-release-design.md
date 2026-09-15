@@ -50,15 +50,19 @@ tag/package-version guard.
    the live rule; repository tests can only prove the workflow references it.
 3. A nightly concurrency group with `cancel-in-progress: false` prevents two
    runs from publishing concurrently. Before expensive work, preparation walks
-   every page of GitHub releases and validates every published nightly carrying
-   an exact `<!-- orkworks-nightly-source:<40-lowercase-hex> -->` body line.
+   every page of GitHub releases. Every public canonical nightly version
+   constrains ordering even if its prerelease flag is damaged; only releases
+   with the required prerelease flag can count as successful delivery. It
+   validates every eligible nightly carrying an exact
+   `<!-- orkworks-nightly-source:<40-lowercase-hex> -->` body line.
    Validation requires the expected prerelease/tag grammar, exact tag target,
    complete expected asset-name set, nonzero asset sizes and GitHub SHA-256
    digests, plus downloadable channel metadata and `SHA256SUMS.txt` whose
    contents cross-check those assets. API, pagination, download, schema, or
    duplicate-marker ambiguity fails closed. One valid exact-source match ends
-   the nightly as an intentional no-op; a damaged or partial published release
-   is not success and remains retryable under a new tag. To keep the scan
+   the nightly as an intentional no-op before Main CI or packaging; a damaged
+   or partial published release is not success and remains retryable under a
+   new tag. To keep the scan
    bounded, full asset downloads apply only to releases claiming the current
    source SHA; those candidates also download the two updater payloads and
    verify each metadata SHA-512 against its payload bytes.

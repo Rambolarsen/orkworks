@@ -73,8 +73,9 @@ The first migration from an unsigned development/alpha build is a manual install
 - Resolve one immutable `main` commit at the start and use it for every check,
   platform build, and release record. Manual dispatch must also resolve `main`,
   never publish arbitrary branch content.
-- Skip when that commit already has a successfully published nightly. A failed
-  attempt must remain retryable; publication, not tag existence, defines success.
+- Skip Main CI and packaging when that commit already has a successfully
+  published nightly. A failed attempt must remain retryable; publication, not
+  tag existence, defines success.
 - Require the complete desktop and Rust validation used by main CI for that
   exact commit, plus artifact verification and Windows installer smoke testing.
   A green check for another commit or a docs-only no-op is insufficient.

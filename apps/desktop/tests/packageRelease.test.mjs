@@ -247,6 +247,18 @@ test("release workflow rejects non-main manual dispatches before checkout or ins
   assert.equal(checkout.with["persist-credentials"], false);
 });
 
+test("release workflow skips Main CI for an already-published nightly", () => {
+  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const validate = workflow.jobs.validate;
+
+  assert.deepEqual(validate.needs, ["preflight", "prepare_nightly"]);
+  assert.match(validate.if, /always\(\)/);
+  assert.match(validate.if, /needs\.preflight\.result == 'success'/);
+  assert.match(validate.if, /github\.event_name == 'push'/);
+  assert.match(validate.if, /needs\.prepare_nightly\.result == 'success'/);
+  assert.match(validate.if, /needs\.prepare_nightly\.outputs\.should_build == 'true'/);
+});
+
 test("release workflow protects platform jobs and maps only their signing credentials", () => {
   const source = readFileSync(releaseWorkflowPath, "utf8");
   const workflow = yaml.load(source);

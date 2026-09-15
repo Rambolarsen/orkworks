@@ -203,6 +203,21 @@ test("remote nightly state treats malformed bodies as damaged history", async ()
   assert.deepEqual(state, { publishedNightlyVersions: [VERSION], validated: [] });
 });
 
+test("remote nightly state retains public canonical versions with a damaged prerelease flag", async () => {
+  const damaged = { ...publishedRelease({ id: 10 }), prerelease: false };
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([damaged]);
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [VERSION], validated: [] });
+});
+
 test("remote nightly state rejects updater SHA-512 that does not match its payload", async () => {
   const assets = createAssets();
   assets["nightly.yml"] = Buffer.from(assets["nightly.yml"].toString().replace(/sha512: .+/, "sha512: Ym9ndXM="));
