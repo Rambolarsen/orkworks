@@ -45,9 +45,39 @@ export function createReleaseBuildPlan(platform, arch) {
   throw new Error(`Unsupported release platform/arch: ${platform}/${arch}`);
 }
 
-export function electronBuilderInvocation(nodeExecutable, cliPath, { builderTarget, electronArch }) {
+export function electronBuilderInvocation(
+  nodeExecutable,
+  cliPath,
+  { builderTarget, electronArch },
+  {
+    channel = "latest",
+    buildVersion,
+    macBundleVersion,
+  } = {},
+) {
+  if (channel !== "latest" && channel !== "nightly") {
+    throw new Error("release channel must be latest or nightly");
+  }
+  const args = [cliPath, `--${builderTarget}`, `--${electronArch}`, "--publish", "never"];
+  if (channel === "nightly") {
+    if (typeof buildVersion !== "string" || buildVersion.length === 0) {
+      throw new Error("nightly build version is required");
+    }
+    if (builderTarget === "mac" && (typeof macBundleVersion !== "string" || macBundleVersion.length === 0)) {
+      throw new Error("nightly macOS bundle version is required");
+    }
+    args.push(
+      "--config.publish.channel=nightly",
+      `--config.${builderTarget}.publish.channel=nightly`,
+      "--config.generateUpdatesFilesForAllChannels=false",
+      `--config.buildVersion=${buildVersion}`,
+    );
+    if (builderTarget === "mac") {
+      args.push(`--config.mac.bundleVersion=${macBundleVersion}`);
+    }
+  }
   return {
     command: nodeExecutable,
-    args: [cliPath, `--${builderTarget}`, `--${electronArch}`, "--publish", "never"],
+    args,
   };
 }

@@ -45,6 +45,7 @@ test("macOS expectation points at the DMG and packaged resources", () => {
     appPath: join("/release", "mac-arm64", "OrkWorks.app", "Contents", "MacOS", "OrkWorks"),
     releaseDir: "/release",
     version: "0.1.0",
+    channel: "latest",
     checksumPath: join("/release", "SHA256SUMS.txt"),
     appDir: join("/release", "mac-arm64", "OrkWorks.app"),
     sidecarPath: join(
@@ -69,6 +70,30 @@ test("macOS expectation points at the DMG and packaged resources", () => {
       join("/release", "mac-arm64", "OrkWorks.app", "Contents", "Resources", "scripts", "report-opencode-session.sh"),
     ],
   });
+});
+
+test("nightly expectations use only nightly updater metadata", () => {
+  const mac = createReleaseArtifactExpectation(
+    "darwin",
+    "arm64",
+    "0.2.0-nightly.20260915.123.1",
+    "/release",
+    "nightly",
+  );
+  const win = createReleaseArtifactExpectation(
+    "win32",
+    "x64",
+    "0.2.0-nightly.20260915.123.1",
+    "/release",
+    "nightly",
+  );
+
+  assert.equal(mac.metadataPath, join("/release", "nightly-mac.yml"));
+  assert.equal(win.metadataPath, join("/release", "nightly.yml"));
+  assert.throws(
+    () => createReleaseArtifactExpectation("win32", "x64", "0.2.0", "/release", "beta"),
+    /release channel/i,
+  );
 });
 
 test("Windows expectation points at the NSIS installer and exe sidecar", () => {
@@ -176,6 +201,7 @@ test("metadata validation failures identify the metadata path", () => {
     metadataPath: expectation.metadataPath,
     releaseDir: expectation.releaseDir,
     expectedVersion: expectation.version,
+    channel: "latest",
   }]]);
 });
 

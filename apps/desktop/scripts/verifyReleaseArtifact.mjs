@@ -9,7 +9,10 @@ const HOOK_SCRIPT_NAMES = [
   "report-opencode-session.sh",
 ];
 
-export function createReleaseArtifactExpectation(platform, arch, version, releaseDir) {
+export function createReleaseArtifactExpectation(platform, arch, version, releaseDir, channel = "latest") {
+  if (channel !== "latest" && channel !== "nightly") {
+    throw new Error("release channel must be latest or nightly");
+  }
   if (platform === "darwin" && (arch === "arm64" || arch === "x64")) {
     const appDir = join(releaseDir, `mac-${arch}`, "OrkWorks.app");
     const resourcesDir = join(appDir, "Contents", "Resources");
@@ -20,12 +23,13 @@ export function createReleaseArtifactExpectation(platform, arch, version, releas
         installerPath,
         join(releaseDir, `OrkWorks-${version}-mac-${arch}.zip`),
       ],
-      metadataPath: join(releaseDir, "latest-mac.yml"),
+      metadataPath: join(releaseDir, `${channel}-mac.yml`),
       blockmapPaths: [join(releaseDir, `OrkWorks-${version}-mac-${arch}.zip.blockmap`)],
       appUpdateMetadataPath: join(resourcesDir, "app-update.yml"),
       appPath: join(appDir, "Contents", "MacOS", "OrkWorks"),
       releaseDir,
       version,
+      channel,
       checksumPath: join(releaseDir, "SHA256SUMS.txt"),
       appDir,
       sidecarPath: join(resourcesDir, "orkworksd"),
@@ -41,12 +45,13 @@ export function createReleaseArtifactExpectation(platform, arch, version, releas
     return {
       installerPath,
       distributablePaths: [installerPath],
-      metadataPath: join(releaseDir, "latest.yml"),
+      metadataPath: join(releaseDir, `${channel}.yml`),
       blockmapPaths: [join(releaseDir, `OrkWorks-${version}-win-${arch}.exe.blockmap`)],
       appUpdateMetadataPath: join(resourcesDir, "app-update.yml"),
       appPath: join(appDir, "OrkWorks.exe"),
       releaseDir,
       version,
+      channel,
       checksumPath: join(releaseDir, "SHA256SUMS.txt"),
       appDir,
       sidecarPath: join(resourcesDir, "orkworksd.exe"),
@@ -103,6 +108,7 @@ export function verifyReleaseArtifact(
       metadataPath: expectation.metadataPath,
       releaseDir: expectation.releaseDir,
       expectedVersion: expectation.version,
+      channel: expectation.channel,
     });
   } catch (error) {
     throw new Error(`Packaged release metadata is invalid at ${expectation.metadataPath}`, {
@@ -119,6 +125,7 @@ export function runCli({
   fsModule = { statSync: defaultStatSync },
   metadataModule = defaultMetadataModule,
   preChecksum = false,
+  channel = process.env.ORKWORKS_RELEASE_CHANNEL ?? "latest",
   output = (message) => console.log(message),
 } = {}) {
   const packageJson = JSON.parse(
@@ -129,6 +136,7 @@ export function runCli({
     arch,
     version ?? packageJson.version,
     releaseDir,
+    channel,
   );
   verifyReleaseArtifact(expectation, fsModule, metadataModule, { preChecksum });
   output(`Verified release artifact: ${expectation.installerPath}; sidecar: ${expectation.sidecarPath}`);

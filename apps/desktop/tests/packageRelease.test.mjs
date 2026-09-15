@@ -85,6 +85,46 @@ test("release packaging invokes electron-builder's local CLI through Node", () =
   );
 });
 
+test("nightly packaging fixes the updater channel and native versions", () => {
+  assert.deepEqual(
+    electronBuilderInvocation("node", "/app/node_modules/electron-builder/cli.js", {
+      builderTarget: "mac",
+      electronArch: "arm64",
+    }, {
+      channel: "nightly",
+      buildVersion: "2026.258.42.2",
+      macBundleVersion: "1.41.2",
+    }),
+    {
+      command: "node",
+      args: [
+        "/app/node_modules/electron-builder/cli.js",
+        "--mac",
+        "--arm64",
+        "--publish",
+        "never",
+        "--config.publish.channel=nightly",
+        "--config.mac.publish.channel=nightly",
+        "--config.generateUpdatesFilesForAllChannels=false",
+        "--config.buildVersion=2026.258.42.2",
+        "--config.mac.bundleVersion=1.41.2",
+      ],
+    },
+  );
+});
+
+test("nightly packaging rejects missing native versions and unknown channels", () => {
+  const plan = { builderTarget: "win", electronArch: "x64" };
+  assert.throws(
+    () => electronBuilderInvocation("node", "/builder", plan, { channel: "nightly" }),
+    /build version/i,
+  );
+  assert.throws(
+    () => electronBuilderInvocation("node", "/builder", plan, { channel: "beta" }),
+    /release channel/i,
+  );
+});
+
 test("macOS x64 release plan uses the x64 Rust target", () => {
   assert.deepEqual(createReleaseBuildPlan("darwin", "x64"), [
     {
