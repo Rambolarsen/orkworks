@@ -9,11 +9,11 @@ fi
 ref="${1:-}"
 search_phrase=''
 if [ "$ref" = '--search' ]; then
-  if [ "$#" -ne 2 ] || [ -z "${2:-}" ]; then
+  search_phrase="${2:-}"
+  if [ "$#" -ne 2 ] || [[ -z "${search_phrase//[[:space:]]/}" ]]; then
     echo 'resolve-pr: --search requires a phrase' >&2
     exit 2
   fi
-  search_phrase="${2:-}"
   ref=''
 fi
 case "$ref" in

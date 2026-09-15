@@ -199,6 +199,17 @@ if [ -e "$fixture/empty-search.log" ]; then
   exit 1
 fi
 
+# A whitespace-only search phrase is rejected the same way.
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-hit GH_LOG="$fixture/blank-search.log" "$helper" --search '   ') > "$fixture/blank-search.out" 2>&1; then
+  echo 'resolve-pr unexpectedly accepted a whitespace-only search phrase' >&2
+  exit 1
+fi
+grep -Fq 'requires a phrase' "$fixture/blank-search.out"
+if [ -e "$fixture/blank-search.log" ]; then
+  echo 'whitespace-only search phrase error should not call gh' >&2
+  exit 1
+fi
+
 # Missing required argument handling: usage error, not a gh call.
 if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-hit GH_LOG="$fixture/usage.log" bash -c "'$helper' --help") > "$fixture/usage.out" 2>&1; then
   echo 'resolve-pr unexpectedly accepted --help as a reference' >&2
