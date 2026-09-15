@@ -2296,6 +2296,7 @@ mod tests {
         assert_eq!(snapshot.error_summary, None);
         assert_eq!(snapshot.provider_id, None);
         assert_eq!(snapshot.provider_model, None);
+        assert_eq!(snapshot.fallback_step, None);
     }
 
     #[test]
@@ -2339,6 +2340,7 @@ mod tests {
         assert_eq!(snapshot.error_summary, None);
         assert_eq!(snapshot.provider_id, None);
         assert_eq!(snapshot.provider_model, None);
+        assert_eq!(snapshot.fallback_step, None);
     }
 
     #[test]
@@ -2388,6 +2390,7 @@ mod tests {
         );
         assert_eq!(snapshot.provider_id.as_deref(), Some("ollama"));
         assert_eq!(snapshot.provider_model.as_deref(), Some("gemma4:latest"));
+        assert_eq!(snapshot.fallback_step, Some(1));
     }
 
     #[tokio::test]

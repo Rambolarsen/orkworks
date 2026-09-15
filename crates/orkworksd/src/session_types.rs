@@ -42,6 +42,7 @@ impl PeonDiagnostics {
         self.error_summary = None;
         self.provider_id = None;
         self.provider_model = None;
+        self.fallback_step = None;
     }
 }
 
