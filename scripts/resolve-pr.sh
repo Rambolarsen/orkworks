@@ -9,7 +9,7 @@ fi
 ref="${1:-}"
 search_phrase=''
 if [ "$ref" = '--search' ]; then
-  if [ "$#" -ne 2 ]; then
+  if [ "$#" -ne 2 ] || [ -z "${2:-}" ]; then
     echo 'resolve-pr: --search requires a phrase' >&2
     exit 2
   fi

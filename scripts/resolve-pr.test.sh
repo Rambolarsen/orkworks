@@ -188,6 +188,17 @@ if grep -Fq 'diagnostic' <<<"$output"; then
   exit 1
 fi
 
+# An empty search phrase is rejected, not silently treated as no argument.
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-hit GH_LOG="$fixture/empty-search.log" "$helper" --search '') > "$fixture/empty-search.out" 2>&1; then
+  echo 'resolve-pr unexpectedly accepted an empty search phrase' >&2
+  exit 1
+fi
+grep -Fq 'requires a phrase' "$fixture/empty-search.out"
+if [ -e "$fixture/empty-search.log" ]; then
+  echo 'empty search phrase error should not call gh' >&2
+  exit 1
+fi
+
 # Missing required argument handling: usage error, not a gh call.
 if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-hit GH_LOG="$fixture/usage.log" bash -c "'$helper' --help") > "$fixture/usage.out" 2>&1; then
   echo 'resolve-pr unexpectedly accepted --help as a reference' >&2
