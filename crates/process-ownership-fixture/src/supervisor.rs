@@ -1,12 +1,16 @@
 //! Supervisor-owned launch admission and direct-root observation.
 
 use std::collections::HashSet;
-use std::ffi::{OsStr, OsString};
-use std::io::Write;
+use std::ffi::OsString;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::observation::{
@@ -23,7 +27,6 @@ pub use crate::targets::RELEASE_EXEC_BYTE;
 /// Closed launch description assembled for the fixture executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchSpec {
-    executable: PathBuf,
     args: Vec<OsString>,
     behavior: TargetBehavior,
     role: Role,
@@ -34,30 +37,22 @@ impl LaunchSpec {
     ///
     /// # Errors
     ///
-    /// Returns [`SpawnError::InvalidTicket`] when the path does not name the
-    /// fixture executable or the marker path is empty.
+    /// Returns [`SpawnError::InvalidTicket`] when the marker path is empty.
     pub fn fixture(
-        executable: PathBuf,
         role: Role,
         behavior: TargetBehavior,
         marker: PathBuf,
         lifetime: Duration,
     ) -> Result<Self, SpawnError> {
-        if !is_fixture_executable(&executable) || marker.as_os_str().is_empty() {
+        if marker.as_os_str().is_empty() {
             return Err(SpawnError::InvalidTicket);
         }
         let args = targets::arguments(role, behavior, &marker, lifetime);
         Ok(Self {
-            executable,
             args,
             behavior,
             role,
         })
-    }
-
-    /// Returns the validated fixture executable path.
-    pub fn executable(&self) -> &Path {
-        &self.executable
     }
 
     /// Returns the closed target argument vector.
@@ -83,19 +78,139 @@ impl OwnedProcessHandle {
         self.child.id()
     }
 
-    fn terminate(&mut self) {
-        if self.child.try_wait().ok().flatten().is_none() {
-            let _ = self.child.kill();
-        }
-        let _ = self.child.wait();
+    /// Closes the pre-exec release gate without sending the release byte.
+    pub fn close_release_gate(&mut self) {
         self.release_gate.take();
+    }
+
+    fn terminate_bounded(&mut self, timeout: Duration) -> Result<(), SpawnError> {
+        self.close_release_gate();
+        if self
+            .child
+            .try_wait()
+            .map_err(|_| SpawnError::ObserverUnavailable)?
+            .is_some()
+        {
+            return Ok(());
+        }
+
+        let kill_error = self.child.kill().err();
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self
+                .child
+                .try_wait()
+                .map_err(|_| SpawnError::ObserverUnavailable)?
+                .is_some()
+            {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(if kill_error.is_some() {
+                    SpawnError::ContainmentFailed
+                } else {
+                    SpawnError::ObserverUnavailable
+                });
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
 impl Drop for OwnedProcessHandle {
     fn drop(&mut self) {
-        self.terminate();
+        let _ = self.terminate_bounded(Duration::from_secs(2));
     }
+}
+
+#[derive(Debug, Clone)]
+struct ExecutableAuthority {
+    path: PathBuf,
+    digest: [u8; 32],
+}
+
+impl ExecutableAuthority {
+    fn discover() -> Result<Self, ProtocolError> {
+        let path = Self::discover_path()?;
+        let digest = hash_executable(&path).map_err(|_| ProtocolError::InvalidValue {
+            field: "fixture executable",
+        })?;
+        Ok(Self { path, digest })
+    }
+
+    fn from_trusted_candidate(candidate: PathBuf) -> Result<Self, ProtocolError> {
+        let trusted = Self::discover_path()?;
+        let candidate = candidate
+            .canonicalize()
+            .map_err(|_| ProtocolError::InvalidValue {
+                field: "fixture executable",
+            })?;
+        if candidate != trusted {
+            return Err(ProtocolError::InvalidValue {
+                field: "fixture executable",
+            });
+        }
+        let digest = hash_executable(&candidate).map_err(|_| ProtocolError::InvalidValue {
+            field: "fixture executable",
+        })?;
+        Ok(Self {
+            path: candidate,
+            digest,
+        })
+    }
+
+    fn discover_path() -> Result<PathBuf, ProtocolError> {
+        let current = std::env::current_exe().map_err(|_| ProtocolError::InvalidValue {
+            field: "fixture executable",
+        })?;
+        let candidate = if is_fixture_executable(&current) {
+            current
+        } else {
+            let name = if cfg!(windows) {
+                "process-ownership-fixture.exe"
+            } else {
+                "process-ownership-fixture"
+            };
+            current
+                .parent()
+                .and_then(Path::parent)
+                .ok_or(ProtocolError::InvalidValue {
+                    field: "fixture executable",
+                })?
+                .join(name)
+        };
+        candidate
+            .canonicalize()
+            .map_err(|_| ProtocolError::InvalidValue {
+                field: "fixture executable",
+            })
+    }
+
+    fn revalidate(&self) -> Result<(), SpawnError> {
+        let canonical = self
+            .path
+            .canonicalize()
+            .map_err(|_| SpawnError::InvalidTicket)?;
+        let digest = hash_executable(&canonical).map_err(|_| SpawnError::InvalidTicket)?;
+        if canonical != self.path || digest != self.digest {
+            return Err(SpawnError::InvalidTicket);
+        }
+        Ok(())
+    }
+}
+
+fn hash_executable(path: &Path) -> Result<[u8; 32], ()> {
+    let mut file = File::open(path).map_err(|_| ())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|_| ())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().into())
 }
 
 /// Typestate value proving a root has identity and an owned paused handle.
@@ -130,7 +245,11 @@ pub enum SpawnError {
 /// Common process-launch seam implemented by later native platform adapters.
 pub trait PlatformAdapter {
     /// Creates a process root whose target behavior is blocked on a release gate.
-    fn create_paused_root(&mut self, spec: &LaunchSpec) -> Result<OwnedProcessHandle, SpawnError>;
+    fn create_paused_root(
+        &mut self,
+        executable: &Path,
+        spec: &LaunchSpec,
+    ) -> Result<OwnedProcessHandle, SpawnError>;
 
     /// Captures a birth identity independently of target diagnostics.
     fn capture_native_identity(
@@ -146,7 +265,16 @@ pub trait PlatformAdapter {
     ) -> Result<ContainmentMembership, SpawnError>;
 
     /// Releases only a fully identified, attached, and registered paused root.
-    fn release_exec(&mut self, paused_root: PausedRoot) -> Result<OwnedProcessHandle, SpawnError>;
+    fn release_exec(&mut self, paused_root: &mut PausedRoot) -> Result<(), SpawnError>;
+
+    /// Closes the release gate and independently confirms root exit within a bound.
+    fn terminate_root(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        timeout: Duration,
+    ) -> Result<(), SpawnError> {
+        process_handle.terminate_bounded(timeout)
+    }
 
     /// Observes direct-root birth identity and liveness through retained OS state.
     fn observe_root(
@@ -159,14 +287,18 @@ pub trait PlatformAdapter {
 /// Safe portable foundation for the common admission sequence.
 ///
 /// This adapter retains a process handle and uses an exec gate. Its
-/// `Registered` membership is deliberately not a native containment proof;
+/// `Confirmed` membership is deliberately not a native containment proof;
 /// Tasks 3 and 4 supply the platform-specific adapters and descendant census.
 #[derive(Debug, Default)]
 pub struct HostPlatformAdapter;
 
 impl PlatformAdapter for HostPlatformAdapter {
-    fn create_paused_root(&mut self, spec: &LaunchSpec) -> Result<OwnedProcessHandle, SpawnError> {
-        let mut child = Command::new(&spec.executable)
+    fn create_paused_root(
+        &mut self,
+        executable: &Path,
+        spec: &LaunchSpec,
+    ) -> Result<OwnedProcessHandle, SpawnError> {
+        let mut child = Command::new(executable)
             .args(&spec.args)
             .env_clear()
             .stdin(Stdio::piped())
@@ -174,15 +306,16 @@ impl PlatformAdapter for HostPlatformAdapter {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|_| SpawnError::ContainmentFailed)?;
-        let release_gate = child.stdin.take().ok_or_else(|| {
-            let _ = child.kill();
-            let _ = child.wait();
-            SpawnError::ContainmentFailed
-        })?;
-        Ok(OwnedProcessHandle {
+        let release_gate = child.stdin.take();
+        let mut process_handle = OwnedProcessHandle {
             child,
-            release_gate: Some(release_gate),
-        })
+            release_gate,
+        };
+        if process_handle.release_gate.is_none() {
+            let _ = process_handle.terminate_bounded(Duration::from_secs(2));
+            return Err(SpawnError::ContainmentFailed);
+        }
+        Ok(process_handle)
     }
 
     fn capture_native_identity(
@@ -203,13 +336,10 @@ impl PlatformAdapter for HostPlatformAdapter {
         _generation: GenerationId,
         _process_handle: &OwnedProcessHandle,
     ) -> Result<ContainmentMembership, SpawnError> {
-        Ok(ContainmentMembership::Registered)
+        Ok(ContainmentMembership::Confirmed)
     }
 
-    fn release_exec(
-        &mut self,
-        mut paused_root: PausedRoot,
-    ) -> Result<OwnedProcessHandle, SpawnError> {
+    fn release_exec(&mut self, paused_root: &mut PausedRoot) -> Result<(), SpawnError> {
         let Some(mut release_gate) = paused_root.process_handle.release_gate.take() else {
             return Err(SpawnError::ContainmentFailed);
         };
@@ -217,7 +347,7 @@ impl PlatformAdapter for HostPlatformAdapter {
             .write_all(&[RELEASE_EXEC_BYTE])
             .map_err(|_| SpawnError::ContainmentFailed)?;
         drop(release_gate);
-        Ok(paused_root.process_handle)
+        Ok(())
     }
 
     fn observe_root(
@@ -247,6 +377,7 @@ struct RegisteredRoot {
     identity: NativeIdentity,
     process_handle: OwnedProcessHandle,
     containment_membership: ContainmentMembership,
+    unresolved_until_exit: bool,
 }
 
 /// Live launch and observation authority for one prepared generation.
@@ -255,12 +386,12 @@ pub struct Supervisor<A: PlatformAdapter = HostPlatformAdapter> {
     generation: GenerationId,
     protocol: SupervisorProtocol,
     adapter: A,
+    executable: ExecutableAuthority,
+    control_endpoint: Option<TcpListener>,
     admission_open: bool,
     registered_identities: HashSet<NativeIdentity>,
     roots: Vec<RegisteredRoot>,
     fail_registration_once: bool,
-    fail_observer_once: bool,
-    mismatch_birth_identity_once: bool,
 }
 
 impl Supervisor<HostPlatformAdapter> {
@@ -272,6 +403,18 @@ impl Supervisor<HostPlatformAdapter> {
     /// unavailable.
     pub fn prepare(generation: GenerationId) -> Result<(Self, PreparedGeneration), ProtocolError> {
         Self::prepare_with_adapter(generation, HostPlatformAdapter)
+    }
+
+    /// Prepares only when `candidate` resolves to the supervisor-discovered fixture binary.
+    ///
+    /// This fixture-only hook provides negative coverage for executable substitution;
+    /// callers still cannot select a launch executable.
+    pub fn prepare_with_executable(
+        generation: GenerationId,
+        candidate: PathBuf,
+    ) -> Result<(Self, PreparedGeneration), ProtocolError> {
+        let executable = ExecutableAuthority::from_trusted_candidate(candidate)?;
+        Self::prepare_with_authority(generation, HostPlatformAdapter, executable)
     }
 }
 
@@ -286,18 +429,31 @@ impl<A: PlatformAdapter> Supervisor<A> {
         generation: GenerationId,
         adapter: A,
     ) -> Result<(Self, PreparedGeneration), ProtocolError> {
+        let executable = ExecutableAuthority::discover()?;
+        Self::prepare_with_authority(generation, adapter, executable)
+    }
+
+    fn prepare_with_authority(
+        generation: GenerationId,
+        adapter: A,
+        executable: ExecutableAuthority,
+    ) -> Result<(Self, PreparedGeneration), ProtocolError> {
         let (protocol, prepared) = SupervisorProtocol::prepare(generation)?;
+        let control_endpoint =
+            TcpListener::bind(("127.0.0.1", 0)).map_err(|_| ProtocolError::InvalidValue {
+                field: "control endpoint",
+            })?;
         Ok((
             Self {
                 generation,
                 protocol,
                 adapter,
+                executable,
+                control_endpoint: Some(control_endpoint),
                 admission_open: true,
                 registered_identities: HashSet::new(),
                 roots: Vec::new(),
                 fail_registration_once: false,
-                fail_observer_once: false,
-                mismatch_birth_identity_once: false,
             },
             prepared,
         ))
@@ -318,6 +474,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         if !self.admission_open {
             return Err(SpawnError::AdmissionClosed);
         }
+        self.executable.revalidate()?;
         self.protocol
             .issue_launch_ticket(role, executable_identity, request_nonce)
             .map_err(|_| SpawnError::InvalidTicket)
@@ -349,12 +506,17 @@ impl<A: PlatformAdapter> Supervisor<A> {
             )
             .map_err(|_| SpawnError::InvalidTicket)?;
 
-        let mut process_handle = self.adapter.create_paused_root(&launch_spec)?;
+        self.executable.revalidate()?;
+        let mut process_handle = self
+            .adapter
+            .create_paused_root(&self.executable.path, &launch_spec)?;
         let identity = self.adapter.capture_native_identity(&process_handle);
         let identity = match identity {
             Ok(identity) => identity,
             Err(error) => {
-                process_handle.terminate();
+                let _ = self
+                    .adapter
+                    .terminate_root(&mut process_handle, Duration::from_secs(2));
                 return Err(error);
             }
         };
@@ -362,36 +524,53 @@ impl<A: PlatformAdapter> Supervisor<A> {
             .adapter
             .attach_containment(self.generation, &process_handle);
         let containment_membership = match containment_membership {
-            Ok(membership) => membership,
+            Ok(ContainmentMembership::Confirmed) => ContainmentMembership::Confirmed,
+            Ok(ContainmentMembership::Unresolved) => {
+                self.cleanup_failed_admission(
+                    identity,
+                    process_handle,
+                    ContainmentMembership::Unresolved,
+                    false,
+                );
+                return Err(SpawnError::ContainmentFailed);
+            }
             Err(error) => {
-                process_handle.terminate();
+                self.cleanup_failed_admission(
+                    identity,
+                    process_handle,
+                    ContainmentMembership::Unresolved,
+                    false,
+                );
                 return Err(error);
             }
         };
         if self.take_registration_failure() {
-            process_handle.terminate();
+            self.cleanup_failed_admission(identity, process_handle, containment_membership, false);
             return Err(SpawnError::ObserverUnavailable);
         }
         if !self.registered_identities.insert(identity.clone()) {
-            process_handle.terminate();
+            self.cleanup_failed_admission(identity, process_handle, containment_membership, false);
             return Err(SpawnError::ObserverUnavailable);
         }
 
-        let paused_root = PausedRoot {
+        let mut paused_root = PausedRoot {
             identity: identity.clone(),
             process_handle,
         };
-        let process_handle = match self.adapter.release_exec(paused_root) {
-            Ok(process_handle) => process_handle,
-            Err(error) => {
-                self.registered_identities.remove(&identity);
-                return Err(error);
-            }
-        };
+        if let Err(error) = self.adapter.release_exec(&mut paused_root) {
+            self.cleanup_failed_admission(
+                identity,
+                paused_root.process_handle,
+                containment_membership,
+                true,
+            );
+            return Err(error);
+        }
         self.roots.push(RegisteredRoot {
             identity: identity.clone(),
-            process_handle,
+            process_handle: paused_root.process_handle,
             containment_membership,
+            unresolved_until_exit: false,
         });
         Ok(identity)
     }
@@ -399,6 +578,15 @@ impl<A: PlatformAdapter> Supervisor<A> {
     /// Closes admission permanently for this supervisor generation.
     pub fn owner_lost(&mut self) {
         self.admission_open = false;
+        self.control_endpoint.take();
+    }
+
+    /// Returns the live supervisor control endpoint used to prove handle isolation.
+    #[must_use]
+    pub fn control_endpoint_addr(&self) -> Option<SocketAddr> {
+        self.control_endpoint
+            .as_ref()
+            .and_then(|listener| listener.local_addr().ok())
     }
 
     /// Independently observes every registered direct root.
@@ -408,17 +596,20 @@ impl<A: PlatformAdapter> Supervisor<A> {
     #[must_use]
     pub fn observe(&mut self) -> ObservationSnapshot {
         let mut unresolved_survivors = Vec::new();
-        let fail_observer = std::mem::take(&mut self.fail_observer_once);
-        let mismatch_identity = std::mem::take(&mut self.mismatch_birth_identity_once);
         let mut roots = Vec::with_capacity(self.roots.len());
 
-        for (index, root) in self.roots.iter_mut().enumerate() {
-            let exit_state = if index == 0 && (fail_observer || mismatch_identity) {
+        for root in &mut self.roots {
+            let observed = self
+                .adapter
+                .observe_root(&mut root.process_handle, &root.identity)
+                .unwrap_or(ExitState::Unresolved);
+            let exit_state = if root.unresolved_until_exit && observed != ExitState::Exited {
                 ExitState::Unresolved
             } else {
-                self.adapter
-                    .observe_root(&mut root.process_handle, &root.identity)
-                    .unwrap_or(ExitState::Unresolved)
+                if observed == ExitState::Exited {
+                    root.unresolved_until_exit = false;
+                }
+                observed
             };
             if exit_state == ExitState::Unresolved {
                 unresolved_survivors.push(root.identity.clone());
@@ -443,47 +634,76 @@ impl<A: PlatformAdapter> Supervisor<A> {
         self.fail_registration_once = true;
     }
 
-    /// Causes the next observation to return an unresolved identity.
-    pub fn inject_observer_failure_once(&mut self) {
-        self.fail_observer_once = true;
-    }
-
-    /// Causes the next observation to model a PID/birth-identity mismatch.
-    pub fn inject_birth_identity_mismatch_once(&mut self) {
-        self.mismatch_birth_identity_once = true;
-    }
-
     fn take_registration_failure(&mut self) -> bool {
         std::mem::take(&mut self.fail_registration_once)
+    }
+
+    fn cleanup_failed_admission(
+        &mut self,
+        identity: NativeIdentity,
+        mut process_handle: OwnedProcessHandle,
+        containment_membership: ContainmentMembership,
+        identity_was_registered: bool,
+    ) {
+        if self
+            .adapter
+            .terminate_root(&mut process_handle, Duration::from_secs(2))
+            .is_err()
+        {
+            self.registered_identities.insert(identity.clone());
+            self.roots.push(RegisteredRoot {
+                identity,
+                process_handle,
+                containment_membership,
+                unresolved_until_exit: true,
+            });
+        } else if identity_was_registered {
+            self.registered_identities.remove(&identity);
+        }
     }
 }
 
 fn is_fixture_executable(executable: &Path) -> bool {
     executable
         .file_name()
-        .and_then(OsStr::to_str)
+        .and_then(|name| name.to_str())
         .is_some_and(|name| {
             name == "process-ownership-fixture" || name == "process-ownership-fixture.exe"
         })
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn query_birth_identity(pid: u32) -> Result<String, ()> {
-    let output = Command::new("ps")
-        .args(["-o", "lstart=", "-p"])
-        .arg(pid.to_string())
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|_| ())?;
-    if !output.status.success() {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|_| ())?;
+    let after_name = stat.rsplit_once(')').ok_or(())?.1;
+    let start_ticks = after_name.split_whitespace().nth(19).ok_or(())?;
+    start_ticks.parse::<u64>().map_err(|_| ())?;
+    Ok(format!("linux:{pid}:{start_ticks}"))
+}
+
+#[cfg(target_os = "macos")]
+fn query_birth_identity(pid: u32) -> Result<String, ()> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    // SAFETY: `info` points to writable storage of exactly the size passed to
+    // proc_pidinfo, and the value is assumed initialized only on a full result.
+    let bytes = unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            std::mem::size_of::<libc::proc_bsdinfo>() as i32,
+        )
+    };
+    if bytes != std::mem::size_of::<libc::proc_bsdinfo>() as i32 {
         return Err(());
     }
-    let started = String::from_utf8(output.stdout).map_err(|_| ())?;
-    let started = started.trim();
-    if started.is_empty() {
-        return Err(());
-    }
-    Ok(format!("unix:{pid}:{started}"))
+    // SAFETY: proc_pidinfo returned the full structure size above.
+    let info = unsafe { info.assume_init() };
+    Ok(format!(
+        "macos:{pid}:{}:{}",
+        info.pbi_start_tvsec, info.pbi_start_tvusec
+    ))
 }
 
 #[cfg(windows)]

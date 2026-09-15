@@ -16,11 +16,11 @@ pub enum ExitState {
 /// Membership evidence reported by the active platform adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainmentMembership {
-    /// The root passed the adapter's containment attachment and supervisor registry.
+    /// The root passed the adapter's containment attachment step.
     ///
     /// For the Task 2 host adapter this proves only the common admission sequence;
     /// Tasks 3 and 4 replace it with native platform containment evidence.
-    Registered,
+    Confirmed,
     /// The adapter could not establish containment membership.
     Unresolved,
 }
@@ -57,5 +57,8 @@ pub fn is_complete(snapshot: &ObservationSnapshot) -> bool {
             .roots
             .iter()
             .chain(&snapshot.descendants)
-            .all(|process| process.exit_state == ExitState::Exited)
+            .all(|process| {
+                process.containment_membership == ContainmentMembership::Confirmed
+                    && process.exit_state == ExitState::Exited
+            })
 }

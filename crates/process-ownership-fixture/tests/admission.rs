@@ -7,9 +7,11 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use process_ownership_fixture::observation::{is_complete, ContainmentMembership, ExitState};
-use process_ownership_fixture::protocol::Role;
+use process_ownership_fixture::observation::{ObservationSnapshot, ProcessObservation};
+use process_ownership_fixture::protocol::{GenerationId, NativeIdentity, ProtocolError, Role};
 use process_ownership_fixture::supervisor::{
-    LaunchSpec, SpawnError, Supervisor, RELEASE_EXEC_BYTE,
+    HostPlatformAdapter, LaunchSpec, OwnedProcessHandle, PausedRoot, PlatformAdapter, SpawnError,
+    Supervisor, RELEASE_EXEC_BYTE,
 };
 use process_ownership_fixture::targets::TargetBehavior;
 
@@ -53,14 +55,8 @@ fn fixture_executable() -> PathBuf {
 }
 
 fn launch_spec(role: Role, behavior: TargetBehavior, marker: &Path) -> LaunchSpec {
-    LaunchSpec::fixture(
-        fixture_executable(),
-        role,
-        behavior,
-        marker.to_path_buf(),
-        TARGET_LIFETIME,
-    )
-    .expect("fixture launch specification should be valid")
+    LaunchSpec::fixture(role, behavior, marker.to_path_buf(), TARGET_LIFETIME)
+        .expect("fixture launch specification should be valid")
 }
 
 fn prepared_supervisor() -> Supervisor {
@@ -94,6 +90,117 @@ fn wait_for_exit(child: &mut Child) {
         );
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn wait_for_complete<A: PlatformAdapter>(supervisor: &mut Supervisor<A>) -> ObservationSnapshot {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let snapshot = supervisor.observe();
+        if is_complete(&snapshot) {
+            return snapshot;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "supervisor observation did not complete before test deadline: {snapshot:?}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdapterFault {
+    UnresolvedContainment,
+    ObserverUnavailable,
+    BirthIdentityMismatch,
+    ReleaseAndTermination,
+}
+
+#[derive(Debug)]
+struct FaultAdapter {
+    host: HostPlatformAdapter,
+    fault: AdapterFault,
+    fail_next_observation: bool,
+}
+
+impl FaultAdapter {
+    fn new(fault: AdapterFault) -> Self {
+        Self {
+            host: HostPlatformAdapter,
+            fault,
+            fail_next_observation: matches!(
+                fault,
+                AdapterFault::ObserverUnavailable | AdapterFault::ReleaseAndTermination
+            ),
+        }
+    }
+}
+
+impl PlatformAdapter for FaultAdapter {
+    fn create_paused_root(
+        &mut self,
+        executable: &Path,
+        spec: &LaunchSpec,
+    ) -> Result<OwnedProcessHandle, SpawnError> {
+        self.host.create_paused_root(executable, spec)
+    }
+
+    fn capture_native_identity(
+        &mut self,
+        process_handle: &OwnedProcessHandle,
+    ) -> Result<NativeIdentity, SpawnError> {
+        let mut identity = self.host.capture_native_identity(process_handle)?;
+        if self.fault == AdapterFault::BirthIdentityMismatch {
+            identity.birth_identity.push_str(":stale");
+        }
+        Ok(identity)
+    }
+
+    fn attach_containment(
+        &mut self,
+        generation: GenerationId,
+        process_handle: &OwnedProcessHandle,
+    ) -> Result<ContainmentMembership, SpawnError> {
+        if self.fault == AdapterFault::UnresolvedContainment {
+            return Ok(ContainmentMembership::Unresolved);
+        }
+        self.host.attach_containment(generation, process_handle)
+    }
+
+    fn release_exec(&mut self, paused_root: &mut PausedRoot) -> Result<(), SpawnError> {
+        if self.fault == AdapterFault::ReleaseAndTermination {
+            return Err(SpawnError::ContainmentFailed);
+        }
+        self.host.release_exec(paused_root)
+    }
+
+    fn terminate_root(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        timeout: Duration,
+    ) -> Result<(), SpawnError> {
+        if self.fault == AdapterFault::ReleaseAndTermination {
+            process_handle.close_release_gate();
+            return Err(SpawnError::ObserverUnavailable);
+        }
+        self.host.terminate_root(process_handle, timeout)
+    }
+
+    fn observe_root(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        expected_identity: &NativeIdentity,
+    ) -> Result<ExitState, SpawnError> {
+        if std::mem::take(&mut self.fail_next_observation) {
+            return Err(SpawnError::ObserverUnavailable);
+        }
+        self.host.observe_root(process_handle, expected_identity)
+    }
+}
+
+fn prepared_with_fault(fault: AdapterFault) -> Supervisor<FaultAdapter> {
+    Supervisor::prepare_with_adapter(GENERATION, FaultAdapter::new(fault))
+        .expect("fixture generation should prepare")
+        .0
 }
 
 #[test]
@@ -139,13 +246,42 @@ fn forged_ticket_is_rejected_before_target_execution() {
 }
 
 #[test]
+fn renamed_foreign_executable_is_rejected_during_preparation() {
+    let directory = TestDirectory::new("renamed-foreign-executable");
+    let renamed = directory.marker(if cfg!(windows) {
+        "process-ownership-fixture.exe"
+    } else {
+        "process-ownership-fixture"
+    });
+    fs::copy(
+        std::env::current_exe().expect("test executable path should be available"),
+        &renamed,
+    )
+    .expect("foreign executable should be copied under the expected basename");
+
+    let result = Supervisor::prepare_with_executable(GENERATION, renamed);
+
+    assert!(matches!(
+        result,
+        Err(ProtocolError::InvalidValue {
+            field: "fixture executable"
+        })
+    ));
+}
+
+#[test]
 fn independently_launched_child_is_never_admitted() {
     let directory = TestDirectory::new("unregistered-child");
     let marker = directory.marker("unregistered-executed");
     let mut supervisor = prepared_supervisor();
-    let spec = launch_spec(Role::Pty, TargetBehavior::Silent, &marker);
-    let mut child = Command::new(spec.executable())
-        .args(spec.args())
+    let args = process_ownership_fixture::targets::arguments(
+        Role::Pty,
+        TargetBehavior::Silent,
+        &marker,
+        TARGET_LIFETIME,
+    );
+    let mut child = Command::new(fixture_executable())
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -191,6 +327,93 @@ fn owner_loss_closes_admission_before_late_ticket_or_spawn() {
 }
 
 #[test]
+fn supervisor_control_endpoint_is_not_inherited_by_target() {
+    let directory = TestDirectory::new("control-endpoint-inheritance");
+    let marker = directory.marker("endpoint-target-executed");
+    let mut supervisor = prepared_supervisor();
+    let endpoint = supervisor
+        .control_endpoint_addr()
+        .expect("prepared supervisor should own a live control endpoint");
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-endpoint")
+        .expect("ticket should be issued");
+    supervisor
+        .spawn(
+            ticket,
+            launch_spec(Role::Pty, TargetBehavior::Silent, &marker),
+        )
+        .expect("registered target should launch");
+    wait_for_marker(&marker);
+
+    supervisor.owner_lost();
+    let rebound = std::net::TcpListener::bind(endpoint)
+        .expect("child must not inherit the supervisor control endpoint");
+    drop(rebound);
+}
+
+#[test]
+fn unresolved_containment_is_rejected_before_release() {
+    let directory = TestDirectory::new("unresolved-containment");
+    let marker = directory.marker("unresolved-target-executed");
+    let mut supervisor = prepared_with_fault(AdapterFault::UnresolvedContainment);
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-containment")
+        .expect("ticket should be issued");
+
+    let result = supervisor.spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker));
+
+    assert_eq!(result, Err(SpawnError::ContainmentFailed));
+    assert!(!marker.exists());
+    assert!(supervisor.observe().roots.is_empty());
+}
+
+#[test]
+fn completion_rejects_unresolved_containment_membership() {
+    let identity = NativeIdentity {
+        birth_identity: "fixture-birth".to_owned(),
+        diagnostic_pid: 7,
+    };
+    let snapshot = ObservationSnapshot {
+        generation: GENERATION,
+        roots: vec![ProcessObservation {
+            identity,
+            containment_membership: ContainmentMembership::Unresolved,
+            exit_state: ExitState::Exited,
+        }],
+        descendants: Vec::new(),
+        unresolved_survivors: Vec::new(),
+    };
+
+    assert!(!is_complete(&snapshot));
+}
+
+#[test]
+fn failed_release_retains_uncertain_identity_for_observation() {
+    let directory = TestDirectory::new("release-failure");
+    let marker = directory.marker("release-failure-target-executed");
+    let mut supervisor = prepared_with_fault(AdapterFault::ReleaseAndTermination);
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-release")
+        .expect("ticket should be issued");
+
+    let result = supervisor.spawn(
+        ticket,
+        launch_spec(Role::Inference, TargetBehavior::Inference, &marker),
+    );
+    let unresolved = supervisor.observe();
+
+    assert_eq!(result, Err(SpawnError::ContainmentFailed));
+    assert!(!marker.exists());
+    assert_eq!(unresolved.roots.len(), 1);
+    assert_eq!(unresolved.roots[0].exit_state, ExitState::Unresolved);
+    assert_eq!(unresolved.unresolved_survivors.len(), 1);
+    assert!(!is_complete(&unresolved));
+
+    let exited = wait_for_complete(&mut supervisor);
+    assert_eq!(exited.roots[0].exit_state, ExitState::Exited);
+}
+
+#[test]
 fn silent_target_is_observed_from_native_identity_and_liveness() {
     let directory = TestDirectory::new("silent-observation");
     let marker = directory.marker("silent-executed");
@@ -214,22 +437,21 @@ fn silent_target_is_observed_from_native_identity_and_liveness() {
     assert_eq!(running.roots[0].exit_state, ExitState::Running);
     assert_eq!(
         running.roots[0].containment_membership,
-        ContainmentMembership::Registered
+        ContainmentMembership::Confirmed
     );
     assert!(!is_complete(&running));
 
-    thread::sleep(TARGET_LIFETIME + Duration::from_millis(100));
-    let exited = supervisor.observe();
+    let exited = wait_for_complete(&mut supervisor);
 
     assert_eq!(exited.roots[0].exit_state, ExitState::Exited);
     assert!(is_complete(&exited));
 }
 
 #[test]
-fn observer_failure_and_birth_identity_mismatch_are_unresolved() {
-    let directory = TestDirectory::new("unresolved-observation");
-    let marker = directory.marker("observed-executed");
-    let mut supervisor = prepared_supervisor();
+fn observer_failure_is_unresolved() {
+    let directory = TestDirectory::new("observer-failure");
+    let marker = directory.marker("observer-failure-executed");
+    let mut supervisor = prepared_with_fault(AdapterFault::ObserverUnavailable);
     let ticket = supervisor
         .issue_launch_ticket(Role::Pty, "fixture-pty", "req-observed")
         .expect("ticket should be issued");
@@ -238,14 +460,28 @@ fn observer_failure_and_birth_identity_mismatch_are_unresolved() {
         .expect("registered target should launch");
     wait_for_marker(&marker);
 
-    supervisor.inject_observer_failure_once();
     let unavailable = supervisor.observe();
-    supervisor.inject_birth_identity_mismatch_once();
-    let mismatched = supervisor.observe();
 
     assert_eq!(unavailable.roots[0].exit_state, ExitState::Unresolved);
-    assert_eq!(unavailable.unresolved_survivors, vec![identity.clone()]);
+    assert_eq!(unavailable.unresolved_survivors, vec![identity]);
     assert!(!is_complete(&unavailable));
+}
+
+#[test]
+fn birth_identity_mismatch_from_platform_adapter_is_unresolved() {
+    let directory = TestDirectory::new("birth-identity-mismatch");
+    let marker = directory.marker("birth-mismatch-executed");
+    let mut supervisor = prepared_with_fault(AdapterFault::BirthIdentityMismatch);
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-birth-mismatch")
+        .expect("ticket should be issued");
+    let identity = supervisor
+        .spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker))
+        .expect("registered target should launch");
+    wait_for_marker(&marker);
+
+    let mismatched = supervisor.observe();
+
     assert_eq!(mismatched.roots[0].exit_state, ExitState::Unresolved);
     assert_eq!(mismatched.unresolved_survivors, vec![identity]);
     assert!(!is_complete(&mismatched));
