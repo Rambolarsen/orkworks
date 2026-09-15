@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::thread;
@@ -165,11 +165,134 @@ pub fn run(
     lifetime: Duration,
 ) -> Result<(), TargetError> {
     let diagnostic = format!("role={} behavior={}\n", role_name(role), behavior.as_str());
+    #[cfg(target_os = "linux")]
+    let diagnostic = {
+        let mut diagnostic = diagnostic;
+        diagnostic.push_str(&format!(
+            "verified_image_fds={}\n",
+            inherited_verified_image_descriptors()
+        ));
+        diagnostic
+    };
     fs::write(marker, diagnostic).map_err(TargetError::Marker)?;
     #[cfg(windows)]
     run_windows_behavior(role, behavior, marker, lifetime)?;
+    #[cfg(unix)]
+    run_unix_behavior(role, behavior, marker, lifetime)?;
     thread::sleep(lifetime);
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn inherited_verified_image_descriptors() -> usize {
+    std::fs::read_dir("/proc/self/fd")
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| std::fs::read_link(entry.path()).ok())
+        .filter(|path| {
+            path.to_string_lossy()
+                .contains("/orkworks-process-ownership-image-")
+        })
+        .count()
+}
+
+#[cfg(unix)]
+fn run_unix_behavior(
+    role: Role,
+    behavior: TargetBehavior,
+    marker: &Path,
+    lifetime: Duration,
+) -> Result<(), TargetError> {
+    match behavior {
+        TargetBehavior::Pty => set_session()?,
+        TargetBehavior::NewGroup => set_process_group()?,
+        TargetBehavior::Forked if role == Role::Sidecar => {
+            spawn_unix_descendant(marker, lifetime, false)?;
+        }
+        TargetBehavior::Daemonized | TargetBehavior::Reparented if role == Role::Sidecar => {
+            spawn_unix_descendant(marker, lifetime, true)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn spawn_unix_descendant(
+    marker: &Path,
+    lifetime: Duration,
+    detached: bool,
+) -> Result<(), TargetError> {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+
+    let descendant_marker = related_marker(marker, "descendant");
+    let mut command = Command::new(std::env::current_exe().map_err(TargetError::Descendant)?);
+    command
+        .args(arguments(
+            Role::Inference,
+            TargetBehavior::Silent,
+            &descendant_marker,
+            lifetime,
+        ))
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if detached {
+        // SAFETY: this closure runs in the child before exec and uses only the
+        // async-signal-safe session primitive.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    let mut child = command.spawn().map_err(TargetError::Descendant)?;
+    let mut release = child
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::other("descendant release gate unavailable"))
+        .map_err(TargetError::Descendant)?;
+    release
+        .write_all(&[RELEASE_EXEC_BYTE])
+        .map_err(TargetError::Descendant)?;
+    drop(release);
+    if !detached {
+        // Keep the parent/child ancestry observable long enough for the
+        // registered-root census to capture both identities.
+        let _ = child.try_wait();
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_session() -> Result<(), TargetError> {
+    // SAFETY: this target is single-threaded at entry and owns its process.
+    if unsafe { libc::setsid() } == -1 {
+        return Err(TargetError::Descendant(io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_process_group() -> Result<(), TargetError> {
+    // SAFETY: this target is single-threaded at entry and owns its process.
+    if unsafe { libc::setpgid(0, 0) } == -1 {
+        return Err(TargetError::Descendant(io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn related_marker(root: &Path, suffix: &str) -> PathBuf {
+    let mut marker = root.as_os_str().to_owned();
+    marker.push(format!(".{suffix}"));
+    marker.into()
 }
 
 #[cfg(windows)]

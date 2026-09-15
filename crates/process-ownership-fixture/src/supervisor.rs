@@ -10,7 +10,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
@@ -89,7 +89,7 @@ impl OwnedProcessHandle {
         self.release_gate.take();
     }
 
-    fn terminate_bounded(&mut self, timeout: Duration) -> Result<(), SpawnError> {
+    pub(crate) fn terminate_bounded(&mut self, timeout: Duration) -> Result<(), SpawnError> {
         self.close_release_gate();
         if self
             .child
@@ -147,12 +147,12 @@ pub struct ExecutableImage {
     file: File,
     digest: [u8; 32],
     ticket_binding: String,
-    #[cfg(unix)]
-    staging_directory: PathBuf,
+    #[cfg(target_os = "linux")]
+    staging: Option<PartialStaging>,
 }
 
-struct VerifiedLaunchCommand {
-    command: Command,
+pub(crate) struct VerifiedLaunchCommand {
+    pub(crate) command: Command,
     _image_handle: Option<File>,
 }
 
@@ -189,6 +189,20 @@ impl ExecutableImage {
                 field: "fixture executable",
             });
         }
+        #[cfg(target_os = "linux")]
+        let (path, file, mut staging) =
+            prepare_launch_image(&candidate, candidate_file).map_err(|_| {
+                ProtocolError::InvalidValue {
+                    field: "fixture executable",
+                }
+            })?;
+        #[cfg(target_os = "macos")]
+        let (path, file) = prepare_launch_image(&candidate, candidate_file).map_err(|_| {
+            ProtocolError::InvalidValue {
+                field: "fixture executable",
+            }
+        })?;
+        #[cfg(windows)]
         let (path, file) = prepare_launch_image(&candidate, candidate_file).map_err(|_| {
             ProtocolError::InvalidValue {
                 field: "fixture executable",
@@ -202,15 +216,12 @@ impl ExecutableImage {
                 field: "fixture executable",
             });
         }
+        #[cfg(target_os = "linux")]
+        staging.commit();
         let ticket_binding = image_ticket_binding(&path, &digest);
         Ok(Self {
-            #[cfg(unix)]
-            staging_directory: path
-                .parent()
-                .ok_or(ProtocolError::InvalidValue {
-                    field: "fixture executable",
-                })?
-                .to_path_buf(),
+            #[cfg(target_os = "linux")]
+            staging: Some(staging),
             path,
             file,
             digest,
@@ -262,8 +273,9 @@ impl ExecutableImage {
     }
 
     #[cfg(target_os = "linux")]
-    fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
+    pub(crate) fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
         use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
 
         let image_handle = self.try_clone_file()?;
         let descriptor = image_handle.as_raw_fd();
@@ -272,28 +284,50 @@ impl ExecutableImage {
         if flags == -1 {
             return Err(SpawnError::ContainmentFailed);
         }
-        // SAFETY: `descriptor` and `flags` were validated above. The clone is
-        // retained until spawn returns so `/proc/self/fd` resolves this inode.
-        if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } == -1 {
-            return Err(SpawnError::ContainmentFailed);
+        let mut command = Command::new(format!("/proc/self/fd/{descriptor}"));
+        // Keep the descriptor close-on-exec in the parent. Clear it only in
+        // this child after fork, eliminating the concurrent launch race where
+        // another child could inherit a sibling's verified image descriptor.
+        // SAFETY: the closure runs before exec and uses only async-signal-safe
+        // libc calls; `image_handle` remains live through Command::spawn.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fcntl(descriptor, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
         }
         Ok(VerifiedLaunchCommand {
-            command: Command::new(format!("/proc/self/fd/{descriptor}")),
+            command,
             _image_handle: Some(image_handle),
         })
     }
 
     #[cfg(windows)]
-    fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
+    pub(crate) fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
         Ok(VerifiedLaunchCommand {
             command: Command::new(&self.path),
             _image_handle: None,
         })
     }
 
-    #[cfg(not(any(target_os = "linux", windows)))]
-    fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
-        Err(SpawnError::ContainmentFailed)
+    #[cfg(target_os = "macos")]
+    pub(crate) fn macos_command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
+        let file = open_executable(&self.path).map_err(|_| SpawnError::ContainmentFailed)?;
+        let digest = hash_executable(&file).map_err(|_| SpawnError::ContainmentFailed)?;
+        if digest != self.digest {
+            return Err(SpawnError::ContainmentFailed);
+        }
+        Ok(VerifiedLaunchCommand {
+            command: Command::new(&self.path),
+            _image_handle: None,
+        })
+    }
+
+    #[cfg(all(unix, not(target_os = "linux")))]
+    pub(crate) fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
+        self.macos_command()
     }
 
     /// Returns the canonical pathname retained for diagnostics and native adapters.
@@ -316,8 +350,10 @@ impl ExecutableImage {
 
 impl Drop for ExecutableImage {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        cleanup_staging_directory(&self.staging_directory, &self.path);
+        #[cfg(target_os = "linux")]
+        if let Some(staging) = &self.staging {
+            cleanup_staging_directory(&staging.directory, &staging.path);
+        }
     }
 }
 
@@ -329,8 +365,11 @@ fn open_executable(path: &Path) -> std::io::Result<File> {
     options.open(path)
 }
 
-#[cfg(unix)]
-fn prepare_launch_image(_source_path: &Path, source: File) -> std::io::Result<(PathBuf, File)> {
+#[cfg(target_os = "linux")]
+fn prepare_launch_image(
+    _source_path: &Path,
+    source: File,
+) -> std::io::Result<(PathBuf, File, PartialStaging)> {
     let staging = PartialStaging::create()?;
     let path = staging.path.clone();
     let mut destination = OpenOptions::new()
@@ -346,18 +385,23 @@ fn prepare_launch_image(_source_path: &Path, source: File) -> std::io::Result<(P
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500))?;
     let file = open_executable(&path)?;
     std::fs::set_permissions(&staging.directory, std::fs::Permissions::from_mode(0o500))?;
-    staging.commit();
-    Ok((path, file))
+    Ok((path, file, staging))
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+fn prepare_launch_image(source_path: &Path, source: File) -> std::io::Result<(PathBuf, File)> {
+    Ok((source_path.to_path_buf(), source))
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
 struct PartialStaging {
     directory: PathBuf,
     path: PathBuf,
     committed: bool,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl PartialStaging {
     fn create() -> std::io::Result<Self> {
         let mut random = [0_u8; 16];
@@ -378,12 +422,12 @@ impl PartialStaging {
         Ok(staging)
     }
 
-    fn commit(mut self) {
+    fn commit(&mut self) {
         self.committed = true;
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl Drop for PartialStaging {
     fn drop(&mut self) {
         if !self.committed {
@@ -392,7 +436,7 @@ impl Drop for PartialStaging {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn cleanup_staging_directory(directory: &Path, path: &Path) {
     let _ = std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700));
     let _ = std::fs::remove_file(path);
@@ -998,7 +1042,7 @@ fn query_birth_identity(pid: u32) -> Result<String, ()> {
     Ok(format!("windows:{pid}:{started}"))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use std::collections::HashSet;
 
