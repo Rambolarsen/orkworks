@@ -16,10 +16,11 @@ application updates remain issue #511.
 ## Approach
 
 Extend `.github/workflows/release.yml` into one stable/nightly pipeline instead
-of duplicating the signing and packaging recipe or introducing a reusable
-workflow. Tag pushes keep the stable path. The 03:23 UTC schedule and manual
-dispatch select the nightly path and always resolve `main`, never an arbitrary
-branch.
+of duplicating the signing and packaging recipe. Reuse the existing Main CI
+definition through `workflow_call`; keep the release-specific signing and
+publication steps in the release workflow. Tag pushes keep the stable path. The
+03:23 UTC schedule and manual dispatch select the nightly path and always use
+the workflow commit from `main`, never an arbitrary branch.
 
 A small nightly-only preparation job produces the immutable source SHA, channel,
 package version, platform-specific native build versions, unique tag, release
