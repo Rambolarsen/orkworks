@@ -175,6 +175,37 @@ impl HarnessStore {
         })
     }
 
+    /// Startup variant of [`Self::load`] that never fails the process: when the
+    /// persisted document cannot be read, parsed, or validated, it falls back to a
+    /// builtins-only registry, marks the fallback with a transient
+    /// `startup_harness_document_rejected` diagnostic, and reports the original
+    /// error so the caller can surface it. The on-disk file is left untouched.
+    pub(crate) fn load_for_startup(&self) -> (LoadedHarnesses, Option<HarnessStoreError>) {
+        match self.load() {
+            Ok(loaded) => (loaded, None),
+            Err(error) => {
+                let document = HarnessUserDocument::default();
+                let registry = resolve_document(&self.builtins, &document)
+                    .expect("default harness document must resolve")
+                    .with_diagnostics(vec![HarnessDiagnostic::document(
+                        "startup_harness_document_rejected",
+                        "The harness configuration file was unreadable or invalid, so OrkWorks is \
+                         running with built-in harnesses only. Stored harness changes are ignored \
+                         until the file is fixed or removed.",
+                        None,
+                    )]);
+                let fallback = LoadedHarnesses {
+                    document,
+                    registry: Arc::new(registry),
+                    source_revision: None,
+                    migrated_from_v1: false,
+                    migration_diagnostics: Vec::new(),
+                };
+                (fallback, Some(error))
+            }
+        }
+    }
+
     pub(crate) fn mutate<F>(
         &self,
         catalog: &HarnessCatalog,
@@ -1392,5 +1423,106 @@ mod tests {
             "z".repeat(64)
         ))
         .is_err());
+    }
+
+    #[test]
+    fn healthy_document_starts_without_a_fallback() {
+        let fixture = StoreFixture::v2();
+        fs::write(
+            &fixture.path,
+            br#"{"version":3,"overrides":{"codex":{"name":"Configured Codex"}},"custom":[]}"#,
+        )
+        .unwrap();
+
+        let (loaded, fallback_error) = fixture.store.load_for_startup();
+
+        assert!(fallback_error.is_none());
+        assert_eq!(
+            loaded
+                .document
+                .overrides
+                .get("codex")
+                .and_then(|patch| patch.name.as_deref()),
+            Some("Configured Codex")
+        );
+        assert!(!loaded
+            .registry
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "startup_harness_document_rejected" }));
+    }
+
+    #[test]
+    fn corrupt_json_document_falls_back_to_builtins_at_startup() {
+        let fixture = StoreFixture::v2();
+        fs::write(&fixture.path, b"{ not json").unwrap();
+
+        let (loaded, fallback_error) = fixture.store.load_for_startup();
+
+        assert!(matches!(
+            fallback_error,
+            Some(HarnessStoreError::Validation(_))
+        ));
+        assert!(
+            loaded.registry.get("codex").is_some(),
+            "built-ins must remain"
+        );
+        assert!(loaded.document.overrides.is_empty() && loaded.document.custom.is_empty());
+        assert_eq!(loaded.source_revision, None);
+        assert!(loaded
+            .registry
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "startup_harness_document_rejected" }));
+    }
+
+    #[test]
+    fn schema_invalid_document_falls_back_to_builtins_at_startup() {
+        let fixture = StoreFixture::v2();
+        fs::write(
+            &fixture.path,
+            br#"{"version":3,"overrides":{},"custom":[{"id":"copilot-local","name":"Copilot Local","launch":{"kind":"command-template","command":"copilot-local","args":[],"modelPrefix":null},"integration":{"kind":"copilot"}}],"compatibilityProfiles":{}}"#,
+        )
+        .unwrap();
+
+        let (loaded, fallback_error) = fixture.store.load_for_startup();
+
+        assert!(matches!(
+            fallback_error,
+            Some(HarnessStoreError::Validation(_))
+        ));
+        assert!(
+            loaded.registry.get("codex").is_some(),
+            "built-ins must remain"
+        );
+        assert!(loaded.document.overrides.is_empty() && loaded.document.custom.is_empty());
+        assert!(loaded
+            .registry
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "startup_harness_document_rejected" }));
+    }
+
+    #[test]
+    fn unreadable_document_falls_back_to_builtins_at_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        let directory_path = dir.path().join("harnesses.json");
+        std::fs::create_dir(&directory_path).unwrap();
+        let builtins = Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap());
+        let store = HarnessStore::new(directory_path, builtins);
+
+        let (loaded, fallback_error) = store.load_for_startup();
+
+        assert!(matches!(fallback_error, Some(HarnessStoreError::Io(_))));
+        assert!(
+            loaded.registry.get("codex").is_some(),
+            "built-ins must remain"
+        );
+        assert!(loaded.document.overrides.is_empty() && loaded.document.custom.is_empty());
+        assert!(loaded
+            .registry
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "startup_harness_document_rejected" }));
     }
 }
