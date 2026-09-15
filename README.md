@@ -153,7 +153,8 @@ cd apps/desktop && pnpm package:release
 
 Stable GitHub Releases are tag-driven: pushing a protected `vX.Y.Z` tag runs
 `.github/workflows/release.yml`. The same workflow runs a serialized nightly
-path from `main` at 03:23 UTC and by manual dispatch. Both paths build:
+path from `main` at 03:23 UTC and by manual dispatch. An unchanged source exits
+during preparation; stable releases and eligible nightly runs build:
 
 - macOS arm64 on `macos-latest`
 - Windows x64 on `windows-latest`
