@@ -47,7 +47,7 @@ The production process seams found were:
 | Session PTY root | `crates/orkworksd/src/runtime/session_runtime.rs:817-888`, direct `pair.slave.spawn_command(cmd)` at `:882` | No | The PTY is created and the child executes before any owner registration. The reporting token is installed after spawn. `SessionRuntime` retains a killer and wait task (`:948-984`), not a crash-surviving owner. Startup cancellation uses direct `child.kill()`/`wait()` (`:763-804`). |
 | Provider/process runner root | `crates/orkworksd/src/providers.rs:847-908`, direct callback `cmd.spawn()` at `:892-894` | No | The generic callback is a bypassable spawn seam. Unix sets a process group (`:913-914`) and Windows creates a per-invocation `ProcessJob` (`:916-920`), but neither is a sidecar-wide owner adapter. |
 | Native inference version probe and execution | `crates/orkworksd/src/providers/inference.rs:307-323`; `crates/orkworksd/src/providers.rs:1838-1866` | No | Both the compatibility probe and actual CLI inference eventually use the same local `ProcessRunner`; neither receives a supervisor ticket or participates in an owner generation/barrier. Ollama's HTTP path is not a process root. |
-| Custom inference callback | `crates/orkworksd/src/taskmaster/runtime/inference.rs:238-270`, direct `command.spawn()` at `:256-261` | No | Trust, definition, and runtime-generation revalidation prevents stale authorization, but it does not register the root with a surviving owner or freeze admission on owner loss. `PreparedCustomInference::run_with_spawn` deliberately accepts a spawn closure (`crates/orkworksd/src/providers/custom_inference.rs:149-173`). |
+| Custom inference callback | `crates/orkworksd/src/taskmaster/runtime/inference.rs:238-270`, direct `command.spawn()` at `:256-261` | Partially: local invocation runner only; not the required sidecar-wide boundary | The callback is executed inside `PreparedCustomInference::run_with_spawn` (`crates/orkworksd/src/providers/custom_inference.rs:159-173`), which routes the invocation through `ProcessRunner`; on Windows that runner creates/attaches a per-invocation `ProcessJob` before resume (`crates/orkworksd/src/providers.rs:916-945`). This protects that provider invocation only. It does not register with a sidecar-wide owner and does not cover PTY, discovery, the sidecar, or other inference roots. Trust, definition, and runtime-generation revalidation still does not freeze admission on owner loss. |
 | Provider model discovery | `crates/orkworksd/src/providers.rs:2184-2205`, direct `spawn()` at `:2191-2196` | No | A declared list-models command is launched outside `ProcessRunner`/`ProcessJob`, with local pipe/timeout cleanup only. |
 | Codex app-server model discovery | `crates/orkworksd/src/providers.rs:2275-2300`, direct `spawn()` at `:2283-2289` | No | The app-server probe is another direct process root with local kill/wait behavior and no owner registration. |
 | Harness version probe | `crates/orkworksd/src/harness/detect.rs:99-145`, direct `tokio::process::Command.spawn()` at `:125` | No | `kill_on_drop(true)` bounds this short probe, but it is not connected to the process-owner protocol. It is not a PTY or inference root, but it is a production spawn seam from the required static audit. |
@@ -75,11 +75,12 @@ test-only direct-spawn convenience; its production callback is the
   inference, or roots launched after the per-invocation job is created. It has
   no authenticated ticket, cross-root admission gate, Electron parent-loss
   detection, rendezvous, complete-exit receipt, or Unix implementation.
-- Provider cleanup is subordinate only to the local invocation timeout. On
-  Unix it kills `-(pid)` (`providers.rs:974-1001`) and polls for up to one
-  second; on Windows it terminates the per-invocation Job Object and falls back
-  to `child.kill()` (`:987-991`). The source comment explicitly acknowledges
-  that a supervisor would change the semantics.
+- Provider cleanup is local to each invocation's write, read, wait, and timeout
+  error paths. On Unix it kills `-(pid)` (`providers.rs:974-1001`) and polls
+  for up to one second; on Windows it terminates the per-invocation Job Object
+  and falls back to `child.kill()` (`:987-991`). The source comment explicitly
+  acknowledges that a supervisor would change the semantics. This is useful
+  local cleanup, not a sidecar-wide owner receipt or crash-surviving boundary.
 - `AppState.session_pids` is a `HashMap<String, u32>` used to probe a PTY
   child's current working directory (`crates/orkworksd/src/main.rs:183-190`).
   It is removed when session tracking is cleared
@@ -116,9 +117,12 @@ test-only direct-spawn convenience; its production callback is the
   cross-platform production adapter has been selected. A `process_ownership.rs`
   adapter and `processSupervisor.ts` must not be invented from the fixture
   abstractions before the platform mechanism is demonstrated.
-- Direct process roots remain bypassable in provider discovery and custom
-  inference even aside from the PTY and main sidecar roots. A future adapter
-  must cover every root in the table, not only `ProcessRunner`.
+- Direct process roots remain bypassable in provider discovery and the custom
+  inference callback's caller-supplied spawn seam even aside from the PTY and
+  main sidecar roots. Custom inference does use `ProcessRunner` and, on
+  Windows, its per-invocation `ProcessJob`; a future adapter must still make
+  the sidecar-wide owner mandatory for every root in the table, not only one
+  invocation.
 - No production implementation proves registration-before-execute, owner-loss
   freeze/drain, five-second graceful plus five-second termination deadlines,
   unresolved survivors, generation-bound adoption, or forced Electron
@@ -137,7 +141,7 @@ test-only direct-spawn convenience; its production callback is the
 | Independent native identity and observation | **Absent.** Production records a PTY PID for cwd probing and uses live `Child` handles locally; no owner-controlled identity/observation set exists. |
 | Owner-loss admission freeze, in-flight drain, and launch-race closure | **Absent.** No parent-loss channel reaches sidecar admission or provider/custom inference. |
 | PTY separate session, provider roots, descendants, daemon/reparent/non-reporting cases | **Unproved.** Existing process groups and per-provider Windows Jobs do not cover all roots or the crash-surviving owner boundary. |
-| Bounded graceful cleanup, forced termination, complete-exit acknowledgement, unresolved survivor receipt | **Absent.** Current paths use direct kill/wait, local one-second polling, or Electron `kill()` without acknowledgement. |
+| Bounded graceful cleanup, forced termination, complete-exit acknowledgement, unresolved survivor receipt | **Absent.** Current write/read/wait error paths and invocation timeouts use direct kill/wait or local one-second polling; Electron uses `kill()` without acknowledgement. |
 | Foreign-owner safety and no broad PID/name/cwd cleanup | **Not implemented for this boundary.** Current code does not attempt cross-generation process cleanup; metadata reconciliation can falsely classify liveness but does not provide an ownership proof. |
 | Authenticated rendezvous and adoption only after a complete-exit receipt | **Absent.** No surviving supervisor, rendezvous, or receipt exists. |
 | Non-inheritable owner endpoint and no leaked control capability | **Absent.** There is no owner endpoint. Electron stdio and the sidecar HTTP token are unrelated to this contract. |
@@ -162,23 +166,40 @@ failure: providers::tests::process_runner_cleans_up_provider_that_closes_stdin_d
 at crates/orkworksd/src/providers.rs:3665: expected broken-pipe prompt-write error, got "timed out"
 elapsed: 74.55s
 
+cargo test --manifest-path crates/orkworksd/Cargo.toml 2>&1 | tail -100
+exit 101; 1258 passed, 9 failed, 3 ignored, 0 measured
+the 9 failures were PermissionDenied setup failures in provider/server-backed
+tests under the default sandbox; no harness/detect test was among the failures
+elapsed: 74.05s
+
+cargo test --manifest-path crates/orkworksd/Cargo.toml 2>&1 | tail -120
+exit 101; 1266 passed, 1 failed, 3 ignored, 0 measured
+run with the sandbox restriction lifted; same ProcessRunner prompt-write
+failure above, no harness/detect failure
+elapsed: 75.12s
+
+cargo test --manifest-path crates/orkworksd/Cargo.toml harness::detect::tests -- --nocapture
+exit 0; 21 passed, 0 failed, 0 ignored, 0 measured; 1249 filtered out
+elapsed: 3.11s
+
 cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
 exit 0
 
 git diff --check
 exit 0
 
-cd apps/desktop && npx tsc --noEmit
-exit 1; npx attempted to download `tsc` from registry.npmjs.org, but DNS/network
-access was unavailable (ENOTFOUND); no local apps/desktop/node_modules/.bin/tsc
-was present, so no TypeScript result is claimed
+cd apps/desktop && node --experimental-strip-types --test tests/sidecarLifecycle.test.ts tests/backendRestoration.test.ts
+exit 0; 24 passed, 0 failed, 0 skipped, 0 todo
+elapsed: 91.40ms
 ```
 
-The failed Rust test is unrelated to this documentation-only audit: it is a
-pre-existing local ProcessRunner prompt-write expectation and does not exercise
-the unimplemented owner boundary. No focused Electron test command was run;
-the checkout has no local TypeScript runner with which to execute the `.ts`
-tests, and this task did not change Electron code.
+The failed Rust test is an existing baseline failure observed without any
+production or fixture changes; it exercises the local ProcessRunner prompt
+write path, not the unimplemented owner boundary. The focused harness/detect
+subset passed separately (21/21), so no harness/detect failure occurred in
+these runs. The documented Electron lifecycle/restoration tests passed
+separately (24/24); no npm install or dependency download was attempted in
+this fix round.
 
 ## Changed files
 
@@ -187,6 +208,7 @@ Before editing, the requested worktree was clean on
 only:
 
 - `.superpowers/sdd/2026-09-15-process-ownership-proof/task-6-report.md`
+- `docs/superpowers/evidence/2026-09-15-process-ownership-proof.md`
 
 No files under `apps/desktop/electron/` or `crates/orkworksd/src/` were
 modified. No runtime recovery, multi-workspace replacement, production launch
