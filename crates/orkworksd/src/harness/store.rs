@@ -1461,7 +1461,7 @@ mod tests {
 
         assert!(matches!(
             fallback_error,
-            Some(HarnessStoreError::Validation(_)) | Some(HarnessStoreError::Parse(_))
+            Some(HarnessStoreError::Validation(_))
         ));
         assert!(
             loaded.registry.get("codex").is_some(),
