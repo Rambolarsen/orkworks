@@ -151,6 +151,17 @@ When the user refers to a PR without giving its full identifying detail (e.g.
 assume the current branch's PR, or proceed without one. Resolve it to a
 concrete PR first:
 
+```bash
+bash scripts/resolve-pr.sh [PR_REFERENCE]
+```
+
+The helper accepts no argument (resolves the current checkout's branch PR),
+a bare number or `#number`, a full PR URL, a branch name, or a search phrase;
+it prints the PR's number, URL, head/base branches, and state, and fails with
+an ask-the-user message instead of guessing when nothing unambiguous matches.
+
+If you need to do it manually, or the helper is unavailable:
+
 - Run `gh pr view --json number,url,headRefName,baseRefName,state` for the
   current checkout's branch.
 - Run `gh pr view <number> --json ...` for a bare number.
