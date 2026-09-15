@@ -88,6 +88,9 @@ export async function loadNightlyReleaseState({ repository, token, sourceSha, fe
   const markerCounts = new Map();
   for (const release of releases) {
     if (!release || typeof release !== "object") throw new Error("GitHub release list contains an invalid entry");
+    if (typeof release.draft !== "boolean" || typeof release.prerelease !== "boolean") {
+      throw new Error("GitHub release draft and prerelease flags must be booleans");
+    }
     if (release.draft) continue;
     if (typeof release.tag_name !== "string" || !release.tag_name.includes("-nightly.")) continue;
     let version;
@@ -124,7 +127,13 @@ export async function loadNightlyReleaseState({ repository, token, sourceSha, fe
       const response = await fetchImpl(asset.url, {
         headers: { accept: "application/octet-stream", authorization: `Bearer ${token}` },
       });
-      if (!response.ok) throw new Error(`download published asset ${name} failed with ${response.status}`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          downloadsComplete = false;
+          break;
+        }
+        throw new Error(`download published asset ${name} failed with ${response.status}`);
+      }
       downloadedAssets[name] = payloadNames.includes(name)
         ? Buffer.from(await response.arrayBuffer())
         : await response.text();
@@ -163,10 +172,10 @@ export async function prepareDailyRelease({
   loadState = loadNightlyReleaseState,
   ensureTag = ensureTagAtSource,
 }) {
-  const identity = createNightlyIdentity({ baseVersion, utcDate, runId, runNumber, runAttempt });
   const state = await loadState({ repository, token, sourceSha, fetchImpl });
   const existing = selectPublishedNightlyForSource(state.validated, sourceSha);
   if (existing) return { shouldBuild: false, sourceSha };
+  const identity = createNightlyIdentity({ baseVersion, utcDate, runId, runNumber, runAttempt });
   assertCandidateIsNewest(identity.version, state.publishedNightlyVersions.map((version) => ({ version })));
   await ensureTag({ repository, token, tag: identity.tag, sourceSha, fetchImpl });
   return { shouldBuild: true, sourceSha, identity };

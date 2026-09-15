@@ -218,6 +218,59 @@ test("remote nightly state retains public canonical versions with a damaged prer
   assert.deepEqual(state, { publishedNightlyVersions: [VERSION], validated: [] });
 });
 
+test("remote nightly state rejects malformed release visibility flags", async () => {
+  for (const release of [
+    { ...publishedRelease({ id: 11 }), draft: null },
+    { ...publishedRelease({ id: 12 }), prerelease: null },
+  ]) {
+    await assert.rejects(() => loadNightlyReleaseState({
+      repository: "Rambolarsen/orkworks",
+      token: "secret",
+      sourceSha: SOURCE_SHA,
+      fetchImpl: async (url) => {
+        if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+        throw new Error(`unexpected request: ${url}`);
+      },
+    }), /draft and prerelease flags must be booleans/i);
+  }
+});
+
+test("remote nightly state treats a missing advertised asset as damaged history", async () => {
+  const release = publishedRelease({ id: 13 });
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (release.assets.some((asset) => asset.url === url)) return new Response(null, { status: 404 });
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [VERSION], validated: [] });
+});
+
+test("remote nightly state fails closed when an asset download service is unavailable", async () => {
+  const release = publishedRelease({ id: 14 });
+  await assert.rejects(() => loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (release.assets.some((asset) => asset.url === url)) return new Response(null, { status: 503 });
+      throw new Error(`unexpected request: ${url}`);
+    },
+  }), /download published asset.*503/i);
+});
+
 test("remote nightly state rejects updater SHA-512 that does not match its payload", async () => {
   const assets = createAssets();
   assets["nightly.yml"] = Buffer.from(assets["nightly.yml"].toString().replace(/sha512: .+/, "sha512: Ym9ndXM="));
@@ -357,8 +410,8 @@ test("preparation skips one already-validated nightly for the frozen source", as
     baseVersion: "0.2.0",
     utcDate: new Date("2026-09-15T03:23:00Z"),
     runId: "123456789",
-    runNumber: "42",
-    runAttempt: "2",
+    runNumber: "65536",
+    runAttempt: "100",
     repository: "Rambolarsen/orkworks",
     token: "secret",
     sourceSha: SOURCE_SHA,

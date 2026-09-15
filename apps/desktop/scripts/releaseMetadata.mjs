@@ -274,6 +274,26 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
   return { version: metadata.version, files };
 }
 
+export function verifyAppUpdateMetadata({ metadataPath, channel = "latest", provider, owner, repo }) {
+  requireReleaseChannel(channel);
+  const metadata = yaml.load(readFileSync(metadataPath, "utf8"));
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new Error(`app update metadata is not an object: ${metadataPath}`);
+  }
+  const actualChannel = metadata.channel ?? "latest";
+  for (const [field, expected, actual] of [
+    ["provider", provider, metadata.provider],
+    ["owner", owner, metadata.owner],
+    ["repo", repo, metadata.repo],
+    ["channel", channel, actualChannel],
+  ]) {
+    if (actual !== expected) {
+      throw new Error(`app update metadata ${field} mismatch: expected ${expected}, got ${actual}`);
+    }
+  }
+  return metadata;
+}
+
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   if (process.argv[2] === "--checksums") {
     runChecksumCli();

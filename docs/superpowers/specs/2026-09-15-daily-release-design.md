@@ -58,13 +58,16 @@ tag/package-version guard.
    Validation requires the expected prerelease/tag grammar, exact tag target,
    complete expected asset-name set, nonzero asset sizes and GitHub SHA-256
    digests, plus downloadable channel metadata and `SHA256SUMS.txt` whose
-   contents cross-check those assets. API, pagination, download, schema, or
-   duplicate-marker ambiguity fails closed. One valid exact-source match ends
+   contents cross-check those assets. API, pagination, schema, or
+   duplicate-marker ambiguity fails closed. An authenticated asset URL that
+   returns 404 marks that published release as damaged, retryable history;
+   every other download failure fails closed. One valid exact-source match ends
    the nightly as an intentional no-op before Main CI or packaging; a damaged
    or partial published release is not success and remains retryable under a
    new tag. To keep the scan
    bounded, full asset downloads apply only to releases claiming the current
-   source SHA; those candidates also download the two updater payloads and
+   source SHA; release entries must expose boolean `draft` and `prerelease`
+   flags, and those candidates also download the two updater payloads and
    verify each metadata SHA-512 against its payload bytes.
 4. `main-ci.yml` exposes its existing desktop and Rust jobs through
    `workflow_call`, accepting an optional immutable checkout SHA. Normal Main CI
@@ -115,7 +118,10 @@ tag/package-version guard.
 The nightly SemVer is
 `<stable-base>-nightly.<YYYYMMDD>.<run-id>.<run-attempt>`. All numeric strings
 are canonicalized without leading zeroes and validated before editing package
-files. Within one stable base it orders by UTC date, run ID, then rerun attempt;
+files. A valid already-published release for the frozen SHA is detected before
+constructing a new identity, so an unchanged-SHA no-op remains valid even after
+the finite native version ranges are exhausted. Within one stable base it
+orders by UTC date, run ID, then rerun attempt;
 a stable-base increment orders above every nightly of the prior base. The stable
 release of the same base remains SemVer-greater than its prereleases, but it is
 not a nightly candidate because the feeds are isolated.
@@ -136,8 +142,10 @@ Native identifiers do not reuse one cross-platform format:
 Stable packaging retains `latest.yml` and `latest-mac.yml`. Nightly packaging
 sets the fixed GitHub publisher channel to `nightly` and keeps
 `generateUpdatesFilesForAllChannels` false, producing only `nightly.yml` and
-`nightly-mac.yml`. The packaged `app-update.yml` therefore records its own fixed
-channel. `nightly` is intentionally a custom channel, not electron-updater's
+`nightly-mac.yml`. Artifact verification parses each packaged `app-update.yml`
+and requires the GitHub provider identity (`Rambolarsen/orkworks`) plus the
+expected channel; electron-builder's omitted stable channel is normalized to
+`latest`, while nightly must be explicit. `nightly` is intentionally a custom channel, not electron-updater's
 hierarchical `alpha` or `beta`: with `allowPrerelease` and the explicit custom
 channel, the GitHub provider matches only tags whose first prerelease identifier
 is `nightly`. Add the pinned `electron-updater` version as a development

@@ -113,7 +113,10 @@
   - macOS bundle version uses the documented base-100 tuple, is strictly increasing, and rejects attempts outside `1..99` and overflow;
   - a marker is exactly `<!-- orkworks-nightly-source:<40-lowercase-hex> -->` on its own body line;
   - stable and nightly expected asset sets are exact and disjoint for metadata names;
-  - drafts, stable releases, malformed schemas, duplicate markers, wrong tag targets, zero-sized assets, missing/extra assets, absent GitHub `sha256:` digests, checksum mismatches, metadata payload mismatches, and duplicate valid source matches fail closed;
+  - drafts, stable releases, non-boolean release flags, malformed schemas, duplicate markers, wrong tag targets, zero-sized assets, missing/extra assets, absent GitHub `sha256:` digests, checksum mismatches, metadata payload mismatches, and duplicate valid source matches fail closed;
+  - an authenticated asset 404 leaves damaged retryable history while other download failures fail closed;
+  - a validated unchanged-SHA release no-ops before a new finite native identity is constructed;
+  - packaged `app-update.yml` files match the expected GitHub repository and normalized stable or explicit nightly channel;
   - a complete published prerelease succeeds and a candidate version must exceed every validated published nightly.
 
 - [ ] Run the new test and confirm the red state:

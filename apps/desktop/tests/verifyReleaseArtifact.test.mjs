@@ -15,9 +15,15 @@ import {
   readAuthenticodeSignature,
   verifyInstalledWindowsApp,
 } from "../scripts/windowsInstallerSmokeTest.mjs";
-import { writeChecksumManifest } from "../scripts/releaseMetadata.mjs";
+import {
+  verifyAppUpdateMetadata,
+  writeChecksumManifest,
+} from "../scripts/releaseMetadata.mjs";
 
-const passingMetadataModule = { verifyUpdateMetadata() {} };
+const passingMetadataModule = {
+  verifyAppUpdateMetadata() {},
+  verifyUpdateMetadata() {},
+};
 
 function withTempDir(run) {
   const directory = mkdtempSync(join(tmpdir(), "orkworks-release-verifier-"));
@@ -190,6 +196,7 @@ test("metadata validation failures identify the metadata path", () => {
 
   assert.throws(
     () => verifyReleaseArtifact(expectation, fakeFs, {
+      verifyAppUpdateMetadata() {},
       verifyUpdateMetadata(...args) {
         metadataCalls.push(args);
         throw new Error("invalid metadata");
@@ -204,6 +211,61 @@ test("metadata validation failures identify the metadata path", () => {
     channel: "latest",
   }]]);
 });
+
+test("packaged updater metadata must match the release channel and GitHub repository", () => {
+  const expectations = [
+    createReleaseArtifactExpectation(
+      "win32", "x64", "0.2.0-nightly.20260915.123.1", "/release", "nightly",
+    ),
+    createReleaseArtifactExpectation(
+      "darwin", "arm64", "0.2.0-nightly.20260915.123.1", "/release", "nightly",
+    ),
+  ];
+  const fakeFs = {
+    statSync() {
+      return { isFile: () => true, isDirectory: () => true, size: 1 };
+    },
+  };
+  const calls = [];
+
+  for (const expectation of expectations) {
+    verifyReleaseArtifact(expectation, fakeFs, {
+      verifyAppUpdateMetadata(options) { calls.push(options); },
+      verifyUpdateMetadata() {},
+    });
+  }
+
+  assert.deepEqual(calls, expectations.map((expectation) => ({
+    metadataPath: expectation.appUpdateMetadataPath,
+    channel: "nightly",
+    provider: "github",
+    owner: "Rambolarsen",
+    repo: "orkworks",
+  })));
+});
+
+test("app update metadata normalizes the omitted stable channel and requires nightly explicitly", () => withTempDir((directory) => {
+  const metadataPath = join(directory, "app-update.yml");
+  const expected = {
+    metadataPath,
+    provider: "github",
+    owner: "Rambolarsen",
+    repo: "orkworks",
+  };
+
+  writeFileSync(metadataPath, "provider: github\nowner: Rambolarsen\nrepo: orkworks\n");
+  assert.doesNotThrow(() => verifyAppUpdateMetadata({ ...expected, channel: "latest" }));
+  assert.throws(
+    () => verifyAppUpdateMetadata({ ...expected, channel: "nightly" }),
+    /channel mismatch.*nightly.*latest/i,
+  );
+
+  writeFileSync(metadataPath, "provider: github\nowner: Rambolarsen\nrepo: elsewhere\nchannel: nightly\n");
+  assert.throws(
+    () => verifyAppUpdateMetadata({ ...expected, channel: "nightly" }),
+    /repo mismatch.*orkworks.*elsewhere/i,
+  );
+}));
 
 test("missing hook scripts identify the exact packaged file", () => {
   const expectation = createReleaseArtifactExpectation("darwin", "arm64", "0.1.0", "/release");
@@ -301,7 +363,11 @@ test("pre-checksum mode passes before checksum generation and the final gate doe
     join(expectation.scriptsDir, "..", "knowledge", "public-key.pem"),
   ]) {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, path === expectation.installerPath ? payload : "fixture");
+    writeFileSync(path, path === expectation.installerPath
+      ? payload
+      : path === expectation.appUpdateMetadataPath
+        ? "provider: github\nowner: Rambolarsen\nrepo: orkworks\n"
+        : "fixture");
   }
   writeFileSync(expectation.metadataPath, [
     `version: ${version}`,

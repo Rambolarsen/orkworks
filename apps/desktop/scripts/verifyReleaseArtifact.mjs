@@ -104,6 +104,19 @@ export function verifyReleaseArtifact(
   assertPath(fsModule, join(expectation.scriptsDir, "..", "knowledge", "starter.json"), "starter knowledge", "file");
   assertPath(fsModule, join(expectation.scriptsDir, "..", "knowledge", "public-key.pem"), "knowledge verification key", "file");
   try {
+    metadataModule.verifyAppUpdateMetadata({
+      metadataPath: expectation.appUpdateMetadataPath,
+      channel: expectation.channel,
+      provider: "github",
+      owner: "Rambolarsen",
+      repo: "orkworks",
+    });
+  } catch (error) {
+    throw new Error(`Packaged app update metadata is invalid at ${expectation.appUpdateMetadataPath}`, {
+      cause: error,
+    });
+  }
+  try {
     metadataModule.verifyUpdateMetadata({
       metadataPath: expectation.metadataPath,
       releaseDir: expectation.releaseDir,
