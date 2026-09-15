@@ -1,0 +1,270 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import test from "node:test";
+
+import {
+  assertCandidateIsNewest,
+  createNightlyIdentity,
+  expectedReleaseAssetNames,
+  parseSourceMarker,
+  parseStableTag,
+  selectPublishedNightlyForSource,
+  sourceMarker,
+  validatePublishedRelease,
+} from "../scripts/dailyRelease.mjs";
+
+const SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567";
+const VERSION = "0.2.0-nightly.20260915.123456789.2";
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function createValidRelease({
+  sourceSha = SOURCE_SHA,
+  version = VERSION,
+  tagTargetSha = sourceSha,
+} = {}) {
+  const tag = `v${version}`;
+  const names = expectedReleaseAssetNames({ version, channel: "nightly" });
+  const contents = Object.fromEntries(names.map((name) => [name, `${name} content`]));
+  const windowsPayload = `OrkWorks-${version}-win-x64.exe`;
+  const macPayload = `OrkWorks-${version}-mac-arm64.zip`;
+  contents["nightly.yml"] = [
+    `version: ${version}`,
+    "files:",
+    `  - url: ${windowsPayload}`,
+    "    sha512: d2luZG93cw==",
+    `    size: ${Buffer.byteLength(contents[windowsPayload])}`,
+  ].join("\n");
+  contents["nightly-mac.yml"] = [
+    `version: ${version}`,
+    "files:",
+    `  - url: ${macPayload}`,
+    "    sha512: bWFj",
+    `    size: ${Buffer.byteLength(contents[macPayload])}`,
+  ].join("\n");
+  contents["SHA256SUMS.txt"] = names
+    .filter((name) => name !== "SHA256SUMS.txt")
+    .sort()
+    .map((name) => `${sha256(contents[name])}  ${name}`)
+    .join("\n") + "\n";
+
+  return {
+    downloadedAssets: {
+      "nightly.yml": contents["nightly.yml"],
+      "nightly-mac.yml": contents["nightly-mac.yml"],
+      "SHA256SUMS.txt": contents["SHA256SUMS.txt"],
+    },
+    expectedAssetNames: names,
+    release: {
+      body: `Nightly build\n\n${sourceMarker(sourceSha)}\n`,
+      draft: false,
+      prerelease: true,
+      tag_name: tag,
+      assets: names.map((name, index) => ({
+        id: index + 1,
+        name,
+        size: Buffer.byteLength(contents[name]),
+        digest: `sha256:${sha256(contents[name])}`,
+      })),
+    },
+    sourceSha,
+    tagTargetSha,
+  };
+}
+
+function resealDownloadedAsset(fixture, name) {
+  const value = fixture.downloadedAssets[name];
+  const asset = fixture.release.assets.find((candidate) => candidate.name === name);
+  asset.size = Buffer.byteLength(value);
+  asset.digest = `sha256:${sha256(value)}`;
+}
+
+function resealMetadata(fixture, name) {
+  resealDownloadedAsset(fixture, name);
+  const checksum = fixture.release.assets.find((asset) => asset.name === name).digest.slice(7);
+  fixture.downloadedAssets["SHA256SUMS.txt"] = fixture.downloadedAssets["SHA256SUMS.txt"]
+    .replace(new RegExp(`^[0-9a-f]{64}  ${name.replace(".", "\\.")}$`, "m"), `${checksum}  ${name}`);
+  resealDownloadedAsset(fixture, "SHA256SUMS.txt");
+}
+
+test("accepts only a canonical stable tag matching the package version", () => {
+  assert.deepEqual(parseStableTag("v0.2.0", "0.2.0"), { version: "0.2.0" });
+
+  for (const tag of ["v01.2.3", "v0.2.0-rc.1", "v0.2.0+build", "0.2.0"]) {
+    assert.throws(() => parseStableTag(tag, "0.2.0"), /canonical stable tag/i);
+  }
+  assert.throws(() => parseStableTag("v0.2.0", "0.2.1"), /package version/i);
+});
+
+test("creates deterministic SemVer and native nightly identities", () => {
+  assert.deepEqual(createNightlyIdentity({
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: "123456789",
+    runNumber: "42",
+    runAttempt: "2",
+  }), {
+    version: VERSION,
+    tag: `v${VERSION}`,
+    windowsBuildVersion: "2026.258.42.2",
+    macBundleVersion: "1.41.2",
+  });
+});
+
+test("nightly identities reject noncanonical and out-of-range inputs", () => {
+  const valid = {
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: "123456789",
+    runNumber: "42",
+    runAttempt: "2",
+  };
+
+  for (const override of [
+    { baseVersion: "0.2.0-nightly.1" },
+    { runId: "001" },
+    { runNumber: "0" },
+    { runNumber: "65536" },
+    { runAttempt: "0" },
+    { runAttempt: "100" },
+    { utcDate: new Date("invalid") },
+  ]) {
+    assert.throws(() => createNightlyIdentity({ ...valid, ...override }), /invalid|range|canonical/i);
+  }
+});
+
+test("native nightly versions are collision-free and increasing", () => {
+  const identity = (runNumber, runAttempt) => createNightlyIdentity({
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: String(runNumber),
+    runNumber: String(runNumber),
+    runAttempt: String(runAttempt),
+  });
+  const first = identity(42, 1);
+  const retry = identity(42, 2);
+  const next = identity(43, 1);
+
+  assert.notEqual(first.windowsBuildVersion, retry.windowsBuildVersion);
+  assert.notEqual(first.macBundleVersion, retry.macBundleVersion);
+  assert.deepEqual(
+    [first.macBundleVersion, retry.macBundleVersion, next.macBundleVersion],
+    ["1.41.1", "1.41.2", "1.42.1"],
+  );
+});
+
+test("source markers require one exact lowercase SHA line", () => {
+  const marker = sourceMarker(SOURCE_SHA);
+  assert.equal(marker, `<!-- orkworks-nightly-source:${SOURCE_SHA} -->`);
+  assert.equal(parseSourceMarker(`notes\n${marker}\nmore`), SOURCE_SHA);
+  assert.equal(parseSourceMarker(`prefix ${marker}`), null);
+  assert.equal(parseSourceMarker(marker.toUpperCase()), null);
+  assert.throws(() => parseSourceMarker(`${marker}\n${marker}`), /multiple source markers/i);
+  assert.throws(() => sourceMarker("abc"), /source SHA/i);
+});
+
+test("stable and nightly release assets use disjoint metadata names", () => {
+  const latest = expectedReleaseAssetNames({ version: "0.2.0", channel: "latest" });
+  const nightly = expectedReleaseAssetNames({ version: VERSION, channel: "nightly" });
+
+  assert(latest.includes("latest.yml"));
+  assert(latest.includes("latest-mac.yml"));
+  assert(!latest.includes("nightly.yml"));
+  assert(nightly.includes("nightly.yml"));
+  assert(nightly.includes("nightly-mac.yml"));
+  assert(!nightly.includes("latest.yml"));
+  assert.throws(
+    () => expectedReleaseAssetNames({ version: VERSION, channel: "beta" }),
+    /release channel/i,
+  );
+});
+
+test("validates a complete published nightly release", () => {
+  const fixture = createValidRelease();
+  const validated = validatePublishedRelease(fixture);
+
+  assert.equal(validated.sourceSha, SOURCE_SHA);
+  assert.equal(validated.version, VERSION);
+  assert.equal(validated.tag, `v${VERSION}`);
+});
+
+test("rejects draft, stable, or wrongly targeted nightly releases", () => {
+  for (const mutate of [
+    (fixture) => { fixture.release.draft = true; },
+    (fixture) => { fixture.release.prerelease = false; },
+    (fixture) => { fixture.tagTargetSha = "f".repeat(40); },
+  ]) {
+    const fixture = createValidRelease();
+    mutate(fixture);
+    assert.throws(() => validatePublishedRelease(fixture), /published prerelease|tag target/i);
+  }
+});
+
+test("rejects missing, extra, duplicate, empty, or undigested assets", () => {
+  for (const mutate of [
+    (fixture) => { fixture.release.assets.pop(); },
+    (fixture) => { fixture.release.assets.push({ name: "latest.yml", size: 1, digest: `sha256:${"a".repeat(64)}` }); },
+    (fixture) => { fixture.release.assets[1].name = fixture.release.assets[0].name; },
+    (fixture) => { fixture.release.assets[0].size = 0; },
+    (fixture) => { fixture.release.assets[0].digest = null; },
+  ]) {
+    const fixture = createValidRelease();
+    mutate(fixture);
+    assert.throws(() => validatePublishedRelease(fixture), /asset/i);
+  }
+});
+
+test("rejects malformed or mismatched checksum manifests", () => {
+  for (const manifest of [
+    "not a checksum\n",
+    `${"a".repeat(64)}  missing.exe\n`,
+    "",
+  ]) {
+    const fixture = createValidRelease();
+    fixture.downloadedAssets["SHA256SUMS.txt"] = manifest;
+    resealDownloadedAsset(fixture, "SHA256SUMS.txt");
+    assert.throws(() => validatePublishedRelease(fixture), /asset|checksum/i);
+  }
+});
+
+test("rejects updater metadata with the wrong version, payload, or size", () => {
+  for (const mutate of [
+    (fixture) => { fixture.downloadedAssets["nightly.yml"] = fixture.downloadedAssets["nightly.yml"].replace(VERSION, "0.2.1"); },
+    (fixture) => { fixture.downloadedAssets["nightly.yml"] = fixture.downloadedAssets["nightly.yml"].replace("-win-x64.exe", "-mac-arm64.dmg"); },
+    (fixture) => { fixture.downloadedAssets["nightly.yml"] = fixture.downloadedAssets["nightly.yml"].replace(/size: \d+/, "size: 999"); },
+  ]) {
+    const fixture = createValidRelease();
+    mutate(fixture);
+    resealMetadata(fixture, "nightly.yml");
+    assert.throws(() => validatePublishedRelease(fixture), /metadata/i);
+  }
+});
+
+test("selects one valid published nightly for a source and rejects ambiguity", () => {
+  const first = validatePublishedRelease(createValidRelease());
+  assert.equal(selectPublishedNightlyForSource([first], SOURCE_SHA), first);
+  assert.equal(selectPublishedNightlyForSource([first], "f".repeat(40)), null);
+  assert.throws(
+    () => selectPublishedNightlyForSource([first, { ...first }], SOURCE_SHA),
+    /multiple published nightlies/i,
+  );
+});
+
+test("requires a candidate to exceed every published nightly", () => {
+  const releases = [
+    { version: "0.2.0-nightly.20260914.20.1" },
+    { version: "0.2.0-nightly.20260915.21.1" },
+  ];
+
+  assert.doesNotThrow(() => assertCandidateIsNewest("0.2.0-nightly.20260915.21.2", releases));
+  assert.throws(
+    () => assertCandidateIsNewest("0.2.0-nightly.20260915.21.1", releases),
+    /newer than every published nightly/i,
+  );
+  assert.throws(
+    () => assertCandidateIsNewest("0.2.0-nightly.20260913.99.1", releases),
+    /newer than every published nightly/i,
+  );
+});
