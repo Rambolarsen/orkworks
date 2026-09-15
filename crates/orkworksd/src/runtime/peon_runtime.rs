@@ -205,6 +205,11 @@ impl crate::PeonState {
         let Some(entry) = self.diagnostic_entry(&mut diagnostics, &leases, session_id) else {
             return;
         };
+        if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::Failed {
+            entry.snapshot.error_summary = None;
+            entry.snapshot.provider_id = None;
+            entry.snapshot.provider_model = None;
+        }
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Candidate;
         entry.snapshot.reason = Some("selected_for_inference".to_string());
     }
@@ -325,7 +330,7 @@ impl crate::PeonState {
             .rev()
             .find(|attempt| attempt.outcome == providers::AttemptOutcome::Succeeded);
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Completed;
-        entry.snapshot.reason = None;
+        entry.snapshot.reason = Some("inference_succeeded".to_string());
         entry.snapshot.last_successful_inference_at = Some(iso_now());
         entry.snapshot.provider_id = result
             .observation
@@ -460,6 +465,11 @@ impl crate::PeonState {
             return;
         };
         if entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight {
+            if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::Failed {
+                entry.snapshot.error_summary = None;
+                entry.snapshot.provider_id = None;
+                entry.snapshot.provider_model = None;
+            }
             entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Idle;
             entry.snapshot.reason = Some(reason.to_string());
         }
@@ -2212,6 +2222,176 @@ mod tests {
         assert_eq!(snapshot.provider_id.as_deref(), Some("aider"));
         assert_eq!(snapshot.provider_model.as_deref(), Some("sonnet"));
         assert_eq!(snapshot.fallback_step, Some(1));
+    }
+
+    #[test]
+    fn completed_attempt_records_a_terminal_outcome_reason() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "completed-reason";
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
+            .expect("diagnostic attempt should start");
+        let result = providers::ProviderRunResult {
+            inference: peon::parse_inference(r#"{"status":"working","confidence":0.85}"#),
+            observation: None,
+            attempts: vec![],
+            runtime: HashMap::new(),
+        };
+
+        assert!(state.peon.complete_attempt(session_id, &attempt, &result));
+
+        let reason = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .reason
+            .clone();
+        assert_eq!(reason.as_deref(), Some("inference_succeeded"));
+    }
+
+    #[test]
+    fn mark_idle_after_failure_clears_the_stale_failure_context() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "idle-after-failure";
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
+            .expect("diagnostic attempt should start");
+        state.peon.fail_attempt(
+            session_id,
+            &attempt,
+            "provider_exhausted",
+            "all providers failed",
+            Some("ollama"),
+            Some("gemma4:latest"),
+            Some(1),
+        );
+        state.peon.finish_attempt(session_id, &attempt);
+
+        state.peon.mark_idle(session_id, "no_new_silent_output");
+
+        let snapshot = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .clone();
+        assert_eq!(
+            snapshot.scheduler_state,
+            crate::session_types::PeonSchedulerState::Idle
+        );
+        assert_eq!(snapshot.reason.as_deref(), Some("no_new_silent_output"));
+        assert_eq!(snapshot.error_summary, None);
+        assert_eq!(snapshot.provider_id, None);
+        assert_eq!(snapshot.provider_model, None);
+    }
+
+    #[test]
+    fn mark_candidate_after_failure_clears_the_stale_failure_context() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "candidate-after-failure";
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
+            .expect("diagnostic attempt should start");
+        state.peon.fail_attempt(
+            session_id,
+            &attempt,
+            "provider_exhausted",
+            "all providers failed",
+            Some("ollama"),
+            Some("gemma4:latest"),
+            Some(1),
+        );
+        state.peon.finish_attempt(session_id, &attempt);
+
+        state.peon.mark_candidate(session_id);
+
+        let snapshot = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .clone();
+        assert_eq!(
+            snapshot.scheduler_state,
+            crate::session_types::PeonSchedulerState::Candidate
+        );
+        assert_eq!(snapshot.error_summary, None);
+        assert_eq!(snapshot.provider_id, None);
+        assert_eq!(snapshot.provider_model, None);
+    }
+
+    #[test]
+    fn mark_idle_after_completion_preserves_the_last_successful_provider() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "idle-after-completion";
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity(session_id, 1))
+            .expect("diagnostic attempt should start");
+        let result = providers::ProviderRunResult {
+            inference: peon::parse_inference(r#"{"status":"working","confidence":0.85}"#),
+            observation: Some(providers::ProviderObservation {
+                provider_id: "ollama".into(),
+                provider_label: "provider".into(),
+                provider_model: Some("gemma4:latest".into()),
+                provider_state: "healthy".into(),
+            }),
+            attempts: vec![providers::AttemptRecord {
+                provider_id: "ollama".into(),
+                step: 1,
+                outcome: providers::AttemptOutcome::Succeeded,
+            }],
+            runtime: HashMap::new(),
+        };
+        assert!(state.peon.complete_attempt(session_id, &attempt, &result));
+        state.peon.finish_attempt(session_id, &attempt);
+
+        state.peon.mark_idle(session_id, "no_new_silent_output");
+
+        let snapshot = state.peon.diagnostics.read().unwrap()[session_id]
+            .snapshot
+            .clone();
+        assert_eq!(
+            snapshot.scheduler_state,
+            crate::session_types::PeonSchedulerState::Idle
+        );
+        assert_eq!(snapshot.provider_id.as_deref(), Some("ollama"));
+        assert_eq!(snapshot.provider_model.as_deref(), Some("gemma4:latest"));
     }
 
     #[tokio::test]
