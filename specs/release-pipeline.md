@@ -279,7 +279,9 @@ Linux and Intel macOS packaging configuration remains available for local develo
 
 ### New: `.github/workflows/release.yml`
 
-Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Each build job:
+Triggered on canonical stable tag pushes matching `v*`; immutable `v*-nightly.*`
+tags are excluded because the nightly run that created them already owns their
+publication. Uses a matrix strategy for OS/arch jobs. Each build job:
 
 1. Checks out the repo
 2. Installs Node 22

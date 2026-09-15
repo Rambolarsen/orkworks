@@ -35,9 +35,12 @@ tag/package-version guard.
 1. One unprivileged preflight runs before any environment-bearing job. A stable
    tag push freezes `github.sha`, requires the canonical stable-tag grammar and
    matching package version, and bypasses nightly deduplication and concurrency.
-   A schedule or manual dispatch is accepted only when the executing workflow
-   ref is `refs/heads/main`; its initial `github.sha` is the one immutable source
-   for every nightly checkout. The source is never re-resolved during the run.
+   Nightly tags are excluded from the stable tag trigger. A schedule or manual
+   dispatch is accepted only when the executing workflow ref is
+   `refs/heads/main`; a job-level guard rejects other refs before checkout or
+   dependency installation. Its initial `github.sha` is the one immutable
+   source for every nightly checkout. The source is never re-resolved during
+   the run.
 2. The `release` environment must restrict deployment to the default branch and
    stable release tags before credentials are provisioned. The nightly guard is
    tested in source and runs before any environment-bearing job, preventing an

@@ -211,6 +211,7 @@ test("release workflow freezes and validates stable or nightly sources before si
   const source = readFileSync(releaseWorkflowPath, "utf8");
   const workflow = yaml.load(source);
 
+  assert.deepEqual(workflow.on.push.tags, ["v*", "!v*-nightly.*"]);
   assert.deepEqual(workflow.on.schedule, [{ cron: "23 3 * * *" }]);
   assert.notEqual(workflow.on.workflow_dispatch, undefined);
   assert.equal(workflow.concurrency["cancel-in-progress"], false);
@@ -234,6 +235,16 @@ test("release workflow freezes and validates stable or nightly sources before si
   assert.match(source, /ORKWORKS_RELEASE_CHANNEL/);
   assert.match(source, /nightly\*\.yml/);
   assert.match(findStep(workflow.jobs.publish_nightly, "Assemble exact nightly assets").run, /uniq -d/);
+});
+
+test("release workflow rejects non-main manual dispatches before checkout or install", () => {
+  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const preflight = workflow.jobs.preflight;
+  const checkout = preflight.steps.find((step) => step.uses === "actions/checkout@v4");
+
+  assert.match(preflight.if, /github\.event_name == 'push'/);
+  assert.match(preflight.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.equal(checkout.with["persist-credentials"], false);
 });
 
 test("release workflow protects platform jobs and maps only their signing credentials", () => {
