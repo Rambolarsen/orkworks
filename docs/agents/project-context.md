@@ -33,7 +33,10 @@ commands and validation, read [`apps/desktop/AGENTS.md`](https://github.com/Ramb
 
 GitHub Actions has seven distinct workflow classes:
 
-- `.github/workflows/release.yml` handles tag-driven release packaging only.
+- `.github/workflows/release.yml` preserves canonical stable-tag draft
+  packaging and also runs signed nightly prereleases from an immutable `main`
+  SHA at 03:23 UTC or by manual dispatch. Its privileged jobs use the protected
+  `release` environment; nightly GitHub writes use a separate CI-only token.
 - `.github/workflows/pr-ci.yml` validates pull requests targeting `main`.
   Its focused Windows custom-inference job runs native fixture transport,
   approval-gated activation, and trust tests when Rust files, `rust-toolchain.toml`
@@ -47,7 +50,9 @@ GitHub Actions has seven distinct workflow classes:
   after a merge, so a bad merge — including one that bypasses branch
   protection as an administrator — could sit undetected until the next pull
   request; the daily schedule also catches drift such as flaky tests and
-  dependency updates without a code change.
+  dependency updates without a code change. The same workflow is callable by
+  the release pipeline with an immutable SHA so validation and packaging cannot
+  drift to different commits.
 - `.github/workflows/docs.yml` builds the VitePress documentation site and
   deploys it to GitHub Pages when documentation or generated-fact inputs change
   on `main`, after public release changes, and daily to refresh release data.

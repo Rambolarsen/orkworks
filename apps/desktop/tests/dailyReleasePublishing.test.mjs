@@ -1,0 +1,566 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { expectedReleaseAssetNames, sourceMarker } from "../scripts/dailyRelease.mjs";
+import {
+  loadNightlyReleaseState as loadNightlyReleaseStateWithTags,
+  prepareDailyRelease,
+  stageNightlyVersions,
+} from "../scripts/prepareDailyRelease.mjs";
+import { publishDailyRelease, readReleaseAssets } from "../scripts/publishDailyRelease.mjs";
+
+const SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567";
+const VERSION = "0.2.0-nightly.20260915.123456789.2";
+const TAG = `v${VERSION}`;
+
+const loadNightlyReleaseState = (options) => loadNightlyReleaseStateWithTags({
+  listTagVersions: async () => [],
+  ...options,
+});
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function sha512(value) {
+  return createHash("sha512").update(value).digest("base64");
+}
+
+test("stages the same nightly version in desktop and Rust manifests", () => {
+  const staged = stageNightlyVersions({
+    packageJson: JSON.stringify({ name: "orkworks-desktop", version: "0.2.0", private: true }, null, 2) + "\n",
+    cargoToml: '[package]\nname = "orkworksd"\nversion = "0.2.0"\nedition = "2021"\n',
+    cargoLock: 'version = 4\n\n[[package]]\nname = "orkworksd"\nversion = "0.2.0"\ndependencies = []\n',
+    version: VERSION,
+  });
+
+  assert.equal(JSON.parse(staged.packageJson).version, VERSION);
+  assert.match(staged.cargoToml, new RegExp(`version = "${VERSION.replaceAll(".", "\\.")}"`));
+  assert.match(staged.cargoLock, new RegExp(`name = "orkworksd"\nversion = "${VERSION.replaceAll(".", "\\.")}"`));
+});
+
+test("version staging rejects ambiguous Rust package entries", () => {
+  assert.throws(() => stageNightlyVersions({
+    packageJson: '{"version":"0.2.0"}\n',
+    cargoToml: '[package]\nname = "orkworksd"\nversion = "0.2.0"\n',
+    cargoLock: '[[package]]\nname = "orkworksd"\nversion = "0.2.0"\n[[package]]\nname = "orkworksd"\nversion = "0.2.0"\n',
+    version: VERSION,
+  }), /exactly one orkworksd/i);
+});
+
+function createAssets(version = VERSION) {
+  const names = expectedReleaseAssetNames({ version, channel: "nightly" });
+  const assets = Object.fromEntries(names.map((name) => [name, Buffer.from(`${name} contents`)]));
+  const win = `OrkWorks-${version}-win-x64.exe`;
+  const mac = `OrkWorks-${version}-mac-arm64.zip`;
+  assets["nightly.yml"] = Buffer.from([
+    `version: ${version}`,
+    "files:",
+    `  - url: ${win}`,
+    `    sha512: ${sha512(assets[win])}`,
+    `    size: ${assets[win].length}`,
+  ].join("\n"));
+  assets["nightly-mac.yml"] = Buffer.from([
+    `version: ${version}`,
+    "files:",
+    `  - url: ${mac}`,
+    `    sha512: ${sha512(assets[mac])}`,
+    `    size: ${assets[mac].length}`,
+  ].join("\n"));
+  assets["SHA256SUMS.txt"] = Buffer.from(names
+    .filter((name) => name !== "SHA256SUMS.txt")
+    .sort()
+    .map((name) => `${sha256(assets[name])}  ${name}`)
+    .join("\n") + "\n");
+  return assets;
+}
+
+function publishedRelease({
+  id,
+  version = VERSION,
+  sourceSha = SOURCE_SHA,
+  assets,
+  tag = `v${version}`,
+}) {
+  const releaseAssets = assets ?? createAssets(version);
+  return {
+    id,
+    tag_name: tag,
+    body: sourceMarker(sourceSha),
+    draft: false,
+    prerelease: true,
+    assets: Object.entries(releaseAssets).map(([name, value], index) => ({
+      id: id * 100 + index,
+      name,
+      size: value.length,
+      digest: `sha256:${sha256(value)}`,
+      url: `https://api.github.com/repos/Rambolarsen/orkworks/releases/assets/${id * 100 + index}`,
+      browser_download_url: `https://github.com/Rambolarsen/orkworks/releases/download/${tag}/${encodeURIComponent(name)}`,
+    })),
+  };
+}
+
+test("loads validated nightly state across pagination and tag kinds", async () => {
+  const assets = createAssets();
+  const damagedVersion = "0.2.0-nightly.20260914.9.1";
+  const damaged = publishedRelease({ id: 4, version: damagedVersion });
+  damaged.assets = damaged.assets.filter((asset) => asset.name !== "nightly.yml");
+  const valid = publishedRelease({ id: 5, assets });
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    if (url.endsWith("/releases?per_page=100")) {
+      return Response.json([damaged], {
+        headers: { link: '<https://api.github.com/repos/Rambolarsen/orkworks/releases?per_page=100&page=2>; rel="next"' },
+      });
+    }
+    if (url.endsWith("/releases?per_page=100&page=2")) return Response.json([valid]);
+    if (url.endsWith(`/git/ref/tags/${encodeURIComponent(damaged.tag_name)}`)) {
+      return Response.json({ ref: `refs/tags/${damaged.tag_name}`, object: { type: "commit", sha: SOURCE_SHA } });
+    }
+    if (url.endsWith(`/git/ref/tags/${encodeURIComponent(valid.tag_name)}`)) {
+      return Response.json({ ref: `refs/tags/${valid.tag_name}`, object: { type: "tag", sha: "a".repeat(40) } });
+    }
+    if (url.endsWith(`/git/tags/${"a".repeat(40)}`)) {
+      return Response.json({ object: { type: "commit", sha: SOURCE_SHA } });
+    }
+    const asset = valid.assets.find((candidate) => candidate.url === url);
+    if (asset) return new Response(assets[asset.name]);
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl,
+  });
+
+  assert.deepEqual(state.publishedNightlyVersions, [damagedVersion, VERSION]);
+  assert.deepEqual(state.validated.map(({ sourceSha, version }) => ({ sourceSha, version })), [
+    { sourceSha: SOURCE_SHA, version: VERSION },
+  ]);
+  assert.ok(calls.some((url) => url.includes("page=2")));
+  assert.ok(calls.some((url) => url.includes("/git/tags/")));
+});
+
+test("remote nightly state rejects duplicate source markers", async () => {
+  const first = publishedRelease({ id: 6 });
+  const secondVersion = "0.2.0-nightly.20260916.123456790.1";
+  const second = publishedRelease({ id: 7, version: secondVersion });
+  const contents = new Map([
+    ...first.assets.map((asset) => [asset.url, createAssets()[asset.name]]),
+    ...second.assets.map((asset) => [asset.url, createAssets(secondVersion)[asset.name]]),
+  ]);
+  await assert.rejects(() => loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([first, second]);
+      if (url.includes("/git/ref/tags/")) {
+        const tag = decodeURIComponent(url.slice(url.lastIndexOf("/") + 1));
+        return Response.json({ ref: `refs/tags/${tag}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (contents.has(url)) return new Response(contents.get(url));
+      throw new Error(`unexpected request: ${url}`);
+    },
+  }), /multiple published nightlies claim source SHA/i);
+});
+
+test("remote nightly state ignores malformed nightly-shaped tags", async () => {
+  const malformed = {
+    ...publishedRelease({ id: 8 }),
+    tag_name: "v0.2.0-nightly.not_a_semver_identity",
+  };
+  let tagReads = 0;
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([malformed]);
+      tagReads += 1;
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [], validated: [] });
+  assert.equal(tagReads, 0);
+});
+
+test("remote nightly state includes dangling public nightly tags in ordering", async () => {
+  const danglingVersion = "0.2.0-nightly.20260916.123456790.1";
+  const calls = [];
+  const state = await loadNightlyReleaseStateWithTags({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.endsWith("/releases?per_page=100")) return Response.json([]);
+      if (url.endsWith("/git/matching-refs/tags/v")) {
+        return Response.json([
+          { ref: `refs/tags/v${danglingVersion}`, object: { type: "commit", sha: SOURCE_SHA } },
+          { ref: "refs/tags/v0.2.0", object: { type: "commit", sha: SOURCE_SHA } },
+        ]);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [danglingVersion], validated: [] });
+  assert.ok(calls.some((url) => url.endsWith("/git/matching-refs/tags/v")));
+});
+
+test("remote nightly state retains SemVer-valid channel tags that fail strict identity validation", async () => {
+  const version = "0.2.0-nightly.not-a-daily-identity";
+  const malformed = {
+    ...publishedRelease({ id: 15 }),
+    tag_name: `v${version}`,
+  };
+  let tagReads = 0;
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([malformed]);
+      tagReads += 1;
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [version], validated: [] });
+  assert.equal(tagReads, 0);
+  await assert.rejects(() => prepareDailyRelease({
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: "123456789",
+    runNumber: "42",
+    runAttempt: "2",
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    loadState: async () => state,
+    ensureTag: async () => { throw new Error("must not create a lower tag"); },
+  }), /newer than every published nightly/i);
+});
+
+test("remote nightly state treats malformed bodies as damaged history", async () => {
+  const malformed = { ...publishedRelease({ id: 9 }), body: null };
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([malformed]);
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [VERSION], validated: [] });
+});
+
+test("remote nightly state retains public canonical versions with a damaged prerelease flag", async () => {
+  const damaged = { ...publishedRelease({ id: 10 }), prerelease: false };
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([damaged]);
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [VERSION], validated: [] });
+});
+
+test("remote nightly state rejects malformed release visibility flags", async () => {
+  for (const release of [
+    { ...publishedRelease({ id: 11 }), draft: null },
+    { ...publishedRelease({ id: 12 }), prerelease: null },
+  ]) {
+    await assert.rejects(() => loadNightlyReleaseState({
+      repository: "Rambolarsen/orkworks",
+      token: "secret",
+      sourceSha: SOURCE_SHA,
+      fetchImpl: async (url) => {
+        if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+        throw new Error(`unexpected request: ${url}`);
+      },
+    }), /draft and prerelease flags must be booleans/i);
+  }
+});
+
+test("remote nightly state treats a missing advertised asset as damaged history", async () => {
+  const release = publishedRelease({ id: 13 });
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (release.assets.some((asset) => asset.url === url)) return new Response(null, { status: 404 });
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [VERSION], validated: [] });
+});
+
+test("remote nightly state fails closed when an asset download service is unavailable", async () => {
+  const release = publishedRelease({ id: 14 });
+  await assert.rejects(() => loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (release.assets.some((asset) => asset.url === url)) return new Response(null, { status: 503 });
+      throw new Error(`unexpected request: ${url}`);
+    },
+  }), /download published asset.*503/i);
+});
+
+test("remote nightly state rejects updater SHA-512 that does not match its payload", async () => {
+  const assets = createAssets();
+  assets["nightly.yml"] = Buffer.from(assets["nightly.yml"].toString().replace(/sha512: .+/, "sha512: Ym9ndXM="));
+  const release = publishedRelease({ id: 10, assets });
+  const byUrl = new Map(release.assets.map((asset) => [asset.url, assets[asset.name]]));
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (byUrl.has(url)) return new Response(byUrl.get(url));
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state.validated, []);
+});
+
+test("publishes only after the uploaded draft passes the full integrity predicate", async () => {
+  const localAssets = createAssets();
+  const uploaded = new Map();
+  const calls = [];
+  const releaseJson = (draft) => ({
+    id: 77,
+    tag_name: TAG,
+    body: `Daily build\n${sourceMarker(SOURCE_SHA)}\n`,
+    draft,
+    prerelease: true,
+    upload_url: "https://uploads.github.com/repos/Rambolarsen/orkworks/releases/77/assets{?name,label}",
+    assets: [...uploaded].map(([name, value], index) => ({
+      id: index + 1,
+      name,
+      size: value.length,
+      digest: `sha256:${sha256(value)}`,
+      url: `https://api.github.com/repos/Rambolarsen/orkworks/releases/assets/${index + 1}`,
+      browser_download_url: `https://downloads.example/${encodeURIComponent(name)}`,
+    })),
+  });
+  const fetchImpl = async (url, options = {}) => {
+    const method = options.method ?? "GET";
+    calls.push(`${method} ${url}`);
+    if (url.includes("/git/ref/tags/")) {
+      return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+    }
+    if (method === "POST" && url.endsWith("/releases")) {
+      const body = JSON.parse(options.body);
+      assert.equal(body.target_commitish, undefined);
+      assert.equal(body.draft, true);
+      assert.equal(body.prerelease, true);
+      return Response.json(releaseJson(true), { status: 201 });
+    }
+    if (method === "POST" && url.startsWith("https://uploads.github.com/")) {
+      const name = new URL(url).searchParams.get("name");
+      uploaded.set(name, Buffer.from(options.body));
+      return Response.json({ name }, { status: 201 });
+    }
+    if (method === "GET" && url.endsWith("/releases/77")) return Response.json(releaseJson(true));
+    if (method === "GET" && url.includes("/releases/assets/")) {
+      assert.equal(options.headers.accept, "application/octet-stream");
+      const id = Number(url.slice(url.lastIndexOf("/") + 1));
+      return new Response([...uploaded.values()][id - 1]);
+    }
+    if (url.startsWith("https://downloads.example/")) throw new Error("draft browser download URL must not be used");
+    if (method === "PATCH" && url.endsWith("/releases/77")) {
+      assert.equal(uploaded.size, Object.keys(localAssets).length);
+      return Response.json(releaseJson(false));
+    }
+    throw new Error(`unexpected request: ${method} ${url}`);
+  };
+
+  const published = await publishDailyRelease({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    identity: { version: VERSION, tag: TAG },
+    sourceSha: SOURCE_SHA,
+    assets: localAssets,
+    fetchImpl,
+    loadState: async () => ({ publishedNightlyVersions: [], validated: [] }),
+  });
+
+  assert.equal(published.draft, false);
+  assert.equal(calls.at(-1), "PATCH https://api.github.com/repos/Rambolarsen/orkworks/releases/77");
+});
+
+test("does not publish an incomplete uploaded draft", async () => {
+  const assets = createAssets();
+  let published = false;
+  await assert.rejects(() => publishDailyRelease({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    identity: { version: VERSION, tag: TAG },
+    sourceSha: SOURCE_SHA,
+    assets,
+    loadState: async () => ({ publishedNightlyVersions: [], validated: [] }),
+    fetchImpl: async (url, options = {}) => {
+      const method = options.method ?? "GET";
+      if (url.includes("/git/ref/tags/")) return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      if (method === "POST" && url.endsWith("/releases")) return Response.json({
+        id: 77, tag_name: TAG, body: sourceMarker(SOURCE_SHA), draft: true, prerelease: true,
+        upload_url: "https://uploads.example/assets{?name,label}", assets: [],
+      }, { status: 201 });
+      if (method === "POST" && url.startsWith("https://uploads.example/")) return Response.json({}, { status: 201 });
+      if (method === "GET" && url.endsWith("/releases/77")) return Response.json({
+        id: 77, tag_name: TAG, body: sourceMarker(SOURCE_SHA), draft: true, prerelease: true, assets: [],
+      });
+      if (method === "PATCH") published = true;
+      throw new Error(`unexpected request: ${method} ${url}`);
+    },
+  }), /asset/i);
+  assert.equal(published, false);
+});
+
+test("publication rechecks remote state and skips a newly completed source", async () => {
+  let requests = 0;
+  const existing = { sourceSha: SOURCE_SHA, version: VERSION, release: { id: 12, draft: false } };
+  const result = await publishDailyRelease({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    identity: { version: VERSION, tag: TAG },
+    sourceSha: SOURCE_SHA,
+    assets: createAssets(),
+    loadState: async () => ({ publishedNightlyVersions: [VERSION], validated: [existing] }),
+    fetchImpl: async () => { requests += 1; throw new Error("must not mutate GitHub"); },
+  });
+
+  assert.equal(result, existing.release);
+  assert.equal(requests, 0);
+});
+
+test("preparation skips one already-validated nightly for the frozen source", async () => {
+  let tagWrites = 0;
+  const result = await prepareDailyRelease({
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: "123456789",
+    runNumber: "65536",
+    runAttempt: "100",
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    loadState: async () => ({
+      publishedNightlyVersions: [VERSION],
+      validated: [{ sourceSha: SOURCE_SHA, version: VERSION }],
+    }),
+    ensureTag: async () => { tagWrites += 1; },
+  });
+
+  assert.deepEqual(result, { shouldBuild: false, sourceSha: SOURCE_SHA });
+  assert.equal(tagWrites, 0);
+});
+
+test("preparation creates only the candidate tag for an eligible source", async () => {
+  const tags = [];
+  const result = await prepareDailyRelease({
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: "123456789",
+    runNumber: "42",
+    runAttempt: "2",
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    loadState: async () => ({
+      publishedNightlyVersions: ["0.2.0-nightly.20260914.9.1"],
+      validated: [],
+    }),
+    ensureTag: async (options) => { tags.push(options); },
+  });
+
+  assert.equal(result.shouldBuild, true);
+  assert.equal(result.identity.tag, TAG);
+  assert.deepEqual(tags.map(({ tag, sourceSha }) => ({ tag, sourceSha })), [{ tag: TAG, sourceSha: SOURCE_SHA }]);
+});
+
+test("preparation rejects ambiguous duplicates and out-of-order candidates", async () => {
+  const base = {
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: "123456789",
+    runNumber: "42",
+    runAttempt: "2",
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    ensureTag: async () => {},
+  };
+  await assert.rejects(() => prepareDailyRelease({
+    ...base,
+    loadState: async () => ({
+      publishedNightlyVersions: [VERSION, VERSION],
+      validated: [
+        { sourceSha: SOURCE_SHA, version: VERSION },
+        { sourceSha: SOURCE_SHA, version: VERSION },
+      ],
+    }),
+  }), /multiple published nightlies/i);
+  await assert.rejects(() => prepareDailyRelease({
+    ...base,
+    loadState: async () => ({
+      publishedNightlyVersions: ["0.2.0-nightly.20260916.1.1"],
+      validated: [],
+    }),
+  }), /newer than every published nightly/i);
+});
+
+test("release asset loading accepts exact files and rejects symlinks", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "orkworks-publish-assets-"));
+  const outside = join(tmpdir(), `orkworks-publish-outside-${process.pid}.txt`);
+  try {
+    const assets = createAssets();
+    for (const [name, value] of Object.entries(assets)) writeFileSync(join(directory, name), value);
+    assert.deepEqual(Object.keys(readReleaseAssets({ directory, version: VERSION })).sort(), Object.keys(assets).sort());
+    rmSync(join(directory, "nightly.yml"));
+    writeFileSync(outside, "outside");
+    try {
+      symlinkSync(outside, join(directory, "nightly.yml"), "file");
+    } catch (error) {
+      if (error?.code === "EPERM" || error?.code === "EACCES") return t.skip("symlinks unavailable");
+      throw error;
+    }
+    assert.throws(() => readReleaseAssets({ directory, version: VERSION }), /regular file/i);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(outside, { force: true });
+  }
+});

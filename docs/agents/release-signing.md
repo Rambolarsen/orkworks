@@ -1,6 +1,6 @@
 # Signed release operations
 
-This runbook covers the existing tag-driven release workflow in
+This runbook covers the stable and nightly release workflow in
 [`.github/workflows/release.yml](../../.github/workflows/release.yml). It
 documents the credentials and native checks required for a credential-backed
 release; it does not claim that those external prerequisites are currently
@@ -8,16 +8,21 @@ available.
 
 ## Release contract
 
-The protected `release` environment is used by the macOS and Windows build
-jobs. A push of a protected `v*` tag starts the workflow. The desktop package
-version must match the tag before packaging starts.
+The protected `release` environment is used by every signing or release-write
+job. A canonical `vMAJOR.MINOR.PATCH` tag starts the stable path; its desktop
+package version must match before credentials are exposed. A daily 03:23 UTC
+schedule and manual dispatch from `main` start the nightly path. Both paths
+freeze the event's source SHA and run Main CI against that commit before
+packaging.
 
 The source wiring produces and verifies:
 
 - macOS Apple Silicon Developer ID output: DMG for manual installation and
   ZIP for the updater payload;
 - Windows x64 Authenticode-signed NSIS output;
-- electron-builder `latest-mac.yml`/`latest.yml` metadata and blockmaps;
+- electron-builder `latest-mac.yml`/`latest.yml` metadata for stable builds or
+  isolated `nightly-mac.yml`/`nightly.yml` metadata for nightly builds, plus
+  blockmaps;
 - packaged app, bundled `orkworksd` sidecar, hook scripts, and knowledge
   resources; and
 - `SHA256SUMS.txt` for the distributable files.
@@ -26,11 +31,22 @@ The DMG target has update-info generation disabled. It remains a manual
 installer and is included in checksums, while `latest-mac.yml` and its blockmap
 describe only the ZIP updater payload.
 
+Nightly identity is `<stable-base>-nightly.<UTC-date>.<run-id>.<run-attempt>`.
+Each successful nightly uses a unique immutable tag and published prerelease;
+the workflow never moves a rolling tag or replaces assets. A complete published
+release with the exact source marker, tag target, asset set, GitHub digests,
+checksums, and updater metadata is the only successful duplicate. For a release
+claiming the current source, duplicate detection downloads the two updater
+payloads and verifies their metadata SHA-512 values directly; it does not
+download payloads for unrelated historical sources. Drafts and damaged releases
+remain diagnostic history and a new run attempt can retry.
+
 The platform jobs run packaging, pre-checksum artifact verification, native
 signature checks, and the Windows installer smoke test before checksum
 generation. They then run the full artifact verifier, which requires the
-checksum manifest, before upload. The publish job is matrix-gated and creates a
-draft GitHub Release. A successful source-only test or packaging run is not
+checksum manifest, before upload. The stable publisher creates a draft release;
+the nightly publisher creates a draft, validates the uploaded asset set, and
+then publishes it. A successful source-only test or packaging run is not
 evidence that a release is trusted: the real credential-backed run on the
 native runners is still required.
 
@@ -64,14 +80,15 @@ Create an environment named exactly `release` and configure it before storing
 credentials:
 
 - require approval from the release maintainers as environment reviewers;
-- restrict deployments to the protected `v*` tag pattern; and
+- restrict deployments to the `main` branch and protected canonical stable
+  tags; and
 - add a repository ruleset or equivalent tag protection so only authorized
   release actors can create or update matching `v*` tags.
 
-The workflow exposes signing values only to the tag-driven platform jobs. Pull
-request workflows do not receive them. Do not put certificates, passwords,
-API keys, or decoded files in the repository, workflow source, artifacts, or
-diagnostic output.
+The workflow exposes signing values only to trusted release platform jobs for
+canonical stable tags or `main` nightlies. Pull request workflows do not receive
+them. Do not put certificates, passwords, API keys, or decoded files in the
+repository, workflow source, artifacts, or diagnostic output.
 
 Create these exact environment secrets and variable:
 
@@ -86,6 +103,19 @@ Create these exact environment secrets and variable:
 | `WIN_CSC_LINK` | Secret | Base64-encoded trusted Authenticode `.pfx`/`.p12`. |
 | `WIN_CSC_KEY_PASSWORD` | Secret | Password for the Windows certificate. |
 | `WIN_EXPECTED_PUBLISHER` | Environment variable | Exact Windows certificate `SimpleName`; it is verifier input, not a secret. |
+| `RELEASE_GITHUB_TOKEN` | Secret | CI-only fine-grained token for nightly tag/release operations, scoped to this repository with Contents and Workflows write access. |
+
+The default workflow token remains read-only on nightly jobs. The fine-grained
+token is required because tagging a commit that changes workflow files can
+require Workflows write permission. Do not reuse a personal interactive token,
+expose it to pull requests, or put it in an application bundle. A missing,
+expired, or under-scoped token fails before packaging.
+If preparation finds its exact immutable candidate tag already present, it
+proves write capability without changing the ref by repeating the create-ref
+request: GitHub authorizes the endpoint and returns 422 for the duplicate;
+read-only credentials return 403 and fail before native builds begin.
+Preparation also reads the complete `tags/v` matching-ref snapshot so a tag
+left by a failed pre-publication run still constrains later nightly ordering.
 
 The workflow maps the macOS certificate names to `CSC_LINK` and
 `CSC_KEY_PASSWORD` only in the macOS packaging step. Before that step, it maps
@@ -130,8 +160,11 @@ Rotate credentials as one controlled release change:
    secret names. For a Windows certificate rotation, update
    `WIN_EXPECTED_PUBLISHER` in the same change to the replacement certificate's
    exact `SimpleName`.
-3. Confirm the `release` environment reviewers and `v*` tag protection still
-   apply, then run a new tagged release through every native gate.
+3. Confirm the `release` environment reviewers and deployment restrictions for
+   `main` and stable tags still apply, then run a new release through every
+   native gate. Rotate `RELEASE_GITHUB_TOKEN` on the same controlled schedule
+   and verify its repository and Contents/Workflows scopes before retiring the
+   prior token.
 4. Revoke or retire the old certificate/API key only after the replacement
    release has passed its native checks. Never record either credential in
    source, logs, screenshots, or reports.
@@ -193,10 +226,44 @@ the trusted certificates, Apple membership/API key, and matching native
 runners. Record the workflow run URL and the pass/fail result of each platform
 gate without copying secret values into the report.
 
+## Nightly dispatch and validation
+
+After the environment policy and credentials are configured, dispatch the
+nightly path only from `main`:
+
+```bash
+gh workflow run release.yml --repo Rambolarsen/orkworks --ref main
+```
+
+Scheduled and manual runs share the `nightly-release` concurrency group and are
+never cancelled in progress. A later run rechecks all GitHub Release pages; it
+exits successfully without packaging when the frozen SHA already has one fully
+valid published nightly. An incomplete release, failed draft, or tag alone does
+not suppress a retry. Failed drafts and immutable attempt tags are retained;
+operators must not retarget, overwrite, or delete them as part of a retry.
+
+For a successful run, record the workflow and release URLs and verify:
+
+- the prerelease is published rather than draft and its tag resolves to the
+  frozen workflow SHA;
+- its body contains exactly one
+  `<!-- orkworks-nightly-source:<40-character-lowercase-SHA> -->` line;
+- the macOS and Windows native signing gates passed;
+- the exact expected assets are nonempty and have GitHub SHA-256 digests;
+- `SHA256SUMS.txt`, `nightly.yml`, and `nightly-mac.yml` cross-check those
+  assets, with no `latest*.yml` asset present; and
+- a second dispatch at the unchanged SHA is a successful preparation-only
+  no-op that skips Main CI and packaging.
+
+The nightly source wiring is implemented, but issue #510 remains incomplete
+until this credential-backed run is recorded. Installed applications do not
+check or install the channel yet; that behavior belongs to issue #511.
+
 ## Ownership boundary
 
-This runbook covers release signing, notarization, artifact metadata, and
-native release verification for issue #509. Issue #511 owns testing that an
+This runbook covers release signing, notarization, artifact metadata, native
+release verification, and daily publication for issues #509 and #510. Issue
+#511 owns testing that an
 installed older signed build can update to a newer signed build. This document
 does not claim that installed-build update testing or runtime updater behavior
 is implemented.

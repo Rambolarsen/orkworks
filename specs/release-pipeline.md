@@ -4,8 +4,10 @@
 
 This section defines the next release increment and supersedes conflicting
 alpha-only requirements below. The source wiring for signing and native
-artifact verification of the existing tag-driven release path is implemented;
-daily builds and in-app updating are not. Credential-backed trust, native
+artifact verification of the existing tag-driven release path is implemented.
+The daily-build source wiring is implemented as of 2026-09-15; its required
+credential-backed manual run has not yet been recorded, and in-app updating is
+not implemented. Credential-backed trust, native
 certificate validation, and installed-app validation remain external delivery
 prerequisites.
 
@@ -32,6 +34,24 @@ wiring, but cannot prove a trusted certificate chain, Apple notarization,
 stapling, or a credential-backed native release. Issue #511 owns installed
 older-build update testing.
 
+### Daily source-wiring status — 2026-09-15
+
+The unified release workflow now freezes one event SHA, calls Main CI at that
+same commit, stages CI-only desktop/Rust and native nightly versions, builds the
+existing signed macOS arm64 and Windows x64 targets, and publishes only after a
+real draft's exact assets, GitHub digests, checksum manifest, updater metadata,
+source marker, and immutable tag target cross-check. Stable metadata remains on
+`latest`; nightlies use the explicit custom `nightly` channel. Scheduled and
+manual runs are serialized, exhaustively recheck paginated release state before
+work and publication, and skip only a complete published nightly for the same
+source SHA. ADR 0059 records the environment and CI-token trust boundary.
+
+Source and mixed-feed tests cover this wiring. Delivery of issue #510 still
+requires the repository owner to configure the protected `release` environment
+and `RELEASE_GITHUB_TOKEN`, then record one successful signed manual nightly and
+an unchanged-SHA no-op run using the steps in the
+[signed release runbook](../docs/agents/release-signing.md).
+
 ### Purpose and distribution channels
 
 Everyday OrkWorks sessions should run an installed application whose frontend
@@ -53,8 +73,9 @@ The first migration from an unsigned development/alpha build is a manual install
 - Resolve one immutable `main` commit at the start and use it for every check,
   platform build, and release record. Manual dispatch must also resolve `main`,
   never publish arbitrary branch content.
-- Skip when that commit already has a successfully published nightly. A failed
-  attempt must remain retryable; publication, not tag existence, defines success.
+- Skip Main CI and packaging when that commit already has a successfully
+  published nightly. A failed attempt must remain retryable; publication, not
+  tag existence, defines success.
 - Require the complete desktop and Rust validation used by main CI for that
   exact commit, plus artifact verification and Windows installer smoke testing.
   A green check for another commit or a docs-only no-op is insufficient.
@@ -259,24 +280,27 @@ Linux and Intel macOS packaging configuration remains available for local develo
 
 ### New: `.github/workflows/release.yml`
 
-Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Each build job:
+Triggered on canonical stable tag pushes matching `v*`; immutable `v*-nightly.*`
+tags are excluded because the nightly run that created them already owns their
+publication. The same workflow handles scheduled and manually dispatched
+nightlies from `main`:
 
-1. Checks out the repo
-2. Installs Node 22
-3. **Guards tag/version drift** with Node, not `jq`, so the check works on Windows and Unix runners:
-   `TAG="$GITHUB_REF_NAME"; PKG_VERSION="$(node -e "process.stdout.write('v' + require('./apps/desktop/package.json').version)")"`
-4. Installs Rust via `dtolnay/rust-toolchain` and primes the cargo cache via `Swatinem/rust-cache@v2`
-5. Installs pnpm
-6. Installs deps with frozen lockfile and builds the frontend: `cd apps/desktop && pnpm install --frozen-lockfile && pnpm build`
-7. Runs `pnpm package:release`, which:
+1. An unprivileged `preflight` job freezes and validates the source before any
+   signing credential is exposed.
+2. `prepare_nightly` checks remote release state, creates the immutable tag only
+   when needed, and ends an unchanged-source run as a successful no-op.
+3. `validate` calls reusable Main CI for canonical stable tags and new nightly
+   candidates, always at the frozen source SHA.
+4. A macOS arm64/Windows x64 matrix installs Node 22, Rust, pnpm, and frozen
+   dependencies, then runs `pnpm package:release`, which:
    - maps the host platform/arch to the matching Rust target triple
    - builds the sidecar for that exact target
    - stages the built binary into `crates/orkworksd/target/release/`
    - runs `electron-builder` with the matching CLI arch flag
-8. Verifies `process.arch` matches the matrix architecture before packaging.
-9. Runs `pnpm verify:release`, which fails unless the installer, unpacked app,
+5. Each matrix job verifies `process.arch` and runs `pnpm verify:release`, which
+   fails unless the installer, unpacked app,
    Rust sidecar, and each packaged hook-script file all exist.
-10. On the Windows runner, runs `pnpm smoke:windows-installer`, which silently
+6. The Windows runner runs `pnpm smoke:windows-installer`, which silently
     installs the generated NSIS artifact into a unique temporary directory,
     verifies the installed executable, Rust sidecar, and hook scripts, then
     uninstalls it and requires the directory to disappear within a bounded
@@ -285,9 +309,10 @@ Triggered on tag push matching `v*`. Uses a matrix strategy for OS/arch jobs. Ea
     per-machine Windows uninstall registry data. If post-install verification
     fails, it does not invoke the uninstaller, leaving the installation
     directory available for diagnosis.
-11. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
-
-After all matrix jobs complete, a `publish` job downloads all artifacts and creates/updates a draft GitHub Release via `softprops/action-gh-release@v2`. Requires `permissions: { contents: write }` at the workflow level.
+7. Matrix jobs upload only verified release artifacts. `publish_stable` creates
+   the stable draft with job-scoped `contents: write`; `publish_nightly` uses
+   the protected CI token to assemble, validate, and publish the exact immutable
+   prerelease asset set.
 
 ### Modified: `apps/desktop/package.json`
 

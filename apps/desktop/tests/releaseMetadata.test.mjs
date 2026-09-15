@@ -109,6 +109,33 @@ test("checksum CLI reads package version, scopes release artifacts, and prints o
   assert.doesNotMatch(manifest, /1\.2\.2/);
 }));
 
+test("nightly checksum generation includes only nightly channel metadata", () => withTempDir((appRoot) => {
+  const releaseDir = join(appRoot, "release");
+  const version = "0.2.0-nightly.20260915.123.1";
+  const artifact = `OrkWorks-${version}-win-x64.exe`;
+  writeFileSync(join(appRoot, "package.json"), JSON.stringify({ version }));
+  mkdirSync(releaseDir);
+  writeFileSync(join(releaseDir, artifact), "installer");
+  writeFileSync(join(releaseDir, `${artifact}.blockmap`), "blockmap");
+  writeFileSync(join(releaseDir, "nightly.yml"), "metadata");
+
+  const outputPath = runChecksumCli({ appRoot, channel: "nightly", output() {} });
+  const manifest = readFileSync(outputPath, "utf8");
+  assert.match(manifest, /nightly\.yml/);
+  assert.doesNotMatch(manifest, /latest\.yml/);
+}));
+
+test("checksum generation rejects mixed or unknown release channels", () => withTempDir((appRoot) => {
+  const releaseDir = join(appRoot, "release");
+  writeFileSync(join(appRoot, "package.json"), JSON.stringify({ version: "0.2.0" }));
+  mkdirSync(releaseDir);
+  writeFileSync(join(releaseDir, "latest.yml"), "stable");
+  writeFileSync(join(releaseDir, "nightly.yml"), "nightly");
+
+  assert.throws(() => runChecksumCli({ appRoot, channel: "latest" }), /mixed release channel/i);
+  assert.throws(() => runChecksumCli({ appRoot, channel: "beta" }), /release channel/i);
+}));
+
 test("checksum CLI rejects a package version that could escape its artifact-name scope", () => withTempDir((appRoot) => {
   writeFileSync(join(appRoot, "package.json"), JSON.stringify({ version: "../1.2.3" }));
   mkdirSync(join(appRoot, "release"));
@@ -190,6 +217,30 @@ test("verifies metadata version, payload digest, size, and blockmap", () => with
     verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion: "0.2.0" }).files[0].url,
     payloadName,
   );
+}));
+
+test("verifies nightly metadata only when the explicit channel agrees", () => withTempDir((releaseDir) => {
+  const version = "0.2.0-nightly.20260915.123.1";
+  const payloadName = `OrkWorks-${version}-win-x64.exe`;
+  const metadataPath = writeMetadata(releaseDir, {
+    metadataName: "nightly.yml",
+    payloadName,
+    payload: "installer",
+    version,
+  });
+
+  assert.doesNotThrow(() => verifyUpdateMetadata({
+    metadataPath,
+    releaseDir,
+    expectedVersion: version,
+    channel: "nightly",
+  }));
+  assert.throws(() => verifyUpdateMetadata({
+    metadataPath,
+    releaseDir,
+    expectedVersion: version,
+    channel: "latest",
+  }), /metadata.*channel/i);
 }));
 
 test("rejects a missing payload", () => withTempDir((releaseDir) => {
