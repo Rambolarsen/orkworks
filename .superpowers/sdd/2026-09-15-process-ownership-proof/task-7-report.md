@@ -43,4 +43,5 @@ The exact fix-round commands and results are recorded here after execution:
 ## Issue status
 
 Issue #545 remains open. The fix-round comment attempt and exact API result are
-recorded in the evidence document after the final commit.
+recorded in the evidence document: retry after commit `cc72e0d` exited 1 with
+`error connecting to api.github.com`; no comment URL was produced.
