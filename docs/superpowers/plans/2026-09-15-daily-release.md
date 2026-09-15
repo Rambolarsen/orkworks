@@ -117,6 +117,8 @@
   - an authenticated asset 404 leaves damaged retryable history while other download failures fail closed;
   - a validated unchanged-SHA release no-ops before a new finite native identity is constructed;
   - packaged `app-update.yml` files match the expected GitHub repository and normalized stable or explicit nightly channel;
+  - public SemVer-valid nightly-channel tags constrain ordering even when their strict workflow identity is invalid;
+  - four-digit UTC years and a non-mutating duplicate-ref write-scope probe fail before packaging;
   - a complete published prerelease succeeds and a candidate version must exceed every validated published nightly.
 
 - [ ] Run the new test and confirm the red state:

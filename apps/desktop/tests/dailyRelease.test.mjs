@@ -139,6 +139,7 @@ test("nightly identities reject noncanonical and out-of-range inputs", () => {
     { runAttempt: "0" },
     { runAttempt: "100" },
     { utcDate: new Date("invalid") },
+    { utcDate: new Date(Date.UTC(10_000, 0, 1)) },
   ]) {
     assert.throws(() => createNightlyIdentity({ ...valid, ...override }), /invalid|range|canonical/i);
   }
@@ -387,6 +388,37 @@ test("tag creation adopts an exact tag after a malformed success response", asyn
     fetchImpl,
   }), { tag, sourceSha: SOURCE_SHA });
   assert.equal(writes, 1);
+});
+
+test("an existing exact tag must still prove write capability", async () => {
+  const tag = `v${VERSION}`;
+  let writes = 0;
+  const exactTag = { ref: `refs/tags/${tag}`, object: { type: "commit", sha: SOURCE_SHA } };
+
+  assert.deepEqual(await ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    tag,
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (_url, options = {}) => {
+      if ((options.method ?? "GET") === "POST") {
+        writes += 1;
+        return jsonResponse(422, { message: "Reference already exists" });
+      }
+      return jsonResponse(200, exactTag);
+    },
+  }), { tag, sourceSha: SOURCE_SHA });
+  assert.equal(writes, 1);
+
+  await assert.rejects(() => ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "read-only",
+    tag,
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (_url, options = {}) => (options.method === "POST"
+      ? jsonResponse(403, { message: "Resource not accessible by personal access token" })
+      : jsonResponse(200, exactTag)),
+  }), /write access.*403/i);
 });
 
 test("tag creation never overwrites a mismatched existing tag", async () => {

@@ -40,6 +40,10 @@ parses `app-update.yml` and requires the expected GitHub repository and channel.
 Malformed release visibility flags and service failures fail closed; an
 authenticated asset 404 alone records damaged retryable history. A validated
 unchanged-SHA release no-ops before constructing a new finite native identity.
+All public SemVer-valid nightly-channel tags constrain ordering even if they
+fail the stricter delivery identity. Identity years remain four digits, an
+existing exact tag must pass a non-mutating write-scope probe before packaging,
+and an explicitly null packaged channel is invalid rather than stable.
 
 Every job that signs artifacts or receives `contents: write` authority uses the
 protected `release` environment. The environment permits only `main` and

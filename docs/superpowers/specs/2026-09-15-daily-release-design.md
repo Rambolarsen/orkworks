@@ -58,8 +58,8 @@ tag/package-version guard.
    Validation requires the expected prerelease/tag grammar, exact tag target,
    complete expected asset-name set, nonzero asset sizes and GitHub SHA-256
    digests, plus downloadable channel metadata and `SHA256SUMS.txt` whose
-   contents cross-check those assets. API, pagination, schema, or
-   duplicate-marker ambiguity fails closed. An authenticated asset URL that
+   contents cross-check those assets. API, pagination, schema, or multiple
+   fully validated releases for one source fails closed. An authenticated asset URL that
    returns 404 marks that published release as damaged, retryable history;
    every other download failure fails closed. One valid exact-source match ends
    the nightly as an intentional no-op before Main CI or packaging; a damaged
@@ -69,6 +69,8 @@ tag/package-version guard.
    source SHA; release entries must expose boolean `draft` and `prerelease`
    flags, and those candidates also download the two updater payloads and
    verify each metadata SHA-512 against its payload bytes.
+   Every public SemVer-valid tag on the `nightly` channel constrains ordering,
+   even when it fails the stricter OrkWorks identity and delivery checks.
 4. `main-ci.yml` exposes its existing desktop and Rust jobs through
    `workflow_call`, accepting an optional immutable checkout SHA. Normal Main CI
    triggers use their event SHA; nightly release calls the same workflow with
@@ -93,7 +95,10 @@ tag/package-version guard.
    packaged. On an ambiguous response, preparation reads the same tag and
    retries creation up to three times only while it remains absent. An existing
    exact tag is adopted only when it resolves to the frozen SHA; a mismatch or
-   exhausted retry fails without force-updating or deleting a ref. It never
+   exhausted retry fails without force-updating or deleting a ref. When the
+   exact candidate tag already exists, a duplicate-ref request must return
+   GitHub's authorized 422 response before packaging; a read-only token returns
+   403 and fails early without mutating the ref. It never
    changes source SHA. Tag existence alone never means publication succeeded.
 8. Nightly publication repeats the exhaustive success check while holding the
    concurrency slot. If still eligible, it creates a real draft prerelease for
@@ -139,13 +144,16 @@ Native identifiers do not reuse one cross-platform format:
   the finite encoding is exhausted. It is collision-free and increasing within
   those explicit bounds.
 
+The shared UTC year is limited to four digits (`0..9999`) so the generated
+`YYYYMMDD` identity always remains parseable by the release-tag grammar.
+
 Stable packaging retains `latest.yml` and `latest-mac.yml`. Nightly packaging
 sets the fixed GitHub publisher channel to `nightly` and keeps
 `generateUpdatesFilesForAllChannels` false, producing only `nightly.yml` and
 `nightly-mac.yml`. Artifact verification parses each packaged `app-update.yml`
 and requires the GitHub provider identity (`Rambolarsen/orkworks`) plus the
-expected channel; electron-builder's omitted stable channel is normalized to
-`latest`, while nightly must be explicit. `nightly` is intentionally a custom channel, not electron-updater's
+expected channel; only an absent stable channel is normalized to `latest`
+(`null` is rejected), while nightly must be explicit. `nightly` is intentionally a custom channel, not electron-updater's
 hierarchical `alpha` or `beta`: with `allowPrerelease` and the explicit custom
 channel, the GitHub provider matches only tags whose first prerelease identifier
 is `nightly`. Add the pinned `electron-updater` version as a development

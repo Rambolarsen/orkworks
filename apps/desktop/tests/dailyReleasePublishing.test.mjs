@@ -170,7 +170,7 @@ test("remote nightly state rejects duplicate source markers", async () => {
 test("remote nightly state ignores malformed nightly-shaped tags", async () => {
   const malformed = {
     ...publishedRelease({ id: 8 }),
-    tag_name: "v0.2.0-nightly.not-a-daily-identity",
+    tag_name: "v0.2.0-nightly.not_a_semver_identity",
   };
   let tagReads = 0;
   const state = await loadNightlyReleaseState({
@@ -186,6 +186,40 @@ test("remote nightly state ignores malformed nightly-shaped tags", async () => {
 
   assert.deepEqual(state, { publishedNightlyVersions: [], validated: [] });
   assert.equal(tagReads, 0);
+});
+
+test("remote nightly state retains SemVer-valid channel tags that fail strict identity validation", async () => {
+  const version = "0.2.0-nightly.not-a-daily-identity";
+  const malformed = {
+    ...publishedRelease({ id: 15 }),
+    tag_name: `v${version}`,
+  };
+  let tagReads = 0;
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([malformed]);
+      tagReads += 1;
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [version], validated: [] });
+  assert.equal(tagReads, 0);
+  await assert.rejects(() => prepareDailyRelease({
+    baseVersion: "0.2.0",
+    utcDate: new Date("2026-09-15T03:23:00Z"),
+    runId: "123456789",
+    runNumber: "42",
+    runAttempt: "2",
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    loadState: async () => state,
+    ensureTag: async () => { throw new Error("must not create a lower tag"); },
+  }), /newer than every published nightly/i);
 });
 
 test("remote nightly state treats malformed bodies as damaged history", async () => {

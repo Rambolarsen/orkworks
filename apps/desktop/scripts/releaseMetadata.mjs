@@ -280,7 +280,7 @@ export function verifyAppUpdateMetadata({ metadataPath, channel = "latest", prov
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error(`app update metadata is not an object: ${metadataPath}`);
   }
-  const actualChannel = metadata.channel ?? "latest";
+  const actualChannel = Object.hasOwn(metadata, "channel") ? metadata.channel : "latest";
   for (const [field, expected, actual] of [
     ["provider", provider, metadata.provider],
     ["owner", owner, metadata.owner],

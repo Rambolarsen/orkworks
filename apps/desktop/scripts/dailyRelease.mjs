@@ -4,6 +4,7 @@ import yaml from "js-yaml";
 const STABLE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const STABLE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const NIGHTLY_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-nightly\.(\d{8})\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const SEMVER_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const SOURCE_MARKER_PATTERN = /^<!-- orkworks-nightly-source:([0-9a-f]{40}) -->$/gm;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -53,8 +54,8 @@ export function createNightlyIdentity({
   const parsedAttempt = requireCanonicalPositiveInteger(runAttempt, "run attempt", 99);
 
   const year = utcDate.getUTCFullYear();
-  if (year < 0 || year > 65535) {
-    throw new Error("UTC year is outside the Windows build-version range");
+  if (year < 0 || year > 9999) {
+    throw new Error("UTC year is outside the release identity range");
   }
   const yearStart = Date.UTC(year, 0, 1);
   const dayOfYear = Math.floor((utcDate.getTime() - yearStart) / 86_400_000) + 1;
@@ -140,6 +141,18 @@ export function parseNightlyTag(tag) {
   }
   requireCanonicalPositiveInteger(match[5], "nightly run ID");
   requireCanonicalPositiveInteger(match[6], "nightly run attempt", 99);
+  return version;
+}
+
+export function parseNightlyChannelTag(tag) {
+  if (typeof tag !== "string" || !tag.startsWith("v")) {
+    throw new Error("nightly channel tag is invalid");
+  }
+  const version = tag.slice(1);
+  const match = SEMVER_PATTERN.exec(version);
+  if (!match || match[4].split(".")[0] !== "nightly") {
+    throw new Error("nightly channel tag is invalid");
+  }
   return version;
 }
 
@@ -311,19 +324,44 @@ export function selectPublishedNightlyForSource(validatedReleases, sourceSha) {
 }
 
 function parseNightlyVersion(version) {
-  const match = typeof version === "string" ? NIGHTLY_VERSION_PATTERN.exec(version) : null;
-  if (!match) {
+  const match = typeof version === "string" ? SEMVER_PATTERN.exec(version) : null;
+  if (!match || match[4].split(".")[0] !== "nightly") {
     throw new Error(`nightly version is invalid: ${version}`);
   }
-  return match.slice(1).map((component) => BigInt(component));
+  return {
+    core: match.slice(1, 4).map((component) => BigInt(component)),
+    prerelease: match[4].split("."),
+  };
+}
+
+function comparePrereleaseIdentifier(left, right) {
+  const leftNumeric = /^\d+$/.test(left);
+  const rightNumeric = /^\d+$/.test(right);
+  if (leftNumeric && rightNumeric) {
+    const leftNumber = BigInt(left);
+    const rightNumber = BigInt(right);
+    return leftNumber < rightNumber ? -1 : leftNumber > rightNumber ? 1 : 0;
+  }
+  if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function compareNightlyVersions(left, right) {
   const leftParts = parseNightlyVersion(left);
   const rightParts = parseNightlyVersion(right);
-  for (let index = 0; index < leftParts.length; index += 1) {
-    if (leftParts[index] < rightParts[index]) return -1;
-    if (leftParts[index] > rightParts[index]) return 1;
+  for (let index = 0; index < leftParts.core.length; index += 1) {
+    if (leftParts.core[index] < rightParts.core[index]) return -1;
+    if (leftParts.core[index] > rightParts.core[index]) return 1;
+  }
+  const length = Math.max(leftParts.prerelease.length, rightParts.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftParts.prerelease[index] === undefined) return -1;
+    if (rightParts.prerelease[index] === undefined) return 1;
+    const result = comparePrereleaseIdentifier(
+      leftParts.prerelease[index],
+      rightParts.prerelease[index],
+    );
+    if (result !== 0) return result;
   }
   return 0;
 }
@@ -428,22 +466,34 @@ export async function ensureTagAtSource({ repository, token, tag, sourceSha, fet
   const existing = await readTag({ repository, token, tag, fetchImpl });
   if (existing !== null) {
     if (existing !== sourceSha) throw new Error(`tag ${tag} points at a different source SHA`);
+    const response = await fetchImpl(`${repositoryApiBase(repository)}/git/refs`, {
+      method: "POST",
+      headers: { ...githubHeaders(token), "content-type": "application/json" },
+      body: JSON.stringify({ ref: `refs/tags/${tag}`, sha: sourceSha }),
+    });
+    if (response.status !== 422) {
+      throw new Error(`GitHub tag write access check failed with ${response.status}`);
+    }
     return { tag, sourceSha };
   }
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
+    let writeStatus = null;
     try {
-      await fetchImpl(`${repositoryApiBase(repository)}/git/refs`, {
+      const response = await fetchImpl(`${repositoryApiBase(repository)}/git/refs`, {
         method: "POST",
         headers: { ...githubHeaders(token), "content-type": "application/json" },
         body: JSON.stringify({ ref: `refs/tags/${tag}`, sha: sourceSha }),
       });
+      writeStatus = response.status;
     } catch {
       // A failed write is ambiguous until the authoritative tag read below.
     }
     const observed = await readTag({ repository, token, tag, fetchImpl });
-    if (observed === sourceSha) return { tag, sourceSha };
+    if (observed === sourceSha && (writeStatus === 201 || writeStatus === 422)) {
+      return { tag, sourceSha };
+    }
     if (observed !== null) throw new Error(`tag ${tag} points at a different source SHA`);
   }
-  throw new Error(`GitHub tag ${tag} was still absent after three creation attempts`);
+  throw new Error(`GitHub tag ${tag} creation or write-access verification failed after three attempts`);
 }

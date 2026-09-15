@@ -110,6 +110,10 @@ token is required because tagging a commit that changes workflow files can
 require Workflows write permission. Do not reuse a personal interactive token,
 expose it to pull requests, or put it in an application bundle. A missing,
 expired, or under-scoped token fails before packaging.
+If preparation finds its exact immutable candidate tag already present, it
+proves write capability without changing the ref by repeating the create-ref
+request: GitHub authorizes the endpoint and returns 422 for the duplicate;
+read-only credentials return 403 and fail before native builds begin.
 
 The workflow maps the macOS certificate names to `CSC_LINK` and
 `CSC_KEY_PASSWORD` only in the macOS packaging step. Before that step, it maps

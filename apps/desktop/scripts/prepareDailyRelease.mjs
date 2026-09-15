@@ -9,6 +9,7 @@ import {
   expectedReleaseAssetNames,
   getTagTarget,
   listAllReleases,
+  parseNightlyChannelTag,
   parseNightlyTag,
   parseSourceMarker,
   selectPublishedNightlyForSource,
@@ -92,14 +93,19 @@ export async function loadNightlyReleaseState({ repository, token, sourceSha, fe
       throw new Error("GitHub release draft and prerelease flags must be booleans");
     }
     if (release.draft) continue;
-    if (typeof release.tag_name !== "string" || !release.tag_name.includes("-nightly.")) continue;
+    if (typeof release.tag_name !== "string") continue;
     let version;
     try {
-      version = parseNightlyTag(release.tag_name);
+      version = parseNightlyChannelTag(release.tag_name);
     } catch {
       continue;
     }
     publishedNightlyVersions.push(version);
+    try {
+      parseNightlyTag(release.tag_name);
+    } catch {
+      continue;
+    }
     if (!release.prerelease) continue;
     const expectedAssetNames = expectedReleaseAssetNames({ version, channel: "nightly" });
     let marker;

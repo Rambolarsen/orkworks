@@ -260,6 +260,15 @@ test("app update metadata normalizes the omitted stable channel and requires nig
     /channel mismatch.*nightly.*latest/i,
   );
 
+  writeFileSync(metadataPath, "provider: github\nowner: Rambolarsen\nrepo: orkworks\nchannel: null\n");
+  assert.throws(
+    () => verifyAppUpdateMetadata({ ...expected, channel: "latest" }),
+    /channel mismatch.*latest.*null/i,
+  );
+
+  writeFileSync(metadataPath, "provider: github\nowner: Rambolarsen\nrepo: orkworks\nchannel: nightly\n");
+  assert.doesNotThrow(() => verifyAppUpdateMetadata({ ...expected, channel: "nightly" }));
+
   writeFileSync(metadataPath, "provider: github\nowner: Rambolarsen\nrepo: elsewhere\nchannel: nightly\n");
   assert.throws(
     () => verifyAppUpdateMetadata({ ...expected, channel: "nightly" }),
