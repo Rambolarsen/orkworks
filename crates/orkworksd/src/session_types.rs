@@ -35,6 +35,19 @@ pub(crate) struct PeonDiagnostics {
     pub(crate) observation_count: Option<usize>,
 }
 
+impl PeonDiagnostics {
+    /// Clears the failure context left by a `Failed` attempt (these fields
+    /// are also populated on `Completed`, but only cleared here) so it
+    /// doesn't linger once the scheduler moves the session on to `Idle` or
+    /// `Candidate`. Call only when leaving `Failed`.
+    pub(crate) fn clear_failure_context(&mut self) {
+        self.error_summary = None;
+        self.provider_id = None;
+        self.provider_model = None;
+        self.fallback_step = None;
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SessionInfo {
     pub(crate) id: String,
