@@ -10,13 +10,14 @@ use process_ownership_fixture::observation::{is_complete, ContainmentMembership,
 use process_ownership_fixture::observation::{ObservationSnapshot, ProcessObservation};
 use process_ownership_fixture::protocol::{GenerationId, NativeIdentity, ProtocolError, Role};
 use process_ownership_fixture::supervisor::{
-    HostPlatformAdapter, LaunchSpec, OwnedProcessHandle, PausedRoot, PlatformAdapter, SpawnError,
-    Supervisor, RELEASE_EXEC_BYTE,
+    ExecutableImage, HostPlatformAdapter, LaunchSpec, OwnedProcessHandle, PausedRoot,
+    PlatformAdapter, SpawnError, Supervisor, RELEASE_EXEC_BYTE,
 };
 use process_ownership_fixture::targets::TargetBehavior;
 
 const GENERATION: u64 = 11;
 const TARGET_LIFETIME: Duration = Duration::from_millis(500);
+const CONTROL_ENDPOINT_TARGET_LIFETIME: Duration = Duration::from_secs(10);
 
 static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -55,7 +56,16 @@ fn fixture_executable() -> PathBuf {
 }
 
 fn launch_spec(role: Role, behavior: TargetBehavior, marker: &Path) -> LaunchSpec {
-    LaunchSpec::fixture(role, behavior, marker.to_path_buf(), TARGET_LIFETIME)
+    launch_spec_with_lifetime(role, behavior, marker, TARGET_LIFETIME)
+}
+
+fn launch_spec_with_lifetime(
+    role: Role,
+    behavior: TargetBehavior,
+    marker: &Path,
+    lifetime: Duration,
+) -> LaunchSpec {
+    LaunchSpec::fixture(role, behavior, marker.to_path_buf(), lifetime)
         .expect("fixture launch specification should be valid")
 }
 
@@ -113,6 +123,7 @@ enum AdapterFault {
     ObserverUnavailable,
     BirthIdentityMismatch,
     ReleaseAndTermination,
+    IdentityAndTermination,
 }
 
 #[derive(Debug)]
@@ -129,7 +140,9 @@ impl FaultAdapter {
             fault,
             fail_next_observation: matches!(
                 fault,
-                AdapterFault::ObserverUnavailable | AdapterFault::ReleaseAndTermination
+                AdapterFault::ObserverUnavailable
+                    | AdapterFault::ReleaseAndTermination
+                    | AdapterFault::IdentityAndTermination
             ),
         }
     }
@@ -138,7 +151,7 @@ impl FaultAdapter {
 impl PlatformAdapter for FaultAdapter {
     fn create_paused_root(
         &mut self,
-        executable: &Path,
+        executable: &ExecutableImage,
         spec: &LaunchSpec,
     ) -> Result<OwnedProcessHandle, SpawnError> {
         self.host.create_paused_root(executable, spec)
@@ -149,6 +162,9 @@ impl PlatformAdapter for FaultAdapter {
         process_handle: &OwnedProcessHandle,
     ) -> Result<NativeIdentity, SpawnError> {
         let mut identity = self.host.capture_native_identity(process_handle)?;
+        if self.fault == AdapterFault::IdentityAndTermination {
+            return Err(SpawnError::IdentityUnavailable);
+        }
         if self.fault == AdapterFault::BirthIdentityMismatch {
             identity.birth_identity.push_str(":stale");
         }
@@ -178,7 +194,10 @@ impl PlatformAdapter for FaultAdapter {
         process_handle: &mut OwnedProcessHandle,
         timeout: Duration,
     ) -> Result<(), SpawnError> {
-        if self.fault == AdapterFault::ReleaseAndTermination {
+        if matches!(
+            self.fault,
+            AdapterFault::ReleaseAndTermination | AdapterFault::IdentityAndTermination
+        ) {
             process_handle.close_release_gate();
             return Err(SpawnError::ObserverUnavailable);
         }
@@ -195,6 +214,16 @@ impl PlatformAdapter for FaultAdapter {
         }
         self.host.observe_root(process_handle, expected_identity)
     }
+
+    fn observe_unidentified_root(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+    ) -> Result<ExitState, SpawnError> {
+        if std::mem::take(&mut self.fail_next_observation) {
+            return Err(SpawnError::ObserverUnavailable);
+        }
+        self.host.observe_unidentified_root(process_handle)
+    }
 }
 
 fn prepared_with_fault(fault: AdapterFault) -> Supervisor<FaultAdapter> {
@@ -209,7 +238,7 @@ fn registration_failure_discards_ticket_without_executing_target() {
     let marker = directory.marker("pty-executed");
     let mut supervisor = prepared_supervisor();
     let ticket = supervisor
-        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-pty")
+        .issue_launch_ticket(Role::Pty, "req-pty")
         .expect("ticket should be issued");
     supervisor.inject_registration_failure_once();
 
@@ -231,7 +260,7 @@ fn forged_ticket_is_rejected_before_target_execution() {
     let marker = directory.marker("inference-executed");
     let mut supervisor = prepared_supervisor();
     let mut ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-inference")
+        .issue_launch_ticket(Role::Inference, "req-inference")
         .expect("ticket should be issued");
     ticket.generation += 1;
 
@@ -243,6 +272,27 @@ fn forged_ticket_is_rejected_before_target_execution() {
     assert_eq!(result, Err(SpawnError::InvalidTicket));
     assert!(!marker.exists());
     assert!(supervisor.observe().roots.is_empty());
+}
+
+#[test]
+fn ticket_executable_identity_and_image_binding_are_supervisor_derived() {
+    let directory = TestDirectory::new("derived-ticket-identity");
+    let marker = directory.marker("forged-image-binding-executed");
+    let mut supervisor = prepared_supervisor();
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Pty, "caller-nonce")
+        .expect("ticket should be issued");
+
+    assert_eq!(ticket.executable_identity, "fixture-pty");
+    assert_ne!(ticket.request_nonce, "caller-nonce");
+    assert!(ticket.request_nonce.ends_with(":caller-nonce"));
+
+    let mut forged = ticket;
+    forged.request_nonce = "caller-nonce".to_owned();
+    let result = supervisor.spawn(forged, launch_spec(Role::Pty, TargetBehavior::Pty, &marker));
+
+    assert_eq!(result, Err(SpawnError::InvalidTicket));
+    assert!(!marker.exists());
 }
 
 #[test]
@@ -267,6 +317,46 @@ fn renamed_foreign_executable_is_rejected_during_preparation() {
             field: "fixture executable"
         })
     ));
+}
+
+#[test]
+fn launch_uses_prepared_executable_image_after_path_substitution() {
+    let directory = TestDirectory::new("launch-time-substitution");
+    let candidate = directory.marker(if cfg!(windows) {
+        "process-ownership-fixture.exe"
+    } else {
+        "process-ownership-fixture"
+    });
+    let prepared_image = directory.marker("prepared-image");
+    let marker = directory.marker("prepared-target-executed");
+    fs::copy(fixture_executable(), &candidate)
+        .expect("trusted fixture image should be copied for preparation");
+    let (mut supervisor, _) = Supervisor::prepare_with_executable(GENERATION, candidate.clone())
+        .expect("matching fixture image should prepare");
+
+    let substitution = fs::rename(&candidate, &prepared_image);
+    if cfg!(windows) {
+        assert!(
+            substitution.is_err(),
+            "the retained image handle must prevent path replacement on Windows"
+        );
+    } else {
+        substitution.expect("Unix path replacement should exercise descriptor-based launch");
+        fs::copy(
+            std::env::current_exe().expect("test executable path should be available"),
+            &candidate,
+        )
+        .expect("foreign image should replace the prepared pathname");
+    }
+
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Pty, "req-substitution")
+        .expect("ticket should be derived from the prepared image");
+    supervisor
+        .spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker))
+        .expect("spawn should use the prepared image rather than reopening its path");
+
+    wait_for_marker(&marker);
 }
 
 #[test]
@@ -309,13 +399,12 @@ fn owner_loss_closes_admission_before_late_ticket_or_spawn() {
     let marker = directory.marker("late-executed");
     let mut supervisor = prepared_supervisor();
     let early_ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-early")
+        .issue_launch_ticket(Role::Inference, "req-early")
         .expect("ticket should be issued before owner loss");
 
     supervisor.owner_lost();
 
-    let late_ticket =
-        supervisor.issue_launch_ticket(Role::Inference, "fixture-inference", "req-late");
+    let late_ticket = supervisor.issue_launch_ticket(Role::Inference, "req-late");
     let late_spawn = supervisor.spawn(
         early_ticket,
         launch_spec(Role::Inference, TargetBehavior::Inference, &marker),
@@ -335,19 +424,30 @@ fn supervisor_control_endpoint_is_not_inherited_by_target() {
         .control_endpoint_addr()
         .expect("prepared supervisor should own a live control endpoint");
     let ticket = supervisor
-        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-endpoint")
+        .issue_launch_ticket(Role::Pty, "req-endpoint")
         .expect("ticket should be issued");
-    supervisor
+    let identity = supervisor
         .spawn(
             ticket,
-            launch_spec(Role::Pty, TargetBehavior::Silent, &marker),
+            launch_spec_with_lifetime(
+                Role::Pty,
+                TargetBehavior::Silent,
+                &marker,
+                CONTROL_ENDPOINT_TARGET_LIFETIME,
+            ),
         )
         .expect("registered target should launch");
     wait_for_marker(&marker);
+    let before_rebind = supervisor.observe();
+    assert_eq!(before_rebind.roots[0].identity, identity);
+    assert_eq!(before_rebind.roots[0].exit_state, ExitState::Running);
 
     supervisor.owner_lost();
     let rebound = std::net::TcpListener::bind(endpoint)
         .expect("child must not inherit the supervisor control endpoint");
+    let after_rebind = supervisor.observe();
+    assert_eq!(after_rebind.roots[0].identity, identity);
+    assert_eq!(after_rebind.roots[0].exit_state, ExitState::Running);
     drop(rebound);
 }
 
@@ -357,7 +457,7 @@ fn unresolved_containment_is_rejected_before_release() {
     let marker = directory.marker("unresolved-target-executed");
     let mut supervisor = prepared_with_fault(AdapterFault::UnresolvedContainment);
     let ticket = supervisor
-        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-containment")
+        .issue_launch_ticket(Role::Pty, "req-containment")
         .expect("ticket should be issued");
 
     let result = supervisor.spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker));
@@ -381,6 +481,7 @@ fn completion_rejects_unresolved_containment_membership() {
             exit_state: ExitState::Exited,
         }],
         descendants: Vec::new(),
+        unidentified_roots: Vec::new(),
         unresolved_survivors: Vec::new(),
     };
 
@@ -393,7 +494,7 @@ fn failed_release_retains_uncertain_identity_for_observation() {
     let marker = directory.marker("release-failure-target-executed");
     let mut supervisor = prepared_with_fault(AdapterFault::ReleaseAndTermination);
     let ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-release")
+        .issue_launch_ticket(Role::Inference, "req-release")
         .expect("ticket should be issued");
 
     let result = supervisor.spawn(
@@ -414,12 +515,42 @@ fn failed_release_retains_uncertain_identity_for_observation() {
 }
 
 #[test]
+fn identity_capture_and_termination_failure_retains_unidentified_root() {
+    let directory = TestDirectory::new("identity-capture-failure");
+    let marker = directory.marker("identity-failure-target-executed");
+    let mut supervisor = prepared_with_fault(AdapterFault::IdentityAndTermination);
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Inference, "req-identity-failure")
+        .expect("ticket should be issued");
+
+    let result = supervisor.spawn(
+        ticket,
+        launch_spec(Role::Inference, TargetBehavior::Inference, &marker),
+    );
+    let unresolved = supervisor.observe();
+
+    assert_eq!(result, Err(SpawnError::IdentityUnavailable));
+    assert!(!marker.exists());
+    assert!(unresolved.roots.is_empty());
+    assert_eq!(unresolved.unidentified_roots.len(), 1);
+    assert_eq!(
+        unresolved.unidentified_roots[0].exit_state,
+        ExitState::Unresolved
+    );
+    assert!(!is_complete(&unresolved));
+
+    let exited = wait_for_complete(&mut supervisor);
+    assert!(exited.unidentified_roots.is_empty());
+    assert!(is_complete(&exited));
+}
+
+#[test]
 fn silent_target_is_observed_from_native_identity_and_liveness() {
     let directory = TestDirectory::new("silent-observation");
     let marker = directory.marker("silent-executed");
     let mut supervisor = prepared_supervisor();
     let ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-silent")
+        .issue_launch_ticket(Role::Inference, "req-silent")
         .expect("ticket should be issued");
 
     let identity = supervisor
@@ -453,7 +584,7 @@ fn observer_failure_is_unresolved() {
     let marker = directory.marker("observer-failure-executed");
     let mut supervisor = prepared_with_fault(AdapterFault::ObserverUnavailable);
     let ticket = supervisor
-        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-observed")
+        .issue_launch_ticket(Role::Pty, "req-observed")
         .expect("ticket should be issued");
     let identity = supervisor
         .spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker))
@@ -473,7 +604,7 @@ fn birth_identity_mismatch_from_platform_adapter_is_unresolved() {
     let marker = directory.marker("birth-mismatch-executed");
     let mut supervisor = prepared_with_fault(AdapterFault::BirthIdentityMismatch);
     let ticket = supervisor
-        .issue_launch_ticket(Role::Pty, "fixture-pty", "req-birth-mismatch")
+        .issue_launch_ticket(Role::Pty, "req-birth-mismatch")
         .expect("ticket should be issued");
     let identity = supervisor
         .spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker))

@@ -2,19 +2,25 @@
 
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::fs::File;
-use std::io::{Read, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
+
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::observation::{
     ContainmentMembership, ExitState, ObservationSnapshot, ProcessObservation,
+    UnidentifiedProcessObservation,
 };
 use crate::protocol::{
     GenerationId, LaunchTicket, NativeIdentity, PreparedGeneration, ProtocolError, Role,
@@ -115,6 +121,17 @@ impl OwnedProcessHandle {
             thread::sleep(Duration::from_millis(10));
         }
     }
+
+    fn observe_exit(&mut self) -> Result<ExitState, SpawnError> {
+        match self
+            .child
+            .try_wait()
+            .map_err(|_| SpawnError::ObserverUnavailable)?
+        {
+            Some(_) => Ok(ExitState::Exited),
+            None => Ok(ExitState::Running),
+        }
+    }
 }
 
 impl Drop for OwnedProcessHandle {
@@ -123,39 +140,76 @@ impl Drop for OwnedProcessHandle {
     }
 }
 
-#[derive(Debug, Clone)]
-struct ExecutableAuthority {
+/// Supervisor-owned executable image verified during generation preparation.
+#[derive(Debug)]
+pub struct ExecutableImage {
     path: PathBuf,
+    file: File,
     digest: [u8; 32],
+    ticket_binding: String,
+    #[cfg(unix)]
+    staging_directory: PathBuf,
 }
 
-impl ExecutableAuthority {
+impl ExecutableImage {
     fn discover() -> Result<Self, ProtocolError> {
         let path = Self::discover_path()?;
-        let digest = hash_executable(&path).map_err(|_| ProtocolError::InvalidValue {
-            field: "fixture executable",
-        })?;
-        Ok(Self { path, digest })
+        Self::from_trusted_candidate(path)
     }
 
     fn from_trusted_candidate(candidate: PathBuf) -> Result<Self, ProtocolError> {
         let trusted = Self::discover_path()?;
+        let trusted_file = open_executable(&trusted).map_err(|_| ProtocolError::InvalidValue {
+            field: "fixture executable",
+        })?;
+        let trusted_digest =
+            hash_executable(&trusted_file).map_err(|_| ProtocolError::InvalidValue {
+                field: "fixture executable",
+            })?;
         let candidate = candidate
             .canonicalize()
             .map_err(|_| ProtocolError::InvalidValue {
                 field: "fixture executable",
             })?;
-        if candidate != trusted {
+        let candidate_file =
+            open_executable(&candidate).map_err(|_| ProtocolError::InvalidValue {
+                field: "fixture executable",
+            })?;
+        let candidate_digest =
+            hash_executable(&candidate_file).map_err(|_| ProtocolError::InvalidValue {
+                field: "fixture executable",
+            })?;
+        if candidate_digest != trusted_digest {
             return Err(ProtocolError::InvalidValue {
                 field: "fixture executable",
             });
         }
-        let digest = hash_executable(&candidate).map_err(|_| ProtocolError::InvalidValue {
+        let (path, file) = prepare_launch_image(&candidate, candidate_file).map_err(|_| {
+            ProtocolError::InvalidValue {
+                field: "fixture executable",
+            }
+        })?;
+        let digest = hash_executable(&file).map_err(|_| ProtocolError::InvalidValue {
             field: "fixture executable",
         })?;
+        if digest != candidate_digest {
+            return Err(ProtocolError::InvalidValue {
+                field: "fixture executable",
+            });
+        }
+        let ticket_binding = image_ticket_binding(&path, &digest);
         Ok(Self {
-            path: candidate,
+            #[cfg(unix)]
+            staging_directory: path
+                .parent()
+                .ok_or(ProtocolError::InvalidValue {
+                    field: "fixture executable",
+                })?
+                .to_path_buf(),
+            path,
+            file,
             digest,
+            ticket_binding,
         })
     }
 
@@ -186,21 +240,102 @@ impl ExecutableAuthority {
             })
     }
 
-    fn revalidate(&self) -> Result<(), SpawnError> {
-        let canonical = self
-            .path
-            .canonicalize()
-            .map_err(|_| SpawnError::InvalidTicket)?;
-        let digest = hash_executable(&canonical).map_err(|_| SpawnError::InvalidTicket)?;
-        if canonical != self.path || digest != self.digest {
-            return Err(SpawnError::InvalidTicket);
-        }
-        Ok(())
+    fn executable_identity(&self, role: Role) -> &'static str {
+        role.executable_identity()
+    }
+
+    fn bind_request_nonce(&self, request_nonce: &str) -> String {
+        format!("image:{}:{request_nonce}", self.ticket_binding)
+    }
+
+    fn ticket_matches(&self, ticket: &LaunchTicket, role: Role) -> bool {
+        image_ticket_binding(&self.path, &self.digest) == self.ticket_binding
+            && ticket.executable_identity == self.executable_identity(role)
+            && ticket
+                .request_nonce
+                .starts_with(&format!("image:{}:", self.ticket_binding))
+    }
+
+    fn command(&self) -> Command {
+        Command::new(&self.path)
+    }
+
+    /// Returns the canonical pathname retained for diagnostics and native adapters.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Clones the verified executable image handle for a native adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SpawnError::ContainmentFailed`] if the OS cannot duplicate the handle.
+    pub fn try_clone_file(&self) -> Result<File, SpawnError> {
+        self.file
+            .try_clone()
+            .map_err(|_| SpawnError::ContainmentFailed)
     }
 }
 
-fn hash_executable(path: &Path) -> Result<[u8; 32], ()> {
-    let mut file = File::open(path).map_err(|_| ())?;
+impl Drop for ExecutableImage {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            let _ = std::fs::set_permissions(
+                &self.staging_directory,
+                std::fs::Permissions::from_mode(0o700),
+            );
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_dir(&self.staging_directory);
+        }
+    }
+}
+
+fn open_executable(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    options.share_mode(0x0000_0001);
+    options.open(path)
+}
+
+#[cfg(unix)]
+fn prepare_launch_image(_source_path: &Path, source: File) -> std::io::Result<(PathBuf, File)> {
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random).map_err(|error| std::io::Error::other(error.to_string()))?;
+    let directory = std::env::temp_dir().join(format!(
+        "orkworks-process-ownership-image-{}-{}",
+        std::process::id(),
+        hex::encode(random)
+    ));
+    std::fs::create_dir(&directory)?;
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
+    let path = directory.join("process-ownership-fixture");
+    let mut destination = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o500)
+        .open(&path)?;
+    let mut source = source;
+    source.rewind()?;
+    std::io::copy(&mut source, &mut destination)?;
+    destination.sync_all()?;
+    drop(destination);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500))?;
+    let file = open_executable(&path)?;
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o500))?;
+    Ok((path, file))
+}
+
+#[cfg(windows)]
+fn prepare_launch_image(source_path: &Path, source: File) -> std::io::Result<(PathBuf, File)> {
+    Ok((source_path.to_path_buf(), source))
+}
+
+fn hash_executable(file: &File) -> Result<[u8; 32], ()> {
+    let mut file = file.try_clone().map_err(|_| ())?;
+    file.rewind().map_err(|_| ())?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 16 * 1024];
     loop {
@@ -211,6 +346,13 @@ fn hash_executable(path: &Path) -> Result<[u8; 32], ()> {
         hasher.update(&buffer[..read]);
     }
     Ok(hasher.finalize().into())
+}
+
+fn image_ticket_binding(path: &Path, digest: &[u8; 32]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(path.to_string_lossy().as_bytes());
+    hasher.update(digest);
+    hex::encode(hasher.finalize())
 }
 
 /// Typestate value proving a root has identity and an owned paused handle.
@@ -247,7 +389,7 @@ pub trait PlatformAdapter {
     /// Creates a process root whose target behavior is blocked on a release gate.
     fn create_paused_root(
         &mut self,
-        executable: &Path,
+        executable: &ExecutableImage,
         spec: &LaunchSpec,
     ) -> Result<OwnedProcessHandle, SpawnError>;
 
@@ -282,6 +424,14 @@ pub trait PlatformAdapter {
         process_handle: &mut OwnedProcessHandle,
         expected_identity: &NativeIdentity,
     ) -> Result<ExitState, SpawnError>;
+
+    /// Observes only retained-handle exit when native birth identity was unavailable.
+    fn observe_unidentified_root(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+    ) -> Result<ExitState, SpawnError> {
+        process_handle.observe_exit()
+    }
 }
 
 /// Safe portable foundation for the common admission sequence.
@@ -295,10 +445,11 @@ pub struct HostPlatformAdapter;
 impl PlatformAdapter for HostPlatformAdapter {
     fn create_paused_root(
         &mut self,
-        executable: &Path,
+        executable: &ExecutableImage,
         spec: &LaunchSpec,
     ) -> Result<OwnedProcessHandle, SpawnError> {
-        let mut child = Command::new(executable)
+        let mut child = executable
+            .command()
             .args(&spec.args)
             .env_clear()
             .stdin(Stdio::piped())
@@ -380,17 +531,23 @@ struct RegisteredRoot {
     unresolved_until_exit: bool,
 }
 
+#[derive(Debug)]
+struct UnidentifiedRoot {
+    process_handle: OwnedProcessHandle,
+}
+
 /// Live launch and observation authority for one prepared generation.
 #[derive(Debug)]
 pub struct Supervisor<A: PlatformAdapter = HostPlatformAdapter> {
     generation: GenerationId,
     protocol: SupervisorProtocol,
     adapter: A,
-    executable: ExecutableAuthority,
+    executable: ExecutableImage,
     control_endpoint: Option<TcpListener>,
     admission_open: bool,
     registered_identities: HashSet<NativeIdentity>,
     roots: Vec<RegisteredRoot>,
+    unidentified_roots: Vec<UnidentifiedRoot>,
     fail_registration_once: bool,
 }
 
@@ -405,7 +562,7 @@ impl Supervisor<HostPlatformAdapter> {
         Self::prepare_with_adapter(generation, HostPlatformAdapter)
     }
 
-    /// Prepares only when `candidate` resolves to the supervisor-discovered fixture binary.
+    /// Prepares only when `candidate` matches the supervisor-discovered fixture image.
     ///
     /// This fixture-only hook provides negative coverage for executable substitution;
     /// callers still cannot select a launch executable.
@@ -413,7 +570,7 @@ impl Supervisor<HostPlatformAdapter> {
         generation: GenerationId,
         candidate: PathBuf,
     ) -> Result<(Self, PreparedGeneration), ProtocolError> {
-        let executable = ExecutableAuthority::from_trusted_candidate(candidate)?;
+        let executable = ExecutableImage::from_trusted_candidate(candidate)?;
         Self::prepare_with_authority(generation, HostPlatformAdapter, executable)
     }
 }
@@ -429,14 +586,14 @@ impl<A: PlatformAdapter> Supervisor<A> {
         generation: GenerationId,
         adapter: A,
     ) -> Result<(Self, PreparedGeneration), ProtocolError> {
-        let executable = ExecutableAuthority::discover()?;
+        let executable = ExecutableImage::discover()?;
         Self::prepare_with_authority(generation, adapter, executable)
     }
 
     fn prepare_with_authority(
         generation: GenerationId,
         adapter: A,
-        executable: ExecutableAuthority,
+        executable: ExecutableImage,
     ) -> Result<(Self, PreparedGeneration), ProtocolError> {
         let (protocol, prepared) = SupervisorProtocol::prepare(generation)?;
         let control_endpoint =
@@ -453,6 +610,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 admission_open: true,
                 registered_identities: HashSet::new(),
                 roots: Vec::new(),
+                unidentified_roots: Vec::new(),
                 fail_registration_once: false,
             },
             prepared,
@@ -463,20 +621,26 @@ impl<A: PlatformAdapter> Supervisor<A> {
     ///
     /// # Errors
     ///
+    /// The executable identity and physical-image binding are derived from the
+    /// supervisor-owned image; the caller supplies only its request nonce.
+    ///
     /// Returns [`SpawnError::AdmissionClosed`] after owner loss, otherwise
     /// [`SpawnError::InvalidTicket`] for an invalid closed binding.
     pub fn issue_launch_ticket(
         &mut self,
         role: Role,
-        executable_identity: impl Into<String>,
         request_nonce: impl Into<String>,
     ) -> Result<LaunchTicket, SpawnError> {
         if !self.admission_open {
             return Err(SpawnError::AdmissionClosed);
         }
-        self.executable.revalidate()?;
+        let request_nonce = request_nonce.into();
         self.protocol
-            .issue_launch_ticket(role, executable_identity, request_nonce)
+            .issue_launch_ticket(
+                role,
+                self.executable.executable_identity(role),
+                self.executable.bind_request_nonce(&request_nonce),
+            )
             .map_err(|_| SpawnError::InvalidTicket)
     }
 
@@ -497,26 +661,33 @@ impl<A: PlatformAdapter> Supervisor<A> {
         if !self.admission_open {
             return Err(SpawnError::AdmissionClosed);
         }
+        if !self.executable.ticket_matches(&ticket, launch_spec.role) {
+            return Err(SpawnError::InvalidTicket);
+        }
         self.protocol
             .accept_ticket(
                 ticket.clone(),
                 launch_spec.role,
-                launch_spec.role.executable_identity(),
+                self.executable.executable_identity(launch_spec.role),
                 &ticket.request_nonce,
             )
             .map_err(|_| SpawnError::InvalidTicket)?;
 
-        self.executable.revalidate()?;
         let mut process_handle = self
             .adapter
-            .create_paused_root(&self.executable.path, &launch_spec)?;
+            .create_paused_root(&self.executable, &launch_spec)?;
         let identity = self.adapter.capture_native_identity(&process_handle);
         let identity = match identity {
             Ok(identity) => identity,
             Err(error) => {
-                let _ = self
+                if self
                     .adapter
-                    .terminate_root(&mut process_handle, Duration::from_secs(2));
+                    .terminate_root(&mut process_handle, Duration::from_secs(2))
+                    .is_err()
+                {
+                    self.unidentified_roots
+                        .push(UnidentifiedRoot { process_handle });
+                }
                 return Err(error);
             }
         };
@@ -597,6 +768,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
     pub fn observe(&mut self) -> ObservationSnapshot {
         let mut unresolved_survivors = Vec::new();
         let mut roots = Vec::with_capacity(self.roots.len());
+        let mut unidentified_roots = Vec::with_capacity(self.unidentified_roots.len());
 
         for root in &mut self.roots {
             let observed = self
@@ -621,10 +793,28 @@ impl<A: PlatformAdapter> Supervisor<A> {
             });
         }
 
+        let mut retained_unidentified = Vec::with_capacity(self.unidentified_roots.len());
+        for mut root in self.unidentified_roots.drain(..) {
+            let observed = self
+                .adapter
+                .observe_unidentified_root(&mut root.process_handle)
+                .unwrap_or(ExitState::Unresolved);
+            if observed == ExitState::Exited {
+                continue;
+            }
+            unidentified_roots.push(UnidentifiedProcessObservation {
+                diagnostic_pid: root.process_handle.diagnostic_pid(),
+                exit_state: ExitState::Unresolved,
+            });
+            retained_unidentified.push(root);
+        }
+        self.unidentified_roots = retained_unidentified;
+
         ObservationSnapshot {
             generation: self.generation,
             roots,
             descendants: Vec::new(),
+            unidentified_roots,
             unresolved_survivors,
         }
     }

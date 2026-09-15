@@ -36,6 +36,15 @@ pub struct ProcessObservation {
     pub exit_state: ExitState,
 }
 
+/// Handle-backed observation for a root whose native birth identity was unavailable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnidentifiedProcessObservation {
+    /// PID exposed only to diagnose the retained process handle.
+    pub diagnostic_pid: u32,
+    /// Conservative handle-backed liveness; a live unidentified root is unresolved.
+    pub exit_state: ExitState,
+}
+
 /// Complete observation attempt for one prepared supervisor generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservationSnapshot {
@@ -45,14 +54,17 @@ pub struct ObservationSnapshot {
     pub roots: Vec<ProcessObservation>,
     /// Descendants found independently by the active native adapter.
     pub descendants: Vec<ProcessObservation>,
+    /// Roots retained after native identity capture could not complete safely.
+    pub unidentified_roots: Vec<UnidentifiedProcessObservation>,
     /// Registered identities whose survival or exit remains ambiguous.
     pub unresolved_survivors: Vec<NativeIdentity>,
 }
 
-/// Returns true only after every registered identity has exited with no ambiguity.
+/// Returns true only after identified processes exited and no unidentified root remains.
 #[must_use]
 pub fn is_complete(snapshot: &ObservationSnapshot) -> bool {
-    snapshot.unresolved_survivors.is_empty()
+    snapshot.unidentified_roots.is_empty()
+        && snapshot.unresolved_survivors.is_empty()
         && snapshot
             .roots
             .iter()
