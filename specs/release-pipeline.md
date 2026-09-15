@@ -282,24 +282,25 @@ Linux and Intel macOS packaging configuration remains available for local develo
 
 Triggered on canonical stable tag pushes matching `v*`; immutable `v*-nightly.*`
 tags are excluded because the nightly run that created them already owns their
-publication. Uses a matrix strategy for OS/arch jobs. Each build job:
+publication. The same workflow handles scheduled and manually dispatched
+nightlies from `main`:
 
-1. Checks out the repo
-2. Installs Node 22
-3. **Guards tag/version drift** with Node, not `jq`, so the check works on Windows and Unix runners:
-   `TAG="$GITHUB_REF_NAME"; PKG_VERSION="$(node -e "process.stdout.write('v' + require('./apps/desktop/package.json').version)")"`
-4. Installs Rust via `dtolnay/rust-toolchain` and primes the cargo cache via `Swatinem/rust-cache@v2`
-5. Installs pnpm
-6. Installs deps with frozen lockfile and builds the frontend: `cd apps/desktop && pnpm install --frozen-lockfile && pnpm build`
-7. Runs `pnpm package:release`, which:
+1. An unprivileged `preflight` job freezes and validates the source before any
+   signing credential is exposed.
+2. `prepare_nightly` checks remote release state, creates the immutable tag only
+   when needed, and ends an unchanged-source run as a successful no-op.
+3. `validate` calls reusable Main CI for canonical stable tags and new nightly
+   candidates, always at the frozen source SHA.
+4. A macOS arm64/Windows x64 matrix installs Node 22, Rust, pnpm, and frozen
+   dependencies, then runs `pnpm package:release`, which:
    - maps the host platform/arch to the matching Rust target triple
    - builds the sidecar for that exact target
    - stages the built binary into `crates/orkworksd/target/release/`
    - runs `electron-builder` with the matching CLI arch flag
-8. Verifies `process.arch` matches the matrix architecture before packaging.
-9. Runs `pnpm verify:release`, which fails unless the installer, unpacked app,
+5. Each matrix job verifies `process.arch` and runs `pnpm verify:release`, which
+   fails unless the installer, unpacked app,
    Rust sidecar, and each packaged hook-script file all exist.
-10. On the Windows runner, runs `pnpm smoke:windows-installer`, which silently
+6. The Windows runner runs `pnpm smoke:windows-installer`, which silently
     installs the generated NSIS artifact into a unique temporary directory,
     verifies the installed executable, Rust sidecar, and hook scripts, then
     uninstalls it and requires the directory to disappear within a bounded
@@ -308,9 +309,10 @@ publication. Uses a matrix strategy for OS/arch jobs. Each build job:
     per-machine Windows uninstall registry data. If post-install verification
     fails, it does not invoke the uninstaller, leaving the installation
     directory available for diagnosis.
-11. Uploads top-level `OrkWorks-*` artifacts via `actions/upload-artifact`.
-
-After all matrix jobs complete, a `publish` job downloads all artifacts and creates/updates a draft GitHub Release via `softprops/action-gh-release@v2`. Requires `permissions: { contents: write }` at the workflow level.
+7. Matrix jobs upload only verified release artifacts. `publish_stable` creates
+   the stable draft with job-scoped `contents: write`; `publish_nightly` uses
+   the protected CI token to assemble, validate, and publish the exact immutable
+   prerelease asset set.
 
 ### Modified: `apps/desktop/package.json`
 

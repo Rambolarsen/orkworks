@@ -44,8 +44,9 @@ remain diagnostic history and a new run attempt can retry.
 The platform jobs run packaging, pre-checksum artifact verification, native
 signature checks, and the Windows installer smoke test before checksum
 generation. They then run the full artifact verifier, which requires the
-checksum manifest, before upload. The publish job is matrix-gated and creates a
-draft GitHub Release. A successful source-only test or packaging run is not
+checksum manifest, before upload. The stable publisher creates a draft release;
+the nightly publisher creates a draft, validates the uploaded asset set, and
+then publishes it. A successful source-only test or packaging run is not
 evidence that a release is trusted: the real credential-backed run on the
 native runners is still required.
 
@@ -84,10 +85,10 @@ credentials:
 - add a repository ruleset or equivalent tag protection so only authorized
   release actors can create or update matching `v*` tags.
 
-The workflow exposes signing values only to the tag-driven platform jobs. Pull
-request workflows do not receive them. Do not put certificates, passwords,
-API keys, or decoded files in the repository, workflow source, artifacts, or
-diagnostic output.
+The workflow exposes signing values only to trusted release platform jobs for
+canonical stable tags or `main` nightlies. Pull request workflows do not receive
+them. Do not put certificates, passwords, API keys, or decoded files in the
+repository, workflow source, artifacts, or diagnostic output.
 
 Create these exact environment secrets and variable:
 
