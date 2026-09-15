@@ -119,14 +119,17 @@ impl UnixCandidate {
         #[cfg(target_os = "macos")]
         {
             let _ = spec;
-            return Err(PlatformError::UnsupportedPlatform {
+            Err(PlatformError::UnsupportedPlatform {
                 candidate: "macOS handle-based executable launch",
-            });
+            })
         }
-        match self {
-            Self::ProcessGroup(domain) => domain.launch_paused(spec),
-            Self::RegisteredRoot(domain) => domain.launch_paused(spec),
-            Self::Launchd(domain) => domain.launch_paused(spec),
+        #[cfg(not(target_os = "macos"))]
+        {
+            match self {
+                Self::ProcessGroup(domain) => domain.launch_paused(spec),
+                Self::RegisteredRoot(domain) => domain.launch_paused(spec),
+                Self::Launchd(domain) => domain.launch_paused(spec),
+            }
         }
     }
 
@@ -234,6 +237,7 @@ impl ProcessGroupDomain {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn launch_paused(&mut self, spec: LaunchSpec) -> Result<PausedRoot, PlatformError> {
         let executable =
             ExecutableImage::discover().map_err(|_| PlatformError::IdentityUnavailable)?;
@@ -276,8 +280,7 @@ impl ProcessGroupDomain {
             if info.process_group != root.evidence.process_group {
                 return Err(PlatformError::IdentityUnavailable);
             }
-            if root.evidence.process_group == 0
-                || root.evidence.process_group == std::process::id()
+            if root.evidence.process_group == 0 || root.evidence.process_group == std::process::id()
             {
                 return Err(PlatformError::IdentityUnavailable);
             }
@@ -317,6 +320,7 @@ impl RegisteredRootDomain {
             .collect()
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn launch_paused(&mut self, spec: LaunchSpec) -> Result<PausedRoot, PlatformError> {
         let executable =
             ExecutableImage::discover().map_err(|_| PlatformError::IdentityUnavailable)?;
@@ -430,7 +434,9 @@ impl PlatformAdapter for UnixCandidate {
                 if info.process_group == 0 || info.process_group == std::process::id() {
                     return Err(SpawnError::ContainmentFailed);
                 }
-                domain.roots.push(tracked_root(info, pid).map_err(|_| SpawnError::ObserverUnavailable)?);
+                domain
+                    .roots
+                    .push(tracked_root(info, pid).map_err(|_| SpawnError::ObserverUnavailable)?);
                 Ok(ContainmentMembership::Confirmed)
             }
             Self::RegisteredRoot(domain) if domain.generation == generation => {
@@ -438,7 +444,9 @@ impl PlatformAdapter for UnixCandidate {
                     .pending
                     .take()
                     .ok_or(SpawnError::IdentityUnavailable)?;
-                domain.roots.push(tracked_root(info, pid).map_err(|_| SpawnError::ObserverUnavailable)?);
+                domain
+                    .roots
+                    .push(tracked_root(info, pid).map_err(|_| SpawnError::ObserverUnavailable)?);
                 Ok(ContainmentMembership::Confirmed)
             }
             _ => Err(SpawnError::ContainmentFailed),
@@ -590,6 +598,7 @@ impl PlatformAdapter for RegisteredRootDomain {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn spawn_error(error: SpawnError) -> PlatformError {
     match error {
         SpawnError::ContainmentFailed => PlatformError::Io {
@@ -680,7 +689,7 @@ fn tracked_root(info: ProcessInfo, _pid: u32) -> Result<TrackedRoot, PlatformErr
             parent_pid: info.parent_pid,
             process_group: info.process_group,
             session: info.session,
-        ancestry,
+            ancestry,
         },
         known_descendants: HashMap::new(),
         was_observed_live: false,
@@ -714,6 +723,7 @@ fn observe_roots(
                 if process.identity == expected
                     && (!validate_groups
                         || process.process_group == root.evidence.process_group) =>
+            {
                 root.was_observed_live = true;
                 ExitState::Running
             }
@@ -741,7 +751,7 @@ fn observe_roots(
 
         let root_pid = root.evidence.identity.diagnostic_pid;
         let root_identity = root.evidence.identity.clone();
-        let mut descendants_by_pid = HashMap::new();
+        let mut descendants_by_pid: HashMap<u32, ProcessInfo> = HashMap::new();
         let mut changed = true;
         while changed {
             changed = false;
@@ -749,8 +759,8 @@ fn observe_roots(
                 if process.identity.diagnostic_pid == root_pid {
                     continue;
                 }
-                let parent_known = process.parent_pid == root_pid
-                    && process.parent_identity.as_ref() == Some(&root_identity)
+                let parent_known = (process.parent_pid == root_pid
+                    && process.parent_identity.as_ref() == Some(&root_identity))
                     || descendants_by_pid.values().any(|parent| {
                         process.parent_pid == parent.identity.diagnostic_pid
                             && process.parent_identity.as_ref() == Some(&parent.identity)
@@ -774,9 +784,10 @@ fn observe_roots(
             });
         }
         for process in root.known_descendants.values() {
-            if let Some(current) = all_processes.iter().find(|current| {
-                current.identity.diagnostic_pid == process.identity.diagnostic_pid
-            }) {
+            if let Some(current) = all_processes
+                .iter()
+                .find(|current| current.identity.diagnostic_pid == process.identity.diagnostic_pid)
+            {
                 if current.identity != process.identity
                     || current.parent_identity != process.parent_identity
                 {
@@ -920,9 +931,8 @@ fn process_census() -> Result<Vec<ProcessInfo>, PlatformError> {
         let count = unsafe {
             libc::proc_listallpids(
                 pids.as_mut_ptr().cast(),
-                i32::try_from(pids.len() * std::mem::size_of::<i32>()).map_err(|_| {
-                    PlatformError::CensusOverflow
-                })?,
+                i32::try_from(pids.len() * std::mem::size_of::<i32>())
+                    .map_err(|_| PlatformError::CensusOverflow)?,
             )
         };
         if count < 0 {
@@ -935,16 +945,18 @@ fn process_census() -> Result<Vec<ProcessInfo>, PlatformError> {
         if count < capacity {
             break pids.into_iter().take(count).collect::<Vec<_>>();
         }
-        capacity = capacity.checked_mul(2).ok_or(PlatformError::CensusOverflow)?;
+        capacity = capacity
+            .checked_mul(2)
+            .ok_or(PlatformError::CensusOverflow)?;
         if capacity > MAX_CENSUS_PROCESSES * 64 {
             return Err(PlatformError::CensusOverflow);
         }
     };
     let mut result = Vec::new();
     for pid in pids.into_iter().filter(|pid| *pid > 0) {
-        result.push(process_info(u32::try_from(pid).map_err(|_| {
-            PlatformError::IdentityUnavailable
-        })?)?);
+        result.push(process_info(
+            u32::try_from(pid).map_err(|_| PlatformError::IdentityUnavailable)?,
+        )?);
     }
     populate_parent_identities(&mut result)?;
     Ok(result)

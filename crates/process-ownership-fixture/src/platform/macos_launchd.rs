@@ -8,7 +8,7 @@ use crate::supervisor::{LaunchSpec, PausedRoot};
 
 use super::unix::PlatformError;
 
-/// Temporary per-generation launchd job control.
+/// Explicitly unsupported launchd candidate for this fixture.
 #[derive(Debug)]
 pub struct LaunchdDomain {
     generation: GenerationId,
@@ -43,7 +43,7 @@ impl LaunchdDomain {
         })
     }
 
-    /// Returns unresolved until launchd has been bootstrapped and queried.
+    /// Reports unsupported; no launchd observation is implemented.
     pub fn observe(&mut self) -> Result<ObservationSnapshot, PlatformError> {
         Err(PlatformError::UnsupportedPlatform {
             candidate: "launchd observation",

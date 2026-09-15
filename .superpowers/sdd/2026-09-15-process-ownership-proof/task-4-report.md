@@ -21,8 +21,8 @@ process-group/session diagnostics, and bounded live descendant census. Signals
 are sent only after a fresh birth-identity comparison; PID mismatch is
 reported as unresolved/PID reuse. Unix target behaviors cover session creation,
 new process groups, forked descendants, daemonized/reparented descendants,
-and silent targets. The generic launchd candidate is fail-closed when no
-launchd job has been bootstrapped.
+and silent targets. The launchd candidate is explicitly unsupported throughout
+this fixture; no native lifecycle is claimed.
 
 The Linux verified-image launch seam no longer clears `FD_CLOEXEC` in the
 parent. It clears the flag only in the child `pre_exec` callback immediately
@@ -31,34 +31,30 @@ the final digest verification and only then commits the staging guard.
 
 ## Commands and results
 
-The following checks passed before this fix round (on the parent implementation):
+All commands below were run on this macOS host with bounded tool windows:
 
-- `rtk proxy cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` — PASS, 3 tests.
-- `rtk cargo check --manifest-path crates/process-ownership-fixture/Cargo.toml` — PASS.
-- `rtk cargo fmt --manifest-path crates/process-ownership-fixture/Cargo.toml -- --check` — PASS.
-- `rtk cargo clippy --manifest-path crates/process-ownership-fixture/Cargo.toml --all-targets -- -D warnings` — PASS.
-- `rtk proxy cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml -- --nocapture` — FAIL: five macOS `tests/admission.rs` cases failed during default `Supervisor::prepare` with `InvalidValue { field: "control endpoint" }`. This was observed before the permission-guard change; it was not reproduced after that change in this interrupted round.
+- `rtk cargo fmt --manifest-path crates/process-ownership-fixture/Cargo.toml -- --check` — PASS after the delimiter repair.
+- `rtk cargo check --manifest-path crates/process-ownership-fixture/Cargo.toml` — initially failed with `E0282` for the descendant map type and an unreachable-code warning from the macOS cfg; PASS after the cfg/type repair.
+- `rtk cargo clippy --manifest-path crates/process-ownership-fixture/Cargo.toml --all-targets -- -D warnings` — initially failed on `clippy::needless_return` in the macOS fail-closed branch; PASS after the cfg-expression repair.
+- `rtk cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` — initially failed with 2 passed / 1 failed because the Linux-only cleanup-race test lacked its Linux cfg; PASS on rerun with 2 tests.
+- `rtk cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml -- --nocapture` — PASS, 39 tests across 7 suites in 0.96s.
+- `rtk ps aux` — no matching cargo or fixture process remained after testing; no command hung or required interruption.
 
-Fix-round verification was intentionally bounded when the user requested an immediate stop:
-
-- `rtk cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` — FAIL at compile time in `src/platform/unix.rs` (the new `match` arm needs a braced block around the assignment and `ExitState::Running`). No runtime test result was obtained.
-- `rtk cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml -- --nocapture` — NOT RUN after the fix-round edits.
-- `rtk cargo check --manifest-path crates/process-ownership-fixture/Cargo.toml` — NOT RUN after the fix-round edits.
-- `rtk cargo fmt --manifest-path crates/process-ownership-fixture/Cargo.toml -- --check` — NOT RUN after the fix-round edits.
-- `rtk cargo clippy --manifest-path crates/process-ownership-fixture/Cargo.toml --all-targets -- -D warnings` — NOT RUN after the fix-round edits.
-- `rtk ps aux` followed by fixture/cargo filtering — no matching cargo or fixture process remained; no command is currently hung.
+The prior parent implementation also had five macOS admission failures during
+default `Supervisor::prepare` (`InvalidValue { field: "control endpoint" }`).
+The permission guard is retained, but the parent-vs-current admission result
+was not rerun in this bounded round; therefore no new claim is made about that
+baseline.
 
 ## Concerns and limits
 
 - This is macOS-host execution evidence only; no native Linux or Windows
   runtime evidence is claimed.
-- The actual launchd bootstrap/kill path was not exercised in this run. The
-  generic candidate remains explicitly unsupported until supplied a temporary
-  plist/job; this is not evidence that launchd passes the matrix.
+- The actual launchd bootstrap/kill path was not exercised. The candidate is
+  explicitly unsupported throughout this fixture; this is not evidence that
+  launchd passes the matrix.
 - The process-group candidate is rejected for the macOS PTY/session row after
   cleanup returned `EPERM`; it must not be selected as the ownership boundary.
-- The fix-round branch is committed with the compile blocker recorded above;
-  it is not a passing verification result.
 - The default supervisor admission failures above remain an open macOS
   baseline concern and should be resolved before relying on the generic
   supervisor path for further cross-platform fixture work.

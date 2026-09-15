@@ -400,6 +400,7 @@ fn macos_process_candidates_fail_closed_without_handle_based_launch() {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn cleanup_race_is_bounded_and_never_reports_empty_on_observer_failure() {
     let directory = TestDirectory::new("cleanup-race");
