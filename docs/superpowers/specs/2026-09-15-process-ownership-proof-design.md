@@ -230,16 +230,26 @@ records the result vocabulary (`pass`, `accepted`, `unsupported`, or
 observation and forced-parent proof; contract-only rows use `accepted` and do
 not claim OS containment.
 
-The matrix contains five Windows native passes from the hosted 8/8 run, ten
+The matrix contains five Windows native passes from the hosted 8/8 run, nine
 platform-neutral or fixture-contract acceptances, one unresolved macOS
-production-seam audit row, and 32 unsupported rows. The counts are deliberately
+production-seam audit row, and 33 unsupported rows. The counts are deliberately
 not inflated by the macOS six-test candidate rejection, the 47-test fixture
 run, or the 14 launch-dependent Task 5 skips. Task 4's rejection of
-ProcessGroup, RegisteredRoot, and launchd candidates remains parked. Task 5's
-launch-dependent rows remain skipped; its foreign-owner helper is a heartbeat
-thread rather than an independent scheduler process, and the compatibility
-adapter's inability to forcibly cancel an arbitrary blocking external adapter
-call remains a fixture qualification.
+ProcessGroup, RegisteredRoot, and launchd candidates is vacuous/re-scoped:
+the candidate tests fail closed before native launch, so they do not exercise
+the required descendant matrix. Task 4 also leaves the admission-substitution
+isolation/reliability result bounded to the fixture, requires candidate labels
+to remain tied to their actual mechanism (not a generic Unix claim), and has no
+portable-Linux descriptor runtime evidence in this checkout.
+
+Task 5's launch-dependent rows remain skipped. Its acknowledgement-concurrency
+gap remains parked: the paused-launch race has a serialized latch test, but
+that test is not treated as closing the independent cleanup-acknowledgement
+proof gap. The escaped-JSON 64 KiB framing gap also remains parked; bounds were
+checked before final escaping and escaped-identity coverage is still missing.
+The foreign-owner helper is a heartbeat thread rather than an independent
+scheduler process, and the compatibility adapter cannot forcibly cancel an
+arbitrary blocking external adapter call; both remain fixture qualifications.
 
 Task 6 found direct production roots for the Electron sidecar, PTY, provider
 and inference runners, discovery, and harness probes outside the proven owner

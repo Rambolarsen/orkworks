@@ -3,6 +3,12 @@
   "generated_for": "Task 7 / issue #545",
   "scenario_count": 16,
   "platform_count": 3,
+  "result_counts": {
+    "pass": 5,
+    "accepted": 9,
+    "unresolved": 1,
+    "unsupported": 33
+  },
   "latency_semantics": "cleanup_latency_ms is the configured 10,000 ms maximum for native pass rows when prior reports emitted no per-row timing; zero means no per-row measurement was emitted and is not a zero-latency claim.",
   "rows": [
     {
@@ -780,7 +786,7 @@
       "result": "unsupported",
       "survivors": "not observed because the native scenario did not execute",
       "reason": "Task 6 audit was performed on macOS only; production seams remain unintegrated and Windows fixture proof does not establish production routing",
-      "evidence_ref": "Task 3/Task 5 reports"
+      "evidence_ref": "Task 6 report"
     },
     {
       "scenario": "production-launch-seam-audit",
@@ -797,7 +803,7 @@
       "result": "unresolved",
       "survivors": "not observed because the native scenario did not execute",
       "reason": "Task 6 static audit found direct production roots outside any proven owner boundary; no production adapter exists",
-      "evidence_ref": "Task 4 report"
+      "evidence_ref": "Task 6 report"
     },
     {
       "scenario": "production-launch-seam-audit",
@@ -814,7 +820,7 @@
       "result": "unsupported",
       "survivors": "not observed because the native scenario did not execute",
       "reason": "No Linux production audit was run in this checkout; macOS audit already found direct roots and the gap remains open",
-      "evidence_ref": "Task 5 report and Task 6 audit"
+      "evidence_ref": "Task 6 report"
     }
   ]
 }
