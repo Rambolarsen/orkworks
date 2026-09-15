@@ -36,8 +36,10 @@ pub(crate) struct PeonDiagnostics {
 }
 
 impl PeonDiagnostics {
-    /// Clears the fields that only describe a `Failed` attempt, so they don't
-    /// linger once the scheduler moves the session on to `Idle` or `Candidate`.
+    /// Clears the failure context left by a `Failed` attempt (these fields
+    /// are also populated on `Completed`, but only cleared here) so it
+    /// doesn't linger once the scheduler moves the session on to `Idle` or
+    /// `Candidate`. Call only when leaving `Failed`.
     pub(crate) fn clear_failure_context(&mut self) {
         self.error_summary = None;
         self.provider_id = None;

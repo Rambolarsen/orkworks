@@ -22,8 +22,10 @@ setting and no new panel are introduced.
 The snapshot reports:
 
 - scheduler state: `idle`, `candidate`, `in_flight`, `completed`, or `failed`;
-- an optional scheduler/eligibility reason when the state is `idle` or no
-  diagnostic state has been established;
+- an optional reason: an eligibility reason when the state is `idle`,
+  `candidate`, or no diagnostic state has been established; the failure
+  reason when `failed`; or a terminal outcome (`inference_succeeded`) when
+  `completed`. Always absent while `in_flight`;
 - the last attempt timestamp;
 - the last successful inference timestamp;
 - the last provider ID and model, when present;
@@ -64,11 +66,17 @@ serialized snapshot and does not infer state from timestamps.
   so late completions cannot overwrite a newer attempt.
 - `completed`: the most recent attempt returned a valid provider result;
   `lastSuccessfulInferenceAt` is updated even when no workflow observation
-  was emitted.
+  was emitted, and the reason is set to the terminal outcome
+  `inference_succeeded` rather than left absent.
 - `failed`: the most recent attempt failed, timed out, or returned unusable
   output; the error summary is retained for diagnosis. A timeout becomes
   failed immediately, releases the scheduler lease, and any detached provider
-  completion is ignored if its attempt identity is stale.
+  completion is ignored if its attempt identity is stale. Once the scheduler
+  leaves `failed` for `idle` or `candidate`, the failure's error summary,
+  provider ID/model, and fallback step are cleared so they don't linger
+  against an unrelated later state; a `completed` snapshot's provider
+  ID/model/fallback step are preserved through a later `idle` instead, since
+  they describe the last successful attempt rather than a resolved failure.
 
 The scheduler updates these fields at candidate selection, provider start,
 provider completion, provider failure, and timeout. A session that has never
