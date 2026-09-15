@@ -151,6 +151,11 @@ pub struct ExecutableImage {
     staging_directory: PathBuf,
 }
 
+struct VerifiedLaunchCommand {
+    command: Command,
+    _image_handle: Option<File>,
+}
+
 impl ExecutableImage {
     fn discover() -> Result<Self, ProtocolError> {
         let path = Self::discover_path()?;
@@ -256,8 +261,39 @@ impl ExecutableImage {
                 .starts_with(&format!("image:{}:", self.ticket_binding))
     }
 
-    fn command(&self) -> Command {
-        Command::new(&self.path)
+    #[cfg(target_os = "linux")]
+    fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
+        use std::os::fd::AsRawFd;
+
+        let image_handle = self.try_clone_file()?;
+        let descriptor = image_handle.as_raw_fd();
+        // SAFETY: `descriptor` belongs to the live cloned file handle.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags == -1 {
+            return Err(SpawnError::ContainmentFailed);
+        }
+        // SAFETY: `descriptor` and `flags` were validated above. The clone is
+        // retained until spawn returns so `/proc/self/fd` resolves this inode.
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } == -1 {
+            return Err(SpawnError::ContainmentFailed);
+        }
+        Ok(VerifiedLaunchCommand {
+            command: Command::new(format!("/proc/self/fd/{descriptor}")),
+            _image_handle: Some(image_handle),
+        })
+    }
+
+    #[cfg(windows)]
+    fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
+        Ok(VerifiedLaunchCommand {
+            command: Command::new(&self.path),
+            _image_handle: None,
+        })
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
+        Err(SpawnError::ContainmentFailed)
     }
 
     /// Returns the canonical pathname retained for diagnostics and native adapters.
@@ -281,14 +317,7 @@ impl ExecutableImage {
 impl Drop for ExecutableImage {
     fn drop(&mut self) {
         #[cfg(unix)]
-        {
-            let _ = std::fs::set_permissions(
-                &self.staging_directory,
-                std::fs::Permissions::from_mode(0o700),
-            );
-            let _ = std::fs::remove_file(&self.path);
-            let _ = std::fs::remove_dir(&self.staging_directory);
-        }
+        cleanup_staging_directory(&self.staging_directory, &self.path);
     }
 }
 
@@ -302,16 +331,8 @@ fn open_executable(path: &Path) -> std::io::Result<File> {
 
 #[cfg(unix)]
 fn prepare_launch_image(_source_path: &Path, source: File) -> std::io::Result<(PathBuf, File)> {
-    let mut random = [0_u8; 16];
-    getrandom::fill(&mut random).map_err(|error| std::io::Error::other(error.to_string()))?;
-    let directory = std::env::temp_dir().join(format!(
-        "orkworks-process-ownership-image-{}-{}",
-        std::process::id(),
-        hex::encode(random)
-    ));
-    std::fs::create_dir(&directory)?;
-    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
-    let path = directory.join("process-ownership-fixture");
+    let staging = PartialStaging::create()?;
+    let path = staging.path.clone();
     let mut destination = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -324,8 +345,58 @@ fn prepare_launch_image(_source_path: &Path, source: File) -> std::io::Result<(P
     drop(destination);
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500))?;
     let file = open_executable(&path)?;
-    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o500))?;
+    std::fs::set_permissions(&staging.directory, std::fs::Permissions::from_mode(0o500))?;
+    staging.commit();
     Ok((path, file))
+}
+
+#[cfg(unix)]
+struct PartialStaging {
+    directory: PathBuf,
+    path: PathBuf,
+    committed: bool,
+}
+
+#[cfg(unix)]
+impl PartialStaging {
+    fn create() -> std::io::Result<Self> {
+        let mut random = [0_u8; 16];
+        getrandom::fill(&mut random).map_err(|error| std::io::Error::other(error.to_string()))?;
+        let directory = std::env::temp_dir().join(format!(
+            "orkworks-process-ownership-image-{}-{}",
+            std::process::id(),
+            hex::encode(random)
+        ));
+        std::fs::create_dir(&directory)?;
+        let path = directory.join("process-ownership-fixture");
+        let staging = Self {
+            directory,
+            path,
+            committed: false,
+        };
+        std::fs::set_permissions(&staging.directory, std::fs::Permissions::from_mode(0o700))?;
+        Ok(staging)
+    }
+
+    fn commit(mut self) {
+        self.committed = true;
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PartialStaging {
+    fn drop(&mut self) {
+        if !self.committed {
+            cleanup_staging_directory(&self.directory, &self.path);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn cleanup_staging_directory(directory: &Path, path: &Path) {
+    let _ = std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700));
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir(directory);
 }
 
 #[cfg(windows)]
@@ -448,8 +519,9 @@ impl PlatformAdapter for HostPlatformAdapter {
         executable: &ExecutableImage,
         spec: &LaunchSpec,
     ) -> Result<OwnedProcessHandle, SpawnError> {
-        let mut child = executable
-            .command()
+        let mut launch = executable.command()?;
+        let mut child = launch
+            .command
             .args(&spec.args)
             .env_clear()
             .stdin(Stdio::piped())
@@ -913,4 +985,46 @@ fn query_birth_identity(pid: u32) -> Result<String, ()> {
         return Err(());
     }
     Ok(format!("windows:{pid}:{started}"))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn partial_staging_failure_removes_created_directory() {
+        let before = process_staging_directories();
+        let source = File::open(std::env::temp_dir())
+            .expect("temporary directory should open as an invalid image source");
+
+        let result = prepare_launch_image(Path::new("invalid-source"), source);
+        let after = process_staging_directories();
+        let leaked = after.difference(&before).cloned().collect::<Vec<_>>();
+        for directory in &leaked {
+            let image = directory.join("process-ownership-fixture");
+            let _ = std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700));
+            let _ = std::fs::remove_file(image);
+            let _ = std::fs::remove_dir(directory);
+        }
+
+        assert!(result.is_err());
+        assert!(leaked.is_empty(), "partial staging leaked: {leaked:?}");
+    }
+
+    fn process_staging_directories() -> HashSet<PathBuf> {
+        let prefix = format!("orkworks-process-ownership-image-{}-", std::process::id());
+        std::fs::read_dir(std::env::temp_dir())
+            .expect("temporary directory should be readable")
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with(&prefix))
+                    .then(|| entry.path())
+            })
+            .collect()
+    }
 }

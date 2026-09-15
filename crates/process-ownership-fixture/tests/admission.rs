@@ -17,6 +17,7 @@ use process_ownership_fixture::targets::TargetBehavior;
 
 const GENERATION: u64 = 11;
 const TARGET_LIFETIME: Duration = Duration::from_millis(500);
+#[cfg(any(target_os = "linux", windows))]
 const CONTROL_ENDPOINT_TARGET_LIFETIME: Duration = Duration::from_secs(10);
 
 static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -102,6 +103,7 @@ fn wait_for_exit(child: &mut Child) {
     }
 }
 
+#[cfg(any(target_os = "linux", windows))]
 fn wait_for_complete<A: PlatformAdapter>(supervisor: &mut Supervisor<A>) -> ObservationSnapshot {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
@@ -120,10 +122,13 @@ fn wait_for_complete<A: PlatformAdapter>(supervisor: &mut Supervisor<A>) -> Obse
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AdapterFault {
     UnresolvedContainment,
+    #[cfg(any(target_os = "linux", windows))]
     ObserverUnavailable,
     BirthIdentityMismatch,
     ReleaseAndTermination,
     IdentityAndTermination,
+    #[cfg(unix)]
+    SubstituteLaunchPath,
 }
 
 #[derive(Debug)]
@@ -135,15 +140,16 @@ struct FaultAdapter {
 
 impl FaultAdapter {
     fn new(fault: AdapterFault) -> Self {
+        let fail_next_observation = match fault {
+            AdapterFault::ReleaseAndTermination | AdapterFault::IdentityAndTermination => true,
+            #[cfg(any(target_os = "linux", windows))]
+            AdapterFault::ObserverUnavailable => true,
+            _ => false,
+        };
         Self {
             host: HostPlatformAdapter,
             fault,
-            fail_next_observation: matches!(
-                fault,
-                AdapterFault::ObserverUnavailable
-                    | AdapterFault::ReleaseAndTermination
-                    | AdapterFault::IdentityAndTermination
-            ),
+            fail_next_observation,
         }
     }
 }
@@ -154,6 +160,27 @@ impl PlatformAdapter for FaultAdapter {
         executable: &ExecutableImage,
         spec: &LaunchSpec,
     ) -> Result<OwnedProcessHandle, SpawnError> {
+        #[cfg(unix)]
+        if self.fault == AdapterFault::SubstituteLaunchPath {
+            use std::os::unix::fs::PermissionsExt;
+
+            let launch_path = executable.path();
+            let directory = launch_path.parent().ok_or(SpawnError::ContainmentFailed)?;
+            let trusted_backup = directory.join("trusted-image-backup");
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+                .map_err(|_| SpawnError::ContainmentFailed)?;
+            fs::rename(launch_path, &trusted_backup).map_err(|_| SpawnError::ContainmentFailed)?;
+            fs::copy(
+                std::env::current_exe().map_err(|_| SpawnError::ContainmentFailed)?,
+                launch_path,
+            )
+            .map_err(|_| SpawnError::ContainmentFailed)?;
+            let result = self.host.create_paused_root(executable, spec);
+            let _ = fs::remove_file(launch_path);
+            let _ = fs::rename(&trusted_backup, launch_path);
+            let _ = fs::set_permissions(directory, fs::Permissions::from_mode(0o500));
+            return result;
+        }
         self.host.create_paused_root(executable, spec)
     }
 
@@ -232,6 +259,7 @@ fn prepared_with_fault(fault: AdapterFault) -> Supervisor<FaultAdapter> {
         .0
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn registration_failure_discards_ticket_without_executing_target() {
     let directory = TestDirectory::new("registration-failure");
@@ -319,6 +347,7 @@ fn renamed_foreign_executable_is_rejected_during_preparation() {
     ));
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn launch_uses_prepared_executable_image_after_path_substitution() {
     let directory = TestDirectory::new("launch-time-substitution");
@@ -357,6 +386,39 @@ fn launch_uses_prepared_executable_image_after_path_substitution() {
         .expect("spawn should use the prepared image rather than reopening its path");
 
     wait_for_marker(&marker);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_launch_uses_retained_descriptor_after_actual_staged_path_substitution() {
+    let directory = TestDirectory::new("actual-staged-path-substitution");
+    let marker = directory.marker("descriptor-target-executed");
+    let mut supervisor = prepared_with_fault(AdapterFault::SubstituteLaunchPath);
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Pty, "req-actual-path-substitution")
+        .expect("ticket should be issued");
+
+    supervisor
+        .spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker))
+        .expect("Linux must execute the retained descriptor, not the substituted pathname");
+
+    wait_for_marker(&marker);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_actual_staged_path_substitution_fails_closed_without_descriptor_exec() {
+    let directory = TestDirectory::new("macos-descriptor-unavailable");
+    let marker = directory.marker("macos-target-executed");
+    let mut supervisor = prepared_with_fault(AdapterFault::SubstituteLaunchPath);
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Pty, "req-macos-fail-closed")
+        .expect("ticket should be issued");
+
+    let result = supervisor.spawn(ticket, launch_spec(Role::Pty, TargetBehavior::Pty, &marker));
+
+    assert_eq!(result, Err(SpawnError::ContainmentFailed));
+    assert!(!marker.exists());
 }
 
 #[test]
@@ -415,6 +477,7 @@ fn owner_loss_closes_admission_before_late_ticket_or_spawn() {
     assert!(!marker.exists());
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn supervisor_control_endpoint_is_not_inherited_by_target() {
     let directory = TestDirectory::new("control-endpoint-inheritance");
@@ -451,6 +514,7 @@ fn supervisor_control_endpoint_is_not_inherited_by_target() {
     drop(rebound);
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn unresolved_containment_is_rejected_before_release() {
     let directory = TestDirectory::new("unresolved-containment");
@@ -488,6 +552,7 @@ fn completion_rejects_unresolved_containment_membership() {
     assert!(!is_complete(&snapshot));
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn failed_release_retains_uncertain_identity_for_observation() {
     let directory = TestDirectory::new("release-failure");
@@ -514,6 +579,7 @@ fn failed_release_retains_uncertain_identity_for_observation() {
     assert_eq!(exited.roots[0].exit_state, ExitState::Exited);
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn identity_capture_and_termination_failure_retains_unidentified_root() {
     let directory = TestDirectory::new("identity-capture-failure");
@@ -544,6 +610,7 @@ fn identity_capture_and_termination_failure_retains_unidentified_root() {
     assert!(is_complete(&exited));
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn silent_target_is_observed_from_native_identity_and_liveness() {
     let directory = TestDirectory::new("silent-observation");
@@ -578,6 +645,7 @@ fn silent_target_is_observed_from_native_identity_and_liveness() {
     assert!(is_complete(&exited));
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn observer_failure_is_unresolved() {
     let directory = TestDirectory::new("observer-failure");
@@ -598,6 +666,7 @@ fn observer_failure_is_unresolved() {
     assert!(!is_complete(&unavailable));
 }
 
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn birth_identity_mismatch_from_platform_adapter_is_unresolved() {
     let directory = TestDirectory::new("birth-identity-mismatch");
