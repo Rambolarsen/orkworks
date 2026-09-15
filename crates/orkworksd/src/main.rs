@@ -217,10 +217,17 @@ async fn main() {
     let (harness_catalog, harness_store, providers) = {
         let builtins =
             Arc::new(BuiltinDocument::parse(EMBEDDED_BUILTINS).expect("embedded harnesses parse"));
-        let harness_store = Arc::new(HarnessStore::new(global_harnesses_path(), builtins));
-        let loaded_harnesses = harness_store
-            .load()
-            .expect("harness configuration must load");
+        let harness_path = global_harnesses_path();
+        let harness_store = Arc::new(HarnessStore::new(harness_path.clone(), builtins));
+        let (loaded_harnesses, startup_error) = harness_store.load_for_startup();
+        if let Some(error) = &startup_error {
+            tracing::warn!(
+                error = ?error,
+                path = %harness_path.display(),
+                "harness configuration could not be loaded; running with built-in harnesses \
+                 only. Stored harness changes are ignored until the file is fixed or removed."
+            );
+        }
         if loaded_harnesses.migrated_from_v1 {
             tracing::info!("migrated legacy harness configuration to version 2");
         }
