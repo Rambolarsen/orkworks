@@ -93,15 +93,17 @@ impl UnixCandidate {
         kind: UnixCandidateKind,
         generation: GenerationId,
     ) -> Result<Self, PlatformError> {
-        match kind {
+        let _ = generation;
+        let candidate = match kind {
             UnixCandidateKind::ProcessGroup => {
-                Ok(Self::ProcessGroup(ProcessGroupDomain::new(generation)))
+                "portable Unix process-group cleanup has no kernel-bound identity"
             }
             UnixCandidateKind::RegisteredRoot => {
-                Ok(Self::RegisteredRoot(RegisteredRootDomain::new(generation)))
+                "portable Unix registered-root per-process cleanup has no kernel-bound identity"
             }
-            UnixCandidateKind::Launchd => Ok(Self::Launchd(LaunchdDomain::unsupported(generation))),
-        }
+            UnixCandidateKind::Launchd => "launchd lifecycle is not implemented by this fixture",
+        };
+        Err(PlatformError::UnsupportedPlatform { candidate })
     }
 
     /// Returns the candidate's stable evidence spelling.
@@ -227,16 +229,6 @@ pub struct ProcessGroupDomain {
 }
 
 impl ProcessGroupDomain {
-    fn new(generation: GenerationId) -> Self {
-        Self {
-            generation,
-            roots: Vec::new(),
-            pending: None,
-            identity_mismatch_once: false,
-            revalidation_failed: false,
-        }
-    }
-
     #[cfg(not(target_os = "macos"))]
     fn launch_paused(&mut self, spec: LaunchSpec) -> Result<PausedRoot, PlatformError> {
         let executable =
@@ -301,16 +293,6 @@ pub struct RegisteredRootDomain {
 }
 
 impl RegisteredRootDomain {
-    fn new(generation: GenerationId) -> Self {
-        Self {
-            generation,
-            roots: Vec::new(),
-            pending: None,
-            identity_mismatch_once: false,
-            observer_failure_once: false,
-        }
-    }
-
     /// Returns retained birth identity and ancestry evidence for each root.
     #[must_use]
     pub fn registered_roots(&self) -> Vec<RegisteredRootEvidence> {
@@ -877,7 +859,13 @@ fn signal_process_group(process_group: u32) -> Result<(), PlatformError> {
 fn ancestry(mut pid: u32) -> Result<Vec<NativeIdentity>, PlatformError> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
-    while pid != 0 && seen.insert(pid) && result.len() < MAX_ANCESTRY_DEPTH {
+    while pid != 0 {
+        if !seen.insert(pid) {
+            return Err(PlatformError::IdentityUnavailable);
+        }
+        if result.len() >= MAX_ANCESTRY_DEPTH {
+            return Err(PlatformError::CensusOverflow);
+        }
         let info = process_info(pid)?;
         result.push(info.identity);
         pid = info.parent_pid;

@@ -157,7 +157,10 @@ fn candidate_matrix_is_fail_closed_for_every_unix_mechanism() {
                 Err(PlatformError::UnsupportedPlatform { .. }) => {
                     evidence.survivor_state = "unsupported";
                     evidence.outcome = "unsupported";
-                    evidence.failure_reason = Some("candidate is unavailable on this host".into());
+                    evidence.failure_reason = Some(
+                        "portable Unix cleanup has no kernel-bound ownership primitive".into(),
+                    );
+                    write_evidence(&directory, &evidence);
                     println!("{}", serde_json::to_string(&evidence).unwrap());
                     continue;
                 }
@@ -169,7 +172,10 @@ fn candidate_matrix_is_fail_closed_for_every_unix_mechanism() {
                 Err(PlatformError::UnsupportedPlatform { .. }) => {
                     evidence.survivor_state = "unsupported";
                     evidence.outcome = "unsupported";
-                    evidence.failure_reason = Some("candidate is unavailable on this host".into());
+                    evidence.failure_reason = Some(
+                        "portable Unix cleanup has no kernel-bound ownership primitive".into(),
+                    );
+                    write_evidence(&directory, &evidence);
                     println!("{}", serde_json::to_string(&evidence).unwrap());
                     continue;
                 }
@@ -230,10 +236,7 @@ fn candidate_matrix_is_fail_closed_for_every_unix_mechanism() {
                 "unsupported" => unreachable!("unsupported candidate was handled above"),
                 other => panic!("unknown expected candidate outcome: {other}"),
             }
-            let evidence_path = directory.marker("evidence.json");
-            fs::write(&evidence_path, serde_json::to_vec(&evidence).unwrap())
-                .expect("candidate evidence should be durable");
-            assert!(evidence_path.is_file());
+            write_evidence(&directory, &evidence);
             println!("{}", serde_json::to_string(&evidence).unwrap());
 
             drop(paused);
@@ -247,119 +250,50 @@ fn candidate_matrix_is_fail_closed_for_every_unix_mechanism() {
 }
 
 fn expected_outcome(kind: UnixCandidateKind, behavior: TargetBehavior) -> &'static str {
-    match kind {
-        UnixCandidateKind::Launchd => "unsupported",
-        UnixCandidateKind::ProcessGroup => match behavior {
-            TargetBehavior::Forked | TargetBehavior::Silent => "pass",
-            TargetBehavior::Pty
-            | TargetBehavior::NewGroup
-            | TargetBehavior::Daemonized
-            | TargetBehavior::Reparented => "reject",
-            _ => "unresolved",
-        },
-        UnixCandidateKind::RegisteredRoot => match behavior {
-            TargetBehavior::Daemonized | TargetBehavior::Reparented => "reject",
-            _ => "pass",
-        },
-    }
+    let _ = (kind, behavior);
+    "unsupported"
 }
 
-#[cfg(target_os = "linux")]
-#[test]
-fn registered_root_retains_direct_birth_identity_and_rejects_pid_reuse() {
-    let directory = TestDirectory::new("identity");
-    let marker = directory.marker("root");
-    let mut candidate = candidate(UnixCandidateKind::RegisteredRoot, 401)
-        .expect("registered-root candidate should prepare on Unix");
-    let paused = candidate
-        .launch_paused(fixture_spec(TargetBehavior::Silent, &marker))
-        .expect("registered root should launch");
-    wait_for_marker(&marker);
-
-    let snapshot = candidate
-        .observe()
-        .expect("registered-root observation should work");
-    assert_eq!(snapshot.roots.len(), 1);
-    assert_eq!(snapshot.roots[0].identity, paused.identity);
-    assert_eq!(snapshot.roots[0].exit_state, ExitState::Running);
-
-    candidate
-        .inject_identity_mismatch_once()
-        .expect("identity mismatch probe should be supported");
-    let mismatched = candidate.observe().expect("mismatch should be reported");
-    assert!(!is_complete(&mismatched));
-    assert!(!mismatched.unresolved_survivors.is_empty());
-    assert!(mismatched.descendants.is_empty());
-
-    candidate
-        .terminate_owned()
-        .expect("registered root cleanup should be bounded");
-    drop(paused);
+fn write_evidence(directory: &TestDirectory, evidence: &EvidenceRecord) {
+    let evidence_path = directory.marker("evidence.json");
+    fs::write(&evidence_path, serde_json::to_vec(evidence).unwrap())
+        .expect("candidate evidence should be durable");
+    assert!(evidence_path.is_file());
 }
 
-#[cfg(target_os = "linux")]
 #[test]
-fn process_group_revalidates_root_identity_and_membership_before_cleanup() {
-    let directory = TestDirectory::new("process-group-revalidation");
-    let marker = directory.marker("root");
-    let mut candidate = candidate(UnixCandidateKind::ProcessGroup, 403)
-        .expect("process-group candidate should prepare on Unix");
-    let paused = candidate
-        .launch_paused(fixture_spec(TargetBehavior::Silent, &marker))
-        .expect("process-group root should launch");
-    wait_for_marker(&marker);
-    candidate
-        .inject_identity_mismatch_once()
-        .expect("process-group identity mismatch probe should be supported");
-    let mismatch = candidate
-        .observe()
-        .expect("identity mismatch should be unresolved");
-    assert!(!is_complete(&mismatch));
-    assert!(!mismatch.unresolved_survivors.is_empty());
-    let cleanup = candidate.terminate_owned();
-    assert!(
-        cleanup.is_err(),
-        "mismatched process group must not be signaled"
-    );
-    drop(paused);
+fn registered_root_rejects_unbound_per_pid_cleanup() {
+    let result = candidate(UnixCandidateKind::RegisteredRoot, 401);
+    assert!(matches!(
+        result,
+        Err(PlatformError::UnsupportedPlatform { candidate })
+            if candidate.contains("registered-root")
+    ));
 }
 
-#[cfg(target_os = "linux")]
 #[test]
-fn daemonized_and_reparented_rows_record_an_independent_parent_change() {
+fn process_group_rejects_unbound_group_cleanup() {
+    let result = candidate(UnixCandidateKind::ProcessGroup, 403);
+    assert!(matches!(
+        result,
+        Err(PlatformError::UnsupportedPlatform { candidate })
+            if candidate.contains("process-group")
+    ));
+}
+
+#[test]
+fn daemonized_and_reparented_rows_are_rejected_without_native_claims() {
     for behavior in [TargetBehavior::Daemonized, TargetBehavior::Reparented] {
-        let directory = TestDirectory::new(behavior.as_str());
-        let marker = directory.marker("root");
-        let descendant_marker = directory.marker("root.descendant");
-        let mut candidate = candidate(UnixCandidateKind::RegisteredRoot, 406)
-            .expect("registered-root candidate should prepare on Linux");
-        let paused = candidate
-            .launch_paused(fixture_spec(behavior, &marker))
-            .expect("orphaning root should launch");
-        wait_for_marker(&marker);
-        wait_for_marker(&descendant_marker);
-        let descendant =
-            fs::read_to_string(&descendant_marker).expect("descendant evidence should be readable");
-        let parent_pid = descendant
-            .lines()
-            .find_map(|line| line.strip_prefix("parent_pid="))
-            .and_then(|pid| pid.parse::<u32>().ok())
-            .expect("descendant should report its observed parent PID");
-        assert_ne!(
-            parent_pid,
-            paused.identity.diagnostic_pid,
-            "{} row did not independently observe reparenting",
-            behavior.as_str()
-        );
-        let snapshot = candidate.observe().expect("census should remain available");
+        let result = candidate(UnixCandidateKind::RegisteredRoot, 406);
         assert!(
-            !snapshot.unresolved_survivors.is_empty()
-                || snapshot.roots[0].exit_state == ExitState::Exited,
-            "orphaned {} row was treated as an owned complete tree: {snapshot:?}",
+            matches!(
+                result,
+                Err(PlatformError::UnsupportedPlatform { candidate })
+                    if candidate.contains("registered-root")
+            ),
+            "{} row must be rejected without native census evidence",
             behavior.as_str()
         );
-        let _ = candidate.terminate_owned();
-        drop(paused);
     }
 }
 
@@ -382,17 +316,12 @@ fn launchd_candidate_is_explicitly_unsupported_without_a_native_fixture() {
 #[cfg(target_os = "macos")]
 #[test]
 fn macos_process_candidates_fail_closed_without_handle_based_launch() {
-    let directory = TestDirectory::new("macos-unsupported");
     for kind in [
         UnixCandidateKind::ProcessGroup,
         UnixCandidateKind::RegisteredRoot,
         UnixCandidateKind::Launchd,
     ] {
-        let mut candidate = candidate(kind, 405).expect("candidate construction should be inert");
-        let result = candidate.launch_paused(fixture_spec(
-            TargetBehavior::Silent,
-            &directory.marker(kind.as_str()),
-        ));
+        let result = candidate(kind, 405);
         assert!(matches!(
             result,
             Err(PlatformError::UnsupportedPlatform { .. })
@@ -400,33 +329,14 @@ fn macos_process_candidates_fail_closed_without_handle_based_launch() {
     }
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn cleanup_race_is_bounded_and_never_reports_empty_on_observer_failure() {
-    let directory = TestDirectory::new("cleanup-race");
-    let marker = directory.marker("root");
-    let mut candidate = candidate(UnixCandidateKind::RegisteredRoot, 402)
-        .expect("registered-root candidate should prepare on Unix");
-    let paused = candidate
-        .launch_paused(fixture_spec(TargetBehavior::Forked, &marker))
-        .expect("forked root should launch");
-    wait_for_marker(&marker);
-    candidate
-        .inject_observer_failure_once()
-        .expect("observer failure probe should be supported");
-
-    let started = Instant::now();
-    let snapshot = candidate
-        .observe()
-        .expect("observer failure is a snapshot state");
-    assert!(started.elapsed() < Duration::from_secs(1));
-    assert!(!is_complete(&snapshot));
-    assert!(!snapshot.unresolved_survivors.is_empty());
-
-    candidate
-        .terminate_owned()
-        .expect("cleanup should terminate the owned race participants");
-    drop(paused);
+    let result = candidate(UnixCandidateKind::RegisteredRoot, 402);
+    assert!(matches!(
+        result,
+        Err(PlatformError::UnsupportedPlatform { candidate })
+            if candidate.contains("registered-root")
+    ));
 }
 
 #[cfg(target_os = "linux")]

@@ -15,10 +15,6 @@ pub struct LaunchdDomain {
 }
 
 impl LaunchdDomain {
-    pub(crate) const fn unsupported(generation: GenerationId) -> Self {
-        Self { generation }
-    }
-
     /// Reports that launchd is not enabled by this fixture.
     ///
     /// No launchctl command is issued. A generation-bound bootstrap/bootout
