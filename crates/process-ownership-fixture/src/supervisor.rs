@@ -7,8 +7,9 @@ use std::io::{Read, Seek, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -19,16 +20,22 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::observation::{
-    ContainmentMembership, ExitState, ObservationSnapshot, ProcessObservation,
+    is_complete, ContainmentMembership, ExitState, ObservationSnapshot, ProcessObservation,
     UnidentifiedProcessObservation,
 };
 use crate::protocol::{
-    GenerationId, LaunchTicket, NativeIdentity, PreparedGeneration, ProtocolError, Role,
-    SupervisorProtocol,
+    AdoptionRequest, AuthenticatedRendezvousReply, CleanupResult, CompleteExitReceipt,
+    GenerationId, LaunchTicket, NativeIdentity, PreparedGeneration, ProtocolError,
+    RendezvousRecord, Role, SupervisorProtocol,
 };
 use crate::targets::{self, TargetBehavior};
 
 pub use crate::targets::RELEASE_EXEC_BYTE;
+
+const GRACEFUL_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
+const OWNED_TERMINATION_TIMEOUT: Duration = Duration::from_secs(5);
+const CLEANUP_POLL_INTERVAL: Duration = Duration::from_millis(10);
+static LIVE_INFERENCE_GENERATIONS: OnceLock<Mutex<HashSet<GenerationId>>> = OnceLock::new();
 
 /// Closed launch description assembled for the fixture executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -486,6 +493,64 @@ pub enum SpawnError {
     ObserverUnavailable,
 }
 
+/// Result returned when an authenticated relaunch query is evaluated.
+pub type AdoptionResult = Result<CompleteExitReceipt, ProtocolError>;
+
+/// Client-side adoption verifier for a persisted rendezvous locator.
+#[derive(Debug, Clone)]
+pub struct RendezvousClient {
+    prepared: PreparedGeneration,
+    authenticated_response: Option<AuthenticatedRendezvousReply>,
+}
+
+impl RendezvousClient {
+    /// Creates a client with no live response; adoption remains unresolved.
+    #[must_use]
+    pub fn new(prepared: PreparedGeneration) -> Self {
+        Self {
+            prepared,
+            authenticated_response: None,
+        }
+    }
+
+    /// Creates a client from a response obtained through live authenticated IPC.
+    #[must_use]
+    pub fn from_authenticated_response(
+        prepared: PreparedGeneration,
+        response: AuthenticatedRendezvousReply,
+    ) -> Self {
+        Self {
+            prepared,
+            authenticated_response: Some(response),
+        }
+    }
+
+    /// Adopts only a complete-exit receipt authenticated for the supplied record.
+    pub fn adopt(&self, record: &RendezvousRecord) -> AdoptionResult {
+        if record.generation != self.prepared.record.generation {
+            return Err(ProtocolError::WrongGeneration {
+                expected: self.prepared.record.generation,
+                actual: record.generation,
+            });
+        }
+        if record.nonce != self.prepared.record.nonce {
+            return Err(ProtocolError::StaleRendezvous);
+        }
+        let Some(response) = self.authenticated_response.as_ref() else {
+            return Err(ProtocolError::AdoptionUnresolved(
+                "live rendezvous response is missing".to_owned(),
+            ));
+        };
+        let request = AdoptionRequest {
+            generation: self.prepared.record.generation,
+            rendezvous_nonce: self.prepared.record.nonce.clone(),
+            challenge: response.challenge.clone(),
+        };
+        self.prepared
+            .verify_adoption_response(&request, Some(response))
+    }
+}
+
 /// Common process-launch seam implemented by later native platform adapters.
 pub trait PlatformAdapter {
     /// Makes the supervisor's IPC endpoint non-inheritable before any launch.
@@ -634,6 +699,7 @@ impl PlatformAdapter for HostPlatformAdapter {
 #[derive(Debug)]
 struct RegisteredRoot {
     identity: NativeIdentity,
+    role: Role,
     process_handle: OwnedProcessHandle,
     containment_membership: ContainmentMembership,
     unresolved_until_exit: bool,
@@ -657,6 +723,7 @@ pub struct Supervisor<A: PlatformAdapter = HostPlatformAdapter> {
     roots: Vec<RegisteredRoot>,
     unidentified_roots: Vec<UnidentifiedRoot>,
     fail_registration_once: bool,
+    cleanup_started: bool,
 }
 
 impl Supervisor<HostPlatformAdapter> {
@@ -726,6 +793,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 roots: Vec::new(),
                 unidentified_roots: Vec::new(),
                 fail_registration_once: false,
+                cleanup_started: false,
             },
             prepared,
         ))
@@ -745,7 +813,10 @@ impl<A: PlatformAdapter> Supervisor<A> {
         role: Role,
         request_nonce: impl Into<String>,
     ) -> Result<LaunchTicket, SpawnError> {
-        if !self.admission_open {
+        if !self.admission_open
+            || self.cleanup_started
+            || (role == Role::Inference && inference_generation_is_blocked(self.generation))
+        {
             return Err(SpawnError::AdmissionClosed);
         }
         let request_nonce = request_nonce.into();
@@ -772,7 +843,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         ticket: LaunchTicket,
         launch_spec: LaunchSpec,
     ) -> Result<NativeIdentity, SpawnError> {
-        if !self.admission_open {
+        if !self.admission_open || self.cleanup_started {
             return Err(SpawnError::AdmissionClosed);
         }
         if !self.executable.ticket_matches(&ticket, launch_spec.role) {
@@ -790,6 +861,12 @@ impl<A: PlatformAdapter> Supervisor<A> {
         let mut process_handle = self
             .adapter
             .create_paused_root(&self.executable, &launch_spec)?;
+        if !self.admission_open || self.cleanup_started {
+            let _ = self
+                .adapter
+                .terminate_root(&mut process_handle, Duration::from_secs(2));
+            return Err(SpawnError::AdmissionClosed);
+        }
         let identity = self.adapter.capture_native_identity(&process_handle);
         let identity = match identity {
             Ok(identity) => identity,
@@ -813,6 +890,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
             Ok(ContainmentMembership::Unresolved) => {
                 self.cleanup_failed_admission(
                     identity,
+                    launch_spec.role,
                     process_handle,
                     ContainmentMembership::Unresolved,
                     false,
@@ -822,6 +900,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
             Err(error) => {
                 self.cleanup_failed_admission(
                     identity,
+                    launch_spec.role,
                     process_handle,
                     ContainmentMembership::Unresolved,
                     false,
@@ -829,12 +908,34 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 return Err(error);
             }
         };
+        if !self.admission_open || self.cleanup_started {
+            self.cleanup_failed_admission(
+                identity,
+                launch_spec.role,
+                process_handle,
+                containment_membership,
+                false,
+            );
+            return Err(SpawnError::AdmissionClosed);
+        }
         if self.take_registration_failure() {
-            self.cleanup_failed_admission(identity, process_handle, containment_membership, false);
+            self.cleanup_failed_admission(
+                identity,
+                launch_spec.role,
+                process_handle,
+                containment_membership,
+                false,
+            );
             return Err(SpawnError::ObserverUnavailable);
         }
         if !self.registered_identities.insert(identity.clone()) {
-            self.cleanup_failed_admission(identity, process_handle, containment_membership, false);
+            self.cleanup_failed_admission(
+                identity,
+                launch_spec.role,
+                process_handle,
+                containment_membership,
+                false,
+            );
             return Err(SpawnError::ObserverUnavailable);
         }
 
@@ -845,6 +946,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         if let Err(error) = self.adapter.release_exec(&mut paused_root) {
             self.cleanup_failed_admission(
                 identity,
+                launch_spec.role,
                 paused_root.process_handle,
                 containment_membership,
                 true,
@@ -853,6 +955,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         }
         self.roots.push(RegisteredRoot {
             identity: identity.clone(),
+            role: launch_spec.role,
             process_handle: paused_root.process_handle,
             containment_membership,
             unresolved_until_exit: false,
@@ -864,6 +967,124 @@ impl<A: PlatformAdapter> Supervisor<A> {
     pub fn owner_lost(&mut self) {
         self.admission_open = false;
         self.control_endpoint.take();
+        if self
+            .roots
+            .iter_mut()
+            .any(|root| root.role == Role::Inference && root_is_live(root))
+        {
+            mark_inference_generation_live(self.generation);
+        }
+    }
+
+    /// Returns an authenticated adoption response from the live supervisor.
+    pub fn answer_adoption(
+        &mut self,
+        request: &AdoptionRequest,
+    ) -> Result<AuthenticatedRendezvousReply, ProtocolError> {
+        self.protocol.answer_adoption(request)
+    }
+
+    /// Performs bounded, supervisor-owned cleanup after freezing admission.
+    ///
+    /// A complete-exit acknowledgement is recorded only after a fresh
+    /// independent observation proves that every registered process exited.
+    /// The graceful and owned-termination phases each have a fixed five-second
+    /// monotonic deadline. Observer failures remain unresolved and retain every
+    /// surviving identity that can be named safely.
+    #[must_use]
+    pub fn cleanup(&mut self) -> CleanupResult {
+        self.admission_open = false;
+        self.control_endpoint.take();
+        self.cleanup_started = true;
+
+        let graceful_deadline = Instant::now() + GRACEFUL_CLEANUP_TIMEOUT;
+        let mut snapshot = self.observe();
+        while !is_complete(&snapshot) && Instant::now() < graceful_deadline {
+            thread::sleep(CLEANUP_POLL_INTERVAL);
+            snapshot = self.observe();
+        }
+        if is_complete(&snapshot) {
+            return self.acknowledge_cleanup();
+        }
+
+        let termination_deadline = Instant::now() + OWNED_TERMINATION_TIMEOUT;
+        let mut termination_failures = Vec::new();
+        for root in &mut self.roots {
+            if root
+                .process_handle
+                .child
+                .try_wait()
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                continue;
+            }
+            let remaining = termination_deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                termination_failures.push(root.identity.clone());
+                continue;
+            }
+            if self
+                .adapter
+                .terminate_root(&mut root.process_handle, remaining)
+                .is_err()
+            {
+                termination_failures.push(root.identity.clone());
+            }
+        }
+        for root in &mut self.unidentified_roots {
+            let remaining = termination_deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero()
+                || self
+                    .adapter
+                    .terminate_root(&mut root.process_handle, remaining)
+                    .is_err()
+            {
+                // An unidentified root cannot safely contribute a NativeIdentity;
+                // its diagnostic PID is included in the unresolved reason below.
+                termination_failures.push(NativeIdentity {
+                    birth_identity: format!(
+                        "unidentified:pid:{}",
+                        root.process_handle.diagnostic_pid()
+                    ),
+                    diagnostic_pid: root.process_handle.diagnostic_pid(),
+                });
+            }
+        }
+
+        snapshot = self.observe();
+        while !is_complete(&snapshot) && Instant::now() < termination_deadline {
+            thread::sleep(CLEANUP_POLL_INTERVAL);
+            snapshot = self.observe();
+        }
+        if is_complete(&snapshot) {
+            return self.acknowledge_cleanup();
+        }
+        let survivors = cleanup_survivors(&snapshot, termination_failures);
+        let reason = cleanup_reason(&snapshot);
+        let result = CleanupResult::Unresolved { survivors, reason };
+        let _ = self.protocol.record_unresolved(match &result {
+            CleanupResult::Unresolved { reason, .. } => reason.clone(),
+            CleanupResult::Acknowledged(_) => unreachable!(),
+        });
+        result
+    }
+
+    fn acknowledge_cleanup(&mut self) -> CleanupResult {
+        let receipt = CompleteExitReceipt {
+            generation: self.generation,
+            owned_processes: self.registered_identities.iter().cloned().collect(),
+            observed_at_ms: unix_epoch_millis(),
+        };
+        if self.protocol.record_complete_exit(receipt.clone()).is_err() {
+            return CleanupResult::Unresolved {
+                survivors: self.registered_identities.iter().cloned().collect(),
+                reason: "complete-exit receipt could not be recorded".to_owned(),
+            };
+        }
+        unmark_inference_generation(self.generation);
+        CleanupResult::Acknowledged(receipt)
     }
 
     /// Returns the live supervisor control endpoint used to prove handle isolation.
@@ -945,6 +1166,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
     fn cleanup_failed_admission(
         &mut self,
         identity: NativeIdentity,
+        role: Role,
         mut process_handle: OwnedProcessHandle,
         containment_membership: ContainmentMembership,
         identity_was_registered: bool,
@@ -957,6 +1179,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
             self.registered_identities.insert(identity.clone());
             self.roots.push(RegisteredRoot {
                 identity,
+                role,
                 process_handle,
                 containment_membership,
                 unresolved_until_exit: true,
@@ -965,6 +1188,83 @@ impl<A: PlatformAdapter> Supervisor<A> {
             self.registered_identities.remove(&identity);
         }
     }
+}
+
+impl<A: PlatformAdapter> Drop for Supervisor<A> {
+    fn drop(&mut self) {
+        unmark_inference_generation(self.generation);
+    }
+}
+
+fn inference_generations() -> &'static Mutex<HashSet<GenerationId>> {
+    LIVE_INFERENCE_GENERATIONS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn inference_generation_is_blocked(generation: GenerationId) -> bool {
+    inference_generations().lock().map_or(true, |generations| {
+        generations.iter().any(|other| *other != generation)
+    })
+}
+
+fn mark_inference_generation_live(generation: GenerationId) {
+    if let Ok(mut generations) = inference_generations().lock() {
+        generations.insert(generation);
+    }
+}
+
+fn unmark_inference_generation(generation: GenerationId) {
+    if let Ok(mut generations) = inference_generations().lock() {
+        generations.remove(&generation);
+    }
+}
+
+fn root_is_live(root: &mut RegisteredRoot) -> bool {
+    root.process_handle
+        .child
+        .try_wait()
+        .map_or(true, |status| status.is_none())
+}
+
+fn cleanup_survivors(
+    snapshot: &ObservationSnapshot,
+    termination_failures: Vec<NativeIdentity>,
+) -> Vec<NativeIdentity> {
+    let mut survivors = snapshot.unresolved_survivors.clone();
+    survivors.extend(
+        snapshot
+            .roots
+            .iter()
+            .filter(|root| root.exit_state != ExitState::Exited)
+            .map(|root| root.identity.clone()),
+    );
+    survivors.extend(termination_failures);
+    survivors.sort_by(|left, right| left.birth_identity.cmp(&right.birth_identity));
+    survivors.dedup();
+    survivors
+}
+
+fn cleanup_reason(snapshot: &ObservationSnapshot) -> String {
+    let unresolved = snapshot
+        .unresolved_survivors
+        .iter()
+        .map(|identity| identity.birth_identity.as_str())
+        .collect::<Vec<_>>();
+    let unidentified = snapshot
+        .unidentified_roots
+        .iter()
+        .map(|root| root.diagnostic_pid.to_string())
+        .collect::<Vec<_>>();
+    format!(
+        "independent cleanup observation unresolved; surviving identities=[{}]; unidentified diagnostic pids=[{}]",
+        unresolved.join(","),
+        unidentified.join(",")
+    )
+}
+
+fn unix_epoch_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(1, |duration| duration.as_millis().max(1))
 }
 
 fn is_fixture_executable(executable: &Path) -> bool {
