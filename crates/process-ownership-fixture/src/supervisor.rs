@@ -723,7 +723,9 @@ pub struct Supervisor<A: PlatformAdapter = HostPlatformAdapter> {
     roots: Vec<RegisteredRoot>,
     unidentified_roots: Vec<UnidentifiedRoot>,
     fail_registration_once: bool,
+    inject_owner_loss_during_launch: bool,
     cleanup_started: bool,
+    cleanup_diagnostics: Vec<String>,
 }
 
 impl Supervisor<HostPlatformAdapter> {
@@ -793,7 +795,9 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 roots: Vec::new(),
                 unidentified_roots: Vec::new(),
                 fail_registration_once: false,
+                inject_owner_loss_during_launch: false,
                 cleanup_started: false,
+                cleanup_diagnostics: Vec::new(),
             },
             prepared,
         ))
@@ -861,6 +865,9 @@ impl<A: PlatformAdapter> Supervisor<A> {
         let mut process_handle = self
             .adapter
             .create_paused_root(&self.executable, &launch_spec)?;
+        if std::mem::take(&mut self.inject_owner_loss_during_launch) {
+            self.owner_lost();
+        }
         if !self.admission_open || self.cleanup_started {
             let _ = self
                 .adapter
@@ -1009,6 +1016,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
 
         let termination_deadline = Instant::now() + OWNED_TERMINATION_TIMEOUT;
         let mut termination_failures = Vec::new();
+        let mut termination_diagnostics = Vec::new();
         for root in &mut self.roots {
             if root
                 .process_handle
@@ -1023,24 +1031,34 @@ impl<A: PlatformAdapter> Supervisor<A> {
             let remaining = termination_deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 termination_failures.push(root.identity.clone());
+                termination_diagnostics.push(format!(
+                    "terminate root {} failed: cleanup termination deadline elapsed",
+                    root.identity.birth_identity
+                ));
                 continue;
             }
-            if self
+            if let Err(error) = self
                 .adapter
                 .terminate_root(&mut root.process_handle, remaining)
-                .is_err()
             {
                 termination_failures.push(root.identity.clone());
+                termination_diagnostics.push(format!(
+                    "terminate root {} failed: {error}",
+                    root.identity.birth_identity
+                ));
             }
         }
         for root in &mut self.unidentified_roots {
             let remaining = termination_deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero()
-                || self
-                    .adapter
+            let termination_error = if remaining.is_zero() {
+                Some("cleanup termination deadline elapsed".to_owned())
+            } else {
+                self.adapter
                     .terminate_root(&mut root.process_handle, remaining)
-                    .is_err()
-            {
+                    .err()
+                    .map(|error| error.to_string())
+            };
+            if let Some(error) = termination_error {
                 // An unidentified root cannot safely contribute a NativeIdentity;
                 // its diagnostic PID is included in the unresolved reason below.
                 termination_failures.push(NativeIdentity {
@@ -1050,6 +1068,10 @@ impl<A: PlatformAdapter> Supervisor<A> {
                     ),
                     diagnostic_pid: root.process_handle.diagnostic_pid(),
                 });
+                termination_diagnostics.push(format!(
+                    "terminate unidentified root pid {} failed: {error}",
+                    root.process_handle.diagnostic_pid()
+                ));
             }
         }
 
@@ -1061,8 +1083,9 @@ impl<A: PlatformAdapter> Supervisor<A> {
         if is_complete(&snapshot) {
             return self.acknowledge_cleanup();
         }
+        self.cleanup_diagnostics.extend(termination_diagnostics);
         let survivors = cleanup_survivors(&snapshot, termination_failures);
-        let reason = cleanup_reason(&snapshot);
+        let reason = cleanup_reason(self.generation, &snapshot, &self.cleanup_diagnostics);
         let result = CleanupResult::Unresolved { survivors, reason };
         let _ = self.protocol.record_unresolved(match &result {
             CleanupResult::Unresolved { reason, .. } => reason.clone(),
@@ -1104,12 +1127,22 @@ impl<A: PlatformAdapter> Supervisor<A> {
         let mut unresolved_survivors = Vec::new();
         let mut roots = Vec::with_capacity(self.roots.len());
         let mut unidentified_roots = Vec::with_capacity(self.unidentified_roots.len());
+        let mut diagnostics = Vec::new();
 
         for root in &mut self.roots {
-            let observed = self
+            let observed = match self
                 .adapter
                 .observe_root(&mut root.process_handle, &root.identity)
-                .unwrap_or(ExitState::Unresolved);
+            {
+                Ok(observed) => observed,
+                Err(error) => {
+                    diagnostics.push(format!(
+                        "observe root {} failed: {error}",
+                        root.identity.birth_identity
+                    ));
+                    ExitState::Unresolved
+                }
+            };
             let exit_state = if root.unresolved_until_exit && observed != ExitState::Exited {
                 ExitState::Unresolved
             } else {
@@ -1130,10 +1163,19 @@ impl<A: PlatformAdapter> Supervisor<A> {
 
         let mut retained_unidentified = Vec::with_capacity(self.unidentified_roots.len());
         for mut root in self.unidentified_roots.drain(..) {
-            let observed = self
+            let observed = match self
                 .adapter
                 .observe_unidentified_root(&mut root.process_handle)
-                .unwrap_or(ExitState::Unresolved);
+            {
+                Ok(observed) => observed,
+                Err(error) => {
+                    diagnostics.push(format!(
+                        "observe unidentified root pid {} failed: {error}",
+                        root.process_handle.diagnostic_pid()
+                    ));
+                    ExitState::Unresolved
+                }
+            };
             if observed == ExitState::Exited {
                 continue;
             }
@@ -1144,6 +1186,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
             retained_unidentified.push(root);
         }
         self.unidentified_roots = retained_unidentified;
+        self.cleanup_diagnostics.extend(diagnostics);
 
         ObservationSnapshot {
             generation: self.generation,
@@ -1157,6 +1200,11 @@ impl<A: PlatformAdapter> Supervisor<A> {
     /// Causes the next registration attempt to fail before release.
     pub fn inject_registration_failure_once(&mut self) {
         self.fail_registration_once = true;
+    }
+
+    /// Causes owner loss immediately after paused root creation on the next launch.
+    pub fn inject_owner_loss_during_launch_once(&mut self) {
+        self.inject_owner_loss_during_launch = true;
     }
 
     fn take_registration_failure(&mut self) -> bool {
@@ -1187,12 +1235,6 @@ impl<A: PlatformAdapter> Supervisor<A> {
         } else if identity_was_registered {
             self.registered_identities.remove(&identity);
         }
-    }
-}
-
-impl<A: PlatformAdapter> Drop for Supervisor<A> {
-    fn drop(&mut self) {
-        unmark_inference_generation(self.generation);
     }
 }
 
@@ -1243,7 +1285,11 @@ fn cleanup_survivors(
     survivors
 }
 
-fn cleanup_reason(snapshot: &ObservationSnapshot) -> String {
+fn cleanup_reason(
+    generation: GenerationId,
+    snapshot: &ObservationSnapshot,
+    diagnostics: &[String],
+) -> String {
     let unresolved = snapshot
         .unresolved_survivors
         .iter()
@@ -1255,9 +1301,10 @@ fn cleanup_reason(snapshot: &ObservationSnapshot) -> String {
         .map(|root| root.diagnostic_pid.to_string())
         .collect::<Vec<_>>();
     format!(
-        "independent cleanup observation unresolved; surviving identities=[{}]; unidentified diagnostic pids=[{}]",
+        "generation {generation}: independent cleanup observation unresolved; surviving identities=[{}]; unidentified diagnostic pids=[{}]; diagnostics=[{}]",
         unresolved.join(","),
-        unidentified.join(",")
+        unidentified.join(","),
+        diagnostics.join("; ")
     )
 }
 
