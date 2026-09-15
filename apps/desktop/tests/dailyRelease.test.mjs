@@ -8,6 +8,7 @@ import {
   expectedReleaseAssetNames,
   ensureTagAtSource,
   listAllReleases,
+  parseNightlyTag,
   parseSourceMarker,
   parseStableTag,
   selectPublishedNightlyForSource,
@@ -135,6 +136,18 @@ test("nightly identities reject noncanonical and out-of-range inputs", () => {
   ]) {
     assert.throws(() => createNightlyIdentity({ ...valid, ...override }), /invalid|range|canonical/i);
   }
+});
+
+test("remote nightly tags require real dates and locally supported attempts", () => {
+  assert.equal(parseNightlyTag(`v${VERSION}`), VERSION);
+  assert.throws(
+    () => parseNightlyTag("v0.2.0-nightly.20260230.123456789.1"),
+    /nightly release tag is invalid/i,
+  );
+  assert.throws(
+    () => parseNightlyTag("v0.2.0-nightly.20260915.123456789.100"),
+    /run attempt.*supported range/i,
+  );
 });
 
 test("native nightly versions are collision-free and increasing", () => {

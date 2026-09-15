@@ -125,9 +125,21 @@ export function parseNightlyTag(tag) {
     throw new Error("nightly release tag is invalid");
   }
   const version = tag.slice(1);
-  if (!NIGHTLY_VERSION_PATTERN.test(version)) {
+  const match = NIGHTLY_VERSION_PATTERN.exec(version);
+  if (!match) {
     throw new Error("nightly release tag is invalid");
   }
+  const date = match[4];
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(4, 6));
+  const day = Number(date.slice(6, 8));
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) {
+    throw new Error("nightly release tag is invalid");
+  }
+  requireCanonicalPositiveInteger(match[5], "nightly run ID");
+  requireCanonicalPositiveInteger(match[6], "nightly run attempt", 99);
   return version;
 }
 

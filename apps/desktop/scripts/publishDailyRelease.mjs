@@ -120,8 +120,10 @@ export async function publishDailyRelease({
   const downloadedAssets = {};
   for (const name of ["nightly.yml", "nightly-mac.yml", "SHA256SUMS.txt"]) {
     const asset = draft.assets?.find((candidate) => candidate.name === name);
-    if (typeof asset?.browser_download_url !== "string") throw new Error(`draft asset is missing: ${name}`);
-    const response = await fetchImpl(asset.browser_download_url, { headers: headers(token, undefined) });
+    if (typeof asset?.url !== "string") throw new Error(`draft asset is missing: ${name}`);
+    const response = await fetchImpl(asset.url, {
+      headers: { ...headers(token), accept: "application/octet-stream" },
+    });
     if (!response.ok) throw new Error(`download draft asset ${name} failed with ${response.status}`);
     downloadedAssets[name] = await response.text();
   }

@@ -97,7 +97,6 @@ export async function loadNightlyReleaseState({ repository, token, fetchImpl = f
     const expectedAssetNames = expectedReleaseAssetNames({ version, channel: "nightly" });
     publishedNightlyVersions.push(version);
     const marker = parseSourceMarker(release.body);
-    if (marker !== null) markerCounts.set(marker, (markerCounts.get(marker) ?? 0) + 1);
     const tagTargetSha = await getTagTarget({ repository, token, tag: release.tag_name, fetchImpl });
     const downloadedAssets = {};
     let downloadsComplete = true;
@@ -117,13 +116,15 @@ export async function loadNightlyReleaseState({ repository, token, fetchImpl = f
     }
     if (!downloadsComplete) continue;
     try {
-      validated.push(validatePublishedRelease({
+      const validRelease = validatePublishedRelease({
         release,
         sourceSha: marker,
         expectedAssetNames,
         tagTargetSha,
         downloadedAssets,
-      }));
+      });
+      validated.push(validRelease);
+      markerCounts.set(marker, (markerCounts.get(marker) ?? 0) + 1);
     } catch {
       // A damaged published release is diagnostic history, not successful delivery.
     }
