@@ -4,6 +4,8 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
@@ -89,6 +91,9 @@ pub enum TargetError {
     /// The diagnostic marker could not be written.
     #[error("fixture target marker failed")]
     Marker(#[source] io::Error),
+    /// A platform-specific descendant topology could not be created.
+    #[error("fixture descendant launch failed")]
+    Descendant(#[source] io::Error),
 }
 
 /// Builds the exact argument vector accepted by the fixture target entry point.
@@ -161,8 +166,131 @@ pub fn run(
 ) -> Result<(), TargetError> {
     let diagnostic = format!("role={} behavior={}\n", role_name(role), behavior.as_str());
     fs::write(marker, diagnostic).map_err(TargetError::Marker)?;
+    #[cfg(windows)]
+    run_windows_behavior(role, behavior, marker, lifetime)?;
     thread::sleep(lifetime);
     Ok(())
+}
+
+#[cfg(windows)]
+fn run_windows_behavior(
+    role: Role,
+    behavior: TargetBehavior,
+    marker: &Path,
+    lifetime: Duration,
+) -> Result<(), TargetError> {
+    use std::io::Write;
+    use std::os::windows::process::CommandExt;
+
+    use windows_sys::Win32::System::Threading::{
+        CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP,
+    };
+
+    match (role, behavior) {
+        (Role::Sidecar, TargetBehavior::Forked) => {
+            spawn_windows_descendant(
+                Role::Pty,
+                TargetBehavior::Reparented,
+                &related_marker(marker, "pty"),
+                lifetime,
+                CREATE_NEW_PROCESS_GROUP,
+            )?;
+            spawn_windows_descendant(
+                Role::Inference,
+                TargetBehavior::Inference,
+                &related_marker(marker, "inference"),
+                lifetime,
+                0,
+            )?;
+        }
+        (Role::Pty, TargetBehavior::Reparented) => {
+            let root = marker
+                .to_string_lossy()
+                .strip_suffix(".pty")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| marker.to_path_buf());
+            spawn_windows_descendant(
+                Role::Inference,
+                TargetBehavior::Silent,
+                &related_marker(&root, "nested-inference"),
+                lifetime,
+                0,
+            )?;
+        }
+        (Role::Sidecar, TargetBehavior::Daemonized) => {
+            let result_marker = related_marker(marker, "breakaway");
+            let escaped_marker = related_marker(marker, "escaped");
+            let mut command =
+                Command::new(std::env::current_exe().map_err(TargetError::Descendant)?);
+            command
+                .args(arguments(
+                    Role::Inference,
+                    TargetBehavior::Silent,
+                    &escaped_marker,
+                    lifetime,
+                ))
+                .env_clear()
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(CREATE_BREAKAWAY_FROM_JOB);
+            match command.spawn() {
+                Ok(mut child) => {
+                    if let Some(mut release_gate) = child.stdin.take() {
+                        release_gate
+                            .write_all(&[RELEASE_EXEC_BYTE])
+                            .map_err(TargetError::Descendant)?;
+                    }
+                    fs::write(result_marker, format!("escaped:{}", child.id()))
+                        .map_err(TargetError::Marker)?;
+                }
+                Err(error) => fs::write(
+                    result_marker,
+                    format!("rejected:{}", error.raw_os_error().unwrap_or_default()),
+                )
+                .map_err(TargetError::Marker)?,
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn spawn_windows_descendant(
+    role: Role,
+    behavior: TargetBehavior,
+    marker: &Path,
+    lifetime: Duration,
+    creation_flags: u32,
+) -> Result<(), TargetError> {
+    use std::io::Write;
+    use std::os::windows::process::CommandExt;
+
+    let mut child = Command::new(std::env::current_exe().map_err(TargetError::Descendant)?)
+        .args(arguments(role, behavior, marker, lifetime))
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(creation_flags)
+        .spawn()
+        .map_err(TargetError::Descendant)?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::other("descendant release gate unavailable"))
+        .map_err(TargetError::Descendant)?
+        .write_all(&[RELEASE_EXEC_BYTE])
+        .map_err(TargetError::Descendant)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn related_marker(root: &Path, suffix: &str) -> PathBuf {
+    let mut marker = root.as_os_str().to_owned();
+    marker.push(format!(".{suffix}"));
+    marker.into()
 }
 
 fn parse_role(value: OsString) -> Result<Role, TargetError> {

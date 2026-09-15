@@ -75,12 +75,12 @@ impl LaunchSpec {
 /// Owned handle for a fixture root that is paused behind its release gate.
 #[derive(Debug)]
 pub struct OwnedProcessHandle {
-    child: Child,
-    release_gate: Option<ChildStdin>,
+    pub(crate) child: Child,
+    pub(crate) release_gate: Option<ChildStdin>,
 }
 
 impl OwnedProcessHandle {
-    fn diagnostic_pid(&self) -> u32 {
+    pub(crate) fn diagnostic_pid(&self) -> u32 {
         self.child.id()
     }
 
@@ -157,7 +157,7 @@ struct VerifiedLaunchCommand {
 }
 
 impl ExecutableImage {
-    fn discover() -> Result<Self, ProtocolError> {
+    pub(crate) fn discover() -> Result<Self, ProtocolError> {
         let path = Self::discover_path()?;
         Self::from_trusted_candidate(path)
     }
@@ -457,6 +457,11 @@ pub enum SpawnError {
 
 /// Common process-launch seam implemented by later native platform adapters.
 pub trait PlatformAdapter {
+    /// Makes the supervisor's IPC endpoint non-inheritable before any launch.
+    fn secure_control_endpoint(&mut self, _endpoint: &TcpListener) -> Result<(), SpawnError> {
+        Ok(())
+    }
+
     /// Creates a process root whose target behavior is blocked on a release gate.
     fn create_paused_root(
         &mut self,
@@ -670,6 +675,12 @@ impl<A: PlatformAdapter> Supervisor<A> {
         let (protocol, prepared) = SupervisorProtocol::prepare(generation)?;
         let control_endpoint =
             TcpListener::bind(("127.0.0.1", 0)).map_err(|_| ProtocolError::InvalidValue {
+                field: "control endpoint",
+            })?;
+        let mut adapter = adapter;
+        adapter
+            .secure_control_endpoint(&control_endpoint)
+            .map_err(|_| ProtocolError::InvalidValue {
                 field: "control endpoint",
             })?;
         Ok((
