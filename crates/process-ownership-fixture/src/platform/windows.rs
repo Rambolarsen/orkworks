@@ -1,8 +1,9 @@
 //! Windows Job Object ownership adapter for the process-ownership proof.
 
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::net::TcpListener;
 use std::os::windows::io::{AsRawHandle, AsRawSocket, BorrowedHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
@@ -12,6 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use windows_sys::Win32::Foundation::{
     GetHandleInformation, ERROR_ACCESS_DENIED, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
@@ -32,7 +34,7 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
-use crate::observation::{ContainmentMembership, ExitState};
+use crate::observation::{is_complete, ContainmentMembership, ExitState};
 use crate::protocol::{GenerationId, NativeIdentity, Role};
 use crate::supervisor::{
     ExecutableImage, LaunchSpec, OwnedProcessHandle, PausedRoot, PlatformAdapter, SpawnError,
@@ -43,6 +45,8 @@ use crate::targets::TargetBehavior;
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
 const BREAKAWAY_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_FIXTURE_JOB_PROCESSES: usize = 64;
+const ELECTRON_PARENT_FLAG: &str = "--windows-electron-parent";
+const OWNER_SUPERVISOR_FLAG: &str = "--windows-owner-supervisor";
 
 /// Windows Job Object operation failure.
 #[derive(Debug, Error)]
@@ -68,6 +72,9 @@ pub enum PlatformError {
     /// The Job Object exceeded the deliberately bounded fixture census.
     #[error("Windows Job Object process census exceeded the fixture bound")]
     ProcessCensusOverflow,
+    /// A Windows-only helper command did not have its exact closed shape.
+    #[error("invalid Windows process ownership helper arguments")]
+    InvalidHelperArguments,
 }
 
 /// Outcome of attempting an unapproved `CREATE_BREAKAWAY_FROM_JOB` launch.
@@ -79,6 +86,225 @@ pub enum BreakawayResult {
     Escaped,
     /// The probe could not establish either result.
     Unresolved,
+}
+
+/// Evidence published after the Electron-like process has launched the real supervisor.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ForcedParentReady {
+    /// PID of the out-of-process supervisor retaining Job Object authority.
+    pub supervisor_pid: u32,
+    /// PID of the target launched and admitted by that supervisor.
+    pub owned_target_pid: u32,
+    /// Whether all retained authority and parent-channel handles reject inheritance.
+    pub handles_non_inheritable: bool,
+}
+
+/// Evidence published by the surviving supervisor after parent loss and cleanup.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ForcedParentCompletion {
+    /// PID of the supervisor that observed parent loss and performed cleanup.
+    pub supervisor_pid: u32,
+    /// True only when EOF was observed on the Electron-owned channel.
+    pub owner_loss_observed: bool,
+    /// Whether the endpoint could be rebound while the owned target was still live.
+    pub endpoint_rebound_while_target_live: bool,
+    /// Independent Job Object census after `TerminateJobObject` completion.
+    pub active_processes_after_termination: usize,
+}
+
+/// Builds the exact command line for the Electron-like topology helper.
+#[must_use]
+pub fn electron_parent_arguments(
+    ready: &Path,
+    completion: &Path,
+    target_marker: &Path,
+) -> Vec<OsString> {
+    vec![
+        OsString::from(ELECTRON_PARENT_FLAG),
+        ready.as_os_str().to_owned(),
+        completion.as_os_str().to_owned(),
+        target_marker.as_os_str().to_owned(),
+    ]
+}
+
+/// Handles the Windows-only parent/supervisor fixture helper command lines.
+///
+/// Returns `Ok(false)` when the arguments belong to the ordinary target entry
+/// point. The Electron-like helper owns a pipe writer and launches the separate
+/// supervisor helper; force-terminating Electron closes that writer, allowing
+/// the supervisor to observe owner loss without inheriting Electron lifetime.
+///
+/// # Errors
+///
+/// Returns [`PlatformError`] when helper arguments, process launch, ownership,
+/// evidence publication, or cleanup observation fails.
+pub fn run_helper_from_args(args: &[OsString]) -> Result<bool, PlatformError> {
+    let Some(flag) = args.first() else {
+        return Ok(false);
+    };
+    if flag == OsStr::new(ELECTRON_PARENT_FLAG) {
+        let [_, ready, completion, target_marker] = args else {
+            return Err(PlatformError::InvalidHelperArguments);
+        };
+        run_electron_parent(
+            Path::new(ready),
+            Path::new(completion),
+            Path::new(target_marker),
+        )?;
+        return Ok(true);
+    }
+    if flag == OsStr::new(OWNER_SUPERVISOR_FLAG) {
+        let [_, ready, completion, target_marker] = args else {
+            return Err(PlatformError::InvalidHelperArguments);
+        };
+        run_owner_supervisor(
+            Path::new(ready),
+            Path::new(completion),
+            Path::new(target_marker),
+        )?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn run_electron_parent(
+    ready: &Path,
+    completion: &Path,
+    target_marker: &Path,
+) -> Result<(), PlatformError> {
+    let executable = std::env::current_exe().map_err(|source| PlatformError::Windows {
+        operation: "locate Windows fixture helper executable",
+        source,
+    })?;
+    let mut supervisor = Command::new(executable)
+        .args([
+            OsString::from(OWNER_SUPERVISOR_FLAG),
+            ready.as_os_str().to_owned(),
+            completion.as_os_str().to_owned(),
+            target_marker.as_os_str().to_owned(),
+        ])
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|source| PlatformError::Windows {
+            operation: "launch out-of-process Windows owner supervisor",
+            source,
+        })?;
+    let _owner_channel = supervisor
+        .stdin
+        .take()
+        .ok_or(PlatformError::StateUnavailable)?;
+    loop {
+        if supervisor
+            .try_wait()
+            .map_err(|source| PlatformError::Windows {
+                operation: "observe out-of-process Windows owner supervisor",
+                source,
+            })?
+            .is_some()
+        {
+            return Err(PlatformError::StateUnavailable);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn run_owner_supervisor(
+    ready: &Path,
+    completion: &Path,
+    target_marker: &Path,
+) -> Result<(), PlatformError> {
+    let mut parent_channel = io::stdin();
+    clear_inherit(
+        parent_channel.as_raw_handle(),
+        "SetHandleInformation(parent-loss channel)",
+    )?;
+    let parent_channel_non_inheritable = !is_inheritable(parent_channel.as_raw_handle())?;
+    let domain = OwnerDomain::create(31)?;
+    let (mut supervisor, _) =
+        crate::supervisor::Supervisor::prepare_with_adapter(31, domain.clone())
+            .map_err(|error| helper_error("prepare out-of-process Windows supervisor", error))?;
+    let endpoint = supervisor
+        .control_endpoint_addr()
+        .ok_or(PlatformError::StateUnavailable)?;
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Inference, "windows-forced-parent-target")
+        .map_err(platform_spawn_error)?;
+    let spec = LaunchSpec::fixture(
+        Role::Inference,
+        TargetBehavior::Inference,
+        target_marker.to_path_buf(),
+        Duration::from_secs(30),
+    )
+    .map_err(platform_spawn_error)?;
+    let target = supervisor
+        .spawn(ticket, spec)
+        .map_err(platform_spawn_error)?;
+    let ready_evidence = ForcedParentReady {
+        supervisor_pid: std::process::id(),
+        owned_target_pid: target.diagnostic_pid,
+        handles_non_inheritable: parent_channel_non_inheritable
+            && domain.handles_are_non_inheritable()?,
+    };
+    write_json_evidence(ready, &ready_evidence, "publish supervisor ready evidence")?;
+
+    let mut unexpected = [0_u8; 1];
+    if parent_channel
+        .read(&mut unexpected)
+        .map_err(|source| PlatformError::Windows {
+            operation: "observe Electron parent-loss channel",
+            source,
+        })?
+        != 0
+    {
+        return Err(PlatformError::StateUnavailable);
+    }
+
+    supervisor.owner_lost();
+    let target_was_live = domain
+        .active_process_ids()?
+        .contains(&target.diagnostic_pid);
+    let endpoint_rebound = TcpListener::bind(endpoint).is_ok();
+    domain.terminate_owned()?;
+    let active_processes = domain.active_process_ids()?.len();
+    let deadline = Instant::now() + COMPLETION_TIMEOUT;
+    while !is_complete(&supervisor.observe()) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    if !is_complete(&supervisor.observe()) {
+        return Err(PlatformError::CompletionTimeout);
+    }
+    let completion_evidence = ForcedParentCompletion {
+        supervisor_pid: std::process::id(),
+        owner_loss_observed: true,
+        endpoint_rebound_while_target_live: target_was_live && endpoint_rebound,
+        active_processes_after_termination: active_processes,
+    };
+    write_json_evidence(
+        completion,
+        &completion_evidence,
+        "publish supervisor completion evidence",
+    )
+}
+
+fn write_json_evidence<T: Serialize>(
+    path: &Path,
+    evidence: &T,
+    operation: &'static str,
+) -> Result<(), PlatformError> {
+    let temporary = related_marker(path, &format!("{}.tmp", std::process::id()));
+    let bytes = serde_json::to_vec(evidence).map_err(|error| helper_error(operation, error))?;
+    fs::write(&temporary, bytes).map_err(|source| PlatformError::Windows { operation, source })?;
+    fs::rename(temporary, path).map_err(|source| PlatformError::Windows { operation, source })
+}
+
+fn helper_error(operation: &'static str, error: impl std::fmt::Display) -> PlatformError {
+    PlatformError::Windows {
+        operation,
+        source: io::Error::other(error.to_string()),
+    }
 }
 
 #[derive(Debug)]
@@ -324,7 +550,7 @@ impl OwnerDomain {
             rejected if rejected == format!("rejected:{}", ERROR_ACCESS_DENIED).as_str() => {
                 Ok(BreakawayResult::Rejected)
             }
-            escaped if escaped.starts_with("escaped:") => Ok(BreakawayResult::Escaped),
+            escaped if escaped.starts_with("escaped-cleaned:") => Ok(BreakawayResult::Escaped),
             _ => Ok(BreakawayResult::Unresolved),
         }
     }

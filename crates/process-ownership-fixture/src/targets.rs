@@ -227,7 +227,7 @@ fn run_windows_behavior(
                     Role::Inference,
                     TargetBehavior::Silent,
                     &escaped_marker,
-                    lifetime,
+                    Duration::from_secs(1),
                 ))
                 .env_clear()
                 .stdin(Stdio::piped())
@@ -241,7 +241,10 @@ fn run_windows_behavior(
                             .write_all(&[RELEASE_EXEC_BYTE])
                             .map_err(TargetError::Descendant)?;
                     }
-                    fs::write(result_marker, format!("escaped:{}", child.id()))
+                    let escaped_pid = child.id();
+                    let _ = child.kill();
+                    child.wait().map_err(TargetError::Descendant)?;
+                    fs::write(result_marker, format!("escaped-cleaned:{escaped_pid}"))
                         .map_err(TargetError::Marker)?;
                 }
                 Err(error) => fs::write(

@@ -1,7 +1,6 @@
 #![cfg(windows)]
 
 use std::fs;
-use std::io::Write;
 use std::net::TcpListener;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
@@ -10,19 +9,24 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use process_ownership_fixture::observation::is_complete;
-use process_ownership_fixture::platform::{BreakawayResult, OwnerDomain};
+use process_ownership_fixture::observation::{is_complete, ExitState};
+use process_ownership_fixture::platform::{
+    electron_parent_arguments, BreakawayResult, ForcedParentCompletion, ForcedParentReady,
+    OwnerDomain,
+};
 use process_ownership_fixture::protocol::{NativeIdentity, Role};
-use process_ownership_fixture::supervisor::{LaunchSpec, Supervisor};
-use process_ownership_fixture::targets::{self, TargetBehavior, RELEASE_EXEC_BYTE};
-use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+use process_ownership_fixture::supervisor::{LaunchSpec, SpawnError, Supervisor};
+use process_ownership_fixture::targets::TargetBehavior;
+use serde::de::DeserializeOwned;
+use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_TERMINATE,
 };
 
 const GENERATION: u64 = 23;
 const TARGET_LIFETIME: Duration = Duration::from_secs(30);
-const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const SYNCHRONIZE_ACCESS: u32 = 0x0010_0000;
 
 static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -95,7 +99,7 @@ fn descendant_marker(root: &Path, suffix: &str) -> PathBuf {
 }
 
 fn wait_until(description: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + WAIT_TIMEOUT;
+    let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
     while !condition() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(10));
     }
@@ -112,27 +116,47 @@ fn wait_for_complete(supervisor: &mut Supervisor<OwnerDomain>) {
     });
 }
 
-fn launch_electron_like_parent(marker: &Path) -> Child {
-    let mut child = Command::new(fixture_executable())
-        .args(targets::arguments(
-            Role::Sidecar,
-            TargetBehavior::Silent,
-            marker,
-            TARGET_LIFETIME,
-        ))
+fn launch_electron_like_parent(ready: &Path, completion: &Path, target_marker: &Path) -> Child {
+    Command::new(fixture_executable())
+        .args(electron_parent_arguments(ready, completion, target_marker))
         .env_clear()
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::inherit())
         .spawn()
-        .expect("Electron-like parent fixture should start");
-    child
-        .stdin
-        .take()
-        .expect("parent release gate should exist")
-        .write_all(&[RELEASE_EXEC_BYTE])
-        .expect("parent release gate should open");
-    child
+        .expect("Electron-like parent fixture should start")
+}
+
+fn read_json<T: DeserializeOwned>(path: &Path) -> T {
+    serde_json::from_slice(&fs::read(path).expect("evidence file should be readable"))
+        .expect("evidence file should contain valid JSON")
+}
+
+struct ForcedTopology {
+    parent: Child,
+    supervisor: Option<OwnedHandle>,
+}
+
+impl Drop for ForcedTopology {
+    fn drop(&mut self) {
+        if self.parent.try_wait().ok().flatten().is_none() {
+            // SAFETY: Child retains the exact Electron-like process handle.
+            unsafe {
+                TerminateProcess(self.parent.as_raw_handle(), 137);
+                WaitForSingleObject(self.parent.as_raw_handle(), 5_000);
+            }
+        }
+        if let Some(supervisor) = &self.supervisor {
+            // SAFETY: OpenProcess returned this exact supervisor process handle
+            // with terminate and synchronize rights for test cleanup.
+            unsafe {
+                if WaitForSingleObject(supervisor.as_raw_handle(), 0) == WAIT_TIMEOUT {
+                    TerminateProcess(supervisor.as_raw_handle(), 137);
+                    WaitForSingleObject(supervisor.as_raw_handle(), 5_000);
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -314,43 +338,130 @@ fn job_process_thread_and_supervisor_endpoint_handles_are_non_inheritable() {
 }
 
 #[test]
-fn forced_electron_parent_termination_does_not_kill_the_live_supervisor_domain() {
-    let directory = TestDirectory::new("forced-parent");
-    let parent_marker = directory.marker("electron-parent");
-    let owned_marker = directory.marker("owned-inference");
+fn registration_failure_never_releases_the_suspended_root() {
+    let directory = TestDirectory::new("registration-failure");
+    let marker = directory.marker("must-not-run");
     let (mut supervisor, domain) = prepared_supervisor();
-    spawn(
-        &mut supervisor,
-        Role::Inference,
-        TargetBehavior::Inference,
-        &owned_marker,
-    );
-    wait_for_marker(&owned_marker);
-    let mut parent = launch_electron_like_parent(&parent_marker);
-    wait_for_marker(&parent_marker);
+    supervisor.inject_registration_failure_once();
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Inference, "windows-registration-failure")
+        .expect("ticket should be issued");
 
-    // SAFETY: `parent` retains a valid process handle for the live child.
-    let terminated = unsafe { TerminateProcess(parent.as_raw_handle(), 137) };
+    let error = supervisor
+        .spawn(
+            ticket,
+            launch_spec(Role::Inference, TargetBehavior::Inference, &marker),
+        )
+        .expect_err("injected registration failure should reject the spawn");
+
+    assert_eq!(error, SpawnError::ObserverUnavailable);
+    thread::sleep(Duration::from_millis(250));
+    assert!(!marker.exists(), "the suspended target must never execute");
+    let active_processes = domain
+        .active_process_ids()
+        .expect("failed-admission job census should remain observable");
+    let observation = supervisor.observe();
+    let conservatively_unresolved = !observation.unresolved_survivors.is_empty()
+        || !observation.unidentified_roots.is_empty()
+        || observation
+            .roots
+            .iter()
+            .any(|root| root.exit_state == ExitState::Unresolved);
+    assert!(
+        active_processes.is_empty() || conservatively_unresolved,
+        "the suspended root must be independently exited or retained as unresolved: active={active_processes:?}, observation={observation:?}"
+    );
+    domain
+        .terminate_owned()
+        .expect("failed-admission cleanup should leave no active job processes");
+}
+
+#[test]
+fn forced_electron_parent_termination_leaves_supervisor_to_empty_its_job() {
+    let directory = TestDirectory::new("forced-parent");
+    let ready_path = directory.marker("supervisor-ready.json");
+    let completion_path = directory.marker("supervisor-complete.json");
+    let owned_marker = directory.marker("owned-inference");
+    let parent = launch_electron_like_parent(&ready_path, &completion_path, &owned_marker);
+    let mut topology = ForcedTopology {
+        parent,
+        supervisor: None,
+    };
+    wait_for_marker(&ready_path);
+    wait_for_marker(&owned_marker);
+    let ready: ForcedParentReady = read_json(&ready_path);
+    assert_ne!(ready.supervisor_pid, topology.parent.id());
+    assert_ne!(ready.owned_target_pid, topology.parent.id());
+    assert_ne!(ready.owned_target_pid, ready.supervisor_pid);
+    assert!(
+        ready.handles_non_inheritable,
+        "the out-of-process supervisor must retain only non-inheritable authority handles"
+    );
+    // SAFETY: the supervisor PID was published while that helper is blocked on
+    // its parent-owned pipe. The returned exact handle is retained from here on.
+    let raw_supervisor = unsafe {
+        OpenProcess(
+            SYNCHRONIZE_ACCESS | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE,
+            0,
+            ready.supervisor_pid,
+        )
+    };
+    assert!(!raw_supervisor.is_null(), "supervisor should be live");
+    // SAFETY: OpenProcess returned one fresh owned handle.
+    topology.supervisor = Some(unsafe { OwnedHandle::from_raw_handle(raw_supervisor) });
+    // SAFETY: the retained supervisor handle is live for this zero-time wait.
+    assert_eq!(
+        unsafe {
+            WaitForSingleObject(
+                topology
+                    .supervisor
+                    .as_ref()
+                    .expect("supervisor handle should be retained")
+                    .as_raw_handle(),
+                0,
+            )
+        },
+        WAIT_TIMEOUT,
+        "supervisor should be alive before its parent is terminated"
+    );
+
+    // SAFETY: `parent` retains the exact live Electron-like process handle.
+    let terminated = unsafe { TerminateProcess(topology.parent.as_raw_handle(), 137) };
     assert_ne!(
         terminated, 0,
-        "TerminateProcess should kill the parent fixture"
+        "TerminateProcess should kill the actual supervisor parent"
     );
     wait_until("Electron-like parent exit", || {
-        parent
+        topology
+            .parent
             .try_wait()
             .expect("parent exit should remain observable")
             .is_some()
     });
+    wait_for_marker(&completion_path);
+    let completion: ForcedParentCompletion = read_json(&completion_path);
 
+    assert_eq!(completion.supervisor_pid, ready.supervisor_pid);
+    assert!(completion.owner_loss_observed);
     assert!(
-        !domain
-            .active_process_ids()
-            .expect("live supervisor should still observe its job")
-            .is_empty(),
-        "the supervisor domain must remain live after forced parent termination"
+        completion.endpoint_rebound_while_target_live,
+        "the owned target must not inherit the supervisor endpoint"
     );
-    domain
-        .terminate_owned()
-        .expect("surviving supervisor should still clean its owned job");
-    wait_for_complete(&mut supervisor);
+    assert_eq!(completion.active_processes_after_termination, 0);
+    // SAFETY: completion is written immediately before the supervisor exits;
+    // this retained exact handle observes that exit without PID lookup.
+    assert_eq!(
+        unsafe {
+            WaitForSingleObject(
+                topology
+                    .supervisor
+                    .as_ref()
+                    .expect("supervisor handle should be retained")
+                    .as_raw_handle(),
+                5_000,
+            )
+        },
+        WAIT_OBJECT_0,
+        "supervisor should exit only after publishing zero active processes"
+    );
 }
