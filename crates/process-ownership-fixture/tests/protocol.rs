@@ -3,15 +3,15 @@ mod protocol;
 
 use protocol::{
     decode_command_line, decode_reply_line, encode_command_line, encode_reply_line,
-    AuthenticatedRequest, CompleteExitReceipt, FixtureCommand, FixtureReply, NativeIdentity,
-    OwnerObservation, ProtocolError, RendezvousState, Role, SupervisorProtocol, MAX_MESSAGE_BYTES,
+    AuthenticatedRendezvousReply, AuthenticatedRequest, CleanupResult, CompleteExitReceipt,
+    FixtureCommand, FixtureReply, NativeIdentity, OwnerObservation, ProtocolError, RendezvousState,
+    Role, SupervisorProtocol, MAX_MESSAGE_BYTES,
 };
 
 const GENERATION: u64 = 7;
-const ENDPOINT: &str = "fixture://supervisor-7";
 
 fn prepared_protocol() -> (SupervisorProtocol, protocol::PreparedGeneration) {
-    SupervisorProtocol::prepare(GENERATION, ENDPOINT).expect("fixture generation should prepare")
+    SupervisorProtocol::prepare(GENERATION).expect("fixture generation should prepare")
 }
 
 fn valid_receipt() -> CompleteExitReceipt {
@@ -31,10 +31,11 @@ fn prepare_generates_fresh_rendezvous_nonce_and_endpoint_token() {
     let (_, second) = prepared_protocol();
 
     assert_eq!(first.record.generation, GENERATION);
-    assert_eq!(first.record.endpoint, ENDPOINT);
+    assert!(first.record.endpoint.starts_with("fixture-rendezvous:"));
     assert!(matches!(first.record.state, RendezvousState::Live));
     assert_eq!(first.record.nonce.len(), 64);
     assert_eq!(first.endpoint_token.len(), 64);
+    assert_ne!(first.record.endpoint, second.record.endpoint);
     assert_ne!(first.record.nonce, second.record.nonce);
     assert_ne!(first.endpoint_token, second.endpoint_token);
 }
@@ -133,6 +134,30 @@ fn ticket_rejects_wrong_request_nonce_without_consuming_original() {
 }
 
 #[test]
+fn ticket_issuance_rejects_foreign_executable_identity() {
+    let (mut supervisor, _) = prepared_protocol();
+
+    let result = supervisor.issue_launch_ticket(Role::Inference, "foreign-inference", "req-a");
+
+    assert!(matches!(
+        result,
+        Err(ProtocolError::ExecutableIdentityRejected { .. })
+    ));
+}
+
+#[test]
+fn ticket_issuance_rejects_role_incompatible_executable_identity() {
+    let (mut supervisor, _) = prepared_protocol();
+
+    let result = supervisor.issue_launch_ticket(Role::Pty, "fixture-inference", "req-a");
+
+    assert!(matches!(
+        result,
+        Err(ProtocolError::ExecutableIdentityRejected { .. })
+    ));
+}
+
+#[test]
 fn ticket_id_is_rejected_after_one_use() {
     let (mut supervisor, _) = prepared_protocol();
     let ticket = supervisor
@@ -182,6 +207,30 @@ fn authenticated_command_rejects_payload_tampering() {
         panic!("expected authenticated command");
     };
     *request = AuthenticatedRequest::Observe;
+
+    let result = supervisor.verify_command(&command);
+
+    assert!(matches!(result, Err(ProtocolError::AuthenticationFailed)));
+}
+
+#[test]
+fn authenticated_command_rejects_modified_authentication_tag() {
+    let (supervisor, prepared) = prepared_protocol();
+    let mut command = prepared
+        .authenticated_command(AuthenticatedRequest::Observe)
+        .expect("command should authenticate");
+    let FixtureCommand::Authenticated {
+        authentication_tag, ..
+    } = &mut command
+    else {
+        panic!("expected authenticated command");
+    };
+    let replacement = if authentication_tag.starts_with('0') {
+        "1"
+    } else {
+        "0"
+    };
+    authentication_tag.replace_range(..1, replacement);
 
     let result = supervisor.verify_command(&command);
 
@@ -293,6 +342,38 @@ fn decoder_rejects_messages_larger_than_64_kib() {
 }
 
 #[test]
+fn framing_accepts_exactly_64_kib_and_rejects_oversized_encoding() {
+    const PREFIX: &[u8] = br#"{"reply":"rejected","payload":{"reason":""#;
+    const SUFFIX: &[u8] = b"\"}}\n";
+    let reason_len = MAX_MESSAGE_BYTES - PREFIX.len() - SUFFIX.len();
+    let reason = "x".repeat(reason_len);
+    let reply = FixtureReply::Rejected {
+        reason: reason.clone(),
+    };
+    let mut exact_line = Vec::with_capacity(MAX_MESSAGE_BYTES);
+    exact_line.extend_from_slice(PREFIX);
+    exact_line.extend_from_slice(reason.as_bytes());
+    exact_line.extend_from_slice(SUFFIX);
+
+    let decoded = decode_reply_line(&exact_line);
+    let encoded = encode_reply_line(&reply);
+    let oversized = encode_reply_line(&FixtureReply::Rejected {
+        reason: format!("{reason}x"),
+    });
+
+    assert_eq!(exact_line.len(), MAX_MESSAGE_BYTES);
+    assert_eq!(decoded, Ok(reply));
+    assert_eq!(
+        encoded.expect("exact-bound reply should encode").len(),
+        MAX_MESSAGE_BYTES
+    );
+    assert!(matches!(
+        oversized,
+        Err(ProtocolError::MessageTooLarge { .. })
+    ));
+}
+
+#[test]
 fn command_and_reply_round_trip_as_newline_delimited_json() {
     let command = FixtureCommand::Prepare {
         generation: GENERATION,
@@ -311,75 +392,196 @@ fn command_and_reply_round_trip_as_newline_delimited_json() {
 }
 
 #[test]
-fn adoption_rejects_missing_live_and_unresolved_owner_states() {
-    let (supervisor, prepared) = prepared_protocol();
-    let live = prepared.record;
-    let mut unresolved = live.clone();
-    unresolved.state = RendezvousState::Unresolved("observer unavailable".to_owned());
+fn adoption_rejects_missing_live_and_unresolved_authenticated_responses() {
+    let (mut supervisor, prepared) = prepared_protocol();
+    let request = prepared
+        .adoption_request()
+        .expect("challenge should be generated");
+    let live = supervisor
+        .answer_adoption(&request)
+        .expect("live state should be authenticated");
+    assert!(matches!(
+        prepared.verify_adoption_response(&request, None),
+        Err(ProtocolError::AdoptionUnresolved(_))
+    ));
+    assert!(matches!(
+        prepared.verify_adoption_response(&request, Some(&live)),
+        Err(ProtocolError::AdoptionUnresolved(_))
+    ));
 
+    let (mut supervisor, prepared) = prepared_protocol();
+    supervisor
+        .record_unresolved("observer unavailable")
+        .expect("supervisor should retain unresolved state");
+    let request = prepared
+        .adoption_request()
+        .expect("challenge should be generated");
+    let unresolved = supervisor
+        .answer_adoption(&request)
+        .expect("unresolved state should be authenticated");
     assert!(matches!(
-        supervisor.adopt(None),
-        Err(ProtocolError::AdoptionUnresolved(_))
-    ));
-    assert!(matches!(
-        supervisor.adopt(Some(&live)),
-        Err(ProtocolError::AdoptionUnresolved(_))
-    ));
-    assert!(matches!(
-        supervisor.adopt(Some(&unresolved)),
+        prepared.verify_adoption_response(&request, Some(&unresolved)),
         Err(ProtocolError::AdoptionUnresolved(_))
     ));
 }
 
 #[test]
-fn adoption_rejects_stale_generation_and_nonce() {
-    let (supervisor, prepared) = prepared_protocol();
-    let mut stale_generation = prepared.record.clone();
+fn adoption_rejects_stale_generation_nonce_and_replayed_challenge() {
+    let (mut supervisor, prepared) = prepared_protocol();
+    let request = prepared
+        .adoption_request()
+        .expect("challenge should be generated");
+    let mut stale_generation = request.clone();
     stale_generation.generation += 1;
-    stale_generation.state = RendezvousState::CompleteExit(valid_receipt());
-    let mut stale_nonce = prepared.record;
-    stale_nonce.nonce = "stale-nonce".to_owned();
-    stale_nonce.state = RendezvousState::CompleteExit(valid_receipt());
+    let mut stale_nonce = request.clone();
+    stale_nonce.rendezvous_nonce = "stale-nonce".to_owned();
 
     assert!(matches!(
-        supervisor.adopt(Some(&stale_generation)),
+        supervisor.answer_adoption(&stale_generation),
         Err(ProtocolError::WrongGeneration { .. })
     ));
     assert!(matches!(
-        supervisor.adopt(Some(&stale_nonce)),
+        supervisor.answer_adoption(&stale_nonce),
         Err(ProtocolError::StaleRendezvous)
+    ));
+    assert!(supervisor.answer_adoption(&request).is_ok());
+    assert!(matches!(
+        supervisor.answer_adoption(&request),
+        Err(ProtocolError::ChallengeAlreadyUsed)
     ));
 }
 
 #[test]
 fn adoption_rejects_incomplete_and_malformed_receipts() {
-    let (supervisor, prepared) = prepared_protocol();
-    let mut incomplete = prepared.record;
+    let (mut supervisor, _) = prepared_protocol();
     let mut receipt = valid_receipt();
     receipt.observed_at_ms = 0;
-    incomplete.state = RendezvousState::CompleteExit(receipt);
     let malformed = decode_reply_line(
-        br#"{"reply":"rendezvous","payload":{"state":{"state":"complete_exit","receipt":{"generation":7,"owned_processes":[]}}}}
+        br#"{"reply":"rendezvous","payload":{"response":{"generation":7,"rendezvous_nonce":"nonce","challenge":"challenge","state":{"state":"complete_exit","detail":{"generation":7,"owned_processes":[]}},"authentication_tag":"tag"}}}
 "#,
     );
 
     assert!(matches!(
-        supervisor.adopt(Some(&incomplete)),
+        supervisor.record_complete_exit(receipt),
         Err(ProtocolError::IncompleteReceipt(_))
     ));
     assert!(matches!(malformed, Err(ProtocolError::InvalidMessage(_))));
 }
 
 #[test]
-fn adoption_accepts_complete_exit_for_exact_generation_and_rendezvous() {
-    let (supervisor, prepared) = prepared_protocol();
-    let mut record = prepared.record;
-    let receipt = valid_receipt();
-    record.state = RendezvousState::CompleteExit(receipt.clone());
+fn adoption_rejects_semantically_incomplete_native_identity() {
+    let (mut supervisor, _) = prepared_protocol();
+    let mut receipt = valid_receipt();
+    receipt.owned_processes[0].birth_identity.clear();
 
-    let adopted = supervisor.adopt(Some(&record));
+    let result = supervisor.record_complete_exit(receipt);
+
+    assert!(matches!(result, Err(ProtocolError::IncompleteReceipt(_))));
+}
+
+#[test]
+fn reply_framing_rejects_semantically_incomplete_native_identity() {
+    let malformed = decode_reply_line(
+        br#"{"reply":"spawned","payload":{"birth_identity":"","diagnostic_pid":123}}
+"#,
+    );
+
+    assert!(matches!(malformed, Err(ProtocolError::InvalidValue { .. })));
+}
+
+#[test]
+fn mutated_persisted_record_cannot_fabricate_complete_exit() {
+    let (mut supervisor, mut prepared) = prepared_protocol();
+    prepared.record.state = RendezvousState::CompleteExit(valid_receipt());
+    let request = prepared
+        .adoption_request()
+        .expect("challenge should be generated");
+
+    let response = supervisor
+        .answer_adoption(&request)
+        .expect("authoritative live state should be authenticated");
+    let adopted = prepared.verify_adoption_response(&request, Some(&response));
+
+    assert!(matches!(response.state, RendezvousState::Live));
+    assert!(matches!(adopted, Err(ProtocolError::AdoptionUnresolved(_))));
+}
+
+#[test]
+fn adoption_rejects_unsigned_and_spoofed_rendezvous_replies() {
+    let (mut supervisor, prepared) = prepared_protocol();
+    let request = prepared
+        .adoption_request()
+        .expect("challenge should be generated");
+    let signed_live = supervisor
+        .answer_adoption(&request)
+        .expect("live response should be authenticated");
+    let unsigned = AuthenticatedRendezvousReply {
+        generation: request.generation,
+        rendezvous_nonce: request.rendezvous_nonce.clone(),
+        challenge: request.challenge.clone(),
+        state: RendezvousState::CompleteExit(valid_receipt()),
+        authentication_tag: String::new(),
+    };
+    let mut spoofed = signed_live;
+    spoofed.state = RendezvousState::CompleteExit(valid_receipt());
+
+    assert!(matches!(
+        prepared.verify_adoption_response(&request, Some(&unsigned)),
+        Err(ProtocolError::AuthenticationFailed)
+    ));
+    assert!(matches!(
+        prepared.verify_adoption_response(&request, Some(&spoofed)),
+        Err(ProtocolError::AuthenticationFailed)
+    ));
+}
+
+#[test]
+fn adoption_accepts_supervisor_authenticated_authoritative_complete_exit() {
+    let (mut supervisor, prepared) = prepared_protocol();
+    let receipt = valid_receipt();
+    supervisor
+        .record_complete_exit(receipt.clone())
+        .expect("complete receipt should become authoritative");
+    let request = prepared
+        .adoption_request()
+        .expect("challenge should be generated");
+    let response = supervisor
+        .answer_adoption(&request)
+        .expect("complete state should be authenticated");
+
+    let adopted = prepared.verify_adoption_response(&request, Some(&response));
 
     assert_eq!(adopted, Ok(receipt));
+}
+
+#[test]
+fn cleanup_reply_distinguishes_receipt_acknowledgement_from_unresolved_survivors() {
+    let acknowledged = FixtureReply::Cleanup {
+        result: CleanupResult::Acknowledged(valid_receipt()),
+    };
+    let unresolved = FixtureReply::Cleanup {
+        result: CleanupResult::Unresolved {
+            survivors: vec![NativeIdentity {
+                birth_identity: "darwin:456:789012".to_owned(),
+                diagnostic_pid: 456,
+            }],
+            reason: "termination deadline elapsed".to_owned(),
+        },
+    };
+
+    for reply in [acknowledged, unresolved] {
+        let line = encode_reply_line(&reply).expect("cleanup reply should encode");
+        assert_eq!(decode_reply_line(&line), Ok(reply));
+    }
+
+    let mut incomplete = valid_receipt();
+    incomplete.observed_at_ms = 0;
+    assert!(matches!(
+        encode_reply_line(&FixtureReply::Cleanup {
+            result: CleanupResult::Acknowledged(incomplete),
+        }),
+        Err(ProtocolError::IncompleteReceipt(_))
+    ));
 }
 
 #[test]

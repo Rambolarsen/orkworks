@@ -31,6 +31,17 @@ pub enum Role {
     Inference,
 }
 
+impl Role {
+    /// Returns the only fixture executable identity allowed for this role.
+    pub const fn executable_identity(self) -> &'static str {
+        match self {
+            Self::Sidecar => "fixture-sidecar",
+            Self::Pty => "fixture-pty",
+            Self::Inference => "fixture-inference",
+        }
+    }
+}
+
 /// A supervisor-issued capability authorizing one process-root launch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -157,6 +168,108 @@ impl PreparedGeneration {
             request,
         )
     }
+
+    /// Creates a fresh adoption challenge bound to this rendezvous generation.
+    ///
+    /// The persisted rendezvous state is deliberately not copied into the
+    /// request. Only the generation, rendezvous nonce, and a fresh challenge are
+    /// sent to the live supervisor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProtocolError::RandomnessUnavailable`] if the operating system
+    /// cannot generate a 256-bit challenge.
+    pub fn adoption_request(&self) -> Result<AdoptionRequest, ProtocolError> {
+        Ok(AdoptionRequest {
+            generation: self.record.generation,
+            rendezvous_nonce: self.record.nonce.clone(),
+            challenge: random_hex()?,
+        })
+    }
+
+    /// Verifies a challenge-bound response from the live supervisor.
+    ///
+    /// Persisted rendezvous state is never accepted as exit evidence. The
+    /// response must match the request and carry a valid HMAC over its challenge
+    /// and authoritative state before a complete-exit receipt is considered.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing, stale, unsigned, spoofed, live, unresolved, or incomplete
+    /// responses. Only an authenticated complete-exit receipt for this exact
+    /// generation is returned.
+    pub fn verify_adoption_response(
+        &self,
+        request: &AdoptionRequest,
+        response: Option<&AuthenticatedRendezvousReply>,
+    ) -> Result<CompleteExitReceipt, ProtocolError> {
+        check_generation(self.record.generation, request.generation)?;
+        if request.rendezvous_nonce != self.record.nonce {
+            return Err(ProtocolError::StaleRendezvous);
+        }
+        validate_capability("adoption challenge", &request.challenge)?;
+        let Some(response) = response else {
+            return Err(ProtocolError::AdoptionUnresolved(
+                "live rendezvous response is missing".to_owned(),
+            ));
+        };
+        check_generation(self.record.generation, response.generation)?;
+        if response.rendezvous_nonce != request.rendezvous_nonce
+            || response.challenge != request.challenge
+        {
+            return Err(ProtocolError::StaleRendezvous);
+        }
+        let secret = decode_endpoint_token(&self.endpoint_token)?;
+        let signing_bytes = rendezvous_signing_bytes(
+            response.generation,
+            &response.rendezvous_nonce,
+            &response.challenge,
+            &response.state,
+        )?;
+        verify_hmac(&secret, &signing_bytes, &response.authentication_tag)?;
+        let receipt = match &response.state {
+            RendezvousState::Live => {
+                return Err(ProtocolError::AdoptionUnresolved(
+                    "owner remains live".to_owned(),
+                ));
+            }
+            RendezvousState::Unresolved(reason) => {
+                return Err(ProtocolError::AdoptionUnresolved(reason.clone()));
+            }
+            RendezvousState::CompleteExit(receipt) => receipt,
+        };
+        check_generation(self.record.generation, receipt.generation)?;
+        validate_complete_exit_receipt(receipt)?;
+        Ok(receipt.clone())
+    }
+}
+
+/// Fresh client challenge used to query a prior live supervisor generation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdoptionRequest {
+    /// Prior supervisor generation being queried.
+    pub generation: GenerationId,
+    /// Supervisor-generated rendezvous nonce from the persisted locator.
+    pub rendezvous_nonce: String,
+    /// Fresh client-generated 256-bit hexadecimal challenge.
+    pub challenge: String,
+}
+
+/// Supervisor-authenticated response to one fresh adoption challenge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthenticatedRendezvousReply {
+    /// Supervisor generation that produced the response.
+    pub generation: GenerationId,
+    /// Supervisor-generated nonce identifying the live rendezvous endpoint.
+    pub rendezvous_nonce: String,
+    /// Exact fresh client challenge being answered.
+    pub challenge: String,
+    /// Authoritative state retained by the live supervisor.
+    pub state: RendezvousState,
+    /// HMAC-SHA-256 over generation, nonce, challenge, and state.
+    pub authentication_tag: String,
 }
 
 /// Commands that require generation, rendezvous, and authentication binding.
@@ -208,10 +321,10 @@ pub enum AuthenticatedRequest {
         /// Rendezvous nonce being queried.
         target_nonce: String,
     },
-    /// Requests adoption using a live-authenticated rendezvous record.
+    /// Requests authoritative rendezvous state for a fresh adoption challenge.
     Adopt {
-        /// Record returned by the live rendezvous exchange, if available.
-        record: Option<RendezvousRecord>,
+        /// Fresh client-generated 256-bit challenge.
+        challenge: String,
     },
 }
 
@@ -277,6 +390,26 @@ pub enum OwnerObservation {
     Unresolved(String),
 }
 
+/// Outcome of the supervisor-owned bounded cleanup phases.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "status",
+    content = "detail",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum CleanupResult {
+    /// Cleanup completed with an independently observed complete-exit receipt.
+    Acknowledged(CompleteExitReceipt),
+    /// Cleanup ended without complete ownership evidence.
+    Unresolved {
+        /// Native identities still observed after the cleanup deadline.
+        survivors: Vec<NativeIdentity>,
+        /// Observer or survivor detail explaining why cleanup is unresolved.
+        reason: String,
+    },
+}
+
 /// One newline-delimited reply emitted by the fixture supervisor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -301,8 +434,13 @@ pub enum FixtureReply {
     },
     /// Returns live-authenticated rendezvous state.
     Rendezvous {
-        /// State authenticated through the live endpoint.
-        state: RendezvousState,
+        /// Challenge-bound state authenticated through the live endpoint.
+        response: AuthenticatedRendezvousReply,
+    },
+    /// Returns a receipt-bearing or explicitly unresolved cleanup result.
+    Cleanup {
+        /// Independently evidenced cleanup outcome.
+        result: CleanupResult,
     },
     /// Reports a rejected command without exposing secret material.
     Rejected {
@@ -326,6 +464,14 @@ pub enum ProtocolError {
     /// A ticket does not match its supervisor-issued binding.
     #[error("launch ticket binding does not match")]
     TicketBindingMismatch,
+    /// An executable identity is not the closed fixture identity for its role.
+    #[error("executable identity `{executable_identity}` is not allowed for role {role:?}")]
+    ExecutableIdentityRejected {
+        /// Requested ownership role.
+        role: Role,
+        /// Rejected caller-supplied executable identity.
+        executable_identity: String,
+    },
     /// A ticket identifier was not issued by this supervisor generation.
     #[error("launch ticket was not issued by this generation")]
     UnknownTicket,
@@ -338,6 +484,9 @@ pub enum ProtocolError {
     /// A command's authentication tag did not verify.
     #[error("command authentication failed")]
     AuthenticationFailed,
+    /// An adoption challenge was already answered by this supervisor.
+    #[error("adoption challenge was already used")]
+    ChallengeAlreadyUsed,
     /// A caller attempted to use prepare after authenticated IPC was established.
     #[error("prepare is valid only as the initial request")]
     PrepareMustBeInitial,
@@ -387,8 +536,10 @@ pub struct SupervisorProtocol {
     rendezvous_nonce: String,
     endpoint: String,
     endpoint_secret: [u8; RANDOM_VALUE_BYTES],
+    rendezvous_state: RendezvousState,
     issued_tickets: HashMap<String, LaunchTicket>,
     consumed_tickets: HashSet<String>,
+    answered_adoption_challenges: HashSet<String>,
 }
 
 impl fmt::Debug for SupervisorProtocol {
@@ -399,8 +550,13 @@ impl fmt::Debug for SupervisorProtocol {
             .field("rendezvous_nonce", &self.rendezvous_nonce)
             .field("endpoint", &self.endpoint)
             .field("endpoint_secret", &"[REDACTED]")
+            .field("rendezvous_state", &self.rendezvous_state)
             .field("issued_ticket_count", &self.issued_tickets.len())
             .field("consumed_ticket_count", &self.consumed_tickets.len())
+            .field(
+                "answered_adoption_challenge_count",
+                &self.answered_adoption_challenges.len(),
+            )
             .finish()
     }
 }
@@ -412,15 +568,10 @@ impl SupervisorProtocol {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolError::InvalidValue`] for an empty or control-bearing
-    /// endpoint, or [`ProtocolError::RandomnessUnavailable`] when the operating
+    /// Returns [`ProtocolError::RandomnessUnavailable`] when the operating
     /// system cannot provide capability randomness.
-    pub fn prepare(
-        generation: GenerationId,
-        endpoint: impl Into<String>,
-    ) -> Result<(Self, PreparedGeneration), ProtocolError> {
-        let endpoint = endpoint.into();
-        validate_text("endpoint", &endpoint)?;
+    pub fn prepare(generation: GenerationId) -> Result<(Self, PreparedGeneration), ProtocolError> {
+        let endpoint = format!("fixture-rendezvous:{}", random_hex()?);
         let rendezvous_nonce = random_hex()?;
         let endpoint_secret = random_bytes()?;
         let endpoint_token = hex::encode(endpoint_secret);
@@ -439,8 +590,10 @@ impl SupervisorProtocol {
             rendezvous_nonce,
             endpoint,
             endpoint_secret,
+            rendezvous_state: RendezvousState::Live,
             issued_tickets: HashMap::new(),
             consumed_tickets: HashSet::new(),
+            answered_adoption_challenges: HashSet::new(),
         };
         Ok((protocol, prepared))
     }
@@ -462,6 +615,12 @@ impl SupervisorProtocol {
         let request_nonce = request_nonce.into();
         validate_text("executable identity", &executable_identity)?;
         validate_text("request nonce", &request_nonce)?;
+        if executable_identity != role.executable_identity() {
+            return Err(ProtocolError::ExecutableIdentityRejected {
+                role,
+                executable_identity,
+            });
+        }
         let ticket = LaunchTicket {
             generation: self.generation,
             role,
@@ -543,50 +702,75 @@ impl SupervisorProtocol {
         Ok(request)
     }
 
-    /// Validates adoption against this live-authenticated rendezvous generation.
+    /// Retains a complete-exit receipt as the authoritative rendezvous state.
     ///
     /// # Errors
     ///
-    /// Missing, live, unresolved, stale, or incomplete states are rejected. A
-    /// complete-exit receipt is accepted only for this exact generation and
-    /// rendezvous record.
-    pub fn adopt(
-        &self,
-        record: Option<&RendezvousRecord>,
-    ) -> Result<CompleteExitReceipt, ProtocolError> {
-        let Some(record) = record else {
-            return Err(ProtocolError::AdoptionUnresolved(
-                "rendezvous record is missing".to_owned(),
-            ));
-        };
-        self.check_generation(record.generation)?;
-        if record.nonce != self.rendezvous_nonce || record.endpoint != self.endpoint {
+    /// Rejects receipts for another generation or without complete independent
+    /// observation evidence.
+    pub fn record_complete_exit(
+        &mut self,
+        receipt: CompleteExitReceipt,
+    ) -> Result<(), ProtocolError> {
+        self.check_generation(receipt.generation)?;
+        validate_complete_exit_receipt(&receipt)?;
+        self.rendezvous_state = RendezvousState::CompleteExit(receipt);
+        Ok(())
+    }
+
+    /// Retains an explicit unresolved result as the authoritative rendezvous state.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an empty or control-bearing reason.
+    pub fn record_unresolved(&mut self, reason: impl Into<String>) -> Result<(), ProtocolError> {
+        let reason = reason.into();
+        validate_text("unresolved reason", &reason)?;
+        self.rendezvous_state = RendezvousState::Unresolved(reason);
+        Ok(())
+    }
+
+    /// Authenticates authoritative supervisor state for one fresh adoption challenge.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a stale generation or rendezvous nonce, an invalid challenge, a
+    /// replayed challenge, or a response that cannot be serialized for signing.
+    pub fn answer_adoption(
+        &mut self,
+        request: &AdoptionRequest,
+    ) -> Result<AuthenticatedRendezvousReply, ProtocolError> {
+        self.check_generation(request.generation)?;
+        if request.rendezvous_nonce != self.rendezvous_nonce {
             return Err(ProtocolError::StaleRendezvous);
         }
-        let receipt = match &record.state {
-            RendezvousState::Live => {
-                return Err(ProtocolError::AdoptionUnresolved(
-                    "owner remains live".to_owned(),
-                ));
-            }
-            RendezvousState::Unresolved(reason) => {
-                return Err(ProtocolError::AdoptionUnresolved(reason.clone()));
-            }
-            RendezvousState::CompleteExit(receipt) => receipt,
-        };
-        self.check_generation(receipt.generation)?;
-        validate_complete_exit_receipt(receipt)?;
-        Ok(receipt.clone())
+        validate_capability("adoption challenge", &request.challenge)?;
+        if self
+            .answered_adoption_challenges
+            .contains(&request.challenge)
+        {
+            return Err(ProtocolError::ChallengeAlreadyUsed);
+        }
+        let signing_bytes = rendezvous_signing_bytes(
+            self.generation,
+            &self.rendezvous_nonce,
+            &request.challenge,
+            &self.rendezvous_state,
+        )?;
+        let authentication_tag = hex::encode(hmac_sha256(&self.endpoint_secret, &signing_bytes));
+        self.answered_adoption_challenges
+            .insert(request.challenge.clone());
+        Ok(AuthenticatedRendezvousReply {
+            generation: self.generation,
+            rendezvous_nonce: self.rendezvous_nonce.clone(),
+            challenge: request.challenge.clone(),
+            state: self.rendezvous_state.clone(),
+            authentication_tag,
+        })
     }
 
     fn check_generation(&self, actual: GenerationId) -> Result<(), ProtocolError> {
-        if actual != self.generation {
-            return Err(ProtocolError::WrongGeneration {
-                expected: self.generation,
-                actual,
-            });
-        }
-        Ok(())
+        check_generation(self.generation, actual)
     }
 }
 
@@ -614,9 +798,11 @@ pub fn decode_command_line(line: &[u8]) -> Result<FixtureCommand, ProtocolError>
 ///
 /// # Errors
 ///
-/// Returns [`ProtocolError::InvalidMessage`] when serialization fails or
+/// Returns a semantic validation error when evidence is incomplete,
+/// [`ProtocolError::InvalidMessage`] when serialization fails, or
 /// [`ProtocolError::MessageTooLarge`] when the encoded line exceeds 64 KiB.
 pub fn encode_reply_line(reply: &FixtureReply) -> Result<Vec<u8>, ProtocolError> {
+    validate_reply(reply)?;
     encode_line(reply)
 }
 
@@ -627,7 +813,9 @@ pub fn encode_reply_line(reply: &FixtureReply) -> Result<Vec<u8>, ProtocolError>
 /// Rejects missing/multiple newlines, messages over 64 KiB, malformed JSON,
 /// unknown replies, unknown fields, and invalid enum variants.
 pub fn decode_reply_line(line: &[u8]) -> Result<FixtureReply, ProtocolError> {
-    decode_line(line)
+    let reply = decode_line(line)?;
+    validate_reply(&reply)?;
+    Ok(reply)
 }
 
 fn validate_complete_exit_receipt(receipt: &CompleteExitReceipt) -> Result<(), ProtocolError> {
@@ -648,11 +836,50 @@ fn validate_complete_exit_receipt(receipt: &CompleteExitReceipt) -> Result<(), P
     Ok(())
 }
 
+fn validate_reply(reply: &FixtureReply) -> Result<(), ProtocolError> {
+    match reply {
+        FixtureReply::Spawned(identity) => validate_native_identity(identity),
+        FixtureReply::Observation { observation } => match observation {
+            OwnerObservation::Owned(identities) => {
+                identities.iter().try_for_each(validate_native_identity)
+            }
+            OwnerObservation::Unresolved(reason) => validate_text("unresolved reason", reason),
+            OwnerObservation::Empty => Ok(()),
+        },
+        FixtureReply::Rendezvous { response } => match &response.state {
+            RendezvousState::CompleteExit(receipt) => validate_complete_exit_receipt(receipt),
+            RendezvousState::Unresolved(reason) => validate_text("unresolved reason", reason),
+            RendezvousState::Live => Ok(()),
+        },
+        FixtureReply::Cleanup { result } => match result {
+            CleanupResult::Acknowledged(receipt) => validate_complete_exit_receipt(receipt),
+            CleanupResult::Unresolved { survivors, reason } => {
+                survivors.iter().try_for_each(validate_native_identity)?;
+                validate_text("unresolved reason", reason)
+            }
+        },
+        FixtureReply::Prepared(_)
+        | FixtureReply::LaunchTicket(_)
+        | FixtureReply::Acknowledged
+        | FixtureReply::Rejected { .. } => Ok(()),
+    }
+}
+
+fn validate_native_identity(identity: &NativeIdentity) -> Result<(), ProtocolError> {
+    validate_text("native birth identity", &identity.birth_identity)
+}
+
 fn validate_text(field: &'static str, value: &str) -> Result<(), ProtocolError> {
     if !is_valid_text(value) {
         return Err(ProtocolError::InvalidValue { field });
     }
     Ok(())
+}
+
+fn validate_capability(field: &'static str, value: &str) -> Result<(), ProtocolError> {
+    decode_capability(value)
+        .map(|_| ())
+        .map_err(|()| ProtocolError::InvalidValue { field })
 }
 
 fn is_valid_text(value: &str) -> bool {
@@ -671,10 +898,19 @@ fn random_bytes() -> Result<[u8; RANDOM_VALUE_BYTES], ProtocolError> {
 }
 
 fn decode_endpoint_token(token: &str) -> Result<[u8; RANDOM_VALUE_BYTES], ProtocolError> {
-    let decoded = hex::decode(token).map_err(|_| ProtocolError::InvalidEndpointToken)?;
-    decoded
-        .try_into()
-        .map_err(|_| ProtocolError::InvalidEndpointToken)
+    decode_capability(token).map_err(|()| ProtocolError::InvalidEndpointToken)
+}
+
+fn decode_capability(value: &str) -> Result<[u8; RANDOM_VALUE_BYTES], ()> {
+    let decoded = hex::decode(value).map_err(|_| ())?;
+    decoded.try_into().map_err(|_| ())
+}
+
+fn check_generation(expected: GenerationId, actual: GenerationId) -> Result<(), ProtocolError> {
+    if actual != expected {
+        return Err(ProtocolError::WrongGeneration { expected, actual });
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -696,6 +932,40 @@ fn command_signing_bytes(
         request,
     })
     .map_err(|error| ProtocolError::InvalidMessage(error.to_string()))
+}
+
+#[derive(Serialize)]
+#[serde(deny_unknown_fields)]
+struct RendezvousSigningPayload<'a> {
+    generation: GenerationId,
+    rendezvous_nonce: &'a str,
+    challenge: &'a str,
+    state: &'a RendezvousState,
+}
+
+fn rendezvous_signing_bytes(
+    generation: GenerationId,
+    rendezvous_nonce: &str,
+    challenge: &str,
+    state: &RendezvousState,
+) -> Result<Vec<u8>, ProtocolError> {
+    serde_json::to_vec(&RendezvousSigningPayload {
+        generation,
+        rendezvous_nonce,
+        challenge,
+        state,
+    })
+    .map_err(|error| ProtocolError::InvalidMessage(error.to_string()))
+}
+
+fn verify_hmac(key: &[u8], message: &[u8], authentication_tag: &str) -> Result<(), ProtocolError> {
+    let supplied_tag =
+        hex::decode(authentication_tag).map_err(|_| ProtocolError::AuthenticationFailed)?;
+    let mut mac =
+        HmacSha256::new_from_slice(key).map_err(|_| ProtocolError::InvalidEndpointToken)?;
+    mac.update(message);
+    mac.verify_slice(&supplied_tag)
+        .map_err(|_| ProtocolError::AuthenticationFailed)
 }
 
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
