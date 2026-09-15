@@ -23,6 +23,10 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function sha512(value) {
+  return createHash("sha512").update(value).digest("base64");
+}
+
 function createValidRelease({
   sourceSha = SOURCE_SHA,
   version = VERSION,
@@ -37,14 +41,14 @@ function createValidRelease({
     `version: ${version}`,
     "files:",
     `  - url: ${windowsPayload}`,
-    "    sha512: d2luZG93cw==",
+    `    sha512: ${sha512(contents[windowsPayload])}`,
     `    size: ${Buffer.byteLength(contents[windowsPayload])}`,
   ].join("\n");
   contents["nightly-mac.yml"] = [
     `version: ${version}`,
     "files:",
     `  - url: ${macPayload}`,
-    "    sha512: bWFj",
+    `    sha512: ${sha512(contents[macPayload])}`,
     `    size: ${Buffer.byteLength(contents[macPayload])}`,
   ].join("\n");
   contents["SHA256SUMS.txt"] = names
@@ -58,6 +62,8 @@ function createValidRelease({
       "nightly.yml": contents["nightly.yml"],
       "nightly-mac.yml": contents["nightly-mac.yml"],
       "SHA256SUMS.txt": contents["SHA256SUMS.txt"],
+      [windowsPayload]: Buffer.from(contents[windowsPayload]),
+      [macPayload]: Buffer.from(contents[macPayload]),
     },
     expectedAssetNames: names,
     release: {

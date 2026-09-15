@@ -55,7 +55,10 @@ tag/package-version guard.
    contents cross-check those assets. API, pagination, download, schema, or
    duplicate-marker ambiguity fails closed. One valid exact-source match ends
    the nightly as an intentional no-op; a damaged or partial published release
-   is not success and remains retryable under a new tag.
+   is not success and remains retryable under a new tag. To keep the scan
+   bounded, full asset downloads apply only to releases claiming the current
+   source SHA; those candidates also download the two updater payloads and
+   verify each metadata SHA-512 against its payload bytes.
 4. `main-ci.yml` exposes its existing desktop and Rust jobs through
    `workflow_call`, accepting an optional immutable checkout SHA. Normal Main CI
    triggers use their event SHA; nightly release calls the same workflow with
@@ -89,7 +92,8 @@ tag/package-version guard.
 9. The job uploads the complete cross-platform asset set to that draft, then
    applies the same full success predicate used for duplicate detection: exact
    expected names, nonzero sizes and GitHub SHA-256 digests, downloaded channel
-   metadata and checksum-manifest cross-checks, source marker, prerelease/draft
+   metadata and checksum-manifest cross-checks, direct updater SHA-512 checks
+   against the locally verified payload bytes, source marker, prerelease/draft
    flags, and exact tag target. Only then does it publish the draft. Failed
    drafts and their unique tags remain diagnostic records and do not block a
    later run-attempt tag; no asset is replaced.

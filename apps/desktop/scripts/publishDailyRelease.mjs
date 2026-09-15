@@ -81,7 +81,7 @@ export async function publishDailyRelease({
   for (const name of assetNames) {
     if (!Buffer.isBuffer(assets[name]) || assets[name].length === 0) throw new Error(`local release asset is empty: ${name}`);
   }
-  const state = await loadState({ repository, token, fetchImpl });
+  const state = await loadState({ repository, token, sourceSha, fetchImpl });
   const existing = selectPublishedNightlyForSource(state.validated, sourceSha);
   if (existing) return existing.release;
   assertCandidateIsNewest(identity.version, state.publishedNightlyVersions.map((version) => ({ version })));
@@ -127,6 +127,8 @@ export async function publishDailyRelease({
     if (!response.ok) throw new Error(`download draft asset ${name} failed with ${response.status}`);
     downloadedAssets[name] = await response.text();
   }
+  downloadedAssets[`OrkWorks-${identity.version}-win-x64.exe`] = assets[`OrkWorks-${identity.version}-win-x64.exe`];
+  downloadedAssets[`OrkWorks-${identity.version}-mac-arm64.zip`] = assets[`OrkWorks-${identity.version}-mac-arm64.zip`];
   validateReleaseIntegrity({
     release: draft,
     sourceSha,

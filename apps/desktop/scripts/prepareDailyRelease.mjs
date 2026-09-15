@@ -12,6 +12,7 @@ import {
   parseNightlyTag,
   parseSourceMarker,
   selectPublishedNightlyForSource,
+  sourceMarker,
   validatePublishedRelease,
 } from "./dailyRelease.mjs";
 
@@ -79,7 +80,8 @@ export function stageNightlyVersionFiles({ repoRoot, version }) {
   writeFileSync(lockPath, staged.cargoLock);
 }
 
-export async function loadNightlyReleaseState({ repository, token, fetchImpl = fetch }) {
+export async function loadNightlyReleaseState({ repository, token, sourceSha, fetchImpl = fetch }) {
+  sourceMarker(sourceSha);
   const releases = await listAllReleases({ repository, token, fetchImpl });
   const validated = [];
   const publishedNightlyVersions = [];
@@ -96,23 +98,35 @@ export async function loadNightlyReleaseState({ repository, token, fetchImpl = f
     }
     const expectedAssetNames = expectedReleaseAssetNames({ version, channel: "nightly" });
     publishedNightlyVersions.push(version);
-    const marker = parseSourceMarker(release.body);
+    let marker;
+    try {
+      marker = parseSourceMarker(release.body);
+    } catch {
+      continue;
+    }
+    if (marker !== sourceSha) continue;
     const tagTargetSha = await getTagTarget({ repository, token, tag: release.tag_name, fetchImpl });
     const downloadedAssets = {};
     let downloadsComplete = true;
-    for (const name of ["nightly.yml", "nightly-mac.yml", "SHA256SUMS.txt"]) {
+    const payloadNames = [
+      `OrkWorks-${version}-win-x64.exe`,
+      `OrkWorks-${version}-mac-arm64.zip`,
+    ];
+    for (const name of ["nightly.yml", "nightly-mac.yml", "SHA256SUMS.txt", ...payloadNames]) {
       const asset = Array.isArray(release.assets)
         ? release.assets.find((candidate) => candidate?.name === name)
         : null;
-      if (typeof asset?.browser_download_url !== "string") {
+      if (typeof asset?.url !== "string") {
         downloadsComplete = false;
         break;
       }
-      const response = await fetchImpl(asset.browser_download_url, {
+      const response = await fetchImpl(asset.url, {
         headers: { accept: "application/octet-stream", authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error(`download published asset ${name} failed with ${response.status}`);
-      downloadedAssets[name] = await response.text();
+      downloadedAssets[name] = payloadNames.includes(name)
+        ? Buffer.from(await response.arrayBuffer())
+        : await response.text();
     }
     if (!downloadsComplete) continue;
     try {
@@ -149,7 +163,7 @@ export async function prepareDailyRelease({
   ensureTag = ensureTagAtSource,
 }) {
   const identity = createNightlyIdentity({ baseVersion, utcDate, runId, runNumber, runAttempt });
-  const state = await loadState({ repository, token, fetchImpl });
+  const state = await loadState({ repository, token, sourceSha, fetchImpl });
   const existing = selectPublishedNightlyForSource(state.validated, sourceSha);
   if (existing) return { shouldBuild: false, sourceSha };
   assertCandidateIsNewest(identity.version, state.publishedNightlyVersions.map((version) => ({ version })));

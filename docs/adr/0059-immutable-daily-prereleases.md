@@ -32,7 +32,10 @@ Stable packages retain the `latest` channel. Nightly packages use the explicit
 custom `nightly` electron-updater channel and publish only `nightly.yml` and
 `nightly-mac.yml`. Publication and duplicate detection both require the exact
 tag target, source marker, asset-name set, nonempty GitHub SHA-256 digests,
-checksum manifest, and updater metadata to cross-check.
+checksum manifest, and updater metadata to cross-check. Duplicate detection
+downloads payloads only for releases claiming the current source and verifies
+their updater SHA-512 values directly; draft publication checks the same values
+against the locally verified payload bytes.
 
 Every job that signs artifacts or receives `contents: write` authority uses the
 protected `release` environment. The environment permits only `main` and

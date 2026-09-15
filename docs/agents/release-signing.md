@@ -35,8 +35,11 @@ Nightly identity is `<stable-base>-nightly.<UTC-date>.<run-id>.<run-attempt>`.
 Each successful nightly uses a unique immutable tag and published prerelease;
 the workflow never moves a rolling tag or replaces assets. A complete published
 release with the exact source marker, tag target, asset set, GitHub digests,
-checksums, and updater metadata is the only successful duplicate. Drafts and
-damaged releases remain diagnostic history and a new run attempt can retry.
+checksums, and updater metadata is the only successful duplicate. For a release
+claiming the current source, duplicate detection downloads the two updater
+payloads and verifies their metadata SHA-512 values directly; it does not
+download payloads for unrelated historical sources. Drafts and damaged releases
+remain diagnostic history and a new run attempt can retry.
 
 The platform jobs run packaging, pre-checksum artifact verification, native
 signature checks, and the Windows installer smoke test before checksum

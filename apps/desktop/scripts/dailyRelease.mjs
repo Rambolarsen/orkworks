@@ -158,7 +158,7 @@ function parseChecksums(value) {
   return entries;
 }
 
-function requireMetadata({ value, name, version, payloadName, assetsByName }) {
+function requireMetadata({ value, name, version, payloadName, assetsByName, downloadedAssets }) {
   let metadata;
   try {
     metadata = yaml.load(value);
@@ -173,6 +173,7 @@ function requireMetadata({ value, name, version, payloadName, assetsByName }) {
   }
   const entry = metadata.files[0];
   const asset = assetsByName.get(payloadName);
+  const payload = downloadedAssets?.[payloadName];
   if (
     !entry
     || typeof entry !== "object"
@@ -181,6 +182,8 @@ function requireMetadata({ value, name, version, payloadName, assetsByName }) {
     || typeof entry.sha512 !== "string"
     || entry.sha512.length === 0
     || entry.size !== asset?.size
+    || !Buffer.isBuffer(payload)
+    || createHash("sha512").update(payload).digest("base64") !== entry.sha512
   ) {
     throw new Error(`${name} metadata does not match its updater payload`);
   }
@@ -273,6 +276,7 @@ export function validateReleaseIntegrity({
     version,
     payloadName: `OrkWorks-${version}-win-x64.exe`,
     assetsByName,
+    downloadedAssets,
   });
   requireMetadata({
     value: downloadedAssets["nightly-mac.yml"],
@@ -280,6 +284,7 @@ export function validateReleaseIntegrity({
     version,
     payloadName: `OrkWorks-${version}-mac-arm64.zip`,
     assetsByName,
+    downloadedAssets,
   });
 
   return { release, sourceSha, tag: release.tag_name, version };
