@@ -1,6 +1,6 @@
 # Task 5 report — cleanup races, foreign ownership, and relaunch barriers
 
-Status: fix round 1 implemented in the fixture scope. No production
+Status: fix round 2 implemented in the fixture scope. No production
 multi-workspace recovery or runtime replacement behavior was changed.
 
 ## Changes
@@ -21,6 +21,16 @@ multi-workspace recovery or runtime replacement behavior was changed.
   authenticated complete-exit adoption, two open generations, foreign-state
   survival, and supervisor death while an older inference root is observed
   live.
+- Pre-issued inference tickets are rechecked immediately before root creation,
+  registration, and release; a fresh supervisor with the same generation but a
+  different rendezvous nonce cannot clear the original barrier.
+- Cleanup exposes monotonic phase timings, uses deadline-aware observation and
+  termination adapter seams, caps/deduplicates diagnostics, and filters
+  termination errors against the final observation before returning survivors.
+- The launch-loss regression is now a concurrent paused-root interleaving
+  driven by `LaunchInterleaveLatch`, rather than owner loss before spawn.
+- The matrix includes competing advisory-lease contention and unresolved-reply
+  frame encoding.
 
 ## Verification
 
@@ -49,6 +59,9 @@ exit 0
 cargo clippy --manifest-path crates/process-ownership-fixture/Cargo.toml --target x86_64-pc-windows-gnu --tests -- -D warnings
 exit 0
 
+git diff --check
+exit 0
+
 cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture
 exit 0; 3 passed, 0 failed; 5 launch-dependent tests were cfg-skipped on macOS
 
@@ -56,21 +69,24 @@ cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml
 exit 0; 46 integration tests passed, plus zero-test unit/doc targets. The
 cleanup matrix contributed 3 applicable macOS tests.
 
-git diff --check
-exit 0
 ```
 
 The focused and full test commands were run with elevated loopback permission.
-The focused test command was also run before the final report update and
-passed with the same 3/0/5 result.
+The round 2 focused command passed with the same 3/0/5 result after all code
+changes.
 
 ## TDD and limitations
 
-The cleanup matrix contains focused regression tests for the review findings;
-the prior Task 5 RED run failed because `foreign_owner.rs` did not yet exist,
-and the resumed fix round was verified with the commands above. A Windows
-boxed-local clippy failure was found by the cross-target check and fixed before
-the final verification.
+The cleanup matrix contains focused regression tests for the review findings.
+The prior Task 5 RED run failed because `foreign_owner.rs` did not yet exist.
+During round 2, the Windows-target clippy pass first found a boxed-local lint;
+that was fixed, then the final check and clippy commands above passed.
+
+The phase instrumentation records a 5 s graceful deadline and a bounded
+escalation deadline; the silent target is the graceful-ignore fault. Adapter
+implementations must honor the deadline-aware observation seam; the default
+compatibility implementation cannot forcibly cancel an arbitrary blocking
+third-party adapter call, which is not present in this fixture.
 
 The five launch-dependent matrix rows were not run on macOS because the
 pre-existing Task 4 host adapter rejects the native `setsid`/PTY launch path.

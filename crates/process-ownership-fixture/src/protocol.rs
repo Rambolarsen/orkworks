@@ -562,6 +562,12 @@ impl fmt::Debug for SupervisorProtocol {
 }
 
 impl SupervisorProtocol {
+    /// Returns the rendezvous nonce that identifies this supervisor authority.
+    #[allow(dead_code)]
+    pub(crate) fn rendezvous_nonce(&self) -> &str {
+        &self.rendezvous_nonce
+    }
+
     /// Prepares a generation and generates its rendezvous nonce and endpoint token.
     ///
     /// No process target is launched by this operation.

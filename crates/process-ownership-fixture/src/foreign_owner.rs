@@ -71,9 +71,16 @@ impl ForeignOwner {
         let lease_path = workspace.join(".orkworks-foreign-lease");
         let state_path = workspace.join(".orkworks-foreign-state");
         let mut lease = OpenOptions::new()
+            .read(true)
             .write(true)
-            .create_new(true)
+            .create(true)
+            .truncate(false)
             .open(&lease_path)?;
+        #[cfg(unix)]
+        lock_lease(&lease)?;
+        #[cfg(windows)]
+        let lease_lock = Some(lock_lease(&lease)?);
+        lease.set_len(0)?;
         lease.write_all(owner.as_bytes())?;
         lease.sync_all()?;
         let initial = AtomicOwnerState {
@@ -82,11 +89,6 @@ impl ForeignOwner {
             metadata_bytes: format!("owner={owner}\nrevision={metadata_revision}\n").into_bytes(),
         };
         atomic_write_state(&state_path, &initial)?;
-        #[cfg(unix)]
-        lock_lease(&lease)?;
-        #[cfg(windows)]
-        let lease_lock = Some(lock_lease(&lease)?);
-
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker_state_path = state_path.clone();

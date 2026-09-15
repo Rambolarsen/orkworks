@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(not(target_os = "macos"))]
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 #[cfg(not(target_os = "macos"))]
 use std::thread;
 #[cfg(not(target_os = "macos"))]
@@ -15,12 +15,15 @@ use process_ownership_fixture::foreign_owner::{ForeignOwner, ForeignSnapshot};
 use process_ownership_fixture::observation::{is_complete, ContainmentMembership, ExitState};
 #[cfg(not(target_os = "macos"))]
 use process_ownership_fixture::protocol::NativeIdentity;
+#[cfg(not(target_os = "macos"))]
+use process_ownership_fixture::protocol::{encode_reply_line, FixtureReply};
 use process_ownership_fixture::protocol::{
     CleanupResult, CompleteExitReceipt, ProtocolError, Role,
 };
 #[cfg(not(target_os = "macos"))]
 use process_ownership_fixture::supervisor::{
-    ExecutableImage, HostPlatformAdapter, OwnedProcessHandle, PausedRoot, PlatformAdapter,
+    CleanupPhase, ExecutableImage, HostPlatformAdapter, LaunchInterleaveLatch, OwnedProcessHandle,
+    PausedRoot, PlatformAdapter,
 };
 use process_ownership_fixture::supervisor::{LaunchSpec, RendezvousClient, SpawnError, Supervisor};
 use process_ownership_fixture::targets::TargetBehavior;
@@ -140,6 +143,84 @@ fn owner_loss_during_launch_freezes_admission_before_target_execution() {
 
 #[cfg(not(target_os = "macos"))]
 #[test]
+fn preissued_inference_ticket_rechecks_barrier_before_launch() {
+    let _inference_guard = inference_test_guard();
+    let directory = TestDirectory::new("preissued-inference-ticket");
+    let marker = directory.marker("must-not-execute");
+    let (mut replacement, _) = prepared_supervisor(116);
+    let ticket = replacement
+        .issue_launch_ticket(Role::Inference, "preissued")
+        .expect("ticket should be issued before older barrier is live");
+    let (mut older, _) = prepared_supervisor(117);
+    let older_ticket = older
+        .issue_launch_ticket(Role::Inference, "older")
+        .expect("older inference ticket should be issued");
+    older
+        .spawn(
+            older_ticket,
+            launch_spec(
+                Role::Inference,
+                TargetBehavior::Silent,
+                &directory.marker("older"),
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("older root should be admitted");
+    older.owner_lost();
+
+    assert_eq!(
+        replacement.spawn(
+            ticket,
+            launch_spec(
+                Role::Inference,
+                TargetBehavior::Silent,
+                &marker,
+                TARGET_LIFETIME,
+            ),
+        ),
+        Err(SpawnError::AdmissionClosed)
+    );
+    assert!(!marker.exists());
+    let _ = assert_acknowledged(older.cleanup());
+    let _ = assert_acknowledged(replacement.cleanup());
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn fresh_same_generation_supervisor_cannot_clear_dead_authority_barrier() {
+    let _inference_guard = inference_test_guard();
+    let directory = TestDirectory::new("same-generation-authority");
+    let (mut original, _) = prepared_supervisor(119);
+    let ticket = original
+        .issue_launch_ticket(Role::Inference, "original")
+        .expect("original inference ticket should be issued");
+    original
+        .spawn(
+            ticket,
+            launch_spec(
+                Role::Inference,
+                TargetBehavior::Silent,
+                &directory.marker("original"),
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("original root should be admitted");
+    original.owner_lost();
+
+    let (mut replacement, _) = prepared_supervisor(119);
+    assert_eq!(
+        replacement.issue_launch_ticket(Role::Inference, "same-generation"),
+        Err(SpawnError::AdmissionClosed)
+    );
+    let _ = assert_acknowledged(original.cleanup());
+    assert!(replacement
+        .issue_launch_ticket(Role::Inference, "after-original-receipt")
+        .is_ok());
+    let _ = assert_acknowledged(replacement.cleanup());
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
 fn graceful_ignore_escalates_to_bounded_owned_termination() {
     let directory = TestDirectory::new("graceful-ignore");
     let marker = directory.marker("survivor");
@@ -166,6 +247,18 @@ fn graceful_ignore_escalates_to_bounded_owned_termination() {
 
     assert!(started.elapsed() >= Duration::from_secs(4));
     assert!(started.elapsed() < Duration::from_secs(12));
+    let phases = supervisor.cleanup_phase_timings();
+    let graceful = phases
+        .iter()
+        .find(|timing| timing.phase == CleanupPhase::Graceful)
+        .expect("cleanup should record graceful phase");
+    let escalation = phases
+        .iter()
+        .find(|timing| timing.phase == CleanupPhase::Escalation)
+        .expect("cleanup should record escalation phase");
+    assert!(graceful.elapsed_ms >= 4_900);
+    assert!(graceful.elapsed_ms <= 5_500);
+    assert!(escalation.elapsed_ms <= 5_000);
     assert!(receipt.owned_processes.contains(&identity));
     assert!(is_complete(&supervisor.observe()));
 }
@@ -211,6 +304,23 @@ fn foreign_owner_lease_metadata_and_heartbeat_survive_owned_cleanup() {
 
     assert_foreign_identity_unchanged(&before, &after);
     assert!(after.heartbeat >= before.heartbeat);
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn competing_foreign_owner_cannot_acquire_advisory_lease() {
+    let directory = TestDirectory::new("foreign-contention");
+    let (owner, before) =
+        ForeignOwner::start(&directory.path, 42).expect("first foreign owner should acquire lease");
+    assert!(ForeignOwner::start(&directory.path, 43).is_err());
+    let during = owner
+        .snapshot()
+        .expect("first owner should remain readable");
+    assert_foreign_identity_unchanged(&before, &during);
+    drop(owner);
+    let (replacement, _) = ForeignOwner::start(&directory.path, 43)
+        .expect("lease should become available after owner release");
+    drop(replacement);
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -461,12 +571,27 @@ fn owner_loss_checkpoint_during_paused_launch_rejects_before_target_execution() 
     let ticket = supervisor
         .issue_launch_ticket(Role::Pty, "owner-loss-checkpoint")
         .expect("ticket should be issued");
-    supervisor.inject_owner_loss_during_launch_once();
+    let latch = Arc::new(LaunchInterleaveLatch::new());
+    supervisor.arm_owner_loss_interleave(Arc::clone(&latch));
+    let spec = launch_spec(Role::Pty, TargetBehavior::Silent, &marker, TARGET_LIFETIME);
+    let launch_thread = thread::spawn(move || {
+        let result = supervisor.spawn(ticket, spec);
+        (supervisor, result)
+    });
 
-    let result = supervisor.spawn(
-        ticket,
-        launch_spec(Role::Pty, TargetBehavior::Silent, &marker, TARGET_LIFETIME),
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !latch.root_created() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        latch.root_created(),
+        "launch should reach its paused checkpoint"
     );
+    latch.request_owner_loss();
+    latch.release();
+    let (mut supervisor, result) = launch_thread
+        .join()
+        .expect("in-flight launch thread should complete");
 
     assert_eq!(result, Err(SpawnError::AdmissionClosed));
     assert!(!marker.exists());
@@ -517,6 +642,62 @@ fn unresolved_cleanup_retains_survivor_and_specific_observer_errors() {
     assert!(reason.contains("observer unavailable"));
     assert!(reason.contains("terminate root"));
     assert!(reason.contains("containment failed"));
+    assert_eq!(reason.matches("observe root").count(), 1);
+    assert!(reason.len() < 48 * 1024);
+    let encoded = encode_reply_line(&FixtureReply::Cleanup {
+        result: CleanupResult::Unresolved { survivors, reason },
+    })
+    .expect("unresolved cleanup reply must fit the protocol frame bound");
+    assert!(encoded.len() <= process_ownership_fixture::protocol::MAX_MESSAGE_BYTES);
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn final_observation_filters_roots_that_exited_after_termination_error() {
+    let directory = TestDirectory::new("final-survivor-filter");
+    let (mut supervisor, _) = Supervisor::prepare_with_adapter(
+        120,
+        TerminateThenFailAdapter {
+            host: HostPlatformAdapter,
+            fail_after_terminating_once: true,
+        },
+    )
+    .expect("fixture generation should prepare");
+    let first_ticket = supervisor
+        .issue_launch_ticket(Role::Sidecar, "first")
+        .expect("first ticket should issue");
+    let first = supervisor
+        .spawn(
+            first_ticket,
+            launch_spec(
+                Role::Sidecar,
+                TargetBehavior::Silent,
+                &directory.marker("first"),
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("first root should be admitted");
+    let second_ticket = supervisor
+        .issue_launch_ticket(Role::Sidecar, "second")
+        .expect("second ticket should issue");
+    let second = supervisor
+        .spawn(
+            second_ticket,
+            launch_spec(
+                Role::Sidecar,
+                TargetBehavior::Silent,
+                &directory.marker("second"),
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("second root should be admitted");
+    supervisor.owner_lost();
+
+    let CleanupResult::Unresolved { survivors, .. } = supervisor.cleanup() else {
+        panic!("the second root should keep cleanup unresolved");
+    };
+    assert!(!survivors.contains(&first));
+    assert!(survivors.contains(&second));
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -582,6 +763,64 @@ impl PlatformAdapter for FailingCleanupAdapter {
         if self.fail_observation {
             return Err(SpawnError::ObserverUnavailable);
         }
+        self.host.observe_root(process_handle, expected_identity)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+#[derive(Debug)]
+struct TerminateThenFailAdapter {
+    host: HostPlatformAdapter,
+    fail_after_terminating_once: bool,
+}
+
+#[cfg(not(target_os = "macos"))]
+impl PlatformAdapter for TerminateThenFailAdapter {
+    fn create_paused_root(
+        &mut self,
+        executable: &ExecutableImage,
+        spec: &LaunchSpec,
+    ) -> Result<OwnedProcessHandle, SpawnError> {
+        self.host.create_paused_root(executable, spec)
+    }
+
+    fn capture_native_identity(
+        &mut self,
+        process_handle: &OwnedProcessHandle,
+    ) -> Result<NativeIdentity, SpawnError> {
+        self.host.capture_native_identity(process_handle)
+    }
+
+    fn attach_containment(
+        &mut self,
+        generation: u64,
+        process_handle: &OwnedProcessHandle,
+    ) -> Result<ContainmentMembership, SpawnError> {
+        self.host.attach_containment(generation, process_handle)
+    }
+
+    fn release_exec(&mut self, paused_root: &mut PausedRoot) -> Result<(), SpawnError> {
+        self.host.release_exec(paused_root)
+    }
+
+    fn terminate_root(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        timeout: Duration,
+    ) -> Result<(), SpawnError> {
+        if self.fail_after_terminating_once {
+            self.fail_after_terminating_once = false;
+            let _ = self.host.terminate_root(process_handle, timeout);
+            return Err(SpawnError::ContainmentFailed);
+        }
+        Err(SpawnError::ContainmentFailed)
+    }
+
+    fn observe_root(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        expected_identity: &NativeIdentity,
+    ) -> Result<ExitState, SpawnError> {
         self.host.observe_root(process_handle, expected_identity)
     }
 }

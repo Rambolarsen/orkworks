@@ -1,13 +1,14 @@
 //! Supervisor-owned launch admission and direct-root observation.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -35,7 +36,60 @@ pub use crate::targets::RELEASE_EXEC_BYTE;
 const GRACEFUL_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const OWNED_TERMINATION_TIMEOUT: Duration = Duration::from_secs(5);
 const CLEANUP_POLL_INTERVAL: Duration = Duration::from_millis(10);
-static LIVE_INFERENCE_GENERATIONS: OnceLock<Mutex<HashSet<GenerationId>>> = OnceLock::new();
+const LAUNCH_INTERLEAVE_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_CLEANUP_DIAGNOSTICS: usize = 64;
+const MAX_CLEANUP_REASON_BYTES: usize = 48 * 1024;
+static LIVE_INFERENCE_GENERATIONS: OnceLock<Mutex<HashMap<GenerationId, String>>> = OnceLock::new();
+
+/// Latch for a concurrent paused-root launch/owner-loss interleaving.
+#[derive(Debug, Default)]
+pub struct LaunchInterleaveLatch {
+    root_created: AtomicBool,
+    owner_loss_requested: AtomicBool,
+    proceed: AtomicBool,
+}
+
+/// One bounded cleanup phase recorded by the fixture supervisor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupPhase {
+    /// Graceful observation/drain window.
+    Graceful,
+    /// Owned termination and final observation window.
+    Escalation,
+}
+
+/// Elapsed timing for one cleanup phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CleanupPhaseTiming {
+    /// Phase represented by this timing.
+    pub phase: CleanupPhase,
+    /// Monotonic elapsed duration in milliseconds.
+    pub elapsed_ms: u128,
+}
+
+impl LaunchInterleaveLatch {
+    /// Creates a latch initially held after paused root creation.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns whether the in-flight launch has created its paused root.
+    #[must_use]
+    pub fn root_created(&self) -> bool {
+        self.root_created.load(Ordering::Acquire)
+    }
+
+    /// Requests owner loss at the paused-root checkpoint.
+    pub fn request_owner_loss(&self) {
+        self.owner_loss_requested.store(true, Ordering::Release);
+    }
+
+    /// Releases the in-flight launch checkpoint.
+    pub fn release(&self) {
+        self.proceed.store(true, Ordering::Release);
+    }
+}
 
 /// Closed launch description assembled for the fixture executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,8 +600,11 @@ impl RendezvousClient {
             rendezvous_nonce: self.prepared.record.nonce.clone(),
             challenge: response.challenge.clone(),
         };
-        self.prepared
-            .verify_adoption_response(&request, Some(response))
+        let receipt = self
+            .prepared
+            .verify_adoption_response(&request, Some(response))?;
+        unmark_inference_generation(self.prepared.record.generation, &self.prepared.record.nonce);
+        Ok(receipt)
     }
 }
 
@@ -590,6 +647,25 @@ pub trait PlatformAdapter {
         process_handle.terminate_bounded(timeout)
     }
 
+    /// Terminates a root only within the remaining cleanup deadline.
+    fn terminate_root_bounded(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        deadline: Instant,
+    ) -> Result<(), SpawnError> {
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        if timeout.is_zero() {
+            return Err(SpawnError::ContainmentFailed);
+        }
+        let started = Instant::now();
+        let result = self.terminate_root(process_handle, timeout);
+        if started.elapsed() > timeout {
+            Err(SpawnError::ContainmentFailed)
+        } else {
+            result
+        }
+    }
+
     /// Observes direct-root birth identity and liveness through retained OS state.
     fn observe_root(
         &mut self,
@@ -597,12 +673,51 @@ pub trait PlatformAdapter {
         expected_identity: &NativeIdentity,
     ) -> Result<ExitState, SpawnError>;
 
+    /// Performs root observation without starting after the supplied deadline.
+    ///
+    /// Native adapters must make their underlying observation bounded by this
+    /// deadline. The default keeps existing adapters source-compatible while
+    /// rejecting work that is already outside the cleanup budget.
+    fn observe_root_bounded(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        expected_identity: &NativeIdentity,
+        deadline: Instant,
+    ) -> Result<ExitState, SpawnError> {
+        if Instant::now() >= deadline {
+            return Err(SpawnError::ObserverUnavailable);
+        }
+        let result = self.observe_root(process_handle, expected_identity);
+        if Instant::now() > deadline {
+            Err(SpawnError::ObserverUnavailable)
+        } else {
+            result
+        }
+    }
+
     /// Observes only retained-handle exit when native birth identity was unavailable.
     fn observe_unidentified_root(
         &mut self,
         process_handle: &mut OwnedProcessHandle,
     ) -> Result<ExitState, SpawnError> {
         process_handle.observe_exit()
+    }
+
+    /// Performs unidentified-root observation without starting after a deadline.
+    fn observe_unidentified_root_bounded(
+        &mut self,
+        process_handle: &mut OwnedProcessHandle,
+        deadline: Instant,
+    ) -> Result<ExitState, SpawnError> {
+        if Instant::now() >= deadline {
+            return Err(SpawnError::ObserverUnavailable);
+        }
+        let result = self.observe_unidentified_root(process_handle);
+        if Instant::now() > deadline {
+            Err(SpawnError::ObserverUnavailable)
+        } else {
+            result
+        }
     }
 }
 
@@ -724,8 +839,10 @@ pub struct Supervisor<A: PlatformAdapter = HostPlatformAdapter> {
     unidentified_roots: Vec<UnidentifiedRoot>,
     fail_registration_once: bool,
     inject_owner_loss_during_launch: bool,
+    launch_interleave_latch: Option<Arc<LaunchInterleaveLatch>>,
     cleanup_started: bool,
     cleanup_diagnostics: Vec<String>,
+    cleanup_phase_timings: Vec<CleanupPhaseTiming>,
 }
 
 impl Supervisor<HostPlatformAdapter> {
@@ -796,8 +913,10 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 unidentified_roots: Vec::new(),
                 fail_registration_once: false,
                 inject_owner_loss_during_launch: false,
+                launch_interleave_latch: None,
                 cleanup_started: false,
                 cleanup_diagnostics: Vec::new(),
+                cleanup_phase_timings: Vec::new(),
             },
             prepared,
         ))
@@ -819,7 +938,11 @@ impl<A: PlatformAdapter> Supervisor<A> {
     ) -> Result<LaunchTicket, SpawnError> {
         if !self.admission_open
             || self.cleanup_started
-            || (role == Role::Inference && inference_generation_is_blocked(self.generation))
+            || (role == Role::Inference
+                && inference_generation_is_blocked(
+                    self.generation,
+                    self.protocol.rendezvous_nonce(),
+                ))
         {
             return Err(SpawnError::AdmissionClosed);
         }
@@ -847,7 +970,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         ticket: LaunchTicket,
         launch_spec: LaunchSpec,
     ) -> Result<NativeIdentity, SpawnError> {
-        if !self.admission_open || self.cleanup_started {
+        if !self.admission_is_open(launch_spec.role) {
             return Err(SpawnError::AdmissionClosed);
         }
         if !self.executable.ticket_matches(&ticket, launch_spec.role) {
@@ -862,13 +985,33 @@ impl<A: PlatformAdapter> Supervisor<A> {
             )
             .map_err(|_| SpawnError::InvalidTicket)?;
 
+        if !self.admission_is_open(launch_spec.role) {
+            return Err(SpawnError::AdmissionClosed);
+        }
+
         let mut process_handle = self
             .adapter
             .create_paused_root(&self.executable, &launch_spec)?;
         if std::mem::take(&mut self.inject_owner_loss_during_launch) {
             self.owner_lost();
         }
-        if !self.admission_open || self.cleanup_started {
+        if let Some(latch) = self.launch_interleave_latch.take() {
+            latch.root_created.store(true, Ordering::Release);
+            let deadline = Instant::now() + LAUNCH_INTERLEAVE_TIMEOUT;
+            while !latch.proceed.load(Ordering::Acquire) && Instant::now() < deadline {
+                thread::sleep(CLEANUP_POLL_INTERVAL);
+            }
+            if latch.owner_loss_requested.load(Ordering::Acquire) {
+                self.owner_lost();
+            }
+            if !latch.proceed.load(Ordering::Acquire) {
+                let _ = self
+                    .adapter
+                    .terminate_root(&mut process_handle, Duration::from_secs(1));
+                return Err(SpawnError::ObserverUnavailable);
+            }
+        }
+        if !self.admission_is_open(launch_spec.role) {
             let _ = self
                 .adapter
                 .terminate_root(&mut process_handle, Duration::from_secs(2));
@@ -915,7 +1058,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 return Err(error);
             }
         };
-        if !self.admission_open || self.cleanup_started {
+        if !self.admission_is_open(launch_spec.role) {
             self.cleanup_failed_admission(
                 identity,
                 launch_spec.role,
@@ -945,6 +1088,16 @@ impl<A: PlatformAdapter> Supervisor<A> {
             );
             return Err(SpawnError::ObserverUnavailable);
         }
+        if !self.admission_is_open(launch_spec.role) {
+            self.cleanup_failed_admission(
+                identity,
+                launch_spec.role,
+                process_handle,
+                containment_membership,
+                true,
+            );
+            return Err(SpawnError::AdmissionClosed);
+        }
 
         let mut paused_root = PausedRoot {
             identity: identity.clone(),
@@ -970,6 +1123,16 @@ impl<A: PlatformAdapter> Supervisor<A> {
         Ok(identity)
     }
 
+    fn admission_is_open(&self, role: Role) -> bool {
+        self.admission_open
+            && !self.cleanup_started
+            && (role != Role::Inference
+                || !inference_generation_is_blocked(
+                    self.generation,
+                    self.protocol.rendezvous_nonce(),
+                ))
+    }
+
     /// Closes admission permanently for this supervisor generation.
     pub fn owner_lost(&mut self) {
         self.admission_open = false;
@@ -979,7 +1142,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
             .iter_mut()
             .any(|root| root.role == Role::Inference && root_is_live(root))
         {
-            mark_inference_generation_live(self.generation);
+            mark_inference_generation_live(self.generation, self.protocol.rendezvous_nonce());
         }
     }
 
@@ -1004,17 +1167,24 @@ impl<A: PlatformAdapter> Supervisor<A> {
         self.control_endpoint.take();
         self.cleanup_started = true;
 
-        let graceful_deadline = Instant::now() + GRACEFUL_CLEANUP_TIMEOUT;
-        let mut snapshot = self.observe();
+        self.cleanup_phase_timings.clear();
+        let graceful_started = Instant::now();
+        let graceful_deadline = graceful_started + GRACEFUL_CLEANUP_TIMEOUT;
+        let mut snapshot = self.observe_with_deadline(graceful_deadline);
         while !is_complete(&snapshot) && Instant::now() < graceful_deadline {
             thread::sleep(CLEANUP_POLL_INTERVAL);
-            snapshot = self.observe();
+            snapshot = self.observe_with_deadline(graceful_deadline);
         }
+        self.cleanup_phase_timings.push(CleanupPhaseTiming {
+            phase: CleanupPhase::Graceful,
+            elapsed_ms: graceful_started.elapsed().as_millis(),
+        });
         if is_complete(&snapshot) {
             return self.acknowledge_cleanup();
         }
 
-        let termination_deadline = Instant::now() + OWNED_TERMINATION_TIMEOUT;
+        let escalation_started = Instant::now();
+        let termination_deadline = escalation_started + OWNED_TERMINATION_TIMEOUT;
         let mut termination_failures = Vec::new();
         let mut termination_diagnostics = Vec::new();
         for root in &mut self.roots {
@@ -1031,21 +1201,27 @@ impl<A: PlatformAdapter> Supervisor<A> {
             let remaining = termination_deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 termination_failures.push(root.identity.clone());
-                termination_diagnostics.push(format!(
-                    "terminate root {} failed: cleanup termination deadline elapsed",
-                    root.identity.birth_identity
-                ));
+                push_cleanup_diagnostic(
+                    &mut termination_diagnostics,
+                    format!(
+                        "terminate root {} failed: cleanup termination deadline elapsed",
+                        root.identity.birth_identity
+                    ),
+                );
                 continue;
             }
             if let Err(error) = self
                 .adapter
-                .terminate_root(&mut root.process_handle, remaining)
+                .terminate_root_bounded(&mut root.process_handle, termination_deadline)
             {
                 termination_failures.push(root.identity.clone());
-                termination_diagnostics.push(format!(
-                    "terminate root {} failed: {error}",
-                    root.identity.birth_identity
-                ));
+                push_cleanup_diagnostic(
+                    &mut termination_diagnostics,
+                    format!(
+                        "terminate root {} failed: {error}",
+                        root.identity.birth_identity
+                    ),
+                );
             }
         }
         for root in &mut self.unidentified_roots {
@@ -1054,7 +1230,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 Some("cleanup termination deadline elapsed".to_owned())
             } else {
                 self.adapter
-                    .terminate_root(&mut root.process_handle, remaining)
+                    .terminate_root_bounded(&mut root.process_handle, termination_deadline)
                     .err()
                     .map(|error| error.to_string())
             };
@@ -1068,22 +1244,31 @@ impl<A: PlatformAdapter> Supervisor<A> {
                     ),
                     diagnostic_pid: root.process_handle.diagnostic_pid(),
                 });
-                termination_diagnostics.push(format!(
-                    "terminate unidentified root pid {} failed: {error}",
-                    root.process_handle.diagnostic_pid()
-                ));
+                push_cleanup_diagnostic(
+                    &mut termination_diagnostics,
+                    format!(
+                        "terminate unidentified root pid {} failed: {error}",
+                        root.process_handle.diagnostic_pid()
+                    ),
+                );
             }
         }
 
-        snapshot = self.observe();
+        snapshot = self.observe_with_deadline(termination_deadline);
         while !is_complete(&snapshot) && Instant::now() < termination_deadline {
             thread::sleep(CLEANUP_POLL_INTERVAL);
-            snapshot = self.observe();
+            snapshot = self.observe_with_deadline(termination_deadline);
         }
+        self.cleanup_phase_timings.push(CleanupPhaseTiming {
+            phase: CleanupPhase::Escalation,
+            elapsed_ms: escalation_started.elapsed().as_millis(),
+        });
         if is_complete(&snapshot) {
             return self.acknowledge_cleanup();
         }
-        self.cleanup_diagnostics.extend(termination_diagnostics);
+        for diagnostic in termination_diagnostics {
+            push_cleanup_diagnostic(&mut self.cleanup_diagnostics, diagnostic);
+        }
         let survivors = cleanup_survivors(&snapshot, termination_failures);
         let reason = cleanup_reason(self.generation, &snapshot, &self.cleanup_diagnostics);
         let result = CleanupResult::Unresolved { survivors, reason };
@@ -1106,7 +1291,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 reason: "complete-exit receipt could not be recorded".to_owned(),
             };
         }
-        unmark_inference_generation(self.generation);
+        unmark_inference_generation(self.generation, self.protocol.rendezvous_nonce());
         CleanupResult::Acknowledged(receipt)
     }
 
@@ -1118,28 +1303,42 @@ impl<A: PlatformAdapter> Supervisor<A> {
             .and_then(|listener| listener.local_addr().ok())
     }
 
+    /// Returns the monotonic durations recorded for the cleanup phases.
+    #[must_use]
+    pub fn cleanup_phase_timings(&self) -> &[CleanupPhaseTiming] {
+        &self.cleanup_phase_timings
+    }
+
     /// Independently observes every registered direct root.
     ///
     /// Observer failure and birth-identity mismatch are represented as
     /// `Unresolved`; neither can collapse to an empty process set.
     #[must_use]
     pub fn observe(&mut self) -> ObservationSnapshot {
+        self.observe_with_deadline(Instant::now() + Duration::from_secs(60))
+    }
+
+    fn observe_with_deadline(&mut self, deadline: Instant) -> ObservationSnapshot {
         let mut unresolved_survivors = Vec::new();
         let mut roots = Vec::with_capacity(self.roots.len());
         let mut unidentified_roots = Vec::with_capacity(self.unidentified_roots.len());
         let mut diagnostics = Vec::new();
 
         for root in &mut self.roots {
-            let observed = match self
-                .adapter
-                .observe_root(&mut root.process_handle, &root.identity)
-            {
+            let observed = match self.adapter.observe_root_bounded(
+                &mut root.process_handle,
+                &root.identity,
+                deadline,
+            ) {
                 Ok(observed) => observed,
                 Err(error) => {
-                    diagnostics.push(format!(
-                        "observe root {} failed: {error}",
-                        root.identity.birth_identity
-                    ));
+                    push_cleanup_diagnostic(
+                        &mut diagnostics,
+                        format!(
+                            "observe root {} failed: {error}",
+                            root.identity.birth_identity
+                        ),
+                    );
                     ExitState::Unresolved
                 }
             };
@@ -1165,14 +1364,17 @@ impl<A: PlatformAdapter> Supervisor<A> {
         for mut root in self.unidentified_roots.drain(..) {
             let observed = match self
                 .adapter
-                .observe_unidentified_root(&mut root.process_handle)
+                .observe_unidentified_root_bounded(&mut root.process_handle, deadline)
             {
                 Ok(observed) => observed,
                 Err(error) => {
-                    diagnostics.push(format!(
-                        "observe unidentified root pid {} failed: {error}",
-                        root.process_handle.diagnostic_pid()
-                    ));
+                    push_cleanup_diagnostic(
+                        &mut diagnostics,
+                        format!(
+                            "observe unidentified root pid {} failed: {error}",
+                            root.process_handle.diagnostic_pid()
+                        ),
+                    );
                     ExitState::Unresolved
                 }
             };
@@ -1186,7 +1388,9 @@ impl<A: PlatformAdapter> Supervisor<A> {
             retained_unidentified.push(root);
         }
         self.unidentified_roots = retained_unidentified;
-        self.cleanup_diagnostics.extend(diagnostics);
+        for diagnostic in diagnostics {
+            push_cleanup_diagnostic(&mut self.cleanup_diagnostics, diagnostic);
+        }
 
         ObservationSnapshot {
             generation: self.generation,
@@ -1205,6 +1409,11 @@ impl<A: PlatformAdapter> Supervisor<A> {
     /// Causes owner loss immediately after paused root creation on the next launch.
     pub fn inject_owner_loss_during_launch_once(&mut self) {
         self.inject_owner_loss_during_launch = true;
+    }
+
+    /// Installs a latch that pauses the next launch after paused-root creation.
+    pub fn arm_owner_loss_interleave(&mut self, latch: Arc<LaunchInterleaveLatch>) {
+        self.launch_interleave_latch = Some(latch);
     }
 
     fn take_registration_failure(&mut self) -> bool {
@@ -1238,25 +1447,32 @@ impl<A: PlatformAdapter> Supervisor<A> {
     }
 }
 
-fn inference_generations() -> &'static Mutex<HashSet<GenerationId>> {
-    LIVE_INFERENCE_GENERATIONS.get_or_init(|| Mutex::new(HashSet::new()))
+fn inference_generations() -> &'static Mutex<HashMap<GenerationId, String>> {
+    LIVE_INFERENCE_GENERATIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn inference_generation_is_blocked(generation: GenerationId) -> bool {
+fn inference_generation_is_blocked(generation: GenerationId, authority_nonce: &str) -> bool {
     inference_generations().lock().map_or(true, |generations| {
-        generations.iter().any(|other| *other != generation)
+        generations
+            .iter()
+            .any(|(other, nonce)| *other != generation || nonce != authority_nonce)
     })
 }
 
-fn mark_inference_generation_live(generation: GenerationId) {
+fn mark_inference_generation_live(generation: GenerationId, authority_nonce: &str) {
     if let Ok(mut generations) = inference_generations().lock() {
-        generations.insert(generation);
+        generations.insert(generation, authority_nonce.to_owned());
     }
 }
 
-fn unmark_inference_generation(generation: GenerationId) {
+fn unmark_inference_generation(generation: GenerationId, authority_nonce: &str) {
     if let Ok(mut generations) = inference_generations().lock() {
-        generations.remove(&generation);
+        if generations
+            .get(&generation)
+            .is_some_and(|nonce| nonce == authority_nonce)
+        {
+            generations.remove(&generation);
+        }
     }
 }
 
@@ -1279,7 +1495,12 @@ fn cleanup_survivors(
             .filter(|root| root.exit_state != ExitState::Exited)
             .map(|root| root.identity.clone()),
     );
-    survivors.extend(termination_failures);
+    survivors.extend(termination_failures.into_iter().filter(|identity| {
+        !snapshot
+            .roots
+            .iter()
+            .any(|root| root.identity == *identity && root.exit_state == ExitState::Exited)
+    }));
     survivors.sort_by(|left, right| left.birth_identity.cmp(&right.birth_identity));
     survivors.dedup();
     survivors
@@ -1300,12 +1521,37 @@ fn cleanup_reason(
         .iter()
         .map(|root| root.diagnostic_pid.to_string())
         .collect::<Vec<_>>();
-    format!(
+    let reason = format!(
         "generation {generation}: independent cleanup observation unresolved; surviving identities=[{}]; unidentified diagnostic pids=[{}]; diagnostics=[{}]",
         unresolved.join(","),
         unidentified.join(","),
         diagnostics.join("; ")
-    )
+    );
+    if reason.len() <= MAX_CLEANUP_REASON_BYTES {
+        return reason;
+    }
+    let mut truncated = reason;
+    let mut limit = MAX_CLEANUP_REASON_BYTES - 32;
+    while !truncated.is_char_boundary(limit) {
+        limit -= 1;
+    }
+    truncated.truncate(limit);
+    truncated.push_str("; diagnostics=[truncated]");
+    truncated
+}
+
+fn push_cleanup_diagnostic(diagnostics: &mut Vec<String>, diagnostic: String) {
+    if diagnostics.iter().any(|existing| existing == &diagnostic) {
+        return;
+    }
+    if diagnostics.len() >= MAX_CLEANUP_DIAGNOSTICS {
+        return;
+    }
+    let current_bytes = diagnostics.iter().map(String::len).sum::<usize>();
+    if current_bytes.saturating_add(diagnostic.len()) > MAX_CLEANUP_REASON_BYTES {
+        return;
+    }
+    diagnostics.push(diagnostic);
 }
 
 fn unix_epoch_millis() -> u128 {
