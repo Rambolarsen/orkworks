@@ -174,16 +174,24 @@ function requireMetadata({ value, name, version, payloadName, assetsByName }) {
   }
 }
 
-export function validatePublishedRelease({
+export function validateReleaseIntegrity({
   release,
   sourceSha,
   expectedAssetNames,
   tagTargetSha,
   downloadedAssets,
+  requiredDraft,
 }) {
   sourceMarker(sourceSha);
-  if (!release || typeof release !== "object" || release.draft !== false || release.prerelease !== true) {
-    throw new Error("nightly must be a published prerelease");
+  if (
+    !release
+    || typeof release !== "object"
+    || release.draft !== requiredDraft
+    || release.prerelease !== true
+  ) {
+    throw new Error(requiredDraft
+      ? "nightly must be an unpublished draft prerelease"
+      : "nightly must be a published prerelease");
   }
   const version = requireNightlyTag(release.tag_name);
   if (tagTargetSha !== sourceSha) {
@@ -263,6 +271,10 @@ export function validatePublishedRelease({
   });
 
   return { release, sourceSha, tag: release.tag_name, version };
+}
+
+export function validatePublishedRelease(options) {
+  return validateReleaseIntegrity({ ...options, requiredDraft: false });
 }
 
 function sha256(value) {
@@ -387,6 +399,10 @@ async function readTag({ repository, token, tag, fetchImpl }) {
     throw new Error(`GitHub annotated tag ${tag} has an invalid target`);
   }
   return annotated.object.sha;
+}
+
+export async function getTagTarget(options) {
+  return readTag({ ...options, fetchImpl: options.fetchImpl ?? fetch });
 }
 
 export async function ensureTagAtSource({ repository, token, tag, sourceSha, fetchImpl = fetch }) {
