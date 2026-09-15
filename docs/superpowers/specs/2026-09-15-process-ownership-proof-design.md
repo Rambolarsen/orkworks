@@ -1,6 +1,6 @@
 # Process Ownership Proof Design
 
-Status: revised draft for issue #545; fixture and mechanism-selection work only
+Status: revised draft for issue #545; Task 7 evidence recorded, production integration blocked
 
 Tracking: [issue #545](https://github.com/Rambolarsen/orkworks/issues/545)
 
@@ -69,6 +69,16 @@ control and failure transitions. The fixture is necessary but not sufficient:
 the eventual production implementation must route the actual PTY and inference
 launch seams through the proven boundary before #545 can be closed. Production
 multi-workspace cleanup and recovery remain later tasks.
+
+Task 7 records a bounded ruling rather than a production selection. The Windows
+Job Object fixture is demonstrated by a hosted native run with all eight
+`windows_job` tests passing, including suspended registration, breakaway
+rejection, handle inheritance checks, and actual `TerminateProcess` parent
+termination. No macOS or portable-Linux native owner mechanism passed the
+required matrix: macOS launch-dependent rows are rejected or unsupported by the
+host adapter, and no native Linux runtime was available. The Windows result is
+therefore fixture evidence only and cannot close the cross-platform or
+production gates.
 
 ### Windows hypothesis
 
@@ -208,6 +218,34 @@ private prompts.
   and checked by the supervisor for the prepared generation.
 - No unavailable-runtime cleanup or automatic recovery may report success until
   the native evidence and the corresponding ADR 0056 update are complete.
+
+## Task 7 evidence ruling
+
+The canonical matrix is the fixture-local
+[`evidence/matrix.json`](../../../crates/process-ownership-fixture/evidence/matrix.json),
+with one row for each of the 16 required scenarios on Windows, macOS, and
+portable Linux. The companion evidence record copies the exact commands and
+records the result vocabulary (`pass`, `accepted`, `unsupported`, or
+`unresolved`). A `pass` is reserved for rows with independent native
+observation and forced-parent proof; contract-only rows use `accepted` and do
+not claim OS containment.
+
+The matrix contains five Windows native passes from the hosted 8/8 run, ten
+platform-neutral or fixture-contract acceptances, one unresolved macOS
+production-seam audit row, and 32 unsupported rows. The counts are deliberately
+not inflated by the macOS six-test candidate rejection, the 47-test fixture
+run, or the 14 launch-dependent Task 5 skips. Task 4's rejection of
+ProcessGroup, RegisteredRoot, and launchd candidates remains parked. Task 5's
+launch-dependent rows remain skipped; its foreign-owner helper is a heartbeat
+thread rather than an independent scheduler process, and the compatibility
+adapter's inability to forcibly cancel an arbitrary blocking external adapter
+call remains a fixture qualification.
+
+Task 6 found direct production roots for the Electron sidecar, PTY, provider
+and inference runners, discovery, and harness probes outside the proven owner
+boundary. No `processSupervisor.ts` or `process_ownership.rs` was added. Issue
+#545 remains open until a native Unix mechanism is demonstrated and every
+production root is routed through an accepted owner boundary.
 
 ## References
 

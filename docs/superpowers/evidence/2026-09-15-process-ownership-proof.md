@@ -1,168 +1,172 @@
-# Process ownership proof — Task 6 production seam evidence
+# Process ownership proof — Task 7 evidence and status
 
-Status: Task 6 audit complete; production integration remains gated. This
-record is durable evidence for the fixture findings and the production seam
-audit. It does not implement runtime recovery, multi-workspace replacement, a
-supervisor, or an ADR decision.
+Status: evidence validation complete; issue #545 remains open.
 
-## Decision boundary
+This record consolidates the fixture and production-seam evidence from Tasks
+1–6. It is evidence only: it does not implement runtime recovery,
+multi-workspace replacement, a production supervisor, or an ADR decision.
 
-The Task 1–5 fixture direction is a native owner outside Electron's kill
-domain. It must authorize every process root, register the root before
-release/execute, freeze admission on owner-channel loss, clean only registered
-roots within bounded graceful and forced phases, and return an authenticated
-complete-exit or unresolved receipt. Persisted PIDs, names, paths, released
-leases, sidecar-held PTY handles, and unproven process groups are not ownership
-authority.
+## Outcome
 
-Task 3's Windows Job Object mechanism is accepted as fixture evidence after
-the hosted native run. Task 4 rejected the macOS/portable-Unix candidates.
-Task 5 accepted the strengthened fixture race/cleanup/foreign-owner semantics
-with its documented launch-dependent platform limits. These results do not
-yet authorize production integration because there is no demonstrated
-cross-platform production boundary.
+The fixture has a complete 48-row matrix: 16 required scenarios × Windows,
+macOS, and portable Linux. The validator requires every scenario/platform row
+and rejects incomplete rows. It also requires every `pass` to name independent
+observation and forced-parent proof, and every `unsupported` or
+`unresolved` row to give a concrete reason.
 
-## Fixture evidence ledger
+- **5 pass rows:** Windows Job Object native fixture rows.
+- **10 accepted rows:** platform-neutral protocol or fixture-contract evidence;
+  these are not native containment passes.
+- **1 unresolved row:** macOS production launch-seam audit.
+- **32 unsupported rows:** unavailable native runtime, rejected macOS launch
+  path, or unrun platform-specific coverage.
 
-| Evidence | Mechanism | Host / architecture / mode | Exact command | Parent termination / identities / containment | Result and limits |
-| --- | --- | --- | --- | --- | --- |
-| Task 1 protocol | Authenticated one-use ticket, generation/role/executable/request-nonce binding, receipt validation | Fixture scope; platform-neutral contract | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol` (recorded in Task 1 report) | Protocol-level identity and authorization only; no OS containment | Accepted contract fixture; not a native process proof. |
-| Task 2 adapter | Ticketed admission and registration adapter | Fixture scope; platform-neutral adapter | Task 2 focused commands recorded in `task-2-report.md` | Adapter seam only; no kernel-bound owner | Accepted as a contract seam with parked platform/cleanup gaps. |
-| Task 3 Windows | Private unnamed Job Object, kill-on-close, suspended registration, retained process handles and creation-time identities | Hosted Windows Server 2025 x64 MSVC, native runtime; GitHub Actions run `34995897012`, job `104471969730` | `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job` | Forced Electron-like parent termination; 8 discovered, 8 passed; independent Job Object census and retained native identities | Accepted Windows native fixture mechanism. It covers the fixture topology, not production or Unix. |
-| Task 4 Unix candidates | `ProcessGroup`, `RegisteredRoot`, and `Launchd` candidates | macOS Darwin 25.6.0 arm64; fixture host | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | No candidate launched; no macOS PTY EPERM or native launchd run | Rejected/unsupported: no kernel-bound identity proof against PID/PGID reuse; launchd lifecycle remained untested. The six rejection tests passed. |
-| Task 5 cleanup matrix | Foreign advisory lease, generation barriers, owner-loss race, bounded cleanup and receipts | macOS Darwin 25.6.0 arm64; 4 applicable rows, 14 launch-dependent rows skipped | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | 5 s graceful plus 5 s forced phase in the fixture; survivors remain unresolved; foreign state is observed independently | 4 applicable tests passed. Launch-dependent native rows were skipped because the Task 4 host adapter rejects the native launch path. |
-| Task 5 full fixture | Same as above | macOS Darwin 25.6.0 arm64 | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml` (twice) | No native Unix/Windows runtime claim | 47 integration tests passed on both runs; platform limits and two parked proof gaps remain in `task-5-report.md`. |
+The canonical machine-readable matrix is
+[crates/process-ownership-fixture/evidence/matrix.json](../../../crates/process-ownership-fixture/evidence/matrix.json),
+validated by
+[crates/process-ownership-fixture/tests/evidence.rs](../../../crates/process-ownership-fixture/tests/evidence.rs).
 
-### Accepted and rejected mechanisms
+## Native and fixture findings
 
-- Accepted for fixture evidence: Windows Job Object ownership with suspended
-  registration, retained native handles/creation identities, independent
-  census, breakaway rejection, non-inheritable handles, and forced parent
-  termination. The hosted run is the source for the 8/8 native result.
-- Rejected for production selection: portable Unix process groups and
-  registered-root/PID cleanup, because they cannot prove ownership against
-  reuse or unobserved descendants; macOS `launchd`, because its lifecycle was
-  not tested as a complete owner boundary.
-- Not selected: a fixture-only generic adapter as a production implementation.
-  It does not supply a native, cross-platform, crash-surviving owner by itself.
+Windows is the only demonstrated native ownership mechanism. Hosted GitHub
+Actions run `34995897012` executed the exact `windows_job` command on
+Windows Server 2025 x64 MSVC and passed all 8/8 tests. Those tests cover
+suspended registration, Job Object kill-on-close, PTY-like and nested
+descendants, breakaway rejection, non-inheritable handles, registration
+failure, and actual `TerminateProcess` parent termination. The fixture
+proves the Windows mechanism for its topology; it does not prove production
+routing or Unix behavior.
 
-### Parked fixture gaps
+On macOS, Task 4 ran six candidate-rejection tests successfully. No candidate
+launched: the host adapter rejects the native `setsid`/PTY launch path, and
+the `launchd` lifecycle was not tested. Task 5's macOS run passed 47 fixture
+integration tests, with 4 applicable tests and 14 launch-dependent tests
+skipped. The portable Unix candidates are not a macOS substitute.
 
-- Task 5 parks proof that cleanup acknowledgement is serialized against an
-  in-flight paused launch; the cleanup thread currently waits for owner loss
-  to complete.
-- Task 5 parks the encoded framing bound: survivor/reason limits count raw
-  bytes rather than escaped JSON bytes, and escaped-identity coverage remains
-  required.
-- Native macOS and portable-Linux owner mechanisms remain unresolved. No
-  launch-dependent Task 4/5 row is converted into a pass by the macOS fixture
-  result.
+No native Linux runtime was available in this checkout. Linux rows therefore
+remain unsupported; no Linux result is inferred from macOS or Windows.
 
-## Production seam status
+Task 5's parked qualifications remain explicit: the foreign-owner helper uses
+a heartbeat thread rather than an independent scheduler process; the
+compatibility adapter cannot forcibly cancel an arbitrary blocking external
+adapter call; and the prior framing qualification requires escaped-identity
+coverage because bounds were reasoned before final JSON escaping. The
+paused-launch race is covered by the final serialized latch test in the Task 5
+report; it is not converted into native platform proof.
 
-| Production surface | Exact location | Status against fixture boundary |
-| --- | --- | --- |
-| Electron sidecar launch | `apps/desktop/electron/main.ts:574-588`, direct `spawn` at `:580` | **Open blocker.** Direct Electron child; no external owner, launch ticket, registration, parent-loss channel, or receipt. |
-| Electron lifecycle and cleanup | `apps/desktop/electron/sidecarLifecycle.ts:5-20,87-110,175-239,242-276`; `main.ts:1260-1277` | **Open blocker.** In-memory stale-event generations and one-shot `kill()`/retry do not prove descendant cleanup or forced-parent recovery. |
-| PTY root | `crates/orkworksd/src/runtime/session_runtime.rs:817-888`, `pair.slave.spawn_command(cmd)` at `:882` | **Open blocker.** The PTY child executes before owner registration; sidecar memory retains a killer/wait task only. |
-| Provider runner | `crates/orkworksd/src/providers.rs:847-908`, direct callback `cmd.spawn()` at `:892-894` | **Open blocker.** Unix process group and the Windows per-invocation Job are local invocation controls, not sidecar-wide ownership. |
-| Custom inference | `crates/orkworksd/src/taskmaster/runtime/inference.rs:238-270`; `providers/custom_inference.rs:159-173` | **Partial local protection.** It uses `ProcessRunner`, and `providers.rs:916-945` attaches a Windows `ProcessJob` for that invocation. It still lacks sidecar-wide registration/admission and does not cover PTY, discovery, or other roots. |
-| Native inference | `crates/orkworksd/src/providers/inference.rs:307-323`; `providers.rs:1838-1866` | **Open blocker.** Version probe and CLI execution use local `ProcessRunner`; no surviving owner generation/barrier. Ollama HTTP is not a process root. |
-| Provider discovery | `crates/orkworksd/src/providers.rs:2184-2205,2275-2300` | **Open blocker.** List-models and Codex app-server discovery spawn directly outside the owner boundary. |
-| Harness detection | `crates/orkworksd/src/harness/detect.rs:99-145`, spawn at `:125` | **Open blocker for complete inventory.** `kill_on_drop` bounds the short probe, but it is not registered with a sidecar owner. |
-| Stale PTY metadata | `crates/orkworksd/src/main.rs:183-190`; `session_application.rs:2249-2267`; `metadata.rs:673-708` | **Open blocker.** Ephemeral diagnostic PIDs and missing in-memory handles cause orphan reconciliation to mark metadata ended without owner evidence; unresolved liveness is not represented. |
+## Required matrix
 
-`ProcessJob` is therefore insufficient as the production boundary: it is
-private, per-provider-invocation, Windows-only, and absent from the PTY,
-discovery, sidecar, and complete generation lifecycle.
+| Scenario | Platform | Mechanism | Host | Architecture | Build mode | Exact test command | Forced-parent termination | Native identities | Containment observation | Cleanup latency (ms) | Result | Survivors / reason |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- |
+| Normal owner loss | windows | private Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job` | proof: actual TerminateProcess parent kill in the same hosted 8/8 native run | GetProcessTimes creation-time identities plus retained process handles | independent QueryInformationJobObject census reached zero; diagnostic PIDs were not authority | 10000 | **pass** | none observed after independent Job Object census |
+| Normal owner loss | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Normal owner loss | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Sidecar crashes first | windows | private Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job` | proof: actual TerminateProcess parent kill in the same hosted 8/8 native run | GetProcessTimes creation-time identities plus retained process handles | independent QueryInformationJobObject census reached zero; diagnostic PIDs were not authority | 10000 | **pass** | none observed after independent Job Object census |
+| Sidecar crashes first | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Sidecar crashes first | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Registration or containment failure | windows | fixture supervisor admission/cleanup contract | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job` | not exercised by the recorded host run; no forced-parent claim | fixture identities/diagnostic observations only; no native cross-platform claim | independent fixture observation of the contract path; native launch path was not exercised | 0 | **accepted** | not applicable to native containment<br>Reason: fixture contract/race evidence only; no native platform proof for this row |
+| Registration or containment failure | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Registration or containment failure | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Admission races with owner loss | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 5 launch-dependent matrix rows were not run on a native Windows host in this checkout; the hosted run covered only the eight windows_job rows |
+| Admission races with owner loss | macos | fixture supervisor admission/cleanup contract | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not exercised by the recorded host run; no forced-parent claim | fixture identities/diagnostic observations only; no native cross-platform claim | independent fixture observation of the contract path; native launch path was not exercised | 0 | **accepted** | not applicable to native containment<br>Reason: fixture contract/race evidence only; no native platform proof for this row |
+| Admission races with owner loss | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| PTY creates a separate session/group | windows | private Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job` | proof: actual TerminateProcess parent kill in the same hosted 8/8 native run | GetProcessTimes creation-time identities plus retained process handles | independent QueryInformationJobObject census reached zero; diagnostic PIDs were not authority | 10000 | **pass** | none observed after independent Job Object census |
+| PTY creates a separate session/group | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| PTY creates a separate session/group | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Forked, new-group, daemonized, reparented, or silent descendant | windows | private Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job` | proof: actual TerminateProcess parent kill in the same hosted 8/8 native run | GetProcessTimes creation-time identities plus retained process handles | independent QueryInformationJobObject census reached zero; diagnostic PIDs were not authority | 10000 | **pass** | none observed after independent Job Object census |
+| Forked, new-group, daemonized, reparented, or silent descendant | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Forked, new-group, daemonized, reparented, or silent descendant | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Owned child ignores graceful cleanup | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 5 launch-dependent matrix rows were not run on a native Windows host in this checkout; the hosted run covered only the eight windows_job rows |
+| Owned child ignores graceful cleanup | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Owned child ignores graceful cleanup | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Supervisor dies while descendants remain | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 5 launch-dependent matrix rows were not run on a native Windows host in this checkout; the hosted run covered only the eight windows_job rows |
+| Supervisor dies while descendants remain | macos | fixture supervisor admission/cleanup contract | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not exercised by the recorded host run; no forced-parent claim | fixture identities/diagnostic observations only; no native cross-platform claim | independent fixture observation of the contract path; native launch path was not exercised | 0 | **accepted** | not applicable to native containment<br>Reason: fixture contract/race evidence only; no native platform proof for this row |
+| Supervisor dies while descendants remain | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Foreign owner holds the workspace lease | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 5 launch-dependent matrix rows were not run on a native Windows host in this checkout; the hosted run covered only the eight windows_job rows |
+| Foreign owner holds the workspace lease | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Foreign owner holds the workspace lease | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Forged, replayed, stale, or cross-generation ticket | windows | authenticated generation-bound fixture protocol | Darwin 25.6.0 (platform-neutral contract execution) | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol` | not applicable: protocol-only; native proof is separately recorded in windows/forced-electron-termination | protocol NativeIdentity validation only; no OS identity claim | protocol validation only; independent OS containment is not claimed | 0 | **accepted** | not applicable to native containment<br>Reason: platform-neutral protocol test executed on the macOS host; no native containment claim |
+| Forged, replayed, stale, or cross-generation ticket | macos | authenticated generation-bound fixture protocol | Darwin 25.6.0 (platform-neutral contract execution) | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol` | not applicable: protocol-only; native proof is separately recorded in windows/forced-electron-termination | protocol NativeIdentity validation only; no OS identity claim | protocol validation only; independent OS containment is not claimed | 0 | **accepted** | not applicable to native containment<br>Reason: platform-neutral protocol test executed on the macOS host; no native containment claim |
+| Forged, replayed, stale, or cross-generation ticket | linux | authenticated generation-bound fixture protocol | Darwin 25.6.0 (platform-neutral contract execution) | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol` | not applicable: protocol-only; native proof is separately recorded in windows/forced-electron-termination | protocol NativeIdentity validation only; no OS identity claim | protocol validation only; independent OS containment is not claimed | 0 | **accepted** | not applicable to native containment<br>Reason: platform-neutral protocol test executed on the macOS host; no native containment claim |
+| Late obsolete-generation event | windows | authenticated generation-bound fixture protocol | Darwin 25.6.0 (platform-neutral contract execution) | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol` | not applicable: protocol-only; native proof is separately recorded in windows/forced-electron-termination | protocol NativeIdentity validation only; no OS identity claim | protocol validation only; independent OS containment is not claimed | 0 | **accepted** | not applicable to native containment<br>Reason: platform-neutral protocol test executed on the macOS host; no native containment claim |
+| Late obsolete-generation event | macos | authenticated generation-bound fixture protocol | Darwin 25.6.0 (platform-neutral contract execution) | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol` | not applicable: protocol-only; native proof is separately recorded in windows/forced-electron-termination | protocol NativeIdentity validation only; no OS identity claim | protocol validation only; independent OS containment is not claimed | 0 | **accepted** | not applicable to native containment<br>Reason: platform-neutral protocol test executed on the macOS host; no native containment claim |
+| Late obsolete-generation event | linux | authenticated generation-bound fixture protocol | Darwin 25.6.0 (platform-neutral contract execution) | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol` | not applicable: protocol-only; native proof is separately recorded in windows/forced-electron-termination | protocol NativeIdentity validation only; no OS identity claim | protocol validation only; independent OS containment is not claimed | 0 | **accepted** | not applicable to native containment<br>Reason: platform-neutral protocol test executed on the macOS host; no native containment claim |
+| Immediate relaunch | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 5 launch-dependent matrix rows were not run on a native Windows host in this checkout; the hosted run covered only the eight windows_job rows |
+| Immediate relaunch | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Immediate relaunch | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Forced Electron termination | windows | private Windows Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job` | proof: actual TerminateProcess parent kill in the same hosted 8/8 native run | GetProcessTimes creation-time identities plus retained process handles | independent QueryInformationJobObject census reached zero; diagnostic PIDs were not authority | 10000 | **pass** | none observed after independent Job Object census |
+| Forced Electron termination | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Forced Electron termination | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Two open generations A and B | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 5 launch-dependent matrix rows were not run on a native Windows host in this checkout; the hosted run covered only the eight windows_job rows |
+| Two open generations A and B | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Two open generations A and B | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Inference admission while an older root survives | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 5 launch-dependent matrix rows were not run on a native Windows host in this checkout; the hosted run covered only the eight windows_job rows |
+| Inference admission while an older root survives | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: macOS Task 4 adapter rejects the native launch path before target execution; no launchd lifecycle or setsid/reparenting proof was produced |
+| Inference admission while an older root survives | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No native Linux runtime was available in this checkout; portable Unix evidence cannot substitute for macOS or native Linux ownership proof |
+| Production launch-seam audit | windows | Windows fixture mechanism not applicable to this unrun matrix row | GitHub Actions Windows Server 2025 | x86_64-pc-windows-msvc | dev profile | `/opt/homebrew/bin/rg -n "Command::spawn\|portable_pty\|spawn\\(" crates/orkworksd/src apps/desktop/electron` | not run for this row; only the forced-electron-termination row has native TerminateProcess proof | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: Task 6 audit was performed on macOS only; production seams remain unintegrated and Windows fixture proof does not establish production routing |
+| Production launch-seam audit | macos | ProcessGroup / RegisteredRoot / launchd candidates (rejected or unsupported) | Darwin 25.6.0 | aarch64-apple-darwin | debug profile | `/opt/homebrew/bin/rg -n "Command::spawn\|portable_pty\|spawn\\(" crates/orkworksd/src apps/desktop/electron` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unresolved** | not observed because the native scenario did not execute<br>Reason: Task 6 static audit found direct production roots outside any proven owner boundary; no production adapter exists |
+| Production launch-seam audit | linux | portable Unix candidates (not run) | not available in this checkout | not available | not run | `/opt/homebrew/bin/rg -n "Command::spawn\|portable_pty\|spawn\\(" crates/orkworksd/src apps/desktop/electron` | not run: native forced-parent runtime unavailable | none for this row; no native runtime observation recorded | no independent native containment observation; result is not a pass | 0 | **unsupported** | not observed because the native scenario did not execute<br>Reason: No Linux production audit was run in this checkout; macOS audit already found direct roots and the gap remains open |
 
-## Facts, inferences, and open risks
+Latency semantics: `cleanup_latency_ms` is `10000` for native pass rows
+because prior reports emitted the supervisor's configured five-second graceful
+plus five-second forced bound but no per-row timing. `0` means no per-row
+measurement was emitted; it is not a zero-latency claim.
 
-### Facts
+## Production seam audit
 
-- Production has no `processSupervisor.ts` or `process_ownership.rs`.
-- The sidecar exposes a dynamic localhost port, not an authenticated owner
-  rendezvous or complete-exit receipt.
-- Current cleanup covers write/read/wait error paths and invocation timeouts
-  locally, but not a sidecar crash or an owner that outlives Electron.
-- `session_pids` stores only a `u32` PTY PID for cwd probing and is removed when
-  session tracking clears; it is not a birth identity or ownership record.
-- The required Node lifecycle/restoration tests passed 24/24 on this host.
-- The focused harness/detect tests passed 21/21; no harness/detect failure
-  occurred in the recorded baseline runs.
+Task 6 found no production owner boundary. Direct or bypassable roots remain
+at:
 
-### Inferences
+- Electron sidecar launch: `apps/desktop/electron/main.ts:574-588`.
+- PTY root: `crates/orkworksd/src/runtime/session_runtime.rs:817-888`.
+- Provider runner and custom inference callback:
+  `crates/orkworksd/src/providers.rs:847-945` and
+  `crates/orkworksd/src/taskmaster/runtime/inference.rs:238-270`.
+- Native inference and discovery:
+  `crates/orkworksd/src/providers/inference.rs:307-323`,
+  `crates/orkworksd/src/providers.rs:1838-1866,2184-2205,2275-2300`.
+- Harness version probe: `crates/orkworksd/src/harness/detect.rs:99-145`.
 
-- A crashed sidecar can leave a PTY or provider descendant alive while startup
-  reconciliation classifies its persisted session as ended. That is a
-  false-empty basis for cleanup/recovery under the fixture contract.
-- A local Windows Job or Unix process group can protect one invocation while
-  its owning sidecar is alive, but cannot prove whole-workspace ownership or
-  cleanup after the sidecar/Electron parent disappears.
-- Existing runtime/backend generations reject stale responses but do not block
-  a replacement generation on proof that old OS roots have exited.
+The existing Windows `ProcessJob` is private and per-provider-invocation;
+it does not cover the sidecar, PTY, discovery, all inference roots, or a
+surviving owner after Electron termination. No `processSupervisor.ts` or
+`process_ownership.rs` was added.
 
-### Open risks
+## Exact verification sources
 
-- No production adapter can be added without first selecting and demonstrating
-  a native mechanism for macOS/portable Unix as well as Windows.
-- Every direct production root in the seam table must be routed through one
-  mandatory owner adapter; routing only `ProcessRunner` would leave bypasses.
-- Task 5's two fixture gaps and the native platform limits remain prerequisites
-  for a complete evidence/ADR decision.
+- `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test protocol`
+  — Task 1 protocol coverage.
+- `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture`
+  — macOS Task 4: 6 rejection tests passed; no candidate launched.
+- `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test cleanup_matrix -- --nocapture`
+  — macOS Task 5: 4 applicable passed; 14 launch-dependent skipped.
+- `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml`
+  — macOS Task 5: 47 integration tests passed on both recorded runs.
+- `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job`
+  — hosted Windows: 8/8 native tests passed.
+- `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test evidence`
+  — Task 7 validator: 1 passed.
+- `/opt/homebrew/bin/rg -n "Command::spawn|portable_pty|spawn(\\()" crates/orkworksd/src apps/desktop/electron`
+  — Task 6 static production seam audit.
 
-## Verification limits and exact commands
+The Task 6 Rust baseline remains a pre-existing failure:
+`1266 passed, 1 failed, 3 ignored`, in
+`providers::tests::process_runner_cleans_up_provider_that_closes_stdin_during_prompt_write`
+(`providers.rs:3665`, expected broken-pipe prompt-write error, got timeout).
+The sandbox variant also had 9 PermissionDenied setup failures; those are
+environment limitations, not evidence of this task. Focused harness/detect
+tests passed 21/21, the Electron lifecycle/restoration tests passed 24/24,
+and `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check` passed.
 
-Task 6 audit host: macOS Darwin 25.6.0 arm64 (`aarch64-apple-darwin`), Rust
-1.96.0, Cargo dev profile. The following commands were run from the provided
-worktree.
+## Decision and issue status
 
-```text
-/opt/homebrew/bin/rg -n "Command::spawn|portable_pty|spawn\(" crates/orkworksd/src apps/desktop/electron
-exit 0; direct production seams enumerated above
+ADR 0056 remains `proposed`, amended only with demonstrated Windows fixture
+facts and explicit Unix/production limitations. Issue #545 remains open:
+Windows fixture evidence is recorded, but macOS/native-Linux mechanism proof
+and the complete production seam audit/integration gate are unresolved.
 
-cargo test --manifest-path crates/orkworksd/Cargo.toml
-exit 101; 1266 passed, 1 failed, 3 ignored
-failure: providers::tests::process_runner_cleans_up_provider_that_closes_stdin_during_prompt_write
-at crates/orkworksd/src/providers.rs:3665: expected broken-pipe prompt-write error, got "timed out"
-elapsed: 74.55s
-
-set -o pipefail; cargo test --manifest-path crates/orkworksd/Cargo.toml 2>&1 | tail -100
-exit 101; 1258 passed, 9 failed, 3 ignored
-the 9 failures were PermissionDenied setup failures in provider/server-backed
-tests under the default sandbox; no harness/detect test failed
-elapsed: 74.05s
-
-set -o pipefail; cargo test --manifest-path crates/orkworksd/Cargo.toml 2>&1 | tail -120
-exit 101; 1266 passed, 1 failed, 3 ignored
-run with sandbox restriction lifted; same ProcessRunner prompt-write failure
-elapsed: 75.12s
-
-cargo test --manifest-path crates/orkworksd/Cargo.toml harness::detect::tests -- --nocapture
-exit 0; 21 passed, 0 failed, 0 ignored, 1249 filtered out
-elapsed: 3.11s
-
-cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
-exit 0
-
-cd apps/desktop && node --experimental-strip-types --test tests/sidecarLifecycle.test.ts tests/backendRestoration.test.ts
-exit 0; 24 passed, 0 failed, 0 skipped, 0 todo
-elapsed: 91.40ms
-
-git diff --check
-exit 0 after the audit changes
-```
-
-The full elevated baseline is the reliable count for this host: one existing
-ProcessRunner prompt-write test fails. The non-elevated 9-failure result is
-retained as a sandbox limit, not merged into the code-failure count. No npm
-install or dependency download was attempted in this fix round. No production
-runtime test can prove the missing owner boundary; the 24 Node tests cover the
-existing lifecycle/restoration controller only.
-
-## Changed files in Task 6 fix round 1
-
-- `docs/superpowers/evidence/2026-09-15-process-ownership-proof.md`
-- `.superpowers/sdd/2026-09-15-process-ownership-proof/task-6-report.md`
-
-No files under `apps/desktop/electron/` or `crates/orkworksd/src/` changed.
+Issue URL: https://github.com/Rambolarsen/orkworks/issues/545
+Issue comment result: attempted after commit `7c1e5f4` with `rtk gh issue
+comment 545 --body ...`; exit 1, `error connecting to api.github.com` /
+`check your internet connection or https://githubstatus.com`. No comment URL
+was produced. The issue remains explicitly open.

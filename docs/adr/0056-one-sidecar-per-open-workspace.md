@@ -85,3 +85,27 @@ Native crash-surviving containment/supervision must be selected, demonstrated,
 and recorded here before implementing unavailable-runtime cleanup or recovery;
 the specification defines the required registration and exit acknowledgements,
 including cleanup after unexpected Electron exit before relaunch adoption.
+
+## Amendment — 2026-09-15: process-ownership proof remains an open gate
+
+Task 7 records the evidence required by the proposed multi-workspace decision.
+The fixture demonstrated a private Windows Job Object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, suspended registration before target
+execution, retained creation-time identities, independent Job Object census,
+breakaway rejection, non-inheritable authority handles, and actual
+`TerminateProcess` termination of the Electron-like parent. The hosted native
+run passed all 8 of 8 `windows_job` tests on Windows Server 2025 x64 MSVC.
+
+This is fixture evidence, not production integration and not a cross-platform
+selection. The Task 4 ProcessGroup, RegisteredRoot, and launchd candidates did
+not produce a native macOS proof; portable Linux native runtime evidence is
+also absent. The macOS launch-dependent rows were rejected or unsupported by
+the host adapter, and Task 5 retained its documented skipped-row and fixture
+qualifications. Task 6 found the production Electron, PTY, provider,
+inference, discovery, and harness roots outside this boundary.
+
+Accordingly, the ADR remains `proposed`. No production recovery, replacement,
+or adoption behavior is authorized by this amendment. Before this proposal can
+support those behaviors, a native Unix mechanism must pass the complete matrix
+and every production root must route through the demonstrated owner protocol;
+otherwise the result remains unresolved rather than an empty generation.
