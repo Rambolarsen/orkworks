@@ -35,6 +35,13 @@ case "${1:-}" in
           echo "no pull requests found for branch ${ref}" >&2
           exit 1
         fi
+        if [ "${GH_MODE:?}" = 'view-miss-strict' ]; then
+          echo "no pull requests found for ${ref}" >&2
+          exit 1
+        fi
+        if [ "${GH_MODE:?}" = 'view-hit-noisy' ]; then
+          echo 'gh: a diagnostic on stderr' >&2
+        fi
         printf '{"number":561,"url":"https://github.com/Rambolarsen/orkworks/pull/561","headRefName":"feature","baseRefName":"main","state":"OPEN"}\n'
         exit 0
         ;;
@@ -100,13 +107,24 @@ if grep -Fq 'pr list' "$fixture/no-pr.log"; then
   exit 1
 fi
 
-# A non-branch, non-number reference falls back to search (all states).
-if ! (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=one GH_LOG="$fixture/search.log" "$helper" 'fix the port bug') > "$fixture/search.out" 2>&1; then
+# A free-text search requires the explicit --search mode (all states).
+if ! (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=one GH_LOG="$fixture/search.log" "$helper" --search 'fix the port bug') > "$fixture/search.out" 2>&1; then
   echo 'resolve-pr unexpectedly rejected a single search hit' >&2
   exit 1
 fi
 grep -Fq 'number: 561' "$fixture/search.out"
 grep -Fq 'gh args: pr list --state all --search fix the port bug' "$fixture/search.log"
+
+# A branch-name miss must not fall back to search.
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=one GH_LOG="$fixture/branch-miss.log" "$helper" 'some-branch') > "$fixture/branch-miss.out" 2>&1; then
+  echo 'resolve-pr unexpectedly resolved a branch without a PR' >&2
+  exit 1
+fi
+grep -Fq 'ask the user' "$fixture/branch-miss.out"
+if grep -Fq 'pr list' "$fixture/branch-miss.log"; then
+  echo 'resolve-pr unexpectedly searched after a branch lookup failure' >&2
+  exit 1
+fi
 
 # A structured reference that fails direct lookup must not fall back to search.
 for structured_miss_ref in 999 '#999' 'https://github.com/Rambolarsen/orkworks/pull/999'; do
@@ -128,7 +146,7 @@ done
 grep -Fq 'gh args: pr view #feature' "$fixture/hash-branch.log"
 
 # A failed gh pr list surfaces its diagnostic instead of claiming zero matches.
-if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=fail GH_LOG="$fixture/list-fail.log" "$helper" 'fix the port bug') > "$fixture/list-fail.out" 2>&1; then
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=fail GH_LOG="$fixture/list-fail.log" "$helper" --search 'fix the port bug') > "$fixture/list-fail.out" 2>&1; then
   echo 'resolve-pr unexpectedly treated a failed search as zero matches' >&2
   exit 1
 fi
@@ -138,8 +156,16 @@ if grep -Fq 'no pull requests matched' "$fixture/list-fail.out"; then
   exit 1
 fi
 
+# A single search hit whose follow-up lookup fails asks the user instead of exiting raw.
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss-strict GH_LIST_MODE=one GH_LOG="$fixture/search-fetch-fail.log" "$helper" --search 'fix the port bug') > "$fixture/search-fetch-fail.out" 2>&1; then
+  echo 'resolve-pr unexpectedly resolved a search hit whose fetch failed' >&2
+  exit 1
+fi
+grep -Fq 'no pull requests found' "$fixture/search-fetch-fail.out"
+grep -Fq 'ask the user' "$fixture/search-fetch-fail.out"
+
 # Multiple search hits fail with an ask-the-user message.
-if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=many GH_LOG="$fixture/many.log" "$helper" 'fix the port bug') > "$fixture/many.out" 2>&1; then
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=many GH_LOG="$fixture/many.log" "$helper" --search 'fix the port bug') > "$fixture/many.out" 2>&1; then
   echo 'resolve-pr unexpectedly resolved ambiguous search hits' >&2
   exit 1
 fi
@@ -147,11 +173,20 @@ grep -Fq 'multiple pull requests' "$fixture/many.out"
 grep -Fq 'ask the user' "$fixture/many.out"
 
 # Zero search hits fail the same way.
-if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=none GH_LOG="$fixture/none.log" "$helper" 'no such thing') > "$fixture/none.out" 2>&1; then
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=none GH_LOG="$fixture/none.log" "$helper" --search 'no such thing') > "$fixture/none.out" 2>&1; then
   echo 'resolve-pr unexpectedly resolved an empty search' >&2
   exit 1
 fi
 grep -Fq 'ask the user' "$fixture/none.out"
+
+# gh stderr noise on a successful lookup must not corrupt the parsed JSON.
+output="$( (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-hit-noisy GH_LOG="$fixture/noisy.log" "$helper") )"
+grep -Fq 'number: 561' <<<"$output"
+grep -Fq 'state: OPEN' <<<"$output"
+if grep -Fq 'diagnostic' <<<"$output"; then
+  echo 'resolve-pr leaked gh stderr noise into the parsed output' >&2
+  exit 1
+fi
 
 # Missing required argument handling: usage error, not a gh call.
 if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-hit GH_LOG="$fixture/usage.log" bash -c "'$helper' --help") > "$fixture/usage.out" 2>&1; then

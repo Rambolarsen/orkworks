@@ -152,23 +152,25 @@ assume the current branch's PR, or proceed without one. Resolve it to a
 concrete PR first:
 
 ```bash
-bash scripts/resolve-pr.sh [PR_REFERENCE]
+bash scripts/resolve-pr.sh [--search SEARCH_PHRASE] [PR_REFERENCE]
 ```
 
 The helper accepts no argument (resolves the current checkout's branch PR),
-a bare number or `#number`, a full PR URL, a branch name, or a search phrase;
-it prints the PR's number, URL, head/base branches, and state. Structured
-references (numbers and URLs) never fall back to a search on a failed lookup,
-and search matches run across all PR states; when nothing unambiguous matches
-or `gh` itself fails, the helper exits nonzero with an ask-the-user message
-instead of guessing.
+a bare number or `#number`, a full PR URL, or a branch name as a direct
+reference, or a phrase through explicit `--search`; it prints the PR's number,
+URL, head/base branches, and state. References never fall back from one
+operand kind to another (a failed number, URL, or branch lookup stops and
+asks), and search matches run across all PR states; when nothing unambiguous
+matches or `gh` itself fails, the helper exits nonzero with an ask-the-user
+message instead of guessing.
 
 If you need to do it manually, or the helper is unavailable:
 
 - Run `gh pr view --json number,url,headRefName,baseRefName,state` for the
   current checkout's branch.
 - Run `gh pr view <number> --json ...` for a bare number.
-- Run `gh pr list --search "..."` when neither of the above pins it down.
+- Run `gh pr list --state all --search "..."` when neither of the above pins
+  it down.
 
 If the checkout, branch, and any number given still don't converge on exactly
 one PR, stop and ask the user for the PR number or URL rather than acting on
