@@ -24,7 +24,15 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 pr_fields='number,url,headRefName,baseRefName,state'
-pr_ref="${ref#\#}"
+if [[ "$ref" =~ ^#[0-9]+$ ]]; then
+  pr_ref="${ref#\#}"
+else
+  pr_ref="$ref"
+fi
+
+is_structured_reference() {
+  [[ "$1" =~ ^[0-9]+$ ]] || [[ "$1" =~ ^https://[^[:space:]]+/pull/[0-9]+$ ]]
+}
 
 fetch_pr() {
   if [ -n "$1" ]; then
@@ -52,12 +60,26 @@ if [ -z "$ref" ]; then
   exit 0
 fi
 
+if is_structured_reference "$pr_ref"; then
+  if ! pr_json="$(fetch_pr "$pr_ref" 2>&1)"; then
+    printf '%s\n' "$pr_json" >&2
+    echo "resolve-pr: no pull request found for '$ref'; ask the user for the PR number or URL" >&2
+    exit 1
+  fi
+  print_pr "$pr_json"
+  exit 0
+fi
+
 if pr_json="$(fetch_pr "$pr_ref" 2>/dev/null)"; then
   print_pr "$pr_json"
   exit 0
 fi
 
-search_json="$(gh pr list --search "$pr_ref" --json number 2>/dev/null || echo '[]')"
+if ! search_json="$(gh pr list --state all --search "$pr_ref" --json number 2>&1)"; then
+  printf '%s\n' "$search_json" >&2
+  echo "resolve-pr: could not search pull requests; ask the user for the PR number or URL" >&2
+  exit 1
+fi
 search_count="$(jq -r 'length' <<<"$search_json")"
 if [ "$search_count" -eq 1 ]; then
   search_number="$(jq -r '.[0].number' <<<"$search_json")"

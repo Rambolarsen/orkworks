@@ -49,6 +49,10 @@ case "${1:-}" in
           none)
             printf '[]\n'
             ;;
+          fail)
+            echo 'gh: authentication required' >&2
+            exit 4
+            ;;
           *)
             echo "unknown GH_LIST_MODE" >&2
             exit 1
@@ -96,13 +100,43 @@ if grep -Fq 'pr list' "$fixture/no-pr.log"; then
   exit 1
 fi
 
-# A non-branch, non-number reference falls back to search.
+# A non-branch, non-number reference falls back to search (all states).
 if ! (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=one GH_LOG="$fixture/search.log" "$helper" 'fix the port bug') > "$fixture/search.out" 2>&1; then
   echo 'resolve-pr unexpectedly rejected a single search hit' >&2
   exit 1
 fi
 grep -Fq 'number: 561' "$fixture/search.out"
-grep -Fq 'gh args: pr list --search fix the port bug' "$fixture/search.log"
+grep -Fq 'gh args: pr list --state all --search fix the port bug' "$fixture/search.log"
+
+# A structured reference that fails direct lookup must not fall back to search.
+for structured_miss_ref in 999 '#999' 'https://github.com/Rambolarsen/orkworks/pull/999'; do
+  log="$fixture/structured-miss.log"
+  rm -f "$log"
+  if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=one GH_LOG="$log" "$helper" "$structured_miss_ref") > "$fixture/structured-miss.out" 2>&1; then
+    echo "resolve-pr unexpectedly resolved the structured miss '$structured_miss_ref'" >&2
+    exit 1
+  fi
+  grep -Fq 'ask the user' "$fixture/structured-miss.out"
+  if grep -Fq 'pr list' "$log"; then
+    echo "resolve-pr unexpectedly searched after structured lookup failure for $structured_miss_ref" >&2
+    exit 1
+  fi
+done
+
+# A #-prefixed branch name is looked up verbatim, not stripped to a branch name.
+(cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-hit GH_LOG="$fixture/hash-branch.log" "$helper" '#feature') > /dev/null
+grep -Fq 'gh args: pr view #feature' "$fixture/hash-branch.log"
+
+# A failed gh pr list surfaces its diagnostic instead of claiming zero matches.
+if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=fail GH_LOG="$fixture/list-fail.log" "$helper" 'fix the port bug') > "$fixture/list-fail.out" 2>&1; then
+  echo 'resolve-pr unexpectedly treated a failed search as zero matches' >&2
+  exit 1
+fi
+grep -Fq 'gh: authentication required' "$fixture/list-fail.out"
+if grep -Fq 'no pull requests matched' "$fixture/list-fail.out"; then
+  echo 'resolve-pr masked a failed search as zero matches' >&2
+  exit 1
+fi
 
 # Multiple search hits fail with an ask-the-user message.
 if (cd "$repo" && PATH="$bin:$PATH" GH_MODE=view-miss GH_LIST_MODE=many GH_LOG="$fixture/many.log" "$helper" 'fix the port bug') > "$fixture/many.out" 2>&1; then

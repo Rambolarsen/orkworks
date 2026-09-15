@@ -157,8 +157,11 @@ bash scripts/resolve-pr.sh [PR_REFERENCE]
 
 The helper accepts no argument (resolves the current checkout's branch PR),
 a bare number or `#number`, a full PR URL, a branch name, or a search phrase;
-it prints the PR's number, URL, head/base branches, and state, and fails with
-an ask-the-user message instead of guessing when nothing unambiguous matches.
+it prints the PR's number, URL, head/base branches, and state. Structured
+references (numbers and URLs) never fall back to a search on a failed lookup,
+and search matches run across all PR states; when nothing unambiguous matches
+or `gh` itself fails, the helper exits nonzero with an ask-the-user message
+instead of guessing.
 
 If you need to do it manually, or the helper is unavailable:
 
