@@ -48,6 +48,12 @@ silently choosing an interpretation. A source session, stale metadata, or an
 inferred status never authorizes resuming, reopening, or modifying that
 session; follow the task's explicit scope instead.
 
+A PR reference is a required assumption. When a task names or implies a pull
+request ("the PR", "continue the PR", a bare number), state which concrete PR
+you are acting on and resolve it before acting — never assume the current
+branch's PR. The resolution procedure lives in
+[Resolving a PR reference](#resolving-a-pr-reference) below.
+
 ## Planning uncertainty and blind-spot checkpoint
 
 After reviewing the relevant context and authoritative sources, but before

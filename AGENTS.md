@@ -76,6 +76,7 @@ Before acting, make every assumption that could change the scope, target, permis
 - Validate material assumptions against the authoritative source for the task: the user's request, the live OrkWorks recommendation/API when working from a recommendation, applicable specs, and scoped repository instructions.
 - Distinguish facts, inferences, and open questions in the working update or plan. If authoritative evidence is missing or conflicts, stop and ask rather than silently choosing an interpretation.
 - Do not treat a source session, stale metadata, or an inferred status as permission to resume, reopen, or modify that session; follow the task's explicit scope instead.
+- Make PR references explicit before acting: when a task names or implies a pull request ("the PR", "continue the PR", a bare number), state which concrete PR you are acting on and resolve it to a number or URL — never assume the current branch's PR. See [Resolving a PR reference](docs/agents/development-workflow.md#resolving-a-pr-reference).
 
 ## Docs site
 
