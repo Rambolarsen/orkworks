@@ -206,9 +206,7 @@ impl crate::PeonState {
             return;
         };
         if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::Failed {
-            entry.snapshot.error_summary = None;
-            entry.snapshot.provider_id = None;
-            entry.snapshot.provider_model = None;
+            entry.snapshot.clear_failure_context();
         }
         entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Candidate;
         entry.snapshot.reason = Some("selected_for_inference".to_string());
@@ -466,9 +464,7 @@ impl crate::PeonState {
         };
         if entry.snapshot.scheduler_state != crate::session_types::PeonSchedulerState::InFlight {
             if entry.snapshot.scheduler_state == crate::session_types::PeonSchedulerState::Failed {
-                entry.snapshot.error_summary = None;
-                entry.snapshot.provider_id = None;
-                entry.snapshot.provider_model = None;
+                entry.snapshot.clear_failure_context();
             }
             entry.snapshot.scheduler_state = crate::session_types::PeonSchedulerState::Idle;
             entry.snapshot.reason = Some(reason.to_string());
