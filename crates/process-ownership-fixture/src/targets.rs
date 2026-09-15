@@ -164,7 +164,13 @@ pub fn run(
     marker: &Path,
     lifetime: Duration,
 ) -> Result<(), TargetError> {
+    #[cfg(unix)]
+    if role == Role::Inference && behavior == TargetBehavior::Reparented {
+        thread::sleep(Duration::from_millis(150));
+    }
     let diagnostic = format!("role={} behavior={}\n", role_name(role), behavior.as_str());
+    #[cfg(unix)]
+    let diagnostic = format!("{diagnostic}parent_pid={}\n", unsafe { libc::getppid() });
     #[cfg(target_os = "linux")]
     let diagnostic = {
         let mut diagnostic = diagnostic;
@@ -178,8 +184,12 @@ pub fn run(
     #[cfg(windows)]
     run_windows_behavior(role, behavior, marker, lifetime)?;
     #[cfg(unix)]
-    run_unix_behavior(role, behavior, marker, lifetime)?;
-    thread::sleep(lifetime);
+    let keep_alive = run_unix_behavior(role, behavior, marker, lifetime)?;
+    #[cfg(not(unix))]
+    let keep_alive = true;
+    if keep_alive {
+        thread::sleep(lifetime);
+    }
     Ok(())
 }
 
@@ -203,19 +213,35 @@ fn run_unix_behavior(
     behavior: TargetBehavior,
     marker: &Path,
     lifetime: Duration,
-) -> Result<(), TargetError> {
+) -> Result<bool, TargetError> {
     match behavior {
-        TargetBehavior::Pty => set_session()?,
-        TargetBehavior::NewGroup => set_process_group()?,
-        TargetBehavior::Forked if role == Role::Sidecar => {
-            spawn_unix_descendant(marker, lifetime, false)?;
+        TargetBehavior::Pty => {
+            set_session()?;
         }
-        TargetBehavior::Daemonized | TargetBehavior::Reparented if role == Role::Sidecar => {
-            spawn_unix_descendant(marker, lifetime, true)?;
+        TargetBehavior::NewGroup => {
+            set_process_group()?;
+        }
+        TargetBehavior::Forked if role == Role::Sidecar => {
+            spawn_unix_descendant(marker, lifetime, false, TargetBehavior::Silent)?;
+        }
+        TargetBehavior::Daemonized if role == Role::Sidecar => {
+            spawn_unix_descendant(marker, lifetime, true, TargetBehavior::Daemonized)?;
+        }
+        TargetBehavior::Daemonized if role == Role::Inference => {
+            spawn_unix_descendant(marker, lifetime, true, TargetBehavior::Reparented)?;
+        }
+        TargetBehavior::Reparented if role == Role::Sidecar => {
+            spawn_unix_descendant(marker, lifetime, true, TargetBehavior::Reparented)?;
         }
         _ => {}
     }
-    Ok(())
+    Ok(!matches!(
+        (role, behavior),
+        (
+            Role::Sidecar,
+            TargetBehavior::Daemonized | TargetBehavior::Reparented
+        ) | (Role::Inference, TargetBehavior::Daemonized)
+    ))
 }
 
 #[cfg(unix)]
@@ -223,6 +249,7 @@ fn spawn_unix_descendant(
     marker: &Path,
     lifetime: Duration,
     detached: bool,
+    child_behavior: TargetBehavior,
 ) -> Result<(), TargetError> {
     use std::io::Write;
     use std::os::unix::process::CommandExt;
@@ -232,7 +259,7 @@ fn spawn_unix_descendant(
     command
         .args(arguments(
             Role::Inference,
-            TargetBehavior::Silent,
+            child_behavior,
             &descendant_marker,
             lifetime,
         ))

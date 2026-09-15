@@ -116,6 +116,13 @@ impl UnixCandidate {
 
     /// Launches, registers, and releases a paused fixture root.
     pub fn launch_paused(&mut self, spec: LaunchSpec) -> Result<PausedRoot, PlatformError> {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = spec;
+            return Err(PlatformError::UnsupportedPlatform {
+                candidate: "macOS handle-based executable launch",
+            });
+        }
         match self {
             Self::ProcessGroup(domain) => domain.launch_paused(spec),
             Self::RegisteredRoot(domain) => domain.launch_paused(spec),
@@ -148,9 +155,10 @@ impl UnixCandidate {
                 domain.identity_mismatch_once = true;
                 Ok(())
             }
-            Self::ProcessGroup(_) => Err(PlatformError::UnsupportedPlatform {
-                candidate: "identity mismatch probe for process group",
-            }),
+            Self::ProcessGroup(domain) => {
+                domain.identity_mismatch_once = true;
+                Ok(())
+            }
             Self::Launchd(_) => Err(PlatformError::UnsupportedPlatform {
                 candidate: "identity mismatch probe for launchd",
             }),
@@ -186,13 +194,14 @@ pub struct RegisteredRootEvidence {
     /// Session captured at registration.
     pub session: u32,
     /// Parent ancestry captured at registration.
-    pub ancestry: Vec<u32>,
+    pub ancestry: Vec<NativeIdentity>,
 }
 
 #[derive(Debug, Clone)]
 struct ProcessInfo {
     identity: NativeIdentity,
     parent_pid: u32,
+    parent_identity: Option<NativeIdentity>,
     process_group: u32,
     session: u32,
 }
@@ -210,6 +219,8 @@ pub struct ProcessGroupDomain {
     generation: GenerationId,
     roots: Vec<TrackedRoot>,
     pending: Option<ProcessInfo>,
+    identity_mismatch_once: bool,
+    revalidation_failed: bool,
 }
 
 impl ProcessGroupDomain {
@@ -218,6 +229,8 @@ impl ProcessGroupDomain {
             generation,
             roots: Vec::new(),
             pending: None,
+            identity_mismatch_once: false,
+            revalidation_failed: false,
         }
     }
 
@@ -239,12 +252,32 @@ impl ProcessGroupDomain {
     }
 
     fn observe(&mut self) -> Result<ObservationSnapshot, PlatformError> {
-        observe_roots(self.generation, &mut self.roots, false)
+        let force_identity_mismatch = std::mem::take(&mut self.identity_mismatch_once);
+        if force_identity_mismatch {
+            self.revalidation_failed = true;
+        }
+        observe_roots(
+            self.generation,
+            &mut self.roots,
+            force_identity_mismatch,
+            true,
+        )
     }
 
     fn terminate_owned(&mut self) -> Result<(), PlatformError> {
+        if self.revalidation_failed {
+            return Err(PlatformError::IdentityUnavailable);
+        }
         for root in &self.roots {
-            if root.evidence.process_group == 0 || root.evidence.process_group == std::process::id()
+            let info = process_info(root.evidence.identity.diagnostic_pid)?;
+            if info.identity != root.evidence.identity {
+                return Err(PlatformError::PidReuse);
+            }
+            if info.process_group != root.evidence.process_group {
+                return Err(PlatformError::IdentityUnavailable);
+            }
+            if root.evidence.process_group == 0
+                || root.evidence.process_group == std::process::id()
             {
                 return Err(PlatformError::IdentityUnavailable);
             }
@@ -304,7 +337,7 @@ impl RegisteredRootDomain {
     fn observe(&mut self) -> Result<ObservationSnapshot, PlatformError> {
         if self.observer_failure_once {
             self.observer_failure_once = false;
-            let mut snapshot = observe_roots(self.generation, &mut self.roots, false)?;
+            let mut snapshot = observe_roots(self.generation, &mut self.roots, false, false)?;
             for root in &snapshot.roots {
                 if root.exit_state != ExitState::Exited {
                     snapshot.unresolved_survivors.push(root.identity.clone());
@@ -316,6 +349,7 @@ impl RegisteredRootDomain {
             self.generation,
             &mut self.roots,
             std::mem::take(&mut self.identity_mismatch_once),
+            false,
         )
     }
 
@@ -396,7 +430,7 @@ impl PlatformAdapter for UnixCandidate {
                 if info.process_group == 0 || info.process_group == std::process::id() {
                     return Err(SpawnError::ContainmentFailed);
                 }
-                domain.roots.push(tracked_root(info, pid));
+                domain.roots.push(tracked_root(info, pid).map_err(|_| SpawnError::ObserverUnavailable)?);
                 Ok(ContainmentMembership::Confirmed)
             }
             Self::RegisteredRoot(domain) if domain.generation == generation => {
@@ -404,7 +438,7 @@ impl PlatformAdapter for UnixCandidate {
                     .pending
                     .take()
                     .ok_or(SpawnError::IdentityUnavailable)?;
-                domain.roots.push(tracked_root(info, pid));
+                domain.roots.push(tracked_root(info, pid).map_err(|_| SpawnError::ObserverUnavailable)?);
                 Ok(ContainmentMembership::Confirmed)
             }
             _ => Err(SpawnError::ContainmentFailed),
@@ -476,8 +510,10 @@ impl PlatformAdapter for ProcessGroupDomain {
         if info.process_group == 0 || info.process_group == std::process::id() {
             return Err(SpawnError::ContainmentFailed);
         }
-        self.roots
-            .push(tracked_root(info, process_handle.diagnostic_pid()));
+        self.roots.push(
+            tracked_root(info, process_handle.diagnostic_pid())
+                .map_err(|_| SpawnError::ObserverUnavailable)?,
+        );
         Ok(ContainmentMembership::Confirmed)
     }
 
@@ -530,8 +566,10 @@ impl PlatformAdapter for RegisteredRootDomain {
             return Err(SpawnError::ContainmentFailed);
         }
         let info = self.pending.take().ok_or(SpawnError::IdentityUnavailable)?;
-        self.roots
-            .push(tracked_root(info, process_handle.diagnostic_pid()));
+        self.roots.push(
+            tracked_root(info, process_handle.diagnostic_pid())
+                .map_err(|_| SpawnError::ObserverUnavailable)?,
+        );
         Ok(ContainmentMembership::Confirmed)
     }
 
@@ -634,25 +672,26 @@ fn executable_command(
     executable.command()
 }
 
-fn tracked_root(info: ProcessInfo, _pid: u32) -> TrackedRoot {
-    let ancestry = ancestry(info.parent_pid);
-    TrackedRoot {
+fn tracked_root(info: ProcessInfo, _pid: u32) -> Result<TrackedRoot, PlatformError> {
+    let ancestry = ancestry(info.parent_pid)?;
+    Ok(TrackedRoot {
         evidence: RegisteredRootEvidence {
             identity: info.identity.clone(),
             parent_pid: info.parent_pid,
             process_group: info.process_group,
             session: info.session,
-            ancestry,
+        ancestry,
         },
         known_descendants: HashMap::new(),
         was_observed_live: false,
-    }
+    })
 }
 
 fn observe_roots(
     generation: GenerationId,
     roots: &mut [TrackedRoot],
     force_identity_mismatch: bool,
+    validate_groups: bool,
 ) -> Result<ObservationSnapshot, PlatformError> {
     let all_processes = process_census()?;
     let mut observations = Vec::new();
@@ -671,7 +710,10 @@ fn observe_roots(
             process.identity.diagnostic_pid == root.evidence.identity.diagnostic_pid
         });
         let root_state = match current {
-            Some(process) if process.identity == expected => {
+            Some(process)
+                if process.identity == expected
+                    && (!validate_groups
+                        || process.process_group == root.evidence.process_group) =>
                 root.was_observed_live = true;
                 ExitState::Running
             }
@@ -691,7 +733,14 @@ fn observe_roots(
             exit_state: root_state,
         });
 
+        // A mismatched or otherwise unresolved root cannot authorize a
+        // descendant traversal. The retained root identity is the trust root.
+        if root_state != ExitState::Running {
+            continue;
+        }
+
         let root_pid = root.evidence.identity.diagnostic_pid;
+        let root_identity = root.evidence.identity.clone();
         let mut descendants_by_pid = HashMap::new();
         let mut changed = true;
         while changed {
@@ -701,7 +750,11 @@ fn observe_roots(
                     continue;
                 }
                 let parent_known = process.parent_pid == root_pid
-                    || descendants_by_pid.contains_key(&process.parent_pid);
+                    && process.parent_identity.as_ref() == Some(&root_identity)
+                    || descendants_by_pid.values().any(|parent| {
+                        process.parent_pid == parent.identity.diagnostic_pid
+                            && process.parent_identity.as_ref() == Some(&parent.identity)
+                    });
                 if parent_known
                     && descendants_by_pid
                         .insert(process.identity.diagnostic_pid, process.clone())
@@ -721,14 +774,24 @@ fn observe_roots(
             });
         }
         for process in root.known_descendants.values() {
-            if !descendants_by_pid.contains_key(&process.identity.diagnostic_pid)
-                && process_alive_with_identity(process)?
-            {
-                unresolved_survivors.push(process.identity.clone());
+            if let Some(current) = all_processes.iter().find(|current| {
+                current.identity.diagnostic_pid == process.identity.diagnostic_pid
+            }) {
+                if current.identity != process.identity
+                    || current.parent_identity != process.parent_identity
+                {
+                    unresolved_survivors.push(process.identity.clone());
+                    descendants.push(ProcessObservation {
+                        identity: process.identity.clone(),
+                        containment_membership: ContainmentMembership::Confirmed,
+                        exit_state: ExitState::Unresolved,
+                    });
+                }
+            } else {
                 descendants.push(ProcessObservation {
                     identity: process.identity.clone(),
                     containment_membership: ContainmentMembership::Confirmed,
-                    exit_state: ExitState::Running,
+                    exit_state: ExitState::Exited,
                 });
             }
         }
@@ -800,22 +863,15 @@ fn signal_process_group(process_group: u32) -> Result<(), PlatformError> {
     Ok(())
 }
 
-fn process_alive_with_identity(process: &ProcessInfo) -> Result<bool, PlatformError> {
-    match process_info(process.identity.diagnostic_pid) {
-        Ok(current) if current.identity == process.identity => Ok(true),
-        Ok(_) => Err(PlatformError::PidReuse),
-        Err(_) => Ok(false),
-    }
-}
-
-fn ancestry(mut pid: u32) -> Vec<u32> {
+fn ancestry(mut pid: u32) -> Result<Vec<NativeIdentity>, PlatformError> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
     while pid != 0 && seen.insert(pid) && result.len() < MAX_ANCESTRY_DEPTH {
-        result.push(pid);
-        pid = process_info(pid).map_or(0, |info| info.parent_pid);
+        let info = process_info(pid)?;
+        result.push(info.identity);
+        pid = info.parent_pid;
     }
-    result
+    Ok(result)
 }
 
 fn set_close_on_exec(listener: &TcpListener) -> io::Result<()> {
@@ -849,38 +905,69 @@ fn process_census() -> Result<Vec<ProcessInfo>, PlatformError> {
         let Ok(pid) = name.parse::<u32>() else {
             continue;
         };
-        if let Ok(info) = process_info(pid) {
-            result.push(info);
-        }
+        result.push(process_info(pid)?);
     }
+    populate_parent_identities(&mut result)?;
     Ok(result)
 }
 
 #[cfg(target_os = "macos")]
 fn process_census() -> Result<Vec<ProcessInfo>, PlatformError> {
-    let mut pids = vec![0_i32; 4096];
-    // SAFETY: pids points to writable storage and the size is expressed in bytes.
-    let bytes = unsafe {
-        libc::proc_listallpids(
-            pids.as_mut_ptr().cast(),
-            (pids.len() * std::mem::size_of::<i32>()) as i32,
-        )
-    };
-    if bytes < 0 {
-        return Err(PlatformError::Io {
-            operation: "enumerate macOS processes",
-            source: io::Error::last_os_error(),
-        });
-    }
-    // proc_listallpids returns the number of PIDs copied, not a byte count.
-    let count = (bytes as usize).min(pids.len());
-    let mut result = Vec::new();
-    for pid in pids.into_iter().take(count).filter(|pid| *pid > 0) {
-        if let Ok(info) = process_info(pid as u32) {
-            result.push(info);
+    let mut capacity = 4096_usize;
+    let pids = loop {
+        let mut pids = vec![0_i32; capacity];
+        // SAFETY: pids points to writable storage and the size is expressed in bytes.
+        let count = unsafe {
+            libc::proc_listallpids(
+                pids.as_mut_ptr().cast(),
+                i32::try_from(pids.len() * std::mem::size_of::<i32>()).map_err(|_| {
+                    PlatformError::CensusOverflow
+                })?,
+            )
+        };
+        if count < 0 {
+            return Err(PlatformError::Io {
+                operation: "enumerate macOS processes",
+                source: io::Error::last_os_error(),
+            });
         }
+        let count = usize::try_from(count).map_err(|_| PlatformError::CensusOverflow)?;
+        if count < capacity {
+            break pids.into_iter().take(count).collect::<Vec<_>>();
+        }
+        capacity = capacity.checked_mul(2).ok_or(PlatformError::CensusOverflow)?;
+        if capacity > MAX_CENSUS_PROCESSES * 64 {
+            return Err(PlatformError::CensusOverflow);
+        }
+    };
+    let mut result = Vec::new();
+    for pid in pids.into_iter().filter(|pid| *pid > 0) {
+        result.push(process_info(u32::try_from(pid).map_err(|_| {
+            PlatformError::IdentityUnavailable
+        })?)?);
     }
+    populate_parent_identities(&mut result)?;
     Ok(result)
+}
+
+fn populate_parent_identities(processes: &mut [ProcessInfo]) -> Result<(), PlatformError> {
+    let identities = processes
+        .iter()
+        .map(|process| (process.identity.diagnostic_pid, process.identity.clone()))
+        .collect::<HashMap<_, _>>();
+    for process in processes {
+        process.parent_identity = if process.parent_pid == 0 {
+            None
+        } else {
+            Some(
+                identities
+                    .get(&process.parent_pid)
+                    .ok_or(PlatformError::IdentityUnavailable)?
+                    .clone(),
+            )
+        };
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -917,6 +1004,7 @@ fn process_info(pid: u32) -> Result<ProcessInfo, PlatformError> {
             diagnostic_pid: pid,
         },
         parent_pid,
+        parent_identity: None,
         process_group,
         session,
     })
@@ -940,6 +1028,13 @@ fn process_info(pid: u32) -> Result<ProcessInfo, PlatformError> {
     }
     // SAFETY: proc_pidinfo returned the full structure size.
     let info = unsafe { info.assume_init() };
+    let session = unsafe { libc::getsid(pid as i32) };
+    if session < 0 {
+        return Err(PlatformError::Io {
+            operation: "read macOS process session",
+            source: std::io::Error::last_os_error(),
+        });
+    }
     Ok(ProcessInfo {
         identity: NativeIdentity {
             birth_identity: format!(
@@ -949,10 +1044,9 @@ fn process_info(pid: u32) -> Result<ProcessInfo, PlatformError> {
             diagnostic_pid: pid,
         },
         parent_pid: info.pbi_ppid,
+        parent_identity: None,
         process_group: info.pbi_pgid,
-        // proc_bsdinfo exposes the process group but not a session field on
-        // all SDKs; getsid supplies the live session identity independently.
-        session: unsafe { libc::getsid(pid as i32) }.max(0) as u32,
+        session: u32::try_from(session).map_err(|_| PlatformError::IdentityUnavailable)?,
     })
 }
 

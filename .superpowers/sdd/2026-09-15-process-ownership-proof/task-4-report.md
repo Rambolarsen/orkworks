@@ -31,11 +31,22 @@ the final digest verification and only then commits the staging guard.
 
 ## Commands and results
 
-- `rtk proxy cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` — PASS, 3 tests. The emitted evidence records the process-group PTY row as an explicit rejection (`EPERM` cleanup), registered-root rows as cleaned, and launchd as unsupported in the generic matrix.
+The following checks passed before this fix round (on the parent implementation):
+
+- `rtk proxy cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` — PASS, 3 tests.
 - `rtk cargo check --manifest-path crates/process-ownership-fixture/Cargo.toml` — PASS.
 - `rtk cargo fmt --manifest-path crates/process-ownership-fixture/Cargo.toml -- --check` — PASS.
 - `rtk cargo clippy --manifest-path crates/process-ownership-fixture/Cargo.toml --all-targets -- -D warnings` — PASS.
-- `rtk proxy cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml -- --nocapture` — FAIL in the pre-existing `tests/admission.rs` macOS path: 5 tests fail during default `Supervisor::prepare` with `InvalidValue { field: "control endpoint" }`; the focused Task 4 suite passes. No test hung.
+- `rtk proxy cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml -- --nocapture` — FAIL: five macOS `tests/admission.rs` cases failed during default `Supervisor::prepare` with `InvalidValue { field: "control endpoint" }`. This was observed before the permission-guard change; it was not reproduced after that change in this interrupted round.
+
+Fix-round verification was intentionally bounded when the user requested an immediate stop:
+
+- `rtk cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test unix_candidates -- --nocapture` — FAIL at compile time in `src/platform/unix.rs` (the new `match` arm needs a braced block around the assignment and `ExitState::Running`). No runtime test result was obtained.
+- `rtk cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml -- --nocapture` — NOT RUN after the fix-round edits.
+- `rtk cargo check --manifest-path crates/process-ownership-fixture/Cargo.toml` — NOT RUN after the fix-round edits.
+- `rtk cargo fmt --manifest-path crates/process-ownership-fixture/Cargo.toml -- --check` — NOT RUN after the fix-round edits.
+- `rtk cargo clippy --manifest-path crates/process-ownership-fixture/Cargo.toml --all-targets -- -D warnings` — NOT RUN after the fix-round edits.
+- `rtk ps aux` followed by fixture/cargo filtering — no matching cargo or fixture process remained; no command is currently hung.
 
 ## Concerns and limits
 
@@ -46,6 +57,8 @@ the final digest verification and only then commits the staging guard.
   plist/job; this is not evidence that launchd passes the matrix.
 - The process-group candidate is rejected for the macOS PTY/session row after
   cleanup returned `EPERM`; it must not be selected as the ownership boundary.
+- The fix-round branch is committed with the compile blocker recorded above;
+  it is not a passing verification result.
 - The default supervisor admission failures above remain an open macOS
   baseline concern and should be resolved before relying on the generic
   supervisor path for further cross-platform fixture work.

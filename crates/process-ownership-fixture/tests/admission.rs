@@ -26,6 +26,19 @@ struct TestDirectory {
     path: PathBuf,
 }
 
+#[cfg(unix)]
+struct RestorePermissions {
+    path: PathBuf,
+    permissions: fs::Permissions,
+}
+
+#[cfg(unix)]
+impl Drop for RestorePermissions {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.path, self.permissions.clone());
+    }
+}
+
 impl TestDirectory {
     fn new(name: &str) -> Self {
         let sequence = TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -167,6 +180,12 @@ impl PlatformAdapter for FaultAdapter {
             let launch_path = executable.path();
             let directory = launch_path.parent().ok_or(SpawnError::ContainmentFailed)?;
             let trusted_backup = directory.join("trusted-image-backup");
+            let restore_permissions = RestorePermissions {
+                path: directory.to_path_buf(),
+                permissions: fs::metadata(directory)
+                    .map_err(|_| SpawnError::ContainmentFailed)?
+                    .permissions(),
+            };
             fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
                 .map_err(|_| SpawnError::ContainmentFailed)?;
             fs::rename(launch_path, &trusted_backup).map_err(|_| SpawnError::ContainmentFailed)?;
@@ -178,7 +197,7 @@ impl PlatformAdapter for FaultAdapter {
             let result = self.host.create_paused_root(executable, spec);
             let _ = fs::remove_file(launch_path);
             let _ = fs::rename(&trusted_backup, launch_path);
-            let _ = fs::set_permissions(directory, fs::Permissions::from_mode(0o500));
+            drop(restore_permissions);
             return result;
         }
         self.host.create_paused_root(executable, spec)

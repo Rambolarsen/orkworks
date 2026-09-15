@@ -312,22 +312,9 @@ impl ExecutableImage {
         })
     }
 
-    #[cfg(target_os = "macos")]
-    pub(crate) fn macos_command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
-        let file = open_executable(&self.path).map_err(|_| SpawnError::ContainmentFailed)?;
-        let digest = hash_executable(&file).map_err(|_| SpawnError::ContainmentFailed)?;
-        if digest != self.digest {
-            return Err(SpawnError::ContainmentFailed);
-        }
-        Ok(VerifiedLaunchCommand {
-            command: Command::new(&self.path),
-            _image_handle: None,
-        })
-    }
-
     #[cfg(all(unix, not(target_os = "linux")))]
     pub(crate) fn command(&self) -> Result<VerifiedLaunchCommand, SpawnError> {
-        self.macos_command()
+        Err(SpawnError::ContainmentFailed)
     }
 
     /// Returns the canonical pathname retained for diagnostics and native adapters.
