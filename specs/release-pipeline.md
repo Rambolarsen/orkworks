@@ -4,8 +4,10 @@
 
 This section defines the next release increment and supersedes conflicting
 alpha-only requirements below. The source wiring for signing and native
-artifact verification of the existing tag-driven release path is implemented;
-daily builds and in-app updating are not. Credential-backed trust, native
+artifact verification of the existing tag-driven release path is implemented.
+The daily-build source wiring is implemented as of 2026-09-15; its required
+credential-backed manual run has not yet been recorded, and in-app updating is
+not implemented. Credential-backed trust, native
 certificate validation, and installed-app validation remain external delivery
 prerequisites.
 
@@ -31,6 +33,24 @@ runbook](../docs/agents/release-signing.md). Source tests can prove this
 wiring, but cannot prove a trusted certificate chain, Apple notarization,
 stapling, or a credential-backed native release. Issue #511 owns installed
 older-build update testing.
+
+### Daily source-wiring status — 2026-09-15
+
+The unified release workflow now freezes one event SHA, calls Main CI at that
+same commit, stages CI-only desktop/Rust and native nightly versions, builds the
+existing signed macOS arm64 and Windows x64 targets, and publishes only after a
+real draft's exact assets, GitHub digests, checksum manifest, updater metadata,
+source marker, and immutable tag target cross-check. Stable metadata remains on
+`latest`; nightlies use the explicit custom `nightly` channel. Scheduled and
+manual runs are serialized, exhaustively recheck paginated release state before
+work and publication, and skip only a complete published nightly for the same
+source SHA. ADR 0059 records the environment and CI-token trust boundary.
+
+Source and mixed-feed tests cover this wiring. Delivery of issue #510 still
+requires the repository owner to configure the protected `release` environment
+and `RELEASE_GITHUB_TOKEN`, then record one successful signed manual nightly and
+an unchanged-SHA no-op run using the steps in the
+[signed release runbook](../docs/agents/release-signing.md).
 
 ### Purpose and distribution channels
 
