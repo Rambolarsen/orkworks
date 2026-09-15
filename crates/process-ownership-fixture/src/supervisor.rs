@@ -38,8 +38,11 @@ const OWNED_TERMINATION_TIMEOUT: Duration = Duration::from_secs(5);
 const CLEANUP_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const LAUNCH_INTERLEAVE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_CLEANUP_DIAGNOSTICS: usize = 64;
-const MAX_CLEANUP_REASON_BYTES: usize = 48 * 1024;
-static LIVE_INFERENCE_GENERATIONS: OnceLock<Mutex<HashMap<GenerationId, String>>> = OnceLock::new();
+const MAX_CLEANUP_REASON_BYTES: usize = 24 * 1024;
+const MAX_CLEANUP_SURVIVORS: usize = 128;
+const MAX_CLEANUP_SURVIVOR_BYTES: usize = 32 * 1024;
+static LIVE_INFERENCE_GENERATIONS: OnceLock<Mutex<HashMap<GenerationId, HashSet<String>>>> =
+    OnceLock::new();
 
 /// Latch for a concurrent paused-root launch/owner-loss interleaving.
 #[derive(Debug, Default)]
@@ -1271,7 +1274,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         }
         let survivors = cleanup_survivors(&snapshot, termination_failures);
         let reason = cleanup_reason(self.generation, &snapshot, &self.cleanup_diagnostics);
-        let result = CleanupResult::Unresolved { survivors, reason };
+        let result = bound_cleanup_result(CleanupResult::Unresolved { survivors, reason });
         let _ = self.protocol.record_unresolved(match &result {
             CleanupResult::Unresolved { reason, .. } => reason.clone(),
             CleanupResult::Acknowledged(_) => unreachable!(),
@@ -1286,10 +1289,10 @@ impl<A: PlatformAdapter> Supervisor<A> {
             observed_at_ms: unix_epoch_millis(),
         };
         if self.protocol.record_complete_exit(receipt.clone()).is_err() {
-            return CleanupResult::Unresolved {
+            return bound_cleanup_result(CleanupResult::Unresolved {
                 survivors: self.registered_identities.iter().cloned().collect(),
                 reason: "complete-exit receipt could not be recorded".to_owned(),
-            };
+            });
         }
         unmark_inference_generation(self.generation, self.protocol.rendezvous_nonce());
         CleanupResult::Acknowledged(receipt)
@@ -1447,31 +1450,34 @@ impl<A: PlatformAdapter> Supervisor<A> {
     }
 }
 
-fn inference_generations() -> &'static Mutex<HashMap<GenerationId, String>> {
+fn inference_generations() -> &'static Mutex<HashMap<GenerationId, HashSet<String>>> {
     LIVE_INFERENCE_GENERATIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn inference_generation_is_blocked(generation: GenerationId, authority_nonce: &str) -> bool {
     inference_generations().lock().map_or(true, |generations| {
-        generations
-            .iter()
-            .any(|(other, nonce)| *other != generation || nonce != authority_nonce)
+        generations.iter().any(|(other, nonces)| {
+            *other != generation || nonces.iter().any(|nonce| nonce != authority_nonce)
+        })
     })
 }
 
 fn mark_inference_generation_live(generation: GenerationId, authority_nonce: &str) {
     if let Ok(mut generations) = inference_generations().lock() {
-        generations.insert(generation, authority_nonce.to_owned());
+        generations
+            .entry(generation)
+            .or_default()
+            .insert(authority_nonce.to_owned());
     }
 }
 
 fn unmark_inference_generation(generation: GenerationId, authority_nonce: &str) {
     if let Ok(mut generations) = inference_generations().lock() {
-        if generations
-            .get(&generation)
-            .is_some_and(|nonce| nonce == authority_nonce)
-        {
-            generations.remove(&generation);
+        if let Some(nonces) = generations.get_mut(&generation) {
+            nonces.remove(authority_nonce);
+            if nonces.is_empty() {
+                generations.remove(&generation);
+            }
         }
     }
 }
@@ -1504,6 +1510,45 @@ fn cleanup_survivors(
     survivors.sort_by(|left, right| left.birth_identity.cmp(&right.birth_identity));
     survivors.dedup();
     survivors
+}
+
+/// Bounds unresolved cleanup evidence before it can cross the protocol frame.
+#[must_use]
+pub fn bound_cleanup_result(result: CleanupResult) -> CleanupResult {
+    let CleanupResult::Unresolved { survivors, reason } = result else {
+        return result;
+    };
+    let original_count = survivors.len();
+    let mut retained = Vec::new();
+    let mut bytes = 0_usize;
+    for identity in survivors {
+        if retained.len() >= MAX_CLEANUP_SURVIVORS
+            || bytes.saturating_add(identity.birth_identity.len()) > MAX_CLEANUP_SURVIVOR_BYTES
+        {
+            break;
+        }
+        bytes = bytes.saturating_add(identity.birth_identity.len());
+        retained.push(identity);
+    }
+    let mut reason = reason;
+    if original_count > retained.len() {
+        reason.push_str(&format!(
+            "; survivor identities omitted={} for bounded cleanup reply",
+            original_count - retained.len()
+        ));
+    }
+    if reason.len() > MAX_CLEANUP_REASON_BYTES {
+        let mut limit = MAX_CLEANUP_REASON_BYTES - 32;
+        while !reason.is_char_boundary(limit) {
+            limit -= 1;
+        }
+        reason.truncate(limit);
+        reason.push_str("; reason truncated");
+    }
+    CleanupResult::Unresolved {
+        survivors: retained,
+        reason,
+    }
 }
 
 fn cleanup_reason(

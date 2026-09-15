@@ -15,17 +15,17 @@ use process_ownership_fixture::foreign_owner::{ForeignOwner, ForeignSnapshot};
 use process_ownership_fixture::observation::{is_complete, ContainmentMembership, ExitState};
 #[cfg(not(target_os = "macos"))]
 use process_ownership_fixture::protocol::NativeIdentity;
-#[cfg(not(target_os = "macos"))]
-use process_ownership_fixture::protocol::{encode_reply_line, FixtureReply};
 use process_ownership_fixture::protocol::{
-    CleanupResult, CompleteExitReceipt, ProtocolError, Role,
+    encode_reply_line, CleanupResult, CompleteExitReceipt, FixtureReply, ProtocolError, Role,
+};
+use process_ownership_fixture::supervisor::{
+    bound_cleanup_result, LaunchSpec, RendezvousClient, SpawnError, Supervisor,
 };
 #[cfg(not(target_os = "macos"))]
 use process_ownership_fixture::supervisor::{
     CleanupPhase, ExecutableImage, HostPlatformAdapter, LaunchInterleaveLatch, OwnedProcessHandle,
     PausedRoot, PlatformAdapter,
 };
-use process_ownership_fixture::supervisor::{LaunchSpec, RendezvousClient, SpawnError, Supervisor};
 use process_ownership_fixture::targets::TargetBehavior;
 
 const TARGET_LIFETIME: Duration = Duration::from_millis(150);
@@ -110,6 +110,25 @@ fn assert_acknowledged(result: CleanupResult) -> CompleteExitReceipt {
         panic!("cleanup must acknowledge only after independent exit observation: {result:?}");
     };
     receipt
+}
+
+#[test]
+fn many_long_survivors_are_bounded_before_cleanup_reply_encoding() {
+    let survivors = (0..256)
+        .map(
+            |index| process_ownership_fixture::protocol::NativeIdentity {
+                birth_identity: format!("survivor-{index}-{}", "x".repeat(2_000)),
+                diagnostic_pid: index as u32,
+            },
+        )
+        .collect();
+    let result = bound_cleanup_result(CleanupResult::Unresolved {
+        survivors,
+        reason: "observer details".repeat(10_000),
+    });
+    let encoded = encode_reply_line(&FixtureReply::Cleanup { result })
+        .expect("bounded unresolved reply should fit the protocol frame");
+    assert!(encoded.len() <= process_ownership_fixture::protocol::MAX_MESSAGE_BYTES);
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -221,6 +240,57 @@ fn fresh_same_generation_supervisor_cannot_clear_dead_authority_barrier() {
 
 #[cfg(not(target_os = "macos"))]
 #[test]
+fn same_generation_authorities_keep_each_others_barrier_live() {
+    let _inference_guard = inference_test_guard();
+    let directory = TestDirectory::new("same-generation-two-authorities");
+    let (mut first, _) = prepared_supervisor(121);
+    let (mut second, _) = prepared_supervisor(121);
+    let first_ticket = first
+        .issue_launch_ticket(Role::Inference, "first")
+        .expect("first authority should launch before owner loss");
+    let second_ticket = second
+        .issue_launch_ticket(Role::Inference, "second")
+        .expect("second authority should launch before owner loss");
+    first
+        .spawn(
+            first_ticket,
+            launch_spec(
+                Role::Inference,
+                TargetBehavior::Silent,
+                &directory.marker("first"),
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("first root should be admitted");
+    second
+        .spawn(
+            second_ticket,
+            launch_spec(
+                Role::Inference,
+                TargetBehavior::Silent,
+                &directory.marker("second"),
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("second root should be admitted");
+    first.owner_lost();
+    second.owner_lost();
+    let _ = assert_acknowledged(first.cleanup());
+
+    let (mut replacement, _) = prepared_supervisor(121);
+    assert_eq!(
+        replacement.issue_launch_ticket(Role::Inference, "replacement"),
+        Err(SpawnError::AdmissionClosed)
+    );
+    let _ = assert_acknowledged(second.cleanup());
+    assert!(replacement
+        .issue_launch_ticket(Role::Inference, "after-both-receipts")
+        .is_ok());
+    let _ = assert_acknowledged(replacement.cleanup());
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
 fn graceful_ignore_escalates_to_bounded_owned_termination() {
     let directory = TestDirectory::new("graceful-ignore");
     let marker = directory.marker("survivor");
@@ -320,6 +390,10 @@ fn competing_foreign_owner_cannot_acquire_advisory_lease() {
     drop(owner);
     let (replacement, _) = ForeignOwner::start(&directory.path, 43)
         .expect("lease should become available after owner release");
+    let replacement_snapshot = replacement
+        .snapshot()
+        .expect("replacement owner state should survive prior Drop");
+    assert_eq!(replacement_snapshot.metadata_revision, 43);
     drop(replacement);
 }
 
@@ -574,28 +648,62 @@ fn owner_loss_checkpoint_during_paused_launch_rejects_before_target_execution() 
     let latch = Arc::new(LaunchInterleaveLatch::new());
     supervisor.arm_owner_loss_interleave(Arc::clone(&latch));
     let spec = launch_spec(Role::Pty, TargetBehavior::Silent, &marker, TARGET_LIFETIME);
+    let supervisor = Arc::new(Mutex::new(supervisor));
+    let (launch_sender, launch_receiver) = std::sync::mpsc::channel();
+    let launch_supervisor = Arc::clone(&supervisor);
     let launch_thread = thread::spawn(move || {
-        let result = supervisor.spawn(ticket, spec);
-        (supervisor, result)
+        let result = launch_supervisor
+            .lock()
+            .expect("launch lock should not be poisoned")
+            .spawn(ticket, spec);
+        launch_sender
+            .send(result)
+            .expect("launch result receiver lives");
     });
 
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while !latch.root_created() && Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(5));
-    }
-    assert!(
-        latch.root_created(),
-        "launch should reach its paused checkpoint"
-    );
-    latch.request_owner_loss();
-    latch.release();
-    let (mut supervisor, result) = launch_thread
+    let owner_loss_supervisor = Arc::clone(&supervisor);
+    let owner_loss_latch = Arc::clone(&latch);
+    let owner_loss_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let owner_loss_done_for_thread = Arc::clone(&owner_loss_done);
+    let owner_loss_thread = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !owner_loss_latch.root_created() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(owner_loss_latch.root_created());
+        owner_loss_latch.request_owner_loss();
+        owner_loss_latch.release();
+        owner_loss_supervisor
+            .lock()
+            .expect("owner-loss lock should not be poisoned")
+            .owner_lost();
+        owner_loss_done_for_thread.store(true, Ordering::Release);
+    });
+    let cleanup_supervisor = Arc::clone(&supervisor);
+    let cleanup_done = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(7);
+        while !owner_loss_done.load(Ordering::Acquire) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(owner_loss_done.load(Ordering::Acquire));
+        cleanup_supervisor
+            .lock()
+            .expect("cleanup lock should not be poisoned")
+            .cleanup()
+    });
+
+    let result = launch_receiver
+        .recv_timeout(Duration::from_secs(7))
+        .expect("in-flight launch should complete within its bound");
+    launch_thread.join().expect("launch thread should complete");
+    owner_loss_thread
         .join()
-        .expect("in-flight launch thread should complete");
+        .expect("owner-loss thread should complete");
+    let cleanup_result = cleanup_done.join().expect("cleanup thread should complete");
 
     assert_eq!(result, Err(SpawnError::AdmissionClosed));
     assert!(!marker.exists());
-    let _ = assert_acknowledged(supervisor.cleanup());
+    let _ = assert_acknowledged(cleanup_result);
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -701,6 +809,43 @@ fn final_observation_filters_roots_that_exited_after_termination_error() {
 }
 
 #[cfg(not(target_os = "macos"))]
+#[test]
+fn blocking_adapter_must_use_deadline_aware_cleanup_operations() {
+    let directory = TestDirectory::new("blocking-adapter");
+    let marker = directory.marker("blocking");
+    let (mut supervisor, _) = Supervisor::prepare_with_adapter(
+        122,
+        BlockingCleanupAdapter {
+            host: HostPlatformAdapter,
+        },
+    )
+    .expect("fixture generation should prepare");
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Sidecar, "blocking-adapter")
+        .expect("ticket should issue");
+    let identity = supervisor
+        .spawn(
+            ticket,
+            launch_spec(
+                Role::Sidecar,
+                TargetBehavior::Silent,
+                &marker,
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("root should be admitted");
+    wait_for_marker(&marker);
+    supervisor.owner_lost();
+
+    let started = Instant::now();
+    let CleanupResult::Unresolved { survivors, .. } = supervisor.cleanup() else {
+        panic!("deadline-aware blocking adapter should remain unresolved");
+    };
+    assert!(started.elapsed() < Duration::from_secs(11));
+    assert!(survivors.contains(&identity));
+}
+
+#[cfg(not(target_os = "macos"))]
 fn assert_foreign_identity_unchanged(before: &ForeignSnapshot, after: &ForeignSnapshot) {
     assert_eq!(before.lease_owner, after.lease_owner);
     assert_eq!(before.metadata_bytes, after.metadata_bytes);
@@ -772,6 +917,77 @@ impl PlatformAdapter for FailingCleanupAdapter {
 struct TerminateThenFailAdapter {
     host: HostPlatformAdapter,
     fail_after_terminating_once: bool,
+}
+
+#[cfg(not(target_os = "macos"))]
+#[derive(Debug)]
+struct BlockingCleanupAdapter {
+    host: HostPlatformAdapter,
+}
+
+#[cfg(not(target_os = "macos"))]
+impl PlatformAdapter for BlockingCleanupAdapter {
+    fn create_paused_root(
+        &mut self,
+        executable: &ExecutableImage,
+        spec: &LaunchSpec,
+    ) -> Result<OwnedProcessHandle, SpawnError> {
+        self.host.create_paused_root(executable, spec)
+    }
+
+    fn capture_native_identity(
+        &mut self,
+        process_handle: &OwnedProcessHandle,
+    ) -> Result<NativeIdentity, SpawnError> {
+        self.host.capture_native_identity(process_handle)
+    }
+
+    fn attach_containment(
+        &mut self,
+        generation: u64,
+        process_handle: &OwnedProcessHandle,
+    ) -> Result<ContainmentMembership, SpawnError> {
+        self.host.attach_containment(generation, process_handle)
+    }
+
+    fn release_exec(&mut self, paused_root: &mut PausedRoot) -> Result<(), SpawnError> {
+        self.host.release_exec(paused_root)
+    }
+
+    fn terminate_root(
+        &mut self,
+        _process_handle: &mut OwnedProcessHandle,
+        _timeout: Duration,
+    ) -> Result<(), SpawnError> {
+        thread::sleep(Duration::from_secs(60));
+        Err(SpawnError::ContainmentFailed)
+    }
+
+    fn terminate_root_bounded(
+        &mut self,
+        _process_handle: &mut OwnedProcessHandle,
+        _deadline: std::time::Instant,
+    ) -> Result<(), SpawnError> {
+        Err(SpawnError::ContainmentFailed)
+    }
+
+    fn observe_root(
+        &mut self,
+        _process_handle: &mut OwnedProcessHandle,
+        _expected_identity: &NativeIdentity,
+    ) -> Result<ExitState, SpawnError> {
+        thread::sleep(Duration::from_secs(60));
+        Err(SpawnError::ObserverUnavailable)
+    }
+
+    fn observe_root_bounded(
+        &mut self,
+        _process_handle: &mut OwnedProcessHandle,
+        _expected_identity: &NativeIdentity,
+        _deadline: std::time::Instant,
+    ) -> Result<ExitState, SpawnError> {
+        Err(SpawnError::ObserverUnavailable)
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

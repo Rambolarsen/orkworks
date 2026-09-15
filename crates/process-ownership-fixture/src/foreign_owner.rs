@@ -155,13 +155,16 @@ impl Drop for ForeignOwner {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        let _ = fs::remove_file(&self.state_path);
+        // Unlink the lease while its advisory lock is still held. A competing
+        // owner therefore cannot observe the old Drop deleting its state after
+        // it has acquired the lease.
+        let _ = fs::remove_file(&self.lease_path);
         #[cfg(windows)]
         if let (Some(lease), Some(mut lock)) = (self.lease.as_ref(), self.lease_lock.take()) {
             unlock_lease(lease, &mut lock);
         }
         self.lease.take();
-        let _ = fs::remove_file(&self.lease_path);
-        let _ = fs::remove_file(&self.state_path);
     }
 }
 
