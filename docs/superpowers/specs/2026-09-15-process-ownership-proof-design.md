@@ -120,7 +120,7 @@ the limitation is brought back to spec review.
 
 The fixture contains an owner, a sidecar-shaped child, owned PTY/inference
 fixtures, and a foreign sentinel. It communicates over private pipes or local
-sockets with length-delimited messages:
+sockets with newline-delimited JSON messages bounded to 64 KiB each:
 
 - `prepare(generation)` creates the ownership domain and returns a
   supervisor-generated rendezvous nonce plus an authenticated rendezvous
