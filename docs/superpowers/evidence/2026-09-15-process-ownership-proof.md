@@ -185,7 +185,12 @@ Windows fixture evidence is recorded, but macOS/native-Linux mechanism proof
 and complete production seam routing/audit remain unresolved.
 
 Issue URL: https://github.com/Rambolarsen/orkworks/issues/545
-Issue comment result: retried after commit `cc72e0d` with `rtk gh issue comment
-545 --body ...`; exit 1, `error connecting to api.github.com` /
-`check your internet connection or https://githubstatus.com`. No comment URL
-was produced. The issue remains explicitly open.
+Issue comment history:
+
+- Earlier retry after commit `cc72e0d`: `rtk gh issue comment 545 --body ...`
+  exited 1 with `error connecting to api.github.com` /
+  `check your internet connection or https://githubstatus.com`; no URL was
+  produced.
+- Successful post-verification comment: [issuecomment-5688102947](https://github.com/Rambolarsen/orkworks/issues/545#issuecomment-5688102947).
+
+The issue remains explicitly open.
