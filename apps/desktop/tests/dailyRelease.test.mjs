@@ -6,6 +6,8 @@ import {
   assertCandidateIsNewest,
   createNightlyIdentity,
   expectedReleaseAssetNames,
+  ensureTagAtSource,
+  listAllReleases,
   parseSourceMarker,
   parseStableTag,
   selectPublishedNightlyForSource,
@@ -267,4 +269,93 @@ test("requires a candidate to exceed every published nightly", () => {
     () => assertCandidateIsNewest("0.2.0-nightly.20260913.99.1", releases),
     /newer than every published nightly/i,
   );
+});
+
+function jsonResponse(status, body, headers = {}) {
+  return new Response(body === null ? null : JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+test("release listing follows every GitHub pagination link", async () => {
+  const requests = [];
+  const fetchImpl = async (url, options) => {
+    requests.push({ url, options });
+    if (requests.length === 1) {
+      return jsonResponse(200, [{ id: 1 }], {
+        link: '<https://api.github.com/repos/Rambolarsen/orkworks/releases?per_page=100&page=2>; rel="next"',
+      });
+    }
+    return jsonResponse(200, [{ id: 2 }]);
+  };
+
+  assert.deepEqual(await listAllReleases({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl,
+  }), [{ id: 1 }, { id: 2 }]);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].options.headers.authorization, "Bearer secret");
+});
+
+test("release listing fails closed on API and schema errors", async () => {
+  await assert.rejects(() => listAllReleases({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl: async () => jsonResponse(403, { message: "forbidden" }),
+  }), /GitHub API.*403/i);
+  await assert.rejects(() => listAllReleases({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl: async () => jsonResponse(200, { id: 1 }),
+  }), /release list.*array/i);
+});
+
+test("tag creation adopts only the exact source and retries an absent ambiguous result", async () => {
+  const tag = `v${VERSION}`;
+  const calls = [];
+  let reads = 0;
+  let writes = 0;
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, method: options.method ?? "GET" });
+    if ((options.method ?? "GET") === "POST") {
+      writes += 1;
+      return writes === 1 ? jsonResponse(502, { message: "upstream" }) : jsonResponse(201, {
+        ref: `refs/tags/${tag}`,
+        object: { type: "commit", sha: SOURCE_SHA },
+      });
+    }
+    reads += 1;
+    return reads < 3
+      ? jsonResponse(404, { message: "missing" })
+      : jsonResponse(200, { ref: `refs/tags/${tag}`, object: { type: "commit", sha: SOURCE_SHA } });
+  };
+
+  assert.deepEqual(await ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    tag,
+    sourceSha: SOURCE_SHA,
+    fetchImpl,
+  }), { tag, sourceSha: SOURCE_SHA });
+  assert.equal(calls.filter((call) => call.method === "POST").length, 2);
+});
+
+test("tag creation never overwrites a mismatched existing tag", async () => {
+  let writes = 0;
+  await assert.rejects(() => ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    tag: `v${VERSION}`,
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (_url, options) => {
+      if ((options.method ?? "GET") === "POST") writes += 1;
+      return jsonResponse(200, {
+        ref: `refs/tags/v${VERSION}`,
+        object: { type: "commit", sha: "f".repeat(40) },
+      });
+    },
+  }), /different source SHA/i);
+  assert.equal(writes, 0);
 });

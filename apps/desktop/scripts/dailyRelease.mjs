@@ -310,3 +310,111 @@ export function assertCandidateIsNewest(candidateVersion, validatedPublishedNigh
     }
   }
 }
+
+function githubHeaders(token) {
+  if (typeof token !== "string" || token.length === 0) {
+    throw new Error("GitHub release token is required");
+  }
+  return {
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${token}`,
+    "x-github-api-version": "2022-11-28",
+  };
+}
+
+function repositoryApiBase(repository) {
+  if (typeof repository !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error("GitHub repository must be owner/name");
+  }
+  return `https://api.github.com/repos/${repository}`;
+}
+
+async function readJson(response, context) {
+  let body;
+  try {
+    body = await response.json();
+  } catch (error) {
+    throw new Error(`GitHub API returned invalid JSON for ${context}`, { cause: error });
+  }
+  if (!response.ok) {
+    throw new Error(`GitHub API ${context} failed with ${response.status}`);
+  }
+  return body;
+}
+
+function nextLink(header) {
+  if (!header) return null;
+  for (const part of header.split(",")) {
+    const match = /^\s*<([^>]+)>;\s*rel="([^"]+)"\s*$/.exec(part);
+    if (match?.[2] === "next") return match[1];
+  }
+  return null;
+}
+
+export async function listAllReleases({ repository, token, fetchImpl = fetch }) {
+  const headers = githubHeaders(token);
+  let url = `${repositoryApiBase(repository)}/releases?per_page=100`;
+  const releases = [];
+  while (url !== null) {
+    const response = await fetchImpl(url, { headers });
+    const page = await readJson(response, "release list");
+    if (!Array.isArray(page)) {
+      throw new Error("GitHub release list must be an array");
+    }
+    releases.push(...page);
+    url = nextLink(response.headers.get("link"));
+  }
+  return releases;
+}
+
+async function readTag({ repository, token, tag, fetchImpl }) {
+  const response = await fetchImpl(
+    `${repositoryApiBase(repository)}/git/ref/tags/${encodeURIComponent(tag)}`,
+    { headers: githubHeaders(token) },
+  );
+  if (response.status === 404) return null;
+  const ref = await readJson(response, `read tag ${tag}`);
+  if (ref?.ref !== `refs/tags/${tag}` || !ref.object || typeof ref.object.sha !== "string") {
+    throw new Error(`GitHub tag ${tag} has an invalid schema`);
+  }
+  if (ref.object.type === "commit") return ref.object.sha;
+  if (ref.object.type !== "tag") throw new Error(`GitHub tag ${tag} has an unsupported target`);
+  const tagResponse = await fetchImpl(`${repositoryApiBase(repository)}/git/tags/${ref.object.sha}`, {
+    headers: githubHeaders(token),
+  });
+  const annotated = await readJson(tagResponse, `dereference tag ${tag}`);
+  if (annotated?.object?.type !== "commit" || typeof annotated.object.sha !== "string") {
+    throw new Error(`GitHub annotated tag ${tag} has an invalid target`);
+  }
+  return annotated.object.sha;
+}
+
+export async function ensureTagAtSource({ repository, token, tag, sourceSha, fetchImpl = fetch }) {
+  requireNightlyTag(tag);
+  sourceMarker(sourceSha);
+  const existing = await readTag({ repository, token, tag, fetchImpl });
+  if (existing !== null) {
+    if (existing !== sourceSha) throw new Error(`tag ${tag} points at a different source SHA`);
+    return { tag, sourceSha };
+  }
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(`${repositoryApiBase(repository)}/git/refs`, {
+        method: "POST",
+        headers: { ...githubHeaders(token), "content-type": "application/json" },
+        body: JSON.stringify({ ref: `refs/tags/${tag}`, sha: sourceSha }),
+      });
+    } catch {
+      response = null;
+    }
+    if (response?.status === 201) {
+      await readJson(response, `create tag ${tag}`);
+    }
+    const observed = await readTag({ repository, token, tag, fetchImpl });
+    if (observed === sourceSha) return { tag, sourceSha };
+    if (observed !== null) throw new Error(`tag ${tag} points at a different source SHA`);
+  }
+  throw new Error(`GitHub tag ${tag} was still absent after three creation attempts`);
+}
