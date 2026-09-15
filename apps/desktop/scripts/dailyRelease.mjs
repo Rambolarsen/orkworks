@@ -120,7 +120,7 @@ export function expectedReleaseAssetNames({ version, channel }) {
   ].sort();
 }
 
-function requireNightlyTag(tag) {
+export function parseNightlyTag(tag) {
   if (typeof tag !== "string" || !tag.startsWith("v")) {
     throw new Error("nightly release tag is invalid");
   }
@@ -193,7 +193,7 @@ export function validateReleaseIntegrity({
       ? "nightly must be an unpublished draft prerelease"
       : "nightly must be a published prerelease");
   }
-  const version = requireNightlyTag(release.tag_name);
+  const version = parseNightlyTag(release.tag_name);
   if (tagTargetSha !== sourceSha) {
     throw new Error("nightly tag target does not match its source SHA");
   }
@@ -406,7 +406,7 @@ export async function getTagTarget(options) {
 }
 
 export async function ensureTagAtSource({ repository, token, tag, sourceSha, fetchImpl = fetch }) {
-  requireNightlyTag(tag);
+  parseNightlyTag(tag);
   sourceMarker(sourceSha);
   const existing = await readTag({ repository, token, tag, fetchImpl });
   if (existing !== null) {

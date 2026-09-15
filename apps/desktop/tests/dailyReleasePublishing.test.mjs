@@ -156,6 +156,26 @@ test("remote nightly state rejects duplicate source markers", async () => {
   }), /multiple published nightlies claim source SHA/i);
 });
 
+test("remote nightly state ignores malformed nightly-shaped tags", async () => {
+  const malformed = {
+    ...publishedRelease({ id: 8 }),
+    tag_name: "v0.2.0-nightly.not-a-daily-identity",
+  };
+  let tagReads = 0;
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([malformed]);
+      tagReads += 1;
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.deepEqual(state, { publishedNightlyVersions: [], validated: [] });
+  assert.equal(tagReads, 0);
+});
+
 test("publishes only after the uploaded draft passes the full integrity predicate", async () => {
   const localAssets = createAssets();
   const uploaded = new Map();

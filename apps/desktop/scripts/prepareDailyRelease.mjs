@@ -9,6 +9,7 @@ import {
   expectedReleaseAssetNames,
   getTagTarget,
   listAllReleases,
+  parseNightlyTag,
   parseSourceMarker,
   selectPublishedNightlyForSource,
   validatePublishedRelease,
@@ -87,7 +88,12 @@ export async function loadNightlyReleaseState({ repository, token, fetchImpl = f
     if (!release || typeof release !== "object") throw new Error("GitHub release list contains an invalid entry");
     if (release.draft || !release.prerelease) continue;
     if (typeof release.tag_name !== "string" || !release.tag_name.includes("-nightly.")) continue;
-    const version = release.tag_name.startsWith("v") ? release.tag_name.slice(1) : release.tag_name;
+    let version;
+    try {
+      version = parseNightlyTag(release.tag_name);
+    } catch {
+      continue;
+    }
     const expectedAssetNames = expectedReleaseAssetNames({ version, channel: "nightly" });
     publishedNightlyVersions.push(version);
     const marker = parseSourceMarker(release.body);
