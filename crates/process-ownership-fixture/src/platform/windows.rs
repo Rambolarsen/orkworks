@@ -176,6 +176,9 @@ fn run_electron_parent(
         operation: "locate Windows fixture helper executable",
         source,
     })?;
+    // Winsock expands provider DLL paths through `%SystemRoot%`; preserve only
+    // that required system variable across the fixture's closed environment.
+    let system_root = required_system_root()?;
     let mut supervisor = Command::new(executable)
         .args([
             OsString::from(OWNER_SUPERVISOR_FLAG),
@@ -184,6 +187,7 @@ fn run_electron_parent(
             target_marker.as_os_str().to_owned(),
         ])
         .env_clear()
+        .env("SystemRoot", system_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -305,6 +309,16 @@ fn helper_error(operation: &'static str, error: impl std::fmt::Display) -> Platf
         operation,
         source: io::Error::other(error.to_string()),
     }
+}
+
+fn required_system_root() -> Result<OsString, PlatformError> {
+    std::env::var_os("SystemRoot").ok_or_else(|| PlatformError::Windows {
+        operation: "read required SystemRoot environment",
+        source: io::Error::new(
+            io::ErrorKind::NotFound,
+            "SystemRoot is required for Windows socket initialization",
+        ),
+    })
 }
 
 #[derive(Debug)]

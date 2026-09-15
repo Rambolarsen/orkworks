@@ -117,9 +117,14 @@ fn wait_for_complete(supervisor: &mut Supervisor<OwnerDomain>) {
 }
 
 fn launch_electron_like_parent(ready: &Path, completion: &Path, target_marker: &Path) -> Child {
+    // The helper keeps an otherwise empty environment while allowing its fresh
+    // process to initialize the Windows socket used as the control endpoint.
+    let system_root = std::env::var_os("SystemRoot")
+        .expect("SystemRoot should be available for Windows socket initialization");
     Command::new(fixture_executable())
         .args(electron_parent_arguments(ready, completion, target_marker))
         .env_clear()
+        .env("SystemRoot", system_root)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
