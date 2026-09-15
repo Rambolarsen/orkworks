@@ -4,13 +4,117 @@ on:
   push:
     tags:
       - "v*"
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.event_name == 'push' && format('release-{0}', github.run_id) || 'nightly-release' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.preflight.outputs.source_sha }}
+      channel: ${{ steps.preflight.outputs.channel }}
+      version: ${{ steps.preflight.outputs.version }}
+      run_started_at: ${{ steps.preflight.outputs.run_started_at }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install release contract dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Freeze and validate release source
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'source_sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          printf 'run_started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            VERSION="$(node --input-type=module -e "import { readFileSync } from 'node:fs'; import { parseStableTag } from './apps/desktop/scripts/dailyRelease.mjs'; const version = JSON.parse(readFileSync('./apps/desktop/package.json', 'utf8')).version; process.stdout.write(parseStableTag(process.env.GITHUB_REF_NAME, version).version)")"
+            printf 'channel=latest\nversion=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            test "$GITHUB_REF" = "refs/heads/main"
+            printf 'channel=nightly\nversion=\n' >> "$GITHUB_OUTPUT"
+          fi
+
+  prepare_nightly:
+    needs: preflight
+    if: ${{ github.event_name != 'push' }}
+    runs-on: ubuntu-latest
     environment: release
+    permissions:
+      contents: read
+    outputs:
+      should_build: ${{ steps.prepare.outputs.should_build }}
+      version: ${{ steps.prepare.outputs.version }}
+      tag: ${{ steps.prepare.outputs.tag }}
+      windows_build_version: ${{ steps.prepare.outputs.windows_build_version }}
+      mac_bundle_version: ${{ steps.prepare.outputs.mac_bundle_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.source_sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install release contract dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare immutable nightly release
+        id: prepare
+        working-directory: apps/desktop
+        run: node scripts/prepareDailyRelease.mjs
+        env:
+          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          ORKWORKS_SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          ORKWORKS_RUN_STARTED_AT: ${{ needs.preflight.outputs.run_started_at }}
+
+  validate:
+    needs: preflight
+    uses: ./.github/workflows/main-ci.yml
+    with:
+      source_sha: ${{ needs.preflight.outputs.source_sha }}
+
+  build:
+    needs: [preflight, prepare_nightly, validate]
+    if: ${{ always() && needs.preflight.result == 'success' && needs.validate.result == 'success' && (needs.prepare_nightly.result == 'success' || needs.prepare_nightly.result == 'skipped') && (github.event_name == 'push' || needs.prepare_nightly.outputs.should_build == 'true') }}
+    environment: release
+    env:
+      ORKWORKS_RELEASE_CHANNEL: ${{ needs.preflight.outputs.channel }}
+      ORKWORKS_NIGHTLY_VERSION: ${{ needs.prepare_nightly.outputs.version }}
+      ORKWORKS_BUILD_VERSION: ${{ needs.prepare_nightly.outputs.windows_build_version }}
+      ORKWORKS_MAC_BUNDLE_VERSION: ${{ needs.prepare_nightly.outputs.mac_bundle_version }}
     strategy:
       matrix:
         include:
@@ -25,6 +129,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.source_sha }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -36,16 +142,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: apps/desktop/pnpm-lock.yaml
 
-      - name: Guard tag/version drift
-        shell: bash
-        run: |
-          TAG="$GITHUB_REF_NAME"
-          PKG_VERSION="$(node -e "process.stdout.write('v' + require('./apps/desktop/package.json').version)")"
-          if [ "$TAG" != "$PKG_VERSION" ]; then
-            echo "Tag $TAG does not match package.json version $PKG_VERSION"
-            exit 1
-          fi
-
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -55,6 +151,11 @@ jobs:
       - name: Install frontend deps
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
+
+      - name: Stage nightly package versions
+        if: ${{ github.event_name != 'push' }}
+        working-directory: apps/desktop
+        run: node scripts/prepareDailyRelease.mjs --stage
 
       - name: Build frontend
         working-directory: apps/desktop
@@ -276,15 +377,17 @@ jobs:
           name: release-${{ matrix.target }}-${{ matrix.arch }}
           path: |
             apps/desktop/release/OrkWorks-*
-            apps/desktop/release/latest*.yml
+            apps/desktop/release/${{ env.ORKWORKS_RELEASE_CHANNEL }}*.yml
             apps/desktop/release/*.blockmap
             apps/desktop/release/SHA256SUMS.txt
           if-no-files-found: error
 
-  publish:
+  publish_stable:
     needs: build
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: release
     permissions:
       contents: write
     steps:
@@ -321,3 +424,68 @@ jobs:
           draft: true
           files: artifacts/publish/*
           fail_on_unmatched_files: true
+
+  publish_nightly:
+    needs: [preflight, prepare_nightly, build]
+    if: ${{ github.event_name != 'push' && needs.prepare_nightly.outputs.should_build == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.source_sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install release contract dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: false
+
+      - name: Assemble exact nightly assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/publish
+          test -z "$(find artifacts -type f -name 'latest*.yml' -print -quit)"
+          DUPLICATES="$(find artifacts/release-mac-arm64 artifacts/release-win-x64 -maxdepth 1 -type f \
+            \( -name 'OrkWorks-*' -o -name 'nightly*.yml' -o -name '*.blockmap' \) \
+            -printf '%f\n' | sort | uniq -d)"
+          test -z "$DUPLICATES"
+          for artifact_dir in artifacts/release-mac-arm64 artifacts/release-win-x64; do
+            find "$artifact_dir" -maxdepth 1 -type f \
+              \( -name 'OrkWorks-*' -o -name 'nightly*.yml' -o -name '*.blockmap' \) \
+              -exec cp -n {} artifacts/publish/ \;
+          done
+          cat \
+            artifacts/release-mac-arm64/SHA256SUMS.txt \
+            artifacts/release-win-x64/SHA256SUMS.txt \
+            | sort > artifacts/publish/SHA256SUMS.txt
+          test -f artifacts/publish/nightly-mac.yml
+          test -f artifacts/publish/nightly.yml
+
+      - name: Validate and publish nightly prerelease
+        working-directory: apps/desktop
+        run: node scripts/publishDailyRelease.mjs
+        env:
+          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          ORKWORKS_SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          ORKWORKS_NIGHTLY_VERSION: ${{ needs.prepare_nightly.outputs.version }}
+          ORKWORKS_NIGHTLY_TAG: ${{ needs.prepare_nightly.outputs.tag }}
+          ORKWORKS_ASSET_DIR: ${{ github.workspace }}/artifacts/publish

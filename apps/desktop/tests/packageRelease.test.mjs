@@ -207,6 +207,35 @@ test("release workflow smoke-tests Windows installers before upload", () => {
   assert.match(findStep(buildJob, "Smoke-test Windows installer").if, /matrix\.target == ['"]win['"]/);
 });
 
+test("release workflow freezes and validates stable or nightly sources before signing", () => {
+  const source = readFileSync(releaseWorkflowPath, "utf8");
+  const workflow = yaml.load(source);
+
+  assert.deepEqual(workflow.on.schedule, [{ cron: "23 3 * * *" }]);
+  assert.notEqual(workflow.on.workflow_dispatch, undefined);
+  assert.equal(workflow.concurrency["cancel-in-progress"], false);
+  assert.match(workflow.concurrency.group, /nightly-release/);
+  assert.equal(workflow.jobs.preflight.permissions.contents, "read");
+  assert.equal(workflow.jobs.prepare_nightly.environment, "release");
+  assert.equal(workflow.jobs.build.environment, "release");
+  assert.equal(workflow.jobs.publish_stable.environment, "release");
+  assert.equal(workflow.jobs.publish_nightly.environment, "release");
+  assert.equal(workflow.jobs.validate.uses, "./.github/workflows/main-ci.yml");
+  assert.equal(workflow.jobs.validate.with.source_sha, "${{ needs.preflight.outputs.source_sha }}");
+  assert.deepEqual(workflow.jobs.build.needs, ["preflight", "prepare_nightly", "validate"]);
+  assert.equal(
+    workflow.jobs.build.steps.find((step) => step.uses === "actions/checkout@v4").with.ref,
+    "${{ needs.preflight.outputs.source_sha }}",
+  );
+  assert.match(source, /refs\/heads\/main/);
+  assert.match(source, /RELEASE_GITHUB_TOKEN: \$\{\{ secrets\.RELEASE_GITHUB_TOKEN \}\}/);
+  assert.match(source, /prepareDailyRelease\.mjs/);
+  assert.match(source, /publishDailyRelease\.mjs/);
+  assert.match(source, /ORKWORKS_RELEASE_CHANNEL/);
+  assert.match(source, /nightly\*\.yml/);
+  assert.match(findStep(workflow.jobs.publish_nightly, "Assemble exact nightly assets").run, /uniq -d/);
+});
+
 test("release workflow protects platform jobs and maps only their signing credentials", () => {
   const source = readFileSync(releaseWorkflowPath, "utf8");
   const workflow = yaml.load(source);
@@ -243,8 +272,10 @@ test("release workflow protects platform jobs and maps only their signing creden
     findStep(buildJob, "Smoke-test Windows installer").env.WIN_EXPECTED_PUBLISHER,
     "${{ vars.WIN_EXPECTED_PUBLISHER }}",
   );
-  assert.doesNotMatch(source, /GH_TOKEN/);
-  assert.deepEqual(workflow.jobs.publish.permissions, { contents: "write" });
+  assert.doesNotMatch(source, /\bGH_TOKEN\b/);
+  assert.deepEqual(workflow.jobs.publish_stable.permissions, { contents: "write" });
+  assert.deepEqual(workflow.jobs.prepare_nightly.permissions, { contents: "read" });
+  assert.deepEqual(workflow.jobs.publish_nightly.permissions, { contents: "read" });
 });
 
 test("release workflow materializes the App Store Connect API key as a temporary path", () => {
@@ -286,7 +317,7 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
   const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
   const expectedUploadPath = [
     "apps/desktop/release/OrkWorks-*",
-    "apps/desktop/release/latest*.yml",
+    "apps/desktop/release/${{ env.ORKWORKS_RELEASE_CHANNEL }}*.yml",
     "apps/desktop/release/*.blockmap",
     "apps/desktop/release/SHA256SUMS.txt",
   ].join("\n");
@@ -349,15 +380,16 @@ test("release workflow verifies real artifacts, creates checksums, and uploads o
   );
   assert.doesNotMatch(windowsVerification, /\.Contains\(/);
 
-  assert.equal(workflow.jobs.publish.needs, "build");
-  const publishNames = workflow.jobs.publish.steps.map((step) => step.name).filter(Boolean);
-  const downloadStep = workflow.jobs.publish.steps.find((step) => step.uses === "actions/download-artifact@v4");
-  const assembleStep = findStep(workflow.jobs.publish, "Assemble release assets");
+  const stablePublish = workflow.jobs.publish_stable;
+  assert.equal(stablePublish.needs, "build");
+  const publishNames = stablePublish.steps.map((step) => step.name).filter(Boolean);
+  const downloadStep = stablePublish.steps.find((step) => step.uses === "actions/download-artifact@v4");
+  const assembleStep = findStep(stablePublish, "Assemble release assets");
   assert.equal(downloadStep.with["merge-multiple"], false);
   assert.match(assembleStep.run, /release-mac-arm64\/SHA256SUMS\.txt/);
   assert.match(assembleStep.run, /release-win-x64\/SHA256SUMS\.txt/);
   assert.match(assembleStep.run, /sort > artifacts\/publish\/SHA256SUMS\.txt/);
-  const metadataAssertion = findStep(workflow.jobs.publish, "Assert platform update metadata").run;
+  const metadataAssertion = findStep(stablePublish, "Assert platform update metadata").run;
   assert.match(metadataAssertion, /^test -f artifacts\/publish\/latest-mac\.yml$/m);
   assert.match(metadataAssertion, /^test -f artifacts\/publish\/latest\.yml$/m);
   assert.ok(publishNames.indexOf("Assemble release assets") < publishNames.indexOf("Assert platform update metadata"));

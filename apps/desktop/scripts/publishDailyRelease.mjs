@@ -3,11 +3,14 @@ import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  assertCandidateIsNewest,
   expectedReleaseAssetNames,
   getTagTarget,
+  selectPublishedNightlyForSource,
   sourceMarker,
   validateReleaseIntegrity,
 } from "./dailyRelease.mjs";
+import { loadNightlyReleaseState } from "./prepareDailyRelease.mjs";
 
 function headers(token, contentType = "application/vnd.github+json") {
   if (typeof token !== "string" || token.length === 0) throw new Error("GitHub release token is required");
@@ -69,6 +72,7 @@ export async function publishDailyRelease({
   sourceSha,
   assets,
   fetchImpl = fetch,
+  loadState = loadNightlyReleaseState,
 }) {
   const expectedNames = expectedReleaseAssetNames({ version: identity?.version, channel: "nightly" });
   if (identity?.tag !== `v${identity.version}`) throw new Error("nightly release identity is invalid");
@@ -77,6 +81,10 @@ export async function publishDailyRelease({
   for (const name of assetNames) {
     if (!Buffer.isBuffer(assets[name]) || assets[name].length === 0) throw new Error(`local release asset is empty: ${name}`);
   }
+  const state = await loadState({ repository, token, fetchImpl });
+  const existing = selectPublishedNightlyForSource(state.validated, sourceSha);
+  if (existing) return existing.release;
+  assertCandidateIsNewest(identity.version, state.publishedNightlyVersions.map((version) => ({ version })));
   const tagTargetSha = await getTagTarget({ repository, token, tag: identity.tag, fetchImpl });
   if (tagTargetSha !== sourceSha) throw new Error("nightly tag target does not match its source SHA");
 

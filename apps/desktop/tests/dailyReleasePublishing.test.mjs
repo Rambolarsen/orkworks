@@ -121,6 +121,7 @@ test("publishes only after the uploaded draft passes the full integrity predicat
     sourceSha: SOURCE_SHA,
     assets: localAssets,
     fetchImpl,
+    loadState: async () => ({ publishedNightlyVersions: [], validated: [] }),
   });
 
   assert.equal(published.draft, false);
@@ -136,6 +137,7 @@ test("does not publish an incomplete uploaded draft", async () => {
     identity: { version: VERSION, tag: TAG },
     sourceSha: SOURCE_SHA,
     assets,
+    loadState: async () => ({ publishedNightlyVersions: [], validated: [] }),
     fetchImpl: async (url, options = {}) => {
       const method = options.method ?? "GET";
       if (url.includes("/git/ref/tags/")) return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
@@ -152,6 +154,23 @@ test("does not publish an incomplete uploaded draft", async () => {
     },
   }), /asset/i);
   assert.equal(published, false);
+});
+
+test("publication rechecks remote state and skips a newly completed source", async () => {
+  let requests = 0;
+  const existing = { sourceSha: SOURCE_SHA, version: VERSION, release: { id: 12, draft: false } };
+  const result = await publishDailyRelease({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    identity: { version: VERSION, tag: TAG },
+    sourceSha: SOURCE_SHA,
+    assets: createAssets(),
+    loadState: async () => ({ publishedNightlyVersions: [VERSION], validated: [existing] }),
+    fetchImpl: async () => { requests += 1; throw new Error("must not mutate GitHub"); },
+  });
+
+  assert.equal(result, existing.release);
+  assert.equal(requests, 0);
 });
 
 test("preparation skips one already-validated nightly for the frozen source", async () => {
