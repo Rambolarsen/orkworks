@@ -11,10 +11,30 @@ import {
 
 const desktopRoot = resolve(import.meta.dirname, "..");
 const releaseWorkflowPath = resolve(desktopRoot, "..", "..", ".github", "workflows", "release.yml");
+const mainCiWorkflowPath = resolve(desktopRoot, "..", "..", ".github", "workflows", "main-ci.yml");
 
 function findStep(job, name) {
   return job.steps.find((step) => step.name === name);
 }
+
+test("Main CI can validate one immutable caller-provided source", () => {
+  const workflow = yaml.load(readFileSync(mainCiWorkflowPath, "utf8"));
+
+  assert.deepEqual(workflow.on.push.branches, ["main"]);
+  assert.deepEqual(workflow.on.schedule, [{ cron: "0 5 * * *" }]);
+  assert.notEqual(workflow.on.workflow_dispatch, undefined);
+  assert.deepEqual(workflow.on.workflow_call.inputs.source_sha, {
+    description: "Immutable commit to validate; event SHA when omitted",
+    required: false,
+    type: "string",
+    default: "",
+  });
+  for (const job of Object.values(workflow.jobs)) {
+    const checkout = job.steps.find((step) => step.uses === "actions/checkout@v4");
+    assert.equal(checkout.with.ref, "${{ inputs.source_sha || github.sha }}");
+  }
+  assert.doesNotMatch(readFileSync(mainCiWorkflowPath, "utf8"), /git (?:rev-parse|ls-remote).*main/i);
+});
 
 test("electron-builder config declares signed release targets", () => {
   const config = yaml.load(
