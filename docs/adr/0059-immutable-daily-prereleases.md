@@ -51,8 +51,10 @@ and the day-of-year calculation sets the full UTC year explicitly.
 Publication first revalidates its prepared tag target, then excludes only that
 exact candidate from the ordering comparison so the tag does not block itself.
 A publication retry reuses only one exact-tag draft with matching source and
-asset identity, uploads only missing assets, and rejects off-origin or
-redirected credentialed asset requests.
+asset identity and uploads only missing assets. Authenticated pagination stays
+on the repository API endpoint. Asset downloads validate the API URL and follow
+GitHub's documented redirect only to an HTTPS GitHub-content host without
+forwarding authorization.
 
 Every job that signs artifacts or receives `contents: write` authority uses the
 protected `release` environment. The environment permits only `main` and

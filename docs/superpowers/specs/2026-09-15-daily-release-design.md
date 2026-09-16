@@ -60,7 +60,8 @@ tag/package-version guard.
    Validation requires the expected prerelease/tag grammar, exact tag target,
    complete expected asset-name set, nonzero asset sizes and GitHub SHA-256
    digests, plus downloadable channel metadata and `SHA256SUMS.txt` whose
-   contents cross-check those assets. API, pagination, schema, or multiple
+   contents cross-check those assets. Authenticated pagination follows only a
+   validated next-page URL for the same repository endpoint. API, pagination, schema, or multiple
    fully validated releases for one source fails closed. An authenticated asset URL that
    returns 404 marks that published release as damaged, retryable history;
    every other download failure fails closed. One valid exact-source match ends
@@ -120,8 +121,9 @@ tag/package-version guard.
    metadata and checksum-manifest cross-checks, direct updater SHA-512 checks
    against the locally verified payload bytes, source marker, prerelease/draft
    flags, and exact tag target. Credentialed asset downloads accept only the
-   repository's GitHub API asset endpoint and refuse redirects. Only then does
-   it publish the draft. Failed drafts and their unique tags remain diagnostic
+   repository's GitHub API asset endpoint. A documented `302` is followed only
+   to an HTTPS GitHub-content host, without forwarding authorization, and any
+   further redirect is rejected. Only then does it publish the draft. Failed drafts and their unique tags remain diagnostic
    records: the same publication job can resume an exact retained draft, while
    a later run attempt can use a new tag. No asset is replaced.
    Stable releases keep their existing draft behavior and stable metadata.

@@ -420,18 +420,50 @@ function nextLink(header) {
   return null;
 }
 
+function nextReleasePage(header, repository) {
+  const next = nextLink(header);
+  if (next === null) return null;
+  let parsed;
+  try {
+    parsed = new URL(next);
+  } catch {
+    throw new Error("GitHub release pagination URL is invalid");
+  }
+  const base = repositoryApiBase(repository);
+  const expected = new URL(`${base}/releases`);
+  const page = parsed.searchParams.get("page");
+  if (
+    parsed.origin !== expected.origin
+    || parsed.pathname !== expected.pathname
+    || parsed.username !== ""
+    || parsed.password !== ""
+    || parsed.hash !== ""
+    || parsed.searchParams.getAll("per_page").length !== 1
+    || parsed.searchParams.get("per_page") !== "100"
+    || parsed.searchParams.getAll("page").length !== 1
+    || !/^[1-9]\d*$/.test(page ?? "")
+    || [...parsed.searchParams.keys()].some((key) => key !== "per_page" && key !== "page")
+  ) {
+    throw new Error("GitHub release pagination URL is outside the repository API");
+  }
+  return `${base}/releases?per_page=100&page=${page}`;
+}
+
 export async function listAllReleases({ repository, token, fetchImpl = fetch }) {
   const headers = githubHeaders(token);
   let url = `${repositoryApiBase(repository)}/releases?per_page=100`;
   const releases = [];
+  const visited = new Set();
   while (url !== null) {
-    const response = await fetchImpl(url, { headers });
+    if (visited.has(url)) throw new Error("GitHub release pagination URL repeats a page");
+    visited.add(url);
+    const response = await fetchImpl(url, { headers, redirect: "error" });
     const page = await readJson(response, "release list");
     if (!Array.isArray(page)) {
       throw new Error("GitHub release list must be an array");
     }
     releases.push(...page);
-    url = nextLink(response.headers.get("link"));
+    url = nextReleasePage(response.headers.get("link"), repository);
   }
   return releases;
 }
@@ -457,6 +489,39 @@ export function githubReleaseAssetUrl({ repository, url }) {
     throw new Error("GitHub release asset URL is outside the repository API");
   }
   return parsed.href;
+}
+
+function githubReleaseAssetRedirectUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("GitHub release asset redirect URL is invalid");
+  }
+  if (
+    parsed.protocol !== "https:"
+    || !parsed.hostname.endsWith(".githubusercontent.com")
+    || parsed.port !== ""
+    || parsed.username !== ""
+    || parsed.password !== ""
+    || parsed.hash !== ""
+  ) {
+    throw new Error("GitHub release asset redirect URL is outside GitHub content hosts");
+  }
+  return parsed.href;
+}
+
+export async function downloadGitHubReleaseAsset({ repository, token, url, fetchImpl = fetch }) {
+  const response = await fetchImpl(githubReleaseAssetUrl({ repository, url }), {
+    headers: { ...githubHeaders(token), accept: "application/octet-stream" },
+    redirect: "manual",
+  });
+  if (response.status !== 302) return response;
+  const redirectUrl = githubReleaseAssetRedirectUrl(response.headers.get("location"));
+  return fetchImpl(redirectUrl, {
+    headers: { accept: "application/octet-stream" },
+    redirect: "error",
+  });
 }
 
 export async function listNightlyTagVersions({ repository, token, fetchImpl = fetch }) {

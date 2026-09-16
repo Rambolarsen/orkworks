@@ -49,7 +49,9 @@ generation. They then run the full artifact verifier, which requires the
 checksum manifest, before upload. The stable publisher creates a draft release;
 the nightly publisher creates or resumes an exact matching draft, validates the
 uploaded asset set, and then publishes it. It never replaces a retained asset;
-a size or digest mismatch fails closed. A successful source-only test or packaging run is not
+a size or digest mismatch fails closed. Credentialed API and pagination URLs
+are repository-scoped; an asset redirect is followed without authorization only
+to an HTTPS GitHub-content host. A successful source-only test or packaging run is not
 evidence that a release is trusted: the real credential-backed run on the
 native runners is still required.
 

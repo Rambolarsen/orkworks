@@ -339,6 +339,24 @@ test("release listing fails closed on API and schema errors", async () => {
   }), /release list.*array/i);
 });
 
+test("release listing never forwards credentials to an untrusted pagination link", async () => {
+  let leaked = false;
+  await assert.rejects(() => listAllReleases({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    fetchImpl: async (url, options) => {
+      if (url === "https://attacker.example/steal?page=2") {
+        leaked = options.headers.authorization === "Bearer secret";
+        return jsonResponse(200, []);
+      }
+      return jsonResponse(200, [], {
+        link: '<https://attacker.example/steal?page=2>; rel="next"',
+      });
+    },
+  }), /pagination URL/i);
+  assert.equal(leaked, false);
+});
+
 test("matching tag listing returns only valid nightly-channel SemVer and fails closed on schema errors", async () => {
   const fetchImpl = async (url, options) => {
     assert.equal(url, "https://api.github.com/repos/Rambolarsen/orkworks/git/matching-refs/tags/v");

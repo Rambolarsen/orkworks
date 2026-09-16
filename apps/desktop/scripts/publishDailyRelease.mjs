@@ -5,9 +5,9 @@ import { pathToFileURL } from "node:url";
 
 import {
   assertCandidateIsNewest,
+  downloadGitHubReleaseAsset,
   expectedReleaseAssetNames,
   getTagTarget,
-  githubReleaseAssetUrl,
   parseSourceMarker,
   selectPublishedNightlyForSource,
   sourceMarker,
@@ -189,9 +189,11 @@ export async function publishDailyRelease({
   for (const name of ["nightly.yml", "nightly-mac.yml", "SHA256SUMS.txt"]) {
     const asset = draft.assets?.find((candidate) => candidate.name === name);
     if (typeof asset?.url !== "string") throw new Error(`draft asset is missing: ${name}`);
-    const response = await fetchImpl(githubReleaseAssetUrl({ repository, url: asset.url }), {
-      headers: { ...headers(token), accept: "application/octet-stream" },
-      redirect: "error",
+    const response = await downloadGitHubReleaseAsset({
+      repository,
+      token,
+      url: asset.url,
+      fetchImpl,
     });
     if (!response.ok) throw new Error(`download draft asset ${name} failed with ${response.status}`);
     downloadedAssets[name] = await response.text();

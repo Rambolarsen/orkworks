@@ -380,6 +380,65 @@ test("remote nightly state rejects credentialed asset URLs outside the repositor
   assert.equal(leaked, false);
 });
 
+test("remote nightly state follows a validated asset redirect without forwarding credentials", async () => {
+  const assets = createAssets();
+  const release = publishedRelease({ id: 18, assets });
+  const redirectedAsset = release.assets.find((asset) => asset.name === "nightly.yml");
+  const redirectUrl = "https://release-assets.githubusercontent.com/signed/nightly.yml?token=opaque";
+  let redirected = false;
+  const state = await loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url, options = {}) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (url === redirectedAsset.url) {
+        assert.equal(options.headers.authorization, "Bearer secret");
+        assert.equal(options.redirect, "manual");
+        return new Response(null, { status: 302, headers: { location: redirectUrl } });
+      }
+      if (url === redirectUrl) {
+        redirected = true;
+        assert.equal(options.headers.authorization, undefined);
+        assert.equal(options.redirect, "error");
+        return new Response(assets[redirectedAsset.name]);
+      }
+      const asset = release.assets.find((candidate) => candidate.url === url);
+      if (asset) return new Response(assets[asset.name]);
+      throw new Error(`unexpected request: ${url}`);
+    },
+  });
+
+  assert.equal(redirected, true);
+  assert.equal(state.validated.length, 1);
+});
+
+test("remote nightly state rejects an asset redirect outside GitHub content hosts", async () => {
+  const release = publishedRelease({ id: 19 });
+  const redirectedAsset = release.assets.find((asset) => asset.name === "nightly.yml");
+  let followed = false;
+  await assert.rejects(() => loadNightlyReleaseState({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/releases?per_page=100")) return Response.json([release]);
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if (url === redirectedAsset.url) {
+        return new Response(null, { status: 302, headers: { location: "https://attacker.example/steal" } });
+      }
+      if (url === "https://attacker.example/steal") followed = true;
+      throw new Error(`unexpected request: ${url}`);
+    },
+  }), /redirect URL/i);
+  assert.equal(followed, false);
+});
+
 test("remote nightly state rejects updater SHA-512 that does not match its payload", async () => {
   const assets = createAssets();
   assets["nightly.yml"] = Buffer.from(assets["nightly.yml"].toString().replace(/sha512: .+/, "sha512: Ym9ndXM="));
@@ -443,7 +502,7 @@ test("publishes its prepared tag only after the uploaded draft passes the full i
     if (method === "GET" && url.endsWith("/releases/77")) return Response.json(releaseJson(true));
     if (method === "GET" && url.includes("/releases/assets/")) {
       assert.equal(options.headers.accept, "application/octet-stream");
-      assert.equal(options.redirect, "error");
+      assert.equal(options.redirect, "manual");
       const id = Number(url.slice(url.lastIndexOf("/") + 1));
       return new Response([...uploaded.values()][id - 1]);
     }
@@ -510,7 +569,7 @@ test("publication resumes one matching partial draft and uploads only missing as
     }
     if (method === "GET" && url.endsWith("/releases/88")) return Response.json(releaseJson(true));
     if (method === "GET" && url.includes("/releases/assets/")) {
-      assert.equal(options.redirect, "error");
+      assert.equal(options.redirect, "manual");
       const id = Number(url.slice(url.lastIndexOf("/") + 1));
       return new Response([...uploaded.values()][id - 1]);
     }

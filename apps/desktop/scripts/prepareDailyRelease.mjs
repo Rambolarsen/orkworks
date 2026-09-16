@@ -5,10 +5,10 @@ import { pathToFileURL } from "node:url";
 import {
   assertCandidateIsNewest,
   createNightlyIdentity,
+  downloadGitHubReleaseAsset,
   ensureTagAtSource,
   expectedReleaseAssetNames,
   getTagTarget,
-  githubReleaseAssetUrl,
   listAllReleases,
   listNightlyTagVersions,
   parseNightlyChannelTag,
@@ -145,9 +145,11 @@ export async function loadNightlyReleaseState({
         downloadsComplete = false;
         break;
       }
-      const response = await fetchImpl(githubReleaseAssetUrl({ repository, url: asset.url }), {
-        headers: { accept: "application/octet-stream", authorization: `Bearer ${token}` },
-        redirect: "error",
+      const response = await downloadGitHubReleaseAsset({
+        repository,
+        token,
+        url: asset.url,
+        fetchImpl,
       });
       if (!response.ok) {
         if (response.status === 404) {
