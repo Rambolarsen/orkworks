@@ -557,15 +557,23 @@ pub type AdoptionResult = Result<CompleteExitReceipt, ProtocolError>;
 #[derive(Debug, Clone)]
 pub struct RendezvousClient {
     prepared: PreparedGeneration,
+    successor_generation: GenerationId,
+    successor_nonce: String,
     authenticated_response: Option<AuthenticatedRendezvousReply>,
 }
 
 impl RendezvousClient {
     /// Creates a client with no live response; adoption remains unresolved.
     #[must_use]
-    pub fn new(prepared: PreparedGeneration) -> Self {
+    pub fn new(
+        prepared: PreparedGeneration,
+        successor_generation: GenerationId,
+        successor_nonce: String,
+    ) -> Self {
         Self {
             prepared,
+            successor_generation,
+            successor_nonce,
             authenticated_response: None,
         }
     }
@@ -574,10 +582,14 @@ impl RendezvousClient {
     #[must_use]
     pub fn from_authenticated_response(
         prepared: PreparedGeneration,
+        successor_generation: GenerationId,
+        successor_nonce: String,
         response: AuthenticatedRendezvousReply,
     ) -> Self {
         Self {
             prepared,
+            successor_generation,
+            successor_nonce,
             authenticated_response: Some(response),
         }
     }
@@ -601,6 +613,8 @@ impl RendezvousClient {
         let request = AdoptionRequest {
             generation: self.prepared.record.generation,
             rendezvous_nonce: self.prepared.record.nonce.clone(),
+            successor_generation: self.successor_generation,
+            successor_nonce: self.successor_nonce.clone(),
             challenge: response.challenge.clone(),
         };
         let receipt = self
@@ -951,11 +965,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         }
         let request_nonce = request_nonce.into();
         self.protocol
-            .issue_launch_ticket(
-                role,
-                self.executable.executable_identity(role),
-                self.executable.bind_request_nonce(&request_nonce),
-            )
+            .issue_launch_ticket(role, self.executable.bind_request_nonce(&request_nonce))
             .map_err(|_| SpawnError::InvalidTicket)
     }
 

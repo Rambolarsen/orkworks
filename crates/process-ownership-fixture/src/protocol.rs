@@ -169,7 +169,7 @@ impl PreparedGeneration {
         )
     }
 
-    /// Creates a fresh adoption challenge bound to this rendezvous generation.
+    /// Creates a fresh adoption challenge bound to this generation and its successor.
     ///
     /// The persisted rendezvous state is deliberately not copied into the
     /// request. Only the generation, rendezvous nonce, and a fresh challenge are
@@ -179,10 +179,18 @@ impl PreparedGeneration {
     ///
     /// Returns [`ProtocolError::RandomnessUnavailable`] if the operating system
     /// cannot generate a 256-bit challenge.
-    pub fn adoption_request(&self) -> Result<AdoptionRequest, ProtocolError> {
+    pub fn adoption_request(
+        &self,
+        successor_generation: GenerationId,
+        successor_nonce: impl Into<String>,
+    ) -> Result<AdoptionRequest, ProtocolError> {
+        let successor_nonce = successor_nonce.into();
+        validate_capability("successor rendezvous nonce", &successor_nonce)?;
         Ok(AdoptionRequest {
             generation: self.record.generation,
             rendezvous_nonce: self.record.nonce.clone(),
+            successor_generation,
+            successor_nonce,
             challenge: random_hex()?,
         })
     }
@@ -215,6 +223,8 @@ impl PreparedGeneration {
         };
         check_generation(self.record.generation, response.generation)?;
         if response.rendezvous_nonce != request.rendezvous_nonce
+            || response.successor_generation != request.successor_generation
+            || response.successor_nonce != request.successor_nonce
             || response.challenge != request.challenge
         {
             return Err(ProtocolError::StaleRendezvous);
@@ -223,6 +233,8 @@ impl PreparedGeneration {
         let signing_bytes = rendezvous_signing_bytes(
             response.generation,
             &response.rendezvous_nonce,
+            response.successor_generation,
+            &response.successor_nonce,
             &response.challenge,
             &response.state,
         )?;
@@ -252,6 +264,10 @@ pub struct AdoptionRequest {
     pub generation: GenerationId,
     /// Supervisor-generated rendezvous nonce from the persisted locator.
     pub rendezvous_nonce: String,
+    /// Successor generation authorized to consume the complete-exit receipt.
+    pub successor_generation: GenerationId,
+    /// Successor rendezvous nonce that uniquely identifies the successor.
+    pub successor_nonce: String,
     /// Fresh client-generated 256-bit hexadecimal challenge.
     pub challenge: String,
 }
@@ -264,6 +280,10 @@ pub struct AuthenticatedRendezvousReply {
     pub generation: GenerationId,
     /// Supervisor-generated nonce identifying the live rendezvous endpoint.
     pub rendezvous_nonce: String,
+    /// Successor generation authorized to consume the complete-exit receipt.
+    pub successor_generation: GenerationId,
+    /// Successor rendezvous nonce that uniquely identifies the successor.
+    pub successor_nonce: String,
     /// Exact fresh client challenge being answered.
     pub challenge: String,
     /// Authoritative state retained by the live supervisor.
@@ -285,8 +305,6 @@ pub enum AuthenticatedRequest {
     IssueLaunchTicket {
         /// Requested ownership role.
         role: Role,
-        /// Fixture-owned executable identity selected by the supervisor layer.
-        executable_identity: String,
         /// Nonce for this launch request.
         request_nonce: String,
     },
@@ -464,14 +482,6 @@ pub enum ProtocolError {
     /// A ticket does not match its supervisor-issued binding.
     #[error("launch ticket binding does not match")]
     TicketBindingMismatch,
-    /// An executable identity is not the closed fixture identity for its role.
-    #[error("executable identity `{executable_identity}` is not allowed for role {role:?}")]
-    ExecutableIdentityRejected {
-        /// Requested ownership role.
-        role: Role,
-        /// Rejected caller-supplied executable identity.
-        executable_identity: String,
-    },
     /// A ticket identifier was not issued by this supervisor generation.
     #[error("launch ticket was not issued by this generation")]
     UnknownTicket,
@@ -539,7 +549,7 @@ pub struct SupervisorProtocol {
     rendezvous_state: RendezvousState,
     issued_tickets: HashMap<String, LaunchTicket>,
     consumed_tickets: HashSet<String>,
-    answered_adoption_challenges: HashSet<String>,
+    answered_adoption_challenges: HashMap<String, AuthenticatedRendezvousReply>,
 }
 
 impl fmt::Debug for SupervisorProtocol {
@@ -599,38 +609,30 @@ impl SupervisorProtocol {
             rendezvous_state: RendezvousState::Live,
             issued_tickets: HashMap::new(),
             consumed_tickets: HashSet::new(),
-            answered_adoption_challenges: HashSet::new(),
+            answered_adoption_challenges: HashMap::new(),
         };
         Ok((protocol, prepared))
     }
 
-    /// Issues a one-use ticket bound to the prepared generation and launch request.
+    /// Issues a one-use ticket bound to the prepared generation, role, and launch request.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolError::InvalidValue`] for empty or control-bearing
-    /// binding values, or [`ProtocolError::RandomnessUnavailable`] if a ticket ID
-    /// cannot be generated.
+    /// The executable identity is derived from the trusted role binding; the
+    /// caller supplies only a request nonce. Returns [`ProtocolError::InvalidValue`]
+    /// for an empty or control-bearing request nonce, or
+    /// [`ProtocolError::RandomnessUnavailable`] if a ticket ID cannot be generated.
     pub fn issue_launch_ticket(
         &mut self,
         role: Role,
-        executable_identity: impl Into<String>,
         request_nonce: impl Into<String>,
     ) -> Result<LaunchTicket, ProtocolError> {
-        let executable_identity = executable_identity.into();
         let request_nonce = request_nonce.into();
-        validate_text("executable identity", &executable_identity)?;
         validate_text("request nonce", &request_nonce)?;
-        if executable_identity != role.executable_identity() {
-            return Err(ProtocolError::ExecutableIdentityRejected {
-                role,
-                executable_identity,
-            });
-        }
         let ticket = LaunchTicket {
             generation: self.generation,
             role,
-            executable_identity,
+            executable_identity: role.executable_identity().to_owned(),
             request_nonce,
             ticket_id: random_hex()?,
         };
@@ -751,28 +753,40 @@ impl SupervisorProtocol {
             return Err(ProtocolError::StaleRendezvous);
         }
         validate_capability("adoption challenge", &request.challenge)?;
-        if self
-            .answered_adoption_challenges
-            .contains(&request.challenge)
-        {
+        if let Some(response) = self.answered_adoption_challenges.get(&request.challenge) {
+            if response.successor_generation == request.successor_generation {
+                if response.successor_nonce == request.successor_nonce {
+                    return Ok(response.clone());
+                }
+            }
             return Err(ProtocolError::ChallengeAlreadyUsed);
         }
         let signing_bytes = rendezvous_signing_bytes(
             self.generation,
             &self.rendezvous_nonce,
+            request.successor_generation,
+            &request.successor_nonce,
             &request.challenge,
             &self.rendezvous_state,
         )?;
         let authentication_tag = hex::encode(hmac_sha256(&self.endpoint_secret, &signing_bytes));
-        self.answered_adoption_challenges
-            .insert(request.challenge.clone());
-        Ok(AuthenticatedRendezvousReply {
-            generation: self.generation,
-            rendezvous_nonce: self.rendezvous_nonce.clone(),
-            challenge: request.challenge.clone(),
-            state: self.rendezvous_state.clone(),
-            authentication_tag,
-        })
+        self.answered_adoption_challenges.insert(
+            request.challenge.clone(),
+            AuthenticatedRendezvousReply {
+                generation: self.generation,
+                rendezvous_nonce: self.rendezvous_nonce.clone(),
+                successor_generation: request.successor_generation,
+                successor_nonce: request.successor_nonce.clone(),
+                challenge: request.challenge.clone(),
+                state: self.rendezvous_state.clone(),
+                authentication_tag,
+            },
+        );
+        Ok(self
+            .answered_adoption_challenges
+            .get(&request.challenge)
+            .expect("adoption response was just inserted")
+            .clone())
     }
 
     fn check_generation(&self, actual: GenerationId) -> Result<(), ProtocolError> {
@@ -945,6 +959,8 @@ fn command_signing_bytes(
 struct RendezvousSigningPayload<'a> {
     generation: GenerationId,
     rendezvous_nonce: &'a str,
+    successor_generation: GenerationId,
+    successor_nonce: &'a str,
     challenge: &'a str,
     state: &'a RendezvousState,
 }
@@ -952,12 +968,16 @@ struct RendezvousSigningPayload<'a> {
 fn rendezvous_signing_bytes(
     generation: GenerationId,
     rendezvous_nonce: &str,
+    successor_generation: GenerationId,
+    successor_nonce: &str,
     challenge: &str,
     state: &RendezvousState,
 ) -> Result<Vec<u8>, ProtocolError> {
     serde_json::to_vec(&RendezvousSigningPayload {
         generation,
         rendezvous_nonce,
+        successor_generation,
+        successor_nonce,
         challenge,
         state,
     })

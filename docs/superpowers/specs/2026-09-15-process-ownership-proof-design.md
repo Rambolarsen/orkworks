@@ -135,8 +135,9 @@ sockets with newline-delimited JSON messages bounded to 64 KiB each:
 - `prepare(generation)` creates the ownership domain and returns a
   supervisor-generated rendezvous nonce plus an authenticated rendezvous
   record; it launches no target;
-- `issue_launch_ticket(role, executable_identity, request_nonce)` returns a
-  supervisor-generated, one-use ticket bound to the prepared generation;
+- `issue_launch_ticket(role, request_nonce)` returns a supervisor-generated,
+  one-use ticket bound to the prepared generation and the supervisor's trusted
+  role/image binding; callers cannot select the executable identity;
 - `spawn(ticket, paused)` creates the process root paused or behind an exec
   gate, records its native launch identity independently, and releases it only
   after containment and registration succeed;
@@ -154,9 +155,13 @@ sockets with newline-delimited JSON messages bounded to 64 KiB each:
   metadata bytes/revision without asking the foreign process to self-attest;
 - `rendezvous_status(generation, nonce)` authenticates the prior supervisor's
   live state or complete-exit receipt; and
-- `adopt(generation, nonce)` is rejected unless that receipt is authenticated
-  and complete. Any unavailable, malformed, stale, or unknown result keeps
-  adoption unresolved.
+- `adopt(generation, nonce, successor_generation, successor_nonce, challenge)`
+  is rejected unless the receipt is authenticated, complete, and bound to the
+  requesting successor generation and rendezvous nonce. If the successor
+  retries the exact same challenge after losing the response, the live
+  supervisor returns the same authenticated response; the challenge cannot be
+  consumed by another successor or generation. Any unavailable, malformed,
+  stale, or unknown result keeps adoption unresolved.
 
 The supervisor, not the fixture target, creates each process identity. PIDs are
 diagnostic fields only; they are never the authority for selecting a cleanup
@@ -204,18 +209,24 @@ private prompts.
 - Persisted PIDs are never used for adoption or cleanup.
 - The fixture must distinguish an unavailable owner from a confirmed empty
   owner. Failure to observe liveness is unresolved, not zero children.
-- A launch ticket, rendezvous nonce, and complete-exit receipt are
-  generation-bound and one-use. The persisted rendezvous record may locate a
-  live supervisor, but it cannot by itself prove process ownership or exit.
+- A launch ticket, rendezvous nonce, adoption challenge, and complete-exit
+  receipt are generation-bound. Launch tickets are one-use. An adoption
+  challenge is one-use per successor binding (generation plus rendezvous
+  nonce): an exact retry returns the same signed response, while a different
+  successor or generation is rejected. The persisted rendezvous record may
+  locate a live supervisor, but it cannot by itself prove process ownership or
+  exit.
 - Cleanup admission and acknowledgement are serialized with launch and owner
   loss. A census taken before the admission barrier is not complete evidence.
 - The fixture's sidecar-shaped process is not evidence that the production
   `portable_pty` and inference launch paths use the boundary. #545 remains
   open until those production seams are audited or integrated with the proven
   owner protocol.
-- A fixture supervisor must not accept caller-selected rendezvous nonces,
-  executable identities, or reusable launch tickets; those values are issued
-  and checked by the supervisor for the prepared generation.
+- A fixture supervisor must not accept caller-selected rendezvous nonces or
+  executable identities, or reusable launch tickets. Those values are issued
+  and checked by the supervisor for the prepared generation. Adoption retries
+  must be bound to the same successor generation and rendezvous nonce and
+  return the cached signed response rather than authorize another successor.
 - No unavailable-runtime cleanup or automatic recovery may report success until
   the native evidence and the corresponding ADR 0056 update are complete.
 

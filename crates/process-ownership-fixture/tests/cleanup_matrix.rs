@@ -336,8 +336,12 @@ fn graceful_ignore_escalates_to_bounded_owned_termination() {
 #[test]
 fn supervisor_death_before_receipt_keeps_adoption_unresolved() {
     let (supervisor, prepared) = prepared_supervisor(103);
+    let (_, successor_prepared) = prepared_supervisor(104);
     let request = prepared
-        .adoption_request()
+        .adoption_request(
+            successor_prepared.record.generation,
+            successor_prepared.record.nonce.clone(),
+        )
         .expect("adoption challenge should be generated");
     drop(supervisor);
 
@@ -345,6 +349,38 @@ fn supervisor_death_before_receipt_keeps_adoption_unresolved() {
         prepared.verify_adoption_response(&request, None),
         Err(ProtocolError::AdoptionUnresolved(_))
     ));
+}
+
+#[test]
+fn adoption_retry_after_lost_response_returns_the_same_receipt() {
+    let (mut supervisor, prepared) = prepared_supervisor(122);
+    let (_, successor_prepared) = prepared_supervisor(123);
+    supervisor.owner_lost();
+    let receipt = assert_acknowledged(supervisor.cleanup());
+    let request = prepared
+        .adoption_request(
+            successor_prepared.record.generation,
+            successor_prepared.record.nonce.clone(),
+        )
+        .expect("adoption challenge should be generated");
+
+    let first_response = supervisor
+        .answer_adoption(&request)
+        .expect("complete exit should be authenticated");
+    let expected_response = first_response.clone();
+    drop(first_response);
+
+    let retry_response = supervisor
+        .answer_adoption(&request)
+        .expect("retrying a lost response should be idempotent");
+
+    assert_eq!(retry_response, expected_response);
+    assert_eq!(
+        prepared
+            .verify_adoption_response(&request, Some(&retry_response))
+            .expect("retry response should remain verifiable"),
+        receipt
+    );
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -464,7 +500,7 @@ fn two_open_generations_are_cleaned_without_cross_generation_effects() {
 fn late_obsolete_generation_events_are_rejected() {
     let directory = TestDirectory::new("obsolete-events");
     let (mut generation_a, prepared_a) = prepared_supervisor(107);
-    let (mut generation_b, _) = prepared_supervisor(108);
+    let (mut generation_b, prepared_b) = prepared_supervisor(108);
     let ticket_a = generation_a
         .issue_launch_ticket(Role::Pty, "obsolete-ticket")
         .expect("generation A ticket should be issued");
@@ -484,14 +520,15 @@ fn late_obsolete_generation_events_are_rejected() {
     let mut stale_record = prepared_a.record.clone();
     stale_record.generation = 108;
     let request = prepared_a
-        .adoption_request()
+        .adoption_request(108, prepared_b.record.nonce.clone())
         .expect("adoption challenge should be generated");
     assert!(matches!(
         prepared_a.verify_adoption_response(&request, None),
         Err(ProtocolError::AdoptionUnresolved(_))
     ));
     assert!(matches!(
-        RendezvousClient::new(prepared_a.clone()).adopt(&stale_record),
+        RendezvousClient::new(prepared_a.clone(), 108, prepared_b.record.nonce.clone())
+            .adopt(&stale_record),
         Err(ProtocolError::WrongGeneration { .. })
     ));
 }
@@ -527,14 +564,22 @@ fn immediate_relaunch_requires_authenticated_complete_exit_receipt() {
     );
     let receipt = assert_acknowledged(supervisor.cleanup());
     let request = prepared
-        .adoption_request()
+        .adoption_request(
+            replacement_prepared.record.generation,
+            replacement_prepared.record.nonce.clone(),
+        )
         .expect("adoption challenge should be generated");
     let response = supervisor
         .answer_adoption(&request)
         .expect("live supervisor should answer adoption challenge");
-    let adopted = RendezvousClient::from_authenticated_response(prepared.clone(), response)
-        .adopt(&prepared.record)
-        .expect("relaunch should adopt only complete authenticated exit");
+    let adopted = RendezvousClient::from_authenticated_response(
+        prepared.clone(),
+        replacement_prepared.record.generation,
+        replacement_prepared.record.nonce.clone(),
+        response,
+    )
+    .adopt(&prepared.record)
+    .expect("relaunch should adopt only complete authenticated exit");
 
     assert_eq!(adopted, receipt);
     let replacement_ticket = replacement

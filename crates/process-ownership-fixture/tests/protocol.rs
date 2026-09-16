@@ -9,9 +9,16 @@ use protocol::{
 };
 
 const GENERATION: u64 = 7;
+const SUCCESSOR_GENERATION: u64 = 8;
 
 fn prepared_protocol() -> (SupervisorProtocol, protocol::PreparedGeneration) {
     SupervisorProtocol::prepare(GENERATION).expect("fixture generation should prepare")
+}
+
+fn adoption_request(prepared: &protocol::PreparedGeneration) -> protocol::AdoptionRequest {
+    prepared
+        .adoption_request(SUCCESSOR_GENERATION, "a".repeat(64))
+        .expect("adoption challenge should be generated")
 }
 
 fn valid_receipt() -> CompleteExitReceipt {
@@ -51,7 +58,7 @@ fn role_rejects_target_behavior_names() {
 fn ticket_rejects_wrong_generation_without_consuming_original() {
     let (mut supervisor, _) = prepared_protocol();
     let ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-a")
+        .issue_launch_ticket(Role::Inference, "req-a")
         .expect("ticket should be issued");
     let mut forged = ticket.clone();
     forged.generation = GENERATION + 1;
@@ -72,7 +79,7 @@ fn ticket_rejects_wrong_generation_without_consuming_original() {
 fn ticket_rejects_wrong_role_without_consuming_original() {
     let (mut supervisor, _) = prepared_protocol();
     let ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-a")
+        .issue_launch_ticket(Role::Inference, "req-a")
         .expect("ticket should be issued");
 
     let forged_result =
@@ -91,7 +98,7 @@ fn ticket_rejects_wrong_role_without_consuming_original() {
 fn ticket_rejects_wrong_executable_identity_without_consuming_original() {
     let (mut supervisor, _) = prepared_protocol();
     let ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-a")
+        .issue_launch_ticket(Role::Inference, "req-a")
         .expect("ticket should be issued");
 
     let forged_result = supervisor.accept_ticket(
@@ -114,7 +121,7 @@ fn ticket_rejects_wrong_executable_identity_without_consuming_original() {
 fn ticket_rejects_wrong_request_nonce_without_consuming_original() {
     let (mut supervisor, _) = prepared_protocol();
     let ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-a")
+        .issue_launch_ticket(Role::Inference, "req-a")
         .expect("ticket should be issued");
 
     let forged_result = supervisor.accept_ticket(
@@ -134,34 +141,21 @@ fn ticket_rejects_wrong_request_nonce_without_consuming_original() {
 }
 
 #[test]
-fn ticket_issuance_rejects_foreign_executable_identity() {
+fn ticket_issuance_derives_executable_identity_from_role() {
     let (mut supervisor, _) = prepared_protocol();
 
-    let result = supervisor.issue_launch_ticket(Role::Inference, "foreign-inference", "req-a");
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Inference, "req-a")
+        .expect("ticket should be issued");
 
-    assert!(matches!(
-        result,
-        Err(ProtocolError::ExecutableIdentityRejected { .. })
-    ));
-}
-
-#[test]
-fn ticket_issuance_rejects_role_incompatible_executable_identity() {
-    let (mut supervisor, _) = prepared_protocol();
-
-    let result = supervisor.issue_launch_ticket(Role::Pty, "fixture-inference", "req-a");
-
-    assert!(matches!(
-        result,
-        Err(ProtocolError::ExecutableIdentityRejected { .. })
-    ));
+    assert_eq!(ticket.executable_identity, "fixture-inference");
 }
 
 #[test]
 fn ticket_id_is_rejected_after_one_use() {
     let (mut supervisor, _) = prepared_protocol();
     let ticket = supervisor
-        .issue_launch_ticket(Role::Inference, "fixture-inference", "req-a")
+        .issue_launch_ticket(Role::Inference, "req-a")
         .expect("ticket should be issued");
 
     let first = supervisor.accept_ticket(
@@ -181,7 +175,6 @@ fn authenticated_command_is_bound_to_generation_nonce_operation_and_payload() {
     let (supervisor, prepared) = prepared_protocol();
     let request = AuthenticatedRequest::IssueLaunchTicket {
         role: Role::Pty,
-        executable_identity: "fixture-pty".to_owned(),
         request_nonce: "req-pty".to_owned(),
     };
     let command = prepared
@@ -199,7 +192,6 @@ fn authenticated_command_rejects_payload_tampering() {
     let mut command = prepared
         .authenticated_command(AuthenticatedRequest::IssueLaunchTicket {
             role: Role::Pty,
-            executable_identity: "fixture-pty".to_owned(),
             request_nonce: "req-pty".to_owned(),
         })
         .expect("command should authenticate");
@@ -394,9 +386,7 @@ fn command_and_reply_round_trip_as_newline_delimited_json() {
 #[test]
 fn adoption_rejects_missing_live_and_unresolved_authenticated_responses() {
     let (mut supervisor, prepared) = prepared_protocol();
-    let request = prepared
-        .adoption_request()
-        .expect("challenge should be generated");
+    let request = adoption_request(&prepared);
     let live = supervisor
         .answer_adoption(&request)
         .expect("live state should be authenticated");
@@ -413,9 +403,7 @@ fn adoption_rejects_missing_live_and_unresolved_authenticated_responses() {
     supervisor
         .record_unresolved("observer unavailable")
         .expect("supervisor should retain unresolved state");
-    let request = prepared
-        .adoption_request()
-        .expect("challenge should be generated");
+    let request = adoption_request(&prepared);
     let unresolved = supervisor
         .answer_adoption(&request)
         .expect("unresolved state should be authenticated");
@@ -428,9 +416,7 @@ fn adoption_rejects_missing_live_and_unresolved_authenticated_responses() {
 #[test]
 fn adoption_rejects_stale_generation_nonce_and_replayed_challenge() {
     let (mut supervisor, prepared) = prepared_protocol();
-    let request = prepared
-        .adoption_request()
-        .expect("challenge should be generated");
+    let request = adoption_request(&prepared);
     let mut stale_generation = request.clone();
     stale_generation.generation += 1;
     let mut stale_nonce = request.clone();
@@ -444,9 +430,31 @@ fn adoption_rejects_stale_generation_nonce_and_replayed_challenge() {
         supervisor.answer_adoption(&stale_nonce),
         Err(ProtocolError::StaleRendezvous)
     ));
-    assert!(supervisor.answer_adoption(&request).is_ok());
+    let response = supervisor
+        .answer_adoption(&request)
+        .expect("adoption challenge should be answered");
+    assert_eq!(supervisor.answer_adoption(&request), Ok(response.clone()));
+    let mut different_successor = request.clone();
+    different_successor.successor_generation += 1;
     assert!(matches!(
-        supervisor.answer_adoption(&request),
+        supervisor.answer_adoption(&different_successor),
+        Err(ProtocolError::ChallengeAlreadyUsed)
+    ));
+}
+
+#[test]
+fn adoption_challenge_cannot_be_consumed_by_a_different_same_generation_successor() {
+    let (mut supervisor, prepared) = prepared_protocol();
+    let request = adoption_request(&prepared);
+
+    supervisor
+        .answer_adoption(&request)
+        .expect("adoption challenge should be answered");
+    let mut different_successor = request.clone();
+    different_successor.successor_nonce = "b".repeat(64);
+
+    assert!(matches!(
+        supervisor.answer_adoption(&different_successor),
         Err(ProtocolError::ChallengeAlreadyUsed)
     ));
 }
@@ -493,9 +501,7 @@ fn reply_framing_rejects_semantically_incomplete_native_identity() {
 fn mutated_persisted_record_cannot_fabricate_complete_exit() {
     let (mut supervisor, mut prepared) = prepared_protocol();
     prepared.record.state = RendezvousState::CompleteExit(valid_receipt());
-    let request = prepared
-        .adoption_request()
-        .expect("challenge should be generated");
+    let request = adoption_request(&prepared);
 
     let response = supervisor
         .answer_adoption(&request)
@@ -509,15 +515,15 @@ fn mutated_persisted_record_cannot_fabricate_complete_exit() {
 #[test]
 fn adoption_rejects_unsigned_and_spoofed_rendezvous_replies() {
     let (mut supervisor, prepared) = prepared_protocol();
-    let request = prepared
-        .adoption_request()
-        .expect("challenge should be generated");
+    let request = adoption_request(&prepared);
     let signed_live = supervisor
         .answer_adoption(&request)
         .expect("live response should be authenticated");
     let unsigned = AuthenticatedRendezvousReply {
         generation: request.generation,
         rendezvous_nonce: request.rendezvous_nonce.clone(),
+        successor_generation: request.successor_generation,
+        successor_nonce: request.successor_nonce.clone(),
         challenge: request.challenge.clone(),
         state: RendezvousState::CompleteExit(valid_receipt()),
         authentication_tag: String::new(),
@@ -542,9 +548,7 @@ fn adoption_accepts_supervisor_authenticated_authoritative_complete_exit() {
     supervisor
         .record_complete_exit(receipt.clone())
         .expect("complete receipt should become authoritative");
-    let request = prepared
-        .adoption_request()
-        .expect("challenge should be generated");
+    let request = adoption_request(&prepared);
     let response = supervisor
         .answer_adoption(&request)
         .expect("complete state should be authenticated");
