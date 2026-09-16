@@ -46,7 +46,7 @@ years (`1000..9999`), an
 existing exact tag must pass a non-mutating write-scope probe before packaging,
 and an explicitly null packaged channel is invalid rather than stable.
 Ordering includes dangling public nightly tags from the matching-ref snapshot,
-and four-digit years use a calculation that preserves JavaScript years 0–99.
+and the day-of-year calculation sets the full UTC year explicitly.
 
 Publication first revalidates its prepared tag target, then excludes only that
 exact candidate from the ordering comparison so the tag does not block itself.
