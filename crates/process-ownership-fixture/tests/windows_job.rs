@@ -189,6 +189,33 @@ fn terminate_owned_waits_until_normal_cleanup_is_independently_empty() {
 }
 
 #[test]
+fn direct_owner_domain_launch_secures_endpoint_before_release() {
+    let directory = TestDirectory::new("direct-owner-endpoint");
+    let marker = directory.marker("inference");
+    let mut domain = OwnerDomain::create(GENERATION).expect("private job should be created");
+
+    let _root = domain
+        .launch_paused(launch_spec(
+            Role::Inference,
+            TargetBehavior::Inference,
+            &marker,
+        ))
+        .expect("direct owner-domain launch should secure an endpoint before release");
+    wait_for_marker(&marker);
+
+    assert!(domain
+        .endpoint_non_inheritable_before_release()
+        .expect("direct launch endpoint check should be observable"));
+    assert!(domain
+        .handles_are_non_inheritable()
+        .expect("direct launch handle flags should be observable"));
+
+    domain
+        .terminate_owned()
+        .expect("direct owner-domain launch should clean up");
+}
+
+#[test]
 fn closing_the_last_private_job_handle_kills_an_owned_root() {
     let directory = TestDirectory::new("kill-on-close");
     let marker = directory.marker("inference");
@@ -269,10 +296,25 @@ fn sidecar_first_crash_leaves_pty_and_inference_descendants_owned() {
         survivors.len() >= 3,
         "sidecar exit must not release its descendants from the job: {survivors:?}"
     );
-    supervisor_and_domain
+
+    let unresolved = supervisor_and_domain.0.observe();
+    assert!(!is_complete(&unresolved));
+    assert!(!unresolved.descendants.is_empty());
+    assert!(unresolved
+        .descendants
+        .iter()
+        .all(|descendant| descendant.exit_state == ExitState::Running));
+
+    let cleanup = supervisor_and_domain.0.cleanup();
+    assert!(matches!(
+        cleanup,
+        process_ownership_fixture::protocol::CleanupResult::Acknowledged(_)
+    ));
+    assert!(supervisor_and_domain
         .1
-        .terminate_owned()
-        .expect("remaining descendants should terminate with the job");
+        .active_process_ids()
+        .expect("completed job census should remain observable")
+        .is_empty());
     wait_for_complete(&mut supervisor_and_domain.0);
 }
 

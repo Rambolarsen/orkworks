@@ -632,6 +632,9 @@ pub trait PlatformAdapter {
         Ok(())
     }
 
+    /// Releases any retained duplicate of the supervisor control endpoint.
+    fn close_control_endpoint(&mut self) {}
+
     /// Creates a process root whose target behavior is blocked on a release gate.
     fn create_paused_root(
         &mut self,
@@ -735,6 +738,20 @@ pub trait PlatformAdapter {
         } else {
             result
         }
+    }
+
+    /// Observes owned descendants independently of registered root handles.
+    fn observe_owned_descendants(
+        &mut self,
+        _registered_identities: &[NativeIdentity],
+        _deadline: Instant,
+    ) -> Result<Vec<ProcessObservation>, SpawnError> {
+        Ok(Vec::new())
+    }
+
+    /// Terminates the complete owned domain within the remaining cleanup bound.
+    fn terminate_owned_bounded(&mut self, _deadline: Instant) -> Result<(), SpawnError> {
+        Ok(())
     }
 }
 
@@ -1151,6 +1168,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
     /// Closes admission permanently for this supervisor generation.
     pub fn owner_lost(&mut self) {
         self.admission_open = false;
+        self.adapter.close_control_endpoint();
         self.control_endpoint.take();
         if self
             .roots
@@ -1179,6 +1197,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
     #[must_use]
     pub fn cleanup(&mut self) -> CleanupResult {
         self.admission_open = false;
+        self.adapter.close_control_endpoint();
         self.control_endpoint.take();
         self.cleanup_started = true;
 
@@ -1282,6 +1301,13 @@ impl<A: PlatformAdapter> Supervisor<A> {
             }
         }
 
+        if let Err(error) = self.adapter.terminate_owned_bounded(termination_deadline) {
+            push_cleanup_diagnostic(
+                &mut termination_diagnostics,
+                format!("terminate owned domain failed: {error}"),
+            );
+        }
+
         snapshot = self.observe_with_deadline(termination_deadline);
         while !is_complete(&snapshot) && Instant::now() < termination_deadline {
             thread::sleep(CLEANUP_POLL_INTERVAL);
@@ -1351,6 +1377,11 @@ impl<A: PlatformAdapter> Supervisor<A> {
         let mut roots = Vec::with_capacity(self.roots.len());
         let mut unidentified_roots = Vec::with_capacity(self.unidentified_roots.len());
         let mut diagnostics = Vec::new();
+        let registered_identities = self
+            .registered_identities
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
 
         for root in &mut self.roots {
             let observed = match self.adapter.observe_root_bounded(
@@ -1416,6 +1447,19 @@ impl<A: PlatformAdapter> Supervisor<A> {
             retained_unidentified.push(root);
         }
         self.unidentified_roots = retained_unidentified;
+        let (descendants, observation_unresolved) = match self
+            .adapter
+            .observe_owned_descendants(&registered_identities, deadline)
+        {
+            Ok(descendants) => (descendants, false),
+            Err(error) => {
+                push_cleanup_diagnostic(
+                    &mut diagnostics,
+                    format!("observe owned descendants failed: {error}"),
+                );
+                (Vec::new(), true)
+            }
+        };
         for diagnostic in diagnostics {
             push_cleanup_diagnostic(&mut self.cleanup_diagnostics, diagnostic);
         }
@@ -1423,9 +1467,10 @@ impl<A: PlatformAdapter> Supervisor<A> {
         ObservationSnapshot {
             generation: self.generation,
             roots,
-            descendants: Vec::new(),
+            descendants,
             unidentified_roots,
             unresolved_survivors,
+            observation_unresolved,
         }
     }
 

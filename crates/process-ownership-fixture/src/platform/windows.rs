@@ -30,11 +30,11 @@ use windows_sys::Win32::System::JobObjects::{
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows_sys::Win32::System::Threading::{
-    OpenThread, ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_SUSPENDED,
-    THREAD_SUSPEND_RESUME,
+    OpenProcess, OpenThread, ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_SUSPENDED,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_SUSPEND_RESUME,
 };
 
-use crate::observation::{is_complete, ContainmentMembership, ExitState};
+use crate::observation::{is_complete, ContainmentMembership, ExitState, ProcessObservation};
 use crate::protocol::{GenerationId, NativeIdentity, Role};
 use crate::supervisor::{
     ExecutableImage, LaunchSpec, OwnedProcessHandle, PausedRoot, PlatformAdapter, SpawnError,
@@ -350,7 +350,7 @@ fn required_system_root() -> Result<OsString, PlatformError> {
 struct DomainState {
     pending_identities: HashMap<u32, NativeIdentity>,
     registered_processes: HashMap<NativeIdentity, OwnedHandle>,
-    endpoint_handle: Option<usize>,
+    retained_control_endpoint: Option<TcpListener>,
     endpoint_non_inheritable_before_release: bool,
     thread_handles_non_inheritable: bool,
     // Drop the retained process handles before kill-on-close releases the job.
@@ -402,7 +402,7 @@ impl OwnerDomain {
             state: Arc::new(Mutex::new(DomainState {
                 pending_identities: HashMap::new(),
                 registered_processes: HashMap::new(),
-                endpoint_handle: None,
+                retained_control_endpoint: None,
                 endpoint_non_inheritable_before_release: false,
                 thread_handles_non_inheritable: true,
                 job,
@@ -416,6 +416,8 @@ impl OwnerDomain {
     ///
     /// Returns [`PlatformError`] if any pre-release ownership step fails.
     pub fn launch_paused(&mut self, spec: LaunchSpec) -> Result<PausedRoot, PlatformError> {
+        self.ensure_control_endpoint()
+            .map_err(platform_spawn_error)?;
         let executable =
             ExecutableImage::discover().map_err(|_| PlatformError::ExecutableUnavailable)?;
         let mut process_handle = self
@@ -456,13 +458,16 @@ impl OwnerDomain {
     ///
     /// Returns [`PlatformError`] when termination or completion observation fails.
     pub fn terminate_owned(&self) -> Result<(), PlatformError> {
+        self.terminate_owned_before(Instant::now() + COMPLETION_TIMEOUT)
+    }
+
+    fn terminate_owned_before(&self, deadline: Instant) -> Result<(), PlatformError> {
         let state = self.lock_state()?;
         // SAFETY: the private Job Object contains only roots admitted by this
         // owner and their inherited descendants.
         if unsafe { TerminateJobObject(state.job.as_raw_handle(), 137) } == 0 {
             return Err(last_error("TerminateJobObject"));
         }
-        let deadline = Instant::now() + COMPLETION_TIMEOUT;
         loop {
             if active_process_count(state.job.as_raw_handle())? == 0 {
                 return Ok(());
@@ -565,8 +570,8 @@ impl OwnerDomain {
         if is_inheritable(state.job.as_raw_handle())? || !state.thread_handles_non_inheritable {
             return Ok(false);
         }
-        if let Some(endpoint) = state.endpoint_handle {
-            if is_inheritable(endpoint as HANDLE)? {
+        if let Some(endpoint) = state.retained_control_endpoint.as_ref() {
+            if is_inheritable(endpoint.as_raw_socket() as HANDLE)? {
                 return Ok(false);
             }
         }
@@ -634,6 +639,20 @@ impl OwnerDomain {
             .lock()
             .map_err(|_| PlatformError::StateUnavailable)
     }
+
+    fn ensure_control_endpoint(&mut self) -> Result<(), SpawnError> {
+        if self
+            .lock_state()
+            .map_err(|_| SpawnError::ContainmentFailed)?
+            .retained_control_endpoint
+            .is_some()
+        {
+            return Ok(());
+        }
+        let endpoint =
+            TcpListener::bind(("127.0.0.1", 0)).map_err(|_| SpawnError::ContainmentFailed)?;
+        self.secure_control_endpoint(&endpoint)
+    }
 }
 
 impl PlatformAdapter for OwnerDomain {
@@ -641,10 +660,24 @@ impl PlatformAdapter for OwnerDomain {
         let handle = endpoint.as_raw_socket() as usize as HANDLE;
         clear_inherit(handle, "SetHandleInformation(supervisor endpoint)")
             .map_err(|_| SpawnError::ContainmentFailed)?;
+        let retained = endpoint
+            .try_clone()
+            .map_err(|_| SpawnError::ContainmentFailed)?;
+        clear_inherit(
+            retained.as_raw_socket() as HANDLE,
+            "SetHandleInformation(retained supervisor endpoint)",
+        )
+        .map_err(|_| SpawnError::ContainmentFailed)?;
         self.lock_state()
             .map_err(|_| SpawnError::ContainmentFailed)?
-            .endpoint_handle = Some(handle as usize);
+            .retained_control_endpoint = Some(retained);
         Ok(())
+    }
+
+    fn close_control_endpoint(&mut self) {
+        if let Ok(mut state) = self.lock_state() {
+            state.retained_control_endpoint.take();
+        }
     }
 
     fn create_paused_root(
@@ -738,8 +771,12 @@ impl PlatformAdapter for OwnerDomain {
             let state = self
                 .lock_state()
                 .map_err(|_| SpawnError::ObserverUnavailable)?;
-            let endpoint = state.endpoint_handle.ok_or(SpawnError::ContainmentFailed)?;
-            !is_inheritable(endpoint as HANDLE).map_err(|_| SpawnError::ContainmentFailed)?
+            let endpoint = state
+                .retained_control_endpoint
+                .as_ref()
+                .ok_or(SpawnError::ContainmentFailed)?;
+            !is_inheritable(endpoint.as_raw_socket() as HANDLE)
+                .map_err(|_| SpawnError::ContainmentFailed)?
         };
         if !endpoint_non_inheritable {
             return Err(SpawnError::ContainmentFailed);
@@ -793,6 +830,68 @@ impl PlatformAdapter for OwnerDomain {
             return Err(SpawnError::ObserverUnavailable);
         }
         Ok(ExitState::Running)
+    }
+
+    fn observe_owned_descendants(
+        &mut self,
+        registered_identities: &[NativeIdentity],
+        deadline: Instant,
+    ) -> Result<Vec<ProcessObservation>, SpawnError> {
+        if Instant::now() >= deadline {
+            return Err(SpawnError::ObserverUnavailable);
+        }
+        let process_ids = {
+            let state = self
+                .lock_state()
+                .map_err(|_| SpawnError::ObserverUnavailable)?;
+            query_process_ids(state.job.as_raw_handle())
+                .map_err(|_| SpawnError::ObserverUnavailable)?
+        };
+        let mut descendants = Vec::new();
+        for pid in process_ids {
+            if Instant::now() >= deadline {
+                return Err(SpawnError::ObserverUnavailable);
+            }
+            // SAFETY: the PID came from the live Job Object census and the
+            // requested rights are limited to identity/liveness observation.
+            let raw_process = unsafe {
+                OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                    0,
+                    pid,
+                )
+            };
+            if raw_process.is_null() {
+                return Err(SpawnError::ObserverUnavailable);
+            }
+            // SAFETY: OpenProcess returned one fresh owned handle.
+            let process = unsafe { OwnedHandle::from_raw_handle(raw_process) };
+            if wait_result(process.as_raw_handle(), 0)
+                .map_err(|_| SpawnError::ObserverUnavailable)?
+                != WAIT_TIMEOUT
+            {
+                return Err(SpawnError::ObserverUnavailable);
+            }
+            let identity = capture_identity(process.as_raw_handle(), pid)
+                .map_err(|_| SpawnError::ObserverUnavailable)?;
+            if registered_identities
+                .iter()
+                .any(|registered| registered == &identity)
+            {
+                continue;
+            }
+            descendants.push(ProcessObservation {
+                identity,
+                containment_membership: ContainmentMembership::Confirmed,
+                exit_state: ExitState::Running,
+            });
+        }
+        Ok(descendants)
+    }
+
+    fn terminate_owned_bounded(&mut self, deadline: Instant) -> Result<(), SpawnError> {
+        self.terminate_owned_before(deadline)
+            .map_err(|_| SpawnError::ContainmentFailed)
     }
 }
 

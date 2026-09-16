@@ -58,12 +58,15 @@ pub struct ObservationSnapshot {
     pub unidentified_roots: Vec<UnidentifiedProcessObservation>,
     /// Registered identities whose survival or exit remains ambiguous.
     pub unresolved_survivors: Vec<NativeIdentity>,
+    /// Whether the platform adapter could not complete its ownership census.
+    pub observation_unresolved: bool,
 }
 
 /// Returns true only after identified processes exited and no unidentified root remains.
 #[must_use]
 pub fn is_complete(snapshot: &ObservationSnapshot) -> bool {
-    snapshot.unidentified_roots.is_empty()
+    !snapshot.observation_unresolved
+        && snapshot.unidentified_roots.is_empty()
         && snapshot.unresolved_survivors.is_empty()
         && snapshot
             .roots

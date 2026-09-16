@@ -566,6 +566,7 @@ fn completion_rejects_unresolved_containment_membership() {
         descendants: Vec::new(),
         unidentified_roots: Vec::new(),
         unresolved_survivors: Vec::new(),
+        observation_unresolved: false,
     };
 
     assert!(!is_complete(&snapshot));
