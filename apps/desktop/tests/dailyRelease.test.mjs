@@ -471,6 +471,27 @@ test("tag creation fails immediately on a definitive authorization response", as
   assert.equal(reads, 1);
 });
 
+test("tag creation reports a definite failed write even if the exact tag later appears", async () => {
+  const tag = `v${VERSION}`;
+  let reads = 0;
+  await assert.rejects(() => ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    tag,
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (_url, options = {}) => {
+      if ((options.method ?? "GET") === "POST") return jsonResponse(400, { message: "bad request" });
+      reads += 1;
+      return reads === 1
+        ? jsonResponse(404, { message: "missing" })
+        : jsonResponse(200, {
+          ref: `refs/tags/${tag}`,
+          object: { type: "commit", sha: SOURCE_SHA },
+        });
+    },
+  }), /creation failed with 400/i);
+});
+
 test("an existing exact tag must still prove write capability", async () => {
   const tag = `v${VERSION}`;
   let writes = 0;

@@ -553,7 +553,10 @@ export async function ensureTagAtSource({ repository, token, tag, sourceSha, fet
     if (observed === sourceSha && (writeStatus === 201 || writeStatus === 422 || ambiguousWrite)) {
       return { tag, sourceSha };
     }
-    if (observed !== null) throw new Error(`tag ${tag} points at a different source SHA`);
+    if (observed !== null) {
+      if (observed !== sourceSha) throw new Error(`tag ${tag} points at a different source SHA`);
+      throw new Error(`GitHub tag creation failed with ${writeStatus}`);
+    }
   }
   throw new Error(`GitHub tag ${tag} creation or write-access verification failed after three attempts`);
 }
