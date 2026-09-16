@@ -311,7 +311,7 @@ test("release listing follows every GitHub pagination link", async () => {
     requests.push({ url, options });
     if (requests.length === 1) {
       return jsonResponse(200, [{ id: 1 }], {
-        link: '<https://api.github.com/repos/Rambolarsen/orkworks/releases?per_page=100&page=2>; rel="next"',
+        link: '<https://api.github.com/repositories/1270107877/releases?per_page=100&page=2>; rel="next"',
       });
     }
     return jsonResponse(200, [{ id: 2 }]);

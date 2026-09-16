@@ -432,9 +432,10 @@ function nextReleasePage(header, repository) {
   const base = repositoryApiBase(repository);
   const expected = new URL(`${base}/releases`);
   const page = parsed.searchParams.get("page");
+  const canonicalRepositoryPath = /^\/repositories\/[1-9]\d*\/releases$/.test(parsed.pathname);
   if (
     parsed.origin !== expected.origin
-    || parsed.pathname !== expected.pathname
+    || (parsed.pathname !== expected.pathname && !canonicalRepositoryPath)
     || parsed.username !== ""
     || parsed.password !== ""
     || parsed.hash !== ""
