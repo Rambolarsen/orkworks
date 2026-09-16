@@ -47,6 +47,9 @@ and an explicitly null packaged channel is invalid rather than stable.
 Ordering includes dangling public nightly tags from the matching-ref snapshot,
 and four-digit years use a calculation that preserves JavaScript years 0–99.
 
+Publication first revalidates its prepared tag target, then excludes only that
+exact candidate from the ordering comparison so the tag does not block itself.
+
 Every job that signs artifacts or receives `contents: write` authority uses the
 protected `release` environment. The environment permits only `main` and
 canonical stable tags. Stable releases use the workflow-scoped GitHub token.
@@ -64,7 +67,8 @@ owned by issue #511.
 Nightly artifacts can be traced to one immutable, Main-CI-validated source and
 cannot enter the stable feed. Failed attempts leave diagnostic drafts and tags
 instead of mutating or hiding history, and a later run attempt can retry with a
-new identity. Scheduled and manual nightly runs must be serialized and must
+new identity; a failed publication job can also reuse its already-verified
+prepared tag. Scheduled and manual nightly runs must be serialized and must
 recheck remote state before publication.
 
 The repository owner must maintain the `release` environment's deployment

@@ -37,10 +37,10 @@ tag/package-version guard.
    matching package version, and bypasses nightly deduplication and concurrency.
    Nightly tags are excluded from the stable tag trigger. A schedule or manual
    dispatch is accepted only when the executing workflow ref is
-   `refs/heads/main`; a job-level guard rejects other refs before checkout or
-   dependency installation. Its initial `github.sha` is the one immutable
-   source for every nightly checkout. The source is never re-resolved during
-   the run.
+   `refs/heads/main`; the first preflight step visibly fails other refs before
+   checkout or dependency installation. Its initial `github.sha` is the one
+   immutable source for every nightly checkout. The source is never re-resolved
+   during the run.
 2. The `release` environment must restrict deployment to the default branch and
    stable release tags before credentials are provisioned. The nightly guard is
    tested in source and runs before any environment-bearing job, preventing an
@@ -103,9 +103,12 @@ tag/package-version guard.
    403 and fails early without mutating the ref. It never
    changes source SHA. Tag existence alone never means publication succeeded.
 8. Nightly publication repeats the exhaustive success check while holding the
-   concurrency slot. If still eligible, it creates a real draft prerelease for
-   the already-existing verified tag, omitting `target_commitish` so the release
-   API cannot retarget it.
+   concurrency slot. After verifying that the prepared tag still targets the
+   frozen source, it excludes only that candidate from the ordering comparison;
+   this permits publication and failed-job retries while every other public
+   nightly tag continues to constrain ordering. If still eligible, it creates a
+   real draft prerelease for the already-existing verified tag, omitting
+   `target_commitish` so the release API cannot retarget it.
 9. The job uploads the complete cross-platform asset set to that draft, then
    applies the same full success predicate used for duplicate detection: exact
    expected names, nonzero sizes and GitHub SHA-256 digests, downloaded channel

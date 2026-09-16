@@ -84,9 +84,14 @@ export async function publishDailyRelease({
   const state = await loadState({ repository, token, sourceSha, fetchImpl });
   const existing = selectPublishedNightlyForSource(state.validated, sourceSha);
   if (existing) return existing.release;
-  assertCandidateIsNewest(identity.version, state.publishedNightlyVersions.map((version) => ({ version })));
   const tagTargetSha = await getTagTarget({ repository, token, tag: identity.tag, fetchImpl });
   if (tagTargetSha !== sourceSha) throw new Error("nightly tag target does not match its source SHA");
+  assertCandidateIsNewest(
+    identity.version,
+    state.publishedNightlyVersions
+      .filter((version) => version !== identity.version)
+      .map((version) => ({ version })),
+  );
 
   const base = apiBase(repository);
   const created = await json(await fetchImpl(`${base}/releases`, {

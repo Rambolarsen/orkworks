@@ -72,7 +72,8 @@ The first migration from an unsigned development/alpha build is a manual install
   GitHub schedule timing is best effort, not a delivery-time guarantee.
 - Resolve one immutable `main` commit at the start and use it for every check,
   platform build, and release record. Manual dispatch must also resolve `main`,
-  never publish arbitrary branch content.
+  never publish arbitrary branch content; a non-`main` dispatch must fail
+  visibly before checkout or dependency installation.
 - Skip Main CI and packaging when that commit already has a successfully
   published nightly. A failed attempt must remain retryable; publication, not
   tag existence, defines success.
@@ -80,7 +81,9 @@ The first migration from an unsigned development/alpha build is a manual install
   exact commit, plus artifact verification and Windows installer smoke testing.
   A green check for another commit or a docs-only no-op is insufficient.
 - Serialize nightly publication and recheck the last published source commit
-  before publishing, so concurrent schedule/dispatch runs cannot race.
+  before publishing, so concurrent schedule/dispatch runs cannot race. After
+  verifying its prepared tag still targets that source, exclude only that tag
+  from the publication-time ordering comparison so it cannot block itself.
 - Retain `package.json` as the stable base version. During CI only, derive a
   SemVer nightly such as `0.1.0-nightly.20260910.123456789.1` from that base,
   UTC date, GitHub run ID, and run attempt. Stage matching desktop and Rust

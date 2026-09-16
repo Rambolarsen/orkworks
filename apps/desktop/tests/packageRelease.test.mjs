@@ -240,10 +240,15 @@ test("release workflow freezes and validates stable or nightly sources before si
 test("release workflow rejects non-main manual dispatches before checkout or install", () => {
   const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
   const preflight = workflow.jobs.preflight;
+  const guard = preflight.steps[0];
   const checkout = preflight.steps.find((step) => step.uses === "actions/checkout@v4");
 
-  assert.match(preflight.if, /github\.event_name == 'push'/);
-  assert.match(preflight.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.equal(preflight.if, undefined);
+  assert.match(guard.name, /reject non-main nightly/i);
+  assert.match(guard.if, /github\.event_name != 'push'/);
+  assert.match(guard.if, /github\.ref != 'refs\/heads\/main'/);
+  assert.match(guard.run, /exit 1/);
+  assert.ok(preflight.steps.indexOf(guard) < preflight.steps.indexOf(checkout));
   assert.equal(checkout.with["persist-credentials"], false);
 });
 

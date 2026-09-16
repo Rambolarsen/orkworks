@@ -241,6 +241,9 @@ exits successfully without packaging when the frozen SHA already has one fully
 valid published nightly. An incomplete release, failed draft, or tag alone does
 not suppress a retry. Failed drafts and immutable attempt tags are retained;
 operators must not retarget, overwrite, or delete them as part of a retry.
+Publication revalidates its prepared tag target and ignores only that exact tag
+in the ordering comparison, so rerunning a failed publication job does not
+require deleting or moving the immutable ref.
 
 For a successful run, record the workflow and release URLs and verify:
 

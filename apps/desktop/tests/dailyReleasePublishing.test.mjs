@@ -356,7 +356,7 @@ test("remote nightly state rejects updater SHA-512 that does not match its paylo
   assert.deepEqual(state.validated, []);
 });
 
-test("publishes only after the uploaded draft passes the full integrity predicate", async () => {
+test("publishes its prepared tag only after the uploaded draft passes the full integrity predicate", async () => {
   const localAssets = createAssets();
   const uploaded = new Map();
   const calls = [];
@@ -415,11 +415,37 @@ test("publishes only after the uploaded draft passes the full integrity predicat
     sourceSha: SOURCE_SHA,
     assets: localAssets,
     fetchImpl,
-    loadState: async () => ({ publishedNightlyVersions: [], validated: [] }),
+    loadState: async () => ({
+      publishedNightlyVersions: ["0.2.0-nightly.20260914.9.1", VERSION],
+      validated: [],
+    }),
   });
 
   assert.equal(published.draft, false);
   assert.equal(calls.at(-1), "PATCH https://api.github.com/repos/Rambolarsen/orkworks/releases/77");
+});
+
+test("publication still rejects a candidate below another public nightly tag", async () => {
+  let releaseWrites = 0;
+  await assert.rejects(() => publishDailyRelease({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    identity: { version: VERSION, tag: TAG },
+    sourceSha: SOURCE_SHA,
+    assets: createAssets(),
+    loadState: async () => ({
+      publishedNightlyVersions: [VERSION, "0.2.0-nightly.20260916.1.1"],
+      validated: [],
+    }),
+    fetchImpl: async (url, options = {}) => {
+      if (url.includes("/git/ref/tags/")) {
+        return Response.json({ ref: `refs/tags/${TAG}`, object: { type: "commit", sha: SOURCE_SHA } });
+      }
+      if ((options.method ?? "GET") === "POST") releaseWrites += 1;
+      throw new Error(`unexpected request: ${url}`);
+    },
+  }), /newer than every published nightly/i);
+  assert.equal(releaseWrites, 0);
 });
 
 test("does not publish an incomplete uploaded draft", async () => {
