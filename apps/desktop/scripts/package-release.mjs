@@ -24,6 +24,10 @@ function stageSidecarBinary(step) {
 for (const step of createReleaseBuildPlan(process.platform, process.arch)) {
   run("cargo", ["build", "--release", "--manifest-path", sidecarManifestPath, "--target", step.rustTarget], repoRoot);
   stageSidecarBinary(step);
-  const { command, args } = electronBuilderInvocation(process.execPath, electronBuilderCliPath, step);
+  const { command, args } = electronBuilderInvocation(process.execPath, electronBuilderCliPath, step, {
+    channel: process.env.ORKWORKS_RELEASE_CHANNEL ?? "latest",
+    buildVersion: process.env.ORKWORKS_BUILD_VERSION,
+    macBundleVersion: process.env.ORKWORKS_MAC_BUNDLE_VERSION,
+  });
   run(command, args);
 }

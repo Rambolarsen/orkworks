@@ -13,17 +13,26 @@ import yaml from "js-yaml";
 
 const CHECKSUM_MANIFEST = "SHA256SUMS.txt";
 
-function isDistributableFile(name, expectedVersion) {
+function requireReleaseChannel(channel) {
+  if (channel !== "latest" && channel !== "nightly") {
+    throw new Error("release channel must be latest or nightly");
+  }
+  return channel;
+}
+
+function isDistributableFile(name, expectedVersion, channel) {
+  const metadataPattern = new RegExp(`^${channel}(?:-mac)?\\.yml$`);
   if (expectedVersion) {
-    return name.startsWith(`OrkWorks-${expectedVersion}-`) || /^latest.*\.yml$/.test(name);
+    return name.startsWith(`OrkWorks-${expectedVersion}-`) || metadataPattern.test(name);
   }
   return name !== CHECKSUM_MANIFEST
     && (name.startsWith("OrkWorks-")
-      || /^latest.*\.yml$/.test(name)
+      || metadataPattern.test(name)
       || name.endsWith(".blockmap"));
 }
 
-export function writeChecksumManifest({ releaseDir, outputPath, expectedVersion }) {
+export function writeChecksumManifest({ releaseDir, outputPath, expectedVersion, channel = "latest" }) {
+  requireReleaseChannel(channel);
   const releaseRoot = resolve(releaseDir);
   const realReleaseRoot = realpathSync(releaseRoot);
   const validatedOutputPath = resolveChecksumOutputPath(
@@ -32,7 +41,7 @@ export function writeChecksumManifest({ releaseDir, outputPath, expectedVersion 
     outputPath,
   );
   const entries = readdirSync(releaseRoot)
-    .filter((name) => isDistributableFile(name, expectedVersion))
+    .filter((name) => isDistributableFile(name, expectedVersion, channel))
     .map((name) => ({
       name,
       path: resolveContainedRealPath(
@@ -56,8 +65,10 @@ export function writeChecksumManifest({ releaseDir, outputPath, expectedVersion 
 
 export function runChecksumCli({
   appRoot = resolve(import.meta.dirname, ".."),
+  channel = process.env.ORKWORKS_RELEASE_CHANNEL ?? "latest",
   output = console.log,
 } = {}) {
+  requireReleaseChannel(channel);
   const packageJson = JSON.parse(readFileSync(join(appRoot, "package.json"), "utf8"));
   const version = packageJson.version;
   if (
@@ -69,8 +80,12 @@ export function runChecksumCli({
     throw new Error("package version is invalid for release checksum generation");
   }
   const releaseDir = join(appRoot, "release");
+  const otherChannel = channel === "latest" ? "nightly" : "latest";
+  if (readdirSync(releaseDir).some((name) => new RegExp(`^${otherChannel}(?:-mac)?\\.yml$`).test(name))) {
+    throw new Error("release directory contains mixed release channel metadata");
+  }
   const outputPath = join(releaseDir, CHECKSUM_MANIFEST);
-  const result = writeChecksumManifest({ releaseDir, outputPath, expectedVersion: version });
+  const result = writeChecksumManifest({ releaseDir, outputPath, expectedVersion: version, channel });
   output(result);
   return result;
 }
@@ -98,18 +113,18 @@ function resolvePayloadPath(releaseDir, url) {
   return payloadPath;
 }
 
-function requireSupportedUpdaterPayload(metadataPath, url, expectedVersion) {
+function requireSupportedUpdaterPayload(metadataPath, url, expectedVersion, channel) {
   if (url.includes("/") || url.includes("\\") || basename(url) !== url) {
     throw new Error(`release metadata must reference a top-level updater payload: ${url}`);
   }
 
   const metadataName = basename(metadataPath);
-  const supportedNames = metadataName === "latest-mac.yml"
+  const supportedNames = metadataName === `${channel}-mac.yml`
     ? [
         `OrkWorks-${expectedVersion}-mac-arm64.zip`,
         `OrkWorks-${expectedVersion}-mac-x64.zip`,
       ]
-    : metadataName === "latest.yml"
+    : metadataName === `${channel}.yml`
       ? [`OrkWorks-${expectedVersion}-win-x64.exe`]
       : [];
   if (!supportedNames.includes(url)) {
@@ -185,12 +200,16 @@ function resolveChecksumOutputPath(releaseRoot, realReleaseRoot, outputPath) {
   }
 }
 
-export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion }) {
+export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion, channel = "latest" }) {
+  requireReleaseChannel(channel);
   if (typeof expectedVersion !== "string" || expectedVersion.length === 0) {
     throw new Error("expected release version is invalid");
   }
 
   const releaseRoot = resolve(releaseDir);
+  if (!new RegExp(`^${channel}(?:-mac)?\\.yml$`).test(basename(metadataPath))) {
+    throw new Error(`release metadata channel does not match ${channel}: ${metadataPath}`);
+  }
   const realReleaseRoot = realpathSync(releaseRoot);
   const realMetadataPath = resolveContainedRealPath(
     realReleaseRoot,
@@ -223,7 +242,7 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
     }
 
     const payloadPath = resolvePayloadPath(releaseDir, entry.url);
-    requireSupportedUpdaterPayload(metadataPath, entry.url, expectedVersion);
+    requireSupportedUpdaterPayload(metadataPath, entry.url, expectedVersion, channel);
     const realPayloadPath = resolveContainedRealPath(
       realReleaseRoot,
       payloadPath,
@@ -253,6 +272,26 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
   });
 
   return { version: metadata.version, files };
+}
+
+export function verifyAppUpdateMetadata({ metadataPath, channel = "latest", provider, owner, repo }) {
+  requireReleaseChannel(channel);
+  const metadata = yaml.load(readFileSync(metadataPath, "utf8"));
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new Error(`app update metadata is not an object: ${metadataPath}`);
+  }
+  const actualChannel = Object.hasOwn(metadata, "channel") ? metadata.channel : "latest";
+  for (const [field, expected, actual] of [
+    ["provider", provider, metadata.provider],
+    ["owner", owner, metadata.owner],
+    ["repo", repo, metadata.repo],
+    ["channel", channel, actualChannel],
+  ]) {
+    if (actual !== expected) {
+      throw new Error(`app update metadata ${field} mismatch: expected ${expected}, got ${actual}`);
+    }
+  }
+  return metadata;
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

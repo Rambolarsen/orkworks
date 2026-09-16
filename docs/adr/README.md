@@ -66,3 +66,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0056](./0056-one-sidecar-per-open-workspace.md) | One sidecar per open workspace | proposed |
 | [0057](./0057-taskmaster-recommendation-rollups.md) | Taskmaster recommendation rollups | proposed |
 | [0058](./0058-signed-release-artifacts-and-native-verification.md) | Signed release artifacts and native verification | accepted |
+| [0059](./0059-immutable-daily-prereleases.md) | Immutable daily prereleases | accepted |
