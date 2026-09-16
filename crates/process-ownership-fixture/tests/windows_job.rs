@@ -399,6 +399,14 @@ fn forced_electron_parent_termination_leaves_supervisor_to_empty_its_job() {
     assert_ne!(ready.owned_target_pid, topology.parent.id());
     assert_ne!(ready.owned_target_pid, ready.supervisor_pid);
     assert!(
+        ready.target_admitted_through_supervisor_ticket,
+        "the forced-parent target must be admitted through the supervisor ticket"
+    );
+    assert!(
+        ready.endpoint_non_inheritable_before_release,
+        "the supervisor endpoint must reject inheritance before target release"
+    );
+    assert!(
         ready.handles_non_inheritable,
         "the out-of-process supervisor must retain only non-inheritable authority handles"
     );

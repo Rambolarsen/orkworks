@@ -95,6 +95,10 @@ pub struct ForcedParentReady {
     pub supervisor_pid: u32,
     /// PID of the target launched and admitted by that supervisor.
     pub owned_target_pid: u32,
+    /// Whether the target returned successfully from the supervisor ticketed spawn path.
+    pub target_admitted_through_supervisor_ticket: bool,
+    /// Whether the endpoint was observed non-inheritable before target release.
+    pub endpoint_non_inheritable_before_release: bool,
     /// Whether all retained authority and parent-channel handles reject inheritance.
     pub handles_non_inheritable: bool,
 }
@@ -246,9 +250,14 @@ fn run_owner_supervisor(
     let target = supervisor
         .spawn(ticket, spec)
         .map_err(platform_spawn_error)?;
+    // `Supervisor::spawn` returns only after accepting the one-use ticket,
+    // registering the root, and releasing it for execution.
     let ready_evidence = ForcedParentReady {
         supervisor_pid: std::process::id(),
         owned_target_pid: target.diagnostic_pid,
+        target_admitted_through_supervisor_ticket: true,
+        endpoint_non_inheritable_before_release: domain
+            .endpoint_non_inheritable_before_release()?,
         handles_non_inheritable: parent_channel_non_inheritable
             && domain.handles_are_non_inheritable()?,
     };
@@ -326,6 +335,7 @@ struct DomainState {
     pending_identities: HashMap<u32, NativeIdentity>,
     registered_processes: HashMap<NativeIdentity, OwnedHandle>,
     endpoint_handle: Option<usize>,
+    endpoint_non_inheritable_before_release: bool,
     thread_handles_non_inheritable: bool,
     // Drop the retained process handles before kill-on-close releases the job.
     job: OwnedHandle,
@@ -377,6 +387,7 @@ impl OwnerDomain {
                 pending_identities: HashMap::new(),
                 registered_processes: HashMap::new(),
                 endpoint_handle: None,
+                endpoint_non_inheritable_before_release: false,
                 thread_handles_non_inheritable: true,
                 job,
             })),
@@ -527,6 +538,15 @@ impl OwnerDomain {
         Ok(true)
     }
 
+    /// Returns whether the endpoint was checked immediately before a root release.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlatformError`] if the shared owner state cannot be inspected.
+    pub fn endpoint_non_inheritable_before_release(&self) -> Result<bool, PlatformError> {
+        Ok(self.lock_state()?.endpoint_non_inheritable_before_release)
+    }
+
     fn attempt_breakaway_inner(&self) -> Result<BreakawayResult, PlatformError> {
         let mut random = [0_u8; 16];
         getrandom::fill(&mut random).map_err(|_| PlatformError::StateUnavailable)?;
@@ -674,6 +694,19 @@ impl PlatformAdapter for OwnerDomain {
         let Some(mut release_gate) = paused_root.process_handle.release_gate.take() else {
             return Err(SpawnError::ContainmentFailed);
         };
+        let endpoint_non_inheritable = {
+            let state = self
+                .lock_state()
+                .map_err(|_| SpawnError::ObserverUnavailable)?;
+            let endpoint = state.endpoint_handle.ok_or(SpawnError::ContainmentFailed)?;
+            !is_inheritable(endpoint as HANDLE).map_err(|_| SpawnError::ContainmentFailed)?
+        };
+        if !endpoint_non_inheritable {
+            return Err(SpawnError::ContainmentFailed);
+        }
+        self.lock_state()
+            .map_err(|_| SpawnError::ObserverUnavailable)?
+            .endpoint_non_inheritable_before_release = true;
         release_gate
             .write_all(&[RELEASE_EXEC_BYTE])
             .map_err(|_| SpawnError::ContainmentFailed)?;

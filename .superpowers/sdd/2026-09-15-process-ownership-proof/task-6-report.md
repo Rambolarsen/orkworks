@@ -3,6 +3,9 @@
 Status: audit complete; production integration is intentionally not gated in.
 Tasks 3–5 do not provide a passing native mechanism on every supported Unix
 target, so this task made no runtime, recovery, replacement, or ADR changes.
+Task 3 review remediation adds fixture-only diagnostics for ticketed target
+admission and endpoint inheritance before release; those diagnostics do not
+change this audit's production findings or constitute production routing proof.
 
 ## Scope and gate ruling
 
@@ -16,8 +19,10 @@ and returns an authenticated complete-exit or unresolved receipt.
 The gate remains closed:
 
 - Task 3 accepted the Windows Job Object fixture evidence only on its hosted
-  Windows run. It does not establish a sidecar-wide boundary or a Unix
-  mechanism.
+  Windows run. Its review-remediation diagnostics are compile-checked in the
+  current macOS checkout but have no new native runtime result here. They do
+  not establish a sidecar-wide boundary, cross-platform endpoint behavior, or
+  a Unix mechanism.
 - Task 4 rejected the macOS/portable-Unix process-group and registered-root
   candidates; no deployable Unix mechanism was demonstrated.
 - Task 5 strengthened the fixture race/cleanup/foreign-owner matrix, but its
@@ -36,6 +41,11 @@ The required static audit command was:
 ```text
 /opt/homebrew/bin/rg -n "Command::spawn|portable_pty|spawn\(" crates/orkworksd/src apps/desktop/electron
 ```
+
+This is an inventory/gap audit of actual production seams. The Windows
+fixture's ticket and endpoint diagnostics are not evidence that any seam below
+routes through the fixture supervisor; production findings remain
+addressed-by-audit or unsupported, never a fixture-derived pass.
 
 The production process seams found were:
 
@@ -193,6 +203,24 @@ exit 0; 24 passed, 0 failed, 0 skipped, 0 todo
 elapsed: 91.40ms
 ```
 
+Task 3 fixture follow-up verification from this macOS checkout:
+
+```text
+cargo check --target x86_64-pc-windows-gnu --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job
+exit 0; Windows-target test compilation passed; no Windows runtime executed
+
+cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job -- --nocapture
+exit 0; macOS host ran 0 tests because the integration test is cfg(windows)
+
+cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml -- --nocapture --test-threads=1
+exit 0; 53 fixture integration tests passed; Windows-gated tests ran 0
+```
+
+The exact hosted native command remains
+`cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job`.
+It was unavailable locally because this checkout runs on macOS; no new native
+pass claim is made for the review-remediation assertions.
+
 The failed Rust test is an existing baseline failure observed without any
 production or fixture changes; it exercises the local ProcessRunner prompt
 write path, not the unimplemented owner boundary. The focused harness/detect
@@ -203,11 +231,18 @@ this fix round.
 
 ## Changed files
 
-Before editing, the requested worktree was clean on
+Before the original Task 6 audit, the requested worktree was clean on
 `issue-545-process-ownership-proof` (ahead 8 of its remote). This task changed
 only:
 
 - `.superpowers/sdd/2026-09-15-process-ownership-proof/task-6-report.md`
+- `docs/superpowers/evidence/2026-09-15-process-ownership-proof.md`
+
+The later Task 3 review-remediation follow-up additionally changes only:
+
+- `crates/process-ownership-fixture/tests/windows_job.rs`
+- `crates/process-ownership-fixture/src/platform/windows.rs`
+- this report
 - `docs/superpowers/evidence/2026-09-15-process-ownership-proof.md`
 
 No files under `apps/desktop/electron/` or `crates/orkworksd/src/` were

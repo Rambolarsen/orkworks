@@ -6,6 +6,12 @@ This record consolidates the fixture and production-seam evidence from Tasks
 1–6. It is evidence only: it does not implement runtime recovery,
 multi-workspace replacement, a production supervisor, or an ADR decision.
 
+Task 3 review remediation adds explicit Windows-fixture diagnostics for the
+forced-parent target's ticketed admission and for the supervisor endpoint being
+non-inheritable immediately before target release. Those diagnostics make the
+fixture path observable; they do not establish that production PTY, inference,
+discovery, harness, or sidecar roots use that path.
+
 ## Outcome
 
 The fixture has a complete 48-row matrix: 16 required scenarios × Windows,
@@ -35,7 +41,9 @@ suspended registration, Job Object kill-on-close, PTY-like and nested
 descendants, breakaway rejection, non-inheritable handles, registration
 failure, and actual `TerminateProcess` parent termination. The fixture
 proves the Windows mechanism for its topology; it does not prove production
-routing or Unix behavior.
+routing or Unix behavior. The review-remediation assertion is compile-checked
+for the Windows target below but was not rerun on a Windows runtime in this
+checkout, so it is not a new native pass claim.
 
 Task 4's macOS candidate matrix is vacuous/re-scoped for ownership proof:
 the six candidate tests pass by rejecting ProcessGroup, RegisteredRoot, and
@@ -149,7 +157,9 @@ at:
 The existing Windows `ProcessJob` is private and per-provider-invocation;
 it does not cover the sidecar, PTY, discovery, all inference roots, or a
 surviving owner after Electron termination. No `processSupervisor.ts` or
-`process_ownership.rs` was added.
+`process_ownership.rs` was added. The fixture's new ticket and endpoint
+diagnostics are therefore addressed-by-audit fixture evidence, not a passed
+production-seam result.
 
 ## Exact verification sources
 
@@ -164,7 +174,15 @@ surviving owner after Electron termination. No `processSupervisor.ts` or
   — macOS Task 5: 53 integration tests passed; non-macOS tests were
   platform-gated and not run locally.
 - `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job`
-  — hosted Windows: 8/8 native tests passed.
+  — recorded hosted Windows run: 8/8 native tests passed; the current
+  remediation was not rerun on a Windows host.
+- `cargo check --target x86_64-pc-windows-gnu --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job`
+  — passed locally; this is a Windows-target compile check, not a runtime
+  result.
+- `cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job -- --nocapture`
+  — macOS host: 0 tests because the integration test is `cfg(windows)`; no
+  Windows runtime is available locally, so the hosted command remains the
+  required native verification.
 - `cargo test --manifest-path crates/process-ownership-fixture/Cargo.toml --test evidence`
   — fix round 1 validator: 1 passed.
 - `/opt/homebrew/bin/rg -n "Command::spawn|portable_pty|spawn(\\()" crates/orkworksd/src apps/desktop/electron`
