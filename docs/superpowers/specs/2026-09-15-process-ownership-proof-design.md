@@ -247,8 +247,8 @@ not claim OS containment.
 The matrix contains five Windows native passes from the hosted 8/8 run, nine
 platform-neutral or fixture-contract acceptances, one unresolved macOS
 production-seam audit row, and 33 unsupported rows. The counts are deliberately
-not inflated by the macOS six-test candidate rejection, the 47-test fixture
-run, or the 14 launch-dependent Task 5 skips. Task 4's rejection of
+not inflated by the macOS six-test candidate rejection, the 53-test fixture
+run (5 applicable tests and 15 launch-dependent Task 5 skips). Task 4's rejection of
 ProcessGroup, RegisteredRoot, and launchd candidates is vacuous/re-scoped:
 the candidate tests fail closed before native launch, so they do not exercise
 the required descendant matrix. Task 4 also leaves the admission-substitution

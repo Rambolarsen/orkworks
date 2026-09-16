@@ -52,8 +52,8 @@ path and no portable Linux descriptor runtime result was produced here. The
 missing Linux descriptor runtime evidence remains a blocker, not a pass
 inferred from source checks or macOS fail-closed behavior.
 
-Task 5's macOS run passed 47 fixture integration tests, with 4 applicable
-tests and 14 launch-dependent tests skipped. Its parked acknowledgement-
+Task 5's macOS run passed 53 fixture integration tests, with 5 applicable
+tests and 15 launch-dependent tests skipped. Its parked acknowledgement-
 concurrency gap remains open. The serialized paused-launch latch test is
 preserved, but it does not by itself prove that cleanup acknowledgement is
 serialized against every in-flight paused launch, so this record does not
