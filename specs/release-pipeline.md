@@ -76,7 +76,9 @@ The first migration from an unsigned development/alpha build is a manual install
   visibly before checkout or dependency installation.
 - Skip Main CI and packaging when that commit already has a successfully
   published nightly. A failed attempt must remain retryable; publication, not
-  tag existence, defines success.
+  tag existence, defines success. A publication-job rerun resumes its sole
+  matching retained draft and uploads only missing assets after verifying the
+  existing asset bytes by size and GitHub SHA-256 digest.
 - Require the complete desktop and Rust validation used by main CI for that
   exact commit, plus artifact verification and Windows installer smoke testing.
   A green check for another commit or a docs-only no-op is insufficient.

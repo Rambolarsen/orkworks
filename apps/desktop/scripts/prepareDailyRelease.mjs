@@ -8,6 +8,7 @@ import {
   ensureTagAtSource,
   expectedReleaseAssetNames,
   getTagTarget,
+  githubReleaseAssetUrl,
   listAllReleases,
   listNightlyTagVersions,
   parseNightlyChannelTag,
@@ -95,6 +96,7 @@ export async function loadNightlyReleaseState({
     listTagVersions({ repository, token, fetchImpl }),
   ]);
   const validated = [];
+  const drafts = [];
   const publishedNightlyVersions = new Set(tagVersions);
   const markerCounts = new Map();
   for (const release of releases) {
@@ -102,7 +104,10 @@ export async function loadNightlyReleaseState({
     if (typeof release.draft !== "boolean" || typeof release.prerelease !== "boolean") {
       throw new Error("GitHub release draft and prerelease flags must be booleans");
     }
-    if (release.draft) continue;
+    if (release.draft) {
+      drafts.push(release);
+      continue;
+    }
     if (typeof release.tag_name !== "string") continue;
     let version;
     try {
@@ -140,8 +145,9 @@ export async function loadNightlyReleaseState({
         downloadsComplete = false;
         break;
       }
-      const response = await fetchImpl(asset.url, {
+      const response = await fetchImpl(githubReleaseAssetUrl({ repository, url: asset.url }), {
         headers: { accept: "application/octet-stream", authorization: `Bearer ${token}` },
+        redirect: "error",
       });
       if (!response.ok) {
         if (response.status === 404) {
@@ -172,7 +178,7 @@ export async function loadNightlyReleaseState({
   for (const [sourceSha, count] of markerCounts) {
     if (count > 1) throw new Error(`multiple published nightlies claim source SHA ${sourceSha}`);
   }
-  return { publishedNightlyVersions: [...publishedNightlyVersions], validated };
+  return { publishedNightlyVersions: [...publishedNightlyVersions], validated, drafts };
 }
 
 export async function prepareDailyRelease({

@@ -298,9 +298,14 @@
   export async function publishDailyRelease({ identity, repository, token, assetDir, fetchImpl }) {}
   ```
 
-  Test exhaustive Link-header pagination, exact annotated/lightweight tag dereferencing, missing token, 401/403, rate limits, invalid JSON, wrong existing tag target, ambiguous tag creation with at most three same-tag retries, duplicate successful source skip, incomplete prior release retry, lower candidate rejection, real draft creation with `prerelease: true`, omitted `target_commitish`, complete upload, full draft validation, and publish-only-after-validation.
+  Test exhaustive Link-header pagination, exact annotated/lightweight tag dereferencing, missing token, immediate 401/403 rejection, rate limits, invalid JSON, wrong existing tag target, ambiguous tag creation with exact-tag adoption and at most three same-tag retries, duplicate successful source skip, incomplete prior release retry, lower candidate rejection, real draft creation with `prerelease: true`, omitted `target_commitish`, exact retained-draft reuse, missing-only uploads, credential-safe asset URLs, full draft validation, and publish-only-after-validation.
 
 - [ ] Confirm the focused test fails, then implement the GitHub REST adapter using `fetch`. Keep endpoint construction and response-schema checks centralized in `dailyRelease.mjs`. Never log authorization headers or token-bearing request objects.
+
+- [ ] On publication retry, reuse only one exact-tag draft whose source marker,
+  prerelease identity, upload endpoint, and existing asset sizes/digests match
+  local bytes. Upload only missing assets; reject duplicates, mismatches,
+  off-origin credentialed URLs, and redirects without deleting remote history.
 
 - [ ] Stage nightly versions atomically in the runner checkout:
 

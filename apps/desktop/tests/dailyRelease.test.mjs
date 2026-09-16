@@ -140,6 +140,11 @@ test("nightly identities reject noncanonical and out-of-range inputs", () => {
     { runAttempt: "0" },
     { runAttempt: "100" },
     { utcDate: new Date("invalid") },
+    { utcDate: (() => {
+      const date = new Date(0);
+      date.setUTCFullYear(999, 0, 1);
+      return date;
+    })() },
     { utcDate: new Date(Date.UTC(10_000, 0, 1)) },
   ]) {
     assert.throws(() => createNightlyIdentity({ ...valid, ...override }), /invalid|range|canonical/i);
@@ -177,18 +182,6 @@ test("native nightly versions are collision-free and increasing", () => {
     ["1.41.1", "1.41.2", "1.42.1"],
   );
 
-  const earlyDate = new Date(0);
-  earlyDate.setUTCFullYear(10, 0, 2);
-  earlyDate.setUTCHours(0, 0, 0, 0);
-  const early = createNightlyIdentity({
-    baseVersion: "0.2.0",
-    utcDate: earlyDate,
-    runId: "1",
-    runNumber: "1",
-    runAttempt: "1",
-  });
-  assert.equal(early.version, "0.2.0-nightly.00100102.1.1");
-  assert.equal(early.windowsBuildVersion, "10.2.1.1");
 });
 
 test("source markers require one exact lowercase SHA line", () => {
@@ -426,6 +419,56 @@ test("tag creation adopts an exact tag after a malformed success response", asyn
     fetchImpl,
   }), { tag, sourceSha: SOURCE_SHA });
   assert.equal(writes, 1);
+});
+
+test("tag creation adopts an exact tag after an ambiguous server response", async () => {
+  const tag = `v${VERSION}`;
+  let reads = 0;
+  let writes = 0;
+  const fetchImpl = async (_url, options = {}) => {
+    if ((options.method ?? "GET") === "POST") {
+      writes += 1;
+      return jsonResponse(502, { message: "upstream failed after creating the ref" });
+    }
+    reads += 1;
+    return reads === 1
+      ? jsonResponse(404, { message: "missing" })
+      : jsonResponse(200, {
+        ref: `refs/tags/${tag}`,
+        object: { type: "commit", sha: SOURCE_SHA },
+      });
+  };
+
+  assert.deepEqual(await ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "secret",
+    tag,
+    sourceSha: SOURCE_SHA,
+    fetchImpl,
+  }), { tag, sourceSha: SOURCE_SHA });
+  assert.equal(writes, 1);
+});
+
+test("tag creation fails immediately on a definitive authorization response", async () => {
+  const tag = `v${VERSION}`;
+  let reads = 0;
+  let writes = 0;
+  await assert.rejects(() => ensureTagAtSource({
+    repository: "Rambolarsen/orkworks",
+    token: "read-only",
+    tag,
+    sourceSha: SOURCE_SHA,
+    fetchImpl: async (_url, options = {}) => {
+      if ((options.method ?? "GET") === "POST") {
+        writes += 1;
+        return jsonResponse(403, { message: "forbidden" });
+      }
+      reads += 1;
+      return jsonResponse(404, { message: "missing" });
+    },
+  }), /failed with 403/i);
+  assert.equal(writes, 1);
+  assert.equal(reads, 1);
 });
 
 test("an existing exact tag must still prove write capability", async () => {

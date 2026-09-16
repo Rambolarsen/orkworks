@@ -54,7 +54,7 @@ export function createNightlyIdentity({
   const parsedAttempt = requireCanonicalPositiveInteger(runAttempt, "run attempt", 99);
 
   const year = utcDate.getUTCFullYear();
-  if (year < 0 || year > 9999) {
+  if (year < 1000 || year > 9999) {
     throw new Error("UTC year is outside the release identity range");
   }
   const yearStart = new Date(0);
@@ -138,7 +138,7 @@ export function parseNightlyTag(tag) {
   const day = Number(date.slice(6, 8));
   const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) {
+  if (year < 1000 || month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) {
     throw new Error("nightly release tag is invalid");
   }
   requireCanonicalPositiveInteger(match[5], "nightly run ID");
@@ -436,6 +436,29 @@ export async function listAllReleases({ repository, token, fetchImpl = fetch }) 
   return releases;
 }
 
+export function githubReleaseAssetUrl({ repository, url }) {
+  repositoryApiBase(repository);
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("GitHub release asset URL is invalid");
+  }
+  const prefix = `/repos/${repository}/releases/assets/`;
+  const assetId = parsed.pathname.startsWith(prefix) ? parsed.pathname.slice(prefix.length) : "";
+  if (
+    parsed.origin !== "https://api.github.com"
+    || parsed.username !== ""
+    || parsed.password !== ""
+    || parsed.search !== ""
+    || parsed.hash !== ""
+    || !/^[1-9]\d*$/.test(assetId)
+  ) {
+    throw new Error("GitHub release asset URL is outside the repository API");
+  }
+  return parsed.href;
+}
+
 export async function listNightlyTagVersions({ repository, token, fetchImpl = fetch }) {
   const response = await fetchImpl(`${repositoryApiBase(repository)}/git/matching-refs/tags/v`, {
     headers: githubHeaders(token),
@@ -511,6 +534,7 @@ export async function ensureTagAtSource({ repository, token, tag, sourceSha, fet
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     let writeStatus = null;
+    let ambiguousWrite = false;
     try {
       const response = await fetchImpl(`${repositoryApiBase(repository)}/git/refs`, {
         method: "POST",
@@ -518,11 +542,15 @@ export async function ensureTagAtSource({ repository, token, tag, sourceSha, fet
         body: JSON.stringify({ ref: `refs/tags/${tag}`, sha: sourceSha }),
       });
       writeStatus = response.status;
+      ambiguousWrite = writeStatus >= 500;
     } catch {
-      // A failed write is ambiguous until the authoritative tag read below.
+      ambiguousWrite = true;
+    }
+    if (writeStatus === 401 || writeStatus === 403) {
+      throw new Error(`GitHub tag creation failed with ${writeStatus}`);
     }
     const observed = await readTag({ repository, token, tag, fetchImpl });
-    if (observed === sourceSha && (writeStatus === 201 || writeStatus === 422)) {
+    if (observed === sourceSha && (writeStatus === 201 || writeStatus === 422 || ambiguousWrite)) {
       return { tag, sourceSha };
     }
     if (observed !== null) throw new Error(`tag ${tag} points at a different source SHA`);

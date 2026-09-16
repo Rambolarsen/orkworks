@@ -39,14 +39,17 @@ checksums, and updater metadata is the only successful duplicate. For a release
 claiming the current source, duplicate detection downloads the two updater
 payloads and verifies their metadata SHA-512 values directly; it does not
 download payloads for unrelated historical sources. Drafts and damaged releases
-remain diagnostic history and a new run attempt can retry.
+remain diagnostic history. A publication-job rerun resumes one exact matching
+draft and uploads only missing assets; a new run attempt can retry under a new
+immutable tag.
 
 The platform jobs run packaging, pre-checksum artifact verification, native
 signature checks, and the Windows installer smoke test before checksum
 generation. They then run the full artifact verifier, which requires the
 checksum manifest, before upload. The stable publisher creates a draft release;
-the nightly publisher creates a draft, validates the uploaded asset set, and
-then publishes it. A successful source-only test or packaging run is not
+the nightly publisher creates or resumes an exact matching draft, validates the
+uploaded asset set, and then publishes it. It never replaces a retained asset;
+a size or digest mismatch fails closed. A successful source-only test or packaging run is not
 evidence that a release is trusted: the real credential-backed run on the
 native runners is still required.
 
@@ -239,8 +242,10 @@ Scheduled and manual runs share the `nightly-release` concurrency group and are
 never cancelled in progress. A later run rechecks all GitHub Release pages; it
 exits successfully without packaging when the frozen SHA already has one fully
 valid published nightly. An incomplete release, failed draft, or tag alone does
-not suppress a retry. Failed drafts and immutable attempt tags are retained;
-operators must not retarget, overwrite, or delete them as part of a retry.
+not suppress a retry. The same publication job resumes its sole exact-tag draft
+and uploads only missing assets after checking existing sizes and SHA-256
+digests. Failed drafts and immutable attempt tags are retained; operators must
+not retarget, overwrite, or delete them as part of a retry.
 Publication revalidates its prepared tag target and ignores only that exact tag
 in the ordering comparison, so rerunning a failed publication job does not
 require deleting or moving the immutable ref.

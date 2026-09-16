@@ -41,7 +41,8 @@ Malformed release visibility flags and service failures fail closed; an
 authenticated asset 404 alone records damaged retryable history. A validated
 unchanged-SHA release no-ops before constructing a new finite native identity.
 All public SemVer-valid nightly-channel tags constrain ordering even if they
-fail the stricter delivery identity. Identity years remain four digits, an
+fail the stricter delivery identity. Identity years remain canonical four-digit
+years (`1000..9999`), an
 existing exact tag must pass a non-mutating write-scope probe before packaging,
 and an explicitly null packaged channel is invalid rather than stable.
 Ordering includes dangling public nightly tags from the matching-ref snapshot,
@@ -49,6 +50,9 @@ and four-digit years use a calculation that preserves JavaScript years 0–99.
 
 Publication first revalidates its prepared tag target, then excludes only that
 exact candidate from the ordering comparison so the tag does not block itself.
+A publication retry reuses only one exact-tag draft with matching source and
+asset identity, uploads only missing assets, and rejects off-origin or
+redirected credentialed asset requests.
 
 Every job that signs artifacts or receives `contents: write` authority uses the
 protected `release` environment. The environment permits only `main` and
@@ -68,7 +72,7 @@ Nightly artifacts can be traced to one immutable, Main-CI-validated source and
 cannot enter the stable feed. Failed attempts leave diagnostic drafts and tags
 instead of mutating or hiding history, and a later run attempt can retry with a
 new identity; a failed publication job can also reuse its already-verified
-prepared tag. Scheduled and manual nightly runs must be serialized and must
+prepared tag and matching retained draft. Scheduled and manual nightly runs must be serialized and must
 recheck remote state before publication.
 
 The repository owner must maintain the `release` environment's deployment

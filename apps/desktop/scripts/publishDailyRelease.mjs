@@ -1,4 +1,5 @@
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -6,6 +7,8 @@ import {
   assertCandidateIsNewest,
   expectedReleaseAssetNames,
   getTagTarget,
+  githubReleaseAssetUrl,
+  parseSourceMarker,
   selectPublishedNightlyForSource,
   sourceMarker,
   validateReleaseIntegrity,
@@ -38,6 +41,54 @@ function apiBase(repository) {
     throw new Error("GitHub repository must be owner/name");
   }
   return `https://api.github.com/repos/${repository}`;
+}
+
+function draftUploadBase({ repository, release }) {
+  if (!Number.isInteger(release?.id) || release.id <= 0 || typeof release.upload_url !== "string") {
+    throw new Error("GitHub draft release has an invalid schema");
+  }
+  let url;
+  try {
+    url = new URL(release.upload_url.replace(/\{.*$/, ""));
+  } catch {
+    throw new Error("GitHub draft asset upload URL is invalid");
+  }
+  if (
+    url.origin !== "https://uploads.github.com"
+    || url.pathname !== `/repos/${repository}/releases/${release.id}/assets`
+    || url.username !== ""
+    || url.password !== ""
+    || url.search !== ""
+    || url.hash !== ""
+  ) {
+    throw new Error("GitHub draft asset upload URL is outside the repository API");
+  }
+  return url.href;
+}
+
+function validateRetainedDraft({ release, repository, identity, sourceSha, assets, expectedNames }) {
+  if (
+    release?.draft !== true
+    || release.prerelease !== true
+    || release.tag_name !== identity.tag
+    || parseSourceMarker(release.body) !== sourceSha
+    || !Array.isArray(release.assets)
+  ) {
+    throw new Error("retained draft does not match the nightly release identity");
+  }
+  const uploadBase = draftUploadBase({ repository, release });
+  const existingNames = new Set();
+  for (const asset of release.assets) {
+    if (typeof asset?.name !== "string" || existingNames.has(asset.name) || !expectedNames.includes(asset.name)) {
+      throw new Error("retained draft asset set is ambiguous or unexpected");
+    }
+    existingNames.add(asset.name);
+    const digest = `sha256:${createHash("sha256").update(assets[asset.name]).digest("hex")}`;
+    if (asset.size !== assets[asset.name].length || asset.digest !== digest) {
+      throw new Error(`retained draft asset does not match local bytes: ${asset.name}`);
+    }
+  }
+  return { release, uploadBase, existingNames };
 }
 
 export function readReleaseAssets({ directory, version }) {
@@ -94,40 +145,53 @@ export async function publishDailyRelease({
   );
 
   const base = apiBase(repository);
-  const created = await json(await fetchImpl(`${base}/releases`, {
-    method: "POST",
-    headers: headers(token),
-    body: JSON.stringify({
-      tag_name: identity.tag,
-      name: `OrkWorks ${identity.version}`,
-      body: `Automated daily build from main.\n\n${sourceMarker(sourceSha)}\n`,
-      draft: true,
-      prerelease: true,
-    }),
-  }), "create draft release", 201);
-  if (!Number.isInteger(created?.id) || typeof created.upload_url !== "string") {
-    throw new Error("GitHub draft release has an invalid schema");
+  const drafts = state.drafts ?? [];
+  if (!Array.isArray(drafts)) throw new Error("GitHub retained draft state is invalid");
+  const matchingDrafts = drafts.filter((release) => release?.tag_name === identity.tag);
+  if (matchingDrafts.length > 1) throw new Error("multiple retained drafts match the nightly tag");
+  let candidate = matchingDrafts[0];
+  if (!candidate) {
+    candidate = await json(await fetchImpl(`${base}/releases`, {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify({
+        tag_name: identity.tag,
+        name: `OrkWorks ${identity.version}`,
+        body: `Automated daily build from main.\n\n${sourceMarker(sourceSha)}\n`,
+        draft: true,
+        prerelease: true,
+      }),
+    }), "create draft release", 201);
   }
-  const uploadBase = created.upload_url.replace(/\{.*$/, "");
-  for (const name of assetNames) {
+  const { release: retainedDraft, uploadBase, existingNames } = validateRetainedDraft({
+    release: candidate,
+    repository,
+    identity,
+    sourceSha,
+    assets,
+    expectedNames,
+  });
+  for (const name of assetNames.filter((assetName) => !existingNames.has(assetName))) {
     const uploadUrl = new URL(uploadBase);
     uploadUrl.searchParams.set("name", name);
     await json(await fetchImpl(uploadUrl.href, {
       method: "POST",
       headers: headers(token, "application/octet-stream"),
       body: assets[name],
+      redirect: "error",
     }), `upload asset ${name}`, 201);
   }
 
-  const draft = await json(await fetchImpl(`${base}/releases/${created.id}`, {
+  const draft = await json(await fetchImpl(`${base}/releases/${retainedDraft.id}`, {
     headers: headers(token),
   }), "read uploaded draft");
   const downloadedAssets = {};
   for (const name of ["nightly.yml", "nightly-mac.yml", "SHA256SUMS.txt"]) {
     const asset = draft.assets?.find((candidate) => candidate.name === name);
     if (typeof asset?.url !== "string") throw new Error(`draft asset is missing: ${name}`);
-    const response = await fetchImpl(asset.url, {
+    const response = await fetchImpl(githubReleaseAssetUrl({ repository, url: asset.url }), {
       headers: { ...headers(token), accept: "application/octet-stream" },
+      redirect: "error",
     });
     if (!response.ok) throw new Error(`download draft asset ${name} failed with ${response.status}`);
     downloadedAssets[name] = await response.text();
@@ -143,7 +207,7 @@ export async function publishDailyRelease({
     requiredDraft: true,
   });
 
-  const published = await json(await fetchImpl(`${base}/releases/${created.id}`, {
+  const published = await json(await fetchImpl(`${base}/releases/${retainedDraft.id}`, {
     method: "PATCH",
     headers: headers(token),
     body: JSON.stringify({ draft: false }),

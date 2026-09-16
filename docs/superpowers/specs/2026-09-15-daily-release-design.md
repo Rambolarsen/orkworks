@@ -94,8 +94,10 @@ tag/package-version guard.
    `GITHUB_TOKEN` cannot create a ref/release for a historical commit that
    differs under `.github/workflows/`. Missing, expired, or under-scoped
    credentials fail closed and are documented for rotation; the token is never
-   packaged. On an ambiguous response, preparation reads the same tag and
-   retries creation up to three times only while it remains absent. An existing
+   packaged. A definitive 401/403 fails immediately. On an ambiguous transport
+   or server response, preparation reads the same tag, adopts it when it now
+   targets the frozen SHA, and retries creation up to three times only while it
+   remains absent. An existing
    exact tag is adopted only when it resolves to the frozen SHA; a mismatch or
    exhausted retry fails without force-updating or deleting a ref. When the
    exact candidate tag already exists, a duplicate-ref request must return
@@ -108,15 +110,20 @@ tag/package-version guard.
    this permits publication and failed-job retries while every other public
    nightly tag continues to constrain ordering. If still eligible, it creates a
    real draft prerelease for the already-existing verified tag, omitting
-   `target_commitish` so the release API cannot retarget it.
-9. The job uploads the complete cross-platform asset set to that draft, then
+   `target_commitish` so the release API cannot retarget it. A retry reuses the
+   sole exact-tag draft only when its prerelease flag, source marker, upload
+   endpoint, and already-uploaded asset sizes and SHA-256 digests match the
+   local candidate. Multiple exact-tag drafts or any mismatch fail closed.
+9. The job uploads only assets missing from the selected draft, then
    applies the same full success predicate used for duplicate detection: exact
    expected names, nonzero sizes and GitHub SHA-256 digests, downloaded channel
    metadata and checksum-manifest cross-checks, direct updater SHA-512 checks
    against the locally verified payload bytes, source marker, prerelease/draft
-   flags, and exact tag target. Only then does it publish the draft. Failed
-   drafts and their unique tags remain diagnostic records and do not block a
-   later run-attempt tag; no asset is replaced.
+   flags, and exact tag target. Credentialed asset downloads accept only the
+   repository's GitHub API asset endpoint and refuse redirects. Only then does
+   it publish the draft. Failed drafts and their unique tags remain diagnostic
+   records: the same publication job can resume an exact retained draft, while
+   a later run attempt can use a new tag. No asset is replaced.
    Stable releases keep their existing draft behavior and stable metadata.
 10. Before draft creation, the same exhaustive release snapshot proves the
    candidate SemVer is greater than every published nightly version. An
@@ -149,10 +156,9 @@ Native identifiers do not reuse one cross-platform format:
   the finite encoding is exhausted. It is collision-free and increasing within
   those explicit bounds.
 
-The shared UTC year is limited to four digits (`0..9999`) so the generated
-`YYYYMMDD` identity always remains parseable by the release-tag grammar. The
-day-of-year calculation sets the full UTC year explicitly, avoiding
-JavaScript's legacy `Date.UTC` remapping for years `0..99`.
+The shared UTC year is limited to four canonical digits (`1000..9999`) so the
+numeric `YYYYMMDD` prerelease identifier is valid SemVer without leading
+zeroes. The day-of-year calculation sets the full UTC year explicitly.
 
 Stable packaging retains `latest.yml` and `latest-mac.yml`. Nightly packaging
 sets the fixed GitHub publisher channel to `nightly` and keeps
@@ -183,7 +189,8 @@ fails before credentials, packaging, or draft publication, even when it matches
 
 Validation or either platform failure prevents draft creation. Assembly or
 upload failure leaves an unpublished draft; update clients cannot see drafts.
-A failed run remains retryable under a new run-attempt tag. Concurrent
+A rerun of that publication job resumes the matching draft without replacing
+uploaded assets; a later run remains retryable under a new run-attempt tag. Concurrent
 schedule/manual runs are serialized and the later run exits cleanly if the
 earlier one published the same SHA. Existing releases, tags, and assets are
 never overwritten or deleted.
