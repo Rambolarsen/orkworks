@@ -855,6 +855,7 @@ pub struct Supervisor<A: PlatformAdapter = HostPlatformAdapter> {
     roots: Vec<RegisteredRoot>,
     unidentified_roots: Vec<UnidentifiedRoot>,
     fail_registration_once: bool,
+    fail_termination_once: bool,
     inject_owner_loss_during_launch: bool,
     launch_interleave_latch: Option<Arc<LaunchInterleaveLatch>>,
     cleanup_started: bool,
@@ -929,6 +930,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 roots: Vec::new(),
                 unidentified_roots: Vec::new(),
                 fail_registration_once: false,
+                fail_termination_once: false,
                 inject_owner_loss_during_launch: false,
                 launch_interleave_latch: None,
                 cleanup_started: false,
@@ -1200,6 +1202,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
         let termination_deadline = escalation_started + OWNED_TERMINATION_TIMEOUT;
         let mut termination_failures = Vec::new();
         let mut termination_diagnostics = Vec::new();
+        let mut inject_termination_failure = std::mem::take(&mut self.fail_termination_once);
         for root in &mut self.roots {
             if root
                 .process_handle
@@ -1218,6 +1221,18 @@ impl<A: PlatformAdapter> Supervisor<A> {
                     &mut termination_diagnostics,
                     format!(
                         "terminate root {} failed: cleanup termination deadline elapsed",
+                        root.identity.birth_identity
+                    ),
+                );
+                continue;
+            }
+            if inject_termination_failure {
+                inject_termination_failure = false;
+                termination_failures.push(root.identity.clone());
+                push_cleanup_diagnostic(
+                    &mut termination_diagnostics,
+                    format!(
+                        "terminate root {} failed: injected termination failure",
                         root.identity.birth_identity
                     ),
                 );
@@ -1417,6 +1432,11 @@ impl<A: PlatformAdapter> Supervisor<A> {
     /// Causes the next registration attempt to fail before release.
     pub fn inject_registration_failure_once(&mut self) {
         self.fail_registration_once = true;
+    }
+
+    /// Causes the next owned termination attempt to remain unresolved.
+    pub fn inject_termination_failure_once(&mut self) {
+        self.fail_termination_once = true;
     }
 
     /// Causes owner loss immediately after paused root creation on the next launch.

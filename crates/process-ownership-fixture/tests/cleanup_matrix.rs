@@ -291,7 +291,7 @@ fn same_generation_authorities_keep_each_others_barrier_live() {
 
 #[cfg(not(target_os = "macos"))]
 #[test]
-fn graceful_ignore_escalates_to_bounded_owned_termination() {
+fn graceful_resistant_child_escalates_to_acknowledged_receipt() {
     let directory = TestDirectory::new("graceful-ignore");
     let marker = directory.marker("survivor");
     let (mut supervisor, _) = prepared_supervisor(102);
@@ -317,6 +317,7 @@ fn graceful_ignore_escalates_to_bounded_owned_termination() {
 
     assert!(started.elapsed() >= Duration::from_secs(4));
     assert!(started.elapsed() < Duration::from_secs(12));
+    assert_eq!(receipt.generation, 102);
     let phases = supervisor.cleanup_phase_timings();
     let graceful = phases
         .iter()
@@ -331,6 +332,42 @@ fn graceful_ignore_escalates_to_bounded_owned_termination() {
     assert!(escalation.elapsed_ms <= 5_000);
     assert!(receipt.owned_processes.contains(&identity));
     assert!(is_complete(&supervisor.observe()));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn injected_termination_failure_keeps_survivor_unresolved() {
+    let directory = TestDirectory::new("injected-termination-failure");
+    let marker = directory.marker("survivor");
+    let (mut supervisor, _) = prepared_supervisor(123);
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Sidecar, "injected-termination-failure")
+        .expect("ticket should be issued");
+    let identity = supervisor
+        .spawn(
+            ticket,
+            launch_spec(
+                Role::Sidecar,
+                TargetBehavior::Silent,
+                &marker,
+                SURVIVOR_LIFETIME,
+            ),
+        )
+        .expect("survivor should be admitted");
+    wait_for_marker(&marker);
+
+    supervisor.owner_lost();
+    supervisor.inject_termination_failure_once();
+    let started = Instant::now();
+    let CleanupResult::Unresolved { survivors, reason } = supervisor.cleanup() else {
+        panic!("an injected termination failure must remain unresolved");
+    };
+
+    assert!(started.elapsed() >= Duration::from_secs(9));
+    assert!(started.elapsed() < Duration::from_secs(12));
+    assert!(survivors.contains(&identity));
+    assert!(reason.contains("injected termination failure"));
+    assert!(!reason.contains("observer unavailable"));
 }
 
 #[test]

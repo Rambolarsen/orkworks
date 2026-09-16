@@ -150,7 +150,10 @@ sockets with newline-delimited JSON messages bounded to 64 KiB each:
 - `cleanup()` freezes admission, drains in-flight launches, performs the
   supervisor-owned five-second graceful and five-second owned-termination
   phases, and returns either `acknowledged` with an independently observed
-  complete-exit set or `unresolved` with independently observed survivors;
+  complete-exit set or `unresolved` with independently observed survivors. A
+  graceful-resistant child that the owned-termination phase can stop produces
+  the acknowledgement; a separately injected termination failure retains the
+  survivor as unresolved without making ordinary force termination fail;
 - `foreign_status` reads the foreign sidecar heartbeat, lease ownership, and
   metadata bytes/revision without asking the foreign process to self-attest;
 - `rendezvous_status(generation, nonce)` authenticates the prior supervisor's
@@ -180,7 +183,7 @@ The fixture must pass these scenarios before mechanism selection is recorded:
 | Admission races with owner loss | Admission freezes, in-flight launches drain, late tickets are rejected, and cleanup covers the resulting closed set. |
 | PTY creates a separate session/group | Cleanup still reaches the PTY-shaped tree; otherwise the candidate mechanism is rejected. |
 | Forked, new-group, daemonized, reparented, or silent descendant | Independent observation either proves ownership and cleanup or rejects the candidate; target self-reports cannot make it pass. |
-| Owned child ignores graceful cleanup | The five-second graceful phase escalates to the five-second owned-termination phase; a survivor remains unresolved. |
+| Owned child ignores graceful cleanup | The five-second graceful phase escalates to the five-second owned-termination phase. A graceful-resistant but force-terminable child produces an acknowledged receipt; a separately injected termination failure produces an unresolved survivor. |
 | Supervisor dies while descendants remain | No complete-exit receipt is produced; relaunch remains blocked/unresolved and never guesses from PIDs. |
 | Foreign owner holds the workspace lease | Foreign owner heartbeat, lease ownership, and metadata bytes/revision remain unchanged; only the attempted generation is cleaned. |
 | Forged, replayed, stale, or cross-generation ticket | Supervisor rejects it before execution and records no owned root. |
