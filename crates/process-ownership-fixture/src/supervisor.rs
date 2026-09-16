@@ -869,6 +869,7 @@ pub struct Supervisor<A: PlatformAdapter = HostPlatformAdapter> {
     control_endpoint: Option<TcpListener>,
     admission_open: bool,
     registered_identities: HashSet<NativeIdentity>,
+    retained_descendant_identities: HashSet<NativeIdentity>,
     roots: Vec<RegisteredRoot>,
     unidentified_roots: Vec<UnidentifiedRoot>,
     fail_registration_once: bool,
@@ -944,6 +945,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
                 control_endpoint: Some(control_endpoint),
                 admission_open: true,
                 registered_identities: HashSet::new(),
+                retained_descendant_identities: HashSet::new(),
                 roots: Vec::new(),
                 unidentified_roots: Vec::new(),
                 fail_registration_once: false,
@@ -1323,7 +1325,11 @@ impl<A: PlatformAdapter> Supervisor<A> {
         for diagnostic in termination_diagnostics {
             push_cleanup_diagnostic(&mut self.cleanup_diagnostics, diagnostic);
         }
-        let survivors = cleanup_survivors(&snapshot, termination_failures);
+        let survivors = cleanup_survivors(
+            &snapshot,
+            termination_failures,
+            &self.retained_descendant_identities,
+        );
         let reason = cleanup_reason(self.generation, &snapshot, &self.cleanup_diagnostics);
         let result = bound_cleanup_result(CleanupResult::Unresolved { survivors, reason });
         let _ = self.protocol.record_unresolved(match &result {
@@ -1336,12 +1342,12 @@ impl<A: PlatformAdapter> Supervisor<A> {
     fn acknowledge_cleanup(&mut self) -> CleanupResult {
         let receipt = CompleteExitReceipt {
             generation: self.generation,
-            owned_processes: self.registered_identities.iter().cloned().collect(),
+            owned_processes: self.owned_identities(),
             observed_at_ms: unix_epoch_millis(),
         };
         if self.protocol.record_complete_exit(receipt.clone()).is_err() {
             return bound_cleanup_result(CleanupResult::Unresolved {
-                survivors: self.registered_identities.iter().cloned().collect(),
+                survivors: self.owned_identities(),
                 reason: "complete-exit receipt could not be recorded".to_owned(),
             });
         }
@@ -1451,7 +1457,17 @@ impl<A: PlatformAdapter> Supervisor<A> {
             .adapter
             .observe_owned_descendants(&registered_identities, deadline)
         {
-            Ok(descendants) => (descendants, false),
+            Ok(descendants) => {
+                self.retained_descendant_identities.extend(
+                    descendants
+                        .iter()
+                        .filter(|descendant| {
+                            descendant.containment_membership == ContainmentMembership::Confirmed
+                        })
+                        .map(|descendant| descendant.identity.clone()),
+                );
+                (descendants, false)
+            }
             Err(error) => {
                 push_cleanup_diagnostic(
                     &mut diagnostics,
@@ -1523,6 +1539,18 @@ impl<A: PlatformAdapter> Supervisor<A> {
             self.registered_identities.remove(&identity);
         }
     }
+
+    fn owned_identities(&self) -> Vec<NativeIdentity> {
+        let mut identities = self
+            .registered_identities
+            .iter()
+            .chain(&self.retained_descendant_identities)
+            .cloned()
+            .collect::<Vec<_>>();
+        identities.sort_by(|left, right| left.birth_identity.cmp(&right.birth_identity));
+        identities.dedup();
+        identities
+    }
 }
 
 fn inference_generations() -> &'static Mutex<HashMap<GenerationId, HashSet<String>>> {
@@ -1567,8 +1595,12 @@ fn root_is_live(root: &mut RegisteredRoot) -> bool {
 fn cleanup_survivors(
     snapshot: &ObservationSnapshot,
     termination_failures: Vec<NativeIdentity>,
+    retained_descendant_identities: &HashSet<NativeIdentity>,
 ) -> Vec<NativeIdentity> {
     let mut survivors = snapshot.unresolved_survivors.clone();
+    // A failed final census cannot prove that a previously verified descendant
+    // exited, so retain every such identity conservatively.
+    survivors.extend(retained_descendant_identities.iter().cloned());
     survivors.extend(
         snapshot
             .roots

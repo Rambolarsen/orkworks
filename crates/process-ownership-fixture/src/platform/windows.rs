@@ -353,6 +353,7 @@ struct DomainState {
     retained_control_endpoint: Option<TcpListener>,
     endpoint_non_inheritable_before_release: bool,
     thread_handles_non_inheritable: bool,
+    fail_termination_once: bool,
     // Drop the retained process handles before kill-on-close releases the job.
     job: OwnedHandle,
 }
@@ -405,6 +406,7 @@ impl OwnerDomain {
                 retained_control_endpoint: None,
                 endpoint_non_inheritable_before_release: false,
                 thread_handles_non_inheritable: true,
+                fail_termination_once: false,
                 job,
             })),
         })
@@ -461,8 +463,19 @@ impl OwnerDomain {
         self.terminate_owned_before(Instant::now() + COMPLETION_TIMEOUT)
     }
 
+    /// Causes the next owned Job termination attempt to remain unresolved.
+    pub fn inject_termination_failure_once(&self) {
+        if let Ok(mut state) = self.lock_state() {
+            state.fail_termination_once = true;
+        }
+    }
+
     fn terminate_owned_before(&self, deadline: Instant) -> Result<(), PlatformError> {
-        let state = self.lock_state()?;
+        let mut state = self.lock_state()?;
+        if state.fail_termination_once {
+            state.fail_termination_once = false;
+            return Err(PlatformError::StateUnavailable);
+        }
         // SAFETY: the private Job Object contains only roots admitted by this
         // owner and their inherited descendants.
         if unsafe { TerminateJobObject(state.job.as_raw_handle(), 137) } == 0 {
@@ -866,6 +879,10 @@ impl PlatformAdapter for OwnerDomain {
             }
             // SAFETY: OpenProcess returned one fresh owned handle.
             let process = unsafe { OwnedHandle::from_raw_handle(raw_process) };
+            let state = self
+                .lock_state()
+                .map_err(|_| SpawnError::ObserverUnavailable)?;
+            confirm_job_membership(process.as_raw_handle(), state.job.as_raw_handle())?;
             if wait_result(process.as_raw_handle(), 0)
                 .map_err(|_| SpawnError::ObserverUnavailable)?
                 != WAIT_TIMEOUT
@@ -893,6 +910,16 @@ impl PlatformAdapter for OwnerDomain {
         self.terminate_owned_before(deadline)
             .map_err(|_| SpawnError::ContainmentFailed)
     }
+}
+
+fn confirm_job_membership(process: HANDLE, job: HANDLE) -> Result<(), SpawnError> {
+    let mut in_job = 0;
+    // SAFETY: both handles are live for the duration of the call and `in_job`
+    // is writable BOOL storage.
+    if unsafe { IsProcessInJob(process, job, &mut in_job) } == 0 || in_job == 0 {
+        return Err(SpawnError::ObserverUnavailable);
+    }
+    Ok(())
 }
 
 #[repr(C)]
@@ -1104,5 +1131,27 @@ struct BreakawayDirectory(PathBuf);
 impl Drop for BreakawayDirectory {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    #[test]
+    fn membership_validation_rejects_a_foreign_process() {
+        // SAFETY: a null security descriptor/name requests one private Job
+        // Object whose handle is owned by this test.
+        let raw_job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        assert!(!raw_job.is_null(), "test Job Object should be created");
+        // SAFETY: successful creation transfers one valid owned handle.
+        let job = unsafe { OwnedHandle::from_raw_handle(raw_job) };
+
+        // SAFETY: the current-process pseudo-handle is valid for this call,
+        // and this process was never assigned to the fresh test Job Object.
+        let result = confirm_job_membership(unsafe { GetCurrentProcess() }, job.as_raw_handle());
+
+        assert!(matches!(result, Err(SpawnError::ObserverUnavailable)));
     }
 }

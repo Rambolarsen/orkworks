@@ -778,8 +778,9 @@ impl SupervisorProtocol {
     /// # Errors
     ///
     /// Rejects a stale generation or rendezvous nonce, an invalid successor
-    /// nonce or challenge, a replayed challenge, or a response that cannot be
-    /// serialized for signing.
+    /// nonce or challenge, a conflicting binding for an already answered
+    /// challenge, or a response that cannot be serialized for signing. An
+    /// exact retry for the same successor returns the cached response.
     pub fn answer_adoption(
         &mut self,
         request: &AdoptionRequest,

@@ -304,18 +304,68 @@ fn sidecar_first_crash_leaves_pty_and_inference_descendants_owned() {
         .descendants
         .iter()
         .all(|descendant| descendant.exit_state == ExitState::Running));
+    let observed_descendants = unresolved
+        .descendants
+        .iter()
+        .map(|descendant| descendant.identity.clone())
+        .collect::<Vec<_>>();
 
     let cleanup = supervisor_and_domain.0.cleanup();
-    assert!(matches!(
-        cleanup,
-        process_ownership_fixture::protocol::CleanupResult::Acknowledged(_)
-    ));
+    let process_ownership_fixture::protocol::CleanupResult::Acknowledged(receipt) = cleanup else {
+        panic!("sidecar-first cleanup should acknowledge after Job termination");
+    };
+    assert!(observed_descendants
+        .iter()
+        .all(|identity| receipt.owned_processes.contains(identity)));
     assert!(supervisor_and_domain
         .1
         .active_process_ids()
         .expect("completed job census should remain observable")
         .is_empty());
     wait_for_complete(&mut supervisor_and_domain.0);
+}
+
+#[test]
+fn failed_job_termination_after_sidecar_exit_reports_retained_descendant_unresolved() {
+    let directory = TestDirectory::new("sidecar-first-job-termination-failure");
+    let marker = directory.marker("sidecar");
+    let mut supervisor_and_domain = prepared_supervisor();
+    let sidecar = spawn(
+        &mut supervisor_and_domain.0,
+        Role::Sidecar,
+        TargetBehavior::Forked,
+        &marker,
+    );
+    for suffix in ["pty", "inference", "nested-inference"] {
+        wait_for_marker(&descendant_marker(&marker, suffix));
+    }
+
+    supervisor_and_domain
+        .1
+        .terminate_registered(&sidecar)
+        .expect("sidecar root should be force-terminated");
+    wait_until("sidecar root exit", || {
+        !supervisor_and_domain
+            .1
+            .registered_identity_is_alive(&sidecar)
+            .expect("registered identity should be observable")
+    });
+
+    let unresolved = supervisor_and_domain.0.observe();
+    let descendant = unresolved
+        .descendants
+        .first()
+        .expect("a forked sidecar should have a retained descendant")
+        .identity
+        .clone();
+    supervisor_and_domain.1.inject_termination_failure_once();
+
+    let process_ownership_fixture::protocol::CleanupResult::Unresolved { survivors, .. } =
+        supervisor_and_domain.0.cleanup()
+    else {
+        panic!("failed Job termination must remain unresolved");
+    };
+    assert!(survivors.contains(&descendant));
 }
 
 #[test]
