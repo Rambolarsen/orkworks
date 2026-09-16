@@ -171,10 +171,10 @@ impl PreparedGeneration {
 
     /// Creates a fresh adoption challenge bound to this generation and its successor.
     ///
-    /// The persisted rendezvous state is deliberately not copied into the
-    /// request. The prior generation and rendezvous nonce, successor generation
-    /// and rendezvous nonce, and a fresh challenge are sent to the live
-    /// supervisor.
+    /// The request names the prior generation and rendezvous nonce, successor
+    /// generation and rendezvous nonce, and a fresh challenge. The persisted
+    /// rendezvous state is deliberately not copied into the request; it is
+    /// authenticated in the supervisor's response instead.
     ///
     /// # Errors
     ///
@@ -327,7 +327,8 @@ pub struct AuthenticatedRendezvousReply {
     pub challenge: String,
     /// Authoritative state retained by the live supervisor.
     pub state: RendezvousState,
-    /// HMAC-SHA-256 over generation, nonce, successor binding, challenge, and state.
+    /// HMAC-SHA-256 over generation, rendezvous nonce, successor generation,
+    /// successor nonce, challenge, and state.
     pub authentication_tag: String,
 }
 
@@ -776,8 +777,9 @@ impl SupervisorProtocol {
     ///
     /// # Errors
     ///
-    /// Rejects a stale generation or rendezvous nonce, an invalid challenge, a
-    /// replayed challenge, or a response that cannot be serialized for signing.
+    /// Rejects a stale generation or rendezvous nonce, an invalid successor
+    /// nonce or challenge, a replayed challenge, or a response that cannot be
+    /// serialized for signing.
     pub fn answer_adoption(
         &mut self,
         request: &AdoptionRequest,
