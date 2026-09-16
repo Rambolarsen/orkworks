@@ -172,8 +172,9 @@ impl PreparedGeneration {
     /// Creates a fresh adoption challenge bound to this generation and its successor.
     ///
     /// The persisted rendezvous state is deliberately not copied into the
-    /// request. Only the generation, rendezvous nonce, and a fresh challenge are
-    /// sent to the live supervisor.
+    /// request. The prior generation and rendezvous nonce, successor generation
+    /// and rendezvous nonce, and a fresh challenge are sent to the live
+    /// supervisor.
     ///
     /// # Errors
     ///
@@ -185,14 +186,15 @@ impl PreparedGeneration {
         successor_nonce: impl Into<String>,
     ) -> Result<AdoptionRequest, ProtocolError> {
         let successor_nonce = successor_nonce.into();
-        validate_capability("successor rendezvous nonce", &successor_nonce)?;
-        Ok(AdoptionRequest {
+        let request = AdoptionRequest {
             generation: self.record.generation,
             rendezvous_nonce: self.record.nonce.clone(),
             successor_generation,
             successor_nonce,
             challenge: random_hex()?,
-        })
+        };
+        request.validate()?;
+        Ok(request)
     }
 
     /// Verifies a challenge-bound response from the live supervisor.
@@ -211,6 +213,7 @@ impl PreparedGeneration {
         request: &AdoptionRequest,
         response: Option<&AuthenticatedRendezvousReply>,
     ) -> Result<CompleteExitReceipt, ProtocolError> {
+        request.validate()?;
         check_generation(self.record.generation, request.generation)?;
         if request.rendezvous_nonce != self.record.nonce {
             return Err(ProtocolError::StaleRendezvous);
@@ -257,7 +260,7 @@ impl PreparedGeneration {
 }
 
 /// Fresh client challenge used to query a prior live supervisor generation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdoptionRequest {
     /// Prior supervisor generation being queried.
@@ -270,6 +273,42 @@ pub struct AdoptionRequest {
     pub successor_nonce: String,
     /// Fresh client-generated 256-bit hexadecimal challenge.
     pub challenge: String,
+}
+
+impl AdoptionRequest {
+    fn validate(&self) -> Result<(), ProtocolError> {
+        validate_capability("successor rendezvous nonce", &self.successor_nonce)
+    }
+}
+
+impl<'de> Deserialize<'de> for AdoptionRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WireAdoptionRequest {
+            generation: GenerationId,
+            rendezvous_nonce: String,
+            successor_generation: GenerationId,
+            successor_nonce: String,
+            challenge: String,
+        }
+
+        let wire = WireAdoptionRequest::deserialize(deserializer)?;
+        let request = Self {
+            generation: wire.generation,
+            rendezvous_nonce: wire.rendezvous_nonce,
+            successor_generation: wire.successor_generation,
+            successor_nonce: wire.successor_nonce,
+            challenge: wire.challenge,
+        };
+        request
+            .validate()
+            .map_err(|error| serde::de::Error::custom(error.to_string()))?;
+        Ok(request)
+    }
 }
 
 /// Supervisor-authenticated response to one fresh adoption challenge.
@@ -288,7 +327,7 @@ pub struct AuthenticatedRendezvousReply {
     pub challenge: String,
     /// Authoritative state retained by the live supervisor.
     pub state: RendezvousState,
-    /// HMAC-SHA-256 over generation, nonce, challenge, and state.
+    /// HMAC-SHA-256 over generation, nonce, successor binding, challenge, and state.
     pub authentication_tag: String,
 }
 
@@ -338,11 +377,6 @@ pub enum AuthenticatedRequest {
         target_generation: GenerationId,
         /// Rendezvous nonce being queried.
         target_nonce: String,
-    },
-    /// Requests authoritative rendezvous state for a fresh adoption challenge.
-    Adopt {
-        /// Fresh client-generated 256-bit challenge.
-        challenge: String,
     },
 }
 
@@ -748,6 +782,7 @@ impl SupervisorProtocol {
         &mut self,
         request: &AdoptionRequest,
     ) -> Result<AuthenticatedRendezvousReply, ProtocolError> {
+        request.validate()?;
         self.check_generation(request.generation)?;
         if request.rendezvous_nonce != self.rendezvous_nonce {
             return Err(ProtocolError::StaleRendezvous);

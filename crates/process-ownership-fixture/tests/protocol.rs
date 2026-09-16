@@ -460,6 +460,82 @@ fn adoption_challenge_cannot_be_consumed_by_a_different_same_generation_successo
 }
 
 #[test]
+fn adoption_request_rejects_invalid_successor_nonce_at_constructor_boundary() {
+    let (_, prepared) = prepared_protocol();
+
+    for successor_nonce in [String::new(), "not-hex".to_owned(), "a".repeat(63)] {
+        assert!(matches!(
+            prepared.adoption_request(SUCCESSOR_GENERATION, successor_nonce),
+            Err(ProtocolError::InvalidValue {
+                field: "successor rendezvous nonce"
+            })
+        ));
+    }
+}
+
+#[test]
+fn deserialized_adoption_request_rejects_invalid_successor_nonce() {
+    let (_, prepared) = prepared_protocol();
+    let mut request = adoption_request(&prepared);
+    request.successor_nonce = "not-hex".to_owned();
+    let encoded = serde_json::to_string(&request).expect("adoption request should serialize");
+
+    assert!(serde_json::from_str::<protocol::AdoptionRequest>(&encoded).is_err());
+}
+
+#[test]
+fn adoption_answer_rejects_mutated_successor_nonce_before_signing() {
+    let (mut supervisor, prepared) = prepared_protocol();
+    let mut request = adoption_request(&prepared);
+    request.successor_nonce = "not-hex".to_owned();
+
+    assert!(matches!(
+        supervisor.answer_adoption(&request),
+        Err(ProtocolError::InvalidValue {
+            field: "successor rendezvous nonce"
+        })
+    ));
+}
+
+#[test]
+fn serialized_adoption_reply_authenticates_successor_generation_and_nonce() {
+    let (mut supervisor, prepared) = prepared_protocol();
+    let request = adoption_request(&prepared);
+    let response = supervisor
+        .answer_adoption(&request)
+        .expect("adoption response should be authenticated");
+    let line = encode_reply_line(&FixtureReply::Rendezvous {
+        response: response.clone(),
+    })
+    .expect("adoption response should serialize");
+    let FixtureReply::Rendezvous {
+        response: decoded_response,
+    } = decode_reply_line(&line).expect("adoption response should deserialize")
+    else {
+        panic!("expected rendezvous response");
+    };
+    assert_eq!(decoded_response, response);
+
+    let mut generation_request = request.clone();
+    generation_request.successor_generation += 1;
+    let mut generation_response = decoded_response.clone();
+    generation_response.successor_generation = generation_request.successor_generation;
+    assert!(matches!(
+        prepared.verify_adoption_response(&generation_request, Some(&generation_response)),
+        Err(ProtocolError::AuthenticationFailed)
+    ));
+
+    let mut nonce_request = request.clone();
+    nonce_request.successor_nonce = "b".repeat(64);
+    let mut nonce_response = decoded_response;
+    nonce_response.successor_nonce = nonce_request.successor_nonce.clone();
+    assert!(matches!(
+        prepared.verify_adoption_response(&nonce_request, Some(&nonce_response)),
+        Err(ProtocolError::AuthenticationFailed)
+    ));
+}
+
+#[test]
 fn adoption_rejects_incomplete_and_malformed_receipts() {
     let (mut supervisor, _) = prepared_protocol();
     let mut receipt = valid_receipt();
