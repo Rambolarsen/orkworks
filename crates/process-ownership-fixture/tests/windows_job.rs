@@ -343,6 +343,80 @@ fn job_process_thread_and_supervisor_endpoint_handles_are_non_inheritable() {
 }
 
 #[test]
+fn invalid_or_replayed_ticket_cannot_release_target_or_change_admission_observation() {
+    let directory = TestDirectory::new("ticket-replay");
+    let invalid_marker = directory.marker("invalid-target");
+    let admitted_marker = directory.marker("admitted-target");
+    let replay_marker = directory.marker("replayed-target");
+    let (mut supervisor, domain) = prepared_supervisor();
+    let ticket = supervisor
+        .issue_launch_ticket(Role::Inference, "windows-ticket-replay")
+        .expect("ticket should be issued");
+
+    let mut invalid_ticket = ticket.clone();
+    invalid_ticket.ticket_id.push_str("-forged");
+    assert_eq!(
+        supervisor.spawn(
+            invalid_ticket,
+            launch_spec(Role::Inference, TargetBehavior::Inference, &invalid_marker),
+        ),
+        Err(SpawnError::InvalidTicket)
+    );
+    assert!(
+        !invalid_marker.exists(),
+        "an invalid ticket must not release a target"
+    );
+    assert!(
+        domain
+            .active_process_ids()
+            .expect("invalid-ticket census should be observable")
+            .is_empty(),
+        "an invalid ticket must not create an owned target"
+    );
+
+    let identity = supervisor
+        .spawn(
+            ticket.clone(),
+            launch_spec(Role::Inference, TargetBehavior::Inference, &admitted_marker),
+        )
+        .expect("the original ticket should admit one target");
+    wait_for_marker(&admitted_marker);
+    assert!(domain
+        .admission_observation(&identity)
+        .expect("admission observation should be available"));
+    let members_before_replay = domain
+        .active_process_ids()
+        .expect("pre-replay census should be observable");
+
+    assert_eq!(
+        supervisor.spawn(
+            ticket,
+            launch_spec(Role::Inference, TargetBehavior::Inference, &replay_marker),
+        ),
+        Err(SpawnError::InvalidTicket)
+    );
+    thread::sleep(Duration::from_millis(250));
+    assert!(
+        !replay_marker.exists(),
+        "a replayed ticket must not release a target"
+    );
+    assert_eq!(
+        domain
+            .active_process_ids()
+            .expect("post-replay census should be observable"),
+        members_before_replay,
+        "a replayed ticket must not change the owned process census"
+    );
+    assert!(domain
+        .admission_observation(&identity)
+        .expect("admission observation should remain available"));
+
+    domain
+        .terminate_owned()
+        .expect("ticket replay coverage should clean up the admitted target");
+}
+
+#[test]
 fn registration_failure_never_releases_the_suspended_root() {
     let directory = TestDirectory::new("registration-failure");
     let marker = directory.marker("must-not-run");

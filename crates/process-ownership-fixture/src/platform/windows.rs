@@ -240,6 +240,7 @@ fn run_owner_supervisor(
     let ticket = supervisor
         .issue_launch_ticket(Role::Inference, "windows-forced-parent-target")
         .map_err(platform_spawn_error)?;
+    let replay_ticket = ticket.clone();
     let spec = LaunchSpec::fixture(
         Role::Inference,
         TargetBehavior::Inference,
@@ -250,12 +251,27 @@ fn run_owner_supervisor(
     let target = supervisor
         .spawn(ticket, spec)
         .map_err(platform_spawn_error)?;
-    // `Supervisor::spawn` returns only after accepting the one-use ticket,
-    // registering the root, and releasing it for execution.
+    let replay_marker = related_marker(target_marker, "replayed-ticket");
+    let replay_spec = LaunchSpec::fixture(
+        Role::Inference,
+        TargetBehavior::Inference,
+        replay_marker.clone(),
+        Duration::from_secs(30),
+    )
+    .map_err(platform_spawn_error)?;
+    if supervisor.spawn(replay_ticket, replay_spec) != Err(SpawnError::InvalidTicket)
+        || replay_marker.exists()
+    {
+        return Err(PlatformError::StateUnavailable);
+    }
+    let target_admitted_through_supervisor_ticket = domain.admission_observation(&target)?;
+    if !target_admitted_through_supervisor_ticket {
+        return Err(PlatformError::StateUnavailable);
+    }
     let ready_evidence = ForcedParentReady {
         supervisor_pid: std::process::id(),
         owned_target_pid: target.diagnostic_pid,
-        target_admitted_through_supervisor_ticket: true,
+        target_admitted_through_supervisor_ticket,
         endpoint_non_inheritable_before_release: domain
             .endpoint_non_inheritable_before_release()?,
         handles_non_inheritable: parent_channel_non_inheritable
@@ -513,6 +529,30 @@ impl OwnerDomain {
             return Ok(false);
         }
         Ok(capture_identity(process.as_raw_handle(), identity.diagnostic_pid)? == *identity)
+    }
+
+    /// Observes a live root in both the registered process set and the Job Object.
+    ///
+    /// The observation is fixture-side evidence that a supervisor-admitted root
+    /// reached the release path; it does not trust target diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlatformError`] if the identity, process census, or shared
+    /// owner state cannot be inspected.
+    pub fn admission_observation(&self, identity: &NativeIdentity) -> Result<bool, PlatformError> {
+        let state = self.lock_state()?;
+        let process = state
+            .registered_processes
+            .get(identity)
+            .ok_or(PlatformError::StateUnavailable)?;
+        if wait_result(process.as_raw_handle(), 0)? == WAIT_OBJECT_0 {
+            return Ok(false);
+        }
+        if capture_identity(process.as_raw_handle(), identity.diagnostic_pid)? != *identity {
+            return Ok(false);
+        }
+        Ok(query_process_ids(state.job.as_raw_handle())?.contains(&identity.diagnostic_pid))
     }
 
     /// Confirms retained job, process, thread, and endpoint handles are non-inheritable.
