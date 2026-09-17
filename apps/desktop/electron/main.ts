@@ -832,24 +832,34 @@ app.whenReady().then(() => {
       try {
         lifecycleReadiness = sidecarLifecycle!.start(nextPath);
         void lifecycleReadiness.catch(() => {});
-        const port = await lifecycleReadiness;
-        const restoredPort = await restoration.getReadiness();
-        if (!workspaceSwitchCoordinator?.isCurrentGeneration(generation)) {
-          throw new WorkspaceSwitchError("restoration_failed", "Workspace opening was superseded.");
-        }
-        const workspace = restoration.getRestoredWorkspace();
-        if (!workspace) {
-          throw new WorkspaceSwitchError("restoration_failed", "The destination workspace was not restored.");
-        }
-        return { port: restoredPort || port, workspace };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "The sidecar did not become ready.";
+        throw new WorkspaceSwitchError("readiness_failed", message);
+      }
+      const port = await lifecycleReadiness.catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "The sidecar did not become ready.";
+        throw new WorkspaceSwitchError("readiness_failed", message);
+      });
+
+      let restoredPort: number;
+      try {
+        restoredPort = await restoration.getReadiness();
       } catch (error: unknown) {
         if (error instanceof WorkspaceSwitchError) throw error;
         if (error instanceof WorkspaceRestorationFailure) {
           throw new WorkspaceSwitchError("restoration_failed", error.message);
         }
-        const message = error instanceof Error ? error.message : "The sidecar did not become ready.";
-        throw new WorkspaceSwitchError("readiness_failed", message);
+        const message = error instanceof Error ? error.message : "The destination workspace could not be restored.";
+        throw new WorkspaceSwitchError("restoration_failed", message);
       }
+      if (!workspaceSwitchCoordinator?.isCurrentGeneration(generation)) {
+        throw new WorkspaceSwitchError("restoration_failed", "Workspace opening was superseded.");
+      }
+      const workspace = restoration.getRestoredWorkspace();
+      if (!workspace) {
+        throw new WorkspaceSwitchError("restoration_failed", "The destination workspace was not restored.");
+      }
+      return { port: restoredPort || port, workspace };
     },
     cleanupAttemptedRuntime: async () => {
       restoration.cancel(new Error("Attempted workspace runtime is being cleaned up"));
@@ -899,12 +909,12 @@ app.whenReady().then(() => {
     if (typeof id !== "string" || !id) throw new Error("Invalid session ID.");
     const normalizedAttention = normalizeDebugAttention(attention);
     if (message !== undefined && typeof message !== "string") throw new Error("Invalid debug attention message.");
-    await withReadyBackendGeneration(async (port, token) => {
+    await withReadyBackendGeneration(async (port, token, signal) => {
       const response = await fetch(`http://127.0.0.1:${port}/sessions/${encodeURIComponent(id)}/debug-injection`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
         body: JSON.stringify({ attention: normalizedAttention, message }),
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
       });
       if (!response.ok) throw new Error(`apply debug attention failed: ${response.status}`);
     });

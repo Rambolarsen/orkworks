@@ -29,6 +29,18 @@ test("Electron main restores workspace and settings before publishing ready", ()
   assert.match(mainSource, /state: "ready",\s*port: event\.port/);
 });
 
+test("workspace startup keeps sidecar readiness and restoration failures distinct", () => {
+  const startRuntime = mainSource.indexOf("startRuntime: async (nextPath, generation) => {");
+  const cleanup = mainSource.indexOf("\n    cleanupAttemptedRuntime:", startRuntime);
+  assert.ok(startRuntime >= 0 && cleanup > startRuntime, "workspace startup hook not found");
+  const startup = mainSource.slice(startRuntime, cleanup);
+  const sidecarAwait = startup.indexOf("await lifecycleReadiness.catch");
+  const restorationAwait = startup.indexOf("await restoration.getReadiness");
+  assert.ok(sidecarAwait >= 0 && restorationAwait > sidecarAwait, "restoration must follow sidecar readiness");
+  assert.match(startup.slice(0, restorationAwait), /WorkspaceSwitchError\("readiness_failed"/);
+  assert.match(startup.slice(restorationAwait), /WorkspaceSwitchError\("restoration_failed"/);
+});
+
 test("secondary restoration failures are logged without failing backend readiness", () => {
   assert.match(mainSource, /onStepFailure: \(step, error\) => \{\s*logBackendLifecycleFailure\(`restoration:\$\{step\}`, error\);/);
 });
@@ -300,6 +312,15 @@ test("generation-bound IPC owns Taskmaster mutations and debug attention injecti
     helper.indexOf("assertCurrentReadyBackendGeneration(generation)", operationIndex) > operationIndex,
     "stale generation must be checked after the mutation settles",
   );
+});
+
+test("debug attention aborts its fetch when the backend generation changes", () => {
+  const handlerStart = mainSource.indexOf('ipcMain.handle("apply-debug-attention"');
+  const handlerEnd = mainSource.indexOf("\n  });", handlerStart);
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, "debug attention handler not found");
+  const handler = mainSource.slice(handlerStart, handlerEnd);
+  assert.match(handler, /withReadyBackendGeneration\(async \(port, token, signal\)/);
+  assert.match(handler, /signal: AbortSignal\.any\(\[signal, AbortSignal\.timeout\(15_000\)\]\)/);
 });
 
 test("Taskmaster mutations abort their fetch when the backend generation changes", () => {
