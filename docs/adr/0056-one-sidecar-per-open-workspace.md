@@ -1,8 +1,14 @@
 # One sidecar per open workspace
 
-- Status: proposed
+- Status: superseded by [ADR 0060](./0060-independent-workspace-instances.md)
 - Deciders: owner; written-spec review pending
 - Date: 2026-09-13
+
+> Historical record: this proposal is not implementation authority. ADR 0060
+> replaced its single-Electron registry, background-workspace, aggregate-attention,
+> and cross-workspace shutdown direction with independent one-workspace instances.
+> The evidence amendment below is retained because it records why issue #545
+> remains a prerequisite.
 
 ## Context
 
