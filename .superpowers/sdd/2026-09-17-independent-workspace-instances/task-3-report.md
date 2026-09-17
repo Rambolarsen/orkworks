@@ -1,6 +1,6 @@
 # Task 3 report: deterministic one-instance workspace switching
 
-Status: Task 3 implementation complete; review fix complete with bounded focused verification passed.
+Status: Task 3 implementation complete; final independent review approved.
 
 Worktree: `/Users/froomiebot/workspace/orkworks/.worktrees/545-production-seam-audit`
 
@@ -117,6 +117,44 @@ PASS
 ```
 
 No full suite or network-dependent command was run.
+
+## Final independent review (2026-09-18)
+
+The final scoped review approved `e9ae15dd..f8ae7eb1` with no actionable
+findings. It verified generation-bound cancellation for debug-attention and
+Taskmaster mutations, distinct sidecar-readiness versus workspace-restoration
+failure outcomes, deterministic close-before-open sequencing, sticky cleanup
+failures, renderer admission gates, and the main/preload boundary.
+
+Final local verification from `apps/desktop/`:
+
+```text
+node --experimental-strip-types --test \
+  tests/sidecarLifecycle.test.ts \
+  tests/workspaceSwitchCoordinator.test.ts \
+  tests/backendRestoration.test.ts \
+  tests/electronSidecarWiring.test.ts \
+  tests/backendLifecycleWiring.test.ts \
+  tests/backendLifecycleEvent.test.ts \
+  tests/workspaceSessionController.test.ts \
+  tests/taskmaster.test.ts \
+  tests/planOpener.test.ts \
+  tests/api.test.ts \
+  tests/terminology.test.ts
+PASS — 170 tests, 0 failures
+
+npx tsc --noEmit -p tsconfig.node.json
+PASS
+
+npx tsc --noEmit -p tsconfig.json
+PASS
+
+git diff --check
+PASS
+```
+
+Task 3 is complete at `f8ae7eb1`. Task 5 still owns native crash-surviving
+process ownership evidence; no crash-relaunch proof is claimed here.
 
 ## Final Task 3 verification (2026-09-17)
 
