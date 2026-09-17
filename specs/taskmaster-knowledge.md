@@ -121,7 +121,7 @@ background discovery; managed CLI policy effects follow the exception above.
 ## Settings
 
 Recommendations has global defaults and workspace overrides. The daily usage
-limit is application-wide; a workspace cannot enlarge it.
+limit is installation-wide; a workspace cannot enlarge it.
 
 | Setting | Default |
 | --- | --- |
