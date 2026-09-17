@@ -200,7 +200,7 @@ The Task 6 Rust baseline remains a pre-existing failure:
 The sandbox variant also had 9 PermissionDenied setup failures; those are
 environment limitations, not evidence of this task. Focused harness/detect
 tests passed 21/21, the Electron lifecycle/restoration tests passed 24/24, and
-the focused desktop Task 3 suite passed 149/149 tests (149 focused tests passed).
+the desktop focused tests remain 24/24.
 
 ## Decision and issue status
 
