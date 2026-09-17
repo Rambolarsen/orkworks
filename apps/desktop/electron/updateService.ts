@@ -1,0 +1,307 @@
+export interface UpdateCandidateIdentity {
+  channel: "latest" | "nightly";
+  version: string;
+  tag: string;
+  metadataUrl: string;
+  metadataDigest: string;
+  payloadDigest: string;
+}
+
+export interface UpdateCandidate {
+  identity: UpdateCandidateIdentity;
+  releaseNotes: string | null;
+  publishedAt: string | null;
+}
+
+export type UpdateEngineEvent =
+  | { type: "update-available"; candidate: UpdateCandidate }
+  | { type: "update-not-available" }
+  | { type: "download-progress"; percent: number; transferred: number; total: number }
+  | { type: "update-downloaded"; candidate: UpdateCandidate }
+  | { type: "error"; operation: "check" | "download"; message: string };
+
+export interface UpdateEngine {
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  allowDowngrade: boolean;
+  allowPrerelease: boolean;
+  channel: "latest" | "nightly";
+  onEvent(listener: (event: UpdateEngineEvent) => void): () => void;
+  checkForUpdates(): Promise<void>;
+  downloadUpdate(): Promise<void>;
+  quitAndInstall(): void;
+}
+
+export interface UpdateServiceDependencies {
+  isPackaged: boolean;
+  currentVersion: string;
+  createEngine: () => UpdateEngine;
+  now: () => string;
+  querySessions: () => Promise<ReadonlyArray<{ lifecycle?: string }>>;
+  verifyCandidate: (candidate: UpdateCandidate) => Promise<boolean>;
+  confirmInstall: (input: {
+    candidate: UpdateCandidate;
+    liveSessionCount: number | null;
+  }) => Promise<boolean>;
+  stopSidecar: (timeoutMs: number) => Promise<void>;
+  restartSidecar: () => Promise<void>;
+}
+
+type UpdateChannel = UpdateCandidateIdentity["channel"];
+type UpdateProgress = { percent: number; transferred: number; total: number };
+
+export type UpdateStatus =
+  | { state: "unavailable"; reason: "development" | "unsupported-version"; sequence: number }
+  | { state: "never-checked"; channel: UpdateChannel; currentVersion: string; sequence: number }
+  | { state: "checking"; channel: UpdateChannel; currentVersion: string; sequence: number }
+  | { state: "up-to-date"; channel: UpdateChannel; currentVersion: string; checkedAt: string; sequence: number }
+  | { state: "available"; candidate: UpdateCandidate; sequence: number }
+  | { state: "downloading"; candidate: UpdateCandidate; progress: UpdateProgress; sequence: number }
+  | { state: "downloaded"; candidate: UpdateCandidate; sequence: number }
+  | { state: "installing"; candidate: UpdateCandidate; sequence: number }
+  | {
+      state: "error";
+      operation: "check" | "download" | "install";
+      message: string;
+      retryable: true;
+      candidate?: UpdateCandidate;
+      sequence: number;
+    };
+
+type UpdateStatusWithoutSequence = UpdateStatus extends infer Status
+  ? Status extends { sequence: number }
+    ? Omit<Status, "sequence">
+    : never
+  : never;
+
+export interface UpdateService {
+  getStatus(): UpdateStatus;
+  check(): Promise<UpdateStatus>;
+  download(): Promise<UpdateStatus>;
+  requestInstall(): Promise<UpdateStatus>;
+  subscribe(listener: (status: UpdateStatus) => void): () => void;
+}
+
+const stableVersion = /^\d+\.\d+\.\d+(?:\+[0-9A-Za-z.-]+)?$/;
+const nightlyVersion = /^\d+\.\d+\.\d+-nightly(?:\.\d+)+(?:\+[0-9A-Za-z.-]+)?$/;
+
+function channelForVersion(version: string): UpdateChannel | null {
+  if (stableVersion.test(version)) return "latest";
+  if (nightlyVersion.test(version)) return "nightly";
+  return null;
+}
+
+function unavailableStatus(reason: "development" | "unsupported-version"): UpdateService {
+  const status: UpdateStatus = { state: "unavailable", reason, sequence: 0 };
+  return {
+    getStatus: () => status,
+    check: () => Promise.resolve(status),
+    download: () => Promise.resolve(status),
+    requestInstall: () => Promise.resolve(status),
+    subscribe(listener) {
+      listener(status);
+      return () => undefined;
+    },
+  };
+}
+
+function sameCandidate(left: UpdateCandidate, right: UpdateCandidate): boolean {
+  return Object.keys(left.identity).every((key) =>
+    left.identity[key as keyof UpdateCandidateIdentity] === right.identity[key as keyof UpdateCandidateIdentity]
+  );
+}
+
+export function createUpdateService(dependencies: UpdateServiceDependencies): UpdateService {
+  if (!dependencies.isPackaged) return unavailableStatus("development");
+
+  const channel = channelForVersion(dependencies.currentVersion);
+  if (channel === null) return unavailableStatus("unsupported-version");
+  const selectedChannel: UpdateChannel = channel;
+
+  const engine = dependencies.createEngine();
+  engine.autoDownload = false;
+  engine.autoInstallOnAppQuit = false;
+  engine.allowDowngrade = false;
+  engine.allowPrerelease = selectedChannel === "nightly";
+  engine.channel = selectedChannel;
+
+  if (
+    engine.autoDownload !== false ||
+    engine.autoInstallOnAppQuit !== false ||
+    engine.allowDowngrade !== false ||
+    engine.allowPrerelease !== (selectedChannel === "nightly") ||
+    engine.channel !== selectedChannel
+  ) {
+    throw new Error("Updater engine rejected the required safety configuration");
+  }
+
+  let status: UpdateStatus = {
+    state: "never-checked",
+    channel: selectedChannel,
+    currentVersion: dependencies.currentVersion,
+    sequence: 0,
+  };
+  let candidate: UpdateCandidate | null = null;
+  let operationSequence = 0;
+  let activeOperation: { kind: "check" | "download"; sequence: number } | null = null;
+  let checkPromise: Promise<UpdateStatus> | null = null;
+  let downloadPromise: Promise<UpdateStatus> | null = null;
+  let installPromise: Promise<UpdateStatus> | null = null;
+  const listeners = new Set<(nextStatus: UpdateStatus) => void>();
+
+  function publish(nextStatus: UpdateStatusWithoutSequence): UpdateStatus {
+    status = { ...nextStatus, sequence: status.sequence + 1 } as UpdateStatus;
+    for (const listener of listeners) listener(status);
+    return status;
+  }
+
+  function eventMatches(operation: "check" | "download"): boolean {
+    return activeOperation?.kind === operation;
+  }
+
+  engine.onEvent((event) => {
+    switch (event.type) {
+      case "update-available":
+        if (event.candidate.identity.channel !== selectedChannel) return;
+        candidate = event.candidate;
+        activeOperation = null;
+        publish({ state: "available", candidate });
+        return;
+      case "update-not-available":
+        if (!eventMatches("check") && status.state !== "checking") return;
+        candidate = null;
+        activeOperation = null;
+        publish({
+          state: "up-to-date",
+          channel: selectedChannel,
+          currentVersion: dependencies.currentVersion,
+          checkedAt: dependencies.now(),
+        });
+        return;
+      case "download-progress":
+        if (candidate === null || (status.state !== "available" && status.state !== "downloading")) return;
+        publish({
+          state: "downloading",
+          candidate,
+          progress: { percent: event.percent, transferred: event.transferred, total: event.total },
+        });
+        return;
+      case "update-downloaded":
+        if (event.candidate.identity.channel !== selectedChannel) return;
+        if (candidate !== null && !sameCandidate(candidate, event.candidate)) return;
+        candidate = event.candidate;
+        activeOperation = null;
+        publish({ state: "downloaded", candidate });
+        return;
+      case "error":
+        if (!eventMatches(event.operation)) return;
+        activeOperation = null;
+        publish({
+          state: "error",
+          operation: event.operation,
+          message: event.message,
+          retryable: true,
+          ...(candidate === null ? {} : { candidate }),
+        });
+    }
+  });
+
+  function check(): Promise<UpdateStatus> {
+    if (checkPromise !== null) return checkPromise;
+
+    const sequence = ++operationSequence;
+    activeOperation = { kind: "check", sequence };
+    publish({ state: "checking", channel: selectedChannel, currentVersion: dependencies.currentVersion });
+    checkPromise = (async () => {
+      try {
+        await engine.checkForUpdates();
+        if (activeOperation?.kind === "check" && activeOperation.sequence === sequence) {
+          activeOperation = null;
+          candidate = null;
+          publish({
+            state: "up-to-date",
+            channel: selectedChannel,
+            currentVersion: dependencies.currentVersion,
+            checkedAt: dependencies.now(),
+          });
+        }
+      } catch (error) {
+        if (activeOperation?.kind === "check" && activeOperation.sequence === sequence) {
+          activeOperation = null;
+          publish({
+            state: "error",
+            operation: "check",
+            message: error instanceof Error ? error.message : String(error),
+            retryable: true,
+          });
+        }
+      } finally {
+        checkPromise = null;
+      }
+      return status;
+    })();
+    return checkPromise;
+  }
+
+  function download(): Promise<UpdateStatus> {
+    if (downloadPromise !== null) return downloadPromise;
+    if (candidate === null) return Promise.resolve(status);
+
+    const sequence = ++operationSequence;
+    activeOperation = { kind: "download", sequence };
+    publish({
+      state: "downloading",
+      candidate,
+      progress: { percent: 0, transferred: 0, total: 0 },
+    });
+    downloadPromise = (async () => {
+      try {
+        await engine.downloadUpdate();
+      } catch (error) {
+        if (activeOperation?.kind === "download" && activeOperation.sequence === sequence) {
+          activeOperation = null;
+          publish({
+            state: "error",
+            operation: "download",
+            message: error instanceof Error ? error.message : String(error),
+            retryable: true,
+            candidate,
+          });
+        }
+      } finally {
+        downloadPromise = null;
+      }
+      return status;
+    })();
+    return downloadPromise;
+  }
+
+  function requestInstall(): Promise<UpdateStatus> {
+    if (installPromise !== null) return installPromise;
+    const operation = Promise.resolve().then(() => status);
+    installPromise = operation;
+    void operation.then(
+      () => { if (installPromise === operation) installPromise = null; },
+      () => { if (installPromise === operation) installPromise = null; },
+    );
+    return operation;
+  }
+
+  return {
+    getStatus: () => status,
+    check,
+    download,
+    requestInstall,
+    subscribe(listener) {
+      let lastSequence = -1;
+      const deliver = (nextStatus: UpdateStatus) => {
+        if (nextStatus.sequence <= lastSequence) return;
+        lastSequence = nextStatus.sequence;
+        listener(nextStatus);
+      };
+      listeners.add(deliver);
+      deliver(status);
+      return () => listeners.delete(deliver);
+    },
+  };
+}
