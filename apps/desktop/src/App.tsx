@@ -735,6 +735,7 @@ function App() {
           onRefreshHarnesses={refreshHarnesses}
           activeHarnessIds={activeHarnessIds}
           providerRuntime={providerRuntime}
+          onSectionChange={setSettingsSection}
           onClose={() => setSettingsOpen(false)}
           onSaved={(nextSettings) => setSettings(nextSettings)}
           onSaveActiveHarnesses={handleSaveActiveHarnesses}

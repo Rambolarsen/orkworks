@@ -1,10 +1,168 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+import * as React from "react";
 
 const settings = await readFile(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../src/App.css", import.meta.url), "utf8");
+const require = createRequire(import.meta.url);
+const compiledSettings = await build({
+  entryPoints: [fileURLToPath(new URL("../src/components/SettingsModal.tsx", import.meta.url))],
+  bundle: true,
+  write: false,
+  platform: "node",
+  format: "cjs",
+  packages: "external",
+});
+
+const initialSettings = {
+  version: 1,
+  hotkeys: {
+    newSession: "CmdOrCtrl+N",
+    toggleSessionsPanel: "CmdOrCtrl+Shift+S",
+    toggleDetailPanel: "CmdOrCtrl+Shift+D",
+    toggleTerminalPanel: "CmdOrCtrl+Shift+T",
+    toggleCapacityPanel: "CmdOrCtrl+Shift+C",
+    toggleRecommendationsPanel: "CmdOrCtrl+Shift+R",
+    resetLayout: null,
+  },
+  defaultHotkeys: {
+    newSession: "CmdOrCtrl+N",
+    toggleSessionsPanel: "CmdOrCtrl+Shift+S",
+    toggleDetailPanel: "CmdOrCtrl+Shift+D",
+    toggleTerminalPanel: "CmdOrCtrl+Shift+T",
+    toggleCapacityPanel: "CmdOrCtrl+Shift+C",
+    toggleRecommendationsPanel: "CmdOrCtrl+Shift+R",
+    resetLayout: null,
+  },
+  retention: { maxSessions: 20, maxAgeDays: 30 },
+  debug: { showSessionIds: false, rendererHealthLogMs: 0 },
+  providers: {
+    version: 1,
+    revision: 0,
+    peonModel: null,
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    providers: [],
+  },
+};
+
+function settingsFixture() {
+  const values: unknown[] = [];
+  const refs: Array<{ current: unknown }> = [];
+  const dependencies: Array<readonly unknown[] | undefined> = [];
+  const effects = new Map<number, () => void>();
+  let stateIndex = 0;
+  let refIndex = 0;
+  let effectIndex = 0;
+
+  const hooks = {
+    ...React,
+    useState(initial: unknown) {
+      const index = stateIndex++;
+      if (!(index in values)) values[index] = typeof initial === "function" ? initial() : initial;
+      return [values[index], (next: unknown) => {
+        values[index] = typeof next === "function"
+          ? (next as (current: unknown) => unknown)(values[index])
+          : next;
+      }];
+    },
+    useRef(initial: unknown) {
+      const index = refIndex++;
+      if (!(index in refs)) refs[index] = { current: initial };
+      return refs[index];
+    },
+    useCallback(callback: unknown) {
+      return callback;
+    },
+    useLayoutEffect() {},
+    useEffect(callback: () => void, deps?: readonly unknown[]) {
+      const index = effectIndex++;
+      const previous = dependencies[index];
+      if (!deps || !previous || deps.length !== previous.length || deps.some((value, dependencyIndex) => !Object.is(value, previous[dependencyIndex]))) {
+        effects.set(index, callback);
+      }
+      dependencies[index] = deps;
+    },
+  };
+  const module = { exports: {} as { default: (props: Record<string, unknown>) => unknown } };
+  new Function("require", "module", "exports", compiledSettings.outputFiles[0].text)(
+    (id: string) => id === "react" ? hooks : require(id),
+    module,
+    module.exports,
+  );
+
+  let parentSection = "tools";
+  const props: Record<string, unknown> = {
+    initialSection: parentSection,
+    initialSettings,
+    updateStatus: { state: "never-checked" },
+    updateCurrentVersion: "1.0.0",
+    updateChannel: "latest",
+    onCheckForUpdates() {},
+    onDownloadUpdate() {},
+    onRequestUpdateInstall() {},
+    harnesses: [],
+    documentRevision: null,
+    onRefreshHarnesses: async () => ({ documentRevision: "", harnesses: [] }),
+    activeHarnessIds: [],
+    providerRuntime: null,
+    onClose() {},
+    onSaved() {},
+    onSaveActiveHarnesses: async () => ({ ok: true, activeHarnessIds: [] }),
+    onSectionChange(section: string) {
+      parentSection = section;
+      props.initialSection = section;
+    },
+  };
+  const render = () => {
+    stateIndex = 0;
+    refIndex = 0;
+    effectIndex = 0;
+    return module.exports.default(props);
+  };
+  const syncInitialSection = () => {
+    const effect = effects.get(0);
+    effects.clear();
+    effect?.();
+  };
+  const openUpdatesFromMenu = () => {
+    parentSection = "updates";
+    props.initialSection = parentSection;
+    let tree = render();
+    syncInitialSection();
+    tree = render();
+    return tree;
+  };
+  return {
+    render,
+    syncInitialSection,
+    openUpdatesFromMenu,
+    parentSection: () => parentSection,
+  };
+}
+
+function nodes(tree: unknown): Array<{ type?: unknown; props?: Record<string, unknown> }> {
+  if (Array.isArray(tree)) return tree.flatMap(nodes);
+  if (!tree || typeof tree !== "object") return [];
+  const node = tree as { type?: unknown; props?: Record<string, unknown> };
+  return [node, ...nodes(node.props?.children)];
+}
+
+function text(tree: unknown): string {
+  if (Array.isArray(tree)) return tree.map(text).join("");
+  if (tree && typeof tree === "object") return text((tree as { props?: { children?: unknown } }).props?.children);
+  return tree == null || typeof tree === "boolean" ? "" : String(tree);
+}
+
+function navButton(tree: unknown, label: string) {
+  const button = nodes(tree).find((node) => node.type === "button" && text(node) === label);
+  assert.ok(button, `missing ${label} navigation button`);
+  return button;
+}
 
 test("Settings Updates renders every UpdateStatus state explicitly", () => {
   for (const state of ["unavailable", "never-checked", "checking", "up-to-date", "available", "downloading", "downloaded", "installing", "error"]) {
@@ -40,10 +198,25 @@ test("App owns the update subscription and shared update actions", () => {
   assert.match(app, /window\.orkworks\.requestUpdateInstall\(\)/);
 });
 
-test("an already-open Settings modal follows the menu command to Updates", () => {
+test("an already-open Settings modal follows repeated menu navigation after a local tab change", () => {
+  const view = settingsFixture();
+  view.render();
+  view.syncInitialSection();
+
+  let tree = view.openUpdatesFromMenu();
+  assert.match(String(navButton(tree, "Updates").props?.className), /settings-nav-button--active/);
+
+  (navButton(tree, "Hotkeys").props?.onClick as () => void)();
+  tree = view.render();
+  assert.equal(view.parentSection(), "hotkeys");
+  assert.match(String(navButton(tree, "Hotkeys").props?.className), /settings-nav-button--active/);
+
+  tree = view.openUpdatesFromMenu();
+  assert.match(String(navButton(tree, "Updates").props?.className), /settings-nav-button--active/);
+
   assert.match(app, /action === "check-for-updates"[\s\S]*openSettings\("updates"\)[\s\S]*checkForUpdates/);
   assert.match(app, /initialSection=\{settingsSection\}/);
-  assert.match(settings, /useEffect\(\(\) => \{\s*setActiveSection\(initialSection\);\s*\}, \[initialSection\]\);/);
+  assert.match(app, /onSectionChange=\{setSettingsSection\}/);
 });
 
 test("update errors and restart warnings use distinct application colors", () => {

@@ -55,6 +55,7 @@ interface SettingsModalProps {
   onRefreshHarnesses: () => Promise<HarnessListResponse>;
   activeHarnessIds: string[];
   providerRuntime: ProviderRuntimeResponse | null;
+  onSectionChange: (section: SettingsSection) => void;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
   onSaveActiveHarnesses: (ids: string[], scope?: IntegrationKey) => Promise<ActiveHarnessSaveResult>;
@@ -96,7 +97,7 @@ function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
   return stripDerivedHarnessFields(harness);
 }
 
-export default function SettingsModal({ initialSection = "tools", initialSettings, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, onRequestUpdateInstall, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSection = "tools", initialSettings, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, onRequestUpdateInstall, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -836,6 +837,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                   // silently assigning the next keystroke typed anywhere else.
                   setCapturing(null);
                   setActiveSection(item.key);
+                  onSectionChange(item.key);
                 }}
               >
                 {item.label}
