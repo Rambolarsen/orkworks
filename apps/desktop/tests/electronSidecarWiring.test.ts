@@ -5,6 +5,7 @@ import test from "node:test";
 const mainSource = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
 const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta.url), "utf8");
 const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
 test("Electron main centralizes initial and workspace sidecar startup", () => {
   assert.match(mainSource, /import \{ createSidecarLifecycle/);
@@ -51,8 +52,8 @@ test("Electron main logs raw lifecycle failures but publishes only stable copy",
 
 test("a stale remembered workspace path degrades to no-workspace, not a backend failure", () => {
   assert.match(mainSource, /import \{ parseWorkspaceRestoreResponse \} from "\.\/workspaceRestore";/);
-  assert.match(mainSource, /const workspace = await parseWorkspaceRestoreResponse\(response\);/);
-  assert.match(mainSource, /if \(workspace === null\) \{\s*console\.warn\(\s*`\[main\] remembered workspace path was rejected by the sidecar: \$\{workspacePath\}`\);\s*forgetWorkspacePath\(app\.getPath\("userData"\), workspacePath\);/);
+  assert.match(mainSource, /const restoreResult = await parseWorkspaceRestoreResponse\(response\);/);
+  assert.match(mainSource, /if \(!restoreResult\.ok\) \{[\s\S]*if \(restoreResult\.removeFromHistory\)/);
   assert.doesNotMatch(mainSource, /throw new Error\(`Workspace restoration failed: \$\{response\.status\}`\)/);
 });
 
@@ -68,16 +69,34 @@ test("initial workspace restoration handles rejected readiness", () => {
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const handler = mainSource.slice(start, end);
-  assert.match(handler, /try \{[\s\S]*await restoration\.getReadiness\(\);[\s\S]*\} catch \{[\s\S]*return null;/);
+  assert.match(handler, /try \{[\s\S]*await restoration\.getReadiness\(\);[\s\S]*return \{ workspace: restoration\.getRestoredWorkspace\(\), historyDiagnostic: initialHistoryDiagnostic \};/);
+  assert.match(handler, /return \{ workspace: null, historyDiagnostic: initialHistoryDiagnostic \};/);
 });
 
-test("workspace persistence happens before the replacement backend starts", () => {
+test("history is persisted after restoration readiness without rolling back the ready workspace", () => {
+  const readyIndex = mainSource.indexOf('publishBackendLifecycle({ state: "ready", port, workspace });');
+  const rememberIndex = mainSource.indexOf("rememberRestoredWorkspace(workspace);", readyIndex);
+  assert.ok(readyIndex >= 0);
+  assert.ok(rememberIndex > readyIndex);
+
+  const start = mainSource.indexOf("function rememberRestoredWorkspace");
+  const end = mainSource.indexOf("\n  async function restoreWorkspace", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const persistence = mainSource.slice(start, end);
+  assert.match(persistence, /result\.diagnostic/);
+  assert.match(persistence, /workspace history was not updated/);
+  assert.doesNotMatch(persistence, /workspacePath\s*=/);
+});
+
+test("workspace replacement stages the path before starting the replacement backend", () => {
   const start = mainSource.indexOf('ipcMain.handle("open-workspace"');
   const end = mainSource.indexOf('\n  });', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const handler = mainSource.slice(start, end);
   assert.match(handler, /switchWorkspaceBackend\(\s*dirPath,/);
+  assert.match(handler, /workspacePath = nextPath/);
   assert.doesNotMatch(handler, /sidecarLifecycle\.stop\(\)/);
 });
 
@@ -91,10 +110,11 @@ test("Electron main replays the latest lifecycle state to late subscribers", () 
 });
 
 test("preload validates and forwards the lifecycle contract", () => {
-  assert.match(preloadSource, /import \{ subscribeBackendLifecycle, type BackendLifecycleEvent \}/);
+  assert.match(preloadSource, /import \{ subscribeBackendLifecycle, type BackendLifecycleEvent, type InitialWorkspaceSnapshot \}/);
   assert.match(preloadSource, /subscribeBackendLifecycle\(/);
   assert.match(preloadSource, /onBackendLifecycle:/);
   assert.match(preloadSource, /retryBackend:/);
+  assert.match(preloadSource, /getInitialWorkspace: \(\): Promise<InitialWorkspaceSnapshot>/);
 });
 
 test("renderer declarations expose the same lifecycle contract", () => {
@@ -102,6 +122,16 @@ test("renderer declarations expose the same lifecycle contract", () => {
   assert.match(rendererTypes, /state: "starting" \| "retrying"/);
   assert.match(rendererTypes, /state: "ready"; port: number; workspace: WorkspaceInfo \| null/);
   assert.match(rendererTypes, /state: "failed" \| "exhausted"; message: string/);
+  assert.match(rendererTypes, /export type WorkspaceHistoryDiagnostic/);
+  assert.match(rendererTypes, /export type InitialWorkspaceSnapshot/);
+  assert.match(rendererTypes, /getInitialWorkspace: \(\) => Promise<InitialWorkspaceSnapshot>/);
   assert.match(rendererTypes, /onBackendLifecycle: \(callback: \(event: BackendLifecycleEvent\) => void\) => \(\) => void/);
   assert.match(rendererTypes, /retryBackend: \(\) => Promise<void>/);
+});
+
+test("the picker exposes corrupt-history diagnostics without exposing persisted internals", () => {
+  assert.match(appSource, /setWorkspaceHistoryDiagnostic\(snapshot\.historyDiagnostic\)/);
+  assert.match(appSource, /role="alert"/);
+  assert.match(appSource, /Workspace history unavailable/);
+  assert.doesNotMatch(appSource, /recentWorkspacePaths/);
 });

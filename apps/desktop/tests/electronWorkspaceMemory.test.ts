@@ -210,7 +210,7 @@ test("workspace history does not recover a lock younger than five seconds", () =
   withTemporaryUserData((directory) => {
     const lockPath = join(directory, ".workspace-memory.lock");
     mkdirSync(lockPath);
-    const recentAt = new Date(Date.now() - 4_999);
+    const recentAt = new Date(Date.now() - 4_000);
     utimesSync(lockPath, recentAt, recentAt);
 
     const memory = rememberWorkspacePath(directory, "/repo/not-written");

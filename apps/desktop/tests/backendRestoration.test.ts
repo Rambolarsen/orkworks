@@ -234,7 +234,7 @@ test("explicit backend failure and shutdown abort their owned restoration work",
   await assert.rejects(disposedReadiness, /shut down/i);
 });
 
-test("workspace persistence failure leaves the current backend untouched", () => {
+test("replacement staging failure leaves the current backend untouched", () => {
   let started = false;
 
   assert.throws(
@@ -254,12 +254,12 @@ test("workspace persistence failure leaves the current backend untouched", () =>
   assert.equal(started, false);
 });
 
-test("workspace persistence completes before replacement startup", () => {
+test("replacement staging completes before replacement startup", () => {
   const calls: string[] = [];
 
   const result = switchWorkspaceBackend(
     "/replacement",
-    () => calls.push("persist"),
+    () => calls.push("stage"),
     () => {
       calls.push("start");
       return "replacement readiness";
@@ -267,7 +267,37 @@ test("workspace persistence completes before replacement startup", () => {
   );
 
   assert.equal(result, "replacement readiness");
-  assert.deepEqual(calls, ["persist", "start"]);
+  assert.deepEqual(calls, ["stage", "start"]);
+});
+
+test("a post-ready history failure does not roll back restoration readiness", async () => {
+  const timers = new FakeTimers();
+  const events: string[] = [];
+  const coordinator = createBackendRestorationCoordinator({
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+    onReady: (_port, workspace) => {
+      events.push(`ready:${(workspace as { path: string }).path}`);
+      try {
+        throw new Error("history unavailable");
+      } catch {
+        events.push("history-failure-recorded");
+      }
+    },
+    onFailure: () => events.push("backend-failure"),
+  });
+
+  coordinator.beginGeneration();
+  const readiness = coordinator.getReadiness();
+  coordinator.restore(6501, {
+    restoreWorkspace: async () => ({ path: "/replacement" }),
+    applyRetentionSettings: async () => {},
+    syncProviderSettings: async () => {},
+  });
+
+  assert.equal(await readiness, 6501);
+  assert.deepEqual(coordinator.getRestoredWorkspace(), { path: "/replacement" });
+  assert.deepEqual(events, ["ready:/replacement", "history-failure-recorded"]);
 });
 
 test("side steps start after workspace restoration publishes readiness", async () => {
