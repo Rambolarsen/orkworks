@@ -5,23 +5,25 @@ Stable builds use stable releases. Nightly builds use only exact `nightly`
 prereleases and do not fall back to the stable channel. Development builds do
 not install updates and show updates as unavailable.
 
-## Check, download, and install
+## Check, download, and install manually
 
 Open **Settings** and select **Updates**, or choose **Check for updates** from
 the application menu. OrkWorks checks only when you ask it to. When an update
 is available, downloading is also a manual action.
 
-In-app installation is currently blocked on both Windows and macOS.
-**Restart and install** reports the limitation without querying or interrupting
-sessions, stopping the backend, starting an installer, or quitting the app.
-Install a signed release manually instead. OrkWorks never installs an update
-automatically when you quit. Failed checks and downloads can be retried.
+In-app installation is currently unavailable on both Windows and macOS, so
+Settings does not offer a restart-and-install action. Download and install the
+signed installer manually from the
+[OrkWorks releases page](https://github.com/Rambolarsen/orkworks/releases).
+Downloading an update in Settings does not install it. OrkWorks never installs
+an update automatically when you quit. Failed checks and downloads can be
+retried.
 
 On Windows, the updater can schedule app quit before an asynchronous installer
 failure is known, and its public API cannot guarantee safe recovery and retry.
 On macOS, it cannot prove native verification before stopping the backend while
-keeping automatic installation disabled. Repeating **Restart and install**
-continues to report the limitation; it does not bypass these blocks.
+keeping automatic installation disabled. The native install paths remain
+blocked; use a signed release installer instead.
 
 Windows publisher verification follows the release pipeline's exact certificate
 `SimpleName` contract. The upstream verifier's successful common-name message is

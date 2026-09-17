@@ -49,7 +49,6 @@ interface SettingsModalProps {
   // App owns window.orkworks.onUpdateStatus and passes its latest snapshot here.
   onCheckForUpdates: () => void;
   onDownloadUpdate: () => void;
-  onRequestUpdateInstall: () => void;
   harnesses: HarnessConfigEntry[];
   documentRevision: string | null;
   onRefreshHarnesses: () => Promise<HarnessListResponse>;
@@ -97,7 +96,7 @@ function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
   return stripDerivedHarnessFields(harness);
 }
 
-export default function SettingsModal({ initialSection = "tools", initialSettings, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, onRequestUpdateInstall, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSection = "tools", initialSettings, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -1010,7 +1009,6 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                 channel={updateChannel}
                 onCheck={onCheckForUpdates}
                 onDownload={onDownloadUpdate}
-                onInstall={onRequestUpdateInstall}
               />
             )}
 
@@ -1224,13 +1222,12 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   );
 }
 
-function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload, onInstall }: {
+function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload }: {
   status: UpdateStatus | null;
   currentVersion: string | null;
   channel: "latest" | "nightly" | null;
   onCheck: () => void;
   onDownload: () => void;
-  onInstall: () => void;
 }) {
   const candidate = status && "candidate" in status ? status.candidate : undefined;
   const statusText = !status ? "Loading update status..." : (() => {
@@ -1241,7 +1238,7 @@ function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload, 
       case "up-to-date": return "OrkWorks is up-to-date.";
       case "available": return "An update is available.";
       case "downloading": return "Downloading update...";
-      case "downloaded": return "Update downloaded and ready to install.";
+      case "downloaded": return "Update downloaded. Install the signed release manually.";
       case "installing": return "Installing update...";
       case "error": return `Update ${status.operation} failed.`;
     }
@@ -1250,7 +1247,8 @@ function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload, 
   return (
     <div className="settings-section">
       <h3>Updates</h3>
-      <p className="settings-section-copy">Check and install signed OrkWorks updates when you choose.</p>
+      <p className="settings-section-copy">Check for and download signed OrkWorks updates when you choose.</p>
+      <p className="updates-warning">In-app installation is currently unavailable on Windows and macOS. Install the signed release manually.</p>
 
       <dl className="updates-details">
         <div><dt>Current version</dt><dd>{currentVersion ?? "Unavailable"}</dd></div>
@@ -1277,10 +1275,6 @@ function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload, 
 
       {status?.state === "error" && <div className="updates-error" role="alert">{status.message}</div>}
 
-      {(status?.state === "downloaded" || status?.state === "installing") && (
-        <p className="updates-warning">Restarting OrkWorks stops the sidecar and can interrupt live sessions.</p>
-      )}
-
       <div className="updates-actions">
         {(!status || status.state === "never-checked" || status.state === "checking" || status.state === "up-to-date" || status.state === "unavailable") && (
           <Button variant="primary" onClick={onCheck} disabled={!status || status.state === "checking" || status.state === "unavailable"}>
@@ -1290,11 +1284,6 @@ function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload, 
         {(status?.state === "available" || status?.state === "downloading") && (
           <Button variant="primary" onClick={onDownload} disabled={status.state === "downloading"}>
             Download update
-          </Button>
-        )}
-        {(status?.state === "downloaded" || status?.state === "installing") && (
-          <Button variant="primary" onClick={onInstall} disabled={status.state === "installing"}>
-            Restart and install
           </Button>
         )}
         {status?.state === "error" && <Button variant="primary" onClick={onCheck}>Retry</Button>}

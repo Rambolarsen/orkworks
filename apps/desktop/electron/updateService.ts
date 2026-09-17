@@ -57,12 +57,13 @@ export type UpdateStatus =
   | { state: "never-checked"; channel: UpdateChannel; currentVersion: string; sequence: number }
   | { state: "checking"; channel: UpdateChannel; currentVersion: string; sequence: number }
   | { state: "up-to-date"; channel: UpdateChannel; currentVersion: string; checkedAt: string; sequence: number }
-  | { state: "available"; candidate: UpdateCandidate; sequence: number }
-  | { state: "downloading"; candidate: UpdateCandidate; progress: UpdateProgress; sequence: number }
-  | { state: "downloaded"; candidate: UpdateCandidate; sequence: number }
-  | { state: "installing"; candidate: UpdateCandidate; sequence: number }
+  | { state: "available"; currentVersion: string; candidate: UpdateCandidate; sequence: number }
+  | { state: "downloading"; currentVersion: string; candidate: UpdateCandidate; progress: UpdateProgress; sequence: number }
+  | { state: "downloaded"; currentVersion: string; candidate: UpdateCandidate; sequence: number }
+  | { state: "installing"; currentVersion: string; candidate: UpdateCandidate; sequence: number }
   | {
       state: "error";
+      currentVersion: string;
       operation: "check" | "download" | "install";
       message: string;
       retryable: true;
@@ -72,7 +73,7 @@ export type UpdateStatus =
 
 type UpdateStatusWithoutSequence = UpdateStatus extends infer Status
   ? Status extends { sequence: number }
-    ? Omit<Status, "sequence">
+    ? Omit<Status, "sequence" | "currentVersion">
     : never
   : never;
 
@@ -156,7 +157,11 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
   const listeners = new Set<(nextStatus: UpdateStatus) => void>();
 
   function publish(nextStatus: UpdateStatusWithoutSequence): UpdateStatus {
-    status = { ...nextStatus, sequence: status.sequence + 1 } as UpdateStatus;
+    status = {
+      ...nextStatus,
+      currentVersion: dependencies.currentVersion,
+      sequence: status.sequence + 1,
+    } as UpdateStatus;
     for (const listener of listeners) listener(status);
     return status;
   }
@@ -192,7 +197,6 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
         publish({
           state: "up-to-date",
           channel: selectedChannel,
-          currentVersion: dependencies.currentVersion,
           checkedAt: dependencies.now(),
         });
         return;
@@ -234,7 +238,7 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
     const operation = new Promise<UpdateStatus>((resolve) => { resolveOperation = resolve; });
     checkPromise = operation;
     activeOperation = { kind: "check", sequence };
-    publish({ state: "checking", channel: selectedChannel, currentVersion: dependencies.currentVersion });
+    publish({ state: "checking", channel: selectedChannel });
     void (async () => {
       try {
         await engine.checkForUpdates(sequence);
@@ -244,7 +248,6 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
           publish({
             state: "up-to-date",
             channel: selectedChannel,
-            currentVersion: dependencies.currentVersion,
             checkedAt: dependencies.now(),
           });
         }

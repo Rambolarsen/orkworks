@@ -289,14 +289,6 @@ function App() {
     }
   }, []);
 
-  const requestUpdateInstall = useCallback(async () => {
-    try {
-      await window.orkworks.requestUpdateInstall();
-    } catch {
-      pushToast("error", "Couldn't restart to install the update.");
-    }
-  }, []);
-
   const handleCreateSession = useCallback(async () => {
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
@@ -730,7 +722,6 @@ function App() {
           updateChannel={updateState.channel}
           onCheckForUpdates={() => void checkForUpdates()}
           onDownloadUpdate={() => void downloadUpdate()}
-          onRequestUpdateInstall={() => void requestUpdateInstall()}
           harnesses={harnesses}
           documentRevision={harnessDocumentRevision}
           onRefreshHarnesses={refreshHarnesses}

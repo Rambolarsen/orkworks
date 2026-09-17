@@ -238,6 +238,42 @@ test("nightly status is replayed first and then only increasing sequences are de
   assert.ok(seen.every((value, index) => index === 0 || value > seen[index - 1]));
 });
 
+test("replayed available, downloaded, and error snapshots preserve the installed version", async () => {
+  const engine = engineFixture();
+  const service = packagedService(engine);
+  const replay = () => {
+    let snapshot = service.getStatus();
+    const unsubscribe = service.subscribe((status) => { snapshot = status; });
+    unsubscribe();
+    return snapshot as typeof snapshot & { currentVersion?: string };
+  };
+
+  const checking = service.check();
+  engine.events[0]({
+    type: "update-available",
+    operationId: engine.checkOperationIds.at(-1)!,
+    candidate: candidate(),
+  });
+  await checking;
+  assert.equal(replay().state, "available");
+  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.1");
+
+  const downloading = service.download();
+  engine.events[0]({
+    type: "update-downloaded",
+    operationId: engine.downloadOperationIds.at(-1)!,
+    candidate: candidate(),
+  });
+  await downloading;
+  assert.equal(replay().state, "downloaded");
+  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.1");
+
+  engine.downloadUpdate = async () => { throw new Error("offline"); };
+  await service.download();
+  assert.equal(replay().state, "error");
+  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.1");
+});
+
 test("channel selection admits exact nightly prereleases and never falls back to stable", () => {
   const engine = engineFixture();
   createUpdateService({
@@ -926,6 +962,7 @@ test("updater errors are retryable", async () => {
   const failed = await service.check();
   assert.deepEqual(failed, {
     state: "error",
+    currentVersion: "0.2.0-nightly.20260916.1",
     operation: "check",
     message: "offline",
     retryable: true,

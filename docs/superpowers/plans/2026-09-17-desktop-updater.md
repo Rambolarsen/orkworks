@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a packaged-only, fixture-testable nightly/stable desktop updater with explicit download and install confirmation while keeping unsigned artifacts and development builds unavailable.
+**Goal:** Add a packaged-only, fixture-testable nightly/stable desktop updater with explicit downloads and truthful manual-install guidance while unsigned artifacts, development builds, and unsafe native installation remain unavailable.
 
-**Architecture:** Keep all updater configuration, network access, candidate verification, download, and install calls in Electron main behind a narrow `UpdateEngine` adapter. Expose only typed status/actions through preload to the renderer; the Settings Updates section and application menu consume the same service. Installation revalidates the candidate, queries live sidecar sessions, asks for native confirmation, waits for bounded sidecar shutdown, then calls the updater; a failed installer triggers one sidecar recovery attempt.
+**Architecture:** Keep all updater configuration, network access, candidate verification, and downloads in Electron main behind a narrow `UpdateEngine` adapter. Expose only typed status/actions through preload to the renderer; the Settings Updates section and application menu consume the same service. The production adapter reports native installation unavailable on both macOS and Windows, so install requests fail closed before verification, session queries, confirmation, sidecar shutdown, installer invocation, or recovery. The generic install transaction remains fixture-tested for a future adapter that can prove safe installation; it is not an enabled production path.
 
 **Tech Stack:** Electron 44, `electron-updater` 6.8.9, Electron main TypeScript, preload context bridge, React/TypeScript renderer, Node’s built-in test runner, pnpm.
 
@@ -70,6 +70,7 @@ artifact validation remains unproved and installation remains blocked.
 ```ts
 export interface UpdateServiceDependencies {
   isPackaged: boolean;
+  platform: NodeJS.Platform;
   currentVersion: string;
   createEngine: () => UpdateEngine;
   now: () => string;
@@ -88,11 +89,11 @@ export interface UpdateServiceDependencies {
 
 ```ts
 export type UpdateEngineEvent =
-  | { type: "update-available"; candidate: UpdateCandidate }
-  | { type: "update-not-available" }
-  | { type: "download-progress"; percent: number; transferred: number; total: number }
-  | { type: "update-downloaded"; candidate: UpdateCandidate }
-  | { type: "error"; operation: "check" | "download"; message: string };
+  | { type: "update-available"; operationId: number; candidate: UpdateCandidate }
+  | { type: "update-not-available"; operationId: number }
+  | { type: "download-progress"; operationId: number; percent: number; transferred: number; total: number }
+  | { type: "update-downloaded"; operationId: number; candidate: UpdateCandidate }
+  | { type: "error"; operation: "check" | "download"; operationId: number; message: string };
 
 export interface UpdateEngine {
   readonly installationUnavailableReason: string | null;
@@ -102,9 +103,9 @@ export interface UpdateEngine {
   allowPrerelease: boolean;
   channel: "latest" | "nightly";
   onEvent(listener: (event: UpdateEngineEvent) => void): () => void;
-  checkForUpdates(): Promise<void>;
-  downloadUpdate(): Promise<void>;
-  quitAndInstall(): void;
+  checkForUpdates(operationId: number): Promise<void>;
+  downloadUpdate(operationId: number): Promise<void>;
+  quitAndInstall(): Promise<void>;
 }
 ```
 
@@ -127,7 +128,7 @@ export interface UpdateCandidate {
 }
 ```
 
-- Status states are exactly `unavailable`, `never-checked`, `checking`, `up-to-date`, `available`, `downloading`, `downloaded`, `installing`, and `error`; every status carries a strictly increasing `sequence` number.
+- Status states are exactly `unavailable`, `never-checked`, `checking`, `up-to-date`, `available`, `downloading`, `downloaded`, `installing`, and `error`; every status carries a strictly increasing `sequence` number. Every packaged status also carries `currentVersion`, including replayed available, downloaded, and error snapshots.
 
 - [ ] **Step 1: Write the failing fixture tests for construction policy, channels, and status replay.**
 
@@ -154,6 +155,7 @@ function engineFixture(): UpdateEngine & { events: Array<(event: any) => void>; 
   const events: Array<(event: any) => void> = [];
   const calls: string[] = [];
   return {
+    installationUnavailableReason: null,
     autoDownload: true,
     autoInstallOnAppQuit: true,
     allowDowngrade: true,
@@ -162,9 +164,9 @@ function engineFixture(): UpdateEngine & { events: Array<(event: any) => void>; 
     events,
     calls,
     onEvent(listener) { events.push(listener); return () => events.splice(events.indexOf(listener), 1); },
-    async checkForUpdates() { calls.push("check"); },
-    async downloadUpdate() { calls.push("download"); },
-    quitAndInstall() { calls.push("install"); },
+    async checkForUpdates(operationId) { calls.push(`check:${operationId}`); },
+    async downloadUpdate(operationId) { calls.push(`download:${operationId}`); },
+    async quitAndInstall() { calls.push("install"); },
   };
 }
 
@@ -172,6 +174,7 @@ test("development construction never creates an updater and is unavailable", asy
   let constructed = false;
   const service = createUpdateService({
     isPackaged: false,
+    platform: "win32",
     currentVersion: "0.2.0",
     createEngine: () => { constructed = true; throw new Error("must not construct"); },
     now: () => "2026-09-17T00:00:00Z",
@@ -190,6 +193,7 @@ test("nightly status is replayed first and then only increasing sequences are de
   const engine = engineFixture();
   const service = createUpdateService({
     isPackaged: true,
+    platform: "win32",
     currentVersion: "0.2.0-nightly.20260916.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
@@ -201,11 +205,15 @@ test("nightly status is replayed first and then only increasing sequences are de
   });
   const seen: number[] = [];
   const unsubscribe = service.subscribe((status) => seen.push(status.sequence));
-  engine.events[0]({ type: "update-available", candidate: candidate() });
-  engine.events[0]({ type: "download-progress", percent: 50, transferred: 1, total: 2 });
+  const checking = service.check();
+  engine.events[0]({ type: "update-available", operationId: 1, candidate: candidate() });
+  await checking;
+  const downloading = service.download();
+  engine.events[0]({ type: "download-progress", operationId: 2, percent: 50, transferred: 1, total: 2 });
+  await downloading;
   unsubscribe();
   assert.equal(seen[0], 0);
-  assert.deepEqual(seen.slice(1), [1, 2]);
+  assert.deepEqual(seen.slice(1), [1, 2, 3, 4, 5]);
   assert.ok(seen.every((value, index) => index === 0 || value > seen[index - 1]));
 });
 
@@ -213,6 +221,7 @@ test("channel selection admits exact nightly prereleases and never falls back to
   const engine = engineFixture();
   createUpdateService({
     isPackaged: true,
+    platform: "win32",
     currentVersion: "0.2.0-nightly.20260916.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
@@ -240,7 +249,7 @@ Implement `createUpdateService` with these exact rules:
 1. If `isPackaged` is false, return a service whose status is `{ state: "unavailable", reason: "development", sequence: 0 }` and never call `createEngine`.
 2. Parse the first prerelease identifier from `currentVersion`; choose `nightly` only for `nightly` followed by numeric nightly identity, choose `latest` for a stable version, and return `unsupported-version` for malformed or other prereleases.
 3. Construct the engine once, set all four safety properties before registering listeners, and reject any engine configuration that does not match the required values.
-4. Convert engine events into status snapshots. Store the active operation sequence and ignore completions/events from older checks, downloads, or candidates.
+4. Convert engine events into status snapshots. Pass the active operation ID into the adapter, require every emitted event to carry it, and ignore completions/events from older checks, downloads, or candidates. Preserve `currentVersion` in every packaged snapshot so a new renderer can initialize from replay alone.
 5. `check()` and `download()` return the existing operation promise when one is active. `requestInstall()` returns the existing install promise when one is active.
 6. `subscribe()` synchronously invokes the listener with the current snapshot, then emits only snapshots with larger sequence values.
 
@@ -347,7 +356,7 @@ requestUpdateInstall(): Promise<UpdateStatus>;
 onUpdateStatus(callback: (status: UpdateStatus) => void): () => void;
 ```
 
-- `main.ts` creates the real `UpdateEngine` only inside the packaged branch. It maps public `electron-updater` events into the `UpdateEngineEvent` adapter and uses the existing fixed GitHub provider/configuration from `electron-builder.yml`. Development does not register updater IPC handlers; preload returns the static development-unavailable snapshot when `process.defaultApp` is true.
+- `main.ts` creates the real `UpdateEngine` only inside the `app.isPackaged` branch. Each BrowserWindow receives an explicit `--orkworks-packaged=${app.isPackaged}` additional argument; preload checks for the exact `--orkworks-packaged=true` value and otherwise returns the static development-unavailable snapshot without invoking updater IPC. The adapter maps public `electron-updater` events to operation-ID-bearing `UpdateEngineEvent` values and uses the fixed GitHub provider/configuration from `electron-builder.yml`.
 - `querySessions` awaits the current backend readiness, calls `GET /sessions` through the existing `listSessions(baseUrl)`, and treats only `lifecycle === "alive"` as live.
 - `stopSidecar` calls `sidecarLifecycle.stopAndWait(10_000)`; `restartSidecar` starts the last workspace cwd through the existing lifecycle/restoration path. A failed recovery produces an error status whose message tells the user to restart OrkWorks.
 
@@ -365,6 +374,7 @@ const windowTypes = await readFile(new URL("../src/orkworksWindow.d.ts", import.
 test("main gates updater construction on app.isPackaged and keeps automatic install disabled", () => {
   assert.match(main, /if \(app\.isPackaged\)[\s\S]*createUpdateService/);
   assert.match(main, /if \(app\.isPackaged\)[\s\S]*registerUpdateIpc/);
+  assert.match(main, /additionalArguments:\s*\[`--orkworks-packaged=\$\{app\.isPackaged\}`\]/);
   assert.match(main, /autoDownload:\s*false/);
   assert.match(main, /autoInstallOnAppQuit:\s*false/);
   assert.match(main, /allowDowngrade:\s*false/);
@@ -400,11 +410,11 @@ ipcMain.on("subscribe-update-status", (event) => {
 });
 ```
 
-The real `quitAndInstall()` call must occur only after the service has completed candidate revalidation, live-session query, confirmation, and `stopAndWait()`. Keep normal `before-quit` cleanup free of updater install calls.
+The production adapter's `installationUnavailableReason` must be non-null and its async `quitAndInstall()` must reject without calling the native updater. The service must return the unavailable error before candidate verification, live-session query, confirmation, `stopAndWait()`, native installer calls, or recovery. Keep normal `before-quit` cleanup free of updater install calls. The transaction ordering remains covered only with an injected fixture engine whose unavailable reason is null.
 
 - [ ] **Step 4: Implement the preload bridge and independent renderer declaration.**
 
-Expose the four `ipcRenderer.invoke` methods and a subscription that returns an unsubscribe function. When `process.defaultApp` is true, return the static development-unavailable snapshot and do not invoke IPC. Keep the declarations in `orkworksWindow.d.ts` independently typed with imported `UpdateStatus`; do not derive the renderer type from the preload implementation.
+Expose the four `ipcRenderer.invoke` methods and a subscription that returns an unsubscribe function. When `process.argv` does not contain the exact main-supplied `--orkworks-packaged=true` flag, return the static development-unavailable snapshot and do not invoke IPC. Keep the declarations in `orkworksWindow.d.ts` independently typed with imported `UpdateStatus`; do not derive the renderer type from the preload implementation.
 
 - [ ] **Step 5: Run focused wiring tests and typecheck.**
 
@@ -428,6 +438,7 @@ git commit -m "feat: wire packaged updater through Electron"
 
 **Interfaces:**
 - `UpdateServiceDependencies.verifyCandidate(candidate)` returns true only after electron-updater reports a downloaded candidate whose platform verification and checksum validation succeeded. Fixture engines can return false to model missing/invalid signature, checksum, or identity.
+- The transaction tests in this task use a fixture engine with `installationUnavailableReason: null`. Production macOS and Windows adapters never enter this transaction; they publish an install-unavailable error before any side effect.
 
 - [ ] **Step 1: Add failing tests for strict install ordering and all abort paths.**
 
@@ -441,7 +452,8 @@ test("install verifies, queries sessions, confirms, waits, then installs", async
     confirmInstall: async ({ liveSessionCount }) => { order.push(`confirm:${liveSessionCount}`); return true; },
     stopSidecar: async () => { order.push("stop"); },
   });
-  engine.events[0]({ type: "update-downloaded", candidate: candidate() });
+  await prepareDownloaded(service, engine);
+  engine.calls.length = 0;
   await service.requestInstall();
   assert.deepEqual(order, ["verify", "sessions", "confirm:1", "stop"]);
   assert.deepEqual(engine.calls, ["install"]);
@@ -453,7 +465,8 @@ test("invalid verification never stops the sidecar or installs", async () => {
     verifyCandidate: async () => false,
     stopSidecar: async () => { throw new Error("must not stop"); },
   });
-  engine.events[0]({ type: "update-downloaded", candidate: candidate() });
+  await prepareDownloaded(service, engine);
+  engine.calls.length = 0;
   const status = await service.requestInstall();
   assert.equal(status.state, "error");
   assert.deepEqual(engine.calls, []);
@@ -466,21 +479,23 @@ test("cancelled confirmation has no shutdown or install side effect", async () =
     confirmInstall: async () => false,
     stopSidecar: async () => { throw new Error("must not stop"); },
   });
-  engine.events[0]({ type: "update-downloaded", candidate: candidate() });
+  await prepareDownloaded(service, engine);
+  engine.calls.length = 0;
   await service.requestInstall();
   assert.deepEqual(engine.calls, []);
 });
 
 test("installer failure attempts sidecar recovery and reports restart guidance if recovery fails", async () => {
   const engine = engineFixture();
-  engine.quitAndInstall = () => { throw new Error("installer failed"); };
+  engine.quitAndInstall = async () => { throw new Error("installer failed"); };
   let restarted = 0;
   const service = packagedService(engine, {
     verifyCandidate: async () => true,
     stopSidecar: async () => undefined,
     restartSidecar: async () => { restarted += 1; throw new Error("recovery failed"); },
   });
-  engine.events[0]({ type: "update-downloaded", candidate: candidate() });
+  await prepareDownloaded(service, engine);
+  engine.calls.length = 0;
   const status = await service.requestInstall();
   assert.equal(restarted, 1);
   assert.equal(status.state, "error");
@@ -498,12 +513,13 @@ Expected: FAIL because verification, live-session sequencing, and recovery are n
 
 Implement `requestInstall()` in this order:
 
-1. Require a downloaded candidate and compare channel, version, tag, metadata URL, metadata digest, and payload digest with the cached identity.
-2. Call `verifyCandidate`; if false or it throws, publish retryable `error` and return without querying sessions, stopping, or installing.
-3. Call `querySessions`; count only `lifecycle === "alive"`. If the query fails, use `liveSessionCount: null` and continue only after the confirmation callback receives the unknown state.
-4. Await `confirmInstall`; false publishes the unchanged downloaded state and performs no side effects.
-5. Publish `installing`, await `stopSidecar(10_000)`, call `quitAndInstall()`, and keep the install promise shared by concurrent callers.
-6. If shutdown or installer invocation fails, attempt `restartSidecar()` exactly once. Publish a retryable error that distinguishes recovery success from “restart OrkWorks” recovery failure. Never claim that an update was installed.
+1. If the platform is not Windows or `installationUnavailableReason` is non-null, publish a retryable install-unavailable error and return before verification, session queries, confirmation, shutdown, installer invocation, or recovery. Production macOS and Windows both take this path.
+2. For an explicitly install-capable fixture/future adapter only, require a downloaded candidate and compare channel, version, tag, metadata URL, metadata digest, and payload digest with the cached identity.
+3. Call `verifyCandidate`; if false or it throws, publish retryable `error` and return without querying sessions, stopping, or installing.
+4. Call `querySessions`; count only `lifecycle === "alive"`. If the query fails, use `liveSessionCount: null` and continue only after the confirmation callback receives the unknown state.
+5. Await `confirmInstall`; false publishes the unchanged downloaded state and performs no side effects.
+6. Publish `installing`, await `stopSidecar(10_000)`, await `quitAndInstall()`, and keep the install promise shared by concurrent callers.
+7. If shutdown or installer invocation fails, attempt `restartSidecar()` exactly once. Publish a retryable error that distinguishes recovery success from “restart OrkWorks” recovery failure. Never claim that an update was installed.
 
 Use a monotonically increasing operation token for both service operations and singleton updater events. A stale event must be ignored even if it arrives after a newer operation has started.
 
@@ -534,6 +550,7 @@ git commit -m "feat: gate updater installation on verification and shutdown"
 - Extend `SettingsSection` with `"updates"`.
 - Extend `MenuCommand.action` with `"check-for-updates"`.
 - `App.tsx` handles the command by opening Settings with `initialSection="updates"`, then calls `window.orkworks.checkForUpdates()`; it does not create a second update flow.
+- Settings exposes check and download actions only. It must explain that in-app installation is unavailable and direct users to install a signed release manually; it must not render or wire a restart/install action.
 
 - [ ] **Step 1: Add failing menu and Settings source tests.**
 
@@ -552,10 +569,11 @@ test("Help menu exposes the shared update check command", () => {
   assert.match(menu, /isCapturing[\s\S]*check-for-updates|check-for-updates[\s\S]*sendIfNotCapturing/);
 });
 
-test("Settings Updates renders all lifecycle states and actions", () => {
-  for (const text of ["Updates", "Check for updates", "Download update", "Restart and install", "up-to-date", "downloaded", "unavailable"]) {
+test("Settings Updates renders all lifecycle states and supported actions", () => {
+  for (const text of ["Updates", "Check for updates", "Download update", "signed release manually", "up-to-date", "downloaded", "unavailable"]) {
     assert.match(settings, new RegExp(text, "i"));
   }
+  assert.doesNotMatch(settings, /Restart and install|onClick=\{onInstall\}/);
   assert.match(settings, /onUpdateStatus/);
 });
 ```
@@ -572,7 +590,7 @@ Add `{ action: "check-for-updates" }` under Help. In `App.tsx`, open Settings on
 
 - [ ] **Step 4: Add the Settings Updates section with explicit state rendering.**
 
-Add a navigation item and render branch for `updates`. Show current version, channel, candidate version/tag, release notes, progress, retryable error text, and the correct action button for each state. Disable buttons while `checking`, `downloading`, or `installing`; wire retry to `checkForUpdates`, download to `downloadUpdate`, and restart/install to `requestUpdateInstall`. Render the confirmation copy that restarting OrkWorks stops the sidecar and can interrupt live sessions. Do not expose feed URLs, credentials, filesystem paths, or candidate mutation controls.
+Add a navigation item and render branch for `updates`. Show current version, channel, candidate version/tag, release notes, progress, retryable error text, and the supported action button for each state. Disable buttons while `checking` or `downloading`; wire retry to `checkForUpdates` and download to `downloadUpdate`. Render persistent manual-install guidance and a downloaded-state message that in-app installation is unavailable. Do not render or wire `Restart and install`, and do not expose feed URLs, credentials, filesystem paths, or candidate mutation controls.
 
 - [ ] **Step 5: Run focused UI tests and typecheck.**
 
@@ -601,28 +619,31 @@ git commit -m "feat: add updater controls to Settings"
 
 - [ ] **Step 1: Write the user documentation and sidebar link.**
 
-Create `docs/user/updates.md` with these user-visible facts: packaged builds check the fixed OrkWorks GitHub release feed; stable builds use stable releases, nightly builds use exact `nightly` prereleases; development builds show updates unavailable; downloads are manual; installation requires confirmation and may warn about live sessions; native signature/checksum verification must succeed; failed downloads/install attempts are retryable; a failed recovery may require restarting OrkWorks. Add `{ text: 'Updates', link: '/docs/user/updates' }` to the user-guide sidebar.
+Create `docs/user/updates.md` with these user-visible facts: packaged builds check the fixed OrkWorks GitHub release feed; stable builds use stable releases, nightly builds use exact `nightly` prereleases; development builds show updates unavailable; downloads are manual; in-app native installation is unavailable on macOS and Windows; users must install a signed release manually from GitHub Releases; failed checks and downloads are retryable; native signature/checksum verification remains fail-closed. Add `{ text: 'Updates', link: '/docs/user/updates' }` to the user-guide sidebar.
 
 - [ ] **Step 2: Run focused tests, docs build, typecheck, and diff checks.**
 
-Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/updateService.test.ts tests/sidecarLifecycle.test.ts tests/electronUpdaterWiring.test.ts tests/preloadUpdaterContract.test.ts tests/menuUpdater.test.ts tests/updaterSettings.test.ts`
+Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/updateService.test.ts tests/sidecarLifecycle.test.ts tests/electronUpdaterWiring.test.ts tests/preloadUpdaterContract.test.ts tests/menuUpdater.test.ts tests/updaterSettings.test.ts tests/nightlyUpdateChannel.test.mjs tests/updaterProductionDependency.test.mjs`
 Run: `pnpm.cmd --dir apps/desktop exec tsc --noEmit`
+Run: `pnpm.cmd --dir apps/desktop exec tsc -p tsconfig.node.json --noEmit`
 Run: `pnpm.cmd --dir docs docs:build`
 Run: `git diff --check`
 
-Expected: all focused updater tests PASS, both TypeScript targets PASS, production
-and docs builds PASS, and `git diff --check` produces no output. Also run
-`pnpm.cmd --dir apps/desktop exec tsc -p tsconfig.node.json --noEmit` and
-`pnpm.cmd --dir apps/desktop build`. Compare full-suite failures to the measured
-seven-failure baseline below; do not attribute existing failures to this feature.
+Expected: all focused updater tests PASS, both TypeScript targets PASS, the docs
+build PASS, and `git diff --check` produces no output. `pnpm.cmd --dir apps/desktop build`
+is the production-build check when the task requires it. Compare full-suite
+failures to the measured baseline below; do not attribute existing failures to
+this feature.
 
 - [ ] **Step 3: Run the full desktop test suite and inspect the diff.**
 
 Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs`
 
-Expected: updater tests PASS. The prior measured pre-fix baseline was 909 tests,
-902 passed and **seven failed**; wave 1 ended at 928 tests, 921 passed and the same
-seven failures. This replaces the earlier six-category estimate:
+Expected: updater tests PASS. The measured wave-3 result is 936 tests, 931 passed,
+and five failed. Those five failures match the wave-2 baseline identities and are
+unrelated to the updater diff. Historical context: the pre-fix baseline was 909
+tests, 902 passed and seven failed; wave 1 ended at 928 tests, 921 passed and the
+same seven failures.
 
 | Existing failing test/file | Measured failure |
 | --- | --- |
@@ -635,10 +656,11 @@ seven failures. This replaces the earlier six-category estimate:
 | `windowDialogDrag.test.mjs`: Windows modal overlays preserve dragging | Electron cache/GPU/ERR_FAILED |
 
 Wave 2's fresh pre-edit run at `e072567` measured 928 tests, 923 passed and five
-failures: the two Electron GUI cases passed this time, and the other five remained.
-Record this environment variation and compare final failure identities to both
-measurements; do not claim the full suite is green. Exact logs and final counts
-belong in the wave-2 report.
+failures; its final run measured 934 tests, 929 passed and the same five failures.
+Wave 3 added two passing regressions and measured 936 tests, 931 passed and the
+same five failures. The two historical Electron GUI failures passed in wave 2 and
+wave 3, which is environment/run variation rather than an updater fix. Do not
+claim the full suite is green.
 
 - [ ] **Step 4: Perform the completion gate review.**
 
