@@ -89,11 +89,15 @@ when the normal renderer document is not.
 Packaged desktop updates use the production `electron-updater` dependency in
 Electron main. Main explicitly flags packaged preload through a window argument;
 development update methods remain IPC-inert. The updater's own network session
-blocks cross-channel metadata fallback, and installation rechecks release identity.
-macOS installation fails closed before session queries or shutdown. Windows
-requires a completed, warning-free public NSIS signature check with expected
-publishers; cached downloads that skip verification cannot install. The install
-transaction owns updater errors until application quit and attempts recovery once.
+blocks cross-channel metadata fallback. Release identity excludes the public
+download event's local `downloadedFile` completion path. Both macOS and Windows
+installation fail closed before verification, session queries, confirmation,
+shutdown, installer invocation, or recovery. NSIS schedules quit before asynchronous
+spawn failure is known and offers no supported latch reset/retry handshake; macOS
+cannot prove native verification without arming installation. Windows signature
+verification accepts the release pipeline's exact certificate SimpleName, while
+rejecting mismatch or skipped verification. The adapter retains fresh metadata
+revalidation; neither matching metadata nor signature proof enables installation.
 A sidecar stopped for installation remains owned until its exit is confirmed,
 including after timeout. See [desktop updates](../user/updates.md) for limitations.
 

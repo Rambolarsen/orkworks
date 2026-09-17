@@ -4,15 +4,24 @@
 
 **Date:** 2026-09-17
 
-**Final review decision (2026-09-17):** macOS installation fails closed before
+**Final review wave 2 decision (2026-09-17):** macOS and Windows installation fail closed before
 verification, session queries, confirmation, sidecar shutdown, or installer
-invocation. The pinned public updater API cannot establish native verification
-without arming installation. Windows installation requires the public NSIS
-signature verifier to complete without warnings (including skipped validation),
-nonempty expected publishers, and a fresh matching release metadata check. A
-cached download that skips verification is not installable. These guards
-supersede the successful macOS install path described below; signed artifact
-and installed-app validation remain external prerequisites.
+invocation or recovery. The pinned macOS public API cannot establish native
+verification without arming installation. NSIS schedules app quit before an
+asynchronous installer failure is known, retains its install latch on that failure,
+and exposes no supported recovery/reset handshake. The production adapter reports
+installation unavailable and rejects direct install calls without invoking NSIS.
+The generic transaction below remains fixture-tested but is not an enabled native
+installation path. Repeated blocked requests settle and leave checking usable.
+
+Windows signature verification follows the release pipeline's exact certificate
+SimpleName contract: accept the pinned verifier's exact successful CN message,
+reject all other verification warnings (including skipped checks), and preserve
+its failure verdict. Cached downloads that skip verification provide no current
+process proof. Release identity excludes `UpdateDownloadedEvent.downloadedFile`,
+so check, download completion, and fresh metadata revalidation compare the same
+release metadata. These guards supersede the native install paths described below;
+signed artifact and installed-app validation remain external prerequisites.
 
 **Issue:** #511 — Desktop: add user-controlled signed in-app updates
 

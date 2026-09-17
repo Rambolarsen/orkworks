@@ -11,26 +11,23 @@ Open **Settings** and select **Updates**, or choose **Check for updates** from
 the application menu. OrkWorks checks only when you ask it to. When an update
 is available, downloading is also a manual action.
 
-On Windows, after the download completes, choose **Restart and install**. OrkWorks asks for
-confirmation before installation and may warn that restarting will end live
-sessions. It does not install an update automatically when you quit.
+In-app installation is currently blocked on both Windows and macOS.
+**Restart and install** reports the limitation without querying or interrupting
+sessions, stopping the backend, starting an installer, or quitting the app.
+Install a signed release manually instead. OrkWorks never installs an update
+automatically when you quit. Failed checks and downloads can be retried.
 
-Native signature and checksum verification must succeed before OrkWorks starts
-the installer. A failed download or installation attempt remains retryable. If
-installation fails, OrkWorks attempts to recover its backend; if that recovery
-also fails, restart OrkWorks before continuing.
+On Windows, the updater can schedule app quit before an asynchronous installer
+failure is known, and its public API cannot guarantee safe recovery and retry.
+On macOS, it cannot prove native verification before stopping the backend while
+keeping automatic installation disabled. Repeating **Restart and install**
+continues to report the limitation; it does not bypass these blocks.
 
-macOS in-app installation is currently blocked. The updater cannot prove native
-verification before stopping the backend while keeping automatic installation
-disabled. **Restart and install** reports this limitation without querying or
-interrupting sessions; install a signed macOS release manually instead.
-
-Windows installation requires a completed publisher-signature check in the
-current app process and a fresh matching metadata check. Cached downloads that
-skip signature verification, missing publishers, or verification warnings are
-blocked. If verification remains unavailable, install a signed release manually.
-The signed Windows release configuration must use the publisher's full
-Distinguished Name; the upstream verifier's CN-only warning also blocks installation.
+Windows publisher verification follows the release pipeline's exact certificate
+`SimpleName` contract. The upstream verifier's successful common-name message is
+accepted; mismatch, skipped verification, and missing-path warnings are rejected.
+Cached downloads that skip verification cannot establish verification in the
+current app process. Signature verification alone does not enable installation.
 
 ## Release validation
 

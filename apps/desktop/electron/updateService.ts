@@ -21,6 +21,7 @@ export type UpdateEngineEvent =
   | { type: "error"; operation: "check" | "download"; operationId: number; message: string };
 
 export interface UpdateEngine {
+  readonly installationUnavailableReason: string | null;
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   allowDowngrade: boolean;
@@ -309,13 +310,13 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
 
   function requestInstall(): Promise<UpdateStatus> {
     if (installPromise !== null) return installPromise;
-    if (dependencies.platform !== "win32") {
+    if (dependencies.platform !== "win32" || engine.installationUnavailableReason !== null) {
       const blocked = Promise.resolve().then(() => publish({
         state: "error",
         operation: "install",
         message: dependencies.platform === "darwin"
           ? "macOS installation is unavailable: native verification cannot be completed safely before shutdown. Install a signed release manually."
-          : "Installation is unavailable on this platform because signature verification cannot be established.",
+          : engine.installationUnavailableReason ?? "Installation is unavailable on this platform because signature verification cannot be established.",
         retryable: true,
       }));
       installPromise = blocked;

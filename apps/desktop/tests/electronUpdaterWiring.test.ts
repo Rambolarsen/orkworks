@@ -1,14 +1,27 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
+import type { UpdateDownloadedEvent } from "electron-updater";
 import { channelForVersion, createUpdateService } from "../electron/updateService.ts";
 
 const main = await readFile(new URL("../electron/main.ts", import.meta.url), "utf8");
 const localRequire = createRequire(import.meta.url);
+
+// Execute the pinned dependency with only OS/process boundaries substituted.
+function loadPinnedModule(id: string, injected: Record<string, unknown>) {
+  const filename = localRequire.resolve(id);
+  const moduleRequire = createRequire(filename);
+  const module = { exports: {} as any };
+  new Function("require", "module", "exports", readFileSync(filename, "utf8"))(
+    (name: string) => name in injected ? injected[name] : moduleRequire(name), module, module.exports,
+  );
+  return module.exports;
+}
 
 function loadMainSnippet<T>(
   startMarker: string,
@@ -40,7 +53,28 @@ function deferred<T>() {
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function adapterFixture(platform = "win32") {
+function pinnedNsisFixture() {
+  const effects: string[] = [];
+  const { BaseUpdater } = loadPinnedModule("electron-updater/out/BaseUpdater.js", {
+    electron: { autoUpdater: new EventEmitter() },
+  });
+  const { NsisUpdater } = loadPinnedModule("electron-updater/out/NsisUpdater.js", {
+    "./BaseUpdater": { BaseUpdater },
+  });
+  const updater = new NsisUpdater(null, {
+    version: "1.0.0", name: "OrkWorks", isPackaged: true,
+    quit() { effects.push("quit"); },
+  });
+  updater.logger = { info() {}, warn() {}, error() {} };
+  // Test-only cache/spawn boundary; exercise pinned NSIS/BaseUpdater control flow
+  // without writing an executable, spawning it, or quitting the test process.
+  updater.downloadedUpdateHelper = { file: "C:/cache/update.exe", downloadedFileInfo: {} };
+  updater.spawnLog = async () => { effects.push("spawn"); throw new Error("asynchronous installer failure"); };
+  updater.on("error", () => effects.push("error"));
+  return { updater, effects };
+}
+
+function adapterFixture(platform = "win32", configure: (updater: any) => void = () => {}) {
   const application = new EventEmitter();
   let intercept: ((details: { url: string }, callback: (result: { cancel?: boolean }) => void) => void) | undefined;
   class Updater extends EventEmitter {
@@ -52,6 +86,7 @@ function adapterFixture(platform = "win32") {
     requestHeaders = null;
     info = {
       version: "1.0.1", tag: "v1.0.1",
+      path: "OrkWorks.exe", sha512: Buffer.alloc(64, 1).toString("base64"),
       files: [{ url: "OrkWorks.exe", sha512: Buffer.alloc(64, 1).toString("base64") }],
       releaseDate: "2026-09-17T00:00:00Z",
     };
@@ -88,12 +123,14 @@ function adapterFixture(platform = "win32") {
         const failure = await this.verifyUpdateCodeSignature(this.publishers, "C:/cache/update.exe");
         if (failure) throw new Error(failure);
       }
-      this.emit("update-downloaded", this.info);
+      const event: UpdateDownloadedEvent = { ...this.info, downloadedFile: "C:/cache/update.exe" };
+      this.emit("update-downloaded", event);
       return ["C:/cache/update.exe"];
     }
     quitAndInstall() { this.installs++; }
   }
   const updater = new Updater();
+  configure(updater);
   const createAdapter = loadMainSnippet<any>(
     "function updateCandidate", "function registerUpdateIpc", "createElectronUpdateEngine",
     { createHash, app: application, process: { platform } },
@@ -103,8 +140,7 @@ function adapterFixture(platform = "win32") {
 }
 
 async function downloadedAdapter(overrides: (updater: any) => void = () => {}) {
-  const fixture = adapterFixture();
-  overrides(fixture.updater);
+  const fixture = adapterFixture("win32", overrides);
   const effects: string[] = [];
   const service = createUpdateService({
     isPackaged: true, platform: "win32", currentVersion: "1.0.0",
@@ -120,33 +156,55 @@ async function downloadedAdapter(overrides: (updater: any) => void = () => {}) {
   return { ...fixture, service, effects };
 }
 
-test("Windows install rechecks current metadata and blocks a changed payload before side effects", async () => {
-  const { updater, service, effects } = await downloadedAdapter();
+test("public downloaded event preserves release identity through fresh metadata verification", async () => {
+  const { service, verifyCandidate, updater } = await downloadedAdapter();
+  const status = service.getStatus();
+  assert.equal(status.state, "downloaded");
+  assert.ok("candidate" in status);
+  assert.equal(await verifyCandidate(status.candidate), true);
+  assert.equal(updater.checks, 2);
+});
+
+test("Windows verification rechecks current metadata and blocks a changed payload", async () => {
+  const { updater, service, verifyCandidate, effects } = await downloadedAdapter();
+  const status = service.getStatus();
+  assert.equal(status.state, "downloaded");
+  assert.ok("candidate" in status);
   updater.info = { ...updater.info, files: [{ url: "OrkWorks.exe", sha512: Buffer.alloc(64, 2).toString("base64") }] };
-  const status = await service.requestInstall();
-  assert.equal(status.state, "error");
+  assert.equal(await verifyCandidate(status.candidate), false);
   assert.equal(updater.checks, 2);
   assert.deepEqual(effects, []);
   assert.equal(updater.installs, 0);
 });
 
 test("Windows verification requires the real public signature verifier to complete", async () => {
-  const { service, effects, updater } = await downloadedAdapter((updater) => { updater.verifyOnDownload = false; });
-  assert.equal((await service.requestInstall()).state, "error");
+  const { service, verifyCandidate, effects, updater } = await downloadedAdapter((updater) => { updater.verifyOnDownload = false; });
+  const status = service.getStatus();
+  assert.equal(status.state, "downloaded");
+  assert.ok("candidate" in status);
+  assert.equal(await verifyCandidate(status.candidate), false);
+  assert.equal(updater.checks, 1);
   assert.deepEqual(effects, []);
   assert.equal(updater.installs, 0);
 });
 
 test("an empty publisher set cannot establish Windows verification", async () => {
   const { service, effects, updater } = await downloadedAdapter((updater) => { updater.publishers = []; });
-  assert.notEqual((await service.requestInstall()).state, "installing");
+  const status = service.getStatus();
+  assert.equal(status.state, "error");
+  assert.ok("message" in status);
+  assert.match(status.message, /expected publisher/i);
+  assert.equal(updater.signatureCalls, 0);
   assert.deepEqual(effects, []);
   assert.equal(updater.installs, 0);
 });
 
 test("signature rejection never shuts down or installs", async () => {
   const { service, effects, updater } = await downloadedAdapter((updater) => { updater.signatureResult = "invalid signature"; });
-  assert.equal((await service.requestInstall()).state, "error");
+  const status = service.getStatus();
+  assert.equal(status.state, "error");
+  assert.ok("message" in status);
+  assert.match(status.message, /invalid signature/);
   assert.deepEqual(effects, []);
   assert.equal(updater.installs, 0);
 });
@@ -155,37 +213,91 @@ test("Windows verifier returning null after a warning cannot prove signature ver
   const { service, effects, updater } = await downloadedAdapter((updater) => {
     updater.signatureWarning = "Ignoring signature validation due to unsupported powershell version";
   });
-  const installing = service.requestInstall();
-  await settle();
-  assert.equal(updater.installs, 0);
-  assert.equal((await installing).state, "error");
+  const status = service.getStatus();
+  assert.equal(status.state, "error");
+  assert.ok("message" in status);
+  assert.match(status.message, /verification could not be established/i);
   assert.deepEqual(effects, []);
   assert.equal(updater.installs, 0);
 });
 
-test("adapter owns asynchronous installer errors and service recovery exactly once", async () => {
-  const { updater, service, effects } = await downloadedAdapter();
-  const installing = service.requestInstall();
+for (const outcome of ["matching", "mismatch", "skipped", "missing-path"] as const) {
+  test(`pinned Windows publisher verifier: ${outcome} SimpleName fixture`, async () => {
+    const fixture = await downloadedAdapter((updater) => {
+      const { verifySignature } = loadPinnedModule("electron-updater/out/windowsExecutableCodeSignatureVerifier.js", {
+        os: { release: () => "10.0.22631" },
+        child_process: {
+          execFile(...args: any[]) {
+            const callback = args.at(-1);
+            queueMicrotask(() => callback(outcome === "skipped" ? new Error("PowerShell unavailable") : null,
+              JSON.stringify({ Status: 0, Path: outcome === "missing-path" ? undefined : "C:/cache/update.exe",
+                SignerCertificate: { Subject: `CN=${outcome === "mismatch" ? "Other publisher" : "OrkWorks publisher"}, O=OrkWorks` } }), ""));
+          },
+          execFileSync() { throw new Error("ConvertTo-Json unavailable"); },
+        },
+      });
+      updater.verifyUpdateCodeSignature = (publishers: string[], file: string) => verifySignature(publishers, file, updater.logger);
+    });
+    const status = fixture.service.getStatus();
+    if (outcome === "matching") {
+      assert.equal(status.state, "downloaded");
+      assert.ok("candidate" in status);
+      assert.equal(await fixture.verifyCandidate(status.candidate), true);
+    } else {
+      assert.equal(status.state, "error");
+      assert.ok("message" in status);
+      assert.match(status.message, /signature|publisher/i);
+    }
+    assert.deepEqual(fixture.effects, []);
+    assert.equal(fixture.updater.installs, 0);
+  });
+}
+
+test("pinned NSIS schedules quit after async failure and ignores the first direct retry", async () => {
+  const { updater, effects } = pinnedNsisFixture();
+  updater.quitAndInstall();
   await settle();
-  assert.strictEqual(service.requestInstall(), installing);
-  updater.emit("error", new Error("installer spawn failed asynchronously"));
-  const failed = await installing;
-  assert.equal(failed.state, "error");
-  assert.match(failed.message, /installer spawn failed asynchronously/);
-  assert.deepEqual(effects, ["query", "confirm", "stop", "restart"]);
-  assert.equal(updater.installs, 1);
+  assert.deepEqual(effects, ["spawn", "error", "quit"]);
+  updater.quitAndInstall();
+  await settle();
+  assert.deepEqual(effects, ["spawn", "error", "quit"], "no supported success/latch-reset handshake precedes retry");
 });
 
-test("adapter keeps successful install owned until application quit", async () => {
-  const { updater, application, service, effects } = await downloadedAdapter();
+test("Windows install fails closed before pinned NSIS can arm quit or an install latch", { timeout: 2000 }, async () => {
+  const native = pinnedNsisFixture();
+  const { updater, service, effects, application } = await downloadedAdapter((updater) => {
+    updater.quitAndInstall = () => { updater.installs++; native.updater.quitAndInstall(); };
+  });
   const installing = service.requestInstall();
-  await settle();
-  assert.strictEqual(service.check(), installing);
   assert.strictEqual(service.requestInstall(), installing);
-  application.emit("quit", {}, 0);
-  assert.equal((await installing).state, "installing");
-  assert.deepEqual(effects, ["query", "confirm", "stop"]);
-  assert.equal(updater.installs, 1);
+  await settle();
+  assert.deepEqual(effects, [], "blocked before session query, confirmation, shutdown, or recovery");
+  assert.deepEqual(native.effects, []);
+  const failed = await installing;
+  assert.equal(failed.state, "error");
+  assert.match(failed.message, /Windows.*unavailable.*manually/i);
+  const retry = service.requestInstall();
+  assert.notStrictEqual(retry, installing);
+  assert.equal((await retry).state, "error");
+  assert.equal((await service.check()).state, "available", "no pending install promise blocks checks");
+  assert.equal(updater.checks, 2, "blocked install must not run metadata revalidation");
+  assert.equal(updater.installs, 0);
+  assert.deepEqual(effects, []);
+  assert.deepEqual(native.effects, []);
+  assert.equal(application.listenerCount("quit"), 0);
+  assert.equal(updater.listenerCount("error"), 0);
+});
+
+test("direct adapter install also fails closed without touching native updater or quit listeners", { timeout: 2000 }, async () => {
+  const { updater, application, engine } = adapterFixture();
+  const installing = engine.quitAndInstall();
+  const rejected = assert.rejects(installing, /Windows.*unavailable.*manually/i);
+  await settle();
+  assert.equal(updater.installs, 0);
+  await rejected;
+  await assert.rejects(engine.quitAndInstall(), /unavailable/i);
+  assert.equal(application.listenerCount("quit"), 0);
+  assert.equal(updater.listenerCount("error"), 0);
 });
 
 test("nightly adapter blocks stable metadata fallback before accepting a result", async () => {

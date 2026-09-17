@@ -36,6 +36,7 @@ function engineFixture(): EngineFixture {
   const checkOperationIds: number[] = [];
   const downloadOperationIds: number[] = [];
   return {
+    installationUnavailableReason: null,
     autoDownload: true,
     autoInstallOnAppQuit: true,
     allowDowngrade: true,

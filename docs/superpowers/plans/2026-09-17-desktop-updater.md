@@ -8,6 +8,28 @@
 
 **Tech Stack:** Electron 44, `electron-updater` 6.8.9, Electron main TypeScript, preload context bridge, React/TypeScript renderer, Node’s built-in test runner, pnpm.
 
+**Final review wave 2 (2026-09-17):** The user authorized fail-closed Windows
+installation if public APIs cannot guarantee recovery, matching the macOS block.
+The pinned NSIS implementation schedules quit before asynchronous spawn failure
+and exposes no supported install-latch reset/retry handshake. The production
+engine therefore reports `installationUnavailableReason`; the service blocks
+before verification, session queries, confirmation, shutdown, or recovery, and
+direct adapter installation rejects without calling the native updater. The
+generic transaction tests below model an engine that explicitly supports install;
+they are not evidence of an enabled Windows or macOS install path.
+
+Normalize release metadata by excluding the public downloaded event's local
+`downloadedFile` field. Preserve fresh identity revalidation and require the
+existing verifier verdict. Windows publishers remain exact certificate SimpleName
+values, as required by the release pipeline; only the pinned successful CN message
+is exempt from warning rejection. Mismatch and skipped checks remain blocked.
+
+Uncertainty checkpoint: the least certain contract was asynchronous installer
+completion. A pinned NSIS fixture demonstrates error followed by scheduled quit
+and an ignored first retry. The overlooked distinction was a successful CN warning
+versus skipped verification; pinned verifier fixtures cover both. Native signed
+artifact validation remains unproved and installation remains blocked.
+
 ## Global Constraints
 
 - Use the fixed GitHub provider from `apps/desktop/electron-builder.yml`; renderer code must not supply feed URLs, tokens, channels, paths, or candidates.
@@ -73,6 +95,7 @@ export type UpdateEngineEvent =
   | { type: "error"; operation: "check" | "download"; message: string };
 
 export interface UpdateEngine {
+  readonly installationUnavailableReason: string | null;
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   allowDowngrade: boolean;
@@ -292,7 +315,7 @@ Add a `stopWait: Promise<void> | null` field to the current generation. `stopAnd
 
 - [ ] **Step 4: Run lifecycle tests and the desktop typecheck.**
 
-Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/sidecarLifecycle.test.ts`  
+Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/sidecarLifecycle.test.ts`
 Run: `pnpm.cmd --dir apps/desktop exec tsc --noEmit`
 
 Expected: PASS for the focused lifecycle tests and PASS for TypeScript compilation.
@@ -385,7 +408,7 @@ Expose the four `ipcRenderer.invoke` methods and a subscription that returns an 
 
 - [ ] **Step 5: Run focused wiring tests and typecheck.**
 
-Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/electronUpdaterWiring.test.ts tests/preloadUpdaterContract.test.ts`  
+Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/electronUpdaterWiring.test.ts tests/preloadUpdaterContract.test.ts`
 Run: `pnpm.cmd --dir apps/desktop exec tsc --noEmit`
 
 Expected: PASS for both focused tests and PASS for TypeScript compilation.
@@ -553,7 +576,7 @@ Add a navigation item and render branch for `updates`. Show current version, cha
 
 - [ ] **Step 5: Run focused UI tests and typecheck.**
 
-Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/menuUpdater.test.ts tests/updaterSettings.test.ts`  
+Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/menuUpdater.test.ts tests/updaterSettings.test.ts`
 Run: `pnpm.cmd --dir apps/desktop exec tsc --noEmit`
 
 Expected: PASS for the focused UI tests and PASS for TypeScript compilation.
@@ -582,18 +605,40 @@ Create `docs/user/updates.md` with these user-visible facts: packaged builds che
 
 - [ ] **Step 2: Run focused tests, docs build, typecheck, and diff checks.**
 
-Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/updateService.test.ts tests/sidecarLifecycle.test.ts tests/electronUpdaterWiring.test.ts tests/preloadUpdaterContract.test.ts tests/menuUpdater.test.ts tests/updaterSettings.test.ts`  
-Run: `pnpm.cmd --dir apps/desktop exec tsc --noEmit`  
-Run: `pnpm.cmd --dir docs build`  
+Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/updateService.test.ts tests/sidecarLifecycle.test.ts tests/electronUpdaterWiring.test.ts tests/preloadUpdaterContract.test.ts tests/menuUpdater.test.ts tests/updaterSettings.test.ts`
+Run: `pnpm.cmd --dir apps/desktop exec tsc --noEmit`
+Run: `pnpm.cmd --dir docs docs:build`
 Run: `git diff --check`
 
-Expected: all focused updater tests PASS, TypeScript PASS, docs build PASS, and `git diff --check` produces no output. Record the six known unrelated baseline failures from the pre-change full suite if they remain; do not attribute them to this feature without new evidence.
+Expected: all focused updater tests PASS, both TypeScript targets PASS, production
+and docs builds PASS, and `git diff --check` produces no output. Also run
+`pnpm.cmd --dir apps/desktop exec tsc -p tsconfig.node.json --noEmit` and
+`pnpm.cmd --dir apps/desktop build`. Compare full-suite failures to the measured
+seven-failure baseline below; do not attribute existing failures to this feature.
 
 - [ ] **Step 3: Run the full desktop test suite and inspect the diff.**
 
-Run: `pnpm.cmd --dir apps/desktop test`
+Run: `pnpm.cmd --dir apps/desktop exec node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs`
 
-Expected: updater tests PASS. Compare any remaining failures with the pre-change baseline: Electron binary installation, concurrent settings memory, Windows preload path normalization, recommendation evidence, Taskmaster debug metadata, and Taskmaster settings component were already failing before this plan.
+Expected: updater tests PASS. The prior measured pre-fix baseline was 909 tests,
+902 passed and **seven failed**; wave 1 ended at 928 tests, 921 passed and the same
+seven failures. This replaces the earlier six-category estimate:
+
+| Existing failing test/file | Measured failure |
+| --- | --- |
+| `dockviewLifecycle.test.mjs`: follows current instance across replacement/unmount | Electron GPU/cache process failure |
+| `electronSettingsMemory.test.ts`: concurrent settings writers | Child processes exited 1 |
+| `preloadBuildConfig.test.mjs` | Windows drive-qualified versus root-relative path |
+| `recommendationEvidence.test.mjs` | esbuild cannot resolve `/C:/...` source path |
+| `taskmaster.test.ts`: SessionDetailPanel gates Peon diagnostics | Existing debug metadata assertion |
+| `taskmasterSettingsComponent.test.mjs` | esbuild cannot resolve `/C:/...` source path |
+| `windowDialogDrag.test.mjs`: Windows modal overlays preserve dragging | Electron cache/GPU/ERR_FAILED |
+
+Wave 2's fresh pre-edit run at `e072567` measured 928 tests, 923 passed and five
+failures: the two Electron GUI cases passed this time, and the other five remained.
+Record this environment variation and compare final failure identities to both
+measurements; do not claim the full suite is green. Exact logs and final counts
+belong in the wave-2 report.
 
 - [ ] **Step 4: Perform the completion gate review.**
 

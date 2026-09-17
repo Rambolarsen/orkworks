@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "e
 import { spawn } from "child_process";
 import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
-import type { AppUpdater, NsisUpdater } from "electron-updater";
+import type { AppUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
 import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
 import { taskmasterRequest } from "./taskmasterSettings";
 import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
@@ -62,14 +62,9 @@ let openPlanToken = "";
 let settingsWriteQueue: Promise<void> = Promise.resolve();
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
 
-type ElectronUpdateInfo = {
-  version: string;
+type ElectronUpdateInfo = UpdateInfo & {
   tag?: string;
-  files: Array<{ url: string; sha512: string }>;
-  sha512: string;
-  releaseName?: string | null;
-  releaseNotes?: string | Array<{ version: string; note: string | null }> | null;
-  releaseDate: string;
+  downloadedFile?: string;
 };
 
 async function listSessions(baseUrl: string): Promise<Array<{ lifecycle?: string }>> {
@@ -91,7 +86,10 @@ function updateCandidate(info: ElectronUpdateInfo, channel: "latest" | "nightly"
   if (!payload || !/^[A-Za-z0-9+/]{86}==$/.test(payload.sha512)) {
     throw new Error("Update metadata is missing a valid platform payload checksum.");
   }
-  const metadataDigest = createHash("sha256").update(JSON.stringify(info)).digest("hex");
+  // UpdateDownloadedEvent extends UpdateInfo with a local completion path.
+  // Hash the same release metadata at check, completion, and revalidation.
+  const { downloadedFile: _downloadedFile, ...releaseMetadata } = info;
+  const metadataDigest = createHash("sha256").update(JSON.stringify(releaseMetadata)).digest("hex");
   const releaseNotes = Array.isArray(info.releaseNotes)
     ? info.releaseNotes.map(({ note }) => note).filter((note): note is string => note !== null).join("\n\n") || null
     : info.releaseNotes ?? null;
@@ -141,7 +139,7 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
   // Cached downloads that skip it cannot establish verification in this process.
   const windowsUpdater = autoUpdater as AppUpdater & Partial<Pick<NsisUpdater, "verifyUpdateCodeSignature">>;
   if (process.platform === "win32" && typeof windowsUpdater.verifyUpdateCodeSignature === "function") {
-    let verifying = false;
+    let verifyingPublishers: string[] | null = null;
     let verificationWarning = false;
     const logger = autoUpdater.logger;
     autoUpdater.logger = {
@@ -149,7 +147,12 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
       error: (message) => logger?.error(message),
       debug: (message) => logger?.debug?.(message),
       warn: (message) => {
-        if (verifying) verificationWarning = true;
+        // The release pipeline pins the certificate SimpleName (CN). This exact
+        // pinned-verifier message means a successful match, not skipped checks.
+        if (verifyingPublishers !== null && !verifyingPublishers.some((publisher) => message ===
+          `Signature validated using only CN ${publisher}. Please add your full Distinguished Name (DN) to publisherNames configuration`)) {
+          verificationWarning = true;
+        }
         logger?.warn(message);
       },
     };
@@ -160,16 +163,16 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
         return "Update signature verification requires an expected publisher.";
       }
       verificationWarning = false;
-      verifying = true;
+      verifyingPublishers = publishers;
       try {
         const failure = await verify(publishers, file);
         // The pinned verifier can warn and return null after skipping validation
-        // (e.g. unsupported PowerShell). Require an unqualified success; even a
-        // CN-only publisher warning fails closed. Release publishers must use DN.
+        // (e.g. unsupported PowerShell or missing path). Only the explicit
+        // successful SimpleName message above is exempt from failing closed.
         signatureVerified = failure === null && !verificationWarning;
         return failure ?? (signatureVerified ? null : "Windows signature verification could not be established without warnings.");
       } finally {
-        verifying = false;
+        verifyingPublishers = null;
       }
     };
   }
@@ -196,6 +199,11 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
   };
 
   const engine: UpdateEngine = {
+    // NSIS schedules quit before async spawn failure is known and exposes no
+    // supported latch reset/retry handshake. Block before any sidecar effects.
+    installationUnavailableReason: process.platform === "win32"
+      ? "Windows installation is unavailable: installer failure cannot be recovered safely through the public updater API. Install a signed release manually."
+      : "Installation is unavailable: native verification cannot be completed safely before shutdown. Install a signed release manually.",
     get autoDownload() { return autoUpdater.autoDownload; },
     set autoDownload(value) { autoUpdater.autoDownload = value; },
     get autoInstallOnAppQuit() { return autoUpdater.autoInstallOnAppQuit; },
@@ -313,27 +321,9 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
         }
       });
     },
-    quitAndInstall() {
-      return new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const finish = (error?: Error) => {
-          if (settled) return;
-          settled = true;
-          autoUpdater.removeListener("error", onError);
-          app.removeListener("quit", onQuit);
-          if (error) reject(error);
-          else resolve();
-        };
-        const onError = (error: Error) => finish(error);
-        const onQuit = () => finish();
-        autoUpdater.on("error", onError);
-        app.once("quit", onQuit);
-        try {
-          autoUpdater.quitAndInstall();
-        } catch (error) {
-          onError(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
+    async quitAndInstall() {
+      // Also fail closed if a caller bypasses the service's availability guard.
+      throw new Error(engine.installationUnavailableReason!);
     },
   };
 
