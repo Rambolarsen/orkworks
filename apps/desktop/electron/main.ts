@@ -618,13 +618,35 @@ app.whenReady().then(() => {
     });
   }
 
+  let persistedPeonRestoreController: AbortController | null = null;
+
+  function cancelPersistedPeonSelectionRestore(): void {
+    const controller = persistedPeonRestoreController;
+    persistedPeonRestoreController = null;
+    controller?.abort();
+  }
+
   function restorePersistedPeonSelection(port: number): void {
+    cancelPersistedPeonSelectionRestore();
     const selection = currentSettings?.providers.peonSelection;
     if (!selection) return;
-    void peonTransaction.syncPersistedSelection(selection, undefined, port)
-      .then((applied) => { appliedPeonState = applied; })
+    const generation = backendGeneration;
+    const controller = new AbortController();
+    persistedPeonRestoreController = controller;
+    const isCurrentReady = (): boolean => !controller.signal.aborted
+      && generation === backendGeneration
+      && latestBackendLifecycle.state === "ready";
+    void peonTransaction.syncPersistedSelection(selection, controller.signal, port)
+      .then((applied) => {
+        if (!isCurrentReady()) return;
+        appliedPeonState = applied;
+      })
       .catch((error: unknown) => {
+        if (!isCurrentReady()) return;
         console.warn(`[main] failed to restore Peon selection: ${error instanceof Error ? error.message : "unknown error"}`);
+      })
+      .finally(() => {
+        if (persistedPeonRestoreController === controller) persistedPeonRestoreController = null;
       });
   }
 
@@ -735,6 +757,7 @@ app.whenReady().then(() => {
         restoration.fail(new Error(lastBackendFailure));
       },
       onUnexpectedExit: (message) => {
+        cancelPersistedPeonSelectionRestore();
         backendGeneration += 1;
         const failureMessage = sanitizeBackendLifecycleFailure(message);
         lastBackendFailure = failureMessage;
@@ -746,6 +769,7 @@ app.whenReady().then(() => {
       },
       onState: (state: SidecarState) => {
         if (state === "starting") {
+          cancelPersistedPeonSelectionRestore();
           backendGeneration += 1;
           restoration.beginGeneration();
         }
@@ -779,6 +803,7 @@ app.whenReady().then(() => {
       workspacePath = nextPath;
     },
     onCloseAdmission: () => {
+      cancelPersistedPeonSelectionRestore();
       backendGeneration += 1;
     },
     closeCurrentRuntime: async () => {

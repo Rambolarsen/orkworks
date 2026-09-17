@@ -43,6 +43,33 @@ test("provider startup replay is serialized with settings mutations", () => {
   assert.match(replay, /const settings = currentSettings \?\? readSettings\(app\.getPath\("userData"\)\);/);
 });
 
+test("persisted Peon restoration is cancelled and admitted by the current ready backend", () => {
+  const restoreStart = mainSource.indexOf("function restorePersistedPeonSelection");
+  const restoreEnd = mainSource.indexOf("\n  const peonTransaction", restoreStart);
+  assert.ok(restoreStart >= 0 && restoreEnd > restoreStart, "persisted Peon restore helper not found");
+  const restore = mainSource.slice(restoreStart, restoreEnd);
+  assert.match(restore, /const generation = backendGeneration/);
+  assert.match(restore, /new AbortController\(\)/);
+  assert.match(restore, /syncPersistedSelection\(selection, controller\.signal, port\)/);
+  assert.match(restore, /generation === backendGeneration/);
+  assert.match(restore, /latestBackendLifecycle\.state === "ready"/);
+  const assignment = restore.indexOf("appliedPeonState = applied");
+  const admission = restore.indexOf("if (!isCurrentReady())");
+  assert.ok(admission >= 0 && assignment > admission, "stale Peon restore must be admitted before state mutation");
+
+  assert.match(mainSource, /function cancelPersistedPeonSelectionRestore/);
+  for (const hook of [
+    "onCloseAdmission: () => {",
+    "onUnexpectedExit: (message) => {",
+    'if (state === "starting") {',
+  ]) {
+    const hookStart = mainSource.indexOf(hook);
+    assert.ok(hookStart >= 0, `${hook} hook not found`);
+    const nextBlock = mainSource.slice(hookStart, hookStart + 180);
+    assert.match(nextBlock, /cancelPersistedPeonSelectionRestore\(\)/);
+  }
+});
+
 test("Electron main logs raw lifecycle failures but publishes only stable copy", () => {
   assert.match(mainSource, /sanitizeBackendLifecycleFailure/);
   assert.match(mainSource, /console\.error\(/);
