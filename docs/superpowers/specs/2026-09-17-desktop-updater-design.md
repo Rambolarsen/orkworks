@@ -1,6 +1,6 @@
 # Desktop Updater Design
 
-**Status:** Approved architecture; fixture-backed implementation scope
+**Status:** Revised after adversarial review; fixture-backed implementation scope
 
 **Date:** 2026-09-17
 
@@ -33,27 +33,50 @@ The service exposes a read-only status snapshot and a small command surface:
 - `check()` discovers an update without downloading it.
 - `download()` downloads the currently discovered update and coalesces
   duplicate requests.
-- `requestInstall()` revalidates a downloaded update, asks the main process to
-  confirm the restart, queries live session state from the current backend,
-  performs bounded sidecar shutdown, and invokes the updater's install method
-  only after shutdown succeeds.
+- `requestInstall()` revalidates a downloaded update, verifies the candidate,
+  queries live session state from the current backend, constructs a native
+  restart confirmation, performs bounded sidecar shutdown, and invokes the
+  updater's install method only after shutdown succeeds. All concurrent install
+  requests share one promise and one confirmation.
 
-The service uses a monotonically increasing operation generation. Every async
-completion checks its generation before publishing a status or event, so a
-late result from an older check or download cannot overwrite a newer state.
+The service uses a monotonically increasing operation sequence. Every async
+completion and every singleton `electron-updater` event carries or is checked
+against the current sequence before publishing a status, so stale progress,
+error, and `update-downloaded` events cannot overwrite a newer operation.
+Status subscriptions replay the current snapshot and then receive strictly
+increasing sequence numbers, closing the gap between an initial snapshot and
+listener registration.
+
+The updater factory has a construction-time `app.isPackaged` gate. In
+development it returns an unavailable service without constructing an
+`electron-updater` instance, registering event listeners, configuring a
+provider, making network requests, or enabling any IPC action. This gate is
+tested directly.
+
 The service uses `autoDownload = false`, `autoInstallOnAppQuit = false`, and
-disables downgrades. A packaged version without a nightly prerelease suffix
-uses the stable `latest` channel; a packaged version with the repository's
-nightly suffix uses the explicit `nightly` channel and allows prereleases.
-Development builds return an unavailable status and never touch the updater.
+disables downgrades. A packaged version with no prerelease uses the stable
+`latest` channel. A packaged version whose first prerelease identifier is
+exactly `nightly` and whose full version matches the repository's numeric
+nightly identity uses the explicit `nightly` channel and allows prereleases.
+Other prerelease identifiers and malformed nightly versions are unavailable
+errors; they never fall back to stable discovery.
+
+Before install, the service requires a verified candidate identity containing
+the channel, version/tag, metadata URL and digest, and updater-payload digest
+(`sha512` or the platform-equivalent verified digest). The real updater remains
+responsible for platform signature verification: Windows uses the configured
+publisher verification and macOS relies on signed/notarized update artifacts.
+The service's injected verifier models that result in fixture tests. A missing,
+invalid, or mismatched verification result blocks shutdown and installation.
 
 ## Electron boundary
 
 `electron/preload.ts`, `src/orkworksWindow.d.ts`, and the main-process service
 define the same narrow contract independently on each side of the existing
 Electron boundary. The renderer receives status snapshots and update events;
-it cannot provide a feed URL, release token, executable path, or updater
-configuration.
+it cannot provide a feed URL, release token, executable path, candidate
+identity, or updater configuration. `onUpdateStatus` first delivers the
+current snapshot and then only newer sequence-numbered events.
 
 The native menu adds `Check for updates`. The menu command is forwarded to the
 renderer only as a request to open Settings on the Updates section and start
@@ -65,8 +88,8 @@ not separate menu and Settings implementations.
 Settings gains an `Updates` section showing:
 
 - installed version and stable/nightly channel;
-- unavailable, idle, checking, update-available, downloading, downloaded,
-  installing, and error states;
+- unavailable, never-checked, checking, up-to-date, update-available,
+  downloading, downloaded, installing, and error states;
 - available version and release notes when present;
 - download progress when available; and
 - retry, Download, and Restart and install actions according to the current
@@ -78,11 +101,30 @@ Cancellation leaves the application running.
 
 ## Install and failure behavior
 
-Before installation, main queries the current backend for live session state.
-If the backend is unavailable, confirmation explicitly says that sessions may
-be interrupted. Main then uses the existing sidecar lifecycle shutdown path and
-waits for bounded completion. A shutdown failure leaves the downloaded update
-uninstalled and reports a retryable error.
+The install sequence is strictly:
+
+1. Revalidate the cached candidate against current metadata, comparing channel,
+   version/tag, metadata identity/digest, and updater-payload digest.
+2. Query the current backend for sessions; `lifecycle === "alive"` is the live
+   predicate. A dead or empty session set is safe; an unavailable backend is
+   represented as unknown.
+3. Construct the native confirmation using that result. Unknown state must say
+   that sessions may be interrupted. Cancellation has no shutdown or install
+   side effect.
+4. Ask the sidecar lifecycle for an awaitable bounded shutdown. The lifecycle
+   contract reports success only after process exit, and reports timeout or
+   failure without blindly replacing a still-running sidecar. Repeated shutdown
+   calls share one promise.
+5. Invoke the updater's explicit install operation only after verification and
+   shutdown succeed.
+
+The lifecycle gains a focused `stopAndWait(timeoutMs)` seam backed by the
+existing process exit/error events. It is bounded, idempotent, and testable for
+normal exit, timeout, process error, and repeated callers. If the installer
+fails after a successful shutdown, main attempts to restart the sidecar at the
+last workspace path before reporting a retryable error. If recovery also
+fails, the UI reports that OrkWorks must be restarted; it never replaces a
+running sidecar or claims the update was installed.
 
 Ordinary application quit never installs a downloaded update. On a later
 launch, a cached update is not installable until the current release metadata
@@ -97,8 +139,12 @@ Tests are written before implementation in focused units:
 
 - update-service state transitions, duplicate-action coalescing, generation
   guards, channel configuration, development-build refusal, retryable errors,
-  cached-download revalidation, confirmation cancellation, unavailable session
-  state, shutdown failure, and install ordering;
+  cached-download revalidation, exact candidate identity comparison, signature
+  or checksum verification refusal before shutdown, confirmation cancellation,
+  live/dead/unavailable session state, duplicate install requests, stale updater
+  events and progress, status-subscription replay, shutdown
+  timeout/process-error/repeated-call behavior, installer failure recovery, and
+  install ordering;
 - menu-template coverage for the command and hotkey-capture suppression;
 - preload and renderer contract coverage for status/events and commands;
 - Settings source/component coverage for the Updates section and action
@@ -109,7 +155,10 @@ Tests are written before implementation in focused units:
 The existing `nightlyUpdateChannel.test.mjs` remains the transport-level
 contract for electron-updater's custom channel. A real signed installed-build
 update on macOS and Windows remains blocked until #510's credentials and
-manual nightly validation are complete.
+manual nightly validation are complete. The fixture suite must not be used to
+close #511: completion also requires recording one older signed build updating
+to a newer signed build on each supported platform, preserving settings and
+requiring explicit restart, plus updating the operator/user validation record.
 
 ## Non-goals
 
