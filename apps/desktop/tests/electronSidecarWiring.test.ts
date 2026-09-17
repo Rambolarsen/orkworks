@@ -117,6 +117,7 @@ test("retry keeps cleanup-timeout unresolved diagnostics across the IPC contract
 
   assert.match(retryHandler, /Promise<BackendRetryResult>/);
   assert.match(retryHandler, /return \{ ok: false, state: "unresolved", failure: result\.failure \};/);
+  assert.match(retryHandler, /return \{ ok: false, state: "picker", failure: result\.failure \};/);
   assert.doesNotMatch(retryHandler, /throw new Error\(result\.failure\.message\)/);
   assert.match(preloadSource, /retryBackend: \(\): Promise<BackendRetryResult> =>/);
   assert.match(rendererTypes, /export type BackendRetryResult =/);
@@ -128,7 +129,8 @@ test("retry keeps cleanup-timeout unresolved diagnostics across the IPC contract
   const appHandler = appSource.slice(appStart, appEnd);
   assert.match(appHandler, /\.then\(\(result\) => \{/);
   assert.match(appHandler, /setWorkspaceSwitchDiagnostic\(result\.failure\.message\)/);
-  assert.match(appHandler, /setBackendStatus\(result\.state === "unresolved" \? "unresolved" : "unreachable"\)/);
+  assert.match(appHandler, /setBackendStatus\(result\.state\);/);
+  assert.doesNotMatch(appHandler, /result\.state === "unresolved" \? "unresolved" : "unreachable"/);
 });
 
 test("retry cannot turn the stable picker into a ready null-workspace sidecar", () => {

@@ -33,6 +33,12 @@ Worktree: `/Users/froomiebot/workspace/orkworks/.worktrees/545-production-seam-a
   contract for picker diagnostics and opening/closing/unresolved states.
 - Updated `App.tsx` to gate polling during transitions, retain picker and
   diagnostics after failure, and expose explicit retry behavior.
+- Preserved attempted-runtime cleanup failures independently from the nullable
+  workspace path, so path-null close/quit requests remain unresolved and do
+  not dispose the lifecycle until an explicit retry acknowledges cleanup.
+- Kept typed retry outcomes intact through the renderer: a destination retry
+  returning `picker` remains picker, while unresolved cleanup retains its
+  diagnostic and status.
 
 ## Verification
 
@@ -63,6 +69,38 @@ network install were run.
 - No peer-instance registry or coordination was added.
 - Task 4 still owns canonical identity and sidecar lease-adoption changes.
 - Task 5 still owns native crash-surviving process ownership evidence.
+
+## Review-fix follow-up (2026-09-17)
+
+The follow-up closes the path-null attempted-runtime cleanup seam and preserves
+the picker result across the retry IPC/renderer boundary. The new coordinator
+regression covers a failed destination cleanup, path-null quit rejection,
+blocked replacement startup, explicit cleanup acknowledgement, and recovery.
+The wiring regressions cover both typed picker and unresolved retry results.
+
+Verification for this follow-up, from `apps/desktop/`:
+
+```text
+node --experimental-strip-types --test \
+  tests/sidecarLifecycle.test.ts \
+  tests/workspaceSwitchCoordinator.test.ts \
+  tests/backendRestoration.test.ts \
+  tests/electronSidecarWiring.test.ts \
+  tests/backendLifecycleWiring.test.ts \
+  tests/backendLifecycleEvent.test.ts
+PASS — 72 tests, 0 failures
+
+npx tsc --noEmit -p tsconfig.node.json
+PASS
+
+npx tsc --noEmit -p tsconfig.json
+PASS
+
+git diff --check
+PASS
+```
+
+No full suite or network-dependent command was run.
 
 ## Review-fix verification (2026-09-17)
 

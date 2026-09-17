@@ -17,6 +17,7 @@ function createHarness(options: {
   cleanupAttempted?: () => Promise<void>;
   remember?: (path: string, workspace: Workspace) => void;
   initialWorkspacePath?: string | null;
+  onQuit?: () => void;
 } = {}) {
   const actions: string[] = [];
   const events: Array<WorkspaceSwitchEvent<Workspace>> = [];
@@ -47,6 +48,7 @@ function createHarness(options: {
       options.remember?.(path, workspace);
     },
     publish: (event) => events.push(event),
+    onQuit: options.onQuit,
   });
 
   return { coordinator, actions, events, getCurrentPath: () => currentPath };
@@ -282,4 +284,58 @@ test("quit cleanup timeout remains unresolved and can be retried", async () => {
   assert.equal(recovered.ok, true);
   assert.equal(harness.coordinator.getState(), "picker");
   assert.deepEqual(harness.actions, ["close-current", "close-current", "path:none"]);
+});
+
+test("path-null attempted-runtime cleanup failure blocks quit until retry acknowledges cleanup", async () => {
+  let cleanupAcknowledged = false;
+  let startAttempts = 0;
+  let quitCalls = 0;
+  const harness = createHarness({
+    initialWorkspacePath: null,
+    start: async (path) => {
+      harness.actions.push(`start:${path}`);
+      startAttempts += 1;
+      if (startAttempts === 1) {
+        throw new WorkspaceSwitchError("readiness_failed", "Destination did not become ready");
+      }
+      return { workspace: { path }, port: 4200 };
+    },
+    cleanupAttempted: async () => {
+      if (!cleanupAcknowledged) {
+        throw new SidecarCleanupError("cleanup_timeout", "Attempted runtime cleanup timed out");
+      }
+    },
+    onQuit: () => {
+      quitCalls += 1;
+    },
+  });
+
+  const failed = await harness.coordinator.switchWorkspace("/next");
+
+  assert.equal(failed.ok, false);
+  if (failed.ok) return;
+  assert.equal(failed.state, "unresolved");
+  assert.equal(harness.coordinator.getCurrentWorkspacePath(), null);
+
+  const quit = await harness.coordinator.quit();
+
+  assert.equal(quit.ok, false);
+  if (quit.ok) return;
+  assert.equal(quit.state, "unresolved");
+  assert.equal(quit.failure.code, "cleanup_timeout");
+  assert.equal(quitCalls, 0);
+
+  const blockedSwitch = await harness.coordinator.switchWorkspace("/third");
+
+  assert.equal(blockedSwitch.ok, false);
+  if (blockedSwitch.ok) return;
+  assert.equal(blockedSwitch.state, "unresolved");
+  assert.equal(harness.actions.includes("start:/third"), false);
+
+  cleanupAcknowledged = true;
+  const recovered = await harness.coordinator.retry();
+
+  assert.equal(recovered.ok, true);
+  assert.equal(harness.actions.filter((action) => action === "cleanup-attempted").length, 2);
+  assert.equal(harness.coordinator.getState(), "ready");
 });

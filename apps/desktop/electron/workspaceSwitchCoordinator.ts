@@ -95,6 +95,7 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
   let state: WorkspaceInstanceState = options.initialWorkspacePath ? "ready" : "picker";
   let currentWorkspacePath = options.initialWorkspacePath;
   let lastDestination = options.initialWorkspacePath;
+  let attemptedRuntimeCleanupFailure: WorkspaceSwitchFailure | null = null;
   let generation = 0;
   let operationTail: Promise<void> = Promise.resolve();
 
@@ -129,6 +130,15 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
   }
 
   async function switchWorkspaceInternal(path: string): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic>> {
+    if (attemptedRuntimeCleanupFailure) {
+      return {
+        ok: false,
+        state: "unresolved",
+        generation,
+        failure: attemptedRuntimeCleanupFailure,
+      };
+    }
+
     const validatedPath = options.validateDestination(path);
     if (!validatedPath) {
       const failure: WorkspaceSwitchFailure = {
@@ -160,6 +170,7 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
         await options.cleanupAttemptedRuntime();
       } catch (cleanupError: unknown) {
         const cleanupFailure = failureFrom(cleanupError, "cleanup_failed");
+        attemptedRuntimeCleanupFailure = cleanupFailure;
         publish({ state: "unresolved", generation: nextGeneration, failure: cleanupFailure });
         return { ok: false, state: "unresolved", generation: nextGeneration, failure: cleanupFailure };
       }
@@ -174,8 +185,11 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
       };
       try {
         await options.cleanupAttemptedRuntime();
-      } catch {
-        // The operation is already obsolete; no newer operation may be affected.
+      } catch (cleanupError: unknown) {
+        const cleanupFailure = failureFrom(cleanupError, "cleanup_failed");
+        attemptedRuntimeCleanupFailure = cleanupFailure;
+        publish({ state: "unresolved", generation: nextGeneration, failure: cleanupFailure });
+        return { ok: false, state: "unresolved", generation: nextGeneration, failure: cleanupFailure };
       }
       return { ok: false, state: "picker", generation: nextGeneration, failure };
     }
@@ -209,6 +223,10 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
 
   async function closeInternal(): Promise<{ ok: true; state: "picker"; generation: number } | { ok: false; state: "unresolved"; generation: number; failure: WorkspaceSwitchFailure }> {
     const nextGeneration = ++generation;
+    if (attemptedRuntimeCleanupFailure) {
+      publish({ state: "unresolved", generation: nextGeneration, failure: attemptedRuntimeCleanupFailure });
+      return { ok: false, state: "unresolved", generation: nextGeneration, failure: attemptedRuntimeCleanupFailure };
+    }
     if (!currentWorkspacePath) {
       publish({ state: "picker", generation: nextGeneration });
       return { ok: true, state: "picker", generation: nextGeneration };
@@ -245,6 +263,18 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
 
     retry(): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic>> {
       return enqueue(async () => {
+        if (attemptedRuntimeCleanupFailure) {
+          try {
+            await options.cleanupAttemptedRuntime();
+            attemptedRuntimeCleanupFailure = null;
+            publish({ state: "picker", generation });
+          } catch (error: unknown) {
+            const failure = failureFrom(error, "cleanup_failed");
+            attemptedRuntimeCleanupFailure = failure;
+            publish({ state: "unresolved", generation, failure });
+            return { ok: false, state: "unresolved", generation, failure };
+          }
+        }
         if (!lastDestination) {
           const failure: WorkspaceSwitchFailure = {
             code: "invalid_destination",

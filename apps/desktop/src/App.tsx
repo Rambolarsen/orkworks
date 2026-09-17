@@ -148,7 +148,7 @@ function App() {
         if (!backendRetryGuardRef.current.isCurrent(token)) return;
         if (!result.ok) {
           setWorkspaceSwitchDiagnostic(result.failure.message);
-          setBackendStatus(result.state === "unresolved" ? "unresolved" : "unreachable");
+          setBackendStatus(result.state);
         }
       })
       .catch(() => {

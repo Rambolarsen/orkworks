@@ -54,7 +54,19 @@ test("a retry result preserves an unresolved cleanup diagnostic instead of mappi
   assert.match(handler, /\.then\(\(result\) => \{/);
   assert.match(handler, /if \(!result\.ok\)/);
   assert.match(handler, /setWorkspaceSwitchDiagnostic\(result\.failure\.message\)/);
-  assert.match(handler, /setBackendStatus\(result\.state === "unresolved" \? "unresolved" : "unreachable"\)/);
+  assert.match(handler, /setBackendStatus\(result\.state\);/);
+  assert.doesNotMatch(handler, /result\.state === "unresolved" \? "unresolved" : "unreachable"/);
+});
+
+test("a failed destination retry preserves the picker state from the typed IPC result", () => {
+  const start = appSource.indexOf("const handleRetryBackend = useCallback");
+  const end = appSource.indexOf("const handleBackendUnavailable = useCallback");
+  assert.ok(start !== -1 && end !== -1 && start < end, "handleRetryBackend block not found");
+  const handler = appSource.slice(start, end);
+
+  assert.match(handler, /if \(!result\.ok\) \{/);
+  assert.match(handler, /setWorkspaceSwitchDiagnostic\(result\.failure\.message\)/);
+  assert.match(handler, /setBackendStatus\(result\.state\);/);
 });
 
 test("opening a workspace adopts the restoration once — from the ready handler, not the dialog handler", () => {
