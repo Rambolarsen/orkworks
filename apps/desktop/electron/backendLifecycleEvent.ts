@@ -1,7 +1,7 @@
 export type BackendLifecycleEvent =
   | { state: "picker" }
   | { state: "starting" | "retrying" }
-  | { state: "ready"; port: number; workspace: BackendLifecycleWorkspace | null }
+  | { state: "ready"; port: number; workspace: BackendLifecycleWorkspace | null; historyDiagnostic: WorkspaceHistoryDiagnostic | null }
   | { state: "failed" | "exhausted"; message: string };
 
 export interface BackendLifecycleWorkspace {
@@ -15,7 +15,7 @@ export interface BackendLifecycleWorkspace {
 }
 
 export interface WorkspaceHistoryDiagnostic {
-  code: "corrupt_history";
+  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
   message: string;
 }
 
@@ -64,6 +64,18 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
     : null;
 }
 
+function canonicalizeHistoryDiagnostic(value: unknown): WorkspaceHistoryDiagnostic | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!hasExactKeys(value, ["code", "message"])) return null;
+  const diagnostic = value as Record<string, unknown>;
+  return (diagnostic.code === "corrupt_history"
+    || diagnostic.code === "history_lock_timeout"
+    || diagnostic.code === "history_write_failed")
+    && typeof diagnostic.message === "string"
+    ? { code: diagnostic.code, message: diagnostic.message }
+    : null;
+}
+
 export function canonicalizeBackendLifecycleEvent(data: unknown): BackendLifecycleEvent | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
 
@@ -77,13 +89,18 @@ export function canonicalizeBackendLifecycleEvent(data: unknown): BackendLifecyc
       const port = event.port;
       const rawWorkspace = event.workspace;
       const workspace = rawWorkspace === null ? null : canonicalizeWorkspace(rawWorkspace);
-      return hasExactKeys(data, ["state", "port", "workspace"])
+      const rawHistoryDiagnostic = event.historyDiagnostic;
+      const historyDiagnostic = rawHistoryDiagnostic === null
+        ? null
+        : canonicalizeHistoryDiagnostic(rawHistoryDiagnostic);
+      return hasExactKeys(data, ["state", "port", "workspace", "historyDiagnostic"])
         && typeof port === "number"
         && Number.isInteger(port)
         && port >= 1
         && port <= 65_535
         && (rawWorkspace === null || workspace !== null)
-        ? { state: "ready", port, workspace }
+        && (rawHistoryDiagnostic === null || historyDiagnostic !== null)
+        ? { state: "ready", port, workspace, historyDiagnostic }
         : null;
     }
     if (state === "failed" || state === "exhausted") {

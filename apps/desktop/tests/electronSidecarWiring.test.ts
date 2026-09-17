@@ -17,7 +17,7 @@ test("Electron main centralizes initial and workspace sidecar startup", () => {
 });
 
 test("Electron main restores workspace and settings before publishing ready", () => {
-  assert.match(mainSource, /import \{ createBackendRestorationCoordinator, switchWorkspaceBackend/);
+  assert.match(mainSource, /import \{ createBackendRestorationCoordinator, switchWorkspaceBackend, WorkspaceRestorationFailure/);
   assert.equal(mainSource.match(/createBackendRestorationCoordinator(?:<[^>]+>)?\(/g)?.length, 1);
   assert.match(mainSource, /restoreWorkspace: \(signal\) => restoreWorkspace\(port, signal\)/);
   assert.match(mainSource, /applyRetentionSettings: \(signal\) => applyRetentionSettings\(port, signal\)/);
@@ -57,10 +57,30 @@ test("a stale remembered workspace path degrades to no-workspace, not a backend 
   assert.doesNotMatch(mainSource, /throw new Error\(`Workspace restoration failed: \$\{response\.status\}`\)/);
 });
 
+test("a remembered 400/404 restoration rejects readiness, stops the attempted sidecar, and publishes picker", () => {
+  assert.match(mainSource, /throw new WorkspaceRestorationFailure\(restoreResult\.status/);
+  assert.match(mainSource, /if \(error instanceof WorkspaceRestorationFailure\) \{[\s\S]*sidecarLifecycle\?\.stop\(\);[\s\S]*publishBackendLifecycle\(\{ state: "picker" \}\);/);
+  assert.match(mainSource, /state: "picker"/);
+});
+
+test("startup validates the remembered path as an accessible directory before starting a sidecar", () => {
+  assert.match(mainSource, /accessibleWorkspaceDirectoryPath\(appMemory\.lastWorkspacePath\)/);
+  assert.match(mainSource, /const initialSidecarCwd = initialWorkspacePath;/);
+  assert.match(mainSource, /if \(initialSidecarCwd\) \{[\s\S]*sidecarLifecycle\.start\(initialSidecarCwd\)/);
+});
+
 test("backend readiness and retry use the lifecycle controller", () => {
   assert.match(mainSource, /ipcMain\.handle\("get-backend-url", async \(\) => \{\s*const port = await restoration\.getReadiness\(\)/);
   assert.match(mainSource, /ipcMain\.handle\("retry-backend", async \(\) => \{[\s\S]*sidecarLifecycle\.retry\(\)/);
   assert.doesNotMatch(mainSource, /new Promise<number>\(\(resolve\) => \{\s*portResolve/);
+});
+
+test("retry cannot turn the stable picker into a ready null-workspace sidecar", () => {
+  const start = mainSource.indexOf('ipcMain.handle("retry-backend"');
+  const end = mainSource.indexOf('\n  });', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = mainSource.slice(start, end);
+  assert.match(handler, /if \(!workspacePath\) \{[\s\S]*publishBackendLifecycle\(\{ state: "picker" \}\);[\s\S]*return;/);
 });
 
 test("initial workspace restoration handles rejected readiness", () => {
@@ -69,15 +89,15 @@ test("initial workspace restoration handles rejected readiness", () => {
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const handler = mainSource.slice(start, end);
-  assert.match(handler, /try \{[\s\S]*await restoration\.getReadiness\(\);[\s\S]*return \{ workspace: restoration\.getRestoredWorkspace\(\), historyDiagnostic: initialHistoryDiagnostic \};/);
-  assert.match(handler, /return \{ workspace: null, historyDiagnostic: initialHistoryDiagnostic \};/);
+  assert.match(handler, /try \{[\s\S]*await restoration\.getReadiness\(\);[\s\S]*return \{ workspace: restoration\.getRestoredWorkspace\(\), historyDiagnostic: currentHistoryDiagnostic \};/);
+  assert.match(handler, /return \{ workspace: null, historyDiagnostic: currentHistoryDiagnostic \};/);
 });
 
 test("history is persisted after restoration readiness without rolling back the ready workspace", () => {
-  const readyIndex = mainSource.indexOf('publishBackendLifecycle({ state: "ready", port, workspace });');
-  const rememberIndex = mainSource.indexOf("rememberRestoredWorkspace(workspace);", readyIndex);
-  assert.ok(readyIndex >= 0);
-  assert.ok(rememberIndex > readyIndex);
+  const rememberIndex = mainSource.indexOf("rememberRestoredWorkspace(workspace)");
+  const readyIndex = mainSource.indexOf('publishBackendLifecycle({ state: "ready", port, workspace, historyDiagnostic });');
+  assert.ok(rememberIndex >= 0);
+  assert.ok(readyIndex > rememberIndex);
 
   const start = mainSource.indexOf("function rememberRestoredWorkspace");
   const end = mainSource.indexOf("\n  async function restoreWorkspace", start);
@@ -87,6 +107,13 @@ test("history is persisted after restoration readiness without rolling back the 
   assert.match(persistence, /result\.diagnostic/);
   assert.match(persistence, /workspace history was not updated/);
   assert.doesNotMatch(persistence, /workspacePath\s*=/);
+});
+
+test("history diagnostics are carried through ready lifecycle state and remain visible with an active workspace", () => {
+  assert.match(mainSource, /historyDiagnostic: currentHistoryDiagnostic/);
+  assert.match(mainSource, /currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic\(result\.diagnostic\)/);
+  assert.match(appSource, /event\.state === "ready"[\s\S]*setWorkspaceHistoryDiagnostic\(event\.historyDiagnostic\)/);
+  assert.match(appSource, /workspaceHistoryDiagnostic &&[\s\S]*Workspace history unavailable/);
 });
 
 test("workspace replacement stages the path before starting the replacement backend", () => {
@@ -120,7 +147,7 @@ test("preload validates and forwards the lifecycle contract", () => {
 test("renderer declarations expose the same lifecycle contract", () => {
   assert.match(rendererTypes, /export type BackendLifecycleEvent\s*=/);
   assert.match(rendererTypes, /state: "starting" \| "retrying"/);
-  assert.match(rendererTypes, /state: "ready"; port: number; workspace: WorkspaceInfo \| null/);
+  assert.match(rendererTypes, /state: "ready"; port: number; workspace: WorkspaceInfo \| null; historyDiagnostic: WorkspaceHistoryDiagnostic \| null/);
   assert.match(rendererTypes, /state: "failed" \| "exhausted"; message: string/);
   assert.match(rendererTypes, /export type WorkspaceHistoryDiagnostic/);
   assert.match(rendererTypes, /export type InitialWorkspaceSnapshot/);

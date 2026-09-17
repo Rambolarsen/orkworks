@@ -4,6 +4,16 @@ export interface BackendRestorationSteps<TWorkspace> {
   syncProviderSettings(signal: AbortSignal): Promise<void>;
 }
 
+export class WorkspaceRestorationFailure extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`Workspace restoration was rejected: ${status}`);
+    this.name = "WorkspaceRestorationFailure";
+    this.status = status;
+  }
+}
+
 export interface BackendRestorationCoordinator<TWorkspace> {
   beginGeneration(): void;
   restore(port: number, steps: BackendRestorationSteps<TWorkspace>): void;

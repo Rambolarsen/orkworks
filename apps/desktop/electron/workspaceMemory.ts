@@ -9,6 +9,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -117,7 +118,10 @@ function validStoredMemory(value: unknown): value is StoredWorkspaceMemory {
     && raw.revision >= 0
     && (raw.lastWorkspacePath === null || typeof raw.lastWorkspacePath === "string")
     && Array.isArray(raw.recentWorkspacePaths)
-    && raw.recentWorkspacePaths.every((entry) => typeof entry === "string");
+    && raw.recentWorkspacePaths.length <= maximumRecentPaths
+    && raw.recentWorkspacePaths.every((entry) => typeof entry === "string")
+    && new Set(raw.recentWorkspacePaths).size === raw.recentWorkspacePaths.length
+    && (raw.lastWorkspacePath === null || raw.recentWorkspacePaths.includes(raw.lastWorkspacePath));
 }
 
 function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
@@ -125,19 +129,16 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
   if (!existsSync(target)) return emptyMemory();
 
   try {
-    const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
+    const source = readFileSync(target);
+    if (source.byteLength > maximumSerializedBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    const parsed: unknown = JSON.parse(source.toString("utf8"));
     if (!validStoredMemory(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
-    const recentWorkspacePaths = boundedPaths(
-      parsed.lastWorkspacePath,
-      parsed.recentWorkspacePaths,
-      parsed.revision,
-    );
-    if (recentWorkspacePaths === null) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    if (!memoryFits(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     return {
       version: 1,
       revision: parsed.revision,
       lastWorkspacePath: parsed.lastWorkspacePath,
-      recentWorkspacePaths,
+      recentWorkspacePaths: [...parsed.recentWorkspacePaths],
       diagnostic: null,
     };
   } catch {
@@ -293,6 +294,15 @@ export function readWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
 
 export function canonicalWorkspacePath(workspacePath: string): string | null {
   try {
+    return realpathSync.native(workspacePath);
+  } catch {
+    return null;
+  }
+}
+
+export function accessibleWorkspaceDirectoryPath(workspacePath: string): string | null {
+  try {
+    if (!statSync(workspacePath).isDirectory()) return null;
     return realpathSync.native(workspacePath);
   } catch {
     return null;

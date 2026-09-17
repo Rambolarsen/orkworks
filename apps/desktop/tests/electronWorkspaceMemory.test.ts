@@ -7,8 +7,10 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,6 +20,7 @@ import test from "node:test";
 import {
   forgetWorkspacePath,
   canonicalWorkspacePath,
+  accessibleWorkspaceDirectoryPath,
   readWorkspaceMemory,
   rememberWorkspacePath,
   workspaceMemoryPath,
@@ -193,6 +196,65 @@ test("workspace history rejects unknown persisted fields without overwriting the
     assert.equal(readFileSync(historyPath, "utf8"), corrupt);
   }));
 
+test("workspace history rejects a valid-looking file whose serialized bytes exceed the bound", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const record = `${JSON.stringify({
+      version: 1,
+      revision: 1,
+      lastWorkspacePath: "/repo/a",
+      recentWorkspacePaths: ["/repo/a"],
+    })}${" ".repeat(64 * 1024)}\n`;
+    assert.ok(Buffer.byteLength(record, "utf8") > 64 * 1024);
+    writeFileSync(historyPath, record);
+
+    const memory = readWorkspaceMemory(directory);
+
+    assert.equal(memory.diagnostic?.code, "corrupt_history");
+    assert.equal(memory.revision, 0);
+    assert.equal(readFileSync(historyPath, "utf8"), record);
+  }));
+
+test("workspace history rejects oversized and duplicate records without normalizing them", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const cases = [
+      {
+        version: 1,
+        revision: 2,
+        lastWorkspacePath: "/repo/a",
+        recentWorkspacePaths: Array.from({ length: 21 }, (_, index) => `/repo/${index}`),
+      },
+      {
+        version: 1,
+        revision: 3,
+        lastWorkspacePath: "/repo/a",
+        recentWorkspacePaths: ["/repo/a", "/repo/a"],
+      },
+    ];
+
+    for (const record of cases) {
+      const source = `${JSON.stringify(record)}\n`;
+      writeFileSync(historyPath, source);
+      const memory = readWorkspaceMemory(directory);
+      assert.equal(memory.diagnostic?.code, "corrupt_history");
+      assert.equal(memory.revision, 0);
+      assert.equal(readFileSync(historyPath, "utf8"), source);
+    }
+  }));
+
+test("startup workspace validation accepts only accessible directories", () =>
+  withTemporaryUserData((directory) => {
+    const workspace = join(directory, "workspace");
+    const regularFile = join(directory, "workspace.txt");
+    mkdirSync(workspace);
+    writeFileSync(regularFile, "not a workspace");
+
+    assert.equal(accessibleWorkspaceDirectoryPath(workspace), realpathSync(workspace));
+    assert.equal(accessibleWorkspaceDirectoryPath(regularFile), null);
+    assert.equal(statSync(regularFile).isDirectory(), false);
+  }));
+
 test("a live OS lock is never evicted, even after five seconds; process exit releases it", () =>
   withTemporaryUserData(async (directory) => {
     const lockPath = join(directory, ".workspace-memory.lock");
@@ -274,10 +336,13 @@ test("workspace history evicts using the actual next revision size", () =>
     });
     let padding = 0;
     while (
-      Buffer.byteLength(`${JSON.stringify(baseRecord(padding, 0), null, 2)}\n`, "utf8") <= 64 * 1024
+      Buffer.byteLength(`${JSON.stringify(baseRecord(padding, revision), null, 2)}\n`, "utf8") <= 64 * 1024
       && Buffer.byteLength(`${JSON.stringify(baseRecord(padding, revision + 1), null, 2)}\n`, "utf8") <= 64 * 1024
     ) {
       padding += 1;
+    }
+    while (Buffer.byteLength(`${JSON.stringify(baseRecord(padding, revision), null, 2)}\n`, "utf8") > 64 * 1024) {
+      padding -= 1;
     }
     writeFileSync(workspaceMemoryPath(directory), `${JSON.stringify(baseRecord(padding, revision), null, 2)}\n`);
 

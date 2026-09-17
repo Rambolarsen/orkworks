@@ -99,9 +99,11 @@ function App() {
     if (event.state === "ready") {
       workspaceSessionController.setPollingEnabled(false);
       void workspaceSessionController.adoptRestoredWorkspace(event.workspace);
+      setWorkspaceHistoryDiagnostic(event.historyDiagnostic);
       setBackendStatus("connected");
     } else if (event.state === "picker") {
       workspaceSessionController.setPollingEnabled(false);
+      void workspaceSessionController.adoptRestoredWorkspace(null);
       setBackendStatus("picker");
     } else if (event.state === "failed") {
       setBackendStatus("unreachable");
@@ -601,6 +603,11 @@ function App() {
               >
                 &#x21C4;
               </button>
+              {workspaceHistoryDiagnostic && (
+                <span role="alert" title={workspaceHistoryDiagnostic.message}>
+                  Workspace history unavailable
+                </span>
+              )}
             </>
           ) : (
             <>

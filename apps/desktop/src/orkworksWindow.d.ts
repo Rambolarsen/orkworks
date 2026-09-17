@@ -6,11 +6,11 @@ import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 export type BackendLifecycleEvent =
   | { state: "picker" }
   | { state: "starting" | "retrying" }
-  | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
+  | { state: "ready"; port: number; workspace: WorkspaceInfo | null; historyDiagnostic: WorkspaceHistoryDiagnostic | null }
   | { state: "failed" | "exhausted"; message: string };
 
 export type WorkspaceHistoryDiagnostic = {
-  code: "corrupt_history";
+  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
   message: string;
 };
 
