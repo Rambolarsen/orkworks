@@ -178,6 +178,9 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
 
   function launch(cwd: string): Promise<number> {
     if (disposed) return Promise.reject(new Error("Sidecar lifecycle has been disposed"));
+    if (stoppingGeneration?.process && !stoppingGeneration.exited) {
+      return Promise.reject(new Error("Sidecar exit has not been confirmed. Restart OrkWorks to recover."));
+    }
 
     stoppingGeneration = null;
     attempts += 1;
@@ -270,6 +273,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
 
       const previous = current;
       if (!previous?.process) {
+        if (stoppingGeneration?.exited) return Promise.resolve();
         if (stoppingGeneration?.stopWait) return stoppingGeneration.stopWait;
         cancelRecovery();
         generation += 1;

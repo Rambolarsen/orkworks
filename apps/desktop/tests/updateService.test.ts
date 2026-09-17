@@ -48,7 +48,7 @@ function engineFixture(): EngineFixture {
     onEvent(listener) { events.push(listener); return () => events.splice(events.indexOf(listener), 1); },
     async checkForUpdates(operationId) { calls.push("check"); checkOperationIds.push(operationId); },
     async downloadUpdate(operationId) { calls.push("download"); downloadOperationIds.push(operationId); },
-    quitAndInstall() { calls.push("install"); },
+    async quitAndInstall() { calls.push("install"); },
   };
 }
 
@@ -61,6 +61,7 @@ function packagedService(
     : overrides;
   return createUpdateService({
     isPackaged: true,
+    platform: "win32",
     currentVersion: dependencyOverrides.currentVersion ?? "0.2.0-nightly.20260916.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
@@ -102,6 +103,84 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+test("macOS installation is blocked before verification, sessions, confirmation, or shutdown", async () => {
+  const engine = engineFixture();
+  const sideEffects: string[] = [];
+  const service = packagedService(engine, {
+    platform: "darwin",
+    verifyCandidate: async () => { sideEffects.push("verify"); return true; },
+    querySessions: async () => { sideEffects.push("query"); return []; },
+    confirmInstall: async () => { sideEffects.push("confirm"); return true; },
+    stopSidecar: async () => { sideEffects.push("stop"); },
+    restartSidecar: async () => { sideEffects.push("restart"); },
+  });
+  await prepareDownloaded(service, engine);
+  engine.calls.length = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const status = await service.requestInstall();
+    assert.equal(status.state, "error");
+    assert.equal(status.retryable, true);
+    assert.match(status.message, /macOS.*verification/i);
+  }
+  assert.deepEqual(sideEffects, []);
+  assert.deepEqual(engine.calls, []);
+});
+
+test("asynchronous installer failure owns the transaction through exactly one recovery", async () => {
+  const engine = engineFixture();
+  let rejectInstall!: (error: Error) => void;
+  engine.quitAndInstall = () => {
+    engine.calls.push("install");
+    return new Promise<void>((_resolve, reject) => { rejectInstall = reject; });
+  };
+  const recovery = deferred();
+  let recoveries = 0;
+  const service = packagedService(engine, {
+    restartSidecar: () => { recoveries++; return recovery.promise; },
+  });
+  await prepareDownloaded(service, engine);
+  const installing = service.requestInstall();
+  await settle();
+  assert.strictEqual(service.requestInstall(), installing);
+  assert.strictEqual(service.check(), installing);
+  rejectInstall(new Error("asynchronous installer failure"));
+  await settle();
+  assert.equal(recoveries, 1);
+  assert.strictEqual(service.requestInstall(), installing);
+  recovery.resolve();
+  const status = await installing;
+  assert.equal(status.state, "error");
+  assert.match(status.message, /asynchronous installer failure/);
+  assert.equal(recoveries, 1);
+  assert.equal(engine.calls.filter((call) => call === "install").length, 1);
+});
+
+test("download during a refreshed check cannot steal candidate or operation ownership", async () => {
+  const engine = engineFixture();
+  const service = packagedService(engine);
+  await prepareDownloaded(service, engine);
+  const refreshed = deferred();
+  engine.checkForUpdates = (id) => { engine.checkOperationIds.push(id); return refreshed.promise; };
+  const checking = service.check();
+  const downloading = service.download();
+  const next = candidate({ version: "0.2.0-nightly.20260918.1", tag: "v0.2.0-nightly.20260918.1" });
+  engine.events[0]({ type: "update-available", operationId: engine.checkOperationIds.at(-1)!, candidate: next });
+  refreshed.resolve();
+  await Promise.all([checking, downloading]);
+  assert.equal(service.getStatus().state, "available");
+  assert.equal(service.getStatus().candidate.identity.version, next.identity.version);
+  assert.equal(engine.calls.filter((call) => call === "download").length, 1);
+});
+
+test("a download that settles without a matching completion reports a retryable failure", async () => {
+  const engine = engineFixture();
+  const service = packagedService(engine);
+  await prepareDownloaded(service, engine);
+  const status = await service.download();
+  assert.equal(status.state, "error");
+  assert.equal(status.operation, "download");
+});
 
 test("development construction never creates an updater and is unavailable", async () => {
   let constructed = false;
@@ -154,7 +233,7 @@ test("nightly status is replayed first and then only increasing sequences are de
   await downloading;
   unsubscribe();
   assert.equal(seen[0], 0);
-  assert.deepEqual(seen.slice(1), [1, 2, 3, 4]);
+  assert.deepEqual(seen.slice(1), [1, 2, 3, 4, 5]);
   assert.ok(seen.every((value, index) => index === 0 || value > seen[index - 1]));
 });
 
@@ -234,6 +313,23 @@ test("nightly builds ignore stable candidates", async () => {
   });
   assert.strictEqual(service.getStatus(), before);
   await checking;
+});
+
+test("nightly service rejects candidates with a false channel label or mismatched tag", async () => {
+  for (const [version, tag] of [
+    ["0.3.0", "v0.3.0"],
+    ["0.3.0-beta.1", "v0.3.0-beta.1"],
+    ["0.3.0-nightly.2", "v0.3.0-nightly.1"],
+  ]) {
+    const engine = engineFixture();
+    engine.checkForUpdates = async (operationId) => {
+      engine.events[0]({ type: "update-available", operationId, candidate: candidate({ version, tag }) });
+    };
+    const service = packagedService(engine);
+    assert.equal((await service.check()).state, "error");
+    await service.download();
+    assert.deepEqual(engine.calls, []);
+  }
 });
 
 test("duplicate checks and downloads share the active operation promise", async () => {

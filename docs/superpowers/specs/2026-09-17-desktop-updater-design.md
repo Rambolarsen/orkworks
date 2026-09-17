@@ -4,6 +4,16 @@
 
 **Date:** 2026-09-17
 
+**Final review decision (2026-09-17):** macOS installation fails closed before
+verification, session queries, confirmation, sidecar shutdown, or installer
+invocation. The pinned public updater API cannot establish native verification
+without arming installation. Windows installation requires the public NSIS
+signature verifier to complete without warnings (including skipped validation),
+nonempty expected publishers, and a fresh matching release metadata check. A
+cached download that skips verification is not installable. These guards
+supersede the successful macOS install path described below; signed artifact
+and installed-app validation remain external prerequisites.
+
 **Issue:** #511 — Desktop: add user-controlled signed in-app updates
 
 ## Goal

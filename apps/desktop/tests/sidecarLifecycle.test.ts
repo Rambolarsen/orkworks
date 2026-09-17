@@ -199,6 +199,30 @@ test("stopAndWait rejects unbounded or negative timeouts", async () => {
   }
 });
 
+test("stopAndWait timeout retains ownership until exit, across start and retry", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const ready = lifecycle.start("C:\\workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
+  await ready;
+  const stopping = lifecycle.stopAndWait(50);
+  timers.advanceBy(50);
+  await assert.rejects(stopping, /timed out/i);
+  for (const restart of [() => lifecycle.start("C:\\workspace"), () => lifecycle.retry()]) {
+    const result = restart();
+    void result.catch(() => {});
+    assert.equal(processes.length, 1, "must not replace a child whose exit is unconfirmed");
+    await assert.rejects(result, /exit.*confirmed|restart OrkWorks/i);
+  }
+  processes[0].error(new Error("termination failed"));
+  await assert.rejects(lifecycle.retry(), /exit.*confirmed|restart OrkWorks/i);
+  processes[0].exit(0);
+  await lifecycle.stopAndWait(50);
+  const restarted = lifecycle.start("C:\\workspace");
+  assert.equal(processes.length, 2);
+  processes[1].stdout.emit("ORKWORKSD_PORT=5555\n");
+  assert.equal(await restarted, 5555);
+});
+
 test("stopAndWait rejects on timeout without starting a replacement", async () => {
   const { lifecycle, processes, timers } = createHarness();
   const readiness = lifecycle.start("C:\\workspace");

@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "e
 import { spawn } from "child_process";
 import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
-import type { AppUpdater } from "electron-updater";
+import type { AppUpdater, NsisUpdater } from "electron-updater";
 import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
 import { taskmasterRequest } from "./taskmasterSettings";
 import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
@@ -20,7 +20,7 @@ import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
-import { createUpdateService, type UpdateCandidate, type UpdateEngine, type UpdateEngineEvent, type UpdateService } from "./updateService";
+import { channelForVersion, createUpdateService, type UpdateCandidate, type UpdateEngine, type UpdateEngineEvent, type UpdateService } from "./updateService";
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
 import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
@@ -80,14 +80,18 @@ async function listSessions(baseUrl: string): Promise<Array<{ lifecycle?: string
   return sessions as Array<{ lifecycle?: string }>;
 }
 
-function updateCandidate(info: ElectronUpdateInfo, channel: "latest" | "nightly"): UpdateCandidate {
-  const tag = info.tag ?? `v${info.version}`;
+function updateCandidate(info: ElectronUpdateInfo, channel: "latest" | "nightly", metadataUrl: string | null): UpdateCandidate {
+  const tag = info.tag;
   const metadataFile = process.platform === "darwin" ? `${channel}-mac.yml` : `${channel}.yml`;
-  const metadataDigest = createHash("sha256").update(JSON.stringify({
-    version: info.version,
-    tag,
-    files: info.files.map(({ url, sha512 }) => ({ url, sha512 })),
-  })).digest("hex");
+  if (channelForVersion(info.version) !== channel || tag !== `v${info.version}`
+    || metadataUrl !== `https://github.com/Rambolarsen/orkworks/releases/download/${encodeURIComponent(tag)}/${metadataFile}`) {
+    throw new Error("Update metadata does not match the requested channel, version, and release tag.");
+  }
+  const payload = info.files?.find(({ url }) => url.endsWith(process.platform === "darwin" ? ".zip" : ".exe"));
+  if (!payload || !/^[A-Za-z0-9+/]{86}==$/.test(payload.sha512)) {
+    throw new Error("Update metadata is missing a valid platform payload checksum.");
+  }
+  const metadataDigest = createHash("sha256").update(JSON.stringify(info)).digest("hex");
   const releaseNotes = Array.isArray(info.releaseNotes)
     ? info.releaseNotes.map(({ note }) => note).filter((note): note is string => note !== null).join("\n\n") || null
     : info.releaseNotes ?? null;
@@ -96,9 +100,9 @@ function updateCandidate(info: ElectronUpdateInfo, channel: "latest" | "nightly"
       channel,
       version: info.version,
       tag,
-      metadataUrl: `https://github.com/Rambolarsen/orkworks/releases/download/${encodeURIComponent(tag)}/${metadataFile}`,
+      metadataUrl,
       metadataDigest: `sha256:${metadataDigest}`,
-      payloadDigest: `sha512:${info.files[0]?.sha512 ?? info.sha512}`,
+      payloadDigest: `sha512:${payload.sha512}`,
     },
     releaseNotes,
     publishedAt: info.releaseDate || null,
@@ -125,10 +129,62 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
   };
   Object.assign(autoUpdater, updaterSettings);
   autoUpdater.setFeedURL({ provider: "github", owner: "Rambolarsen", repo: "orkworks" });
+  autoUpdater.requestHeaders = { "Cache-Control": "no-cache" };
+  autoUpdater.disableWebInstaller = true;
 
   const listeners = new Set<(event: UpdateEngineEvent) => void>();
   let channel: "latest" | "nightly" = "latest";
   let downloadedCandidate: UpdateCandidate | null = null;
+  let metadataUrl: string | null = null;
+  let signatureVerified = false;
+  // Observe the public NSIS verifier without replacing or bypassing its verdict.
+  // Cached downloads that skip it cannot establish verification in this process.
+  const windowsUpdater = autoUpdater as AppUpdater & Partial<Pick<NsisUpdater, "verifyUpdateCodeSignature">>;
+  if (process.platform === "win32" && typeof windowsUpdater.verifyUpdateCodeSignature === "function") {
+    let verifying = false;
+    let verificationWarning = false;
+    const logger = autoUpdater.logger;
+    autoUpdater.logger = {
+      info: (message) => logger?.info(message),
+      error: (message) => logger?.error(message),
+      debug: (message) => logger?.debug?.(message),
+      warn: (message) => {
+        if (verifying) verificationWarning = true;
+        logger?.warn(message);
+      },
+    };
+    const verify = windowsUpdater.verifyUpdateCodeSignature.bind(autoUpdater);
+    windowsUpdater.verifyUpdateCodeSignature = async (publishers, file) => {
+      signatureVerified = false;
+      if (!publishers.length || publishers.some((publisher) => !publisher.trim())) {
+        return "Update signature verification requires an expected publisher.";
+      }
+      verificationWarning = false;
+      verifying = true;
+      try {
+        const failure = await verify(publishers, file);
+        // The pinned verifier can warn and return null after skipping validation
+        // (e.g. unsupported PowerShell). Require an unqualified success; even a
+        // CN-only publisher warning fails closed. Release publishers must use DN.
+        signatureVerified = failure === null && !verificationWarning;
+        return failure ?? (signatureVerified ? null : "Windows signature verification could not be established without warnings.");
+      } finally {
+        verifying = false;
+      }
+    };
+  }
+  // GitHubProvider falls back to latest metadata on *any* prerelease metadata
+  // error. Cancel that request in the updater's own public Electron session.
+  autoUpdater.netSession.webRequest.onBeforeRequest({
+    urls: ["https://github.com/Rambolarsen/orkworks/releases/download/*"],
+  }, ({ url }, callback) => {
+    const parsed = new URL(url);
+    if (!parsed.pathname.endsWith(".yml")) return callback({});
+    const expected = process.platform === "darwin" ? `${channel}-mac.yml` : `${channel}.yml`;
+    const allowed = parsed.pathname.endsWith(`/${expected}`);
+    if (allowed) metadataUrl = url;
+    callback({ cancel: !allowed });
+  });
   let operationQueue: Promise<void> = Promise.resolve();
   const emit = (event: UpdateEngineEvent): void => {
     for (const listener of listeners) listener(event);
@@ -160,6 +216,7 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
     },
     checkForUpdates(operationId) {
       return serialize(async () => {
+        metadataUrl = null;
         const operation = { id: operationId, channel, finished: false };
         const cleanup = () => {
           autoUpdater.removeListener("update-available", onAvailable);
@@ -172,11 +229,15 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
           cleanup();
           emit(event);
         };
-        const onAvailable = (info: ElectronUpdateInfo) => finish({
-          type: "update-available",
-          operationId: operation.id,
-          candidate: updateCandidate(info, operation.channel),
-        });
+        const onAvailable = (info: ElectronUpdateInfo) => {
+          if (operation.finished) return;
+          try {
+            finish({ type: "update-available", operationId: operation.id,
+              candidate: updateCandidate(info, operation.channel, metadataUrl) });
+          } catch (error) {
+            onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        };
         const onNotAvailable = () => finish({ type: "update-not-available", operationId: operation.id });
         const onError = (error: Error) => finish({
           type: "error",
@@ -200,6 +261,9 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
     },
     downloadUpdate(operationId) {
       return serialize(async () => {
+        downloadedCandidate = null;
+        signatureVerified = false;
+        let completedCandidate: UpdateCandidate | null = null;
         const operation = { id: operationId, channel, finished: false };
         const cleanup = () => {
           autoUpdater.removeListener("download-progress", onProgress);
@@ -223,9 +287,7 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
           });
         };
         const onDownloaded = (info: ElectronUpdateInfo) => {
-          const candidate = updateCandidate(info, operation.channel);
-          downloadedCandidate = candidate;
-          finish({ type: "update-downloaded", operationId: operation.id, candidate });
+          if (!operation.finished) completedCandidate = updateCandidate(info, operation.channel, metadataUrl);
         };
         const onError = (error: Error) => finish({
           type: "error",
@@ -238,6 +300,10 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
         autoUpdater.on("error", onError);
         try {
           await autoUpdater.downloadUpdate();
+          if (!operation.finished && completedCandidate !== null) {
+            downloadedCandidate = completedCandidate;
+            finish({ type: "update-downloaded", operationId: operation.id, candidate: completedCandidate });
+          }
         } catch (error) {
           onError(error instanceof Error ? error : new Error(String(error)));
           throw error;
@@ -248,13 +314,39 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
       });
     },
     quitAndInstall() {
-      autoUpdater.quitAndInstall();
+      return new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          autoUpdater.removeListener("error", onError);
+          app.removeListener("quit", onQuit);
+          if (error) reject(error);
+          else resolve();
+        };
+        const onError = (error: Error) => finish(error);
+        const onQuit = () => finish();
+        autoUpdater.on("error", onError);
+        app.once("quit", onQuit);
+        try {
+          autoUpdater.quitAndInstall();
+        } catch (error) {
+          onError(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
     },
   };
 
   return {
     engine,
-    verifyCandidate: async (candidate) => downloadedCandidate !== null && sameUpdateCandidate(candidate, downloadedCandidate),
+    verifyCandidate: (candidate) => serialize(async () => {
+      if (process.platform !== "win32" || !signatureVerified || downloadedCandidate === null
+        || !sameUpdateCandidate(candidate, downloadedCandidate)) return false;
+      metadataUrl = null;
+      const current = await autoUpdater.checkForUpdates();
+      return current !== null && sameUpdateCandidate(candidate,
+        updateCandidate(current.updateInfo, channel, metadataUrl));
+    }),
   };
 }
 
@@ -346,6 +438,7 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
+      additionalArguments: [`--orkworks-packaged=${app.isPackaged}`],
     },
   });
 
@@ -1463,6 +1556,7 @@ app.whenReady().then(async () => {
     const adapter = createElectronUpdateEngine(autoUpdater);
     updateService = createUpdateService({
       isPackaged: true,
+      platform: process.platform,
       currentVersion: app.getVersion(),
       createEngine: () => adapter.engine,
       now: () => new Date().toISOString(),
@@ -1503,7 +1597,7 @@ app.whenReady().then(async () => {
         const restartCwd = workspacePath ?? initialSidecarCwd;
         try {
           const lifecycleReadiness = sidecarLifecycle.start(restartCwd);
-          void lifecycleReadiness.catch(() => {});
+          await lifecycleReadiness;
           await restoration.getReadiness();
         } catch {
           throw new Error("The sidecar could not be restarted. Restart OrkWorks to recover.");

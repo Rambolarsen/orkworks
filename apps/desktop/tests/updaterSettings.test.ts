@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import * as React from "react";
+import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
 
 const settings = await readFile(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
@@ -196,6 +197,37 @@ test("App owns the update subscription and shared update actions", () => {
   assert.match(app, /window\.orkworks\.checkForUpdates\(\)/);
   assert.match(app, /window\.orkworks\.downloadUpdate\(\)/);
   assert.match(app, /window\.orkworks\.requestUpdateInstall\(\)/);
+});
+
+test("menu check starts while the unrelated settings refresh remains pending", () => {
+  const handler = app.slice(app.indexOf('if (action === "check-for-updates")'), app.indexOf('if (action === "open-settings")'));
+  assert.ok(handler.includes('openSettings("updates")'));
+  const calls: string[] = [];
+  new Function("action", "openSettings", "checkForUpdates", handler)(
+    "check-for-updates",
+    (section: string) => { calls.push(section); return new Promise(() => {}); },
+    () => { calls.push("check"); return Promise.resolve(); },
+  );
+  assert.deepEqual(calls, ["updates", "check"]);
+});
+
+test("rendered update status strings have readable ellipses", () => {
+  const source = settings.slice(settings.indexOf("function UpdatesSection"), settings.indexOf("function isBareKey"));
+  const compiled = transpileModule(source + "\nmodule.exports = UpdatesSection;", {
+    compilerOptions: { target: ScriptTarget.ES2022, module: ModuleKind.CommonJS, jsx: 2 },
+  }).outputText;
+  const module = { exports: null as any };
+  new Function("module", "React", "Button", compiled)(module, React, "button");
+  for (const [state, expected] of [
+    [null, "Loading update status..."],
+    ["checking", "Checking for updates..."],
+    ["downloading", "Downloading update..."],
+    ["installing", "Installing update..."],
+  ]) {
+    const tree = module.exports({ status: state ? { state, progress: { percent: 1, transferred: 1, total: 100 } } : null });
+    const status = nodes(tree).find((node) => node.props?.role === "status");
+    assert.equal(text(status), expected);
+  }
 });
 
 test("an already-open Settings modal follows repeated menu navigation after a local tab change", () => {

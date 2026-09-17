@@ -64,24 +64,26 @@ const developmentUpdateStatus: UpdateStatus = {
   sequence: 0,
 };
 
+const packagedUpdater = process.argv.includes("--orkworks-packaged=true");
+
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
   retryBackend: (): Promise<void> => ipcRenderer.invoke("retry-backend"),
-  getUpdateStatus: (): Promise<UpdateStatus> => process.defaultApp
+  getUpdateStatus: (): Promise<UpdateStatus> => !packagedUpdater
     ? Promise.resolve(developmentUpdateStatus)
     : ipcRenderer.invoke("get-update-status"),
-  checkForUpdates: (): Promise<UpdateStatus> => process.defaultApp
+  checkForUpdates: (): Promise<UpdateStatus> => !packagedUpdater
     ? Promise.resolve(developmentUpdateStatus)
     : ipcRenderer.invoke("check-for-updates"),
-  downloadUpdate: (): Promise<UpdateStatus> => process.defaultApp
+  downloadUpdate: (): Promise<UpdateStatus> => !packagedUpdater
     ? Promise.resolve(developmentUpdateStatus)
     : ipcRenderer.invoke("download-update"),
-  requestUpdateInstall: (): Promise<UpdateStatus> => process.defaultApp
+  requestUpdateInstall: (): Promise<UpdateStatus> => !packagedUpdater
     ? Promise.resolve(developmentUpdateStatus)
     : ipcRenderer.invoke("request-update-install"),
   onUpdateStatus: (callback: (status: UpdateStatus) => void): (() => void) => {
-    if (process.defaultApp) {
+    if (!packagedUpdater) {
       callback(developmentUpdateStatus);
       return () => undefined;
     }

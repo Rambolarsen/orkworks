@@ -29,11 +29,12 @@ export interface UpdateEngine {
   onEvent(listener: (event: UpdateEngineEvent) => void): () => void;
   checkForUpdates(operationId: number): Promise<void>;
   downloadUpdate(operationId: number): Promise<void>;
-  quitAndInstall(): void;
+  quitAndInstall(): Promise<void>;
 }
 
 export interface UpdateServiceDependencies {
   isPackaged: boolean;
+  platform: NodeJS.Platform;
   currentVersion: string;
   createEngine: () => UpdateEngine;
   now: () => string;
@@ -85,7 +86,7 @@ export interface UpdateService {
 const stableVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const nightlyVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-nightly(?:\.(?:0|[1-9]\d*))+(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-function channelForVersion(version: string): UpdateChannel | null {
+export function channelForVersion(version: string): UpdateChannel | null {
   if (stableVersion.test(version)) return "latest";
   if (nightlyVersion.test(version)) return "nightly";
   return null;
@@ -168,6 +169,15 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
       case "update-available":
         if (!eventMatches("check", event.operationId)) return;
         if (event.candidate.identity.channel !== selectedChannel) return;
+        if (channelForVersion(event.candidate.identity.version) !== selectedChannel
+          || event.candidate.identity.tag !== `v${event.candidate.identity.version}`) {
+          activeOperation = null;
+          candidate = null;
+          downloadedCandidate = null;
+          publish({ state: "error", operation: "check", retryable: true,
+            message: "The release version and tag do not match the selected update channel." });
+          return;
+        }
         candidate = event.candidate;
         downloadedCandidate = null;
         activeOperation = null;
@@ -257,6 +267,8 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
 
   function download(): Promise<UpdateStatus> {
     if (installPromise !== null) return installPromise;
+    // A refreshed check owns the updater's candidate until it settles.
+    if (checkPromise !== null) return checkPromise;
     if (downloadPromise !== null) return downloadPromise;
     if (candidate === null) return Promise.resolve(status);
 
@@ -273,6 +285,9 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
     void (async () => {
       try {
         await engine.downloadUpdate(sequence);
+        if (activeOperation?.kind === "download" && activeOperation.sequence === sequence) {
+          throw new Error("The download finished without a matching verified release. Check for updates and retry.");
+        }
       } catch (error) {
         if (activeOperation?.kind === "download" && activeOperation.sequence === sequence) {
           activeOperation = null;
@@ -294,6 +309,19 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
 
   function requestInstall(): Promise<UpdateStatus> {
     if (installPromise !== null) return installPromise;
+    if (dependencies.platform !== "win32") {
+      const blocked = Promise.resolve().then(() => publish({
+        state: "error",
+        operation: "install",
+        message: dependencies.platform === "darwin"
+          ? "macOS installation is unavailable: native verification cannot be completed safely before shutdown. Install a signed release manually."
+          : "Installation is unavailable on this platform because signature verification cannot be established.",
+        retryable: true,
+      }));
+      installPromise = blocked;
+      void blocked.then(() => { if (installPromise === blocked) installPromise = null; });
+      return blocked;
+    }
     const retryCandidate = status.state === "error" && status.operation === "install"
       ? status.candidate ?? null
       : null;
@@ -363,7 +391,7 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
       try {
         await dependencies.stopSidecar(10_000);
         if (!isCurrent()) throw new Error("Update installation was superseded");
-        engine.quitAndInstall();
+        await engine.quitAndInstall();
         return status;
       } catch (error) {
         let recovered = false;

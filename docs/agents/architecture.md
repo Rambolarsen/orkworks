@@ -86,6 +86,17 @@ when the normal renderer document is not.
 
 ## Packaging and release
 
+Packaged desktop updates use the production `electron-updater` dependency in
+Electron main. Main explicitly flags packaged preload through a window argument;
+development update methods remain IPC-inert. The updater's own network session
+blocks cross-channel metadata fallback, and installation rechecks release identity.
+macOS installation fails closed before session queries or shutdown. Windows
+requires a completed, warning-free public NSIS signature check with expected
+publishers; cached downloads that skip verification cannot install. The install
+transaction owns updater errors until application quit and attempts recovery once.
+A sidecar stopped for installation remains owned until its exit is confirmed,
+including after timeout. See [desktop updates](../user/updates.md) for limitations.
+
 Taskmaster's independently updated reference knowledge and separate analysis
 model follow [ADR 0054](../adr/0054-taskmaster-honors-managed-cli-policy.md) and the
 [knowledge specification](../../specs/taskmaster-knowledge.md). Electron main

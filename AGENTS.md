@@ -219,6 +219,10 @@ the detailed naming rules.
 
 ## Architecture
 
+Packaged desktop updating requires `electron-updater` as a production dependency.
+Preserve the platform verification and shutdown guards described in
+[desktop update architecture](docs/agents/architecture.md#packaging-and-release).
+
 Provider process cleanup uses Windows Job APIs through the existing
 `windows-sys` dependency; preserve suspended-child assignment and bounded cleanup
 when changing inference transports. See [provider process ownership](docs/agents/architecture.md)

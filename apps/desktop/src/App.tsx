@@ -500,7 +500,8 @@ function App() {
   useEffect(() => {
     return window.orkworks.onMenuCommand(({ action, panelId }) => {
       if (action === "check-for-updates") {
-        void openSettings("updates").then(checkForUpdates);
+        void openSettings("updates");
+        void checkForUpdates();
         return;
       }
 
