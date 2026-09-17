@@ -85,6 +85,7 @@ export default defineConfig({
         text: 'User Guide',
         items: [
           { text: 'Get started', link: '/docs/user/getting-started' },
+          { text: 'Updates', link: '/docs/user/updates' },
           { text: 'Coding tools', link: '/docs/user/coding-tools' },
           { text: 'Sessions', link: '/docs/user/sessions' },
           { text: 'Taskmaster', link: '/docs/user/taskmaster' },
