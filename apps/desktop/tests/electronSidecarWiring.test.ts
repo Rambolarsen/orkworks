@@ -93,6 +93,15 @@ test("initial workspace restoration handles rejected readiness", () => {
   assert.match(handler, /return \{ workspace: null, historyDiagnostic: currentHistoryDiagnostic \};/);
 });
 
+test("no-initial-workspace snapshots preserve the current history diagnostic", () => {
+  const start = mainSource.indexOf('ipcMain.handle("get-initial-workspace"');
+  const end = mainSource.indexOf('\n  });', start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const handler = mainSource.slice(start, end);
+  assert.match(handler, /if \(!initialWorkspacePath\) return \{ workspace: null, historyDiagnostic: currentHistoryDiagnostic \};/);
+});
+
 test("history is persisted after restoration readiness without rolling back the ready workspace", () => {
   const rememberIndex = mainSource.indexOf("rememberRestoredWorkspace(workspace)");
   const readyIndex = mainSource.indexOf('publishBackendLifecycle({ state: "ready", port, workspace, historyDiagnostic });');

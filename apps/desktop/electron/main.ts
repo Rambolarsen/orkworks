@@ -703,7 +703,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => {
-    if (!initialWorkspacePath) return { workspace: null, historyDiagnostic: initialHistoryDiagnostic };
+    if (!initialWorkspacePath) return { workspace: null, historyDiagnostic: currentHistoryDiagnostic };
     try {
       await restoration.getReadiness();
       return { workspace: restoration.getRestoredWorkspace(), historyDiagnostic: currentHistoryDiagnostic };
