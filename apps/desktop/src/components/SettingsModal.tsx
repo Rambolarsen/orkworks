@@ -111,6 +111,9 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     .filter((key, index, all) => all.indexOf(key) === index)
     .join("\0");
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
+  useEffect(() => {
+    setActiveSection(initialSection);
+  }, [initialSection]);
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [savedHotkeys, setSavedHotkeys] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);

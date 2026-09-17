@@ -230,8 +230,16 @@ test("App does not open signal panels when their active-session condition is fal
 
 test("App refreshes the menu subscription when the active session changes", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const subscriptionStart = source.indexOf("return window.orkworks.onMenuCommand");
 
-  assert.match(source, /\}, \[handleCreateSession, activeSessionId, sessions, openSettings\]\);/);
+  assert.ok(subscriptionStart >= 0);
+  const subscription = source.slice(subscriptionStart);
+  const dependencies = subscription.match(/\}, \[([^\]]+)\]\);/)?.[1] ?? "";
+
+  assert.notEqual(dependencies, "");
+  for (const dependency of ["handleCreateSession", "activeSessionId", "sessions", "openSettings", "checkForUpdates"]) {
+    assert.match(dependencies, new RegExp(`\\b${dependency}\\b`));
+  }
 });
 
 test("App reviews the session selected by a terminal plan link", () => {

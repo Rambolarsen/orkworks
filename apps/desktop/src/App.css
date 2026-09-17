@@ -532,9 +532,12 @@ html, body, #root {
   white-space: pre-wrap;
 }
 
-.updates-error,
 .updates-warning {
   color: var(--state-warn);
+}
+
+.updates-error {
+  color: var(--state-error);
 }
 
 .updates-actions {
