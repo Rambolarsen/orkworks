@@ -1,9 +1,11 @@
 # Brain-informed Taskmaster recommendations
 
-The [concurrent-workspace proposal](multi-workspace.md) defines a future
-distinction between open and focused workspaces, including analysis permission
-and workspace-specific diagnostics. It is pending written-spec review and does
-not describe implemented multi-workspace behavior.
+The [independent workspace instances proposal](multi-workspace.md) defines a
+future installation-scoped path history and one selected workspace per
+OrkWorks instance. Taskmaster analysis and diagnostics remain scoped to that
+instance's selected workspace; instances do not coordinate focus, attention,
+or analysis with peers. It is pending written-spec review and does not describe
+implemented multi-workspace behavior.
 
 Status: accepted
 Date: 2026-09-09
@@ -79,11 +81,13 @@ tools. Unexpected tool-action output is rejected, not converted to an accepted
 recommendation; rejecting output is not a claim to undo any CLI side effects.
 
 Before inference, retrieve relevant pages from workspace signals and assemble
-bounded permitted context. Analyze only the currently open workspace. At most
-one evaluation runs across the application. Defaults: eight calls per UTC day,
-one hour minimum between evaluations of a workspace. Persist reservations before
-calling the provider; failed calls count, restarts cannot reset usage, and an
-unreadable ledger defers inference. These are usage limits, not dollar budgets.
+bounded permitted context. Analyze only the workspace selected by the current
+instance. At most one evaluation runs per instance; the eight-call daily limit
+remains installation-wide and is enforced by the existing durable reservation
+ledger, without peer-instance focus or analysis coordination. The minimum
+interval is one hour per workspace. Persist reservations before calling the
+provider; failed calls count, restarts cannot reset usage, and an unreadable
+ledger defers inference. These are usage limits, not dollar budgets.
 
 Cache by evidence, relevant knowledge page hashes, selected provider/model, and
 effective context settings. Workspace switches and configuration changes

@@ -235,6 +235,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - ADR 0025, 0026, 0031, 0032, 0042: prose lives in [`docs/agents/architecture.md`](docs/agents/architecture.md).
 - ADR 0038: prose lives in [`docs/agents/harness-integration-contracts.md`](docs/agents/harness-integration-contracts.md).
 - ADR 0052: one `orkworksd` process owns a workspace's metadata at a time through an OS advisory lease; workspace open/switch returns conflict before orphan reconciliation when another sidecar holds it.
+- ADR 0060: independent OrkWorks instances each own at most one workspace and sidecar; installation-scoped history is path-only, with no peer registry or cross-instance attention/focus authority. Crash-surviving cleanup and replacement adoption remain blocked on native ownership proof in #545.
 
 ## Metadata protocol
 
@@ -243,7 +244,7 @@ The detailed paths, bounds, lifecycle, authentication, and ADR reference are in 
 - Metadata is workspace-scoped under `~/.orkworks/workspaces/<hash>/`; global harness definitions and stable hook reporters live under `~/.orkworks/`.
 - Priority: user > agent > peon > backend_inference > process > unknown > debug.
 - Peon reads terminal output and writes inferred metadata; it never types into terminals.
-- Detached runtimes keep draining terminal output, persisting history, and feeding Peon while `orkworksd` remains alive; losing a renderer terminal attachment alone must not end a session.
+- Within one independent instance, detached runtimes keep draining terminal output, persisting history, and feeding Peon while `orkworksd` remains alive; losing a renderer terminal attachment alone must not end a session. A workspace switch closes that instance's runtime before opening another workspace; it does not create a peer-runtime registry.
 - Taskmaster proposes cross-session transitions, but v1 requires explicit user approval for every action. `improve_workflow` may display without approval, but cannot focus a terminal, edit a file, or start a session; a user may dismiss it or accept it to send a scoped fix prompt to their active session.
 The current metadata paths and behavior are also summarized below for quick
 operational reference; the architecture concept remains authoritative for the
