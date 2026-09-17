@@ -302,6 +302,27 @@ test("generation-bound IPC owns Taskmaster mutations and debug attention injecti
   );
 });
 
+test("Taskmaster mutations abort their fetch when the backend generation changes", () => {
+  const helperStart = mainSource.indexOf("async function taskmasterMutationRequest");
+  const helperEnd = mainSource.indexOf("\n  function normalizeRecommendationAcceptOptions", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "Taskmaster mutation helper not found");
+  const helper = mainSource.slice(helperStart, helperEnd);
+  assert.match(helper, /payload: unknown,\s*signal: AbortSignal/);
+  assert.match(helper, /signal: AbortSignal\.any\(\[signal, AbortSignal\.timeout\(15_000\)\]\)/);
+
+  for (const handlerName of [
+    "dismiss-taskmaster-recommendation",
+    "accept-taskmaster-recommendation",
+  ]) {
+    const handlerStart = mainSource.indexOf(`ipcMain.handle("${handlerName}"`);
+    const handlerEnd = mainSource.indexOf("\n  });", handlerStart);
+    assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, `${handlerName} handler not found`);
+    const handler = mainSource.slice(handlerStart, handlerEnd);
+    assert.match(handler, /withReadyBackendGeneration\((?:async )?\(port, token, signal\)/);
+    assert.match(handler, /taskmasterMutationRequest\([\s\S]*signal/);
+  }
+});
+
 test("plan IPC operations use the ready generation admission guard", () => {
   for (const handlerName of ["get-plan-content", "request-plan-review", "select-terminal-plan"]) {
     const handlerStart = mainSource.indexOf(`ipcMain.handle("${handlerName}"`);

@@ -147,3 +147,37 @@ TypeScript configurations. The separate plan-opener regression file passed
 5/5. Unexpected sidecar exits remain
 fail-closed and replacement-blocked until Task 5 supplies native descendant
 ownership proof; no crash-relaunch proof is claimed.
+
+## Final Task 3 review fix (2026-09-18)
+
+`taskmasterMutationRequest` now accepts the coordinator/generation-bound
+`AbortSignal` and composes it with the 15-second request timeout. Recommendation
+dismiss and accept mutations forward that signal, so switching workspaces aborts
+their in-flight fetches instead of only discarding a completed stale result.
+The Electron wiring regression covers both mutation handlers and the helper's
+timeout composition.
+
+Verification from `apps/desktop/`:
+
+```text
+node --experimental-strip-types --test \
+  tests/sidecarLifecycle.test.ts \
+  tests/workspaceSwitchCoordinator.test.ts \
+  tests/backendRestoration.test.ts \
+  tests/electronSidecarWiring.test.ts \
+  tests/backendLifecycleWiring.test.ts \
+  tests/backendLifecycleEvent.test.ts \
+  tests/workspaceSessionController.test.ts
+PASS — 101 tests, 0 failures
+
+npx tsc --noEmit -p tsconfig.node.json
+PASS
+
+npx tsc --noEmit -p tsconfig.json
+PASS
+
+git diff --check
+PASS
+```
+
+No full suite or network-dependent command was run.

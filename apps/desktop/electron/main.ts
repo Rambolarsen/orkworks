@@ -309,12 +309,13 @@ app.whenReady().then(() => {
     token: string,
     resource: string,
     payload: unknown,
+    signal: AbortSignal,
   ): Promise<unknown> {
     const response = await fetch(`http://127.0.0.1:${port}/${resource}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
     });
     const body: unknown = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -871,12 +872,13 @@ app.whenReady().then(() => {
   ipcMain.handle("dismiss-taskmaster-recommendation", async (_event, id: unknown, reason: unknown) => {
     if (typeof id !== "string" || !id) throw new Error("Invalid recommendation ID.");
     if (reason !== undefined && typeof reason !== "string") throw new Error("Invalid dismissal reason.");
-    await withReadyBackendGeneration(async (port, token) => {
+    await withReadyBackendGeneration(async (port, token, signal) => {
       await taskmasterMutationRequest(
         port,
         token,
         taskmasterRecommendationPath(id, "dismiss"),
         reason === undefined ? {} : { reason },
+        signal,
       );
     });
   });
@@ -884,11 +886,12 @@ app.whenReady().then(() => {
   ipcMain.handle("accept-taskmaster-recommendation", async (_event, id: unknown, options: unknown) => {
     if (typeof id !== "string" || !id) throw new Error("Invalid recommendation ID.");
     const normalized = normalizeRecommendationAcceptOptions(options);
-    return withReadyBackendGeneration((port, token) => taskmasterMutationRequest(
+    return withReadyBackendGeneration((port, token, signal) => taskmasterMutationRequest(
       port,
       token,
       taskmasterRecommendationPath(id, "accept"),
       normalized,
+      signal,
     ));
   });
 
