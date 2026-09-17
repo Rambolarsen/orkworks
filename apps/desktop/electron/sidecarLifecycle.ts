@@ -43,6 +43,7 @@ interface Generation {
   ready: boolean;
   failed: boolean;
   exited: boolean;
+  processError: Error | null;
   killRequested: boolean;
   stopWait: Promise<void> | null;
   readyAtMs: number | null;
@@ -201,6 +202,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       ready: false,
       failed: false,
       exited: false,
+      processError: null,
       killRequested: false,
       stopWait: null,
       readyAtMs: null,
@@ -228,7 +230,8 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
         }
       });
       candidate.process.on("error", (error: Error) => {
-        fail(candidate, error);
+        candidate.processError = errorFrom(error);
+        fail(candidate, candidate.processError);
       });
       candidate.process.on("exit", (code: number | null) => {
         candidate.exited = true;
@@ -261,6 +264,10 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     },
 
     stopAndWait(timeoutMs: number): Promise<void> {
+      if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+        return Promise.reject(new RangeError("timeoutMs must be finite and non-negative"));
+      }
+
       const previous = current;
       if (!previous?.process) {
         if (stoppingGeneration?.stopWait) return stoppingGeneration.stopWait;
@@ -273,6 +280,23 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       if (previous.stopWait) return previous.stopWait;
 
       const child = previous.process;
+      if (previous.processError) {
+        previous.stopWait = Promise.reject(previous.processError);
+        stoppingGeneration = previous;
+        cancelRecovery();
+        generation += 1;
+        stopCurrent("Sidecar stopped before readiness");
+        return previous.stopWait;
+      }
+      if (previous.exited) {
+        previous.stopWait = Promise.resolve();
+        stoppingGeneration = previous;
+        cancelRecovery();
+        generation += 1;
+        stopCurrent("Sidecar stopped before readiness");
+        return previous.stopWait;
+      }
+
       let stopTimer: unknown = null;
       let settled = false;
       previous.stopWait = new Promise<void>((resolve, reject) => {

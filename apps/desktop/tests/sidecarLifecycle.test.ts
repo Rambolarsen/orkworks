@@ -135,7 +135,7 @@ test("rejects readiness when the process exits before publishing a port", async 
 });
 
 test("stopAndWait resolves after the requested child exits", async () => {
-  const { lifecycle, processes } = createHarness();
+  const { lifecycle, processes, timers } = createHarness();
   const readiness = lifecycle.start("C:\\workspace");
   processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
   await readiness;
@@ -144,6 +144,59 @@ test("stopAndWait resolves after the requested child exits", async () => {
   processes[0].exit(0);
 
   await assert.doesNotReject(stopping);
+  assert.equal(timers.size, 0);
+});
+
+test("stopAndWait resolves after stopping before readiness", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+  const stopping = lifecycle.stopAndWait(1000);
+
+  processes[0].exit(0);
+
+  await assert.rejects(readiness, /stopped before readiness/i);
+  await assert.doesNotReject(stopping);
+  assert.equal(timers.size, 0);
+});
+
+test("stopAndWait resolves an already-exited process and cancels recovery", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+  processes[0].exit(1);
+  await assert.rejects(readiness, /exited before readiness/i);
+  assert.equal(timers.size, 1);
+
+  const stopping = lifecycle.stopAndWait(1000);
+  assert.equal(timers.size, 0);
+  timers.advanceBy(1000);
+
+  await assert.doesNotReject(stopping);
+  assert.equal(processes.length, 1);
+  assert.equal(timers.size, 0);
+});
+
+test("stopAndWait rejects an already-errored process and cancels recovery", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+  processes[0].error(new Error("spawn failed"));
+  await assert.rejects(readiness, /spawn failed/);
+  assert.equal(timers.size, 1);
+
+  const stopping = lifecycle.stopAndWait(1000);
+  assert.equal(timers.size, 0);
+  timers.advanceBy(1000);
+
+  await assert.rejects(stopping, /spawn failed/);
+  assert.equal(processes.length, 1);
+  assert.equal(timers.size, 0);
+});
+
+test("stopAndWait rejects unbounded or negative timeouts", async () => {
+  for (const timeoutMs of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
+    const { lifecycle } = createHarness();
+
+    await assert.rejects(lifecycle.stopAndWait(timeoutMs), /finite and non-negative/i);
+  }
 });
 
 test("stopAndWait rejects on timeout without starting a replacement", async () => {
@@ -158,10 +211,11 @@ test("stopAndWait rejects on timeout without starting a replacement", async () =
   await assert.rejects(stopping, /timed out/i);
   assert.equal(processes.length, 1);
   assert.equal(processes[0].killCount, 1);
+  assert.equal(timers.size, 0);
 });
 
 test("stopAndWait rejects on process error and repeated callers share one promise", async () => {
-  const { lifecycle, processes } = createHarness();
+  const { lifecycle, processes, timers } = createHarness();
   const readiness = lifecycle.start("C:\\workspace");
   processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
   await readiness;
@@ -172,6 +226,7 @@ test("stopAndWait rejects on process error and repeated callers share one promis
   processes[0].error(new Error("kill failed"));
 
   await assert.rejects(first, /kill failed/);
+  assert.equal(timers.size, 0);
 });
 
 test("ignores exit from an obsolete generation", async () => {
