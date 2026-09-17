@@ -36,6 +36,7 @@ export interface WorkspaceSessionControllerOptions {
   deps?: Partial<WorkspaceSessionControllerDeps>;
   scheduler?: PollScheduler;
   pollDelayMs?: number;
+  initialAdmissionEnabled?: boolean;
   onWorkspace?: (workspace: WorkspaceInfo | null) => void;
   onSessions?: (sessions: readonly SessionInfo[]) => void;
   onActiveSession?: (id: string | null) => void;
@@ -43,13 +44,16 @@ export interface WorkspaceSessionControllerOptions {
 }
 
 export interface WorkspaceSessionController {
+  setAdmissionEnabled(enabled: boolean): void;
+  isAdmissionEnabled(): boolean;
   setPollingEnabled(enabled: boolean): void;
   openWorkspace(path: string): Promise<void>;
   adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void>;
   refreshSessions(): Promise<readonly SessionInfo[] | null>;
   createSession(options: CreateSessionOptions): Promise<void>;
   resumeSession(id: string): Promise<void>;
-  selectSession(id: string): void;
+  submitActiveSession(id: string): Promise<boolean>;
+  selectSession(id: string): boolean;
   deleteSession(id: string, forget: boolean): Promise<void>;
   dispose(): void;
 }
@@ -72,6 +76,8 @@ export function createWorkspaceSessionController(
 ): WorkspaceSessionController {
   const deps = { ...defaultDeps, ...options.deps };
   let disposed = false;
+  let admissionEnabled = options.initialAdmissionEnabled ?? true;
+  let admissionGeneration = 0;
   let foregroundGeneration = 0;
   let pollingEpoch = 0;
   let sessions: SessionInfo[] = [];
@@ -88,17 +94,30 @@ export function createWorkspaceSessionController(
 
   const isCurrent = (token: number): boolean => !disposed && token === foregroundGeneration;
 
+  function requireAdmission(): number {
+    if (disposed || !admissionEnabled) throw new Error("Workspace transition is in progress");
+    return admissionGeneration;
+  }
+
+  function isCurrentAdmission(token: number): boolean {
+    return !disposed && admissionEnabled && token === admissionGeneration;
+  }
+
   const publishSessions = (next: SessionInfo[]): void => {
     sessions = next;
     options.onSessions?.(next);
   };
 
-  async function refreshSessions(epoch?: number): Promise<readonly SessionInfo[] | null> {
+  async function refreshSessions(epoch?: number, allowDuringTransition = false): Promise<readonly SessionInfo[] | null> {
+    const admissionToken = admissionGeneration;
+    if (!allowDuringTransition && !admissionEnabled) return null;
     const token = foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const list = await deps.listSessions(baseUrl);
-      if (!isCurrent(token) || (epoch !== undefined && epoch !== pollingEpoch)) return null;
+      if (!isCurrent(token)
+        || (!allowDuringTransition && !isCurrentAdmission(admissionToken))
+        || (epoch !== undefined && epoch !== pollingEpoch)) return null;
 
       deps.pruneTerminals(new Set(list.filter((session) => session.lifecycle !== "dead").map((session) => session.id)));
       const resolution = resolvePendingCreates(pendingCreateIds, list);
@@ -123,6 +142,7 @@ export function createWorkspaceSessionController(
   function setPollingEnabled(enabled: boolean): void {
     if (disposed) return;
     if (enabled) {
+      if (!admissionEnabled) return;
       if (stopPolling === null) {
         const epoch = ++pollingEpoch;
         stopPolling = startSessionPolling(() => refreshSessions(epoch), options.pollDelayMs, scheduler);
@@ -132,6 +152,18 @@ export function createWorkspaceSessionController(
     pollingEpoch += 1;
     stopPolling?.();
     stopPolling = null;
+  }
+
+  function setAdmissionEnabled(enabled: boolean): void {
+    if (disposed || admissionEnabled === enabled) return;
+    admissionEnabled = enabled;
+    admissionGeneration += 1;
+    foregroundGeneration += 1;
+    if (!enabled) {
+      pollingEpoch += 1;
+      stopPolling?.();
+      stopPolling = null;
+    }
   }
 
   async function openWorkspace(path: string): Promise<void> {
@@ -144,7 +176,7 @@ export function createWorkspaceSessionController(
       activeSessionId = null;
       options.onActiveSession?.(null);
       publishSessions([]);
-      const refreshed = await refreshSessions();
+      const refreshed = await refreshSessions(undefined, true);
       if (!refreshed || !isCurrent(token)) return;
       const restored = info.lastActiveSessionId;
       const match = restored && sessions.find((session) => session.id === restored);
@@ -167,7 +199,7 @@ export function createWorkspaceSessionController(
     options.onWorkspace?.(workspace);
     if (!workspace || !isCurrent(token)) return;
 
-    const refreshed = await refreshSessions();
+    const refreshed = await refreshSessions(undefined, true);
     if (!refreshed || !isCurrent(token)) return;
     const restored = workspace.lastActiveSessionId;
     const match = restored && sessions.find((session) => session.id === restored);
@@ -178,11 +210,12 @@ export function createWorkspaceSessionController(
   }
 
   async function createSession(optionsForCreate: CreateSessionOptions): Promise<void> {
+    const admissionToken = requireAdmission();
     const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const created = await deps.createSession(baseUrl, optionsForCreate);
-      if (!isCurrent(token)) return;
+      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
       pendingCreateIds = trackPendingCreate(pendingCreateIds, created.id);
       const [next, nextLastResortAt] = mergeSessionsById(sessions, [...sessions, created], lastResortAt, new Date());
       lastResortAt = nextLastResortAt;
@@ -195,12 +228,13 @@ export function createWorkspaceSessionController(
   }
 
   async function resumeSession(id: string): Promise<void> {
+    const admissionToken = requireAdmission();
     const token = ++foregroundGeneration;
     deps.disposeTerminal(id);
     try {
       const baseUrl = await deps.getBackendUrl();
       const resumed = await deps.resumeSession(baseUrl, id);
-      if (!isCurrent(token)) return;
+      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
       publishSessions(sessions.map((session) => session.id === id ? resumed : session));
       activeSessionId = resumed.id;
       options.onActiveSession?.(resumed.id);
@@ -209,19 +243,29 @@ export function createWorkspaceSessionController(
     }
   }
 
-  function selectSession(id: string): void {
-    if (disposed) return;
+  async function submitActiveSession(id: string): Promise<boolean> {
+    const admissionToken = requireAdmission();
+    const baseUrl = await deps.getBackendUrl();
+    if (!isCurrentAdmission(admissionToken)) return false;
+    await deps.setActiveWorkspaceSession(baseUrl, id);
+    return true;
+  }
+
+  function selectSession(id: string): boolean {
+    if (disposed || !admissionEnabled) return false;
     activeSessionId = id;
     options.onActiveSession?.(id);
+    return true;
   }
 
   async function deleteSession(id: string, forget: boolean): Promise<void> {
+    const admissionToken = requireAdmission();
     const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       if (forget) await deps.forgetSession(baseUrl, id);
       else await deps.deleteSession(baseUrl, id);
-      if (!isCurrent(token)) return;
+      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
       deps.disposeTerminal(id);
       if (activeSessionId === id) {
         activeSessionId = null;
@@ -243,12 +287,15 @@ export function createWorkspaceSessionController(
   }
 
   return {
+    setAdmissionEnabled,
+    isAdmissionEnabled: () => admissionEnabled && !disposed,
     setPollingEnabled,
     openWorkspace,
     adoptRestoredWorkspace,
     refreshSessions,
     createSession,
     resumeSession,
+    submitActiveSession,
     selectSession,
     deleteSession,
     dispose,

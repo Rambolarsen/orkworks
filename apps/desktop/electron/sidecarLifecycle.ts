@@ -36,6 +36,7 @@ export interface SidecarLifecycleOptions {
   callbacks: {
     onReady(port: number): void;
     onUnavailable(message: string): void;
+    onUnexpectedExit?(message: string): void;
     onState(state: SidecarState): void;
   };
   readinessTimeoutMs?: number;
@@ -114,9 +115,13 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     return value instanceof Error ? value : new Error("Sidecar launch failed");
   }
 
-  function stopCurrent(message: string): Promise<void> {
+  function stopCurrent(message: string, acknowledgeUnresolved = false): Promise<void> {
     const previous = current;
     if (!previous) return Promise.resolve();
+
+    if (previous.cleanupSettled && previous.cleanupFailure && !acknowledgeUnresolved) {
+      return previous.cleanup;
+    }
 
     port = null;
     clearTimer(previous.readinessTimer);
@@ -180,6 +185,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       resolveCleanup = resolvePromise;
       rejectCleanup = rejectPromise;
     });
+    void cleanup.catch(() => {});
     const candidate: Generation = {
       id,
       process: null,
@@ -229,7 +235,16 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
         const message = candidate.ready
           ? `Sidecar exited with code ${code ?? "unknown"}`
           : `Sidecar exited before readiness with code ${code ?? "unknown"}`;
-        if (!candidate.stopping) fail(candidate, new Error(message));
+        if (!candidate.stopping) {
+          const unresolved = new SidecarCleanupError(
+            "cleanup_failed",
+            `${message}; runtime ownership is unresolved`,
+          );
+          fail(candidate, unresolved);
+          settleCleanup(candidate, unresolved);
+          options.callbacks.onUnexpectedExit?.(unresolved.message);
+          return;
+        }
         settleCleanup(candidate);
         if (current?.id === candidate.id) current = null;
       });
@@ -254,16 +269,17 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
 
     stop(): Promise<void> {
       generation += 1;
-      return stopCurrent("Sidecar stopped before readiness");
+      return stopCurrent("Sidecar stopped before readiness", true);
     },
 
     retry(): Promise<number> {
       if (!lastCwd) return Promise.reject(new Error("No sidecar working directory is available for retry"));
       const previous = current;
-      const cleanup = stopCurrent("Sidecar stopped before readiness");
+      const cleanup = stopCurrent("Sidecar stopped before readiness", true);
       if (!previous) return launch(lastCwd);
       if (previous.cleanupSettled) {
-        return previous.cleanupFailure ? Promise.reject(previous.cleanupFailure) : launch(lastCwd);
+        if (previous.cleanupFailure && !previous.exited) return Promise.reject(previous.cleanupFailure);
+        return launch(lastCwd);
       }
       return cleanup.then(() => launch(lastCwd!));
     },

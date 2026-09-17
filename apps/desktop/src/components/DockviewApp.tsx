@@ -25,6 +25,7 @@ interface DockviewAppData {
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  canFixWithAi: boolean;
   focusedRecommendationId: string | null;
   unreadIds: ReadonlySet<string>;
   acknowledgedIds: ReadonlySet<string>;
@@ -151,11 +152,10 @@ function CapPanel() {
 
 function RecPanel() {
   const ctx = useContext(DockviewContext);
-  const activeSession = ctx.sessions.find((s) => s.id === ctx.activeSessionId);
   return (
     <RecommendationsPanel
       hasWorkspace={!!ctx.workspace && !ctx.isSwitchingWorkspace}
-      canFixWithAi={activeSession?.lifecycle === "alive"}
+      canFixWithAi={ctx.canFixWithAi}
       onSelectSession={ctx.onSelectSession}
       onFixWithAi={ctx.onFixWithAi}
       focusedRecommendationId={ctx.focusedRecommendationId}

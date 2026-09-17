@@ -660,6 +660,12 @@ app.whenReady().then(() => {
         // explicit through retry-backend so replacement remains serialized.
         restoration.fail(new Error(lastBackendFailure));
       },
+      onUnexpectedExit: (message) => {
+        workspaceSwitchCoordinator?.markUnresolved({
+          code: "cleanup_failed",
+          message: sanitizeBackendLifecycleFailure(message),
+        });
+      },
       onState: (state: SidecarState) => {
         if (state === "starting") {
           backendGeneration += 1;

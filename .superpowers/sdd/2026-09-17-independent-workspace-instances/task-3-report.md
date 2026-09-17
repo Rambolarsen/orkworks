@@ -31,8 +31,10 @@ Worktree: `/Users/froomiebot/workspace/orkworks/.worktrees/545-production-seam-a
   failure behavior.
 - Extended and independently duplicated the main/preload/renderer lifecycle
   contract for picker diagnostics and opening/closing/unresolved states.
-- Updated `App.tsx` to gate polling during transitions, retain picker and
-  diagnostics after failure, and expose explicit retry behavior.
+- Updated `App.tsx` so the coordinator lifecycle is the renderer admission
+  authority: create, resume, foreground submission, session selection, and
+  Taskmaster fix handoff are closed outside `ready`, while the single active
+  terminal/session-context rule remains intact. Polling is gated as well.
 - Preserved attempted-runtime cleanup failures independently from the nullable
   workspace path, so path-null close/quit requests remain unresolved and do
   not dispose the lifecycle until an explicit retry acknowledges cleanup.
@@ -68,7 +70,11 @@ network install were run.
 
 - No peer-instance registry or coordination was added.
 - Task 4 still owns canonical identity and sidecar lease-adoption changes.
-- Task 5 still owns native crash-surviving process ownership evidence.
+- Task 5 still owns native crash-surviving process ownership evidence. That
+  native descendant proof remains unimplemented here; an unexpected sidecar
+  exit therefore publishes `unresolved` and blocks replacement until cleanup
+  and ownership are explicitly acknowledged. No crash-relaunch proof is
+  claimed.
 
 ## Review-fix follow-up (2026-09-17)
 
@@ -102,7 +108,7 @@ PASS
 
 No full suite or network-dependent command was run.
 
-## Review-fix verification (2026-09-17)
+## Final Task 3 verification (2026-09-17)
 
 ```text
 node --experimental-strip-types --test \
@@ -111,8 +117,9 @@ node --experimental-strip-types --test \
   tests/backendRestoration.test.ts \
   tests/electronSidecarWiring.test.ts \
   tests/backendLifecycleWiring.test.ts \
-  tests/backendLifecycleEvent.test.ts
-PASS — 66 tests, 0 failures
+  tests/backendLifecycleEvent.test.ts \
+  tests/workspaceSessionController.test.ts
+PASS — 88 tests, 0 failures
 
 npx tsc --noEmit -p tsconfig.node.json
 PASS

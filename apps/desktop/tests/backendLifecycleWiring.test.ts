@@ -25,6 +25,13 @@ test("App stops session polling unless the backend is connected", () => {
   assert.match(appSource, /workspaceSessionController\.setPollingEnabled\(enabled\)/);
 });
 
+test("App makes the coordinator lifecycle the renderer admission authority", () => {
+  assert.match(appSource, /workspaceSessionController\.setAdmissionEnabled\(event\.state === "ready"\)/);
+  assert.match(appSource, /workspaceSessionController\.submitActiveSession\(sid\)/);
+  assert.match(appSource, /sessionAdmissionEnabled/);
+  assert.match(appSource, /canFixWithAi=\{sessionAdmissionEnabled && activeSession\?\.lifecycle === "alive"\}/);
+});
+
 test("App exposes a retry action that resets status and invokes the lifecycle bridge", () => {
   assert.match(appSource, /setBackendStatus\("connecting…"\)/);
   assert.match(appSource, /window\.orkworks\.retryBackend\(\)/);

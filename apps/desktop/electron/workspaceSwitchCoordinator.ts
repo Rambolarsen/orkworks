@@ -69,6 +69,7 @@ export interface WorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic = unk
   getState(): WorkspaceInstanceState;
   isCurrentGeneration(generation: number): boolean;
   getCurrentWorkspacePath(): string | null;
+  markUnresolved(failure: WorkspaceSwitchFailure): void;
   switchWorkspace(path: string): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic>>;
   pickWorkspace(select: () => Promise<string | null>): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic> | null>;
   retry(): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic>>;
@@ -174,6 +175,10 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
         publish({ state: "unresolved", generation: nextGeneration, failure: cleanupFailure });
         return { ok: false, state: "unresolved", generation: nextGeneration, failure: cleanupFailure };
       }
+      if (attemptedRuntimeCleanupFailure) {
+        publish({ state: "unresolved", generation, failure: attemptedRuntimeCleanupFailure });
+        return { ok: false, state: "unresolved", generation, failure: attemptedRuntimeCleanupFailure };
+      }
       publish({ state: "picker", generation: nextGeneration, failure });
       return { ok: false, state: "picker", generation: nextGeneration, failure };
     }
@@ -190,6 +195,10 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
         attemptedRuntimeCleanupFailure = cleanupFailure;
         publish({ state: "unresolved", generation: nextGeneration, failure: cleanupFailure });
         return { ok: false, state: "unresolved", generation: nextGeneration, failure: cleanupFailure };
+      }
+      if (attemptedRuntimeCleanupFailure) {
+        publish({ state: "unresolved", generation, failure: attemptedRuntimeCleanupFailure });
+        return { ok: false, state: "unresolved", generation, failure: attemptedRuntimeCleanupFailure };
       }
       return { ok: false, state: "picker", generation: nextGeneration, failure };
     }
@@ -244,6 +253,12 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
 
     isCurrentGeneration(candidate: number): boolean {
       return candidate === generation;
+    },
+
+    markUnresolved(failure: WorkspaceSwitchFailure): void {
+      generation += 1;
+      attemptedRuntimeCleanupFailure = failure;
+      publish({ state: "unresolved", generation, failure });
     },
 
     getCurrentWorkspacePath(): string | null {

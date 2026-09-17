@@ -35,7 +35,6 @@ import {
   type WorkflowRecommendation,
   listHarnesses,
   applyDebugAttention,
-  setActiveWorkspaceSession,
   getProviders,
   acceptTaskmasterRecommendation,
 } from "./api";
@@ -52,6 +51,7 @@ import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
+  const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
@@ -85,6 +85,7 @@ function App() {
   const workspaceSessionControllerRef = useRef<ReturnType<typeof createWorkspaceSessionController> | null>(null);
   if (!workspaceSessionControllerRef.current) {
     workspaceSessionControllerRef.current = createWorkspaceSessionController({
+      initialAdmissionEnabled: false,
       onWorkspace: (info) => {
         setWorkspaceState(info);
         setActiveHarnessIds(info?.activeHarnessIds ?? []);
@@ -102,6 +103,8 @@ function App() {
   const workspaceSessionController = workspaceSessionControllerRef.current;
 
   const handleBackendLifecycle = useCallback((event: BackendLifecycleEvent) => {
+    workspaceSessionController.setAdmissionEnabled(event.state === "ready");
+    setSessionAdmissionEnabled(event.state === "ready");
     const generation = workspaceLifecycleRef.current.generation + 1;
     workspaceLifecycleRef.current = {
       generation,
@@ -234,6 +237,7 @@ function App() {
   }, [backendStatus, refreshHarnesses]);
 
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
+  const activeSession = sessions.find((session) => session.id === activeSessionId);
 
   const handleSaveActiveHarnesses = useCallback(async (ids: string[], scope?: IntegrationKey): Promise<ActiveHarnessSaveResult> => {
     const result = scope
@@ -295,6 +299,7 @@ function App() {
   }, []);
 
   const handleCreateSession = useCallback(async () => {
+    if (!workspaceSessionController.isAdmissionEnabled()) return;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const runtime = await getProviders(baseUrl);
@@ -303,7 +308,7 @@ function App() {
       // dialog still opens; provider states just won't show
     }
     setNewSessionDialogOpen(true);
-  }, []);
+  }, [workspaceSessionController]);
 
   const handleConfirmNewSession = useCallback(async (opts: CreateSessionOptions) => {
     setNewSessionDialogOpen(false);
@@ -323,17 +328,24 @@ function App() {
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
+    if (!workspaceSessionController.isAdmissionEnabled()) return;
+    const activeSession = sessions.find((session) => session.id === activeSessionId);
+    if (activeSession?.lifecycle !== "alive") return;
     setFixRecommendation(recommendation);
-  }, []);
+  }, [activeSessionId, sessions, workspaceSessionController]);
 
   const handleConfirmFixWithAi = useCallback(async (prompt: string) => {
     const recommendation = fixRecommendation;
     setFixRecommendation(null);
-    if (!recommendation || !activeSessionId) {
+    const activeSession = activeSessionId
+      ? sessions.find((session) => session.id === activeSessionId)
+      : undefined;
+    if (!recommendation || !activeSessionId || activeSession?.lifecycle !== "alive" || !workspaceSessionController.isAdmissionEnabled()) {
       pushToast("error", "Couldn't send the fix — no session is active.");
       return;
     }
     try {
+      if (!await workspaceSessionController.submitActiveSession(activeSessionId)) return;
       const baseUrl = await window.orkworks.getBackendUrl();
       await acceptTaskmasterRecommendation(baseUrl, recommendation.id, {
         sessionId: activeSessionId,
@@ -347,7 +359,7 @@ function App() {
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");
     }
-  }, [fixRecommendation, activeSessionId]);
+  }, [fixRecommendation, activeSessionId, sessions, workspaceSessionController]);
 
   // Unread ("changed since you looked") is derived by diffing attention
   // status between session snapshots; selecting a session marks it read.
@@ -356,8 +368,8 @@ function App() {
   }, [sessions, activeSessionId]);
 
   const handleSelectSession = useCallback((id: string) => {
+    if (!workspaceSessionController.selectSession(id)) return;
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
-    workspaceSessionController.selectSession(id);
     const api = dockviewApiRef.current;
     if (api) {
       const panel = api.getPanel("terminal");
@@ -430,7 +442,7 @@ function App() {
     const onSelected = (event: Event) => {
       const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
       if (typeof sessionId !== "string") return;
-      workspaceSessionController.selectSession(sessionId);
+      if (!workspaceSessionController.selectSession(sessionId)) return;
       void refreshSessions().then((refreshed) => {
         if (refreshed) handleReviewPlan(sessionId, refreshed);
       });
@@ -501,17 +513,13 @@ function App() {
   }, [backendStatus, workspace, settings, settingsOpen, activeHarnessIds]);
 
   useEffect(() => {
-    if (backendStatus !== "connected" || !activeSessionId) return;
+    if (backendStatus !== "connected" || !sessionAdmissionEnabled || !activeSessionId) return;
     const sid = activeSessionId;
-    async function persistActiveSession() {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      await setActiveWorkspaceSession(baseUrl, sid);
-    }
-    persistActiveSession().catch(() => {
+    workspaceSessionController.submitActiveSession(sid).catch(() => {
       // Silent: backend may not be ready yet on first load; the next active-
       // session change will retry.
     });
-  }, [activeSessionId, backendStatus]);
+  }, [activeSessionId, backendStatus, sessionAdmissionEnabled, workspaceSessionController]);
 
   useEffect(() => {
     return window.orkworks.onMenuCommand(({ action, panelId }) => {
@@ -701,6 +709,7 @@ function App() {
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        canFixWithAi={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
         unreadIds={unreadState.unreadIds}
         acknowledgedIds={unreadState.acknowledgedIds}
         harnesses={harnesses}

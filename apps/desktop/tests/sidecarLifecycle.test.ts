@@ -106,6 +106,7 @@ function createHarness(
   const timers = new FakeTimers();
   const states: SidecarState[] = [];
   const unavailable: string[] = [];
+  const unexpectedExits: string[] = [];
   const ready: number[] = [];
   const lifecycle = createSidecarLifecycle({
     spawn: spawnProcess,
@@ -115,13 +116,14 @@ function createHarness(
     callbacks: {
       onReady: (port) => ready.push(port),
       onUnavailable: (message) => unavailable.push(message),
+      onUnexpectedExit: (message) => unexpectedExits.push(message),
       onState: (state) => states.push(state),
     },
     readinessTimeoutMs: 10,
     cleanupTimeoutMs: options.cleanupTimeoutMs,
   });
 
-  return { lifecycle, processes, timers, states, unavailable, ready };
+  return { lifecycle, processes, timers, states, unavailable, unexpectedExits, ready };
 }
 
 test("rejects readiness when the process exits before publishing a port", async () => {
@@ -139,6 +141,8 @@ test("starts the next generation only after the old process exits", async () => 
   const first = lifecycle.start("/one");
   processes[0].exit(0);
   await assert.rejects(first, /exited before readiness/i);
+
+  await lifecycle.stop();
 
   const second = lifecycle.start("/two");
 
@@ -204,8 +208,8 @@ test("cleanup timeout rejects with a typed failure and blocks replacement while 
   });
 });
 
-test("notifies when a ready process exits", async () => {
-  const { lifecycle, processes, unavailable } = createHarness();
+test("unexpected exit reports unresolved ownership and blocks replacement until explicit acknowledgement", async () => {
+  const { lifecycle, processes, unavailable, unexpectedExits } = createHarness();
   const readiness = lifecycle.start("/workspace");
   processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
   await readiness;
@@ -214,6 +218,20 @@ test("notifies when a ready process exits", async () => {
 
   assert.equal(lifecycle.getPort(), null);
   assert.match(unavailable.at(-1) ?? "", /exited/i);
+  assert.match(unexpectedExits.at(-1) ?? "", /ownership.*unresolved/i);
+
+  const blockedReplacement = lifecycle.start("/replacement");
+  await assert.rejects(blockedReplacement, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_failed");
+    assert.match((error as Error).message, /ownership.*unresolved/i);
+    return true;
+  });
+  assert.equal(processes.length, 1, "an unresolved generation must not spawn a replacement");
+
+  await lifecycle.stop();
+  const acknowledgedReplacement = lifecycle.start("/replacement");
+  processes[1].stdout.emit("ORKWORKSD_PORT=4555\n");
+  assert.equal(await acknowledgedReplacement, 4555);
 });
 
 test("rejects readiness when spawn emits an error", async () => {
