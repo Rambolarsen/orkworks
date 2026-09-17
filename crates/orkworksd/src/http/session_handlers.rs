@@ -9,6 +9,7 @@ use crate::session_projection::SessionProjection;
 use crate::session_types::{MemoryState, PeonDiagnostics, SessionInfo};
 #[cfg(test)]
 use crate::watcher;
+use crate::workspace_runtime::WorkspaceIdentity;
 #[cfg(test)]
 use crate::workspace_runtime::{orkworks_global_dir, WorkspaceLease};
 use crate::{git, harness, metadata, peon, AppState, SessionHandle, WorkspaceState};
@@ -26,6 +27,8 @@ use std::sync::Arc;
 #[derive(Deserialize)]
 pub(crate) struct WorkspaceRequest {
     pub(crate) path: String,
+    #[serde(rename = "workspaceIdentity")]
+    pub(crate) workspace_identity: String,
 }
 
 #[derive(Deserialize)]
@@ -97,6 +100,8 @@ pub(crate) struct DebugAttentionRequest {
 #[derive(Serialize)]
 pub(crate) struct WorkspaceResponse {
     pub(crate) path: String,
+    #[serde(rename = "workspaceIdentity")]
+    pub(crate) workspace_identity: String,
     pub(crate) repo_root: Option<String>,
     pub(crate) branch: Option<String>,
     pub(crate) dirty: Option<bool>,
@@ -198,6 +203,28 @@ pub(crate) async fn set_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<WorkspaceRequest>,
 ) -> impl IntoResponse {
+    let display_path = req.path.clone();
+    let requested_path = PathBuf::from(&req.path);
+    let identity = match WorkspaceIdentity::resolve(&requested_path) {
+        Ok(identity) => identity,
+        Err(error) => {
+            tracing::warn!(path = %req.path, %error, "workspace identity could not be resolved");
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                "workspace identity could not be resolved",
+            )
+                .into_response();
+        }
+    };
+    if identity.canonical_path().to_string_lossy() != req.workspace_identity
+        || !identity.matches(&requested_path)
+    {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "workspace identity changed before adoption",
+        )
+            .into_response();
+    }
     let open_result = {
         let _projection = match state.projection_lock.lock() {
             Ok(guard) => guard,
@@ -206,7 +233,8 @@ pub(crate) async fn set_workspace(
                 return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
-        SessionApplication::new(state.clone()).open_workspace(PathBuf::from(&req.path))
+        SessionApplication::new(state.clone())
+            .open_workspace(identity.canonical_path().to_path_buf())
     };
     match open_result {
         Ok(snapshot) => {
@@ -224,7 +252,8 @@ pub(crate) async fn set_workspace(
                 )
             };
             Json(WorkspaceResponse {
-                path: snapshot.path,
+                path: display_path,
+                workspace_identity: snapshot.path,
                 repo_root: snapshot.repo_root,
                 branch: snapshot.branch,
                 dirty: snapshot.dirty,
@@ -1284,6 +1313,12 @@ mod tests {
             State(state.clone()),
             Json(WorkspaceRequest {
                 path: workspace_dir.path().display().to_string(),
+                workspace_identity: workspace_dir
+                    .path()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+                    .to_string(),
             }),
         )
         .await
@@ -1307,17 +1342,38 @@ mod tests {
         let _home = FakeHome::set(home_dir.path());
         let global_dir = orkworks_global_dir(workspace_dir.path()).unwrap();
         let _existing_lease = WorkspaceLease::acquire(&global_dir).unwrap();
+        let sentinel = home_dir.path().join("foreign-owner-sentinel");
+        std::fs::write(&sentinel, "must survive").unwrap();
 
         let response = set_workspace(
             State(test_app_state_with_workspace(workspace_dir.path())),
             Json(WorkspaceRequest {
                 path: workspace_dir.path().display().to_string(),
+                workspace_identity: workspace_dir
+                    .path()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+                    .to_string(),
             }),
         )
         .await
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+        assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "must survive");
+    }
+
+    #[test]
+    fn workspace_request_requires_canonical_identity_and_display_path() {
+        let request: WorkspaceRequest = serde_json::from_value(serde_json::json!({
+            "path": "/display/workspace",
+            "workspaceIdentity": "/canonical/workspace",
+        }))
+        .unwrap();
+
+        assert_eq!(request.path, "/display/workspace");
+        assert_eq!(request.workspace_identity, "/canonical/workspace");
     }
 
     /// Only the sidecar (`orkworksd`) itself restarting empties
@@ -1347,6 +1403,12 @@ mod tests {
             State(state.clone()),
             Json(WorkspaceRequest {
                 path: workspace_dir.path().display().to_string(),
+                workspace_identity: workspace_dir
+                    .path()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+                    .to_string(),
             }),
         )
         .await
@@ -6651,15 +6713,17 @@ mod tests {
 
     #[test]
     fn workspace_request_deserializes_path() {
-        let json = r#"{"path": "/home/user/project"}"#;
+        let json = r#"{"path": "/home/user/project", "workspaceIdentity": "/home/user/project"}"#;
         let req: WorkspaceRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.path, "/home/user/project");
+        assert_eq!(req.workspace_identity, "/home/user/project");
     }
 
     #[test]
     fn workspace_response_serializes_all_fields() {
         let resp = WorkspaceResponse {
             path: "/tmp".into(),
+            workspace_identity: "/tmp".into(),
             repo_root: Some("/tmp".into()),
             branch: Some("main".into()),
             dirty: Some(false),
@@ -6670,6 +6734,7 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"path\":\"/tmp\""));
+        assert!(json.contains("\"workspaceIdentity\":\"/tmp\""));
         assert!(json.contains("\"repo_root\":\"/tmp\""));
         assert!(json.contains("\"branch\":\"main\""));
         assert!(json.contains("\"dirty\":false"));
@@ -6680,6 +6745,7 @@ mod tests {
     fn workspace_response_without_git() {
         let resp = WorkspaceResponse {
             path: "/tmp".into(),
+            workspace_identity: "/tmp".into(),
             repo_root: None,
             branch: None,
             dirty: None,

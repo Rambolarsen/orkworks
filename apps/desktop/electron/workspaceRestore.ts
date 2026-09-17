@@ -1,8 +1,20 @@
 import type { BackendLifecycleWorkspace } from "./backendLifecycleEvent";
 
+export interface WorkspaceRestoreRequest {
+  path: string;
+  workspaceIdentity: string;
+}
+
 export type WorkspaceRestoreResult =
   | { ok: true; workspace: BackendLifecycleWorkspace }
   | { ok: false; status: number; removeFromHistory: boolean };
+
+export function buildWorkspaceRestoreRequest(
+  displayPath: string,
+  workspaceIdentity: string,
+): WorkspaceRestoreRequest {
+  return { path: displayPath, workspaceIdentity };
+}
 
 export async function parseWorkspaceRestoreResponse(
   response: Response,
@@ -20,6 +32,11 @@ export async function parseWorkspaceRestoreResponse(
     throw new Error(`Workspace restoration failed: ${response.status}`);
   }
   const rawWorkspace = await response.json() as Partial<BackendLifecycleWorkspace>;
+  const displayPath = rawWorkspace.path;
+  const workspaceIdentity = (rawWorkspace as { workspaceIdentity?: unknown }).workspaceIdentity;
+  if (typeof displayPath !== "string" || typeof workspaceIdentity !== "string") {
+    throw new Error("Workspace restoration returned an invalid workspace identity.");
+  }
   const restoredActiveHarnessRevision = rawWorkspace.activeHarnessRevision;
   if (
     typeof restoredActiveHarnessRevision !== "number" ||
@@ -31,7 +48,7 @@ export async function parseWorkspaceRestoreResponse(
   return {
     ok: true,
     workspace: {
-      path: rawWorkspace.path ?? "",
+      path: displayPath,
       repo_root: rawWorkspace.repo_root ?? null,
       branch: rawWorkspace.branch ?? null,
       dirty: rawWorkspace.dirty ?? null,

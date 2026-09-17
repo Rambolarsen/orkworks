@@ -20,7 +20,7 @@ import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } f
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
-import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
+import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace, BackendRetryResult, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
 import { createWorkspaceSwitchCoordinator, WorkspaceSwitchError, type WorkspaceSwitchCoordinator, type WorkspaceSwitchEvent } from "./workspaceSwitchCoordinator";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
@@ -53,6 +53,8 @@ let workspaceSwitchCoordinator: WorkspaceSwitchCoordinator<BackendLifecycleWorks
 let quitInProgress = false;
 let quitBypass = false;
 let workspacePath: string | null = null;
+let workspaceDisplayPath: string | null = null;
+let pendingWorkspaceDisplayPath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let providerModels: Map<string, string[]> = new Map();
@@ -436,10 +438,11 @@ app.whenReady().then(() => {
   async function restoreWorkspace(port: number, signal: AbortSignal): Promise<BackendLifecycleWorkspace | null> {
     if (!workspacePath) return null;
 
+    const displayPath = workspaceDisplayPath ?? workspacePath;
     const response = await fetch(`http://127.0.0.1:${port}/workspace`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: workspacePath }),
+      body: JSON.stringify(buildWorkspaceRestoreRequest(displayPath, workspacePath)),
       signal,
     });
     const restoreResult = await parseWorkspaceRestoreResponse(response);
@@ -813,9 +816,19 @@ app.whenReady().then(() => {
 
   workspaceSwitchCoordinator = createWorkspaceSwitchCoordinator<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic>({
     initialWorkspacePath: null,
-    validateDestination: (candidate) => accessibleWorkspaceDirectoryPath(candidate),
+    validateDestination: (candidate) => {
+      const identity = accessibleWorkspaceDirectoryPath(candidate);
+      if (identity) pendingWorkspaceDisplayPath = candidate;
+      return identity;
+    },
     setWorkspacePath: (nextPath) => {
       workspacePath = nextPath;
+      if (nextPath) {
+        workspaceDisplayPath = pendingWorkspaceDisplayPath ?? nextPath;
+        pendingWorkspaceDisplayPath = null;
+      } else {
+        workspaceDisplayPath = null;
+      }
     },
     onCloseAdmission: () => {
       cancelPersistedPeonSelectionRestore();
@@ -828,6 +841,7 @@ app.whenReady().then(() => {
     },
     startRuntime: async (nextPath, generation) => {
       workspacePath = nextPath;
+      workspaceDisplayPath = pendingWorkspaceDisplayPath ?? nextPath;
       let lifecycleReadiness: Promise<number>;
       try {
         lifecycleReadiness = sidecarLifecycle!.start(nextPath);
@@ -864,6 +878,8 @@ app.whenReady().then(() => {
     cleanupAttemptedRuntime: async () => {
       restoration.cancel(new Error("Attempted workspace runtime is being cleaned up"));
       workspacePath = null;
+      workspaceDisplayPath = null;
+      pendingWorkspaceDisplayPath = null;
       await sidecarLifecycle?.stop();
     },
     rememberWorkspace: (_path, workspace) => rememberRestoredWorkspace(workspace),
