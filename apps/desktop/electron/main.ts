@@ -128,43 +128,16 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
 
   const listeners = new Set<(event: UpdateEngineEvent) => void>();
   let channel: "latest" | "nightly" = "latest";
-  let checkOperationId: number | null = null;
-  let downloadOperationId: number | null = null;
   let downloadedCandidate: UpdateCandidate | null = null;
+  let operationQueue: Promise<void> = Promise.resolve();
   const emit = (event: UpdateEngineEvent): void => {
     for (const listener of listeners) listener(event);
   };
-
-  autoUpdater.on("update-available", (info) => {
-    if (checkOperationId === null) return;
-    emit({ type: "update-available", operationId: checkOperationId, candidate: updateCandidate(info, channel) });
-  });
-  autoUpdater.on("update-not-available", () => {
-    if (checkOperationId === null) return;
-    emit({ type: "update-not-available", operationId: checkOperationId });
-  });
-  autoUpdater.on("download-progress", (progress) => {
-    if (downloadOperationId === null) return;
-    emit({
-      type: "download-progress",
-      operationId: downloadOperationId,
-      percent: progress.percent,
-      transferred: progress.transferred,
-      total: progress.total,
-    });
-  });
-  autoUpdater.on("update-downloaded", (info) => {
-    if (downloadOperationId === null) return;
-    downloadedCandidate = updateCandidate(info, channel);
-    emit({ type: "update-downloaded", operationId: downloadOperationId, candidate: downloadedCandidate });
-  });
-  autoUpdater.on("error", (error) => {
-    if (downloadOperationId !== null) {
-      emit({ type: "error", operation: "download", operationId: downloadOperationId, message: error.message });
-    } else if (checkOperationId !== null) {
-      emit({ type: "error", operation: "check", operationId: checkOperationId, message: error.message });
-    }
-  });
+  const serialize = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = operationQueue.then(operation, operation);
+    operationQueue = result.then(() => undefined, () => undefined);
+    return result;
+  };
 
   const engine: UpdateEngine = {
     get autoDownload() { return autoUpdater.autoDownload; },
@@ -185,21 +158,94 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async checkForUpdates(operationId) {
-      checkOperationId = operationId;
-      try {
-        await autoUpdater.checkForUpdates();
-      } finally {
-        if (checkOperationId === operationId) checkOperationId = null;
-      }
+    checkForUpdates(operationId) {
+      return serialize(async () => {
+        const operation = { id: operationId, channel, finished: false };
+        const cleanup = () => {
+          autoUpdater.removeListener("update-available", onAvailable);
+          autoUpdater.removeListener("update-not-available", onNotAvailable);
+          autoUpdater.removeListener("error", onError);
+        };
+        const finish = (event: UpdateEngineEvent) => {
+          if (operation.finished) return;
+          operation.finished = true;
+          cleanup();
+          emit(event);
+        };
+        const onAvailable = (info: ElectronUpdateInfo) => finish({
+          type: "update-available",
+          operationId: operation.id,
+          candidate: updateCandidate(info, operation.channel),
+        });
+        const onNotAvailable = () => finish({ type: "update-not-available", operationId: operation.id });
+        const onError = (error: Error) => finish({
+          type: "error",
+          operation: "check",
+          operationId: operation.id,
+          message: error.message,
+        });
+        autoUpdater.on("update-available", onAvailable);
+        autoUpdater.on("update-not-available", onNotAvailable);
+        autoUpdater.on("error", onError);
+        try {
+          await autoUpdater.checkForUpdates();
+        } catch (error) {
+          onError(error instanceof Error ? error : new Error(String(error)));
+          throw error;
+        } finally {
+          operation.finished = true;
+          cleanup();
+        }
+      });
     },
-    async downloadUpdate(operationId) {
-      downloadOperationId = operationId;
-      try {
-        await autoUpdater.downloadUpdate();
-      } finally {
-        if (downloadOperationId === operationId) downloadOperationId = null;
-      }
+    downloadUpdate(operationId) {
+      return serialize(async () => {
+        const operation = { id: operationId, channel, finished: false };
+        const cleanup = () => {
+          autoUpdater.removeListener("download-progress", onProgress);
+          autoUpdater.removeListener("update-downloaded", onDownloaded);
+          autoUpdater.removeListener("error", onError);
+        };
+        const finish = (event: UpdateEngineEvent) => {
+          if (operation.finished) return;
+          operation.finished = true;
+          cleanup();
+          emit(event);
+        };
+        const onProgress = (progress: { percent: number; transferred: number; total: number }) => {
+          if (operation.finished) return;
+          emit({
+            type: "download-progress",
+            operationId: operation.id,
+            percent: progress.percent,
+            transferred: progress.transferred,
+            total: progress.total,
+          });
+        };
+        const onDownloaded = (info: ElectronUpdateInfo) => {
+          const candidate = updateCandidate(info, operation.channel);
+          downloadedCandidate = candidate;
+          finish({ type: "update-downloaded", operationId: operation.id, candidate });
+        };
+        const onError = (error: Error) => finish({
+          type: "error",
+          operation: "download",
+          operationId: operation.id,
+          message: error.message,
+        });
+        autoUpdater.on("download-progress", onProgress);
+        autoUpdater.on("update-downloaded", onDownloaded);
+        autoUpdater.on("error", onError);
+        try {
+          await autoUpdater.downloadUpdate();
+        } catch (error) {
+          onError(error instanceof Error ? error : new Error(String(error)));
+          throw error;
+        } finally {
+          operation.finished = true;
+          cleanup();
+        }
+      });
     },
     quitAndInstall() {
       autoUpdater.quitAndInstall();
@@ -213,13 +259,21 @@ function createElectronUpdateEngine(autoUpdater: AppUpdater): {
 }
 
 function registerUpdateIpc(service: UpdateService): void {
+  const updateSubscriptions = new Map<number, () => void>();
   ipcMain.handle("get-update-status", () => service.getStatus());
   ipcMain.handle("check-for-updates", () => service.check());
   ipcMain.handle("download-update", () => service.download());
   ipcMain.handle("request-update-install", () => service.requestInstall());
   ipcMain.on("subscribe-update-status", (event) => {
+    const senderId = event.sender.id;
+    updateSubscriptions.get(senderId)?.();
     const unsubscribe = service.subscribe((status) => event.sender.send("update-status", status));
-    event.sender.once("destroyed", unsubscribe);
+    updateSubscriptions.set(senderId, unsubscribe);
+    event.sender.once("destroyed", () => {
+      if (updateSubscriptions.get(senderId) !== unsubscribe) return;
+      updateSubscriptions.delete(senderId);
+      unsubscribe();
+    });
   });
 }
 
