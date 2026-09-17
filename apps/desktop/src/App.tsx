@@ -44,7 +44,7 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
-import type { ActiveHarnessSaveResult, BackendLifecycleEvent, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
@@ -76,6 +76,11 @@ function App() {
     hiddenSignalPanels: SignalPanelId[];
   } | null>(null);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
+  const workspaceLifecycleRef = useRef({ generation: 0, readyGeneration: null as number | null });
+  const initialWorkspaceSnapshotRef = useRef<{
+    generation: number;
+    promise: Promise<InitialWorkspaceSnapshot>;
+  } | null>(null);
   const workspaceSessionControllerRef = useRef<ReturnType<typeof createWorkspaceSessionController> | null>(null);
   if (!workspaceSessionControllerRef.current) {
     workspaceSessionControllerRef.current = createWorkspaceSessionController({
@@ -96,6 +101,11 @@ function App() {
   const workspaceSessionController = workspaceSessionControllerRef.current;
 
   const handleBackendLifecycle = useCallback((event: BackendLifecycleEvent) => {
+    const generation = workspaceLifecycleRef.current.generation + 1;
+    workspaceLifecycleRef.current = {
+      generation,
+      readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
+    };
     if (event.state === "ready") {
       workspaceSessionController.setPollingEnabled(false);
       void workspaceSessionController.adoptRestoredWorkspace(event.workspace);
@@ -430,8 +440,21 @@ function App() {
     let cancelled = false;
     async function loadInitialWorkspace() {
       try {
-        const snapshot = await window.orkworks.getInitialWorkspace();
+        const snapshotRequest = initialWorkspaceSnapshotRef.current ?? (() => {
+          const request = {
+            generation: workspaceLifecycleRef.current.generation,
+            promise: window.orkworks.getInitialWorkspace(),
+          };
+          initialWorkspaceSnapshotRef.current = request;
+          return request;
+        })();
+        const snapshot = await snapshotRequest.promise;
         if (cancelled) return;
+        const lifecycle = workspaceLifecycleRef.current;
+        if (
+          lifecycle.generation !== snapshotRequest.generation
+          || (lifecycle.readyGeneration !== null && lifecycle.readyGeneration >= snapshotRequest.generation)
+        ) return;
         setWorkspaceHistoryDiagnostic(snapshot.historyDiagnostic);
         if (backendStatus === "connected" && !workspace && snapshot.workspace) {
           await workspaceSessionController.adoptRestoredWorkspace(snapshot.workspace);

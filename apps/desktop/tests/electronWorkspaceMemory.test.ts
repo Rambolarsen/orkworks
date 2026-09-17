@@ -60,6 +60,35 @@ test("workspace memory round-trips the version and increasing revision", () =>
     });
   }));
 
+test("workspace history replacement seam handles a second write over an existing target", () =>
+  withTemporaryUserData((directory) => {
+    const replacements: boolean[] = [];
+    const replace = (source: string, target: string, targetExists: boolean): void => {
+      replacements.push(targetExists);
+      writeFileSync(target, readFileSync(source));
+      rmSync(source, { force: true });
+    };
+
+    const first = rememberWorkspacePath(directory, "/repo/a", replace);
+    const second = rememberWorkspacePath(directory, "/repo/b", replace);
+
+    assert.equal(first.diagnostic, null);
+    assert.equal(second.diagnostic, null);
+    assert.deepEqual(replacements, [false, true]);
+    assert.deepEqual(readWorkspaceMemory(directory), second);
+  }));
+
+test("Windows workspace history replaces an existing target on the second write", {
+  skip: process.platform !== "win32",
+}, () => withTemporaryUserData((directory) => {
+  rememberWorkspacePath(directory, "/repo/a");
+  const second = rememberWorkspacePath(directory, "/repo/b");
+
+  assert.equal(second.diagnostic, null);
+  assert.equal(second.revision, 2);
+  assert.equal(readWorkspaceMemory(directory).lastWorkspacePath, "/repo/b");
+}));
+
 test("workspace memory survives a fresh process using the same application-data directory", () =>
   withTemporaryUserData(async (directory) => {
     rememberWorkspacePath(directory, "/repo/a");

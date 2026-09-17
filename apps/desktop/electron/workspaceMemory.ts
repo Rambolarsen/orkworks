@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -43,6 +44,12 @@ const maximumSerializedBytes = 64 * 1024;
 const lockRetryCount = 50;
 const lockRetryDelayMs = 10;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+export type WorkspaceHistoryReplacer = (
+  temporary: string,
+  target: string,
+  targetExists: boolean,
+) => void;
 
 const corruptDiagnostic: WorkspaceMemoryDiagnostic = {
   code: "corrupt_history",
@@ -176,10 +183,42 @@ function acquireHistoryLock(userDataPath: string): number | null {
   return null;
 }
 
+function replaceExistingWorkspaceHistoryOnWindows(temporary: string, target: string): void {
+  // PowerShell's [System.IO.File]::Replace delegates to ReplaceFileW, which
+  // atomically replaces an existing file on Windows. Passing paths as
+  // environment values keeps arbitrary workspace paths out of the command
+  // parser and preserves the error if the native operation fails.
+  execFileSync("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_HISTORY_TEMPORARY, $env:ORKWORKS_HISTORY_TARGET, $null, $true)",
+  ], {
+    env: {
+      ...process.env,
+      ORKWORKS_HISTORY_TEMPORARY: temporary,
+      ORKWORKS_HISTORY_TARGET: target,
+    },
+    stdio: "ignore",
+  });
+}
+
+const replaceWorkspaceHistoryFile: WorkspaceHistoryReplacer = (temporary, target, targetExists) => {
+  if (process.platform === "win32" && targetExists) {
+    replaceExistingWorkspaceHistoryOnWindows(temporary, target);
+    return;
+  }
+  // POSIX rename and the new-target Windows path both publish the fully
+  // flushed temporary file in one filesystem operation.
+  renameSync(temporary, target);
+};
+
 function writeAndVerify(
   userDataPath: string,
   current: AppWorkspaceMemory,
   next: StoredWorkspaceMemory,
+  replaceFile: WorkspaceHistoryReplacer,
 ): AppWorkspaceMemory {
   const target = workspaceMemoryPath(userDataPath);
   const temporary = join(
@@ -187,7 +226,7 @@ function writeAndVerify(
     `.workspace-memory.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
   );
   let descriptor: number | null = null;
-  let replacementAttempted = false;
+  let replacementCompleted = false;
   try {
     descriptor = openSync(temporary, "wx", 0o600);
     const bytes = Buffer.from(serializedMemory(next), "utf8");
@@ -200,26 +239,19 @@ function writeAndVerify(
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = null;
-    replacementAttempted = true;
-    try {
-      renameSync(temporary, target);
-    } catch {
-      // The target may still have been replaced; the read-back below is the
-      // source of truth even when rename reports an exception.
-    }
+    replaceFile(temporary, target, existsSync(target));
+    replacementCompleted = true;
   } catch {
-    if (!replacementAttempted) {
-      return withDiagnostic(current, {
-        code: "history_write_failed",
-        message: "Workspace history could not be saved; the ready workspace was kept.",
-      });
-    }
+    return withDiagnostic(current, {
+      code: "history_write_failed",
+      message: "Workspace history could not be saved; the ready workspace was kept.",
+    });
   } finally {
     if (descriptor !== null) closeSync(descriptor);
     rmSync(temporary, { force: true });
   }
 
-  if (replacementAttempted) {
+  if (replacementCompleted) {
     const observed = readStoredWorkspaceMemory(userDataPath);
     if (
       observed.diagnostic === null
@@ -239,6 +271,7 @@ type UpdateResult = StoredWorkspaceMemory | typeof noChange | typeof tooLarge;
 function updateWorkspaceMemory(
   userDataPath: string,
   update: (current: AppWorkspaceMemory) => UpdateResult,
+  replaceFile: WorkspaceHistoryReplacer = replaceWorkspaceHistoryFile,
 ): AppWorkspaceMemory {
   try {
     mkdirSync(userDataPath, { recursive: true });
@@ -280,7 +313,7 @@ function updateWorkspaceMemory(
         message: "Workspace path is too large to fit in the bounded history file.",
       });
     }
-    return writeAndVerify(userDataPath, current, next);
+    return writeAndVerify(userDataPath, current, next, replaceFile);
   } finally {
     closeSync(lock);
   }
@@ -311,7 +344,11 @@ export function accessibleWorkspaceDirectoryPath(workspacePath: string): string 
   }
 }
 
-export function rememberWorkspacePath(userDataPath: string, workspacePath: string): AppWorkspaceMemory {
+export function rememberWorkspacePath(
+  userDataPath: string,
+  workspacePath: string,
+  replaceFile: WorkspaceHistoryReplacer = replaceWorkspaceHistoryFile,
+): AppWorkspaceMemory {
   return updateWorkspaceMemory(userDataPath, (current) => {
     const recentWorkspacePaths = boundedPaths(workspacePath, [
       workspacePath,
@@ -324,10 +361,14 @@ export function rememberWorkspacePath(userDataPath: string, workspacePath: strin
       lastWorkspacePath: workspacePath,
       recentWorkspacePaths,
     };
-  });
+  }, replaceFile);
 }
 
-export function forgetWorkspacePath(userDataPath: string, workspacePath: string): AppWorkspaceMemory {
+export function forgetWorkspacePath(
+  userDataPath: string,
+  workspacePath: string,
+  replaceFile: WorkspaceHistoryReplacer = replaceWorkspaceHistoryFile,
+): AppWorkspaceMemory {
   return updateWorkspaceMemory(userDataPath, (current) => {
     const recentWorkspacePaths = current.recentWorkspacePaths.filter((path) => path !== workspacePath);
     if (recentWorkspacePaths.length === current.recentWorkspacePaths.length && current.lastWorkspacePath !== workspacePath) {
@@ -339,5 +380,5 @@ export function forgetWorkspacePath(userDataPath: string, workspacePath: string)
       lastWorkspacePath: current.lastWorkspacePath === workspacePath ? null : current.lastWorkspacePath,
       recentWorkspacePaths,
     };
-  });
+  }, replaceFile);
 }
