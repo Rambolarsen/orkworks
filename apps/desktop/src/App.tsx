@@ -44,7 +44,7 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
-import type { ActiveHarnessSaveResult, BackendLifecycleEvent, IntegrationKey } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
@@ -56,6 +56,7 @@ function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
+  const [workspaceHistoryDiagnostic, setWorkspaceHistoryDiagnostic] = useState<WorkspaceHistoryDiagnostic | null>(null);
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -421,15 +422,21 @@ function App() {
   }, [refreshSessions]);
 
   useEffect(() => {
-    if (backendStatus !== "connected" || workspace) return;
     let cancelled = false;
     async function loadInitialWorkspace() {
-      const info = await window.orkworks.getInitialWorkspace();
-      if (!cancelled && info) {
-        await workspaceSessionController.adoptRestoredWorkspace(info);
+      try {
+        const snapshot = await window.orkworks.getInitialWorkspace();
+        if (cancelled) return;
+        setWorkspaceHistoryDiagnostic(snapshot.historyDiagnostic);
+        if (backendStatus === "connected" && !workspace && snapshot.workspace) {
+          await workspaceSessionController.adoptRestoredWorkspace(snapshot.workspace);
+        }
+      } catch {
+        // Lifecycle events remain the source of truth if the snapshot is
+        // unavailable during startup.
       }
     }
-    loadInitialWorkspace();
+    void loadInitialWorkspace();
     return () => {
       cancelled = true;
     };
@@ -595,6 +602,11 @@ function App() {
           ) : (
             <>
               <span className="titlebar-text">No workspace</span>
+              {workspaceHistoryDiagnostic && (
+                <span role="alert" title={workspaceHistoryDiagnostic.message}>
+                  Workspace history unavailable
+                </span>
+              )}
               <button
                 className="titlebar-open-button"
                 type="button"

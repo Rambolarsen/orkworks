@@ -6,8 +6,11 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -38,6 +41,7 @@ const maximumRecentPaths = 20;
 const maximumSerializedBytes = 64 * 1024;
 const lockRetryCount = 50;
 const lockRetryDelayMs = 10;
+const staleLockThresholdMs = 5_000;
 
 const corruptDiagnostic: WorkspaceMemoryDiagnostic = {
   code: "corrupt_history",
@@ -79,6 +83,7 @@ function memoryFits(memory: StoredWorkspaceMemory): boolean {
 function boundedPaths(
   lastWorkspacePath: string | null,
   paths: readonly string[],
+  revision: number,
 ): string[] | null {
   const deduplicated = [
     ...(lastWorkspacePath === null ? [] : [lastWorkspacePath]),
@@ -87,7 +92,7 @@ function boundedPaths(
   const bounded = deduplicated.slice(0, maximumRecentPaths);
   const candidate = {
     version: 1 as const,
-    revision: 0,
+    revision,
     lastWorkspacePath,
     recentWorkspacePaths: bounded,
   };
@@ -101,6 +106,13 @@ function boundedPaths(
 function validStoredMemory(value: unknown): value is StoredWorkspaceMemory {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const raw = value as Record<string, unknown>;
+  const keys = Object.keys(raw).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([
+    "lastWorkspacePath",
+    "recentWorkspacePaths",
+    "revision",
+    "version",
+  ])) return false;
   return raw.version === 1
     && typeof raw.revision === "number"
     && Number.isSafeInteger(raw.revision)
@@ -117,7 +129,11 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
   try {
     const parsed: unknown = JSON.parse(readFileSync(target, "utf8"));
     if (!validStoredMemory(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
-    const recentWorkspacePaths = boundedPaths(parsed.lastWorkspacePath, parsed.recentWorkspacePaths);
+    const recentWorkspacePaths = boundedPaths(
+      parsed.lastWorkspacePath,
+      parsed.recentWorkspacePaths,
+      parsed.revision,
+    );
     if (recentWorkspacePaths === null) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     return {
       version: 1,
@@ -135,25 +151,78 @@ function sleepForLockRetry(): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, lockRetryDelayMs);
 }
 
-function acquireHistoryLock(userDataPath: string): string | null {
+interface HistoryLock {
+  path: string;
+  token: string;
+}
+
+function recoverAbandonedHistoryLock(lockPath: string): boolean {
+  let initialMtimeMs: number;
+  try {
+    initialMtimeMs = statSync(lockPath).mtimeMs;
+  } catch {
+    return false;
+  }
+  if (Date.now() - initialMtimeMs < staleLockThresholdMs) return false;
+
+  const quarantinePath = `${lockPath}.recovery.${process.pid}.${randomBytes(8).toString("hex")}`;
+  try {
+    // renameSync is the atomic ownership test: only one contender can move a
+    // stale lock away, while a new owner can safely create the original path.
+    renameSync(lockPath, quarantinePath);
+  } catch {
+    return false;
+  }
+
+  try {
+    const movedMtimeMs = statSync(quarantinePath).mtimeMs;
+    if (Date.now() - movedMtimeMs < staleLockThresholdMs) {
+      try {
+        renameSync(quarantinePath, lockPath);
+      } catch {
+        // A new owner won the original path while this lock was quarantined.
+      }
+      return false;
+    }
+    return true;
+  } finally {
+    rmSync(quarantinePath, { recursive: true, force: true });
+  }
+}
+
+function acquireHistoryLock(userDataPath: string): HistoryLock | null {
   const lockPath = join(userDataPath, lockDirectoryName);
+  let attemptedRecovery = false;
   for (let attempt = 0; attempt < lockRetryCount; attempt += 1) {
     try {
       mkdirSync(lockPath);
-      return lockPath;
+      const token = randomBytes(16).toString("hex");
+      writeFileSync(join(lockPath, "owner"), token, { flag: "wx", mode: 0o600 });
+      return { path: lockPath, token };
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error
         ? (error as { code?: string }).code
         : undefined;
       if (code !== "EEXIST") return null;
+      if (!attemptedRecovery) {
+        attemptedRecovery = true;
+        recoverAbandonedHistoryLock(lockPath);
+      }
       sleepForLockRetry();
     }
   }
   return null;
 }
 
-function releaseHistoryLock(lockPath: string): void {
-  rmSync(lockPath, { recursive: true, force: true });
+function releaseHistoryLock(lock: HistoryLock): void {
+  try {
+    if (readFileSync(join(lock.path, "owner"), "utf8") === lock.token) {
+      rmSync(lock.path, { recursive: true, force: true });
+    }
+  } catch {
+    // The lock may have been recovered by another contender; never remove a
+    // lock that this writer no longer owns.
+  }
 }
 
 function writeAndVerify(
@@ -167,40 +236,58 @@ function writeAndVerify(
     `.workspace-memory.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
   );
   let descriptor: number | null = null;
+  let replacementAttempted = false;
   try {
     descriptor = openSync(temporary, "wx", 0o600);
     const bytes = Buffer.from(serializedMemory(next), "utf8");
-    writeSync(descriptor, bytes, 0, bytes.byteLength, 0);
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const written = writeSync(descriptor, bytes, offset, bytes.byteLength - offset, null);
+      if (written <= 0) throw new Error("Workspace history write made no progress.");
+      offset += written;
+    }
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = null;
-    renameSync(temporary, target);
-
-    const observed = readStoredWorkspaceMemory(userDataPath);
-    if (
-      observed.diagnostic === null
-      && JSON.stringify(storedMemory(observed)) === JSON.stringify(next)
-    ) {
-      return observed;
+    replacementAttempted = true;
+    try {
+      renameSync(temporary, target);
+    } catch {
+      // The target may still have been replaced; the read-back below is the
+      // source of truth even when rename reports an exception.
     }
-    return withDiagnostic(current, {
-      code: "history_write_failed",
-      message: "Workspace history could not be confirmed after replacement.",
-    });
   } catch {
-    return withDiagnostic(current, {
-      code: "history_write_failed",
-      message: "Workspace history could not be saved; the ready workspace was kept.",
-    });
+    if (!replacementAttempted) {
+      return withDiagnostic(current, {
+        code: "history_write_failed",
+        message: "Workspace history could not be saved; the ready workspace was kept.",
+      });
+    }
   } finally {
     if (descriptor !== null) closeSync(descriptor);
     rmSync(temporary, { force: true });
   }
+
+  if (replacementAttempted) {
+    const observed = readStoredWorkspaceMemory(userDataPath);
+    if (
+      observed.diagnostic === null
+      && JSON.stringify(storedMemory(observed)) === JSON.stringify(next)
+    ) return observed;
+  }
+  return withDiagnostic(current, {
+    code: "history_write_failed",
+    message: "Workspace history could not be confirmed after replacement.",
+  });
 }
+
+const noChange = Symbol("no workspace history change");
+const tooLarge = Symbol("workspace history entry too large");
+type UpdateResult = StoredWorkspaceMemory | typeof noChange | typeof tooLarge;
 
 function updateWorkspaceMemory(
   userDataPath: string,
-  update: (current: AppWorkspaceMemory) => StoredWorkspaceMemory | null,
+  update: (current: AppWorkspaceMemory) => UpdateResult,
 ): AppWorkspaceMemory {
   try {
     mkdirSync(userDataPath, { recursive: true });
@@ -211,8 +298,8 @@ function updateWorkspaceMemory(
     });
   }
 
-  const lockPath = acquireHistoryLock(userDataPath);
-  if (lockPath === null) {
+  const lock = acquireHistoryLock(userDataPath);
+  if (lock === null) {
     return withDiagnostic(readStoredWorkspaceMemory(userDataPath), {
       code: "history_lock_timeout",
       message: "Workspace history was busy and could not be updated.",
@@ -223,7 +310,13 @@ function updateWorkspaceMemory(
     const current = readStoredWorkspaceMemory(userDataPath);
     if (current.diagnostic !== null) return current;
     const next = update(current);
-    if (next === null) return current;
+    if (next === noChange) return current;
+    if (next === tooLarge) {
+      return withDiagnostic(current, {
+        code: "history_write_failed",
+        message: "Workspace path is too large to fit in the bounded history file.",
+      });
+    }
     if (!memoryFits(next)) {
       return withDiagnostic(current, {
         code: "history_write_failed",
@@ -232,7 +325,7 @@ function updateWorkspaceMemory(
     }
     return writeAndVerify(userDataPath, current, next);
   } finally {
-    releaseHistoryLock(lockPath);
+    releaseHistoryLock(lock);
   }
 }
 
@@ -244,13 +337,21 @@ export function readWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
   return readStoredWorkspaceMemory(userDataPath);
 }
 
+export function canonicalWorkspacePath(workspacePath: string): string | null {
+  try {
+    return realpathSync.native(workspacePath);
+  } catch {
+    return null;
+  }
+}
+
 export function rememberWorkspacePath(userDataPath: string, workspacePath: string): AppWorkspaceMemory {
   return updateWorkspaceMemory(userDataPath, (current) => {
     const recentWorkspacePaths = boundedPaths(workspacePath, [
       workspacePath,
       ...current.recentWorkspacePaths.filter((path) => path !== workspacePath),
-    ]);
-    if (recentWorkspacePaths === null) return null;
+    ], current.revision + 1);
+    if (recentWorkspacePaths === null) return tooLarge;
     return {
       version: 1,
       revision: current.revision + 1,
@@ -264,7 +365,7 @@ export function forgetWorkspacePath(userDataPath: string, workspacePath: string)
   return updateWorkspaceMemory(userDataPath, (current) => {
     const recentWorkspacePaths = current.recentWorkspacePaths.filter((path) => path !== workspacePath);
     if (recentWorkspacePaths.length === current.recentWorkspacePaths.length && current.lastWorkspacePath !== workspacePath) {
-      return null;
+      return noChange;
     }
     return {
       version: 1,

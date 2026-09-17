@@ -22,13 +22,16 @@ test("a successful /workspace response maps into the lifecycle workspace shape",
   }));
 
   assert.deepEqual(workspace, {
-    path: "/repo",
-    repo_root: "/repo",
-    branch: "main",
-    dirty: false,
-    lastActiveSessionId: "s1",
-    activeHarnessIds: ["claude"],
-    activeHarnessRevision: 7,
+    ok: true,
+    workspace: {
+      path: "/repo",
+      repo_root: "/repo",
+      branch: "main",
+      dirty: false,
+      lastActiveSessionId: "s1",
+      activeHarnessIds: ["claude"],
+      activeHarnessRevision: 7,
+    },
   });
 });
 
@@ -48,9 +51,25 @@ test("an invalid active harness revision is rejected", async () => {
   }
 });
 
-test("a client error from a healthy sidecar means no workspace, not a backend failure", async () => {
-  assert.equal(await parseWorkspaceRestoreResponse(jsonResponse(400, "unknown path")), null);
-  assert.equal(await parseWorkspaceRestoreResponse(jsonResponse(404, "not found")), null);
+test("a lease or accessibility conflict preserves history for a later retry", async () => {
+  assert.deepEqual(await parseWorkspaceRestoreResponse(jsonResponse(400, "unknown path")), {
+    ok: false,
+    status: 400,
+    removeFromHistory: false,
+  });
+  assert.deepEqual(await parseWorkspaceRestoreResponse(jsonResponse(409, "lease")), {
+    ok: false,
+    status: 409,
+    removeFromHistory: false,
+  });
+});
+
+test("only a missing workspace is removed from history", async () => {
+  assert.deepEqual(await parseWorkspaceRestoreResponse(jsonResponse(404, "not found")), {
+    ok: false,
+    status: 404,
+    removeFromHistory: true,
+  });
 });
 
 test("a server error still surfaces as a backend restoration failure", async () => {

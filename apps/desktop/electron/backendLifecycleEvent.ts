@@ -13,6 +13,16 @@ export interface BackendLifecycleWorkspace {
   activeHarnessRevision: number;
 }
 
+export interface WorkspaceHistoryDiagnostic {
+  code: "corrupt_history";
+  message: string;
+}
+
+export interface InitialWorkspaceSnapshot {
+  workspace: BackendLifecycleWorkspace | null;
+  historyDiagnostic: WorkspaceHistoryDiagnostic | null;
+}
+
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
   const keys = Reflect.ownKeys(value);
   return keys.length === expected.length && expected.every((key) => keys.includes(key));

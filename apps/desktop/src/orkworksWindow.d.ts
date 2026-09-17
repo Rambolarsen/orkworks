@@ -8,6 +8,16 @@ export type BackendLifecycleEvent =
   | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
   | { state: "failed" | "exhausted"; message: string };
 
+export type WorkspaceHistoryDiagnostic = {
+  code: "corrupt_history";
+  message: string;
+};
+
+export type InitialWorkspaceSnapshot = {
+  workspace: WorkspaceInfo | null;
+  historyDiagnostic: WorkspaceHistoryDiagnostic | null;
+};
+
 export type IntegrationKey = {
   adapterId: string;
   targetId: string;
@@ -71,7 +81,7 @@ declare global {
       getBackendUrl: () => Promise<string>;
       retryBackend: () => Promise<void>;
       onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) => () => void;
-      getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
+      getInitialWorkspace: () => Promise<InitialWorkspaceSnapshot>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;

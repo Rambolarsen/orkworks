@@ -8,7 +8,7 @@ import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, ty
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevSidecarPath, getPackagedSidecarPath } from "./paths";
-import { readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath } from "./workspaceMemory";
+import { canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
@@ -21,7 +21,7 @@ import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
 import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
-import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
+import type { BackendLifecycleEvent, BackendLifecycleWorkspace, InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
@@ -221,10 +221,12 @@ app.whenReady().then(() => {
   if (appMemory.diagnostic) {
     console.warn("[main] workspace history diagnostic", appMemory.diagnostic.message);
   }
-  const initialWorkspacePath =
-    appMemory.lastWorkspacePath && existsSync(appMemory.lastWorkspacePath)
-      ? appMemory.lastWorkspacePath
-      : null;
+  const initialWorkspacePath = appMemory.lastWorkspacePath && existsSync(appMemory.lastWorkspacePath)
+    ? canonicalWorkspacePath(appMemory.lastWorkspacePath)
+    : null;
+  const initialHistoryDiagnostic = appMemory.diagnostic?.code === "corrupt_history"
+    ? appMemory.diagnostic
+    : null;
   workspacePath = initialWorkspacePath;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
 
@@ -309,8 +311,10 @@ app.whenReady().then(() => {
   function rememberRestoredWorkspace(workspace: BackendLifecycleWorkspace | null): void {
     const restoredPath = workspace?.path || workspacePath;
     if (!restoredPath) return;
+    const canonicalPath = canonicalWorkspacePath(restoredPath);
+    if (!canonicalPath) return;
     try {
-      const result = rememberWorkspacePath(app.getPath("userData"), restoredPath);
+      const result = rememberWorkspacePath(app.getPath("userData"), canonicalPath);
       if (result.diagnostic) {
         console.warn("[main] workspace history was not updated", result.diagnostic.message);
       }
@@ -328,22 +332,25 @@ app.whenReady().then(() => {
       body: JSON.stringify({ path: workspacePath }),
       signal,
     });
-    const workspace = await parseWorkspaceRestoreResponse(response);
+    const restoreResult = await parseWorkspaceRestoreResponse(response);
     signal.throwIfAborted();
-    if (workspace === null) {
+    if (!restoreResult.ok) {
       const rejectedPath = workspacePath;
       console.warn(`[main] remembered workspace path was rejected by the sidecar: ${rejectedPath}`);
-      try {
-        const result = forgetWorkspacePath(app.getPath("userData"), rejectedPath);
-        if (result.diagnostic) {
-          console.warn("[main] rejected workspace could not be removed from history", result.diagnostic.message);
+      if (restoreResult.removeFromHistory) {
+        try {
+          const result = forgetWorkspacePath(app.getPath("userData"), rejectedPath);
+          if (result.diagnostic) {
+            console.warn("[main] rejected workspace could not be removed from history", result.diagnostic.message);
+          }
+        } catch (error) {
+          console.warn("[main] rejected workspace could not be removed from history", error instanceof Error ? error.message : "unknown error");
         }
-      } catch (error) {
-        console.warn("[main] rejected workspace could not be removed from history", error instanceof Error ? error.message : "unknown error");
       }
       workspacePath = null;
+      return null;
     }
-    return workspace;
+    return restoreResult.workspace;
   }
 
   async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
@@ -671,13 +678,13 @@ app.whenReady().then(() => {
     writeLayoutMemory(app.getPath("userData"), json);
   });
 
-  ipcMain.handle("get-initial-workspace", async () => {
-    if (!initialWorkspacePath) return null;
+  ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => {
+    if (!initialWorkspacePath) return { workspace: null, historyDiagnostic: initialHistoryDiagnostic };
     try {
       await restoration.getReadiness();
-      return restoration.getRestoredWorkspace();
+      return { workspace: restoration.getRestoredWorkspace(), historyDiagnostic: initialHistoryDiagnostic };
     } catch {
-      return null;
+      return { workspace: null, historyDiagnostic: initialHistoryDiagnostic };
     }
   });
 
@@ -1227,7 +1234,8 @@ app.whenReady().then(() => {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
 
-    const dirPath = result.filePaths[0];
+    const dirPath = canonicalWorkspacePath(result.filePaths[0]);
+    if (!dirPath) return null;
     if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
     const lifecycleReadiness = switchWorkspaceBackend(
       dirPath,

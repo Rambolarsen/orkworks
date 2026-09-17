@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { subscribeBackendLifecycle, type BackendLifecycleEvent } from "./backendLifecycleEvent";
+import { subscribeBackendLifecycle, type BackendLifecycleEvent, type InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
 
 type IntegrationKey = {
   adapterId: string;
@@ -71,7 +71,7 @@ contextBridge.exposeInMainWorld("orkworks", {
       () => ipcRenderer.invoke("get-backend-lifecycle"),
       callback,
     ),
-  getInitialWorkspace: (): Promise<unknown> => ipcRenderer.invoke("get-initial-workspace"),
+  getInitialWorkspace: (): Promise<InitialWorkspaceSnapshot> => ipcRenderer.invoke("get-initial-workspace"),
   openWorkspace: (): Promise<unknown> => ipcRenderer.invoke("open-workspace"),
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),

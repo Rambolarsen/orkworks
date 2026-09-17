@@ -7,6 +7,8 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +17,7 @@ import test from "node:test";
 
 import {
   forgetWorkspacePath,
+  canonicalWorkspacePath,
   readWorkspaceMemory,
   rememberWorkspacePath,
   workspaceMemoryPath,
@@ -170,6 +173,104 @@ test("corrupt workspace history is diagnosed and preserved across mutation attem
     assert.deepEqual(remembered, loaded);
     assert.deepEqual(forgotten, loaded);
     assert.equal(readFileSync(historyPath, "utf8"), corrupt);
+  }));
+
+test("workspace history rejects unknown persisted fields without overwriting the source", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const corrupt = JSON.stringify({
+      version: 1,
+      revision: 0,
+      lastWorkspacePath: null,
+      recentWorkspacePaths: [],
+      unexpected: true,
+    });
+    writeFileSync(historyPath, corrupt);
+
+    const memory = readWorkspaceMemory(directory);
+
+    assert.equal(memory.diagnostic?.code, "corrupt_history");
+    assert.equal(readFileSync(historyPath, "utf8"), corrupt);
+  }));
+
+test("workspace history recovers an abandoned lock only after the explicit five-second threshold", () =>
+  withTemporaryUserData((directory) => {
+    const lockPath = join(directory, ".workspace-memory.lock");
+    mkdirSync(lockPath);
+    const staleAt = new Date(Date.now() - 5_001);
+    utimesSync(lockPath, staleAt, staleAt);
+
+    const memory = rememberWorkspacePath(directory, "/repo/recovered");
+
+    assert.equal(memory.diagnostic, null);
+    assert.equal(memory.lastWorkspacePath, "/repo/recovered");
+  }));
+
+test("workspace history does not recover a lock younger than five seconds", () =>
+  withTemporaryUserData((directory) => {
+    const lockPath = join(directory, ".workspace-memory.lock");
+    mkdirSync(lockPath);
+    const recentAt = new Date(Date.now() - 4_999);
+    utimesSync(lockPath, recentAt, recentAt);
+
+    const memory = rememberWorkspacePath(directory, "/repo/not-written");
+
+    assert.equal(memory.diagnostic?.code, "history_lock_timeout");
+    assert.equal(existsSync(workspaceMemoryPath(directory)), false);
+  }));
+
+test("workspace history canonicalizes an alias before it is remembered", () =>
+  withTemporaryUserData((directory) => {
+    const realPath = join(directory, "real-workspace");
+    const aliasPath = join(directory, "alias-workspace");
+    mkdirSync(realPath);
+    symlinkSync(realPath, aliasPath, "dir");
+
+    const canonicalPath = canonicalWorkspacePath(aliasPath);
+    const expectedPath = canonicalWorkspacePath(realPath);
+    assert.equal(canonicalPath, expectedPath);
+    const memory = rememberWorkspacePath(directory, canonicalPath!);
+
+    assert.deepEqual(memory.recentWorkspacePaths, [expectedPath]);
+    assert.doesNotMatch(readFileSync(workspaceMemoryPath(directory), "utf8"), /alias-workspace/);
+  }));
+
+test("workspace history evicts using the actual next revision size", () =>
+  withTemporaryUserData((directory) => {
+    const revision = 999_999_999;
+    const prefix = "/repo/";
+    const baseRecord = (padding: number, candidateRevision: number) => ({
+      version: 1,
+      revision: candidateRevision,
+      lastWorkspacePath: `${prefix}${"x".repeat(padding)}`,
+      recentWorkspacePaths: [
+        `${prefix}${"x".repeat(padding)}`,
+        "/repo/oldest",
+      ],
+    });
+    let padding = 0;
+    while (
+      Buffer.byteLength(`${JSON.stringify(baseRecord(padding, 0), null, 2)}\n`, "utf8") <= 64 * 1024
+      && Buffer.byteLength(`${JSON.stringify(baseRecord(padding, revision + 1), null, 2)}\n`, "utf8") <= 64 * 1024
+    ) {
+      padding += 1;
+    }
+    writeFileSync(workspaceMemoryPath(directory), `${JSON.stringify(baseRecord(padding, revision), null, 2)}\n`);
+
+    const memory = rememberWorkspacePath(directory, "/repo/new");
+
+    assert.equal(memory.diagnostic, null);
+    assert.equal(memory.revision, revision + 1);
+    assert.equal(memory.recentWorkspacePaths[0], "/repo/new");
+    assert.ok(Buffer.byteLength(readFileSync(workspaceMemoryPath(directory), "utf8"), "utf8") <= 64 * 1024);
+  }));
+
+test("a single path that cannot fit returns a diagnostic without a silent no-op", () =>
+  withTemporaryUserData((directory) => {
+    const memory = rememberWorkspacePath(directory, `/repo/${"x".repeat(70_000)}`);
+
+    assert.equal(memory.diagnostic?.code, "history_write_failed");
+    assert.equal(existsSync(workspaceMemoryPath(directory)), false);
   }));
 
 test("two process writers merge under the history lock without losing revisions", () =>
