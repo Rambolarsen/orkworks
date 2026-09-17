@@ -61,6 +61,6 @@ test("starts the sidecar with the plan token and retains the restored workspace"
   const mainSource = await readFile(new URL("../electron/main.ts", import.meta.url), "utf8");
 
   assert.match(mainSource, /env: \{ \.\.\.process\.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken \}/);
-  assert.match(mainSource, /workspacePath = initialWorkspacePath;/);
+  assert.match(mainSource, /if \(initialSidecarCwd\) void workspaceSwitchCoordinator\.switchWorkspace\(initialSidecarCwd\)\.catch\(\(\) => \{\}\);/);
   assert.match(mainSource, /openPlanToken = randomBytes\(32\)\.toString\("hex"\);/);
 });
