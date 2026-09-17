@@ -225,12 +225,12 @@ app.whenReady().then(() => {
     ? canonicalWorkspacePath(appMemory.lastWorkspacePath)
     : null;
   const initialHistoryDiagnostic = appMemory.diagnostic?.code === "corrupt_history"
-    ? appMemory.diagnostic
+    ? { code: "corrupt_history" as const, message: appMemory.diagnostic.message }
     : null;
   workspacePath = initialWorkspacePath;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
 
-  let latestBackendLifecycle: BackendLifecycleEvent | null = null;
+  let latestBackendLifecycle: BackendLifecycleEvent = { state: "picker" };
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
   let appliedPeonState: PeonAppliedState | null = null;
   let backendGeneration = 0;

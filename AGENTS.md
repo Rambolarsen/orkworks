@@ -219,6 +219,11 @@ the detailed naming rules.
 
 ## Architecture
 
+Electron workspace history uses the native `fs-ext` advisory lock on a retained
+lock file; never evict it by age or delete its inode. Desktop dev/build/dist
+rebuild native dependencies for Electron. Run `pnpm rebuild fs-ext` before Node
+tests after an Electron build. See [architecture](docs/agents/architecture.md).
+
 Provider process cleanup uses Windows Job APIs through the existing
 `windows-sys` dependency; preserve suspended-child assignment and bounded cleanup
 when changing inference transports. See [provider process ownership](docs/agents/architecture.md)

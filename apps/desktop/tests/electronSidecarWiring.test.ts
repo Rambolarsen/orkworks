@@ -101,7 +101,7 @@ test("workspace replacement stages the path before starting the replacement back
 });
 
 test("Electron main replays the latest lifecycle state to late subscribers", () => {
-  assert.match(mainSource, /let latestBackendLifecycle: BackendLifecycleEvent \| null = null/);
+  assert.match(mainSource, /let latestBackendLifecycle: BackendLifecycleEvent = \{ state: "picker" \}/);
   assert.match(mainSource, /ipcMain\.handle\("get-backend-lifecycle"/);
   assert.match(mainSource, /return latestBackendLifecycle/);
   assert.match(preloadSource, /subscribeBackendLifecycle\(/);

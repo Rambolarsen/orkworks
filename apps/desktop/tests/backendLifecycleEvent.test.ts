@@ -5,6 +5,20 @@ import * as backendLifecycleEvents from "../electron/backendLifecycleEvent.ts";
 
 const { canonicalizeBackendLifecycleEvent } = backendLifecycleEvents;
 
+test("picker is a stable replayable lifecycle state with no backend fields", async () => {
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "picker" }), { state: "picker" });
+  assert.equal(canonicalizeBackendLifecycleEvent({ state: "picker", port: 1234 }), null);
+  const events: unknown[] = [];
+  const unsubscribe = backendLifecycleEvents.subscribeBackendLifecycle(
+    () => () => {},
+    async () => ({ state: "picker" }),
+    (event) => events.push(event),
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, [{ state: "picker" }]);
+  unsubscribe();
+});
+
 test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
   const input = {
     state: "ready",

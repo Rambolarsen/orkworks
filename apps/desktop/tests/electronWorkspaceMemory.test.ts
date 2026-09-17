@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   existsSync,
   mkdirSync,
@@ -8,7 +9,6 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -193,30 +193,54 @@ test("workspace history rejects unknown persisted fields without overwriting the
     assert.equal(readFileSync(historyPath, "utf8"), corrupt);
   }));
 
-test("workspace history recovers an abandoned lock only after the explicit five-second threshold", () =>
-  withTemporaryUserData((directory) => {
+test("a live OS lock is never evicted, even after five seconds; process exit releases it", () =>
+  withTemporaryUserData(async (directory) => {
     const lockPath = join(directory, ".workspace-memory.lock");
-    mkdirSync(lockPath);
-    const staleAt = new Date(Date.now() - 5_001);
-    utimesSync(lockPath, staleAt, staleAt);
-
-    const memory = rememberWorkspacePath(directory, "/repo/recovered");
-
-    assert.equal(memory.diagnostic, null);
-    assert.equal(memory.lastWorkspacePath, "/repo/recovered");
+    const child = spawn(process.execPath, ["--input-type=commonjs", "--eval", `
+      const fs = require('node:fs');
+      const { flockSync } = require('fs-ext');
+      const fd = fs.openSync(process.argv[1], 'a+', 0o600);
+      flockSync(fd, 'exnb');
+      process.send('locked');
+      setInterval(() => {}, 1000);
+    `, lockPath], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
+    const exited = once(child, "exit");
+    try {
+      const [message] = await once(child, "message", { signal: AbortSignal.timeout(10_000) });
+      assert.equal(message, "locked");
+      const fresh = rememberWorkspacePath(directory, "/repo/not-written");
+      assert.equal(fresh.diagnostic?.code, "history_lock_timeout");
+      await delay(5_100);
+      const old = rememberWorkspacePath(directory, "/repo/still-not-written");
+      assert.equal(old.diagnostic?.code, "history_lock_timeout");
+      assert.equal(existsSync(workspaceMemoryPath(directory)), false);
+    } finally {
+      child.kill("SIGKILL");
+      await exited;
+    }
+    assert.equal(existsSync(lockPath), true, "the lock inode must be retained");
+    const recovered = rememberWorkspacePath(directory, "/repo/recovered");
+    assert.equal(recovered.diagnostic, null);
+    assert.equal(recovered.revision, 1);
   }));
 
-test("workspace history does not recover a lock younger than five seconds", () =>
+test("revision overflow rejects both mutations before writing and preserves history bytes", () =>
   withTemporaryUserData((directory) => {
-    const lockPath = join(directory, ".workspace-memory.lock");
-    mkdirSync(lockPath);
-    const recentAt = new Date(Date.now() - 4_000);
-    utimesSync(lockPath, recentAt, recentAt);
-
-    const memory = rememberWorkspacePath(directory, "/repo/not-written");
-
-    assert.equal(memory.diagnostic?.code, "history_lock_timeout");
-    assert.equal(existsSync(workspaceMemoryPath(directory)), false);
+    const original = JSON.stringify({
+      version: 1,
+      revision: Number.MAX_SAFE_INTEGER,
+      lastWorkspacePath: "/repo/a",
+      recentWorkspacePaths: ["/repo/a"],
+    });
+    writeFileSync(workspaceMemoryPath(directory), original);
+    for (const mutate of [rememberWorkspacePath, forgetWorkspacePath]) {
+      const result = mutate(directory, "/repo/a");
+      assert.equal(result.diagnostic?.code, "history_write_failed");
+      assert.equal(result.revision, Number.MAX_SAFE_INTEGER);
+      assert.equal(readFileSync(workspaceMemoryPath(directory), "utf8"), original);
+      assert.equal(readWorkspaceMemory(directory).diagnostic, null);
+    }
+    assert.equal(forgetWorkspacePath(directory, "/unknown").diagnostic, null);
   }));
 
 test("workspace history canonicalizes an alias before it is remembered", () =>

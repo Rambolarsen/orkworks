@@ -9,11 +9,10 @@ import {
   realpathSync,
   renameSync,
   rmSync,
-  statSync,
-  writeFileSync,
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
+import fsExt from "fs-ext";
 
 export interface WorkspaceMemoryDiagnostic {
   code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
@@ -36,12 +35,11 @@ interface StoredWorkspaceMemory {
 }
 
 const fileName = "workspace-memory.json";
-const lockDirectoryName = ".workspace-memory.lock";
+const lockFileName = ".workspace-memory.lock";
 const maximumRecentPaths = 20;
 const maximumSerializedBytes = 64 * 1024;
 const lockRetryCount = 50;
 const lockRetryDelayMs = 10;
-const staleLockThresholdMs = 5_000;
 
 const corruptDiagnostic: WorkspaceMemoryDiagnostic = {
   code: "corrupt_history",
@@ -151,78 +149,28 @@ function sleepForLockRetry(): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, lockRetryDelayMs);
 }
 
-interface HistoryLock {
-  path: string;
-  token: string;
-}
-
-function recoverAbandonedHistoryLock(lockPath: string): boolean {
-  let initialMtimeMs: number;
+function acquireHistoryLock(userDataPath: string): number | null {
+  let descriptor: number;
   try {
-    initialMtimeMs = statSync(lockPath).mtimeMs;
+    descriptor = openSync(join(userDataPath, lockFileName), "a+", 0o600);
   } catch {
-    return false;
+    return null;
   }
-  if (Date.now() - initialMtimeMs < staleLockThresholdMs) return false;
-
-  const quarantinePath = `${lockPath}.recovery.${process.pid}.${randomBytes(8).toString("hex")}`;
-  try {
-    // renameSync is the atomic ownership test: only one contender can move a
-    // stale lock away, while a new owner can safely create the original path.
-    renameSync(lockPath, quarantinePath);
-  } catch {
-    return false;
-  }
-
-  try {
-    const movedMtimeMs = statSync(quarantinePath).mtimeMs;
-    if (Date.now() - movedMtimeMs < staleLockThresholdMs) {
-      try {
-        renameSync(quarantinePath, lockPath);
-      } catch {
-        // A new owner won the original path while this lock was quarantined.
-      }
-      return false;
-    }
-    return true;
-  } finally {
-    rmSync(quarantinePath, { recursive: true, force: true });
-  }
-}
-
-function acquireHistoryLock(userDataPath: string): HistoryLock | null {
-  const lockPath = join(userDataPath, lockDirectoryName);
-  let attemptedRecovery = false;
+  // Keep this inode permanently. Unlinking or renaming it could let another
+  // process lock a different inode and enter the critical section concurrently.
+  // flock/LockFileEx releases ownership on close or process exit, never by age.
   for (let attempt = 0; attempt < lockRetryCount; attempt += 1) {
     try {
-      mkdirSync(lockPath);
-      const token = randomBytes(16).toString("hex");
-      writeFileSync(join(lockPath, "owner"), token, { flag: "wx", mode: 0o600 });
-      return { path: lockPath, token };
+      fsExt.flockSync(descriptor, "exnb");
+      return descriptor;
     } catch (error) {
-      const code = error && typeof error === "object" && "code" in error
-        ? (error as { code?: string }).code
-        : undefined;
-      if (code !== "EEXIST") return null;
-      if (!attemptedRecovery) {
-        attemptedRecovery = true;
-        recoverAbandonedHistoryLock(lockPath);
-      }
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EAGAIN" && code !== "EWOULDBLOCK" && code !== "EINTR") break;
       sleepForLockRetry();
     }
   }
+  closeSync(descriptor);
   return null;
-}
-
-function releaseHistoryLock(lock: HistoryLock): void {
-  try {
-    if (readFileSync(join(lock.path, "owner"), "utf8") === lock.token) {
-      rmSync(lock.path, { recursive: true, force: true });
-    }
-  } catch {
-    // The lock may have been recovered by another contender; never remove a
-    // lock that this writer no longer owns.
-  }
 }
 
 function writeAndVerify(
@@ -311,6 +259,12 @@ function updateWorkspaceMemory(
     if (current.diagnostic !== null) return current;
     const next = update(current);
     if (next === noChange) return current;
+    if (current.revision === Number.MAX_SAFE_INTEGER) {
+      return withDiagnostic(current, {
+        code: "history_write_failed",
+        message: "Workspace history revision is exhausted; the file was left unchanged.",
+      });
+    }
     if (next === tooLarge) {
       return withDiagnostic(current, {
         code: "history_write_failed",
@@ -325,7 +279,7 @@ function updateWorkspaceMemory(
     }
     return writeAndVerify(userDataPath, current, next);
   } finally {
-    releaseHistoryLock(lock);
+    closeSync(lock);
   }
 }
 

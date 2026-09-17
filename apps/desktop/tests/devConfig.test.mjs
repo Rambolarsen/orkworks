@@ -5,6 +5,14 @@ import path from "node:path";
 
 import { createViteServerOptions, electronSpawnConfig } from "../scripts/devConfig.mjs";
 
+test("desktop entrypoints rebuild native history locking for Electron's ABI", async () => {
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(packageJson.scripts["build:native"], "electron-builder install-app-deps");
+  for (const script of ["dev", "build", "dist"]) {
+    assert.match(packageJson.scripts[script], /pnpm build:native &&/);
+  }
+});
+
 test("dev server uses the desktop Vite config and root", () => {
   const root = path.join("/tmp", "orkworks", "apps", "desktop");
   const options = createViteServerOptions(root);

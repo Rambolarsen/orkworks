@@ -51,7 +51,7 @@ import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>("connecting…");
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
@@ -100,6 +100,9 @@ function App() {
       workspaceSessionController.setPollingEnabled(false);
       void workspaceSessionController.adoptRestoredWorkspace(event.workspace);
       setBackendStatus("connected");
+    } else if (event.state === "picker") {
+      workspaceSessionController.setPollingEnabled(false);
+      setBackendStatus("picker");
     } else if (event.state === "failed") {
       setBackendStatus("unreachable");
     } else if (event.state === "exhausted") {
@@ -618,11 +621,11 @@ function App() {
           )}
         </div>
         <div className="titlebar-right">
-          <span
+          {backendStatus !== "picker" && <span
             className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
           >
             {backendStatus}
-          </span>
+          </span>}
         </div>
       </div>
       <DockviewApp

@@ -1,4 +1,5 @@
 export type BackendLifecycleEvent =
+  | { state: "picker" }
   | { state: "starting" | "retrying" }
   | { state: "ready"; port: number; workspace: BackendLifecycleWorkspace | null }
   | { state: "failed" | "exhausted"; message: string };
@@ -69,7 +70,7 @@ export function canonicalizeBackendLifecycleEvent(data: unknown): BackendLifecyc
   try {
     const event = data as Record<string, unknown>;
     const state = event.state;
-    if (state === "starting" || state === "retrying") {
+    if (state === "picker" || state === "starting" || state === "retrying") {
       return hasExactKeys(data, ["state"]) ? { state } : null;
     }
     if (state === "ready") {

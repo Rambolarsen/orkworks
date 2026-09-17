@@ -6,6 +6,12 @@ session, follow its progress, and see when it needs you.
 OrkWorks is in early alpha. These guides follow current source; an older
 installer may not include every feature described here.
 
+When no valid remembered workspace is available, the source desktop app waits
+in the workspace picker. Use **Open workspace** to select a folder. This idle
+state does not indicate a backend outage and does not offer backend recovery.
+If workspace history is corrupt, the picker reports it and preserves the
+original history file.
+
 ## Get the app
 
 <DownloadLinks />

@@ -93,6 +93,13 @@ The detailed proposed behavior and executable acceptance contract live in the
 
 ## Consequences
 
+Task 2 storage implementation uses `fs-ext` (`flock` on Unix, `LockFileEx` on
+Windows) on a retained installation-local lock file. The OS releases the lock
+when its descriptor closes or its process exits. A five-second age threshold
+is not evidence of abandonment and cannot authorize eviction. The native addon
+requires an Electron ABI rebuild for desktop execution; Node tests use the host
+Node build. This implements the existing short-lived advisory-lock decision.
+
 Multiple workspaces can remain active only by running multiple independent
 OrkWorks instances. One instance has no consolidated dashboard, attention count,
 resource policy, focus control, or quit behavior for the others. Closing or

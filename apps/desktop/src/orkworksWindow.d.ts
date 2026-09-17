@@ -4,6 +4,7 @@ import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, 
 import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
 export type BackendLifecycleEvent =
+  | { state: "picker" }
   | { state: "starting" | "retrying" }
   | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
   | { state: "failed" | "exhausted"; message: string };

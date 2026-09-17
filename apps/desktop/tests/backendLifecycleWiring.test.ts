@@ -4,6 +4,13 @@ import test from "node:test";
 
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
+test("startup waits in picker without health probes or recovery UI until a lifecycle starts", () => {
+  assert.match(appSource, /useState<BackendStatus>\("picker"\)/);
+  assert.match(appSource, /event.state === "picker"[\s\S]*?setBackendStatus\("picker"\)/);
+  assert.match(appSource, /if \(backendStatus !== "connecting…"\) return;/);
+  assert.match(appSource, /backendStatus !== "picker" &&/);
+});
+
 test("App subscribes to backend lifecycle events and maps failures to visible status", () => {
   assert.match(appSource, /window\.orkworks\.onBackendLifecycle/);
   assert.match(appSource, /state === "ready"/);

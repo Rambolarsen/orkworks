@@ -133,6 +133,10 @@ apm install
 
 ## Build and release
 
+Desktop builds include the native `fs-ext` workspace-history lock and rebuild it
+for Electron. Native build tools are required. After building, run
+`pnpm rebuild fs-ext` in `apps/desktop` before running the Node test suite.
+
 The source wiring for stable-tag releases and daily `main` prereleases is
 implemented in `.github/workflows/release.yml` and
 `apps/desktop/electron-builder.yml`. The operator setup and external
