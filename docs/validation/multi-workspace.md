@@ -1,10 +1,40 @@
 # Independent workspace instance validation plan
 
-Status: proposed validation contract; not an implementation plan or test report
+Status: partially verified implementation contract; native ownership gates remain open
 Date: 2026-09-17
 Spec: [Independent workspace instances](../../specs/multi-workspace.md)
 Decision: [ADR 0060](../adr/0060-independent-workspace-instances.md)
 Tracking: [#541](https://github.com/Rambolarsen/orkworks/issues/541)
+
+## Current implementation audit (2026-09-18)
+
+Tasks 1–4 of the independent-instance implementation are complete on the
+`issue-545-production-seam-audit` branch. The desktop lifecycle, installation
+history, generation gates, canonical identity, lease-first adoption, opaque
+409 conflict mapping, and fail-closed picker/unresolved outcomes have focused
+test coverage. The process-ownership fixture also passes its available host
+tests, but fixture success is not production process-ownership proof.
+
+Verified locally:
+
+- desktop workspace/lifecycle wiring: 54 tests passed;
+- Rust canonical identity: 5 tests passed;
+- Rust workspace/session-handler adoption: 110 tests passed;
+- process-ownership fixture: 53 tests passed;
+- both Electron TypeScript configurations, Rust formatting, and diff checks.
+
+Not verified and intentionally still gated:
+
+- two real Electron instances with independent profiles and sidecars;
+- native crash/relaunch cleanup for every production process family;
+- production routing through a proven cross-platform owner boundary;
+- native Windows/macOS/Linux acceptance rows unavailable in this checkout.
+
+Until issue [#545](https://github.com/Rambolarsen/orkworks/issues/545) has
+native evidence and a production seam audit, the acceptance rows below that
+require crash-surviving ownership remain unverified. The implementation must
+remain fail-closed for replacement and relaunch after unexpected ownership
+loss.
 
 ## Test setup
 
@@ -140,9 +170,9 @@ native measurements before release; this contract makes no unmeasured claim.
 
 ## Existing evidence, not completion
 
-At revision 7c61883 on Windows, 38 focused desktop tests and an in-memory
-two-lifecycle mock check passed. The Rust Taskmaster filter returned 70 passed,
-8 failed, and 2 ignored. ADR 0056 records eight private Windows Job fixture
-tests, but no production integration, native Unix proof, or complete process-
-family audit. Re-run the applicable matrix against the implementation revision
-and attach native artifacts before marking issue #541 complete.
+The checked-in process-ownership evidence bundle records five Windows native
+fixture pass rows, explicit accepted fixture/protocol rows, and unresolved or
+unsupported macOS/Linux/production-seam rows. It does not prove production
+routing or authorize crash relaunch. Re-run the native matrix against the
+implementation revision and attach native artifacts before marking issue #541
+complete.
