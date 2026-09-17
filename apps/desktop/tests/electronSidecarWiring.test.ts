@@ -109,6 +109,24 @@ test("quit does not finalize the app after unresolved workspace cleanup", () => 
   assert.doesNotMatch(request, /\.finally\(/);
 });
 
+test("repeated quit requests stay prevented while cleanup is pending", () => {
+  const start = mainSource.indexOf('app.on("before-quit"');
+  const end = mainSource.indexOf("\n});", start);
+  assert.ok(start >= 0 && end > start, "before-quit handler not found");
+  const handler = mainSource.slice(start, end);
+
+  assert.match(
+    handler,
+    /if \(quitBypass\) \{\s*quitBypass = false;\s*return;\s*\}\s*event\.preventDefault\(\);\s*if \(quitInProgress\) return;/,
+  );
+
+  const requestStart = mainSource.indexOf("function requestQuit");
+  const requestEnd = mainSource.indexOf("\n}\n\napp.on(\"before-quit\"", requestStart);
+  assert.ok(requestStart >= 0 && requestEnd > requestStart, "quit request helper not found");
+  const request = mainSource.slice(requestStart, requestEnd);
+  assert.match(request, /quitBypass = true;\s*app\.quit\(\);/);
+});
+
 test("retry keeps cleanup-timeout unresolved diagnostics across the IPC contract", () => {
   const retryStart = mainSource.indexOf('ipcMain.handle("retry-backend"');
   const retryEnd = mainSource.indexOf("\n  });", retryStart);

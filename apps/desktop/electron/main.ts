@@ -51,6 +51,7 @@ let sidecarLifecycle: SidecarLifecycle | null = null;
 let backendRestoration: BackendRestorationCoordinator<BackendLifecycleWorkspace> | null = null;
 let workspaceSwitchCoordinator: WorkspaceSwitchCoordinator<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic> | null = null;
 let quitInProgress = false;
+let quitBypass = false;
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
@@ -1376,6 +1377,7 @@ function requestQuit(): void {
         return;
       }
       killSidecar();
+      quitBypass = true;
       app.quit();
     })
     .catch(() => {
@@ -1386,8 +1388,12 @@ function requestQuit(): void {
 }
 
 app.on("before-quit", (event) => {
-  if (quitInProgress) return;
+  if (quitBypass) {
+    quitBypass = false;
+    return;
+  }
   event.preventDefault();
+  if (quitInProgress) return;
   quitInProgress = true;
   requestQuit();
 });
