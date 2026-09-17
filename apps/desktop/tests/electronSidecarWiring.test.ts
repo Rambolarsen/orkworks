@@ -75,6 +75,23 @@ test("backend readiness and retry use the lifecycle controller", () => {
   assert.doesNotMatch(mainSource, /new Promise<number>\(\(resolve\) => \{\s*portResolve/);
 });
 
+test("sidecar failure recovery is explicit and stays on the serialized coordinator path", () => {
+  const unavailableStart = mainSource.indexOf("onUnavailable: (message) => {");
+  const unavailableEnd = mainSource.indexOf("\n      onState:", unavailableStart);
+  assert.ok(unavailableStart >= 0 && unavailableEnd > unavailableStart);
+  const unavailableHandler = mainSource.slice(unavailableStart, unavailableEnd);
+  assert.match(unavailableHandler, /restoration\.fail\(/);
+  assert.doesNotMatch(unavailableHandler, /\.retry\(/);
+  assert.doesNotMatch(unavailableHandler, /sidecarLifecycle\.(start|stop|retry)\(/);
+
+  const retryStart = mainSource.indexOf('ipcMain.handle("retry-backend"');
+  const retryEnd = mainSource.indexOf("\n  });", retryStart);
+  assert.ok(retryStart >= 0 && retryEnd > retryStart);
+  const retryHandler = mainSource.slice(retryStart, retryEnd);
+  assert.match(retryHandler, /workspaceSwitchCoordinator\.retry\(\)/);
+  assert.doesNotMatch(retryHandler, /sidecarLifecycle\.retry\(\)/);
+});
+
 test("retry cannot turn the stable picker into a ready null-workspace sidecar", () => {
   const start = mainSource.indexOf('ipcMain.handle("retry-backend"');
   const end = mainSource.indexOf('\n  });', start);

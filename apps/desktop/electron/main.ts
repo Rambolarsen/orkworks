@@ -655,6 +655,8 @@ app.whenReady().then(() => {
       onUnavailable: (message) => {
         logBackendLifecycleFailure("sidecar", message);
         lastBackendFailure = sanitizeBackendLifecycleFailure(message);
+        // A failed generation is reported to the coordinator; recovery stays
+        // explicit through retry-backend so replacement remains serialized.
         restoration.fail(new Error(lastBackendFailure));
       },
       onState: (state: SidecarState) => {

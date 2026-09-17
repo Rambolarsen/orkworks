@@ -1,6 +1,6 @@
 # Task 3 report: deterministic one-instance workspace switching
 
-Status: Task 3 implementation complete; bounded focused verification passed.
+Status: Task 3 implementation complete; review fix complete with bounded focused verification passed.
 
 Worktree: `/Users/froomiebot/workspace/orkworks/.worktrees/545-production-seam-audit`
 
@@ -20,7 +20,12 @@ Worktree: `/Users/froomiebot/workspace/orkworks/.worktrees/545-production-seam-a
   unresolved; no failed destination silently reopens the previous workspace.
 - Added awaited sidecar cleanup with a bounded timeout and intentional
   restoration cancellation so replacement and quit cannot bypass the cleanup
-  gate.
+  gate. Cleanup timeout is a typed failure; the coordinator remains unresolved
+  and does not admit the destination while the old process is still running.
+- Disabled sidecar automatic recovery. A failed generation is reported to the
+  coordinator, and the only recovery path is the explicit serialized
+  `retry-backend` → `WorkspaceSwitchCoordinator.retry()` flow. Successful
+  retry runs restoration and publishes `ready` through the coordinator.
 - Moved successful history recording into the post-restoration coordinator
   path, before ready publication, while retaining Task 2's convenience-state
   failure behavior.
@@ -58,3 +63,25 @@ network install were run.
 - No peer-instance registry or coordination was added.
 - Task 4 still owns canonical identity and sidecar lease-adoption changes.
 - Task 5 still owns native crash-surviving process ownership evidence.
+
+## Review-fix verification (2026-09-17)
+
+```text
+node --experimental-strip-types --test \
+  tests/sidecarLifecycle.test.ts \
+  tests/workspaceSwitchCoordinator.test.ts \
+  tests/backendRestoration.test.ts \
+  tests/electronSidecarWiring.test.ts \
+  tests/backendLifecycleWiring.test.ts \
+  tests/backendLifecycleEvent.test.ts
+PASS — 66 tests, 0 failures
+
+npx tsc --noEmit -p tsconfig.node.json
+PASS
+
+npx tsc --noEmit -p tsconfig.json
+PASS
+
+git diff --check
+PASS
+```

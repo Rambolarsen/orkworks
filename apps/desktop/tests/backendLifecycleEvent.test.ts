@@ -62,6 +62,13 @@ test("canonicalizes deterministic workspace switching states and diagnostics", (
     state: "unresolved",
     failure: { code: "cleanup_failed", message: "did not exit" },
   });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({
+    state: "unresolved",
+    failure: { code: "cleanup_timeout", message: "sidecar cleanup timed out" },
+  }), {
+    state: "unresolved",
+    failure: { code: "cleanup_timeout", message: "sidecar cleanup timed out" },
+  });
   assert.equal(canonicalizeBackendLifecycleEvent({ state: "unresolved", failure: { code: "unknown", message: "bad" } }), null);
 });
 

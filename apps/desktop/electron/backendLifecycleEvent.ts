@@ -1,6 +1,7 @@
 export type WorkspaceLifecycleFailureCode =
   | "invalid_destination"
   | "cleanup_failed"
+  | "cleanup_timeout"
   | "destination_conflict"
   | "readiness_failed"
   | "restoration_failed"
@@ -151,6 +152,7 @@ function canonicalizeWorkspaceLifecycleFailure(value: unknown): WorkspaceLifecyc
   const failure = value as Record<string, unknown>;
   return (failure.code === "invalid_destination"
     || failure.code === "cleanup_failed"
+    || failure.code === "cleanup_timeout"
     || failure.code === "destination_conflict"
     || failure.code === "readiness_failed"
     || failure.code === "restoration_failed"

@@ -3,6 +3,7 @@ export type WorkspaceInstanceState = "picker" | "opening" | "ready" | "closing" 
 export type WorkspaceSwitchFailureCode =
   | "invalid_destination"
   | "cleanup_failed"
+  | "cleanup_timeout"
   | "destination_conflict"
   | "readiness_failed"
   | "restoration_failed"
@@ -82,6 +83,9 @@ function errorFrom(value: unknown): Error {
 function failureFrom(value: unknown, fallbackCode: WorkspaceSwitchFailureCode): WorkspaceSwitchFailure {
   if (value instanceof WorkspaceSwitchError) return { code: value.code, message: value.message };
   const error = errorFrom(value);
+  if ((error as { code?: unknown }).code === "cleanup_timeout") {
+    return { code: "cleanup_timeout", message: error.message };
+  }
   return { code: fallbackCode, message: error.message };
 }
 

@@ -1,5 +1,17 @@
 export type SidecarState = "starting" | "ready" | "failed" | "retrying" | "exhausted";
 
+export type SidecarCleanupFailureCode = "cleanup_timeout" | "cleanup_failed";
+
+export class SidecarCleanupError extends Error {
+  readonly code: SidecarCleanupFailureCode;
+
+  constructor(code: SidecarCleanupFailureCode, message: string) {
+    super(message);
+    this.name = "SidecarCleanupError";
+    this.code = code;
+  }
+}
+
 type Listener = (...args: any[]) => void;
 
 export interface SidecarProcess {
@@ -27,8 +39,6 @@ export interface SidecarLifecycleOptions {
     onState(state: SidecarState): void;
   };
   readinessTimeoutMs?: number;
-  retryDelaysMs?: readonly number[];
-  readyStabilityMs?: number;
   cleanupTimeoutMs?: number;
 }
 
@@ -39,39 +49,32 @@ interface Generation {
   resolve(port: number): void;
   reject(error: Error): void;
   readinessTimer: unknown;
-  stabilityTimer: unknown;
   ready: boolean;
   failed: boolean;
   exited: boolean;
   killRequested: boolean;
-  readyAtMs: number | null;
   stdout: string;
   cleanup: Promise<void>;
   resolveCleanup(): void;
+  rejectCleanup(error: SidecarCleanupError): void;
   cleanupSettled: boolean;
+  cleanupFailure: SidecarCleanupError | null;
   cleanupTimer: unknown;
+  stopping: boolean;
 }
 
 const DEFAULT_READINESS_TIMEOUT_MS = 10_000;
-const DEFAULT_RETRY_DELAYS_MS = [250, 1_000] as const;
-const DEFAULT_READY_STABILITY_MS = 5_000;
 const DEFAULT_CLEANUP_TIMEOUT_MS = 2_000;
-const MAX_AUTOMATIC_ATTEMPTS = 3;
 const MAX_READINESS_OUTPUT_LENGTH = 64 * 1024;
 
 export function createSidecarLifecycle(options: SidecarLifecycleOptions): SidecarLifecycle {
   let generation = 0;
   let current: Generation | null = null;
   let port: number | null = null;
-  let attempts = 0;
-  let nextRetryIndex = 0;
   let lastCwd: string | null = null;
-  let recoveryTimer: unknown = null;
   let disposed = false;
 
   const readinessTimeoutMs = options.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS;
-  const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
-  const readyStabilityMs = options.readyStabilityMs ?? DEFAULT_READY_STABILITY_MS;
   const cleanupTimeoutMs = options.cleanupTimeoutMs ?? DEFAULT_CLEANUP_TIMEOUT_MS;
 
   function setState(next: SidecarState): void {
@@ -79,77 +82,60 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   }
 
   function isCurrent(candidate: Generation): boolean {
-    return !disposed && current?.id === candidate.id;
+    return !disposed && current?.id === candidate.id && !candidate.stopping;
   }
 
   function clearTimer(timer: unknown): void {
     if (timer !== null) options.clearTimeout(timer);
   }
 
-  function settleCleanup(candidate: Generation): void {
+  function settleCleanup(candidate: Generation, error?: SidecarCleanupError): void {
     if (candidate.cleanupSettled) return;
     candidate.cleanupSettled = true;
+    candidate.cleanupFailure = error ?? null;
     clearTimer(candidate.cleanupTimer);
     candidate.cleanupTimer = null;
-    candidate.resolveCleanup();
-  }
-
-  function cancelRecovery(): void {
-    clearTimer(recoveryTimer);
-    recoveryTimer = null;
+    if (error) candidate.rejectCleanup(error);
+    else candidate.resolveCleanup();
   }
 
   function terminate(candidate: Generation): void {
     if (candidate.exited || candidate.killRequested || !candidate.process) return;
     candidate.killRequested = true;
-    candidate.process.kill();
+    try {
+      candidate.process.kill();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Sidecar cleanup failed";
+      settleCleanup(candidate, new SidecarCleanupError("cleanup_failed", message));
+    }
   }
 
   function errorFrom(value: unknown): Error {
     return value instanceof Error ? value : new Error("Sidecar launch failed");
   }
 
-  function stopCurrent(message: string, awaitCleanup = false): Promise<void> {
+  function stopCurrent(message: string): Promise<void> {
     const previous = current;
     if (!previous) return Promise.resolve();
 
-    current = null;
     port = null;
     clearTimer(previous.readinessTimer);
-    clearTimer(previous.stabilityTimer);
     if (!previous.ready && !previous.failed) {
       previous.failed = true;
       previous.reject(new Error(message));
     }
+    previous.stopping = true;
     terminate(previous);
     if (!previous.process || previous.exited) {
       settleCleanup(previous);
+      current = null;
       return Promise.resolve();
     }
-    if (!awaitCleanup) return Promise.resolve();
-    previous.cleanupTimer = options.setTimeout(() => settleCleanup(previous), cleanupTimeoutMs);
+    if (previous.cleanupSettled) return previous.cleanup;
+    previous.cleanupTimer = options.setTimeout(() => {
+      settleCleanup(previous, new SidecarCleanupError("cleanup_timeout", "Sidecar cleanup timed out"));
+    }, cleanupTimeoutMs);
     return previous.cleanup;
-  }
-
-  function scheduleRecovery(candidate: Generation): void {
-    if (!isCurrent(candidate) || recoveryTimer !== null) return;
-    if (attempts >= MAX_AUTOMATIC_ATTEMPTS) {
-      setState("exhausted");
-      return;
-    }
-
-    const retryIndex = nextRetryIndex;
-    nextRetryIndex += 1;
-    const delay = retryDelaysMs[Math.min(retryIndex, retryDelaysMs.length - 1)] ?? 0;
-    setState("retrying");
-    recoveryTimer = options.setTimeout(() => {
-      recoveryTimer = null;
-      if (!isCurrent(candidate) || !lastCwd) return;
-      void launch(lastCwd).catch(() => {
-        // Automatic recovery failures are surfaced through callbacks and may
-        // schedule the next bounded attempt; no caller owns this promise.
-      });
-    }, delay);
   }
 
   function fail(candidate: Generation, error: Error): void {
@@ -158,25 +144,10 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     candidate.failed = true;
     port = null;
     clearTimer(candidate.readinessTimer);
-    clearTimer(candidate.stabilityTimer);
     setState("failed");
     options.callbacks.onUnavailable(error.message);
     if (!candidate.ready) candidate.reject(error);
     terminate(candidate);
-    scheduleRecovery(candidate);
-  }
-
-  function resetAttemptsAfterStability(candidate: Generation): void {
-    if (!isCurrent(candidate) || !candidate.ready || candidate.failed || candidate.readyAtMs === null) return;
-    const remainingMs = readyStabilityMs - (options.now() - candidate.readyAtMs);
-    if (remainingMs > 0) {
-      candidate.stabilityTimer = options.setTimeout(() => {
-        resetAttemptsAfterStability(candidate);
-      }, remainingMs);
-      return;
-    }
-    attempts = 1;
-    nextRetryIndex = 0;
   }
 
   function ready(candidate: Generation, nextPort: number): void {
@@ -185,19 +156,14 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     candidate.ready = true;
     port = nextPort;
     clearTimer(candidate.readinessTimer);
-    candidate.readyAtMs = options.now();
     setState("ready");
     candidate.resolve(nextPort);
     options.callbacks.onReady(nextPort);
-    candidate.stabilityTimer = options.setTimeout(() => {
-      resetAttemptsAfterStability(candidate);
-    }, readyStabilityMs);
   }
 
   function launch(cwd: string): Promise<number> {
     if (disposed) return Promise.reject(new Error("Sidecar lifecycle has been disposed"));
 
-    attempts += 1;
     generation += 1;
     const id = generation;
     setState("starting");
@@ -205,12 +171,14 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     let resolve!: (port: number) => void;
     let reject!: (error: Error) => void;
     let resolveCleanup!: () => void;
+    let rejectCleanup!: (error: SidecarCleanupError) => void;
     const readiness = new Promise<number>((resolvePromise, rejectPromise) => {
       resolve = resolvePromise;
       reject = rejectPromise;
     });
-    const cleanup = new Promise<void>((resolvePromise) => {
+    const cleanup = new Promise<void>((resolvePromise, rejectPromise) => {
       resolveCleanup = resolvePromise;
+      rejectCleanup = rejectPromise;
     });
     const candidate: Generation = {
       id,
@@ -219,17 +187,18 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       resolve,
       reject,
       readinessTimer: null,
-      stabilityTimer: null,
       ready: false,
       failed: false,
       exited: false,
       killRequested: false,
-      readyAtMs: null,
       stdout: "",
       cleanup,
       resolveCleanup,
+      rejectCleanup,
       cleanupSettled: false,
+      cleanupFailure: null,
       cleanupTimer: null,
+      stopping: false,
     };
     current = candidate;
     port = null;
@@ -257,11 +226,12 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       });
       candidate.process.on("exit", (code: number | null) => {
         candidate.exited = true;
-        settleCleanup(candidate);
         const message = candidate.ready
           ? `Sidecar exited with code ${code ?? "unknown"}`
           : `Sidecar exited before readiness with code ${code ?? "unknown"}`;
-        fail(candidate, new Error(message));
+        if (!candidate.stopping) fail(candidate, new Error(message));
+        settleCleanup(candidate);
+        if (current?.id === candidate.id) current = null;
       });
     } catch (error) {
       fail(candidate, errorFrom(error));
@@ -272,27 +242,30 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
 
   return {
     start(cwd: string): Promise<number> {
-      cancelRecovery();
-      stopCurrent("Sidecar stopped before readiness");
-      attempts = 0;
-      nextRetryIndex = 0;
       lastCwd = cwd;
-      return launch(cwd);
+      const previous = current;
+      const cleanup = stopCurrent("Sidecar stopped before readiness");
+      if (!previous) return launch(cwd);
+      if (previous.cleanupSettled) {
+        return previous.cleanupFailure ? Promise.reject(previous.cleanupFailure) : launch(cwd);
+      }
+      return cleanup.then(() => launch(cwd));
     },
 
     stop(): Promise<void> {
-      cancelRecovery();
       generation += 1;
-      return stopCurrent("Sidecar stopped before readiness", true);
+      return stopCurrent("Sidecar stopped before readiness");
     },
 
     retry(): Promise<number> {
       if (!lastCwd) return Promise.reject(new Error("No sidecar working directory is available for retry"));
-      cancelRecovery();
-      stopCurrent("Sidecar stopped before readiness");
-      attempts = 0;
-      nextRetryIndex = 0;
-      return launch(lastCwd);
+      const previous = current;
+      const cleanup = stopCurrent("Sidecar stopped before readiness");
+      if (!previous) return launch(lastCwd);
+      if (previous.cleanupSettled) {
+        return previous.cleanupFailure ? Promise.reject(previous.cleanupFailure) : launch(lastCwd);
+      }
+      return cleanup.then(() => launch(lastCwd!));
     },
 
     getPort(): number | null {
@@ -302,8 +275,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      cancelRecovery();
-      stopCurrent("Sidecar lifecycle has been disposed");
+      void stopCurrent("Sidecar lifecycle has been disposed").catch(() => {});
     },
   };
 }

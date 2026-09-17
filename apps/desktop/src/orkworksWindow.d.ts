@@ -12,7 +12,7 @@ export type BackendLifecycleEvent =
   | { state: "failed" | "exhausted"; message: string };
 
 export type WorkspaceLifecycleFailure = {
-  code: "invalid_destination" | "cleanup_failed" | "destination_conflict" | "readiness_failed" | "restoration_failed" | "quit_failed";
+  code: "invalid_destination" | "cleanup_failed" | "cleanup_timeout" | "destination_conflict" | "readiness_failed" | "restoration_failed" | "quit_failed";
   message: string;
 };
 
