@@ -5,6 +5,7 @@ import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } f
 
 test("reads plan content through the authenticated sidecar endpoint", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const signal = new AbortController().signal;
   const content = await getSessionPlanContent(
     "http://127.0.0.1:4444",
     "session 1",
@@ -13,46 +14,50 @@ test("reads plan content through the authenticated sidecar endpoint", async () =
       requests.push({ url: url.toString(), init });
       return new Response(JSON.stringify({ content: "# plan" }));
     },
+    signal,
   );
 
   assert.equal(content, "# plan");
   assert.deepEqual(requests, [{
     url: "http://127.0.0.1:4444/sessions/session%201/plan-content",
-    init: { headers: { "x-orkworks-open-plan-token": "private-token" } },
+    init: { headers: { "x-orkworks-open-plan-token": "private-token" }, signal },
   }]);
 });
 
 test("does not accept a malformed plan-content response", async () => {
   await assert.rejects(
-    getSessionPlanContent("http://127.0.0.1:4444", "s", "token", async () => new Response(JSON.stringify({ path: "/secret" }))),
+    getSessionPlanContent("http://127.0.0.1:4444", "s", "token", async () => new Response(JSON.stringify({ path: "/secret" })), new AbortController().signal),
     /Couldn’t read this plan/,
   );
 });
 
 test("submits a review request through the authenticated sidecar endpoint", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const signal = new AbortController().signal;
   await requestSessionPlanReview("http://127.0.0.1:4444", "session 1", "private-token", async (url, init) => {
     requests.push({ url: url.toString(), init });
     return new Response(null, { status: 204 });
-  });
+  }, signal);
   assert.deepEqual(requests, [{
     url: "http://127.0.0.1:4444/sessions/session%201/request-plan-review",
-    init: { method: "POST", headers: { "x-orkworks-open-plan-token": "private-token" } },
+    init: { method: "POST", headers: { "x-orkworks-open-plan-token": "private-token" }, signal },
   }]);
 });
 
 test("selects a terminal plan through the authenticated sidecar endpoint", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const signal = new AbortController().signal;
   await selectTerminalPlan("http://127.0.0.1:4444", "session 1", "specs/plan.md", "private-token", async (url, init) => {
     requests.push({ url: url.toString(), init });
     return new Response(null, { status: 204 });
-  });
+  }, signal);
   assert.deepEqual(requests, [{
     url: "http://127.0.0.1:4444/sessions/session%201/select-terminal-plan",
     init: {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": "private-token" },
       body: JSON.stringify({ printedPath: "specs/plan.md" }),
+      signal,
     },
   }]);
 });

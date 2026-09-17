@@ -265,6 +265,12 @@ app.whenReady().then(() => {
   }
   const STALE_BACKEND_GENERATION_MESSAGE =
     "The workspace changed before this request could run. Reload the current workspace and retry.";
+  const generationBoundRequestControllers = new Set<AbortController>();
+
+  function cancelGenerationBoundRequests(): void {
+    for (const controller of generationBoundRequestControllers) controller.abort();
+    generationBoundRequestControllers.clear();
+  }
 
   function assertCurrentReadyBackendGeneration(generation: number): void {
     if (generation !== backendGeneration || latestBackendLifecycle.state !== "ready") {
@@ -273,7 +279,7 @@ app.whenReady().then(() => {
   }
 
   async function withReadyBackendGeneration<T>(
-    operation: (port: number, token: string) => Promise<T>,
+    operation: (port: number, token: string, signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
     if (latestBackendLifecycle.state !== "ready") {
       throw new Error("Workspace transition is in progress");
@@ -282,9 +288,15 @@ app.whenReady().then(() => {
     const port = await restoration.getReadiness();
     assertCurrentReadyBackendGeneration(generation);
     const token = openPlanToken;
-    const result = await operation(port, token);
-    assertCurrentReadyBackendGeneration(generation);
-    return result;
+    const controller = new AbortController();
+    generationBoundRequestControllers.add(controller);
+    try {
+      const result = await operation(port, token, controller.signal);
+      assertCurrentReadyBackendGeneration(generation);
+      return result;
+    } finally {
+      generationBoundRequestControllers.delete(controller);
+    }
   }
 
   function taskmasterRecommendationPath(id: string, action: "dismiss" | "accept"): string {
@@ -758,6 +770,7 @@ app.whenReady().then(() => {
       },
       onUnexpectedExit: (message) => {
         cancelPersistedPeonSelectionRestore();
+        cancelGenerationBoundRequests();
         backendGeneration += 1;
         const failureMessage = sanitizeBackendLifecycleFailure(message);
         lastBackendFailure = failureMessage;
@@ -770,6 +783,7 @@ app.whenReady().then(() => {
       onState: (state: SidecarState) => {
         if (state === "starting") {
           cancelPersistedPeonSelectionRestore();
+          cancelGenerationBoundRequests();
           backendGeneration += 1;
           restoration.beginGeneration();
         }
@@ -804,6 +818,7 @@ app.whenReady().then(() => {
     },
     onCloseAdmission: () => {
       cancelPersistedPeonSelectionRestore();
+      cancelGenerationBoundRequests();
       backendGeneration += 1;
     },
     closeCurrentRuntime: async () => {
@@ -1146,18 +1161,18 @@ app.whenReady().then(() => {
 
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await restoration.getReadiness();
-    return getSessionPlanContent(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
+    return withReadyBackendGeneration((port, token, signal) =>
+      getSessionPlanContent(`http://127.0.0.1:${port}`, sessionId, token, fetch, signal));
   });
   ipcMain.handle("request-plan-review", async (_event, sessionId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
-    const port = await restoration.getReadiness();
-    await requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, openPlanToken, fetch);
+    await withReadyBackendGeneration((port, token, signal) =>
+      requestSessionPlanReview(`http://127.0.0.1:${port}`, sessionId, token, fetch, signal));
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
-    const port = await restoration.getReadiness();
-    await selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, openPlanToken, fetch);
+    await withReadyBackendGeneration((port, token, signal) =>
+      selectTerminalPlan(`http://127.0.0.1:${port}`, sessionId, printedPath, token, fetch, signal));
   });
 
   const integrationActionLabels: Record<"status" | "install" | "repair" | "uninstall", string> = {

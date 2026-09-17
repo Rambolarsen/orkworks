@@ -302,6 +302,31 @@ test("generation-bound IPC owns Taskmaster mutations and debug attention injecti
   );
 });
 
+test("plan IPC operations use the ready generation admission guard", () => {
+  for (const handlerName of ["get-plan-content", "request-plan-review", "select-terminal-plan"]) {
+    const handlerStart = mainSource.indexOf(`ipcMain.handle("${handlerName}"`);
+    const handlerEnd = mainSource.indexOf("\n  });", handlerStart);
+    assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, `${handlerName} handler not found`);
+    assert.match(mainSource.slice(handlerStart, handlerEnd), /withReadyBackendGeneration/);
+  }
+});
+
+test("in-flight plan IPC requests are cancelled when their backend generation closes", () => {
+  assert.match(mainSource, /const generationBoundRequestControllers = new Set<AbortController>\(\)/);
+  assert.match(mainSource, /function cancelGenerationBoundRequests\(\)[\s\S]*controller\.abort\(\)/);
+  const helperStart = mainSource.indexOf("async function withReadyBackendGeneration");
+  const helperEnd = mainSource.indexOf("\n  function taskmasterRecommendationPath", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "generation-bound helper not found");
+  const helper = mainSource.slice(helperStart, helperEnd);
+  assert.match(helper, /new AbortController\(\)/);
+  assert.match(helper, /generationBoundRequestControllers\.add\(controller\)/);
+  assert.match(helper, /operation\(port, token, controller\.signal\)/);
+  assert.match(helper, /generationBoundRequestControllers\.delete\(controller\)/);
+  const closeAdmission = mainSource.indexOf("onCloseAdmission: () => {");
+  assert.ok(closeAdmission >= 0);
+  assert.match(mainSource.slice(closeAdmission, closeAdmission + 220), /cancelGenerationBoundRequests\(\)/);
+});
+
 test("preload and renderer contracts expose only generation-bound mutation bridges", () => {
   assert.match(preloadSource, /dismissTaskmasterRecommendation: \(id: string, reason\?: string\)/);
   assert.match(preloadSource, /acceptTaskmasterRecommendation: \(id: string, options: TaskmasterAcceptOptions\)/);

@@ -3,9 +3,11 @@ export async function getSessionPlanContent(
   sessionId: string,
   token: string,
   fetchImpl: typeof fetch,
+  signal: AbortSignal,
 ): Promise<string> {
   const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/plan-content`, {
     headers: { "x-orkworks-open-plan-token": token },
+    signal,
   });
   if (!response.ok) throw new Error("Couldn’t read this plan. It may have moved or is no longer available.");
   const body = await response.json() as { content?: unknown };
@@ -13,12 +15,12 @@ export async function getSessionPlanContent(
   return body.content;
 }
 
-export async function requestSessionPlanReview(baseUrl: string, sessionId: string, token: string, fetchImpl: typeof fetch): Promise<void> {
-  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/request-plan-review`, { method: "POST", headers: { "x-orkworks-open-plan-token": token } });
+export async function requestSessionPlanReview(baseUrl: string, sessionId: string, token: string, fetchImpl: typeof fetch, signal: AbortSignal): Promise<void> {
+  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/request-plan-review`, { method: "POST", headers: { "x-orkworks-open-plan-token": token }, signal });
   if (!response.ok) throw new Error("Couldn’t ask this agent to review the plan.");
 }
 
-export async function selectTerminalPlan(baseUrl: string, sessionId: string, printedPath: string, token: string, fetchImpl: typeof fetch): Promise<void> {
-  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/select-terminal-plan`, { method: "POST", headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token }, body: JSON.stringify({ printedPath }) });
+export async function selectTerminalPlan(baseUrl: string, sessionId: string, printedPath: string, token: string, fetchImpl: typeof fetch, signal: AbortSignal): Promise<void> {
+  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/select-terminal-plan`, { method: "POST", headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token }, body: JSON.stringify({ printedPath }), signal });
   if (!response.ok) throw new Error("Couldn’t open this plan. It may have moved or be outside this repository’s worktrees.");
 }

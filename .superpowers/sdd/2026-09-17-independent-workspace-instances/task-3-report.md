@@ -129,7 +129,7 @@ node --experimental-strip-types --test \
   tests/backendLifecycleWiring.test.ts \
   tests/backendLifecycleEvent.test.ts \
   tests/workspaceSessionController.test.ts
-PASS — 97 tests, 0 failures
+PASS — 100 tests, 0 failures
 
 npx tsc --noEmit -p tsconfig.node.json
 PASS
@@ -141,7 +141,9 @@ git diff --check
 PASS
 ```
 
-The final admission/ownership guard round also passed the same focused suite at
-97/97 and both TypeScript configurations. Unexpected sidecar exits remain
+The final admission/ownership guard round passed the same focused suite at
+100/100, with the three plan IPC wiring assertions included, and both
+TypeScript configurations. The separate plan-opener regression file passed
+5/5. Unexpected sidecar exits remain
 fail-closed and replacement-blocked until Task 5 supplies native descendant
 ownership proof; no crash-relaunch proof is claimed.
