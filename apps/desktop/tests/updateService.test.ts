@@ -296,6 +296,8 @@ test("duplicate install requests share one transaction and installer invocation"
 test("install verifies, queries sessions, confirms, waits, then installs", async () => {
   const order: string[] = [];
   const engine = engineFixture();
+  const stopped = deferred();
+  engine.quitAndInstall = () => { order.push("install"); };
   const service = packagedService(engine, {
     verifyCandidate: async () => { order.push("verify"); return true; },
     querySessions: async () => {
@@ -306,25 +308,34 @@ test("install verifies, queries sessions, confirms, waits, then installs", async
       order.push(`confirm:${liveSessionCount}`);
       return true;
     },
-    stopSidecar: async (timeoutMs) => { order.push(`stop:${timeoutMs}`); },
+    stopSidecar: (timeoutMs) => {
+      order.push(`stop:${timeoutMs}`);
+      return stopped.promise;
+    },
   });
   await prepareDownloaded(service, engine);
   engine.calls.length = 0;
 
-  const status = await service.requestInstall();
-
+  const installing = service.requestInstall();
+  await settle();
   assert.deepEqual(order, ["verify", "sessions", "confirm:1", "stop:10000"]);
-  assert.deepEqual(engine.calls, ["install"]);
+
+  stopped.resolve();
+  const status = await installing;
+  assert.deepEqual(order, ["verify", "sessions", "confirm:1", "stop:10000", "install"]);
   assert.equal(status.state, "installing");
 });
 
 test("invalid verification never queries sessions, stops the sidecar, or installs", async () => {
   const engine = engineFixture();
   let queriedSessions = false;
+  let stopped = 0;
+  let restarted = 0;
   const service = packagedService(engine, {
     verifyCandidate: async () => false,
     querySessions: async () => { queriedSessions = true; return []; },
-    stopSidecar: async () => { throw new Error("must not stop"); },
+    stopSidecar: async () => { stopped += 1; },
+    restartSidecar: async () => { restarted += 1; },
   });
   await prepareDownloaded(service, engine);
   engine.calls.length = 0;
@@ -333,15 +344,20 @@ test("invalid verification never queries sessions, stops the sidecar, or install
 
   assert.equal(status.state, "error");
   assert.equal(queriedSessions, false);
+  assert.equal(stopped, 0);
+  assert.equal(restarted, 0);
   assert.deepEqual(engine.calls, []);
 });
 
 test("cancelled confirmation has no shutdown or install side effect", async () => {
   const engine = engineFixture();
   let confirmed = false;
+  let stopped = 0;
+  let restarted = 0;
   const service = packagedService(engine, {
     confirmInstall: async () => { confirmed = true; return false; },
-    stopSidecar: async () => { throw new Error("must not stop"); },
+    stopSidecar: async () => { stopped += 1; },
+    restartSidecar: async () => { restarted += 1; },
   });
   await prepareDownloaded(service, engine);
   const downloaded = service.getStatus();
@@ -353,7 +369,44 @@ test("cancelled confirmation has no shutdown or install side effect", async () =
   assert.equal(status.state, "downloaded");
   assert.strictEqual(status.candidate, downloaded.candidate);
   assert.equal(confirmed, true);
+  assert.equal(stopped, 0);
+  assert.equal(restarted, 0);
   assert.deepEqual(engine.calls, []);
+});
+
+test("confirmation rejection has no side effects and remains retryable", async () => {
+  const engine = engineFixture();
+  let confirmationCalls = 0;
+  let verificationCalls = 0;
+  let stopped = 0;
+  let restarted = 0;
+  const service = packagedService(engine, {
+    verifyCandidate: async () => { verificationCalls += 1; return true; },
+    confirmInstall: async () => {
+      confirmationCalls += 1;
+      if (confirmationCalls === 1) throw new Error("dialog unavailable");
+      return true;
+    },
+    stopSidecar: async () => { stopped += 1; },
+    restartSidecar: async () => { restarted += 1; },
+  });
+  await prepareDownloaded(service, engine);
+  engine.calls.length = 0;
+
+  const status = await service.requestInstall();
+
+  assert.equal(status.state, "error");
+  assert.equal(stopped, 0);
+  assert.equal(restarted, 0);
+  assert.deepEqual(engine.calls, []);
+
+  const retried = await service.requestInstall();
+  assert.equal(retried.state, "installing");
+  assert.equal(verificationCalls, 2);
+  assert.equal(confirmationCalls, 2);
+  assert.equal(stopped, 1);
+  assert.equal(restarted, 0);
+  assert.deepEqual(engine.calls, ["install"]);
 });
 
 test("installer failure attempts sidecar recovery and reports restart guidance if recovery fails", async () => {
@@ -399,6 +452,7 @@ test("each candidate identity field is revalidated before verification or shutdo
     const status = await service.requestInstall();
 
     assert.equal(status.state, "error");
+    assert.strictEqual(await service.requestInstall(), status);
     assert.equal(verified, false);
     assert.equal(stopped, false);
     assert.deepEqual(engine.calls, []);
@@ -408,10 +462,13 @@ test("each candidate identity field is revalidated before verification or shutdo
 test("verification errors never query sessions, stop the sidecar, or install", async () => {
   const engine = engineFixture();
   let queriedSessions = false;
+  let stopped = 0;
+  let restarted = 0;
   const service = packagedService(engine, {
     verifyCandidate: async () => { throw new Error("signature unavailable"); },
     querySessions: async () => { queriedSessions = true; return []; },
-    stopSidecar: async () => { throw new Error("must not stop"); },
+    stopSidecar: async () => { stopped += 1; },
+    restartSidecar: async () => { restarted += 1; },
   });
   await prepareDownloaded(service, engine);
   engine.calls.length = 0;
@@ -420,6 +477,8 @@ test("verification errors never query sessions, stop the sidecar, or install", a
 
   assert.equal(status.state, "error");
   assert.equal(queriedSessions, false);
+  assert.equal(stopped, 0);
+  assert.equal(restarted, 0);
   assert.deepEqual(engine.calls, []);
 });
 
@@ -532,6 +591,33 @@ test("installer failure reports successful sidecar recovery without restart guid
   assert.equal(status.state, "error");
   assert.match(status.message, /backend was restarted/i);
   assert.doesNotMatch(status.message, /restart OrkWorks/i);
+});
+
+test("a retryable install error starts a new verification and install transaction", async () => {
+  const engine = engineFixture();
+  let installCalls = 0;
+  engine.quitAndInstall = () => {
+    installCalls += 1;
+    if (installCalls === 1) throw new Error("installer failed");
+  };
+  let verificationCalls = 0;
+  let restartCalls = 0;
+  const service = packagedService(engine, {
+    verifyCandidate: async () => { verificationCalls += 1; return true; },
+    restartSidecar: async () => { restartCalls += 1; },
+  });
+  await prepareDownloaded(service, engine);
+
+  const failed = await service.requestInstall();
+  assert.equal(failed.state, "error");
+  assert.equal(failed.operation, "install");
+
+  const retried = await service.requestInstall();
+
+  assert.equal(retried.state, "installing");
+  assert.equal(verificationCalls, 2);
+  assert.equal(installCalls, 2);
+  assert.equal(restartCalls, 1);
 });
 
 test("install without a downloaded candidate has no verification, shutdown, or install side effect", async () => {

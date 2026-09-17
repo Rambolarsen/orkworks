@@ -294,10 +294,17 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
 
   function requestInstall(): Promise<UpdateStatus> {
     if (installPromise !== null) return installPromise;
+    const retryCandidate = status.state === "error" && status.operation === "install"
+      ? status.candidate ?? null
+      : null;
     if (
-      status.state !== "downloaded"
+      (status.state !== "downloaded" && retryCandidate === null)
       || candidate === null
       || downloadedCandidate === null
+      || (retryCandidate !== null && (
+        !sameCandidate(retryCandidate, candidate)
+        || !sameCandidate(retryCandidate, downloadedCandidate)
+      ))
     ) return Promise.resolve(status);
 
     const cachedCandidate = candidate;
