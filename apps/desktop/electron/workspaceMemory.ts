@@ -13,6 +13,7 @@ import {
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { TextDecoder } from "node:util";
 import fsExt from "fs-ext";
 
 export interface WorkspaceMemoryDiagnostic {
@@ -41,6 +42,7 @@ const maximumRecentPaths = 20;
 const maximumSerializedBytes = 64 * 1024;
 const lockRetryCount = 50;
 const lockRetryDelayMs = 10;
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 const corruptDiagnostic: WorkspaceMemoryDiagnostic = {
   code: "corrupt_history",
@@ -131,7 +133,7 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
   try {
     const source = readFileSync(target);
     if (source.byteLength > maximumSerializedBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
-    const parsed: unknown = JSON.parse(source.toString("utf8"));
+    const parsed: unknown = JSON.parse(utf8Decoder.decode(source));
     if (!validStoredMemory(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     if (!memoryFits(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     return {

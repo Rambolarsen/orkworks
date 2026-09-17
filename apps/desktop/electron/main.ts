@@ -317,7 +317,14 @@ app.whenReady().then(() => {
     const restoredPath = workspace?.path || workspacePath;
     if (!restoredPath) return currentHistoryDiagnostic;
     const canonicalPath = canonicalWorkspacePath(restoredPath);
-    if (!canonicalPath) return currentHistoryDiagnostic;
+    if (!canonicalPath) {
+      currentHistoryDiagnostic = {
+        code: "history_write_failed",
+        message: "Workspace history could not be saved; the ready workspace was kept.",
+      };
+      console.warn("[main] workspace history was not updated", "workspace path could not be canonicalized");
+      return currentHistoryDiagnostic;
+    }
     try {
       const result = rememberWorkspacePath(app.getPath("userData"), canonicalPath);
       const diagnostic = result.diagnostic;

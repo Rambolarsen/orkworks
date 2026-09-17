@@ -118,6 +118,16 @@ test("history is persisted after restoration readiness without rolling back the 
   assert.doesNotMatch(persistence, /workspacePath\s*=/);
 });
 
+test("workspace canonicalization failures surface a safe diagnostic while ready still publishes", () => {
+  const start = mainSource.indexOf("function rememberRestoredWorkspace");
+  const end = mainSource.indexOf("\n  async function restoreWorkspace", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const persistence = mainSource.slice(start, end);
+  assert.match(persistence, /if \(!canonicalPath\) \{[\s\S]*currentHistoryDiagnostic = \{[\s\S]*code: "history_write_failed"[\s\S]*message: "Workspace history could not be saved; the ready workspace was kept\."[\s\S]*\};[\s\S]*return currentHistoryDiagnostic;/);
+  assert.match(mainSource, /publishBackendLifecycle\(\{ state: "ready", port, workspace, historyDiagnostic \}\);/);
+});
+
 test("history diagnostics are carried through ready lifecycle state and remain visible with an active workspace", () => {
   assert.match(mainSource, /historyDiagnostic: currentHistoryDiagnostic/);
   assert.match(mainSource, /const diagnostic = result\.diagnostic;[\s\S]*currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic\(diagnostic\)/);

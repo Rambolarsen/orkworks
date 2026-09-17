@@ -178,6 +178,25 @@ test("corrupt workspace history is diagnosed and preserved across mutation attem
     assert.equal(readFileSync(historyPath, "utf8"), corrupt);
   }));
 
+test("malformed UTF-8 workspace history is diagnosed and preserved byte-for-byte", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const corrupt = Buffer.concat([
+      Buffer.from('{"version":1,"revision":1,"lastWorkspacePath":"/repo/'),
+      Buffer.from([0x80]),
+      Buffer.from('","recentWorkspacePaths":["/repo/'),
+      Buffer.from([0x80]),
+      Buffer.from('"]}\n'),
+    ]);
+    writeFileSync(historyPath, corrupt);
+
+    const memory = readWorkspaceMemory(directory);
+
+    assert.equal(memory.diagnostic?.code, "corrupt_history");
+    assert.equal(memory.revision, 0);
+    assert.deepEqual(readFileSync(historyPath), corrupt);
+  }));
+
 test("workspace history rejects unknown persisted fields without overwriting the source", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
