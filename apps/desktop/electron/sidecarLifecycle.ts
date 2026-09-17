@@ -250,7 +250,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
           return;
         }
         settleCleanup(candidate);
-        if (current?.id === candidate.id) current = null;
+        if (current?.id === candidate.id && !candidate.cleanupFailure) current = null;
       });
     } catch (error) {
       fail(candidate, errorFrom(error));

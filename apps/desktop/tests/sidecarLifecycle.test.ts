@@ -210,6 +210,38 @@ test("cleanup timeout rejects with a typed failure and blocks replacement while 
   });
 });
 
+test("cleanup timeout remains sticky after process exit and blocks start and retry", async () => {
+  const { lifecycle, processes, timers } = createHarness(undefined, { cleanupTimeoutMs: 5 });
+  const readiness = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4567\n");
+  await readiness;
+
+  const cleanup = lifecycle.stop();
+  timers.advanceBy(5);
+  await assert.rejects(cleanup, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_timeout");
+    return true;
+  });
+
+  processes[0].exit(0);
+
+  const startResult = lifecycle.start("/replacement").then(
+    () => null,
+    (error: unknown) => error,
+  );
+  assert.equal(processes.length, 1, "a timed-out cleanup must remain a replacement tombstone after exit");
+  const startError = await startResult;
+  assert.equal((startError as { code?: string }).code, "cleanup_timeout");
+
+  const retryResult = lifecycle.retry().then(
+    () => null,
+    (error: unknown) => error,
+  );
+  assert.equal(processes.length, 1, "retry must remain blocked until native ownership proof");
+  const retryError = await retryResult;
+  assert.equal((retryError as { code?: string }).code, "cleanup_timeout");
+});
+
 test("unexpected exit reports unresolved ownership and blocks replacement without an ownership receipt", async () => {
   const { lifecycle, processes, unavailable, unexpectedExits } = createHarness();
   const readiness = lifecycle.start("/workspace");

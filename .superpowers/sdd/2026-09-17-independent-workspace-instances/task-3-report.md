@@ -44,6 +44,10 @@ Worktree: `/Users/froomiebot/workspace/orkworks/.worktrees/545-production-seam-a
 - Preserved attempted-runtime cleanup failures independently from the nullable
   workspace path, so path-null close/quit requests remain unresolved and do
   not dispose the lifecycle until an explicit retry acknowledges cleanup.
+- Kept cleanup failure and timeout tombstones authoritative after a later
+  process exit, so `start()` and `retry()` remain blocked until Task 5 supplies
+  an explicit native ownership receipt; added deterministic timeout → exit →
+  start/retry regression coverage.
 - Kept typed retry outcomes intact through the renderer: a destination retry
   returning `picker` remains picker, while unresolved cleanup retains its
   diagnostic and status.
@@ -125,7 +129,7 @@ node --experimental-strip-types --test \
   tests/backendLifecycleWiring.test.ts \
   tests/backendLifecycleEvent.test.ts \
   tests/workspaceSessionController.test.ts
-PASS — 96 tests, 0 failures
+PASS — 97 tests, 0 failures
 
 npx tsc --noEmit -p tsconfig.node.json
 PASS
@@ -138,6 +142,6 @@ PASS
 ```
 
 The final admission/ownership guard round also passed the same focused suite at
-96/96 and both TypeScript configurations. Unexpected sidecar exits remain
+97/97 and both TypeScript configurations. Unexpected sidecar exits remain
 fail-closed and replacement-blocked until Task 5 supplies native descendant
 ownership proof; no crash-relaunch proof is claimed.
