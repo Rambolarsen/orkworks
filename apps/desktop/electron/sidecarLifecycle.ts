@@ -11,6 +11,7 @@ export interface SidecarProcess {
 export interface SidecarLifecycle {
   start(cwd: string): Promise<number>;
   stop(): void;
+  stopAndWait(timeoutMs: number): Promise<void>;
   retry(): Promise<number>;
   getPort(): number | null;
   dispose(): void;
@@ -43,6 +44,7 @@ interface Generation {
   failed: boolean;
   exited: boolean;
   killRequested: boolean;
+  stopWait: Promise<void> | null;
   readyAtMs: number | null;
   stdout: string;
 }
@@ -62,6 +64,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   let lastCwd: string | null = null;
   let recoveryTimer: unknown = null;
   let disposed = false;
+  let stoppingGeneration: Generation | null = null;
 
   const readinessTimeoutMs = options.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS;
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
@@ -175,6 +178,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   function launch(cwd: string): Promise<number> {
     if (disposed) return Promise.reject(new Error("Sidecar lifecycle has been disposed"));
 
+    stoppingGeneration = null;
     attempts += 1;
     generation += 1;
     const id = generation;
@@ -198,6 +202,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       failed: false,
       exited: false,
       killRequested: false,
+      stopWait: null,
       readyAtMs: null,
       stdout: "",
     };
@@ -253,6 +258,48 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       cancelRecovery();
       generation += 1;
       stopCurrent("Sidecar stopped before readiness");
+    },
+
+    stopAndWait(timeoutMs: number): Promise<void> {
+      const previous = current;
+      if (!previous?.process) {
+        if (stoppingGeneration?.stopWait) return stoppingGeneration.stopWait;
+        cancelRecovery();
+        generation += 1;
+        stopCurrent("Sidecar stopped before readiness");
+        return Promise.resolve();
+      }
+
+      if (previous.stopWait) return previous.stopWait;
+
+      const child = previous.process;
+      let stopTimer: unknown = null;
+      let settled = false;
+      previous.stopWait = new Promise<void>((resolve, reject) => {
+        const complete = (error?: Error): void => {
+          if (settled) return;
+          settled = true;
+          clearTimer(stopTimer);
+          stopTimer = null;
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        };
+
+        child.on("exit", () => complete());
+        child.on("error", (error: Error) => complete(errorFrom(error)));
+        stopTimer = options.setTimeout(() => {
+          complete(new Error(`Sidecar stop timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      });
+      stoppingGeneration = previous;
+
+      cancelRecovery();
+      generation += 1;
+      stopCurrent("Sidecar stopped before readiness");
+      return previous.stopWait;
     },
 
     retry(): Promise<number> {
