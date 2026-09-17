@@ -470,6 +470,78 @@ html, body, #root {
   color: var(--state-ok);
 }
 
+.updates-details {
+  margin: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.updates-details > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.updates-details > div:last-child {
+  border-bottom: 0;
+}
+
+.updates-details dt {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.updates-details dd {
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.updates-status,
+.updates-progress,
+.updates-release-notes,
+.updates-error,
+.updates-warning,
+.updates-actions {
+  margin-top: 16px;
+}
+
+.updates-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.updates-progress progress {
+  width: 100%;
+}
+
+.updates-release-notes h4,
+.updates-release-notes p {
+  margin: 0;
+}
+
+.updates-release-notes p {
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+
+.updates-error,
+.updates-warning {
+  color: var(--state-warn);
+}
+
+.updates-actions {
+  display: flex;
+  gap: 12px;
+}
+
 .settings-config-list {
   display: flex;
   flex-direction: column;
