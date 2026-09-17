@@ -7,7 +7,7 @@ import { taskmasterRequest } from "./taskmasterSettings";
 import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
 import * as path from "path";
 import { pathToFileURL } from "url";
-import { getDevRepoRoot, getDevSidecarPath, getPackagedSidecarPath } from "./paths";
+import { getDevSidecarPath, getPackagedSidecarPath } from "./paths";
 import { readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
@@ -218,6 +218,9 @@ app.whenReady().then(() => {
   nativeTheme.on("updated", updateDockIcon);
 
   const appMemory = readWorkspaceMemory(app.getPath("userData"));
+  if (appMemory.diagnostic) {
+    console.warn("[main] workspace history diagnostic", appMemory.diagnostic.message);
+  }
   const initialWorkspacePath =
     appMemory.lastWorkspacePath && existsSync(appMemory.lastWorkspacePath)
       ? appMemory.lastWorkspacePath
@@ -303,6 +306,19 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
   }
 
+  function rememberRestoredWorkspace(workspace: BackendLifecycleWorkspace | null): void {
+    const restoredPath = workspace?.path || workspacePath;
+    if (!restoredPath) return;
+    try {
+      const result = rememberWorkspacePath(app.getPath("userData"), restoredPath);
+      if (result.diagnostic) {
+        console.warn("[main] workspace history was not updated", result.diagnostic.message);
+      }
+    } catch (error) {
+      console.warn("[main] workspace history was not updated", error instanceof Error ? error.message : "unknown error");
+    }
+  }
+
   async function restoreWorkspace(port: number, signal: AbortSignal): Promise<BackendLifecycleWorkspace | null> {
     if (!workspacePath) return null;
 
@@ -315,8 +331,16 @@ app.whenReady().then(() => {
     const workspace = await parseWorkspaceRestoreResponse(response);
     signal.throwIfAborted();
     if (workspace === null) {
-      console.warn(`[main] remembered workspace path was rejected by the sidecar: ${workspacePath}`);
-      forgetWorkspacePath(app.getPath("userData"), workspacePath);
+      const rejectedPath = workspacePath;
+      console.warn(`[main] remembered workspace path was rejected by the sidecar: ${rejectedPath}`);
+      try {
+        const result = forgetWorkspacePath(app.getPath("userData"), rejectedPath);
+        if (result.diagnostic) {
+          console.warn("[main] rejected workspace could not be removed from history", result.diagnostic.message);
+        }
+      } catch (error) {
+        console.warn("[main] rejected workspace could not be removed from history", error instanceof Error ? error.message : "unknown error");
+      }
       workspacePath = null;
     }
     return workspace;
@@ -557,6 +581,7 @@ app.whenReady().then(() => {
       activeHarnessRevision = workspace?.activeHarnessRevision ?? 0;
       persistedActiveHarnessIds = workspace?.activeHarnessIds ?? [];
       publishBackendLifecycle({ state: "ready", port, workspace });
+      rememberRestoredWorkspace(workspace);
       restorePersistedPeonSelection(port);
       void refreshKnowledge();
     },
@@ -1206,7 +1231,9 @@ app.whenReady().then(() => {
     if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
     const lifecycleReadiness = switchWorkspaceBackend(
       dirPath,
-      (nextPath) => rememberWorkspacePath(app.getPath("userData"), nextPath),
+      (nextPath) => {
+        workspacePath = nextPath;
+      },
       (nextPath) => {
         workspacePath = nextPath;
         try {
@@ -1237,10 +1264,11 @@ app.whenReady().then(() => {
     applyMenu(createMenu(currentSettings));
   });
 
-  const initialSidecarCwd = initialWorkspacePath
-    ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
-  const initialLifecycleReadiness = sidecarLifecycle.start(initialSidecarCwd);
-  void initialLifecycleReadiness.catch(() => {});
+  const initialSidecarCwd = initialWorkspacePath;
+  if (initialSidecarCwd) {
+    const initialLifecycleReadiness = sidecarLifecycle.start(initialSidecarCwd);
+    void initialLifecycleReadiness.catch(() => {});
+  }
   createWindow();
   applyMenu(createMenu(currentSettings));
 
