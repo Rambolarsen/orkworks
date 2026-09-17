@@ -263,6 +263,80 @@ app.whenReady().then(() => {
     knowledgeUpdates.setEnabled(settings?.automaticKnowledgeUpdates !== false);
     return { ...result, knowledgeUpdate: knowledgeUpdates.status() };
   }
+  const STALE_BACKEND_GENERATION_MESSAGE =
+    "The workspace changed before this request could run. Reload the current workspace and retry.";
+
+  function assertCurrentReadyBackendGeneration(generation: number): void {
+    if (generation !== backendGeneration || latestBackendLifecycle.state !== "ready") {
+      throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
+    }
+  }
+
+  async function withReadyBackendGeneration<T>(
+    operation: (port: number, token: string) => Promise<T>,
+  ): Promise<T> {
+    if (latestBackendLifecycle.state !== "ready") {
+      throw new Error("Workspace transition is in progress");
+    }
+    const generation = backendGeneration;
+    const port = await restoration.getReadiness();
+    assertCurrentReadyBackendGeneration(generation);
+    const token = openPlanToken;
+    const result = await operation(port, token);
+    assertCurrentReadyBackendGeneration(generation);
+    return result;
+  }
+
+  function taskmasterRecommendationPath(id: string, action: "dismiss" | "accept"): string {
+    if (!id) throw new Error("Invalid recommendation ID.");
+    return `taskmaster/recommendations/${encodeURIComponent(id)}/${action}`;
+  }
+
+  async function taskmasterMutationRequest(
+    port: number,
+    token: string,
+    resource: string,
+    payload: unknown,
+  ): Promise<unknown> {
+    const response = await fetch(`http://127.0.0.1:${port}/${resource}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body: unknown = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
+        ? (body as { error: string }).error
+        : `Taskmaster request failed (${response.status})`;
+      throw new Error(message);
+    }
+    return body;
+  }
+
+  function normalizeRecommendationAcceptOptions(value: unknown): { sessionId: string; prompt?: string } {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Invalid recommendation handoff.");
+    }
+    const input = value as { sessionId?: unknown; prompt?: unknown };
+    if (typeof input.sessionId !== "string" || !input.sessionId) {
+      throw new Error("Invalid recommendation handoff session.");
+    }
+    if (input.prompt !== undefined && typeof input.prompt !== "string") {
+      throw new Error("Invalid recommendation handoff prompt.");
+    }
+    return {
+      sessionId: input.sessionId,
+      ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+    };
+  }
+
+  function normalizeDebugAttention(value: unknown): string {
+    if (value === "working" || value === "idle" || value === "needs_you"
+      || value === "blocked" || value === "failed" || value === "capped") return value;
+    throw new Error("Invalid debug attention.");
+  }
+
   let knowledgeSync: Promise<void> | null = null;
   async function inferenceTrustContext(): Promise<TrustContext> {
     const generation = backendGeneration;
@@ -704,6 +778,9 @@ app.whenReady().then(() => {
     setWorkspacePath: (nextPath) => {
       workspacePath = nextPath;
     },
+    onCloseAdmission: () => {
+      backendGeneration += 1;
+    },
     closeCurrentRuntime: async () => {
       restoration.cancel(new Error("Workspace is closing"));
       await sidecarLifecycle?.stop();
@@ -749,6 +826,45 @@ app.whenReady().then(() => {
   ipcMain.handle("get-backend-url", async () => {
     const port = await restoration.getReadiness();
     return `http://127.0.0.1:${port}`;
+  });
+
+  ipcMain.handle("dismiss-taskmaster-recommendation", async (_event, id: unknown, reason: unknown) => {
+    if (typeof id !== "string" || !id) throw new Error("Invalid recommendation ID.");
+    if (reason !== undefined && typeof reason !== "string") throw new Error("Invalid dismissal reason.");
+    await withReadyBackendGeneration(async (port, token) => {
+      await taskmasterMutationRequest(
+        port,
+        token,
+        taskmasterRecommendationPath(id, "dismiss"),
+        reason === undefined ? {} : { reason },
+      );
+    });
+  });
+
+  ipcMain.handle("accept-taskmaster-recommendation", async (_event, id: unknown, options: unknown) => {
+    if (typeof id !== "string" || !id) throw new Error("Invalid recommendation ID.");
+    const normalized = normalizeRecommendationAcceptOptions(options);
+    return withReadyBackendGeneration((port, token) => taskmasterMutationRequest(
+      port,
+      token,
+      taskmasterRecommendationPath(id, "accept"),
+      normalized,
+    ));
+  });
+
+  ipcMain.handle("apply-debug-attention", async (_event, id: unknown, attention: unknown, message: unknown) => {
+    if (typeof id !== "string" || !id) throw new Error("Invalid session ID.");
+    const normalizedAttention = normalizeDebugAttention(attention);
+    if (message !== undefined && typeof message !== "string") throw new Error("Invalid debug attention message.");
+    await withReadyBackendGeneration(async (port, token) => {
+      const response = await fetch(`http://127.0.0.1:${port}/sessions/${encodeURIComponent(id)}/debug-injection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
+        body: JSON.stringify({ attention: normalizedAttention, message }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) throw new Error(`apply debug attention failed: ${response.status}`);
+    });
   });
 
   ipcMain.handle("retry-backend", async (): Promise<BackendRetryResult> => {

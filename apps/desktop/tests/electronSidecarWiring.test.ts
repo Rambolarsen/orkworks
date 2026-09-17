@@ -233,6 +233,57 @@ test("workspace replacement is owned by the serialized coordinator", () => {
   assert.doesNotMatch(handler, /sidecarLifecycle\.(start|stop|retry)\(/);
 });
 
+test("backend generation is invalidated at close admission before delayed cleanup", () => {
+  const admissionStart = mainSource.indexOf("onCloseAdmission: () => {");
+  const admissionEnd = mainSource.indexOf("\n    },", admissionStart);
+  const closeStart = mainSource.indexOf("closeCurrentRuntime: async () => {");
+  const closeEnd = mainSource.indexOf("\n    },", closeStart);
+  assert.ok(admissionStart >= 0 && admissionEnd > admissionStart, "close admission hook not found");
+  assert.ok(closeStart >= 0 && closeEnd > closeStart, "close runtime hook not found");
+  assert.match(mainSource.slice(admissionStart, admissionEnd), /backendGeneration \+= 1/);
+  assert.match(mainSource.slice(closeStart, closeEnd), /restoration\.cancel\([\s\S]*await sidecarLifecycle\?\.stop\(\)/);
+  assert.ok(admissionStart < closeStart, "generation must change before cleanup is awaited");
+});
+
+test("generation-bound IPC owns Taskmaster mutations and debug attention injection", () => {
+  assert.match(mainSource, /function withReadyBackendGeneration/);
+  assert.match(mainSource, /ipcMain\.handle\("dismiss-taskmaster-recommendation"/);
+  assert.match(mainSource, /ipcMain\.handle\("accept-taskmaster-recommendation"/);
+  assert.match(mainSource, /ipcMain\.handle\("apply-debug-attention"/);
+  for (const handlerName of [
+    "dismiss-taskmaster-recommendation",
+    "accept-taskmaster-recommendation",
+    "apply-debug-attention",
+  ]) {
+    const handlerStart = mainSource.indexOf(`ipcMain.handle("${handlerName}"`);
+    const handlerEnd = mainSource.indexOf("\n  });", handlerStart);
+    assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, `${handlerName} handler not found`);
+    assert.match(mainSource.slice(handlerStart, handlerEnd), /withReadyBackendGeneration/);
+  }
+  const helperStart = mainSource.indexOf("async function withReadyBackendGeneration");
+  const helperEnd = mainSource.indexOf("\n  ipcMain.handle(\"get-backend-lifecycle\"", helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, "generation-bound helper not found");
+  const helper = mainSource.slice(helperStart, helperEnd);
+  assert.match(helper, /latestBackendLifecycle\.state !== "ready"/);
+  assert.match(helper, /generation !== backendGeneration/);
+  assert.match(helper, /await operation\(/);
+  const operationIndex = helper.indexOf("const result = await operation");
+  assert.ok(operationIndex >= 0, "generation-bound operation is not awaited");
+  assert.ok(
+    helper.indexOf("assertCurrentReadyBackendGeneration(generation)", operationIndex) > operationIndex,
+    "stale generation must be checked after the mutation settles",
+  );
+});
+
+test("preload and renderer contracts expose only generation-bound mutation bridges", () => {
+  assert.match(preloadSource, /dismissTaskmasterRecommendation: \(id: string, reason\?: string\)/);
+  assert.match(preloadSource, /acceptTaskmasterRecommendation: \(id: string, options: TaskmasterAcceptOptions\)/);
+  assert.match(preloadSource, /applyDebugAttention: \(id: string, attention: string, message\?: string\)/);
+  assert.match(rendererTypes, /dismissTaskmasterRecommendation: \(id: string, reason\?: string\) => Promise<void>/);
+  assert.match(rendererTypes, /acceptTaskmasterRecommendation: \(id: string, options: AcceptRecommendationOptions\)/);
+  assert.match(rendererTypes, /applyDebugAttention: \(id: string, attention: SessionAttention, message\?: string\) => Promise<void>/);
+});
+
 test("Electron main replays the latest lifecycle state to late subscribers", () => {
   assert.match(mainSource, /let latestBackendLifecycle: BackendLifecycleEvent = \{ state: "picker" \}/);
   assert.match(mainSource, /ipcMain\.handle\("get-backend-lifecycle"/);

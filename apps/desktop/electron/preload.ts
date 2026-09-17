@@ -57,6 +57,11 @@ type ActiveHarnessSaveResult = {
   integrations: Record<string, ActiveHarnessIntegrationResult>;
 };
 
+type TaskmasterAcceptOptions = {
+  sessionId: string;
+  prompt?: string;
+};
+
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
@@ -77,6 +82,12 @@ contextBridge.exposeInMainWorld("orkworks", {
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   getTaskmasterSettings: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-settings"),
+  dismissTaskmasterRecommendation: (id: string, reason?: string): Promise<void> =>
+    ipcRenderer.invoke("dismiss-taskmaster-recommendation", id, reason),
+  acceptTaskmasterRecommendation: (id: string, options: TaskmasterAcceptOptions): Promise<unknown> =>
+    ipcRenderer.invoke("accept-taskmaster-recommendation", id, options),
+  applyDebugAttention: (id: string, attention: string, message?: string): Promise<void> =>
+    ipcRenderer.invoke("apply-debug-attention", id, attention, message),
   getInferenceTrust: (): Promise<import("./inferenceTrust").InferenceAdapterView[]> => ipcRenderer.invoke("get-inference-trust"),
   approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest): Promise<boolean> => ipcRenderer.invoke("approve-inference-adapter", request),
   revokeInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest): Promise<void> => ipcRenderer.invoke("revoke-inference-adapter", request),

@@ -354,9 +354,8 @@ function App() {
       && workspaceLifecycleRef.current.generation === lifecycleGeneration;
     try {
       if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
-      const baseUrl = await window.orkworks.getBackendUrl();
       if (!isCurrentHandoff()) return;
-      await acceptTaskmasterRecommendation(baseUrl, recommendation.id, {
+      await acceptTaskmasterRecommendation(recommendation.id, {
         sessionId: activeSessionId,
         // build_fix_prompt's backend default ends in \r so it submits as
         // typed text followed by Enter; since the dialog always sends an
@@ -471,14 +470,16 @@ function App() {
   }, [workspaceSessionController]);
 
   const handleApplyDebugAttention = useCallback(async (id: string, attention: SessionAttention, message?: string) => {
+    if (!workspaceSessionController.isAdmissionEnabled()) return;
+    const admissionToken = workspaceSessionController.captureAdmission();
     try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      await applyDebugAttention(baseUrl, id, attention, message);
+      await applyDebugAttention(id, attention, message);
+      if (!workspaceSessionController.isAdmissionCurrent(admissionToken ?? -1)) return;
       await refreshSessions();
     } catch {
       pushToast("error", "Couldn't apply debug attention.");
     }
-  }, [refreshSessions]);
+  }, [refreshSessions, workspaceSessionController]);
 
   useEffect(() => {
     let cancelled = false;

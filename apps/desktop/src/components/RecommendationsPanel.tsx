@@ -188,9 +188,8 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     setDismissing(id);
     setDismissErrors((current) => ({ ...current, [id]: "" }));
     try {
-      const baseUrl = await window.orkworks.getBackendUrl();
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
-      await dismissTaskmasterRecommendation(baseUrl, id);
+      await dismissTaskmasterRecommendation(id);
       if (generation !== refreshGeneration.current) return;
       await refresh();
     } catch (cause) {

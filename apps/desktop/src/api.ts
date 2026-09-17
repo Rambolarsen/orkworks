@@ -434,17 +434,11 @@ export async function resumeSession(
 }
 
 export async function applyDebugAttention(
-  baseUrl: string,
   id: string,
   attention: SessionAttention,
   message?: string,
 ): Promise<void> {
-  const resp = await fetch(`${baseUrl}/sessions/${id}/debug-injection`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ attention, message }),
-  });
-  if (!resp.ok) throw new Error(`apply debug attention failed: ${resp.status}`);
+  await window.orkworks.applyDebugAttention(id, attention, message);
 }
 
 export type TerminalOutputRecord = string | { text: string; delimiter: string };
@@ -626,15 +620,10 @@ export async function getTaskmasterRecommendation(
 }
 
 export async function dismissTaskmasterRecommendation(
-  baseUrl: string,
   id: string,
   reason?: string,
 ): Promise<void> {
-  await taskmasterRequest(baseUrl, `/taskmaster/recommendations/${encodeURIComponent(id)}/dismiss`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(reason === undefined ? {} : { reason }),
-  });
+  await window.orkworks.dismissTaskmasterRecommendation(id, reason);
 }
 
 export interface AcceptRecommendationOptions {
@@ -643,14 +632,8 @@ export interface AcceptRecommendationOptions {
 }
 
 export async function acceptTaskmasterRecommendation(
-  baseUrl: string,
   id: string,
   opts: AcceptRecommendationOptions,
 ): Promise<WorkflowRecommendation> {
-  const response = await taskmasterRequest(baseUrl, `/taskmaster/recommendations/${encodeURIComponent(id)}/accept`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(opts),
-  });
-  return response.json();
+  return window.orkworks.acceptTaskmasterRecommendation(id, opts);
 }

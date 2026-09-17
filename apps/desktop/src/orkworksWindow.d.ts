@@ -1,4 +1,4 @@
-import type { WorkspaceInfo } from "./api";
+import type { SessionAttention, WorkflowRecommendation, WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse, ProviderApplyStatus, RetentionApplyStatus, PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, PeonSelection } from "./providerTypes";
 import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
@@ -28,6 +28,11 @@ export type WorkspaceHistoryDiagnostic = {
 export type InitialWorkspaceSnapshot = {
   workspace: WorkspaceInfo | null;
   historyDiagnostic: WorkspaceHistoryDiagnostic | null;
+};
+
+export type AcceptRecommendationOptions = {
+  sessionId: string;
+  prompt?: string;
 };
 
 export type IntegrationKey = {
@@ -97,8 +102,11 @@ declare global {
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
-    getSettings: () => Promise<AppSettings>;
+      getSettings: () => Promise<AppSettings>;
       getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
+      dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;
+      acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<WorkflowRecommendation>;
+      applyDebugAttention: (id: string, attention: SessionAttention, message?: string) => Promise<void>;
       getInferenceTrust: () => Promise<import("./inferenceTrust").InferenceAdapterView[]>;
       approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<boolean>;
       revokeInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<void>;

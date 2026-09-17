@@ -35,6 +35,12 @@ Worktree: `/Users/froomiebot/workspace/orkworks/.worktrees/545-production-seam-a
   authority: create, resume, foreground submission, session selection, and
   Taskmaster fix handoff are closed outside `ready`, while the single active
   terminal/session-context rule remains intact. Polling is gated as well.
+- Invalidated `backendGeneration` synchronously at close admission, before
+  delayed sidecar cleanup, so in-flight old-workspace mutations fail their
+  post-await generation check.
+- Routed recommendation dismissal, Fix-with-AI handoff, and debug-attention
+  injection through generation-bound main-process IPC; opening, closing, and
+  unresolved lifecycle states reject these mutations.
 - Preserved attempted-runtime cleanup failures independently from the nullable
   workspace path, so path-null close/quit requests remain unresolved and do
   not dispose the lifecycle until an explicit retry acknowledges cleanup.
@@ -119,7 +125,7 @@ node --experimental-strip-types --test \
   tests/backendLifecycleWiring.test.ts \
   tests/backendLifecycleEvent.test.ts \
   tests/workspaceSessionController.test.ts
-PASS — 88 tests, 0 failures
+PASS — 96 tests, 0 failures
 
 npx tsc --noEmit -p tsconfig.node.json
 PASS
@@ -130,3 +136,8 @@ PASS
 git diff --check
 PASS
 ```
+
+The final admission/ownership guard round also passed the same focused suite at
+96/96 and both TypeScript configurations. Unexpected sidecar exits remain
+fail-closed and replacement-blocked until Task 5 supplies native descendant
+ownership proof; no crash-relaunch proof is claimed.

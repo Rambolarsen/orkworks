@@ -57,6 +57,7 @@ export interface WorkspaceSwitchCoordinatorOptions<TWorkspace, THistoryDiagnosti
   initialWorkspacePath: string | null;
   validateDestination(path: string): string | null;
   setWorkspacePath(path: string | null): void;
+  onCloseAdmission?(): void;
   closeCurrentRuntime(): Promise<void>;
   startRuntime(path: string, generation: number): Promise<WorkspaceRuntime<TWorkspace>>;
   cleanupAttemptedRuntime(): Promise<void>;
@@ -116,6 +117,7 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
 
     const path = currentWorkspacePath;
     publish({ state: "closing", generation: nextGeneration, path });
+    options.onCloseAdmission?.();
     try {
       await options.closeCurrentRuntime();
     } catch (error: unknown) {

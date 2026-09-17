@@ -22,6 +22,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 function createHarness(options: {
   start?: (path: string, generation: number) => Promise<{ workspace: Workspace; port: number }>;
   close?: () => Promise<void>;
+  onCloseAdmission?: () => void;
   cleanupAttempted?: () => Promise<void>;
   remember?: (path: string, workspace: Workspace) => void;
   initialWorkspacePath?: string | null;
@@ -43,6 +44,7 @@ function createHarness(options: {
       actions.push("close-current");
       await options.close?.();
     },
+    onCloseAdmission: options.onCloseAdmission,
     startRuntime: options.start ?? (async (path) => {
       actions.push(`start:${path}`);
       return { workspace: { path }, port: 4000 };
@@ -125,6 +127,29 @@ test("cleanup timeout remains unresolved and blocks destination startup until th
   assert.equal(recovered.ok, true);
   assert.equal(harness.actions.at(-1), "path:/next");
   assert.equal(harness.coordinator.getState(), "ready");
+});
+
+test("close admission invalidates external guards before delayed cleanup resolves", async () => {
+  const closeStarted = deferred<void>();
+  const cleanup = deferred<void>();
+  let backendGeneration = 0;
+  const harness = createHarness({
+    onCloseAdmission: () => {
+      backendGeneration += 1;
+    },
+    close: async () => {
+      closeStarted.resolve();
+      await cleanup.promise;
+    },
+  });
+
+  const oldGeneration = backendGeneration;
+  const switching = harness.coordinator.switchWorkspace("/next");
+  await closeStarted.promise;
+
+  assert.notEqual(backendGeneration, oldGeneration);
+  cleanup.resolve();
+  await switching;
 });
 
 test("destination lease conflict enters picker after the old runtime is closed", async () => {
