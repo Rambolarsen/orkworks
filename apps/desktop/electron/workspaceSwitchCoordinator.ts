@@ -209,6 +209,27 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
     } catch {
       historyDiagnostic = null;
     }
+
+    if (nextGeneration !== generation || attemptedRuntimeCleanupFailure) {
+      const staleFailure = attemptedRuntimeCleanupFailure ?? {
+        code: "restoration_failed" as const,
+        message: "Workspace opening was superseded before readiness was published.",
+      };
+      try {
+        await options.cleanupAttemptedRuntime();
+      } catch (cleanupError: unknown) {
+        const cleanupFailure = failureFrom(cleanupError, "cleanup_failed");
+        attemptedRuntimeCleanupFailure = cleanupFailure;
+        publish({ state: "unresolved", generation: nextGeneration, failure: cleanupFailure });
+        return { ok: false, state: "unresolved", generation: nextGeneration, failure: cleanupFailure };
+      }
+      if (attemptedRuntimeCleanupFailure) {
+        publish({ state: "unresolved", generation, failure: attemptedRuntimeCleanupFailure });
+        return { ok: false, state: "unresolved", generation, failure: attemptedRuntimeCleanupFailure };
+      }
+      return { ok: false, state: "picker", generation: nextGeneration, failure: staleFailure };
+    }
+
     currentWorkspacePath = validatedPath;
     options.setWorkspacePath(validatedPath);
     publish({

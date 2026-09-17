@@ -12,6 +12,7 @@ import RecommendationEvidence from "./RecommendationEvidence";
 
 interface RecommendationsPanelProps {
   hasWorkspace: boolean;
+  taskmasterReady: boolean;
   canFixWithAi: boolean;
   onSelectSession?: (id: string) => void;
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
@@ -109,7 +110,7 @@ function RecommendationCard({
   );
 }
 
-function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onFixWithAi, focusedRecommendationId }: RecommendationsPanelProps) {
+function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, focusedRecommendationId }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
   const [error, setError] = useState<string>();
@@ -118,9 +119,11 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
   const refreshGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
+    if (!hasWorkspace || !taskmasterReady) return;
     const generation = ++refreshGeneration.current;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
+      if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
       const response = await getTaskmasterRecommendations(baseUrl);
       let nextRecommendations = response.recommendations;
       if (
@@ -143,7 +146,7 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
       if (generation !== refreshGeneration.current) return;
       setError(cause instanceof Error ? cause.message : "Couldn't load recommendations.");
     }
-  }, [focusedRecommendationId]);
+  }, [focusedRecommendationId, hasWorkspace, taskmasterReady]);
 
   useEffect(() => {
     // The panel mounts as part of the default layout, before the sidecar's
@@ -161,6 +164,13 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
       setError(undefined);
       return;
     }
+    if (!taskmasterReady) {
+      ++refreshGeneration.current;
+      setRecommendations([]);
+      setDiagnostics([]);
+      setError(undefined);
+      return;
+    }
     let cancelled = false;
     void refresh();
     const timer = window.setInterval(() => {
@@ -170,14 +180,18 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [refresh, hasWorkspace]);
+  }, [refresh, hasWorkspace, taskmasterReady]);
 
   async function dismiss(id: string) {
+    if (!hasWorkspace || !taskmasterReady) return;
+    const generation = refreshGeneration.current;
     setDismissing(id);
     setDismissErrors((current) => ({ ...current, [id]: "" }));
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
+      if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
       await dismissTaskmasterRecommendation(baseUrl, id);
+      if (generation !== refreshGeneration.current) return;
       await refresh();
     } catch (cause) {
       setDismissErrors((current) => ({
@@ -189,7 +203,7 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
     }
   }
 
-  const visibleRecommendations = hasWorkspace ? recommendations.filter(
+  const visibleRecommendations = hasWorkspace && taskmasterReady ? recommendations.filter(
     (item) => item.status === "proposed"
       || (item.status === "executing" && item.rollupMemberIds.length > 0)
       || item.id === focusedRecommendationId,
@@ -199,7 +213,7 @@ function RecommendationsPanel({ hasWorkspace, canFixWithAi, onSelectSession, onF
     <section className="recommendations-panel">
       <div className="recommendations-panel-header">
         <div><h2>Recommendations</h2><p>Evidence-backed workflow improvements.</p></div>
-        <button type="button" disabled={!hasWorkspace} onClick={() => void refresh()}>Reload</button>
+        <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
       </div>
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />

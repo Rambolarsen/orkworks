@@ -350,3 +350,19 @@ test("disabling admission invalidates an in-flight create", async () => {
   assert.deepEqual(active, []);
   controller.dispose();
 });
+
+test("foreground session submission returns stale after admission closes during the write", async () => {
+  const submission = deferred<void>();
+  const controller = createWorkspaceSessionController({
+    deps: deps({ setActiveWorkspaceSession: async () => submission.promise }),
+  });
+
+  const admission = controller.captureAdmission();
+  assert.notEqual(admission, null);
+  const handoff = controller.submitActiveSession("active", admission!);
+  controller.setAdmissionEnabled(false);
+  submission.resolve();
+
+  assert.equal(await handoff, false);
+  controller.dispose();
+});

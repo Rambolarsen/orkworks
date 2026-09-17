@@ -340,13 +340,22 @@ function App() {
     const activeSession = activeSessionId
       ? sessions.find((session) => session.id === activeSessionId)
       : undefined;
-    if (!recommendation || !activeSessionId || activeSession?.lifecycle !== "alive" || !workspaceSessionController.isAdmissionEnabled()) {
+    if (!recommendation || !activeSessionId) {
       pushToast("error", "Couldn't send the fix — no session is active.");
       return;
     }
+    if (activeSession?.lifecycle !== "alive" || !workspaceSessionController.isAdmissionEnabled()) {
+      pushToast("error", "Couldn't send the fix — no session is active.");
+      return;
+    }
+    const admissionToken = workspaceSessionController.captureAdmission();
+    const lifecycleGeneration = workspaceLifecycleRef.current.generation;
+    const isCurrentHandoff = () => workspaceSessionController.isAdmissionCurrent(admissionToken ?? -1)
+      && workspaceLifecycleRef.current.generation === lifecycleGeneration;
     try {
-      if (!await workspaceSessionController.submitActiveSession(activeSessionId)) return;
+      if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
       const baseUrl = await window.orkworks.getBackendUrl();
+      if (!isCurrentHandoff()) return;
       await acceptTaskmasterRecommendation(baseUrl, recommendation.id, {
         sessionId: activeSessionId,
         // build_fix_prompt's backend default ends in \r so it submits as
@@ -356,6 +365,7 @@ function App() {
         // the user shouldn't see or edit a raw carriage return.
         prompt: `${prompt}\r`,
       });
+      if (!isCurrentHandoff()) return;
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");
     }
@@ -710,6 +720,7 @@ function App() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         canFixWithAi={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
+        taskmasterReady={sessionAdmissionEnabled}
         unreadIds={unreadState.unreadIds}
         acknowledgedIds={unreadState.acknowledgedIds}
         harnesses={harnesses}

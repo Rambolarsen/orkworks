@@ -115,11 +115,15 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     return value instanceof Error ? value : new Error("Sidecar launch failed");
   }
 
-  function stopCurrent(message: string, acknowledgeUnresolved = false): Promise<void> {
+  function stopCurrent(message: string): Promise<void> {
     const previous = current;
     if (!previous) return Promise.resolve();
 
-    if (previous.cleanupSettled && previous.cleanupFailure && !acknowledgeUnresolved) {
+    // A process exit is not an ownership receipt: descendants may still be
+    // running after the sidecar object has exited. With no generation-bound
+    // native ownership proof available yet, preserve the unresolved failure
+    // and fail closed for every replacement path.
+    if (previous.cleanupSettled && previous.cleanupFailure) {
       return previous.cleanup;
     }
 
@@ -269,16 +273,16 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
 
     stop(): Promise<void> {
       generation += 1;
-      return stopCurrent("Sidecar stopped before readiness", true);
+      return stopCurrent("Sidecar stopped before readiness");
     },
 
     retry(): Promise<number> {
       if (!lastCwd) return Promise.reject(new Error("No sidecar working directory is available for retry"));
       const previous = current;
-      const cleanup = stopCurrent("Sidecar stopped before readiness", true);
+      const cleanup = stopCurrent("Sidecar stopped before readiness");
       if (!previous) return launch(lastCwd);
       if (previous.cleanupSettled) {
-        if (previous.cleanupFailure && !previous.exited) return Promise.reject(previous.cleanupFailure);
+        if (previous.cleanupFailure) return Promise.reject(previous.cleanupFailure);
         return launch(lastCwd);
       }
       return cleanup.then(() => launch(lastCwd!));

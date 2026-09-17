@@ -661,9 +661,13 @@ app.whenReady().then(() => {
         restoration.fail(new Error(lastBackendFailure));
       },
       onUnexpectedExit: (message) => {
+        backendGeneration += 1;
+        const failureMessage = sanitizeBackendLifecycleFailure(message);
+        lastBackendFailure = failureMessage;
+        restoration.cancel(new Error(failureMessage));
         workspaceSwitchCoordinator?.markUnresolved({
           code: "cleanup_failed",
-          message: sanitizeBackendLifecycleFailure(message),
+          message: failureMessage,
         });
       },
       onState: (state: SidecarState) => {

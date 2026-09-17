@@ -11,6 +11,14 @@ import { SidecarCleanupError } from "../electron/sidecarLifecycle.ts";
 
 type Workspace = { path: string };
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function createHarness(options: {
   start?: (path: string, generation: number) => Promise<{ workspace: Workspace; port: number }>;
   close?: () => Promise<void>;
@@ -211,6 +219,35 @@ test("successful restoration records history before publishing ready", async () 
   assert.deepEqual(harness.actions, ["start:/next", "history:/next", "path:/next"]);
   assert.deepEqual(harness.events.map((event) => event.state), ["opening", "ready"]);
   assert.equal(harness.events.at(-1)?.state, "ready");
+});
+
+test("a failure during awaited history persistence cannot publish a stale ready workspace", async () => {
+  const history = deferred<null>();
+  const historyStarted = deferred<void>();
+  const harness = createHarness({
+    initialWorkspacePath: null,
+    remember: () => {
+      historyStarted.resolve();
+      return history.promise;
+    },
+  });
+
+  const opening = harness.coordinator.switchWorkspace("/next");
+  await historyStarted.promise;
+  harness.coordinator.markUnresolved({
+    code: "cleanup_failed",
+    message: "The sidecar descendants could not be proven stopped.",
+  });
+  history.resolve(null);
+
+  const result = await opening;
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.state, "unresolved");
+  assert.equal(result.failure.code, "cleanup_failed");
+  assert.equal(harness.getCurrentPath(), null);
+  assert.equal(harness.actions.includes("path:/next"), false);
+  assert.equal(harness.events.some((event) => event.state === "ready"), false);
 });
 
 test("repeated switch and quit requests are serialized", async () => {

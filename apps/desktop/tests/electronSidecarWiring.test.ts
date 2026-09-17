@@ -92,6 +92,16 @@ test("sidecar failure recovery is explicit and stays on the serialized coordinat
   assert.doesNotMatch(retryHandler, /sidecarLifecycle\.retry\(\)/);
 });
 
+test("unexpected sidecar exit invalidates generation and cancels stale restoration readiness", () => {
+  const start = mainSource.indexOf("onUnexpectedExit: (message) => {");
+  const end = mainSource.indexOf("\n      onState:", start);
+  assert.ok(start >= 0 && end > start);
+  const handler = mainSource.slice(start, end);
+  assert.match(handler, /backendGeneration \+= 1/);
+  assert.match(handler, /restoration\.cancel\(/);
+  assert.match(handler, /workspaceSwitchCoordinator\?\.markUnresolved/);
+});
+
 test("quit does not finalize the app after unresolved workspace cleanup", () => {
   const start = mainSource.indexOf('app.on("before-quit"');
   const end = mainSource.indexOf("\n});", start);

@@ -292,6 +292,20 @@ test("Fix with AI is gated on the active session actually being alive, not merel
   assert.match(dockview, /\.lifecycle === "alive"/);
 });
 
+test("Fix with AI rechecks the renderer admission generation around the async handoff", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const start = app.indexOf("const handleConfirmFixWithAi");
+  const end = app.indexOf("// Unread", start);
+  assert.ok(start >= 0 && end > start);
+  const handler = app.slice(start, end);
+  assert.match(handler, /captureAdmission\(\)/);
+  assert.match(handler, /workspaceLifecycleRef\.current\.generation/);
+  assert.match(handler, /isAdmissionCurrent\(/);
+  const accept = handler.indexOf("await acceptTaskmasterRecommendation");
+  assert.ok(accept >= 0);
+  assert.match(handler.slice(accept), /isCurrentHandoff\(\)/);
+});
+
 test("recommendation history links add the panel without requiring an absent reference panel", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const handlerIndex = app.indexOf("const handleOpenRecommendation");
@@ -386,6 +400,18 @@ test("Recommendations panel ignores out-of-order focused detail refresh response
   assert.ok(detailFetchIndex >= 0, "expected focused detail fetch");
   assert.ok(staleGuardIndex > detailFetchIndex, "expected a stale-response guard after detail fetch");
   assert.ok(recommendationsUpdateIndex > staleGuardIndex, "expected stale responses to be ignored before state update");
+});
+
+test("Recommendations panel treats readiness as explicit Taskmaster admission", () => {
+  const source = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /taskmasterReady: boolean/);
+  assert.match(source, /if \(!hasWorkspace \|\| !taskmasterReady\)/);
+  assert.match(source, /disabled=\{!hasWorkspace \|\| !taskmasterReady\}/);
+  assert.match(source, /refreshGeneration\.current/);
+  assert.match(source, /dismissTaskmasterRecommendation/);
 });
 
 test("Recommendations panel links affected sessions through the shared selection callback", () => {

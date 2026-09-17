@@ -46,13 +46,15 @@ export interface WorkspaceSessionControllerOptions {
 export interface WorkspaceSessionController {
   setAdmissionEnabled(enabled: boolean): void;
   isAdmissionEnabled(): boolean;
+  captureAdmission(): number | null;
+  isAdmissionCurrent(token: number): boolean;
   setPollingEnabled(enabled: boolean): void;
   openWorkspace(path: string): Promise<void>;
   adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void>;
   refreshSessions(): Promise<readonly SessionInfo[] | null>;
   createSession(options: CreateSessionOptions): Promise<void>;
   resumeSession(id: string): Promise<void>;
-  submitActiveSession(id: string): Promise<boolean>;
+  submitActiveSession(id: string, admissionToken?: number | null): Promise<boolean>;
   selectSession(id: string): boolean;
   deleteSession(id: string, forget: boolean): Promise<void>;
   dispose(): void;
@@ -102,6 +104,8 @@ export function createWorkspaceSessionController(
   function isCurrentAdmission(token: number): boolean {
     return !disposed && admissionEnabled && token === admissionGeneration;
   }
+
+  const isAdmissionCurrent = isCurrentAdmission;
 
   const publishSessions = (next: SessionInfo[]): void => {
     sessions = next;
@@ -243,12 +247,13 @@ export function createWorkspaceSessionController(
     }
   }
 
-  async function submitActiveSession(id: string): Promise<boolean> {
-    const admissionToken = requireAdmission();
+  async function submitActiveSession(id: string, expectedAdmissionToken?: number | null): Promise<boolean> {
+    if (expectedAdmissionToken === null) return false;
+    const admissionToken = expectedAdmissionToken ?? requireAdmission();
     const baseUrl = await deps.getBackendUrl();
     if (!isCurrentAdmission(admissionToken)) return false;
     await deps.setActiveWorkspaceSession(baseUrl, id);
-    return true;
+    return isCurrentAdmission(admissionToken);
   }
 
   function selectSession(id: string): boolean {
@@ -289,6 +294,8 @@ export function createWorkspaceSessionController(
   return {
     setAdmissionEnabled,
     isAdmissionEnabled: () => admissionEnabled && !disposed,
+    captureAdmission: () => admissionEnabled && !disposed ? admissionGeneration : null,
+    isAdmissionCurrent,
     setPollingEnabled,
     openWorkspace,
     adoptRestoredWorkspace,
