@@ -90,7 +90,7 @@ test("Electron main logs raw lifecycle failures but publishes only stable copy",
 });
 
 test("a stale remembered workspace path degrades to no-workspace, not a backend failure", () => {
-  assert.match(mainSource, /import \{ parseWorkspaceRestoreResponse \} from "\.\/workspaceRestore";/);
+  assert.match(mainSource, /import \{ buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse \} from "\.\/workspaceRestore";/);
   assert.match(mainSource, /const restoreResult = await parseWorkspaceRestoreResponse\(response\);/);
   assert.match(mainSource, /if \(!restoreResult\.ok\) \{[\s\S]*if \(restoreResult\.removeFromHistory\)/);
   assert.doesNotMatch(mainSource, /throw new Error\(`Workspace restoration failed: \$\{response\.status\}`\)/);
