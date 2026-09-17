@@ -14,11 +14,11 @@ export interface UpdateCandidate {
 }
 
 export type UpdateEngineEvent =
-  | { type: "update-available"; candidate: UpdateCandidate }
-  | { type: "update-not-available" }
-  | { type: "download-progress"; percent: number; transferred: number; total: number }
-  | { type: "update-downloaded"; candidate: UpdateCandidate }
-  | { type: "error"; operation: "check" | "download"; message: string };
+  | { type: "update-available"; operationId: number; candidate: UpdateCandidate }
+  | { type: "update-not-available"; operationId: number }
+  | { type: "download-progress"; operationId: number; percent: number; transferred: number; total: number }
+  | { type: "update-downloaded"; operationId: number; candidate: UpdateCandidate }
+  | { type: "error"; operation: "check" | "download"; operationId: number; message: string };
 
 export interface UpdateEngine {
   autoDownload: boolean;
@@ -27,8 +27,8 @@ export interface UpdateEngine {
   allowPrerelease: boolean;
   channel: "latest" | "nightly";
   onEvent(listener: (event: UpdateEngineEvent) => void): () => void;
-  checkForUpdates(): Promise<void>;
-  downloadUpdate(): Promise<void>;
+  checkForUpdates(operationId: number): Promise<void>;
+  downloadUpdate(operationId: number): Promise<void>;
   quitAndInstall(): void;
 }
 
@@ -82,8 +82,8 @@ export interface UpdateService {
   subscribe(listener: (status: UpdateStatus) => void): () => void;
 }
 
-const stableVersion = /^\d+\.\d+\.\d+(?:\+[0-9A-Za-z.-]+)?$/;
-const nightlyVersion = /^\d+\.\d+\.\d+-nightly(?:\.\d+)+(?:\+[0-9A-Za-z.-]+)?$/;
+const stableVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const nightlyVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-nightly(?:\.(?:0|[1-9]\d*))+(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function channelForVersion(version: string): UpdateChannel | null {
   if (stableVersion.test(version)) return "latest";
@@ -106,9 +106,12 @@ function unavailableStatus(reason: "development" | "unsupported-version"): Updat
 }
 
 function sameCandidate(left: UpdateCandidate, right: UpdateCandidate): boolean {
-  return Object.keys(left.identity).every((key) =>
-    left.identity[key as keyof UpdateCandidateIdentity] === right.identity[key as keyof UpdateCandidateIdentity]
-  );
+  return left.identity.channel === right.identity.channel
+    && left.identity.version === right.identity.version
+    && left.identity.tag === right.identity.tag
+    && left.identity.metadataUrl === right.identity.metadataUrl
+    && left.identity.metadataDigest === right.identity.metadataDigest
+    && left.identity.payloadDigest === right.identity.payloadDigest;
 }
 
 export function createUpdateService(dependencies: UpdateServiceDependencies): UpdateService {
@@ -155,20 +158,21 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
     return status;
   }
 
-  function eventMatches(operation: "check" | "download"): boolean {
-    return activeOperation?.kind === operation;
+  function eventMatches(operation: "check" | "download", operationId: number): boolean {
+    return activeOperation?.kind === operation && activeOperation.sequence === operationId;
   }
 
   engine.onEvent((event) => {
     switch (event.type) {
       case "update-available":
+        if (!eventMatches("check", event.operationId)) return;
         if (event.candidate.identity.channel !== selectedChannel) return;
         candidate = event.candidate;
         activeOperation = null;
         publish({ state: "available", candidate });
         return;
       case "update-not-available":
-        if (!eventMatches("check") && status.state !== "checking") return;
+        if (!eventMatches("check", event.operationId)) return;
         candidate = null;
         activeOperation = null;
         publish({
@@ -179,7 +183,7 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
         });
         return;
       case "download-progress":
-        if (candidate === null || (status.state !== "available" && status.state !== "downloading")) return;
+        if (!eventMatches("download", event.operationId) || candidate === null || status.state !== "downloading") return;
         publish({
           state: "downloading",
           candidate,
@@ -187,14 +191,14 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
         });
         return;
       case "update-downloaded":
+        if (!eventMatches("download", event.operationId)) return;
         if (event.candidate.identity.channel !== selectedChannel) return;
-        if (candidate !== null && !sameCandidate(candidate, event.candidate)) return;
-        candidate = event.candidate;
+        if (candidate === null || !sameCandidate(candidate, event.candidate)) return;
         activeOperation = null;
         publish({ state: "downloaded", candidate });
         return;
       case "error":
-        if (!eventMatches(event.operation)) return;
+        if (!eventMatches(event.operation, event.operationId)) return;
         activeOperation = null;
         publish({
           state: "error",
@@ -210,11 +214,14 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
     if (checkPromise !== null) return checkPromise;
 
     const sequence = ++operationSequence;
+    let resolveOperation!: (result: UpdateStatus) => void;
+    const operation = new Promise<UpdateStatus>((resolve) => { resolveOperation = resolve; });
+    checkPromise = operation;
     activeOperation = { kind: "check", sequence };
     publish({ state: "checking", channel: selectedChannel, currentVersion: dependencies.currentVersion });
-    checkPromise = (async () => {
+    void (async () => {
       try {
-        await engine.checkForUpdates();
+        await engine.checkForUpdates(sequence);
         if (activeOperation?.kind === "check" && activeOperation.sequence === sequence) {
           activeOperation = null;
           candidate = null;
@@ -236,11 +243,11 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
           });
         }
       } finally {
-        checkPromise = null;
+        if (checkPromise === operation) checkPromise = null;
+        resolveOperation(status);
       }
-      return status;
     })();
-    return checkPromise;
+    return operation;
   }
 
   function download(): Promise<UpdateStatus> {
@@ -248,15 +255,18 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
     if (candidate === null) return Promise.resolve(status);
 
     const sequence = ++operationSequence;
+    let resolveOperation!: (result: UpdateStatus) => void;
+    const operation = new Promise<UpdateStatus>((resolve) => { resolveOperation = resolve; });
+    downloadPromise = operation;
     activeOperation = { kind: "download", sequence };
     publish({
       state: "downloading",
       candidate,
       progress: { percent: 0, transferred: 0, total: 0 },
     });
-    downloadPromise = (async () => {
+    void (async () => {
       try {
-        await engine.downloadUpdate();
+        await engine.downloadUpdate(sequence);
       } catch (error) {
         if (activeOperation?.kind === "download" && activeOperation.sequence === sequence) {
           activeOperation = null;
@@ -269,11 +279,11 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
           });
         }
       } finally {
-        downloadPromise = null;
+        if (downloadPromise === operation) downloadPromise = null;
+        resolveOperation(status);
       }
-      return status;
     })();
-    return downloadPromise;
+    return operation;
   }
 
   function requestInstall(): Promise<UpdateStatus> {
