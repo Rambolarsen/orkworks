@@ -20,6 +20,10 @@ export type BackendLifecycleEvent =
   | { state: "unresolved"; failure: WorkspaceLifecycleFailure }
   | { state: "failed" | "exhausted"; message: string };
 
+export type BackendRetryResult =
+  | { ok: true; state: "ready" }
+  | { ok: false; state: "picker" | "unresolved"; failure: WorkspaceLifecycleFailure };
+
 export interface BackendLifecycleWorkspace {
   path: string;
   repo_root: string | null;

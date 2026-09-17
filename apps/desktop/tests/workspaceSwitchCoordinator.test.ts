@@ -256,3 +256,30 @@ test("repeated switch and quit requests are serialized", async () => {
     "closing", "picker",
   ] satisfies WorkspaceInstanceState[]);
 });
+
+test("quit cleanup timeout remains unresolved and can be retried", async () => {
+  let oldRuntimeExited = false;
+  const harness = createHarness({
+    close: async () => {
+      if (!oldRuntimeExited) {
+        throw new SidecarCleanupError("cleanup_timeout", "Sidecar cleanup timed out");
+      }
+    },
+  });
+
+  const failed = await harness.coordinator.quit();
+
+  assert.equal(failed.ok, false);
+  if (failed.ok) return;
+  assert.equal(failed.state, "unresolved");
+  assert.equal(failed.failure.code, "cleanup_timeout");
+  assert.equal(harness.coordinator.getState(), "unresolved");
+  assert.deepEqual(harness.actions, ["close-current"]);
+
+  oldRuntimeExited = true;
+  const recovered = await harness.coordinator.quit();
+
+  assert.equal(recovered.ok, true);
+  assert.equal(harness.coordinator.getState(), "picker");
+  assert.deepEqual(harness.actions, ["close-current", "close-current", "path:none"]);
+});

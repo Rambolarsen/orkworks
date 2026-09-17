@@ -11,6 +11,10 @@ export type BackendLifecycleEvent =
   | { state: "unresolved"; failure: WorkspaceLifecycleFailure }
   | { state: "failed" | "exhausted"; message: string };
 
+export type BackendRetryResult =
+  | { ok: true; state: "ready" }
+  | { ok: false; state: "picker" | "unresolved"; failure: WorkspaceLifecycleFailure };
+
 export type WorkspaceLifecycleFailure = {
   code: "invalid_destination" | "cleanup_failed" | "cleanup_timeout" | "destination_conflict" | "readiness_failed" | "restoration_failed" | "quit_failed";
   message: string;
@@ -87,7 +91,7 @@ declare global {
     orkworks: {
       platform: string;
       getBackendUrl: () => Promise<string>;
-      retryBackend: () => Promise<void>;
+      retryBackend: () => Promise<BackendRetryResult>;
       onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) => () => void;
       getInitialWorkspace: () => Promise<InitialWorkspaceSnapshot>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;

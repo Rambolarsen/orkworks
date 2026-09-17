@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { subscribeBackendLifecycle, type BackendLifecycleEvent, type InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
+import { subscribeBackendLifecycle, type BackendLifecycleEvent, type BackendRetryResult, type InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
 
 type IntegrationKey = {
   adapterId: string;
@@ -60,7 +60,7 @@ type ActiveHarnessSaveResult = {
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
-  retryBackend: (): Promise<void> => ipcRenderer.invoke("retry-backend"),
+  retryBackend: (): Promise<BackendRetryResult> => ipcRenderer.invoke("retry-backend"),
   onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) =>
     subscribeBackendLifecycle(
       (listener) => {

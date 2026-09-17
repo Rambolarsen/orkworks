@@ -71,7 +71,7 @@ test("startup validates the remembered path as an accessible directory before st
 
 test("backend readiness and retry use the lifecycle controller", () => {
   assert.match(mainSource, /ipcMain\.handle\("get-backend-url", async \(\) => \{\s*const port = await restoration\.getReadiness\(\)/);
-  assert.match(mainSource, /ipcMain\.handle\("retry-backend", async \(\) => \{[\s\S]*workspaceSwitchCoordinator\.retry\(\)/);
+  assert.match(mainSource, /ipcMain\.handle\("retry-backend", async \(\)(?:: Promise<BackendRetryResult>)? => \{[\s\S]*workspaceSwitchCoordinator\.retry\(\)/);
   assert.doesNotMatch(mainSource, /new Promise<number>\(\(resolve\) => \{\s*portResolve/);
 });
 
@@ -90,6 +90,45 @@ test("sidecar failure recovery is explicit and stays on the serialized coordinat
   const retryHandler = mainSource.slice(retryStart, retryEnd);
   assert.match(retryHandler, /workspaceSwitchCoordinator\.retry\(\)/);
   assert.doesNotMatch(retryHandler, /sidecarLifecycle\.retry\(\)/);
+});
+
+test("quit does not finalize the app after unresolved workspace cleanup", () => {
+  const start = mainSource.indexOf('app.on("before-quit"');
+  const end = mainSource.indexOf("\n});", start);
+  assert.ok(start >= 0 && end > start, "before-quit handler not found");
+  const handler = mainSource.slice(start, end);
+  const requestStart = mainSource.indexOf("function requestQuit");
+  const requestEnd = mainSource.indexOf("\n}\n\napp.on(\"before-quit\"", requestStart);
+  assert.ok(requestStart >= 0 && requestEnd > requestStart, "quit request helper not found");
+  const request = mainSource.slice(requestStart, requestEnd);
+
+  assert.match(handler, /event\.preventDefault\(\);[\s\S]*requestQuit\(\);/);
+  assert.match(request, /\.then\(\(result\) => \{/);
+  assert.match(request, /if \(!result\.ok\) \{[\s\S]*quitInProgress = false;[\s\S]*return;/);
+  assert.match(request, /if \(!result\.ok\) \{[\s\S]*return;[\s\S]*killSidecar\(\);[\s\S]*app\.quit\(\);/);
+  assert.doesNotMatch(request, /\.finally\(/);
+});
+
+test("retry keeps cleanup-timeout unresolved diagnostics across the IPC contract", () => {
+  const retryStart = mainSource.indexOf('ipcMain.handle("retry-backend"');
+  const retryEnd = mainSource.indexOf("\n  });", retryStart);
+  assert.ok(retryStart >= 0 && retryEnd > retryStart, "retry handler not found");
+  const retryHandler = mainSource.slice(retryStart, retryEnd);
+
+  assert.match(retryHandler, /Promise<BackendRetryResult>/);
+  assert.match(retryHandler, /return \{ ok: false, state: "unresolved", failure: result\.failure \};/);
+  assert.doesNotMatch(retryHandler, /throw new Error\(result\.failure\.message\)/);
+  assert.match(preloadSource, /retryBackend: \(\): Promise<BackendRetryResult> =>/);
+  assert.match(rendererTypes, /export type BackendRetryResult =/);
+  assert.match(rendererTypes, /retryBackend: \(\) => Promise<BackendRetryResult>/);
+
+  const appStart = appSource.indexOf("const handleRetryBackend = useCallback");
+  const appEnd = appSource.indexOf("const handleBackendUnavailable = useCallback");
+  assert.ok(appStart >= 0 && appEnd > appStart, "renderer retry handler not found");
+  const appHandler = appSource.slice(appStart, appEnd);
+  assert.match(appHandler, /\.then\(\(result\) => \{/);
+  assert.match(appHandler, /setWorkspaceSwitchDiagnostic\(result\.failure\.message\)/);
+  assert.match(appHandler, /setBackendStatus\(result\.state === "unresolved" \? "unresolved" : "unreachable"\)/);
 });
 
 test("retry cannot turn the stable picker into a ready null-workspace sidecar", () => {
@@ -174,7 +213,7 @@ test("Electron main replays the latest lifecycle state to late subscribers", () 
 });
 
 test("preload validates and forwards the lifecycle contract", () => {
-  assert.match(preloadSource, /import \{ subscribeBackendLifecycle, type BackendLifecycleEvent, type InitialWorkspaceSnapshot \}/);
+  assert.match(preloadSource, /import \{ subscribeBackendLifecycle, type BackendLifecycleEvent, type BackendRetryResult, type InitialWorkspaceSnapshot \}/);
   assert.match(preloadSource, /subscribeBackendLifecycle\(/);
   assert.match(preloadSource, /onBackendLifecycle:/);
   assert.match(preloadSource, /retryBackend:/);
@@ -193,7 +232,7 @@ test("renderer declarations expose the same lifecycle contract", () => {
   assert.match(rendererTypes, /export type InitialWorkspaceSnapshot/);
   assert.match(rendererTypes, /getInitialWorkspace: \(\) => Promise<InitialWorkspaceSnapshot>/);
   assert.match(rendererTypes, /onBackendLifecycle: \(callback: \(event: BackendLifecycleEvent\) => void\) => \(\) => void/);
-  assert.match(rendererTypes, /retryBackend: \(\) => Promise<void>/);
+  assert.match(rendererTypes, /retryBackend: \(\) => Promise<BackendRetryResult>/);
 });
 
 test("the picker exposes corrupt-history diagnostics without exposing persisted internals", () => {

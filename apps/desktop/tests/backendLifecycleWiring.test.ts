@@ -45,6 +45,18 @@ test("a stale retry rejection is guarded so it cannot clobber a newer retry — 
   assert.match(handler, /catch\(\(\) => \{\s*[\s\S]*?if \(backendRetryGuardRef\.current\.isCurrent\(token\)\)\s*\{\s*setBackendStatus\("unreachable"\);/);
 });
 
+test("a retry result preserves an unresolved cleanup diagnostic instead of mapping it to unreachable", () => {
+  const start = appSource.indexOf("const handleRetryBackend = useCallback");
+  const end = appSource.indexOf("const handleBackendUnavailable = useCallback");
+  assert.ok(start !== -1 && end !== -1 && start < end, "handleRetryBackend block not found");
+  const handler = appSource.slice(start, end);
+
+  assert.match(handler, /\.then\(\(result\) => \{/);
+  assert.match(handler, /if \(!result\.ok\)/);
+  assert.match(handler, /setWorkspaceSwitchDiagnostic\(result\.failure\.message\)/);
+  assert.match(handler, /setBackendStatus\(result\.state === "unresolved" \? "unresolved" : "unreachable"\)/);
+});
+
 test("opening a workspace adopts the restoration once — from the ready handler, not the dialog handler", () => {
   // One restoration (main publishes the same restored workspace via the
   // ready lifecycle event and as open-workspace/get-initial-workspace IPC

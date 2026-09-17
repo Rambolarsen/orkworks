@@ -21,7 +21,7 @@ import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
 import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
-import type { BackendLifecycleEvent, BackendLifecycleWorkspace, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
+import type { BackendLifecycleEvent, BackendLifecycleWorkspace, BackendRetryResult, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
 import { createWorkspaceSwitchCoordinator, WorkspaceSwitchError, type WorkspaceSwitchCoordinator, type WorkspaceSwitchEvent } from "./workspaceSwitchCoordinator";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
@@ -740,15 +740,15 @@ app.whenReady().then(() => {
     return `http://127.0.0.1:${port}`;
   });
 
-  ipcMain.handle("retry-backend", async () => {
+  ipcMain.handle("retry-backend", async (): Promise<BackendRetryResult> => {
     if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
     const result = await workspaceSwitchCoordinator.retry();
-    if (!result.ok && result.state === "unresolved") {
-      throw new Error(result.failure.message);
-    }
+    if (result.ok) return { ok: true, state: "ready" };
+    if (result.state === "unresolved") return { ok: false, state: "unresolved", failure: result.failure };
     if (!result.ok && result.failure.code === "invalid_destination") {
       publishBackendLifecycle({ state: "picker" });
     }
+    return { ok: false, state: "picker", failure: result.failure };
   });
 
   ipcMain.handle("open-external-link", (_event, url: unknown) => {
@@ -1366,36 +1366,42 @@ function killSidecar(): void {
   workspaceSwitchCoordinator = null;
 }
 
+function requestQuit(): void {
+  void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve({ ok: true as const, state: "picker" as const, generation: 0 }))
+    .then((result) => {
+      if (!result.ok) {
+        // The coordinator has already published the unresolved diagnostic. Keep
+        // the app and retry path alive so a later quit can try cleanup again.
+        quitInProgress = false;
+        return;
+      }
+      killSidecar();
+      app.quit();
+    })
+    .catch(() => {
+      // An unexpected coordinator rejection is also unsafe to finalize. Keep
+      // the app alive; the lifecycle event remains the source of truth.
+      quitInProgress = false;
+    });
+}
+
 app.on("before-quit", (event) => {
   if (quitInProgress) return;
   event.preventDefault();
   quitInProgress = true;
-  void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve())
-    .catch(() => {
-      // The coordinator has already published unresolved if bounded cleanup failed.
-    })
-    .finally(() => {
-      killSidecar();
-      app.quit();
-    });
+  requestQuit();
 });
 
 process.on("SIGTERM", () => {
   if (!quitInProgress) {
     quitInProgress = true;
-    void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve()).finally(() => {
-      killSidecar();
-      app.quit();
-    });
+    requestQuit();
   }
 });
 
 process.on("SIGINT", () => {
   if (!quitInProgress) {
     quitInProgress = true;
-    void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve()).finally(() => {
-      killSidecar();
-      app.quit();
-    });
+    requestQuit();
   }
 });

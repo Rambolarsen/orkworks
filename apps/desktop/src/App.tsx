@@ -141,13 +141,23 @@ function App() {
   const handleRetryBackend = useCallback(() => {
     setBackendStatus("connecting…");
     const token = backendRetryGuardRef.current.begin();
-    void window.orkworks.retryBackend().catch(() => {
-      // A rejection from a superseded retry (e.g. a rapid double-click) must not
-      // clobber a newer retry that is still in flight or already succeeded — see #356.
-      if (backendRetryGuardRef.current.isCurrent(token)) {
-        setBackendStatus("unreachable");
-      }
-    });
+    void window.orkworks.retryBackend()
+      .then((result) => {
+        // A superseded retry (e.g. a rapid double-click) must not clobber a
+        // newer retry that is still in flight or already succeeded — see #356.
+        if (!backendRetryGuardRef.current.isCurrent(token)) return;
+        if (!result.ok) {
+          setWorkspaceSwitchDiagnostic(result.failure.message);
+          setBackendStatus(result.state === "unresolved" ? "unresolved" : "unreachable");
+        }
+      })
+      .catch(() => {
+        // A genuine IPC failure has no lifecycle result to preserve, so it is
+        // the only retry failure that maps to unreachable.
+        if (backendRetryGuardRef.current.isCurrent(token)) {
+          setBackendStatus("unreachable");
+        }
+      });
   }, []);
 
   const handleBackendUnavailable = useCallback(() => {
