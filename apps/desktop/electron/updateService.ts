@@ -145,8 +145,9 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
     sequence: 0,
   };
   let candidate: UpdateCandidate | null = null;
+  let downloadedCandidate: UpdateCandidate | null = null;
   let operationSequence = 0;
-  let activeOperation: { kind: "check" | "download"; sequence: number } | null = null;
+  let activeOperation: { kind: "check" | "download" | "install"; sequence: number } | null = null;
   let checkPromise: Promise<UpdateStatus> | null = null;
   let downloadPromise: Promise<UpdateStatus> | null = null;
   let installPromise: Promise<UpdateStatus> | null = null;
@@ -168,12 +169,14 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
         if (!eventMatches("check", event.operationId)) return;
         if (event.candidate.identity.channel !== selectedChannel) return;
         candidate = event.candidate;
+        downloadedCandidate = null;
         activeOperation = null;
         publish({ state: "available", candidate });
         return;
       case "update-not-available":
         if (!eventMatches("check", event.operationId)) return;
         candidate = null;
+        downloadedCandidate = null;
         activeOperation = null;
         publish({
           state: "up-to-date",
@@ -194,6 +197,7 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
         if (!eventMatches("download", event.operationId)) return;
         if (event.candidate.identity.channel !== selectedChannel) return;
         if (candidate === null || !sameCandidate(candidate, event.candidate)) return;
+        downloadedCandidate = event.candidate;
         activeOperation = null;
         publish({ state: "downloaded", candidate });
         return;
@@ -211,6 +215,7 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
   });
 
   function check(): Promise<UpdateStatus> {
+    if (installPromise !== null) return installPromise;
     if (checkPromise !== null) return checkPromise;
 
     const sequence = ++operationSequence;
@@ -251,6 +256,7 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
   }
 
   function download(): Promise<UpdateStatus> {
+    if (installPromise !== null) return installPromise;
     if (downloadPromise !== null) return downloadPromise;
     if (candidate === null) return Promise.resolve(status);
 
@@ -288,11 +294,97 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
 
   function requestInstall(): Promise<UpdateStatus> {
     if (installPromise !== null) return installPromise;
-    const operation = Promise.resolve().then(() => status);
+    if (
+      status.state !== "downloaded"
+      || candidate === null
+      || downloadedCandidate === null
+    ) return Promise.resolve(status);
+
+    const cachedCandidate = candidate;
+    const candidateToInstall = downloadedCandidate;
+    const sequence = ++operationSequence;
+    activeOperation = { kind: "install", sequence };
+    const isCurrent = () => activeOperation?.kind === "install" && activeOperation.sequence === sequence;
+    const installError = (message: string) => publish({
+      state: "error",
+      operation: "install",
+      message,
+      retryable: true,
+      candidate: cachedCandidate,
+    });
+    const operation = Promise.resolve().then(async () => {
+      if (!sameCandidate(cachedCandidate, candidateToInstall)) {
+        activeOperation = null;
+        return installError("The downloaded update no longer matches the selected release. Download it again.");
+      }
+
+      try {
+        if (!await dependencies.verifyCandidate(candidateToInstall)) {
+          activeOperation = null;
+          return installError("The downloaded update could not be verified. Download it again.");
+        }
+      } catch (error) {
+        activeOperation = null;
+        return installError(`The downloaded update could not be verified: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!isCurrent()) return status;
+
+      let liveSessionCount: number | null;
+      try {
+        const sessions = await dependencies.querySessions();
+        liveSessionCount = sessions.filter(({ lifecycle }) => lifecycle === "alive").length;
+      } catch {
+        liveSessionCount = null;
+      }
+      if (!isCurrent()) return status;
+
+      let confirmed: boolean;
+      try {
+        confirmed = await dependencies.confirmInstall({ candidate: cachedCandidate, liveSessionCount });
+      } catch (error) {
+        activeOperation = null;
+        return installError(`Update confirmation failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!isCurrent()) return status;
+      if (!confirmed) {
+        activeOperation = null;
+        return publish({ state: "downloaded", candidate: cachedCandidate });
+      }
+
+      publish({ state: "installing", candidate: cachedCandidate });
+      if (!isCurrent()) return status;
+      try {
+        await dependencies.stopSidecar(10_000);
+        if (!isCurrent()) throw new Error("Update installation was superseded");
+        engine.quitAndInstall();
+        return status;
+      } catch (error) {
+        let recovered = false;
+        try {
+          await dependencies.restartSidecar();
+          recovered = true;
+        } catch {
+          // The error below tells the user how to recover manually.
+        }
+        activeOperation = null;
+        const detail = error instanceof Error ? error.message : String(error);
+        return installError(recovered
+          ? `Update installation failed: ${detail}. The backend was restarted; retry the installation.`
+          : `Update installation failed: ${detail}. Restart OrkWorks to recover.`);
+      }
+    });
     installPromise = operation;
     void operation.then(
-      () => { if (installPromise === operation) installPromise = null; },
-      () => { if (installPromise === operation) installPromise = null; },
+      () => {
+        if (installPromise !== operation) return;
+        installPromise = null;
+        if (activeOperation?.kind === "install" && activeOperation.sequence === sequence) activeOperation = null;
+      },
+      () => {
+        if (installPromise !== operation) return;
+        installPromise = null;
+        if (activeOperation?.kind === "install" && activeOperation.sequence === sequence) activeOperation = null;
+      },
     );
     return operation;
   }
