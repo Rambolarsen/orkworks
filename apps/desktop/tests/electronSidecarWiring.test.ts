@@ -111,7 +111,7 @@ test("history is persisted after restoration readiness without rolling back the 
 
 test("history diagnostics are carried through ready lifecycle state and remain visible with an active workspace", () => {
   assert.match(mainSource, /historyDiagnostic: currentHistoryDiagnostic/);
-  assert.match(mainSource, /currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic\(result\.diagnostic\)/);
+  assert.match(mainSource, /const diagnostic = result\.diagnostic;[\s\S]*currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic\(diagnostic\)/);
   assert.match(appSource, /event\.state === "ready"[\s\S]*setWorkspaceHistoryDiagnostic\(event\.historyDiagnostic\)/);
   assert.match(appSource, /workspaceHistoryDiagnostic &&[\s\S]*Workspace history unavailable/);
 });
