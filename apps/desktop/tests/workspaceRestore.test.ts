@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse } from "../electron/workspaceRestore.ts";
+import {
+  buildWorkspaceRestoreRequest,
+  parseWorkspaceRestoreResponse,
+  workspaceHistoryPath,
+} from "../electron/workspaceRestore.ts";
 
 function jsonResponse(status: number, body?: unknown): Response {
   return new Response(body === undefined ? undefined : JSON.stringify(body), {
@@ -15,6 +19,13 @@ test("workspace restore request keeps display path separate from canonical ident
     path: "./repo",
     workspaceIdentity: "/real/repo",
   });
+});
+
+test("workspace history keeps the canonical request identity when display and canonical paths differ", () => {
+  assert.equal(
+    workspaceHistoryPath("/real/repo", { path: "./repo" }),
+    "/real/repo",
+  );
 });
 
 test("workspace restore parser exposes the sidecar identity and display path", async () => {
@@ -91,6 +102,7 @@ test("a lease or accessibility conflict preserves history for a later retry", as
     ok: false,
     status: 409,
     removeFromHistory: false,
+    failureCode: "destination_conflict",
   });
 });
 

@@ -16,7 +16,7 @@ use crate::{git, harness, metadata, peon, AppState, SessionHandle, WorkspaceStat
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -202,7 +202,24 @@ pub(crate) async fn report_session_plan_path(
 pub(crate) async fn set_workspace(
     State(state): State<Arc<AppState>>,
     Json(req): Json<WorkspaceRequest>,
-) -> impl IntoResponse {
+) -> Response {
+    set_workspace_inner(state, req, || {}).await
+}
+
+#[cfg(test)]
+async fn set_workspace_after_identity_validation(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<WorkspaceRequest>,
+    after_identity_validation: impl FnOnce(),
+) -> Response {
+    set_workspace_inner(state, req, after_identity_validation).await
+}
+
+async fn set_workspace_inner(
+    state: Arc<AppState>,
+    req: WorkspaceRequest,
+    after_identity_validation: impl FnOnce(),
+) -> Response {
     let display_path = req.path.clone();
     let requested_path = PathBuf::from(&req.path);
     let identity = match WorkspaceIdentity::resolve(&requested_path) {
@@ -216,9 +233,8 @@ pub(crate) async fn set_workspace(
                 .into_response();
         }
     };
-    if identity.canonical_path().to_string_lossy() != req.workspace_identity
-        || !identity.matches(&requested_path)
-    {
+    after_identity_validation();
+    if identity.canonical_path().to_string_lossy() != req.workspace_identity {
         return (
             axum::http::StatusCode::BAD_REQUEST,
             "workspace identity changed before adoption",
@@ -233,8 +249,7 @@ pub(crate) async fn set_workspace(
                 return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
-        SessionApplication::new(state.clone())
-            .open_workspace(identity.canonical_path().to_path_buf())
+        SessionApplication::new(state.clone()).open_workspace_with_identity(identity)
     };
     match open_result {
         Ok(snapshot) => {
@@ -246,14 +261,14 @@ pub(crate) async fn set_workspace(
                     crate::http::integration_handlers::reconcile_unreferenced_integrations(
                         &state,
                         cleanup_keys,
-                        Some(PathBuf::from(snapshot.path.clone())),
+                        Some(PathBuf::from(snapshot.canonical_path.clone())),
                     )
                     .await,
                 )
             };
             Json(WorkspaceResponse {
                 path: display_path,
-                workspace_identity: snapshot.path,
+                workspace_identity: snapshot.canonical_path,
                 repo_root: snapshot.repo_root,
                 branch: snapshot.branch,
                 dirty: snapshot.dirty,
@@ -1342,8 +1357,11 @@ mod tests {
         let _home = FakeHome::set(home_dir.path());
         let global_dir = orkworks_global_dir(workspace_dir.path()).unwrap();
         let _existing_lease = WorkspaceLease::acquire(&global_dir).unwrap();
-        let sentinel = home_dir.path().join("foreign-owner-sentinel");
+        let sentinel = global_dir.join("foreign-owner-sentinel");
         std::fs::write(&sentinel, "must survive").unwrap();
+        let metadata_dirs =
+            ["sessions", "events", "capacity", "skills"].map(|name| global_dir.join(name));
+        assert!(metadata_dirs.iter().all(|path| !path.exists()));
 
         let response = set_workspace(
             State(test_app_state_with_workspace(workspace_dir.path())),
@@ -1362,6 +1380,83 @@ mod tests {
 
         assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
         assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "must survive");
+        assert!(metadata_dirs.iter().all(|path| !path.exists()));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn set_workspace_rejects_directory_replacement_after_http_validation() {
+        use std::os::unix::fs::symlink;
+
+        let home_dir = tempfile::tempdir().unwrap();
+        let workspace_parent = tempfile::tempdir().unwrap();
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let _home = FakeHome::set(home_dir.path());
+        let display_path = workspace_parent.path().join("workspace");
+        symlink(first.path(), &display_path).unwrap();
+        let state = test_app_state_with_workspace(first.path());
+        let identity = WorkspaceIdentity::resolve(&display_path).unwrap();
+
+        let response = set_workspace_after_identity_validation(
+            State(state),
+            Json(WorkspaceRequest {
+                path: display_path.display().to_string(),
+                workspace_identity: identity.canonical_path().display().to_string(),
+            }),
+            || {
+                std::fs::remove_file(&display_path).unwrap();
+                symlink(second.path(), &display_path).unwrap();
+            },
+        )
+        .await;
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn set_workspace_returns_display_path_and_canonical_identity_separately() {
+        use std::os::unix::fs::symlink;
+
+        let home_dir = tempfile::tempdir().unwrap();
+        let workspace_parent = tempfile::tempdir().unwrap();
+        let workspace_dir = tempfile::tempdir().unwrap();
+        let _home = FakeHome::set(home_dir.path());
+        let display_path = workspace_parent.path().join("workspace");
+        symlink(workspace_dir.path(), &display_path).unwrap();
+        let state = test_app_state_with_workspace(workspace_dir.path());
+        let response = set_workspace(
+            State(state),
+            Json(WorkspaceRequest {
+                path: display_path.display().to_string(),
+                workspace_identity: workspace_dir
+                    .path()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+                    .to_string(),
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["path"], display_path.display().to_string());
+        assert_eq!(
+            body["workspaceIdentity"],
+            workspace_dir
+                .path()
+                .canonicalize()
+                .unwrap()
+                .display()
+                .to_string()
+        );
+        assert_ne!(body["path"], body["workspaceIdentity"]);
     }
 
     #[test]

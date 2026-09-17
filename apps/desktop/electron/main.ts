@@ -21,6 +21,7 @@ import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
 import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse } from "./workspaceRestore";
+import { workspaceHistoryPath } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace, BackendRetryResult, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
 import { createWorkspaceSwitchCoordinator, WorkspaceSwitchError, type WorkspaceSwitchCoordinator, type WorkspaceSwitchEvent } from "./workspaceSwitchCoordinator";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
@@ -407,7 +408,7 @@ app.whenReady().then(() => {
   }
 
   function rememberRestoredWorkspace(workspace: BackendLifecycleWorkspace | null): WorkspaceHistoryDiagnostic | null {
-    const restoredPath = workspace?.path || workspacePath;
+    const restoredPath = workspaceHistoryPath(workspacePath, workspace);
     if (!restoredPath) return currentHistoryDiagnostic;
     const canonicalPath = canonicalWorkspacePath(restoredPath);
     if (!canonicalPath) {
@@ -463,6 +464,9 @@ app.whenReady().then(() => {
         }
       }
       workspacePath = null;
+      if (restoreResult.failureCode === "destination_conflict") {
+        throw new WorkspaceSwitchError("destination_conflict", "Workspace is already owned by another sidecar.");
+      }
       throw new WorkspaceRestorationFailure(restoreResult.status);
     }
     return restoreResult.workspace;

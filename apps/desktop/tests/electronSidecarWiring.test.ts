@@ -102,6 +102,10 @@ test("a remembered 400/404 restoration rejects readiness and the coordinator cle
   assert.match(mainSource, /state: "picker"/);
 });
 
+test("a remembered 409 restoration becomes a typed destination conflict", () => {
+  assert.match(mainSource, /if \(restoreResult\.failureCode === "destination_conflict"\) \{[\s\S]*new WorkspaceSwitchError\("destination_conflict"/);
+});
+
 test("startup validates the remembered path as an accessible directory before starting a sidecar", () => {
   assert.match(mainSource, /accessibleWorkspaceDirectoryPath\(appMemory\.lastWorkspacePath\)/);
   assert.match(mainSource, /const initialSidecarCwd = initialWorkspacePath;/);

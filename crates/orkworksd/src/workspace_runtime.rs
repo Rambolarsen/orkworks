@@ -19,6 +19,7 @@ enum DirectoryIdentity {
 /// directory object after an Electron-side path check.
 #[derive(Debug)]
 pub(crate) struct WorkspaceIdentity {
+    requested_path: PathBuf,
     canonical_path: PathBuf,
     directory_identity: DirectoryIdentity,
     _directory: File,
@@ -36,6 +37,7 @@ impl WorkspaceIdentity {
             ));
         }
         Ok(Self {
+            requested_path: path.to_path_buf(),
             canonical_path,
             directory_identity: native_directory_identity(&metadata),
             _directory: directory,
@@ -46,8 +48,33 @@ impl WorkspaceIdentity {
         &self.canonical_path
     }
 
+    pub(crate) fn requested_path(&self) -> &Path {
+        &self.requested_path
+    }
+
     pub(crate) fn matches(&self, path: &Path) -> bool {
         Self::resolve(path).is_ok_and(|candidate| candidate == *self)
+    }
+
+    pub(crate) fn revalidate(&self) -> io::Result<()> {
+        let retained_metadata = self._directory.metadata()?;
+        if !retained_metadata.is_dir()
+            || native_directory_identity(&retained_metadata) != self.directory_identity
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "retained workspace directory changed",
+            ));
+        }
+        let current = Self::resolve(&self.requested_path)?;
+        if current == *self {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "workspace path now resolves to a different directory",
+            ))
+        }
     }
 }
 
@@ -232,6 +259,7 @@ mod tests {
         symlink(second.path(), &alias).unwrap();
 
         assert!(!identity.matches(&alias));
+        assert!(identity.revalidate().is_err());
     }
 
     #[test]

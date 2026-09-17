@@ -7,7 +7,14 @@ export interface WorkspaceRestoreRequest {
 
 export type WorkspaceRestoreResult =
   | { ok: true; workspace: BackendLifecycleWorkspace }
-  | { ok: false; status: number; removeFromHistory: boolean };
+  | { ok: false; status: number; removeFromHistory: boolean; failureCode?: "destination_conflict" };
+
+export function workspaceHistoryPath(
+  canonicalPath: string | null,
+  restoredWorkspace: Pick<BackendLifecycleWorkspace, "path"> | null,
+): string | null {
+  return canonicalPath ?? restoredWorkspace?.path ?? null;
+}
 
 export function buildWorkspaceRestoreRequest(
   displayPath: string,
@@ -27,6 +34,7 @@ export async function parseWorkspaceRestoreResponse(
         // Only a genuine missing workspace is safe to remove. Lease and
         // accessibility conflicts must remain available for a later retry.
         removeFromHistory: response.status === 404,
+        ...(response.status === 409 ? { failureCode: "destination_conflict" as const } : {}),
       };
     }
     throw new Error(`Workspace restoration failed: ${response.status}`);
