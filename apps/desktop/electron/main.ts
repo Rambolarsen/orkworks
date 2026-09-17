@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn } from "child_process";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
+import type { AppUpdater } from "electron-updater";
 import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
 import { taskmasterRequest } from "./taskmasterSettings";
 import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
@@ -19,6 +20,7 @@ import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
+import { createUpdateService, type UpdateCandidate, type UpdateEngine, type UpdateEngineEvent, type UpdateService } from "./updateService";
 import { createBackendRestorationCoordinator, switchWorkspaceBackend, type BackendRestorationCoordinator } from "./backendRestoration";
 import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace } from "./backendLifecycleEvent";
@@ -48,6 +50,7 @@ app.setName("OrkWorks");
 let mainWindow: BrowserWindow | null = null;
 let sidecarLifecycle: SidecarLifecycle | null = null;
 let backendRestoration: BackendRestorationCoordinator<BackendLifecycleWorkspace> | null = null;
+let updateService: UpdateService | null = null;
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
@@ -58,6 +61,167 @@ let hotkeyCaptureActive = false;
 let openPlanToken = "";
 let settingsWriteQueue: Promise<void> = Promise.resolve();
 const menuPanelIds = ["sessions", "detail", "terminal", "capacity", "recommendations"];
+
+type ElectronUpdateInfo = {
+  version: string;
+  tag?: string;
+  files: Array<{ url: string; sha512: string }>;
+  sha512: string;
+  releaseName?: string | null;
+  releaseNotes?: string | Array<{ version: string; note: string | null }> | null;
+  releaseDate: string;
+};
+
+async function listSessions(baseUrl: string): Promise<Array<{ lifecycle?: string }>> {
+  const response = await fetch(`${baseUrl}/sessions`);
+  if (!response.ok) throw new Error(`list sessions failed: ${response.status}`);
+  const sessions: unknown = await response.json();
+  if (!Array.isArray(sessions)) throw new Error("list sessions failed: malformed response");
+  return sessions as Array<{ lifecycle?: string }>;
+}
+
+function updateCandidate(info: ElectronUpdateInfo, channel: "latest" | "nightly"): UpdateCandidate {
+  const tag = info.tag ?? `v${info.version}`;
+  const metadataFile = process.platform === "darwin" ? `${channel}-mac.yml` : `${channel}.yml`;
+  const metadataDigest = createHash("sha256").update(JSON.stringify({
+    version: info.version,
+    tag,
+    files: info.files.map(({ url, sha512 }) => ({ url, sha512 })),
+  })).digest("hex");
+  const releaseNotes = Array.isArray(info.releaseNotes)
+    ? info.releaseNotes.map(({ note }) => note).filter((note): note is string => note !== null).join("\n\n") || null
+    : info.releaseNotes ?? null;
+  return {
+    identity: {
+      channel,
+      version: info.version,
+      tag,
+      metadataUrl: `https://github.com/Rambolarsen/orkworks/releases/download/${encodeURIComponent(tag)}/${metadataFile}`,
+      metadataDigest: `sha256:${metadataDigest}`,
+      payloadDigest: `sha512:${info.files[0]?.sha512 ?? info.sha512}`,
+    },
+    releaseNotes,
+    publishedAt: info.releaseDate || null,
+  };
+}
+
+function sameUpdateCandidate(left: UpdateCandidate, right: UpdateCandidate): boolean {
+  return left.identity.channel === right.identity.channel
+    && left.identity.version === right.identity.version
+    && left.identity.tag === right.identity.tag
+    && left.identity.metadataUrl === right.identity.metadataUrl
+    && left.identity.metadataDigest === right.identity.metadataDigest
+    && left.identity.payloadDigest === right.identity.payloadDigest;
+}
+
+function createElectronUpdateEngine(autoUpdater: AppUpdater): {
+  engine: UpdateEngine;
+  verifyCandidate(candidate: UpdateCandidate): Promise<boolean>;
+} {
+  const updaterSettings = {
+    autoDownload: false,
+    autoInstallOnAppQuit: false,
+    allowDowngrade: false,
+  };
+  Object.assign(autoUpdater, updaterSettings);
+  autoUpdater.setFeedURL({ provider: "github", owner: "Rambolarsen", repo: "orkworks" });
+
+  const listeners = new Set<(event: UpdateEngineEvent) => void>();
+  let channel: "latest" | "nightly" = "latest";
+  let checkOperationId: number | null = null;
+  let downloadOperationId: number | null = null;
+  let downloadedCandidate: UpdateCandidate | null = null;
+  const emit = (event: UpdateEngineEvent): void => {
+    for (const listener of listeners) listener(event);
+  };
+
+  autoUpdater.on("update-available", (info) => {
+    if (checkOperationId === null) return;
+    emit({ type: "update-available", operationId: checkOperationId, candidate: updateCandidate(info, channel) });
+  });
+  autoUpdater.on("update-not-available", () => {
+    if (checkOperationId === null) return;
+    emit({ type: "update-not-available", operationId: checkOperationId });
+  });
+  autoUpdater.on("download-progress", (progress) => {
+    if (downloadOperationId === null) return;
+    emit({
+      type: "download-progress",
+      operationId: downloadOperationId,
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total,
+    });
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    if (downloadOperationId === null) return;
+    downloadedCandidate = updateCandidate(info, channel);
+    emit({ type: "update-downloaded", operationId: downloadOperationId, candidate: downloadedCandidate });
+  });
+  autoUpdater.on("error", (error) => {
+    if (downloadOperationId !== null) {
+      emit({ type: "error", operation: "download", operationId: downloadOperationId, message: error.message });
+    } else if (checkOperationId !== null) {
+      emit({ type: "error", operation: "check", operationId: checkOperationId, message: error.message });
+    }
+  });
+
+  const engine: UpdateEngine = {
+    get autoDownload() { return autoUpdater.autoDownload; },
+    set autoDownload(value) { autoUpdater.autoDownload = value; },
+    get autoInstallOnAppQuit() { return autoUpdater.autoInstallOnAppQuit; },
+    set autoInstallOnAppQuit(value) { autoUpdater.autoInstallOnAppQuit = value; },
+    get allowDowngrade() { return autoUpdater.allowDowngrade; },
+    set allowDowngrade(value) { autoUpdater.allowDowngrade = value; },
+    get allowPrerelease() { return autoUpdater.allowPrerelease; },
+    set allowPrerelease(value) { autoUpdater.allowPrerelease = value; },
+    get channel() { return channel; },
+    set channel(value) {
+      channel = value;
+      autoUpdater.channel = value;
+      autoUpdater.allowDowngrade = false;
+    },
+    onEvent(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    async checkForUpdates(operationId) {
+      checkOperationId = operationId;
+      try {
+        await autoUpdater.checkForUpdates();
+      } finally {
+        if (checkOperationId === operationId) checkOperationId = null;
+      }
+    },
+    async downloadUpdate(operationId) {
+      downloadOperationId = operationId;
+      try {
+        await autoUpdater.downloadUpdate();
+      } finally {
+        if (downloadOperationId === operationId) downloadOperationId = null;
+      }
+    },
+    quitAndInstall() {
+      autoUpdater.quitAndInstall();
+    },
+  };
+
+  return {
+    engine,
+    verifyCandidate: async (candidate) => downloadedCandidate !== null && sameUpdateCandidate(candidate, downloadedCandidate),
+  };
+}
+
+function registerUpdateIpc(service: UpdateService): void {
+  ipcMain.handle("get-update-status", () => service.getStatus());
+  ipcMain.handle("check-for-updates", () => service.check());
+  ipcMain.handle("download-update", () => service.download());
+  ipcMain.handle("request-update-install", () => service.requestInstall());
+  ipcMain.on("subscribe-update-status", (event) => {
+    const unsubscribe = service.subscribe((status) => event.sender.send("update-status", status));
+    event.sender.once("destroyed", unsubscribe);
+  });
+}
 
 function rendererSettings(settings: AppSettings): AppSettings & { defaultHotkeys: typeof DEFAULT_HOTKEYS } {
   return {
@@ -213,7 +377,7 @@ function logBackendLifecycleFailure(scope: string, error: unknown): void {
   console.error("[main] backend lifecycle failure", scope, detail);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   updateDockIcon();
   nativeTheme.on("updated", updateDockIcon);
 
@@ -1239,6 +1403,62 @@ app.whenReady().then(() => {
 
   const initialSidecarCwd = initialWorkspacePath
     ?? (app.isPackaged ? app.getPath("home") : getDevRepoRoot(__dirname));
+
+  if (app.isPackaged) {
+    const { autoUpdater } = await import("electron-updater");
+    const adapter = createElectronUpdateEngine(autoUpdater);
+    updateService = createUpdateService({
+      isPackaged: true,
+      currentVersion: app.getVersion(),
+      createEngine: () => adapter.engine,
+      now: () => new Date().toISOString(),
+      querySessions: async () => {
+        const port = await restoration.getReadiness();
+        const baseUrl = `http://127.0.0.1:${port}`;
+        const sessions = await listSessions(baseUrl);
+        return sessions.filter((session) => session.lifecycle === "alive");
+      },
+      verifyCandidate: adapter.verifyCandidate,
+      confirmInstall: async ({ liveSessionCount }) => {
+        const detail = liveSessionCount === null
+          ? "OrkWorks could not confirm whether live terminal sessions are running. Restarting may interrupt them."
+          : liveSessionCount === 0
+            ? "No live terminal sessions were found."
+            : `Restarting will interrupt ${liveSessionCount} live terminal session${liveSessionCount === 1 ? "" : "s"}.`;
+        const options = {
+          type: "warning" as const,
+          title: "Restart and install update?",
+          message: "Restart OrkWorks and install the downloaded update?",
+          detail,
+          buttons: ["Cancel", "Restart and install"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        };
+        const result = mainWindow && !mainWindow.isDestroyed()
+          ? await dialog.showMessageBox(mainWindow, options)
+          : await dialog.showMessageBox(options);
+        return result.response === 1;
+      },
+      stopSidecar: async () => {
+        if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
+        await sidecarLifecycle.stopAndWait(10_000);
+      },
+      restartSidecar: async () => {
+        if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable. Restart OrkWorks.");
+        const restartCwd = workspacePath ?? initialSidecarCwd;
+        try {
+          const lifecycleReadiness = sidecarLifecycle.start(restartCwd);
+          void lifecycleReadiness.catch(() => {});
+          await restoration.getReadiness();
+        } catch {
+          throw new Error("The sidecar could not be restarted. Restart OrkWorks to recover.");
+        }
+      },
+    });
+    registerUpdateIpc(updateService);
+  }
+
   const initialLifecycleReadiness = sidecarLifecycle.start(initialSidecarCwd);
   void initialLifecycleReadiness.catch(() => {});
   createWindow();
@@ -1258,6 +1478,7 @@ app.on("window-all-closed", () => {
 });
 
 function killSidecar(): void {
+  updateService = null;
   backendRestoration?.dispose();
   backendRestoration = null;
   sidecarLifecycle?.dispose();

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { subscribeBackendLifecycle, type BackendLifecycleEvent } from "./backendLifecycleEvent";
+import type { UpdateStatus } from "./updateService";
 
 type IntegrationKey = {
   adapterId: string;
@@ -57,10 +58,38 @@ type ActiveHarnessSaveResult = {
   integrations: Record<string, ActiveHarnessIntegrationResult>;
 };
 
+const developmentUpdateStatus: UpdateStatus = {
+  state: "unavailable",
+  reason: "development",
+  sequence: 0,
+};
+
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
   retryBackend: (): Promise<void> => ipcRenderer.invoke("retry-backend"),
+  getUpdateStatus: (): Promise<UpdateStatus> => process.defaultApp
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("get-update-status"),
+  checkForUpdates: (): Promise<UpdateStatus> => process.defaultApp
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("check-for-updates"),
+  downloadUpdate: (): Promise<UpdateStatus> => process.defaultApp
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("download-update"),
+  requestUpdateInstall: (): Promise<UpdateStatus> => process.defaultApp
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("request-update-install"),
+  onUpdateStatus: (callback: (status: UpdateStatus) => void): (() => void) => {
+    if (process.defaultApp) {
+      callback(developmentUpdateStatus);
+      return () => undefined;
+    }
+    const handler = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => callback(status);
+    ipcRenderer.on("update-status", handler);
+    ipcRenderer.send("subscribe-update-status");
+    return () => ipcRenderer.removeListener("update-status", handler);
+  },
   onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) =>
     subscribeBackendLifecycle(
       (listener) => {

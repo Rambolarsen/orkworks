@@ -8,6 +8,39 @@ export type BackendLifecycleEvent =
   | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
   | { state: "failed" | "exhausted"; message: string };
 
+export interface UpdateCandidateIdentity {
+  channel: "latest" | "nightly";
+  version: string;
+  tag: string;
+  metadataUrl: string;
+  metadataDigest: string;
+  payloadDigest: string;
+}
+
+export interface UpdateCandidate {
+  identity: UpdateCandidateIdentity;
+  releaseNotes: string | null;
+  publishedAt: string | null;
+}
+
+export type UpdateStatus =
+  | { state: "unavailable"; reason: "development" | "unsupported-version"; sequence: number }
+  | { state: "never-checked"; channel: "latest" | "nightly"; currentVersion: string; sequence: number }
+  | { state: "checking"; channel: "latest" | "nightly"; currentVersion: string; sequence: number }
+  | { state: "up-to-date"; channel: "latest" | "nightly"; currentVersion: string; checkedAt: string; sequence: number }
+  | { state: "available"; candidate: UpdateCandidate; sequence: number }
+  | { state: "downloading"; candidate: UpdateCandidate; progress: { percent: number; transferred: number; total: number }; sequence: number }
+  | { state: "downloaded"; candidate: UpdateCandidate; sequence: number }
+  | { state: "installing"; candidate: UpdateCandidate; sequence: number }
+  | {
+      state: "error";
+      operation: "check" | "download" | "install";
+      message: string;
+      retryable: true;
+      candidate?: UpdateCandidate;
+      sequence: number;
+    };
+
 export type IntegrationKey = {
   adapterId: string;
   targetId: string;
@@ -70,6 +103,11 @@ declare global {
       platform: string;
       getBackendUrl: () => Promise<string>;
       retryBackend: () => Promise<void>;
+      getUpdateStatus: () => Promise<UpdateStatus>;
+      checkForUpdates: () => Promise<UpdateStatus>;
+      downloadUpdate: () => Promise<UpdateStatus>;
+      requestUpdateInstall: () => Promise<UpdateStatus>;
+      onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
       onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) => () => void;
       getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
