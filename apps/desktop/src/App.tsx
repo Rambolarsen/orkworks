@@ -57,6 +57,7 @@ function App() {
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [workspaceHistoryDiagnostic, setWorkspaceHistoryDiagnostic] = useState<WorkspaceHistoryDiagnostic | null>(null);
+  const [workspaceSwitchDiagnostic, setWorkspaceSwitchDiagnostic] = useState<string | null>(null);
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -107,14 +108,25 @@ function App() {
       readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
     };
     if (event.state === "ready") {
+      setIsSwitchingWorkspace(false);
+      setWorkspaceSwitchDiagnostic(null);
       workspaceSessionController.setPollingEnabled(false);
       void workspaceSessionController.adoptRestoredWorkspace(event.workspace);
       setWorkspaceHistoryDiagnostic(event.historyDiagnostic);
       setBackendStatus("connected");
     } else if (event.state === "picker") {
+      setIsSwitchingWorkspace(false);
+      setWorkspaceSwitchDiagnostic(event.failure?.message ?? null);
       workspaceSessionController.setPollingEnabled(false);
       void workspaceSessionController.adoptRestoredWorkspace(null);
       setBackendStatus("picker");
+    } else if (event.state === "opening" || event.state === "closing") {
+      setIsSwitchingWorkspace(true);
+      setBackendStatus("connecting…");
+    } else if (event.state === "unresolved") {
+      setIsSwitchingWorkspace(false);
+      setWorkspaceSwitchDiagnostic(event.failure.message);
+      setBackendStatus("unresolved");
     } else if (event.state === "failed") {
       setBackendStatus("unreachable");
     } else if (event.state === "exhausted") {
@@ -640,6 +652,11 @@ function App() {
                   Workspace history unavailable
                 </span>
               )}
+              {workspaceSwitchDiagnostic && (
+                <span role="alert" title={workspaceSwitchDiagnostic}>
+                  Workspace switch needs attention
+                </span>
+              )}
               <button
                 className="titlebar-open-button"
                 type="button"
@@ -647,6 +664,15 @@ function App() {
               >
                 {VOCAB.openWorkspace}
               </button>
+              {workspaceSwitchDiagnostic && (
+                <button
+                  className="titlebar-open-button"
+                  type="button"
+                  onClick={handleRetryBackend}
+                >
+                  Retry
+                </button>
+              )}
             </>
           )}
         </div>
@@ -689,14 +715,14 @@ function App() {
         dockviewApiRef={dockviewApiRef}
         signalPanelHiddenIdsRef={signalPanelHiddenIdsRef}
       />
-      {(backendStatus === "unreachable" || backendStatus === "exhausted") && (
+      {(backendStatus === "unreachable" || backendStatus === "exhausted" || backendStatus === "unresolved") && (
         <div className="backend-recovery-backdrop" role="alert">
           <section className="backend-recovery-card">
-            <h1>Backend unavailable</h1>
+            <h1>{backendStatus === "unresolved" ? "Workspace cleanup unresolved" : "Backend unavailable"}</h1>
             <p>
-              {backendStatus === "exhausted"
+              {workspaceSwitchDiagnostic ?? (backendStatus === "exhausted"
                 ? "OrkWorks could not start its sidecar after several attempts."
-                : "OrkWorks lost its connection to the sidecar."}
+                : "OrkWorks lost its connection to the sidecar.")}
             </p>
             <button type="button" className="backend-recovery-button" onClick={handleRetryBackend}>
               Retry

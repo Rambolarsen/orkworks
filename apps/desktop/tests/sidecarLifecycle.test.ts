@@ -145,6 +145,24 @@ test("ignores exit from an obsolete generation", async () => {
   assert.equal(lifecycle.getPort(), 4567);
 });
 
+test("stop resolves only after the owned process exits", async () => {
+  const { lifecycle, processes } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4567\n");
+  await readiness;
+
+  let stopped = false;
+  const cleanup = lifecycle.stop().then(() => {
+    stopped = true;
+  });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+
+  processes[0].exit(0);
+  await cleanup;
+  assert.equal(stopped, true);
+});
+
 test("stops after three automatic attempts and permits explicit retry", async () => {
   const { lifecycle, processes, timers, states } = createHarness();
   const initial = lifecycle.start("/workspace");

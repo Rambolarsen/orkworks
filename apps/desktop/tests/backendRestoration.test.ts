@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   createBackendRestorationCoordinator,
-  switchWorkspaceBackend,
 } from "../electron/backendRestoration.ts";
 
 class FakeTimers {
@@ -234,40 +233,26 @@ test("explicit backend failure and shutdown abort their owned restoration work",
   await assert.rejects(disposedReadiness, /shut down/i);
 });
 
-test("replacement staging failure leaves the current backend untouched", () => {
-  let started = false;
+test("cancel aborts restoration without publishing a failure for an intentional close", async () => {
+  const { coordinator, failed } = createHarness();
+  let signal: AbortSignal | null = null;
 
-  assert.throws(
-    () => switchWorkspaceBackend(
-      "/replacement",
-      () => {
-        throw new Error("disk full");
-      },
-      () => {
-        started = true;
-        return "replacement readiness";
-      },
-    ),
-    /disk full/,
-  );
-
-  assert.equal(started, false);
-});
-
-test("replacement staging completes before replacement startup", () => {
-  const calls: string[] = [];
-
-  const result = switchWorkspaceBackend(
-    "/replacement",
-    () => calls.push("stage"),
-    () => {
-      calls.push("start");
-      return "replacement readiness";
+  coordinator.beginGeneration();
+  const readiness = coordinator.getReadiness();
+  coordinator.restore(6101, {
+    restoreWorkspace: (nextSignal) => {
+      signal = nextSignal;
+      return new Promise<unknown>(() => {});
     },
-  );
+    applyRetentionSettings: async () => {},
+    syncProviderSettings: async () => {},
+  });
 
-  assert.equal(result, "replacement readiness");
-  assert.deepEqual(calls, ["stage", "start"]);
+  coordinator.cancel(new Error("workspace closing"));
+
+  assert.equal(signal?.aborted, true);
+  await assert.rejects(readiness, /workspace closing/i);
+  assert.deepEqual(failed, []);
 });
 
 test("a post-ready history failure does not roll back restoration readiness", async () => {

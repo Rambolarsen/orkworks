@@ -18,6 +18,7 @@ export interface BackendRestorationCoordinator<TWorkspace> {
   beginGeneration(): void;
   restore(port: number, steps: BackendRestorationSteps<TWorkspace>): void;
   fail(error: Error): void;
+  cancel(error?: Error): void;
   getReadiness(): Promise<number>;
   getRestoredWorkspace(): TWorkspace | null;
   dispose(): void;
@@ -162,6 +163,14 @@ export function createBackendRestorationCoordinator<TWorkspace>(
       if (current) failGeneration(current, error);
     },
 
+    cancel(error: Error = new Error("Backend restoration was cancelled")): void {
+      if (!current) return;
+      const candidate = current;
+      current = null;
+      restoredWorkspace = null;
+      abort(candidate, error);
+    },
+
     getReadiness(): Promise<number> {
       if (!current) return Promise.reject(new Error("Backend generation has not started"));
       if (current.failure) return Promise.reject(current.failure);
@@ -180,13 +189,4 @@ export function createBackendRestorationCoordinator<TWorkspace>(
       disposed = true;
     },
   };
-}
-
-export function switchWorkspaceBackend<TResult>(
-  workspacePath: string,
-  persist: (workspacePath: string) => void,
-  startReplacement: (workspacePath: string) => TResult,
-): TResult {
-  persist(workspacePath);
-  return startReplacement(workspacePath);
 }

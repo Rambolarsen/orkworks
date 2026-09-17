@@ -1,7 +1,22 @@
+export type WorkspaceLifecycleFailureCode =
+  | "invalid_destination"
+  | "cleanup_failed"
+  | "destination_conflict"
+  | "readiness_failed"
+  | "restoration_failed"
+  | "quit_failed";
+
+export type WorkspaceLifecycleFailure = {
+  code: WorkspaceLifecycleFailureCode;
+  message: string;
+};
+
 export type BackendLifecycleEvent =
-  | { state: "picker" }
+  | { state: "picker"; failure?: WorkspaceLifecycleFailure }
+  | { state: "opening" | "closing" }
   | { state: "starting" | "retrying" }
   | { state: "ready"; port: number; workspace: BackendLifecycleWorkspace | null; historyDiagnostic: WorkspaceHistoryDiagnostic | null }
+  | { state: "unresolved"; failure: WorkspaceLifecycleFailure }
   | { state: "failed" | "exhausted"; message: string };
 
 export interface BackendLifecycleWorkspace {
@@ -82,7 +97,15 @@ export function canonicalizeBackendLifecycleEvent(data: unknown): BackendLifecyc
   try {
     const event = data as Record<string, unknown>;
     const state = event.state;
-    if (state === "picker" || state === "starting" || state === "retrying") {
+    if (state === "picker") {
+      if (hasExactKeys(data, ["state"])) return { state };
+      const rawFailure = event.failure;
+      const failure = canonicalizeWorkspaceLifecycleFailure(rawFailure);
+      return hasExactKeys(data, ["state", "failure"]) && failure !== null
+        ? { state, failure }
+        : null;
+    }
+    if (state === "opening" || state === "closing" || state === "starting" || state === "retrying") {
       return hasExactKeys(data, ["state"]) ? { state } : null;
     }
     if (state === "ready") {
@@ -109,11 +132,32 @@ export function canonicalizeBackendLifecycleEvent(data: unknown): BackendLifecyc
         ? { state, message }
         : null;
     }
+    if (state === "unresolved") {
+      const failure = canonicalizeWorkspaceLifecycleFailure(event.failure);
+      return hasExactKeys(data, ["state", "failure"]) && failure !== null
+        ? { state, failure }
+        : null;
+    }
   } catch {
     return null;
   }
 
   return null;
+}
+
+function canonicalizeWorkspaceLifecycleFailure(value: unknown): WorkspaceLifecycleFailure | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!hasExactKeys(value, ["code", "message"])) return null;
+  const failure = value as Record<string, unknown>;
+  return (failure.code === "invalid_destination"
+    || failure.code === "cleanup_failed"
+    || failure.code === "destination_conflict"
+    || failure.code === "readiness_failed"
+    || failure.code === "restoration_failed"
+    || failure.code === "quit_failed")
+    && typeof failure.message === "string"
+    ? { code: failure.code, message: failure.message }
+    : null;
 }
 
 export function subscribeBackendLifecycle(

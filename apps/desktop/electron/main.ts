@@ -19,9 +19,10 @@ import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
-import { createBackendRestorationCoordinator, switchWorkspaceBackend, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
+import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
 import { parseWorkspaceRestoreResponse } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
+import { createWorkspaceSwitchCoordinator, WorkspaceSwitchError, type WorkspaceSwitchCoordinator, type WorkspaceSwitchEvent } from "./workspaceSwitchCoordinator";
 import { sanitizeBackendLifecycleFailure } from "./backendLifecycleFailure";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
@@ -48,6 +49,8 @@ app.setName("OrkWorks");
 let mainWindow: BrowserWindow | null = null;
 let sidecarLifecycle: SidecarLifecycle | null = null;
 let backendRestoration: BackendRestorationCoordinator<BackendLifecycleWorkspace> | null = null;
+let workspaceSwitchCoordinator: WorkspaceSwitchCoordinator<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic> | null = null;
+let quitInProgress = false;
 let workspacePath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
@@ -232,7 +235,7 @@ app.whenReady().then(() => {
     : null;
   const initialHistoryDiagnostic = toWorkspaceHistoryDiagnostic(appMemory.diagnostic);
   let currentHistoryDiagnostic = initialHistoryDiagnostic;
-  workspacePath = initialWorkspacePath;
+  workspacePath = null;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
 
   let latestBackendLifecycle: BackendLifecycleEvent = { state: "picker" };
@@ -608,19 +611,10 @@ app.whenReady().then(() => {
     onReady: (port, workspace) => {
       activeHarnessRevision = workspace?.activeHarnessRevision ?? 0;
       persistedActiveHarnessIds = workspace?.activeHarnessIds ?? [];
-      const historyDiagnostic = rememberRestoredWorkspace(workspace);
-      publishBackendLifecycle({ state: "ready", port, workspace, historyDiagnostic });
-      restorePersistedPeonSelection(port);
-      void refreshKnowledge();
     },
     onFailure: (error) => {
       logBackendLifecycleFailure("restoration", error);
-      if (error instanceof WorkspaceRestorationFailure) {
-        workspacePath = null;
-        sidecarLifecycle?.stop();
-        publishBackendLifecycle({ state: "picker" });
-        return;
-      }
+      if (workspaceSwitchCoordinator?.getState() === "opening") return;
       lastBackendFailure = sanitizeBackendLifecycleFailure(error);
       publishBackendLifecycle({ state: "failed", message: lastBackendFailure });
     },
@@ -667,14 +661,72 @@ app.whenReady().then(() => {
         if (state === "starting") {
           backendGeneration += 1;
           restoration.beginGeneration();
-          publishBackendLifecycle({ state: "starting" });
-        } else if (state === "retrying") {
-          publishBackendLifecycle({ state: "retrying" });
-        } else if (state === "exhausted") {
-          publishBackendLifecycle({ state: "exhausted", message: lastBackendFailure });
         }
       },
     },
+  });
+
+  function publishWorkspaceSwitchEvent(event: WorkspaceSwitchEvent<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic>): void {
+    if (event.state === "picker") {
+      publishBackendLifecycle(event.failure ? { state: "picker", failure: event.failure } : { state: "picker" });
+    } else if (event.state === "opening" || event.state === "closing") {
+      publishBackendLifecycle({ state: event.state });
+    } else if (event.state === "unresolved") {
+      publishBackendLifecycle({ state: "unresolved", failure: event.failure });
+    } else {
+      publishBackendLifecycle({
+        state: "ready",
+        port: event.port,
+        workspace: event.workspace,
+        historyDiagnostic: event.historyDiagnostic,
+      });
+      restorePersistedPeonSelection(event.port);
+      void refreshKnowledge();
+    }
+  }
+
+  workspaceSwitchCoordinator = createWorkspaceSwitchCoordinator<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic>({
+    initialWorkspacePath: null,
+    validateDestination: (candidate) => accessibleWorkspaceDirectoryPath(candidate),
+    setWorkspacePath: (nextPath) => {
+      workspacePath = nextPath;
+    },
+    closeCurrentRuntime: async () => {
+      restoration.cancel(new Error("Workspace is closing"));
+      await sidecarLifecycle?.stop();
+    },
+    startRuntime: async (nextPath, generation) => {
+      workspacePath = nextPath;
+      let lifecycleReadiness: Promise<number>;
+      try {
+        lifecycleReadiness = sidecarLifecycle!.start(nextPath);
+        void lifecycleReadiness.catch(() => {});
+        const port = await lifecycleReadiness;
+        const restoredPort = await restoration.getReadiness();
+        if (!workspaceSwitchCoordinator?.isCurrentGeneration(generation)) {
+          throw new WorkspaceSwitchError("restoration_failed", "Workspace opening was superseded.");
+        }
+        const workspace = restoration.getRestoredWorkspace();
+        if (!workspace) {
+          throw new WorkspaceSwitchError("restoration_failed", "The destination workspace was not restored.");
+        }
+        return { port: restoredPort || port, workspace };
+      } catch (error: unknown) {
+        if (error instanceof WorkspaceSwitchError) throw error;
+        if (error instanceof WorkspaceRestorationFailure) {
+          throw new WorkspaceSwitchError("restoration_failed", error.message);
+        }
+        const message = error instanceof Error ? error.message : "The sidecar did not become ready.";
+        throw new WorkspaceSwitchError("readiness_failed", message);
+      }
+    },
+    cleanupAttemptedRuntime: async () => {
+      restoration.cancel(new Error("Attempted workspace runtime is being cleaned up"));
+      workspacePath = null;
+      await sidecarLifecycle?.stop();
+    },
+    rememberWorkspace: (_path, workspace) => rememberRestoredWorkspace(workspace),
+    publish: publishWorkspaceSwitchEvent,
   });
 
   ipcMain.handle("get-backend-lifecycle", () => {
@@ -687,14 +739,14 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("retry-backend", async () => {
-    if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
-    if (!workspacePath) {
-      publishBackendLifecycle({ state: "picker" });
-      return;
+    if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
+    const result = await workspaceSwitchCoordinator.retry();
+    if (!result.ok && result.state === "unresolved") {
+      throw new Error(result.failure.message);
     }
-    const lifecycleReadiness = sidecarLifecycle.retry();
-    void lifecycleReadiness.catch(() => {});
-    await restoration.getReadiness();
+    if (!result.ok && result.failure.code === "invalid_destination") {
+      publishBackendLifecycle({ state: "picker" });
+    }
   });
 
   ipcMain.handle("open-external-link", (_event, url: unknown) => {
@@ -1259,34 +1311,17 @@ app.whenReady().then(() => {
     clearHarnessCommandOverride(harnessId));
 
   ipcMain.handle("open-workspace", async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openDirectory"],
-      title: "Select Workspace",
+    if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
+    const result = await workspaceSwitchCoordinator.pickWorkspace(async () => {
+      const selection = await dialog.showOpenDialog({
+        properties: ["openDirectory"],
+        title: "Select Workspace",
+      });
+      if (selection.canceled || selection.filePaths.length === 0) return null;
+      return selection.filePaths[0];
     });
-    if (result.canceled || result.filePaths.length === 0) return null;
-
-    const dirPath = accessibleWorkspaceDirectoryPath(result.filePaths[0]);
-    if (!dirPath) return null;
-    if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
-    const lifecycleReadiness = switchWorkspaceBackend(
-      dirPath,
-      (nextPath) => {
-        workspacePath = nextPath;
-      },
-      (nextPath) => {
-        workspacePath = nextPath;
-        try {
-          return sidecarLifecycle!.start(nextPath);
-        } catch (error) {
-          const failure = error instanceof Error ? error : new Error("Backend replacement failed");
-          restoration.fail(failure);
-          throw failure;
-        }
-      },
-    );
-    void lifecycleReadiness.catch(() => {});
-    await restoration.getReadiness();
-    return restoration.getRestoredWorkspace();
+    if (!result || !result.ok) return null;
+    return result.workspace;
   });
 
   ipcMain.on("orkworks:panel-visibility", (_event, data: { panelId: string; visible: boolean }) => {
@@ -1304,10 +1339,7 @@ app.whenReady().then(() => {
   });
 
   const initialSidecarCwd = initialWorkspacePath;
-  if (initialSidecarCwd) {
-    const initialLifecycleReadiness = sidecarLifecycle.start(initialSidecarCwd);
-    void initialLifecycleReadiness.catch(() => {});
-  }
+  if (initialSidecarCwd) void workspaceSwitchCoordinator.switchWorkspace(initialSidecarCwd).catch(() => {});
   createWindow();
   applyMenu(createMenu(currentSettings));
 
@@ -1329,16 +1361,39 @@ function killSidecar(): void {
   backendRestoration = null;
   sidecarLifecycle?.dispose();
   sidecarLifecycle = null;
+  workspaceSwitchCoordinator = null;
 }
 
-app.on("before-quit", killSidecar);
+app.on("before-quit", (event) => {
+  if (quitInProgress) return;
+  event.preventDefault();
+  quitInProgress = true;
+  void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve())
+    .catch(() => {
+      // The coordinator has already published unresolved if bounded cleanup failed.
+    })
+    .finally(() => {
+      killSidecar();
+      app.quit();
+    });
+});
 
 process.on("SIGTERM", () => {
-  killSidecar();
-  app.quit();
+  if (!quitInProgress) {
+    quitInProgress = true;
+    void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve()).finally(() => {
+      killSidecar();
+      app.quit();
+    });
+  }
 });
 
 process.on("SIGINT", () => {
-  killSidecar();
-  app.quit();
+  if (!quitInProgress) {
+    quitInProgress = true;
+    void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve()).finally(() => {
+      killSidecar();
+      app.quit();
+    });
+  }
 });

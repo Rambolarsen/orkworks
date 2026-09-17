@@ -4,10 +4,17 @@ import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, 
 import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
 export type BackendLifecycleEvent =
-  | { state: "picker" }
+  | { state: "picker"; failure?: WorkspaceLifecycleFailure }
+  | { state: "opening" | "closing" }
   | { state: "starting" | "retrying" }
   | { state: "ready"; port: number; workspace: WorkspaceInfo | null; historyDiagnostic: WorkspaceHistoryDiagnostic | null }
+  | { state: "unresolved"; failure: WorkspaceLifecycleFailure }
   | { state: "failed" | "exhausted"; message: string };
+
+export type WorkspaceLifecycleFailure = {
+  code: "invalid_destination" | "cleanup_failed" | "destination_conflict" | "readiness_failed" | "restoration_failed" | "quit_failed";
+  message: string;
+};
 
 export type WorkspaceHistoryDiagnostic = {
   code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";

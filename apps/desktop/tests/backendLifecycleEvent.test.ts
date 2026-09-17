@@ -45,6 +45,26 @@ test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
   });
 });
 
+test("canonicalizes deterministic workspace switching states and diagnostics", () => {
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "opening" }), { state: "opening" });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "closing" }), { state: "closing" });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({
+    state: "picker",
+    failure: { code: "destination_conflict", message: "already open" },
+  }), {
+    state: "picker",
+    failure: { code: "destination_conflict", message: "already open" },
+  });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({
+    state: "unresolved",
+    failure: { code: "cleanup_failed", message: "did not exit" },
+  }), {
+    state: "unresolved",
+    failure: { code: "cleanup_failed", message: "did not exit" },
+  });
+  assert.equal(canonicalizeBackendLifecycleEvent({ state: "unresolved", failure: { code: "unknown", message: "bad" } }), null);
+});
+
 test("rejects extra properties and invalid ready ports", () => {
   assert.equal(canonicalizeBackendLifecycleEvent({
     state: "ready",
