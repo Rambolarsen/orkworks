@@ -21,7 +21,8 @@ pnpm dev
 # Dev server port: defaults to 5173 and fails loudly when it is taken
 # (strictPort). When another checkout already holds 5173 — for example while
 # UI-verifying a change from a sibling worktree — run this checkout on its own
-# port; the resolved URL is passed to Electron either way:
+# port; the resolved URL is passed to Electron either way. Invalid values fall
+# back to 5173:
 ORKWORKS_DEV_PORT=5273 pnpm dev
 
 # Build Electron and package a host-architecture release artifact

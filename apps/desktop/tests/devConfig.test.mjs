@@ -7,12 +7,20 @@ import { createViteServerOptions, electronSpawnConfig } from "../scripts/devConf
 
 test("dev server uses the desktop Vite config and root", () => {
   const root = path.join("/tmp", "orkworks", "apps", "desktop");
-  const options = createViteServerOptions(root);
+  const previous = process.env.ORKWORKS_DEV_PORT;
+  delete process.env.ORKWORKS_DEV_PORT;
+  try {
+    const options = createViteServerOptions(root);
 
-  assert.equal(options.root, root);
-  assert.equal(options.configFile, path.resolve(root, "vite.config.mjs"));
-  assert.equal(options.server.port, 5173);
-  assert.equal(options.server.strictPort, true);
+    assert.equal(options.root, root);
+    assert.equal(options.configFile, path.resolve(root, "vite.config.mjs"));
+    assert.equal(options.server.port, 5173);
+    assert.equal(options.server.strictPort, true);
+  } finally {
+    if (previous !== undefined) {
+      process.env.ORKWORKS_DEV_PORT = previous;
+    }
+  }
 });
 
 test("ORKWORKS_DEV_PORT overrides the dev server port", () => {
@@ -32,10 +40,27 @@ test("ORKWORKS_DEV_PORT overrides the dev server port", () => {
   }
 });
 
+test("ORKWORKS_DEV_PORT accepts the upper port boundary", () => {
+  const root = path.join("/tmp", "orkworks", "apps", "desktop");
+  const previous = process.env.ORKWORKS_DEV_PORT;
+  process.env.ORKWORKS_DEV_PORT = "65535";
+  try {
+    const options = createViteServerOptions(root);
+    assert.equal(options.server.port, 65535);
+    assert.equal(options.server.strictPort, true);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ORKWORKS_DEV_PORT;
+    } else {
+      process.env.ORKWORKS_DEV_PORT = previous;
+    }
+  }
+});
+
 test("invalid ORKWORKS_DEV_PORT values fall back to the default port", () => {
   const root = path.join("/tmp", "orkworks", "apps", "desktop");
   const previous = process.env.ORKWORKS_DEV_PORT;
-  for (const value of ["", "not-a-port", "0", "70000", "5173.5"]) {
+  for (const value of ["", " ", "not-a-port", "0", "70000", "5173.5"]) {
     process.env.ORKWORKS_DEV_PORT = value;
     try {
       const options = createViteServerOptions(root);
