@@ -111,8 +111,10 @@ Settings gains an `Updates` section showing:
   downloading, downloaded, installing, and error states;
 - available version and release notes when present;
 - download progress when available; and
-- retry, Download, and Restart and install actions according to the current
-  state.
+- retry and Download actions according to the current state. Native in-app
+  installation is deferred until signed installed-artifact validation and a
+  safe platform installer flow are available; downloaded updates currently
+  require manual installation from the signed release.
 
 The UI does not promise live terminal continuity. The install confirmation
 states that restarting OrkWorks stops the sidecar and interrupts live sessions.

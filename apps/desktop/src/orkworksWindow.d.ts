@@ -28,12 +28,13 @@ export type UpdateStatus =
   | { state: "never-checked"; channel: "latest" | "nightly"; currentVersion: string; sequence: number }
   | { state: "checking"; channel: "latest" | "nightly"; currentVersion: string; sequence: number }
   | { state: "up-to-date"; channel: "latest" | "nightly"; currentVersion: string; checkedAt: string; sequence: number }
-  | { state: "available"; candidate: UpdateCandidate; sequence: number }
-  | { state: "downloading"; candidate: UpdateCandidate; progress: { percent: number; transferred: number; total: number }; sequence: number }
-  | { state: "downloaded"; candidate: UpdateCandidate; sequence: number }
-  | { state: "installing"; candidate: UpdateCandidate; sequence: number }
+  | { state: "available"; currentVersion: string; candidate: UpdateCandidate; sequence: number }
+  | { state: "downloading"; currentVersion: string; candidate: UpdateCandidate; progress: { percent: number; transferred: number; total: number }; sequence: number }
+  | { state: "downloaded"; currentVersion: string; candidate: UpdateCandidate; sequence: number }
+  | { state: "installing"; currentVersion: string; candidate: UpdateCandidate; sequence: number }
   | {
       state: "error";
+      currentVersion: string;
       operation: "check" | "download" | "install";
       message: string;
       retryable: true;
