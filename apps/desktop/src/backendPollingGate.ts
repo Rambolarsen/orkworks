@@ -1,4 +1,4 @@
-export type BackendStatus = "connecting…" | "connected" | "unreachable" | "exhausted";
+export type BackendStatus = "picker" | "connecting…" | "connected" | "unreachable" | "exhausted" | "unresolved";
 
 export function shouldEnableSessionPolling(
   backendStatus: BackendStatus,

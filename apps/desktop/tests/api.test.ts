@@ -357,20 +357,33 @@ test("harness contracts keep the renderer, preload, and Electron-main boundaries
   assert.doesNotMatch(rendererApi, /from ["']\.\.\/electron\//);
 });
 
-test("Taskmaster API reads the recommendations envelope and encodes recommendation ids", async () => {
+test("Taskmaster API reads recommendations directly and routes mutations through the bridge", async () => {
   const origFetch = globalThis.fetch;
   let requestUrl = "";
+  let dismissed: { id: string; reason?: string } | undefined;
   globalThis.fetch = (url: string | URL | Request, _init?: RequestInit) => {
     requestUrl = String(url);
     return Promise.resolve(new Response(JSON.stringify({ recommendations: [], diagnostics: [] }), { status: 200 }));
   };
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      dismissTaskmasterRecommendation: (id: string, reason?: string) => {
+        dismissed = { id, reason };
+        return Promise.resolve();
+      },
+    },
+  };
   try {
     const response = await getTaskmasterRecommendations("http://localhost:0");
     assert.deepEqual(response, { recommendations: [], diagnostics: [] });
-    await dismissTaskmasterRecommendation("http://localhost:0", "rec/with spaces");
-    assert.match(requestUrl, /rec%2Fwith%20spaces\/dismiss$/);
+    await dismissTaskmasterRecommendation("rec/with spaces");
+    assert.deepEqual(dismissed, { id: "rec/with spaces", reason: undefined });
+    assert.equal(requestUrl, "http://localhost:0/taskmaster/recommendations");
   } finally {
     globalThis.fetch = origFetch;
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
 });
 
@@ -401,47 +414,49 @@ test("Taskmaster detail fetch encodes hidden recommendation ids", async () => {
 });
 
 test("Taskmaster dismissal sends an optional reason and accepts a successful response", async () => {
-  const origFetch = globalThis.fetch;
-  let init: RequestInit | undefined;
-  globalThis.fetch = (_url: string | URL | Request, requestInit?: RequestInit) => {
-    init = requestInit;
-    return Promise.resolve(new Response(null, { status: 204 }));
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  let dismissed: { id: string; reason?: string } | undefined;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      dismissTaskmasterRecommendation: (id: string, reason?: string) => {
+        dismissed = { id, reason };
+        return Promise.resolve();
+      },
+    },
   };
   try {
-    await dismissTaskmasterRecommendation("http://localhost:0", "rec-1", "Not actionable");
-    assert.equal(init?.method, "POST");
-    assert.equal(init?.headers && (init.headers as Record<string, string>)["Content-Type"], "application/json");
-    assert.equal(init?.body, JSON.stringify({ reason: "Not actionable" }));
+    await dismissTaskmasterRecommendation("rec-1", "Not actionable");
+    assert.deepEqual(dismissed, { id: "rec-1", reason: "Not actionable" });
   } finally {
-    globalThis.fetch = origFetch;
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
 });
 
 test("Taskmaster accept sends the session id and prompt and returns the updated recommendation", async () => {
-  const origFetch = globalThis.fetch;
-  let requestUrl = "";
-  let init: RequestInit | undefined;
-  globalThis.fetch = (url: string | URL | Request, requestInit?: RequestInit) => {
-    requestUrl = String(url);
-    init = requestInit;
-    return Promise.resolve(
-      new Response(JSON.stringify({ id: "rec-1", status: "accepted", targetSessionId: "session-active" }), {
-        status: 200,
-      }),
-    );
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  let accepted: { id: string; options: { sessionId: string; prompt?: string } } | undefined;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      acceptTaskmasterRecommendation: (id: string, options: { sessionId: string; prompt?: string }) => {
+        accepted = { id, options };
+        return Promise.resolve({ id: "rec-1", status: "accepted", targetSessionId: "session-active" });
+      },
+    },
   };
   try {
-    const accepted = await acceptTaskmasterRecommendation("http://localhost:0", "rec/with spaces", {
+    const result = await acceptTaskmasterRecommendation("rec/with spaces", {
       sessionId: "session-active",
       prompt: "Implement the fix",
     });
-    assert.match(requestUrl, /rec%2Fwith%20spaces\/accept$/);
-    assert.equal(init?.method, "POST");
-    assert.equal(init?.headers && (init.headers as Record<string, string>)["Content-Type"], "application/json");
-    assert.equal(init?.body, JSON.stringify({ sessionId: "session-active", prompt: "Implement the fix" }));
-    assert.equal((accepted as { targetSessionId: string }).targetSessionId, "session-active");
+    assert.deepEqual(accepted, {
+      id: "rec/with spaces",
+      options: { sessionId: "session-active", prompt: "Implement the fix" },
+    });
+    assert.equal((result as { targetSessionId: string }).targetSessionId, "session-active");
   } finally {
-    globalThis.fetch = origFetch;
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
 });
 

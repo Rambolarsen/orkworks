@@ -129,6 +129,10 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
     };
   }, []);
 
+  if (backendStatus === "picker") {
+    return <EmptyState message="Open a workspace to get started." />;
+  }
+
   if (backendStatus !== "connected") {
     const unavailable = backendStatus === "unreachable" || backendStatus === "exhausted";
     return <EmptyState

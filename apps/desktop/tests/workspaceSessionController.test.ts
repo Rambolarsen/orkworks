@@ -300,3 +300,69 @@ test("polling prunes terminal attachments before publishing the snapshot", async
   assert.deepEqual(events, ["prune:live", "sessions"]);
   controller.dispose();
 });
+
+test("workspace transitions reject session admissions and foreground submission", async () => {
+  let creates = 0;
+  let resumes = 0;
+  let foregroundSubmissions = 0;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      createSession: async () => {
+        creates += 1;
+        return session("created", "creating", "creating");
+      },
+      resumeSession: async (_baseUrl, id) => {
+        resumes += 1;
+        return session(id);
+      },
+      setActiveWorkspaceSession: async () => {
+        foregroundSubmissions += 1;
+      },
+    }),
+  });
+
+  controller.setAdmissionEnabled(false);
+
+  await assert.rejects(controller.createSession({} satisfies CreateSessionOptions), /workspace transition/i);
+  await assert.rejects(controller.resumeSession("remembered"), /workspace transition/i);
+  await assert.rejects(controller.submitActiveSession("active"), /workspace transition/i);
+  assert.equal(controller.selectSession("active"), false);
+  assert.equal(creates, 0);
+  assert.equal(resumes, 0);
+  assert.equal(foregroundSubmissions, 0);
+  controller.dispose();
+});
+
+test("disabling admission invalidates an in-flight create", async () => {
+  const create = deferred<SessionInfo>();
+  const active: Array<string | null> = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ createSession: async () => create.promise }),
+    onActiveSession: (id) => active.push(id),
+  });
+
+  controller.setAdmissionEnabled(true);
+  const pending = controller.createSession({} satisfies CreateSessionOptions);
+  controller.setAdmissionEnabled(false);
+  create.resolve(session("late", "creating", "creating"));
+  await pending;
+
+  assert.deepEqual(active, []);
+  controller.dispose();
+});
+
+test("foreground session submission returns stale after admission closes during the write", async () => {
+  const submission = deferred<void>();
+  const controller = createWorkspaceSessionController({
+    deps: deps({ setActiveWorkspaceSession: async () => submission.promise }),
+  });
+
+  const admission = controller.captureAdmission();
+  assert.notEqual(admission, null);
+  const handoff = controller.submitActiveSession("active", admission!);
+  controller.setAdmissionEnabled(false);
+  submission.resolve();
+
+  assert.equal(await handoff, false);
+  controller.dispose();
+});

@@ -51,7 +51,7 @@ test("SessionDetailPanel gates the debug attention injection control behind show
 test("api.ts defines applyDebugAttention against the debug-injection endpoint", () => {
   const text = source("../src/api.ts");
   assert.match(text, /export async function applyDebugAttention/);
-  assert.match(text, /\/sessions\/\$\{id\}\/debug-injection/);
+  assert.match(text, /window\.orkworks\.applyDebugAttention\(id, attention, message\)/);
 });
 
 test("Settings provider copy refers to model providers", () => {

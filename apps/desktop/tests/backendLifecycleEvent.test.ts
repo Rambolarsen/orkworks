@@ -5,10 +5,25 @@ import * as backendLifecycleEvents from "../electron/backendLifecycleEvent.ts";
 
 const { canonicalizeBackendLifecycleEvent } = backendLifecycleEvents;
 
+test("picker is a stable replayable lifecycle state with no backend fields", async () => {
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "picker" }), { state: "picker" });
+  assert.equal(canonicalizeBackendLifecycleEvent({ state: "picker", port: 1234 }), null);
+  const events: unknown[] = [];
+  const unsubscribe = backendLifecycleEvents.subscribeBackendLifecycle(
+    () => () => {},
+    async () => ({ state: "picker" }),
+    (event) => events.push(event),
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, [{ state: "picker" }]);
+  unsubscribe();
+});
+
 test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
   const input = {
     state: "ready",
     port: 65535,
+    historyDiagnostic: null,
     workspace: {
       path: "/workspace",
       repo_root: "/workspace",
@@ -21,7 +36,7 @@ test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
   };
   const event = canonicalizeBackendLifecycleEvent(input);
 
-  assert.deepEqual(event, { state: "ready", port: 65535, workspace: input.workspace });
+  assert.deepEqual(event, { state: "ready", port: 65535, workspace: input.workspace, historyDiagnostic: null });
   assert.notEqual(event, input);
   assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "starting" }), { state: "starting" });
   assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "failed", message: "offline" }), {
@@ -30,10 +45,38 @@ test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
   });
 });
 
+test("canonicalizes deterministic workspace switching states and diagnostics", () => {
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "opening" }), { state: "opening" });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({ state: "closing" }), { state: "closing" });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({
+    state: "picker",
+    failure: { code: "destination_conflict", message: "already open" },
+  }), {
+    state: "picker",
+    failure: { code: "destination_conflict", message: "already open" },
+  });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({
+    state: "unresolved",
+    failure: { code: "cleanup_failed", message: "did not exit" },
+  }), {
+    state: "unresolved",
+    failure: { code: "cleanup_failed", message: "did not exit" },
+  });
+  assert.deepEqual(canonicalizeBackendLifecycleEvent({
+    state: "unresolved",
+    failure: { code: "cleanup_timeout", message: "sidecar cleanup timed out" },
+  }), {
+    state: "unresolved",
+    failure: { code: "cleanup_timeout", message: "sidecar cleanup timed out" },
+  });
+  assert.equal(canonicalizeBackendLifecycleEvent({ state: "unresolved", failure: { code: "unknown", message: "bad" } }), null);
+});
+
 test("rejects extra properties and invalid ready ports", () => {
   assert.equal(canonicalizeBackendLifecycleEvent({
     state: "ready",
     port: 4444,
+    historyDiagnostic: null,
     token: "must-not-cross-preload",
     workspacePath: "/private/workspace",
   }), null);
@@ -45,13 +88,14 @@ test("rejects extra properties and invalid ready ports", () => {
     { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: "nope", activeHarnessRevision: 0 },
     { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: [], activeHarnessRevision: 0, extra: true },
   ]) {
-    assert.equal(canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace }), null);
+    assert.equal(canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace, historyDiagnostic: null }), null);
   }
 
   for (const port of [0, 65536, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.equal(canonicalizeBackendLifecycleEvent({
       state: "ready",
       port,
+      historyDiagnostic: null,
       workspace: {
         path: "/workspace",
         repo_root: null,
@@ -66,9 +110,9 @@ test("rejects extra properties and invalid ready ports", () => {
 });
 
 test("accepts an explicit null workspace on ready (no workspace restored yet)", () => {
-  const event = canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace: null });
+  const event = canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace: null, historyDiagnostic: null });
 
-  assert.deepEqual(event, { state: "ready", port: 4444, workspace: null });
+  assert.deepEqual(event, { state: "ready", port: 4444, workspace: null, historyDiagnostic: null });
 });
 
 test("snapshots lifecycle fields exactly once before forwarding them", () => {
@@ -125,6 +169,7 @@ test("a late-subscriber snapshot reaches only that subscriber and loses to newer
   const ready = {
     state: "ready",
     port: 4321,
+    historyDiagnostic: null,
     workspace: {
       path: "/workspace",
       repo_root: null,

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { subscribeBackendLifecycle, type BackendLifecycleEvent } from "./backendLifecycleEvent";
+import { subscribeBackendLifecycle, type BackendLifecycleEvent, type BackendRetryResult, type InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
 
 type IntegrationKey = {
   adapterId: string;
@@ -57,10 +57,15 @@ type ActiveHarnessSaveResult = {
   integrations: Record<string, ActiveHarnessIntegrationResult>;
 };
 
+type TaskmasterAcceptOptions = {
+  sessionId: string;
+  prompt?: string;
+};
+
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
-  retryBackend: (): Promise<void> => ipcRenderer.invoke("retry-backend"),
+  retryBackend: (): Promise<BackendRetryResult> => ipcRenderer.invoke("retry-backend"),
   onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) =>
     subscribeBackendLifecycle(
       (listener) => {
@@ -71,12 +76,18 @@ contextBridge.exposeInMainWorld("orkworks", {
       () => ipcRenderer.invoke("get-backend-lifecycle"),
       callback,
     ),
-  getInitialWorkspace: (): Promise<unknown> => ipcRenderer.invoke("get-initial-workspace"),
+  getInitialWorkspace: (): Promise<InitialWorkspaceSnapshot> => ipcRenderer.invoke("get-initial-workspace"),
   openWorkspace: (): Promise<unknown> => ipcRenderer.invoke("open-workspace"),
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   getTaskmasterSettings: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-settings"),
+  dismissTaskmasterRecommendation: (id: string, reason?: string): Promise<void> =>
+    ipcRenderer.invoke("dismiss-taskmaster-recommendation", id, reason),
+  acceptTaskmasterRecommendation: (id: string, options: TaskmasterAcceptOptions): Promise<unknown> =>
+    ipcRenderer.invoke("accept-taskmaster-recommendation", id, options),
+  applyDebugAttention: (id: string, attention: string, message?: string): Promise<void> =>
+    ipcRenderer.invoke("apply-debug-attention", id, attention, message),
   getInferenceTrust: (): Promise<import("./inferenceTrust").InferenceAdapterView[]> => ipcRenderer.invoke("get-inference-trust"),
   approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest): Promise<boolean> => ipcRenderer.invoke("approve-inference-adapter", request),
   revokeInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest): Promise<void> => ipcRenderer.invoke("revoke-inference-adapter", request),

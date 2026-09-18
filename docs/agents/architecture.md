@@ -47,11 +47,21 @@ Electron settings mutation queue with user saves, so a slow startup catalog
 request cannot overwrite newer settings. Their failures are logged without
 invalidating workspace readiness, and replacement/disposal aborts any
 in-flight step. A restoration timeout or workspace-restoration failure still
-rejects readiness and publishes an unavailable state. Initial startup uses the
-last existing workspace path when available, otherwise the development
-repository or the packaged home directory. A workspace switch persists the
-selected path before starting its replacement generation, and stale restoration
-work is aborted so an older workspace cannot become ready afterward.
+rejects readiness and publishes an unavailable state. Initial startup uses a
+canonical remembered workspace hint when available; without one it remains in
+the picker with no sidecar, health probing, or backend recovery UI. A workspace
+path is remembered only after restoration publishes readiness. Stale
+restoration work is aborted so an older workspace cannot become ready afterward.
+
+Installation history uses `fs-ext` for a bounded, nonblocking OS advisory lock
+on a retained `.workspace-memory.lock` file in Electron `userData`. Never unlink
+or rename this lock file: contenders must lock the same inode. Process exit
+releases ownership; time alone cannot evict a live writer. Under the lock,
+mutations reread history, reject revision overflow, flush a bounded temporary
+record, atomically replace the target, and verify it by read-back. Corrupt input
+is preserved and history-write failures do not roll back a ready workspace.
+`pnpm build:native` rebuilds this addon for Electron before dev/build/dist;
+after those commands, `pnpm rebuild fs-ext` restores the host Node ABI for tests.
 
 Automatic recovery is bounded: one recovery sequence makes at most three
 sidecar launches in total (the initial launch plus two automatic retries), with
@@ -63,7 +73,7 @@ fresh generation using the last sidecar working directory and resets the
 counter.
 
 The preload bridge exposes `onBackendLifecycle` and `retryBackend`. Lifecycle
-events are the narrow union `starting`, `retrying`, `ready` (with a validated
+events are the narrow union `picker` (no backend), `starting`, `retrying`, `ready` (with a validated
 port), `failed` (with a stable failure message), and `exhausted` (with a stable
 failure message). Preload canonicalizes exact event shapes and replays the
 latest main-process snapshot for late subscribers, while preserving live-event

@@ -12,13 +12,14 @@ tracks implementation.
 - [MVP scope and architecture](/specs/orkworks-mvp)
 - [Session plan review](/specs/session-plan-review)
 - [Taskmaster](/specs/taskmaster)
-- [Concurrent workspaces (proposed)](/specs/multi-workspace)
+- [Independent workspace instances (proposed)](/specs/multi-workspace)
 - [Native voice support](/specs/native-harness-voice-support)
 - [Release pipeline](/specs/release-pipeline)
 
 ## Architecture and contribution context
 
 - [Architecture decision records](/docs/adr/README)
+- [Independent workspace instances decision](/docs/adr/0060-independent-workspace-instances)
 - [Agent knowledge bundle](/docs/agents/index)
 - [Architecture overview](/docs/agents/architecture)
 - [Development workflow](/docs/agents/development-workflow)
