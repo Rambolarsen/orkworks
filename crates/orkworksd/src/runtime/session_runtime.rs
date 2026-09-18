@@ -2107,7 +2107,6 @@ mod tests {
             )
             .expect("open recommendation store"),
             lease: None,
-            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
 
         // Simulate a hook report: needs_you, metadata_source=agent. Persist the
@@ -2306,7 +2305,6 @@ mod tests {
             )
             .expect("open recommendation store"),
             lease: None,
-            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
             let mut sessions = state.sessions.lock().unwrap();
@@ -2391,7 +2389,6 @@ mod tests {
             )
             .expect("open recommendation store"),
             lease: None,
-            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
             let ws = state.workspace.lock().unwrap();
@@ -2564,7 +2561,6 @@ mod tests {
             )
             .expect("open recommendation store"),
             lease: None,
-            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         {
             let ws = state.workspace.lock().unwrap();
@@ -3439,7 +3435,6 @@ mod tests {
             )
             .expect("open recommendation store"),
             lease: None,
-            watcher: crate::watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         let replay_store = crate::metadata::MetadataStore::new(&metadata_root);
 

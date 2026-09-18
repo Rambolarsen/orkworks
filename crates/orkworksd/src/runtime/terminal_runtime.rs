@@ -1226,7 +1226,6 @@ mod tests {
                 )
                 .expect("open recommendation store"),
                 lease: None,
-                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -3222,7 +3221,6 @@ mod tests {
                 )
                 .expect("open recommendation store"),
                 lease: None,
-                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -3376,7 +3374,6 @@ mod tests {
                 )
                 .expect("open recommendation store"),
                 lease: None,
-                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),
@@ -3564,7 +3561,6 @@ mod tests {
                 )
                 .expect("open recommendation store"),
                 lease: None,
-                watcher: crate::watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
                 last_output: RwLock::new(HashMap::new()),

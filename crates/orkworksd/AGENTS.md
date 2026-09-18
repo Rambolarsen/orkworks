@@ -32,7 +32,7 @@ PR CI runs `cargo fmt --check` as a blocking gate, so format before committing.
 - `harness.rs` and its `definition`, `registry`, and `store` submodules — versioned harness definitions, sparse overrides, resolved immutable capability snapshots, and persistence.
 - `providers.rs` — model provider registry, fallback, and capacity state.
 - `peon.rs` — terminal-output observation and label/status inference.
-- `git.rs`, `watcher.rs`, `migration.rs`, `workspace_runtime.rs` — Git context detection, metadata file watching, on-disk migrations, and workspace bootstrap.
+- `git.rs`, `migration.rs`, `workspace_runtime.rs` — Git context detection, on-disk migrations, and workspace bootstrap.
 - `http/` — thin HTTP handler submodules (session, harness, provider, retention, and attention hook) delegating to `AppState`.
 - `runtime/` — background tasks: terminal/PTY runtime (`SessionRuntime`, PTY lifecycle), Peon observation loop, and retention cleanup.
 - `main.rs` — Axum router and the `AppState`/`SessionHandle` definitions and startup.
