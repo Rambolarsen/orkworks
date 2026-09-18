@@ -1232,7 +1232,11 @@ function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload }
   const candidate = status && "candidate" in status ? status.candidate : undefined;
   const statusText = !status ? "Loading update status..." : (() => {
     switch (status.state) {
-      case "unavailable": return status.reason === "development" ? "Updates are unavailable in development builds." : "Updates are unavailable for this version.";
+      case "unavailable": return status.reason === "development"
+        ? "Updates are unavailable in development builds."
+        : status.reason === "unsupported-platform"
+          ? "Updates are unavailable on this platform."
+          : "Updates are unavailable for this version.";
       case "never-checked": return "Updates have not been checked yet.";
       case "checking": return "Checking for updates...";
       case "up-to-date": return "OrkWorks is up-to-date.";

@@ -6,10 +6,11 @@ This section defines the next release increment and supersedes conflicting
 alpha-only requirements below. The source wiring for signing and native
 artifact verification of the existing tag-driven release path is implemented.
 The daily-build source wiring is implemented as of 2026-09-15; its required
-credential-backed manual run has not yet been recorded, and in-app updating is
-not implemented. Credential-backed trust, native
-certificate validation, and installed-app validation remain external delivery
-prerequisites.
+credential-backed manual run has not yet been recorded. Packaged Apple Silicon
+macOS and Windows builds now implement update discovery and download, while
+native in-app installation remains deliberately unavailable. Credential-backed
+trust, native certificate validation, and installed-app validation remain
+external delivery prerequisites.
 
 ### Source-wiring status — 2026-09-14
 
@@ -132,24 +133,20 @@ Add an Updates section in Settings showing installed version, channel, check
 status, available version, release notes, and download progress. Provide a
 native menu `Check for updates` entry reaching the same flow. Packaged builds
 may check once after startup without interrupting work; explicit checks remain
-available. Development builds show updates as unavailable and never install.
+available. Development builds and unsupported platforms show updates as
+unavailable and never install.
 
-The flow is `Check for updates` → `Download` → `Restart and install`. Checking
-does not download; downloading does not restart or stop sessions. Disable
-automatic download and installation on ordinary quit. A downloaded update waits
-for an explicit install action; on a later launch, revalidate it against current
-release metadata before allowing installation. Duplicate clicks coalesce into
-one operation. Stale events cannot overwrite a newer check/download state.
+The current flow is `Check for updates` then `Download`, followed by manual
+installation from the signed release. Checking does not download; downloading
+does not restart or stop sessions. Disable automatic download and installation
+on ordinary quit. A downloaded update remains available for manual
+installation; duplicate clicks coalesce into one operation, and stale events
+cannot overwrite a newer check/download state.
 
-Before installing, main presents a native confirmation explaining that restarting
-OrkWorks stops its sidecar and interrupts live terminal sessions. Determine live
-session state from the current backend, not a stale renderer snapshot; if state
-is unavailable, state that sessions may be interrupted. Cancel leaves the app
-and sessions running. Confirm authorizes this one restart only. Reuse normal
-app/sidecar shutdown, await bounded shutdown completion before applying the
-update, and surface a shutdown failure without blindly replacing a running
-sidecar. Do not promise live PTY continuity or automatically resume harnesses.
-The new app restores workspace metadata through its existing startup path.
+Native in-app installation is deferred until signed installed-artifact
+validation and a safe platform installer flow are available. The updater fails
+closed before verification, session queries, confirmation, shutdown, or native
+installer invocation. Issue #511 owns that future native-install validation.
 
 Use a small main-owned updater service and narrow preload commands/events for
 check, download, installation request, and read-only status. Preserve the

@@ -53,7 +53,7 @@ type UpdateChannel = UpdateCandidateIdentity["channel"];
 type UpdateProgress = { percent: number; transferred: number; total: number };
 
 export type UpdateStatus =
-  | { state: "unavailable"; reason: "development" | "unsupported-version"; sequence: number }
+  | { state: "unavailable"; reason: "development" | "unsupported-platform" | "unsupported-version"; sequence: number }
   | { state: "never-checked"; channel: UpdateChannel; currentVersion: string; sequence: number }
   | { state: "checking"; channel: UpdateChannel; currentVersion: string; sequence: number }
   | { state: "up-to-date"; channel: UpdateChannel; currentVersion: string; checkedAt: string; sequence: number }
@@ -86,15 +86,33 @@ export interface UpdateService {
 }
 
 const stableVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-const nightlyVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-nightly(?:\.(?:0|[1-9]\d*))+(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const nightlyVersion = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-nightly\.(\d{8})\.([1-9]\d*)\.([1-9]\d*)$/;
 
 export function channelForVersion(version: string): UpdateChannel | null {
   if (stableVersion.test(version)) return "latest";
-  if (nightlyVersion.test(version)) return "nightly";
+  const match = nightlyVersion.exec(version);
+  if (match) {
+    const date = match[1];
+    const year = Number(date.slice(0, 4));
+    const month = Number(date.slice(4, 6));
+    const day = Number(date.slice(6, 8));
+    const runId = Number(match[2]);
+    const attempt = Number(match[3]);
+    const parsedDate = new Date(Date.UTC(year, month - 1, day));
+    if (year >= 1000 && year <= 9999
+      && Number.isSafeInteger(runId)
+      && Number.isSafeInteger(attempt)
+      && attempt <= 99
+      && parsedDate.getUTCFullYear() === year
+      && parsedDate.getUTCMonth() === month - 1
+      && parsedDate.getUTCDate() === day) {
+      return "nightly";
+    }
+  }
   return null;
 }
 
-function unavailableStatus(reason: "development" | "unsupported-version"): UpdateService {
+function unavailableStatus(reason: "development" | "unsupported-platform" | "unsupported-version"): UpdateService {
   const status: UpdateStatus = { state: "unavailable", reason, sequence: 0 };
   return {
     getStatus: () => status,
@@ -119,6 +137,9 @@ function sameCandidate(left: UpdateCandidate, right: UpdateCandidate): boolean {
 
 export function createUpdateService(dependencies: UpdateServiceDependencies): UpdateService {
   if (!dependencies.isPackaged) return unavailableStatus("development");
+  if (dependencies.platform !== "darwin" && dependencies.platform !== "win32") {
+    return unavailableStatus("unsupported-platform");
+  }
 
   const channel = channelForVersion(dependencies.currentVersion);
   if (channel === null) return unavailableStatus("unsupported-version");

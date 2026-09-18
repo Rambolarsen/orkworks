@@ -140,9 +140,9 @@ import { createUpdateService, type UpdateCandidate, type UpdateEngine } from "..
 const candidate = (overrides: Partial<UpdateCandidate["identity"]> = {}): UpdateCandidate => ({
   identity: {
     channel: "nightly",
-    version: "0.2.0-nightly.20260917.1",
-    tag: "v0.2.0-nightly.20260917.1",
-    metadataUrl: "https://github.com/Rambolarsen/orkworks/releases/download/v0.2.0-nightly.20260917.1/latest.yml",
+    version: "0.2.0-nightly.20260917.123.1",
+    tag: "v0.2.0-nightly.20260917.123.1",
+    metadataUrl: "https://github.com/Rambolarsen/orkworks/releases/download/v0.2.0-nightly.20260917.123.1/latest.yml",
     metadataDigest: "sha256:metadata-1",
     payloadDigest: "sha512:payload-1",
     ...overrides,
@@ -194,7 +194,7 @@ test("nightly status is replayed first and then only increasing sequences are de
   const service = createUpdateService({
     isPackaged: true,
     platform: "win32",
-    currentVersion: "0.2.0-nightly.20260916.1",
+    currentVersion: "0.2.0-nightly.20260916.123.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
     querySessions: async () => [],
@@ -222,7 +222,7 @@ test("channel selection admits exact nightly prereleases and never falls back to
   createUpdateService({
     isPackaged: true,
     platform: "win32",
-    currentVersion: "0.2.0-nightly.20260916.1",
+    currentVersion: "0.2.0-nightly.20260916.123.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
     querySessions: async () => [],
@@ -246,8 +246,8 @@ Expected: FAIL because `apps/desktop/electron/updateService.ts` does not exist.
 
 Implement `createUpdateService` with these exact rules:
 
-1. If `isPackaged` is false, return a service whose status is `{ state: "unavailable", reason: "development", sequence: 0 }` and never call `createEngine`.
-2. Parse the first prerelease identifier from `currentVersion`; choose `nightly` only for `nightly` followed by numeric nightly identity, choose `latest` for a stable version, and return `unsupported-version` for malformed or other prereleases.
+1. If `isPackaged` is false, return a service whose status is `{ state: "unavailable", reason: "development", sequence: 0 }` and never call `createEngine`. Return `unsupported-platform` for packaged Linux or other unsupported platforms before constructing an engine.
+2. Choose `nightly` only for the canonical `nightly.<YYYYMMDD>.<runId>.<attempt>` identity produced by the release pipeline, choose `latest` for a stable version, and return `unsupported-version` for malformed or other prereleases.
 3. Construct the engine once, set all four safety properties before registering listeners, and reject any engine configuration that does not match the required values.
 4. Convert engine events into status snapshots. Pass the active operation ID into the adapter, require every emitted event to carry it, and ignore completions/events from older checks, downloads, or candidates. Preserve `currentVersion` in every packaged snapshot so a new renderer can initialize from replay alone.
 5. `check()` and `download()` return the existing operation promise when one is active. `requestInstall()` returns the existing install promise when one is active.

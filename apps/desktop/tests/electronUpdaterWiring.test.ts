@@ -303,7 +303,7 @@ test("direct adapter install also fails closed without touching native updater o
 test("nightly adapter blocks stable metadata fallback before accepting a result", async () => {
   const { updater, engine } = adapterFixture();
   engine.channel = "nightly";
-  updater.info.version = "1.0.1-nightly.20260917.1";
+  updater.info.version = "1.0.1-nightly.20260917.123.1";
   updater.info.tag = `v${updater.info.version}`;
   updater.metadataFile = "latest.yml";
   await assert.rejects(engine.checkForUpdates(1), /metadata|channel/i);

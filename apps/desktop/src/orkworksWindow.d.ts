@@ -24,7 +24,7 @@ export interface UpdateCandidate {
 }
 
 export type UpdateStatus =
-  | { state: "unavailable"; reason: "development" | "unsupported-version"; sequence: number }
+  | { state: "unavailable"; reason: "development" | "unsupported-platform" | "unsupported-version"; sequence: number }
   | { state: "never-checked"; channel: "latest" | "nightly"; currentVersion: string; sequence: number }
   | { state: "checking"; channel: "latest" | "nightly"; currentVersion: string; sequence: number }
   | { state: "up-to-date"; channel: "latest" | "nightly"; currentVersion: string; checkedAt: string; sequence: number }

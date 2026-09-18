@@ -12,9 +12,9 @@ import {
 const candidate = (overrides: Partial<UpdateCandidate["identity"]> = {}): UpdateCandidate => ({
   identity: {
     channel: "nightly",
-    version: "0.2.0-nightly.20260917.1",
-    tag: "v0.2.0-nightly.20260917.1",
-    metadataUrl: "https://github.com/Rambolarsen/orkworks/releases/download/v0.2.0-nightly.20260917.1/latest.yml",
+    version: "0.2.0-nightly.20260917.123.1",
+    tag: "v0.2.0-nightly.20260917.123.1",
+    metadataUrl: "https://github.com/Rambolarsen/orkworks/releases/download/v0.2.0-nightly.20260917.123.1/latest.yml",
     metadataDigest: "sha256:metadata-1",
     payloadDigest: "sha512:payload-1",
     ...overrides,
@@ -63,7 +63,7 @@ function packagedService(
   return createUpdateService({
     isPackaged: true,
     platform: "win32",
-    currentVersion: dependencyOverrides.currentVersion ?? "0.2.0-nightly.20260916.1",
+    currentVersion: dependencyOverrides.currentVersion ?? "0.2.0-nightly.20260916.123.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
     querySessions: async () => [],
@@ -165,7 +165,7 @@ test("download during a refreshed check cannot steal candidate or operation owne
   engine.checkForUpdates = (id) => { engine.checkOperationIds.push(id); return refreshed.promise; };
   const checking = service.check();
   const downloading = service.download();
-  const next = candidate({ version: "0.2.0-nightly.20260918.1", tag: "v0.2.0-nightly.20260918.1" });
+  const next = candidate({ version: "0.2.0-nightly.20260918.124.1", tag: "v0.2.0-nightly.20260918.124.1" });
   engine.events[0]({ type: "update-available", operationId: engine.checkOperationIds.at(-1)!, candidate: next });
   refreshed.resolve();
   await Promise.all([checking, downloading]);
@@ -201,11 +201,30 @@ test("development construction never creates an updater and is unavailable", asy
   assert.equal((await service.check()).state, "unavailable");
 });
 
+test("Linux packaged builds stay unavailable without constructing an updater", () => {
+  let constructed = false;
+  const service = createUpdateService({
+    isPackaged: true,
+    platform: "linux",
+    currentVersion: "0.2.0",
+    createEngine: () => { constructed = true; throw new Error("must not construct"); },
+    now: () => "2026-09-17T00:00:00Z",
+    querySessions: async () => [],
+    verifyCandidate: async () => true,
+    confirmInstall: async () => true,
+    stopSidecar: async () => undefined,
+    restartSidecar: async () => undefined,
+  });
+  assert.equal(constructed, false);
+  assert.deepEqual(service.getStatus(), { state: "unavailable", reason: "unsupported-platform", sequence: 0 });
+});
+
 test("nightly status is replayed first and then only increasing sequences are delivered", async () => {
   const engine = engineFixture();
   const service = createUpdateService({
     isPackaged: true,
-    currentVersion: "0.2.0-nightly.20260916.1",
+    platform: "win32",
+    currentVersion: "0.2.0-nightly.20260916.123.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
     querySessions: async () => [],
@@ -256,7 +275,7 @@ test("replayed available, downloaded, and error snapshots preserve the installed
   });
   await checking;
   assert.equal(replay().state, "available");
-  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.1");
+  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.123.1");
 
   const downloading = service.download();
   engine.events[0]({
@@ -266,19 +285,20 @@ test("replayed available, downloaded, and error snapshots preserve the installed
   });
   await downloading;
   assert.equal(replay().state, "downloaded");
-  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.1");
+  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.123.1");
 
   engine.downloadUpdate = async () => { throw new Error("offline"); };
   await service.download();
   assert.equal(replay().state, "error");
-  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.1");
+  assert.equal(replay().currentVersion, "0.2.0-nightly.20260916.123.1");
 });
 
 test("channel selection admits exact nightly prereleases and never falls back to stable", () => {
   const engine = engineFixture();
   createUpdateService({
     isPackaged: true,
-    currentVersion: "0.2.0-nightly.20260916.1",
+    platform: "win32",
+    currentVersion: "0.2.0-nightly.20260916.123.1",
     createEngine: () => engine,
     now: () => "2026-09-17T00:00:00Z",
     querySessions: async () => [],
@@ -324,6 +344,33 @@ test("malformed and other prerelease versions are unavailable without constructi
     let constructed = false;
     const service = createUpdateService({
       isPackaged: true,
+      platform: "win32",
+      currentVersion,
+      createEngine: () => { constructed = true; return engineFixture(); },
+      now: () => "2026-09-17T00:00:00Z",
+      querySessions: async () => [],
+      verifyCandidate: async () => true,
+      confirmInstall: async () => true,
+      stopSidecar: async () => undefined,
+      restartSidecar: async () => undefined,
+    });
+    assert.equal(constructed, false);
+    assert.deepEqual(service.getStatus(), { state: "unavailable", reason: "unsupported-version", sequence: 0 });
+  }
+});
+
+test("noncanonical nightly identities are unavailable without constructing an engine", () => {
+  for (const currentVersion of [
+    "0.2.0-nightly.20260916.1",
+    "0.2.0-nightly.20260916.123",
+    "0.2.0-nightly.20260916.123.0",
+    "0.2.0-nightly.20260916.123.100",
+    "0.2.0-nightly.20261301.123.1",
+  ]) {
+    let constructed = false;
+    const service = createUpdateService({
+      isPackaged: true,
+      platform: "win32",
       currentVersion,
       createEngine: () => { constructed = true; return engineFixture(); },
       now: () => "2026-09-17T00:00:00Z",
@@ -562,8 +609,8 @@ test("installer failure attempts sidecar recovery and reports restart guidance i
 test("each candidate identity field is revalidated before verification or shutdown", async () => {
   const mismatches: Array<(value: UpdateCandidate) => void> = [
     (value) => { value.identity.channel = "latest"; },
-    (value) => { value.identity.version = "0.2.0-nightly.20260918.1"; },
-    (value) => { value.identity.tag = "v0.2.0-nightly.20260918.1"; },
+    (value) => { value.identity.version = "0.2.0-nightly.20260918.124.1"; },
+    (value) => { value.identity.tag = "v0.2.0-nightly.20260918.124.1"; },
     (value) => { value.identity.metadataUrl = "https://example.invalid/latest.yml"; },
     (value) => { value.identity.metadataDigest = "sha256:other"; },
     (value) => { value.identity.payloadDigest = "sha512:other"; },
@@ -681,7 +728,7 @@ test("stale updater events cannot overwrite an in-flight install", async () => {
   engine.events[0]({
     type: "update-downloaded",
     operationId: staleOperationId,
-    candidate: candidate({ version: "0.2.0-nightly.20260918.1" }),
+    candidate: candidate({ version: "0.2.0-nightly.20260918.124.1" }),
   });
   assert.equal(service.getStatus().state, "installing");
 
@@ -859,8 +906,8 @@ test("downloaded events require the active operation and exact candidate identit
   assert.strictEqual(service.getStatus(), downloading);
   for (const overrides of [
     { channel: "latest" as const },
-    { version: "0.2.0-nightly.20260918.1" },
-    { tag: "v0.2.0-nightly.20260918.1" },
+    { version: "0.2.0-nightly.20260918.124.1" },
+    { tag: "v0.2.0-nightly.20260918.124.1" },
     { metadataUrl: "https://example.invalid/latest.yml" },
     { metadataDigest: "sha256:other" },
     { payloadDigest: "sha512:other" },
@@ -962,7 +1009,7 @@ test("updater errors are retryable", async () => {
   const failed = await service.check();
   assert.deepEqual(failed, {
     state: "error",
-    currentVersion: "0.2.0-nightly.20260916.1",
+    currentVersion: "0.2.0-nightly.20260916.123.1",
     operation: "check",
     message: "offline",
     retryable: true,
@@ -979,7 +1026,7 @@ test("a completed check with no candidate is up to date", async () => {
   assert.deepEqual(status, {
     state: "up-to-date",
     channel: "nightly",
-    currentVersion: "0.2.0-nightly.20260916.1",
+    currentVersion: "0.2.0-nightly.20260916.123.1",
     checkedAt: "2026-09-17T00:00:00Z",
     sequence: 2,
   });
