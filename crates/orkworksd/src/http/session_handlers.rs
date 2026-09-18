@@ -8,7 +8,6 @@ use crate::session_projection::enrich_sessions_with_git_context as project_git_c
 use crate::session_projection::SessionProjection;
 use crate::session_types::{MemoryState, PeonDiagnostics, SessionInfo};
 #[cfg(test)]
-use crate::watcher;
 use crate::workspace_runtime::WorkspaceIdentity;
 #[cfg(test)]
 use crate::workspace_runtime::{orkworks_global_dir, WorkspaceLease};
@@ -5272,7 +5271,6 @@ mod tests {
                 )
                 .expect("open recommendation store"),
                 lease: None,
-                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),
@@ -6683,7 +6681,6 @@ mod tests {
                 )
                 .expect("open recommendation store"),
                 lease: None,
-                watcher: watcher::MetadataWatcher::start(&orkworks.join("sessions")),
             })),
             peon: crate::PeonState {
                 last_output: std::sync::RwLock::new(std::collections::HashMap::new()),

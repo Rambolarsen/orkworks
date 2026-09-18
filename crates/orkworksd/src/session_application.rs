@@ -11,7 +11,7 @@ use crate::taskmaster::rollup::{
 use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
 use crate::workspace_runtime::{iso_now, orkworks_global_dir, WorkspaceIdentity, WorkspaceLease};
-use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
+use crate::{git, metadata, migration, plan_handoff, AppState, WorkspaceState};
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
@@ -2234,7 +2234,6 @@ impl SessionApplication {
         let last_active_session_id = memory.last_active_session_id.clone();
         let active_harness_ids = memory.active_harness_ids;
         let active_harness_revision = memory.active_harness_revision;
-        let watcher = watcher::MetadataWatcher::start(&global_dir.join("sessions"));
 
         let mut workspace = self.state.workspace.lock().unwrap();
         let workflow_observations = crate::workflow_observations::WorkflowObservationStore::open(
@@ -2268,7 +2267,6 @@ impl SessionApplication {
             workflow_observations,
             recommendation_store,
             lease: Some(workspace_lease),
-            watcher,
         });
         self.state.bump_harness_probe_generation();
 
