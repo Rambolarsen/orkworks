@@ -7,7 +7,6 @@ use crate::session_application::{
 use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
 use crate::session_projection::SessionProjection;
 use crate::session_types::{MemoryState, PeonDiagnostics, SessionInfo};
-#[cfg(test)]
 use crate::workspace_runtime::WorkspaceIdentity;
 #[cfg(test)]
 use crate::workspace_runtime::{orkworks_global_dir, WorkspaceLease};
