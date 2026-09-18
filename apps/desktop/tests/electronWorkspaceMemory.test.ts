@@ -199,18 +199,20 @@ test("legacy workspace history without version/revision fields is migrated inste
     assert.equal(loaded.diagnostic, null);
     assert.equal(loaded.version, 1);
     assert.equal(loaded.lastWorkspacePath, "/repo/a");
-    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a", "/repo/b"]);
+    // Secondary entries are dropped during migration (see the dedicated
+    // "drops secondary entries" test below for why).
+    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a"]);
 
     const remembered = rememberWorkspacePath(directory, "/repo/c");
 
     assert.equal(remembered.diagnostic, null);
     assert.equal(remembered.lastWorkspacePath, "/repo/c");
-    assert.deepEqual(remembered.recentWorkspacePaths, ["/repo/c", "/repo/a", "/repo/b"]);
+    assert.deepEqual(remembered.recentWorkspacePaths, ["/repo/c", "/repo/a"]);
     assert.deepEqual(JSON.parse(readFileSync(historyPath, "utf8")), {
       version: 1,
       revision: remembered.revision,
       lastWorkspacePath: "/repo/c",
-      recentWorkspacePaths: ["/repo/c", "/repo/a", "/repo/b"],
+      recentWorkspacePaths: ["/repo/c", "/repo/a"],
     });
   }));
 
@@ -227,10 +229,10 @@ test("legacy workspace history with a cleared lastWorkspacePath still migrates",
 
     assert.equal(loaded.diagnostic, null);
     assert.equal(loaded.lastWorkspacePath, null);
-    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a", "/repo/b"]);
+    assert.deepEqual(loaded.recentWorkspacePaths, []);
   }));
 
-test("legacy workspace history canonicalizes a symlinked alias during migration", () =>
+test("legacy workspace history canonicalizes lastWorkspacePath and drops secondary entries", () =>
   withTemporaryUserData((directory) => {
     const realPath = join(directory, "real-workspace");
     const aliasPath = join(directory, "alias-workspace");
@@ -241,7 +243,7 @@ test("legacy workspace history canonicalizes a symlinked alias during migration"
     const historyPath = workspaceMemoryPath(directory);
     const legacy = {
       lastWorkspacePath: aliasPath,
-      recentWorkspacePaths: [aliasPath, "/repo/missing"],
+      recentWorkspacePaths: [aliasPath, "/repo/other", "/repo/missing"],
     };
     writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
 
@@ -249,39 +251,20 @@ test("legacy workspace history canonicalizes a symlinked alias during migration"
 
     assert.equal(loaded.diagnostic, null);
     assert.equal(loaded.lastWorkspacePath, expectedPath);
-    // The alias collapses into the same canonical entry; the unresolvable
-    // path falls back to its raw string rather than being dropped.
-    assert.deepEqual(loaded.recentWorkspacePaths, [expectedPath, "/repo/missing"]);
-  }));
-
-test("legacy workspace history leaves non-last recentWorkspacePaths uncanonicalized, bounding sync fs resolution to one call", () =>
-  withTemporaryUserData((directory) => {
-    const realPath = join(directory, "real-workspace");
-    const aliasPath = join(directory, "alias-workspace");
-    mkdirSync(realPath);
-    symlinkSync(realPath, aliasPath, "dir");
-
-    const historyPath = workspaceMemoryPath(directory);
-    const legacy = {
-      lastWorkspacePath: "/repo/other",
-      recentWorkspacePaths: ["/repo/other", aliasPath],
-    };
-    writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
-
-    const loaded = readWorkspaceMemory(directory);
-
-    assert.equal(loaded.diagnostic, null);
-    assert.equal(loaded.lastWorkspacePath, "/repo/other");
-    // aliasPath is not lastWorkspacePath, so it is intentionally left
-    // unresolved rather than paying a second synchronous realpath call.
-    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/other", aliasPath]);
+    // Secondary entries are dropped rather than carried forward raw (which
+    // would violate specs/multi-workspace.md's canonical-paths-only rule)
+    // or resolved (which would be unbounded synchronous fs work on
+    // Electron's main thread before the window exists). They repopulate,
+    // correctly canonicalized, as the user reopens workspaces going forward.
+    assert.deepEqual(loaded.recentWorkspacePaths, [expectedPath]);
   }));
 
 test("legacy workspace history over the old 64 KiB gate but under the legacy ceiling still migrates", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
     // A handful of long (e.g. Windows extended-length) paths the pre-#569
-    // writer would have accepted without any byte bound.
+    // writer would have accepted without any byte bound — the pre-parse
+    // gate must admit the file even though migration only keeps one entry.
     const paths = Array.from({ length: 5 }, (_, index) => `/repo/${index}-${"x".repeat(15_000)}`);
     const legacy = { lastWorkspacePath: paths[0], recentWorkspacePaths: paths };
     const raw = JSON.stringify(legacy);

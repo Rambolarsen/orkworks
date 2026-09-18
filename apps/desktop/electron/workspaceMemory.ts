@@ -149,20 +149,22 @@ function validLegacyStoredMemory(value: unknown): value is LegacyStoredWorkspace
 }
 
 // The pre-#569 writer never canonicalized paths (it stored the raw dialog
-// selection), while every current write path canonicalizes first. Without
-// this, migrating a legacy alias verbatim lets a later canonical write for
-// the same workspace add a second, string-distinct entry, and removing one
-// alias would leave the other behind. Fall back to the raw string only when
-// the path no longer resolves (moved/deleted/unmounted) rather than
-// dropping history for a temporarily-inaccessible workspace.
+// selection), while specs/multi-workspace.md requires persisting canonical
+// paths only. realpathSync.native is also a synchronous, potentially slow
+// syscall (a disconnected UNC share or other unreachable network mount can
+// block for the OS network timeout), and readWorkspaceMemory runs on
+// Electron's main thread before the window is created — resolving every
+// recentWorkspacePaths entry there risks the app appearing hung on launch.
 //
-// realpathSync.native is a synchronous, potentially slow syscall (a
-// disconnected UNC share or other unreachable network mount can block for
-// the OS network timeout), and readWorkspaceMemory runs on Electron's main
-// thread before the window is created. Resolve only lastWorkspacePath — the
-// one entry guaranteed to be touched again immediately, since it's what
-// gets auto-restored at startup — rather than every recentWorkspacePaths
-// entry, to bound the worst-case startup stall to a single call.
+// Rather than choosing between an unbounded synchronous cost (canonicalize
+// everything) and a spec-violating one (persist raw aliases), secondary
+// entries are dropped instead of carried forward: they're low-stakes
+// convenience shortcuts (removing one never touches project files or
+// session data) that naturally repopulate, correctly canonicalized, as the
+// user reopens workspaces going forward. Only lastWorkspacePath — the one
+// entry guaranteed to matter immediately, since it's what gets
+// auto-restored at startup — is resolved, bounding the worst-case startup
+// stall to a single call.
 function canonicalizedLegacyPath(path: string): string {
   return canonicalWorkspacePath(path) ?? path;
 }
@@ -171,13 +173,9 @@ function migratedLegacyMemory(legacy: LegacyStoredWorkspaceMemory): AppWorkspace
   const lastWorkspacePath = legacy.lastWorkspacePath === null
     ? null
     : canonicalizedLegacyPath(legacy.lastWorkspacePath);
-  // Drop the raw alias for lastWorkspacePath so boundedPaths' string-based
-  // dedup doesn't keep both it and the canonical form side by side; other
-  // entries stay untouched and self-heal (string-dedup) once reopened.
-  const recentWorkspacePaths = legacy.lastWorkspacePath === null
-    ? legacy.recentWorkspacePaths
-    : legacy.recentWorkspacePaths.filter((path) => path !== legacy.lastWorkspacePath);
-  const bounded = boundedPaths(lastWorkspacePath, recentWorkspacePaths, 0);
+  // boundedPaths prepends lastWorkspacePath itself, so an empty paths list
+  // is enough to produce the single-entry (or empty) result.
+  const bounded = boundedPaths(lastWorkspacePath, [], 0);
   // boundedPaths only returns null when even a single entry can't fit under
   // the serialized-size bound. Silently dropping recentWorkspacePaths would
   // produce a lastWorkspacePath not present in the list, violating the same
