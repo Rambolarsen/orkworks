@@ -12,7 +12,7 @@ test("Electron main centralizes initial and workspace sidecar startup", () => {
   assert.equal(mainSource.match(/createSidecarLifecycle\(/g)?.length, 1);
   assert.equal(mainSource.match(/\bspawn\(/g)?.length, 1);
   assert.equal(mainSource.match(/ORKWORKS_OPEN_PLAN_TOKEN/g)?.length, 1);
-  assert.match(mainSource, /workspaceSwitchCoordinator\.switchWorkspace\(initialSidecarCwd\)/);
+  assert.doesNotMatch(mainSource, /switchWorkspace\(initialSidecarCwd\)/);
   assert.match(mainSource, /sidecarLifecycle!\.start\(nextPath\)/);
 });
 
@@ -106,10 +106,13 @@ test("a remembered 409 restoration becomes a typed destination conflict", () => 
   assert.match(mainSource, /if \(restoreResult\.failureCode === "destination_conflict"\) \{[\s\S]*new WorkspaceSwitchError\("destination_conflict"/);
 });
 
-test("startup validates the remembered path as an accessible directory before starting a sidecar", () => {
-  assert.match(mainSource, /accessibleWorkspaceDirectoryPath\(appMemory\.lastWorkspacePath\)/);
-  assert.match(mainSource, /const initialSidecarCwd = initialWorkspacePath;/);
-  assert.match(mainSource, /if \(initialSidecarCwd\) void workspaceSwitchCoordinator\.switchWorkspace\(initialSidecarCwd\)/);
+test("startup keeps remembered workspaces in the picker until explicit selection", () => {
+  assert.match(mainSource, /const appMemory = readWorkspaceMemory\(app\.getPath\("userData"\)\);/);
+  assert.match(mainSource, /workspaceSwitchCoordinator = createWorkspaceSwitchCoordinator[\s\S]*initialWorkspacePath: null/);
+  assert.doesNotMatch(mainSource, /appMemory\.lastWorkspacePath/);
+  assert.doesNotMatch(mainSource, /accessibleWorkspaceDirectoryPath\(appMemory\.lastWorkspacePath\)/);
+  assert.doesNotMatch(mainSource, /const initialSidecarCwd = initialWorkspacePath;/);
+  assert.doesNotMatch(mainSource, /workspaceSwitchCoordinator\.switchWorkspace\(initialSidecarCwd\)/);
 });
 
 test("backend readiness and retry use the lifecycle controller", () => {
@@ -213,23 +216,25 @@ test("retry cannot turn the stable picker into a ready null-workspace sidecar", 
   assert.doesNotMatch(handler, /sidecarLifecycle\.retry\(\)/);
 });
 
-test("initial workspace restoration handles rejected readiness", () => {
+test("initial workspace snapshots stay empty until explicit selection", () => {
   const start = mainSource.indexOf('ipcMain.handle("get-initial-workspace"');
   const end = mainSource.indexOf('\n  });', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const handler = mainSource.slice(start, end);
-  assert.match(handler, /try \{[\s\S]*await restoration\.getReadiness\(\);[\s\S]*return \{ workspace: restoration\.getRestoredWorkspace\(\), historyDiagnostic: currentHistoryDiagnostic \};/);
-  assert.match(handler, /return \{ workspace: null, historyDiagnostic: currentHistoryDiagnostic \};/);
+  assert.match(handler, /workspace: null/);
+  assert.match(handler, /historyDiagnostic: currentHistoryDiagnostic/);
+  assert.doesNotMatch(handler, /restoration\.getReadiness\(\)/);
 });
 
-test("no-initial-workspace snapshots preserve the current history diagnostic", () => {
+test("picker snapshots preserve the current history diagnostic", () => {
   const start = mainSource.indexOf('ipcMain.handle("get-initial-workspace"');
   const end = mainSource.indexOf('\n  });', start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
   const handler = mainSource.slice(start, end);
-  assert.match(handler, /if \(!initialWorkspacePath\) return \{ workspace: null, historyDiagnostic: currentHistoryDiagnostic \};/);
+  assert.match(handler, /workspace: null/);
+  assert.match(handler, /historyDiagnostic: currentHistoryDiagnostic/);
 });
 
 test("history is persisted after restoration readiness without rolling back the ready workspace", () => {

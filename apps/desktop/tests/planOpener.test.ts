@@ -62,10 +62,10 @@ test("selects a terminal plan through the authenticated sidecar endpoint", async
   }]);
 });
 
-test("starts the sidecar with the plan token and retains the restored workspace", async () => {
+test("starts the sidecar with the plan token without startup workspace adoption", async () => {
   const mainSource = await readFile(new URL("../electron/main.ts", import.meta.url), "utf8");
 
   assert.match(mainSource, /env: \{ \.\.\.process\.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken \}/);
-  assert.match(mainSource, /if \(initialSidecarCwd\) void workspaceSwitchCoordinator\.switchWorkspace\(initialSidecarCwd\)\.catch\(\(\) => \{\}\);/);
+  assert.doesNotMatch(mainSource, /initialSidecarCwd/);
   assert.match(mainSource, /openPlanToken = randomBytes\(32\)\.toString\("hex"\);/);
 });

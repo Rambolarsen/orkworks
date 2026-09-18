@@ -47,9 +47,12 @@ The installation-scoped history file contains only:
 
 The file contains no process IDs, ports, leases, health flags, ownership
 claims, peer identifiers, or open/closed state. `lastWorkspacePath` is only a
-startup hint. If two instances receive the same hint, each independently
-attempts to open it and an ordinary workspace-lease conflict is shown; neither
-instance searches for or activates the other.
+startup hint for the picker; it is not proof that a newly launched instance
+owns the directory. Until the native process-tree ownership prerequisite is
+proven for the target platform, startup must remain in the picker and require
+an explicit workspace selection. If two instances receive the same hint, each
+independently attempts to open it and an ordinary workspace-lease conflict is
+shown; neither instance searches for or activates the other.
 
 The history contract is:
 

@@ -154,7 +154,8 @@ jobs:
             "taskmaster::evaluator::activation_tests::custom_evaluation_rechecks_readiness_before_context_and_reservation",
             "taskmaster::evaluator::activation_tests::custom_evaluation_discards_output_revoked_while_child_is_running",
             "taskmaster::evaluator::activation_tests::custom_evaluation_recovers_after_reapproval_or_reenable",
-            "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it"
+            "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it",
+            "workspace_runtime::tests::native_identity_rejects_missing_windows_identity_parts"
           )
           foreach ($test in $required) {
             if ($listed -notcontains "$($test): test") { throw "Missing required Windows test: $test" }
@@ -170,6 +171,8 @@ jobs:
           cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::context
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::runtime::selection_tests
+      - name: Test native workspace identity on Windows
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml workspace_runtime
 
   windows-process-ownership:
     name: Windows process ownership fixture

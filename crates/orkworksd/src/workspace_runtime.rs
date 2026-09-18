@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 enum DirectoryIdentity {
     #[cfg(unix)]
     Unix { device: u64, inode: u64 },
-    #[cfg(windows)]
+    #[cfg(any(windows, test))]
     Windows { volume: u32, file_index: u64 },
     #[cfg(not(any(unix, windows)))]
     Unsupported,
@@ -39,7 +39,7 @@ impl WorkspaceIdentity {
         Ok(Self {
             requested_path: path.to_path_buf(),
             canonical_path,
-            directory_identity: native_directory_identity(&metadata),
+            directory_identity: native_directory_identity(&metadata)?,
             _directory: directory,
         })
     }
@@ -59,7 +59,7 @@ impl WorkspaceIdentity {
     pub(crate) fn revalidate(&self) -> io::Result<()> {
         let retained_metadata = self._directory.metadata()?;
         if !retained_metadata.is_dir()
-            || native_directory_identity(&retained_metadata) != self.directory_identity
+            || native_directory_identity(&retained_metadata)? != self.directory_identity
         {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -103,28 +103,44 @@ fn open_directory(path: &Path) -> io::Result<File> {
     File::open(path)
 }
 
-fn native_directory_identity(metadata: &std::fs::Metadata) -> DirectoryIdentity {
+fn native_directory_identity(metadata: &std::fs::Metadata) -> io::Result<DirectoryIdentity> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        return DirectoryIdentity::Unix {
+        return Ok(DirectoryIdentity::Unix {
             device: metadata.dev(),
             inode: metadata.ino(),
-        };
+        });
     }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        return DirectoryIdentity::Windows {
-            volume: metadata.volume_serial_number().unwrap_or_default(),
-            file_index: metadata.file_index().unwrap_or_default(),
-        };
+        return windows_directory_identity(metadata.volume_serial_number(), metadata.file_index());
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = metadata;
-        DirectoryIdentity::Unsupported
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "native workspace identity is unavailable",
+        ))
     }
+}
+
+#[cfg(any(windows, test))]
+fn windows_directory_identity(
+    volume: Option<u32>,
+    file_index: Option<u64>,
+) -> io::Result<DirectoryIdentity> {
+    Ok(DirectoryIdentity::Windows {
+        volume: require_identity_part(volume, "workspace volume identity is unavailable")?,
+        file_index: require_identity_part(file_index, "workspace file identity is unavailable")?,
+    })
+}
+
+#[cfg(any(windows, test))]
+fn require_identity_part<T>(value: Option<T>, message: &'static str) -> io::Result<T> {
+    value.ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, message))
 }
 
 /// Exclusive OS-level ownership of one workspace's metadata directory.
@@ -268,5 +284,28 @@ mod tests {
         assert!(parse_hook_observed_at("2026-07-21T08:00:00Z").is_err());
         assert!(parse_hook_observed_at("2026-07-21T08:00:00.123Z").is_err());
         assert!(parse_hook_observed_at("2026-07-21T08:00:00.123456+00:00").is_err());
+    }
+
+    #[test]
+    fn native_identity_rejects_missing_windows_identity_parts() {
+        assert!(matches!(
+            windows_directory_identity(Some(7), Some(11)),
+            Ok(DirectoryIdentity::Windows {
+                volume: 7,
+                file_index: 11
+            })
+        ));
+        let volume_error = windows_directory_identity(None, Some(11)).unwrap_err();
+        assert_eq!(volume_error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(
+            volume_error.to_string(),
+            "workspace volume identity is unavailable"
+        );
+        let file_index_error = windows_directory_identity(Some(7), None).unwrap_err();
+        assert_eq!(file_index_error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(
+            file_index_error.to_string(),
+            "workspace file identity is unavailable"
+        );
     }
 }

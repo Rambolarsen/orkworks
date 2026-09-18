@@ -234,9 +234,6 @@ app.whenReady().then(() => {
   if (appMemory.diagnostic) {
     console.warn("[main] workspace history diagnostic", appMemory.diagnostic.message);
   }
-  const initialWorkspacePath = appMemory.lastWorkspacePath
-    ? accessibleWorkspaceDirectoryPath(appMemory.lastWorkspacePath)
-    : null;
   const initialHistoryDiagnostic = toWorkspaceHistoryDiagnostic(appMemory.diagnostic);
   let currentHistoryDiagnostic = initialHistoryDiagnostic;
   workspacePath = null;
@@ -963,15 +960,14 @@ app.whenReady().then(() => {
     writeLayoutMemory(app.getPath("userData"), json);
   });
 
-  ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => {
-    if (!initialWorkspacePath) return { workspace: null, historyDiagnostic: currentHistoryDiagnostic };
-    try {
-      await restoration.getReadiness();
-      return { workspace: restoration.getRestoredWorkspace(), historyDiagnostic: currentHistoryDiagnostic };
-    } catch {
-      return { workspace: null, historyDiagnostic: currentHistoryDiagnostic };
-    }
-  });
+  ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => ({
+    // Workspace history is a picker hint, not proof that this process owns the
+    // remembered directory after a restart. Native process-tree ownership is
+    // not proven on every supported platform yet, so startup remains in the
+    // picker until the user explicitly chooses a destination.
+    workspace: null,
+    historyDiagnostic: currentHistoryDiagnostic,
+  }));
 
   ipcMain.handle("get-settings", async () => {
     currentSettings = readSettings(app.getPath("userData"));
@@ -1540,8 +1536,6 @@ app.whenReady().then(() => {
     applyMenu(createMenu(currentSettings));
   });
 
-  const initialSidecarCwd = initialWorkspacePath;
-  if (initialSidecarCwd) void workspaceSwitchCoordinator.switchWorkspace(initialSidecarCwd).catch(() => {});
   createWindow();
   applyMenu(createMenu(currentSettings));
 
