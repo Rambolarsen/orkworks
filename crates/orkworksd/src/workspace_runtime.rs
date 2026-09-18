@@ -39,7 +39,7 @@ impl WorkspaceIdentity {
         Ok(Self {
             requested_path: path.to_path_buf(),
             canonical_path,
-            directory_identity: native_directory_identity(&metadata)?,
+            directory_identity: native_directory_identity(&directory, &metadata)?,
             _directory: directory,
         })
     }
@@ -59,7 +59,8 @@ impl WorkspaceIdentity {
     pub(crate) fn revalidate(&self) -> io::Result<()> {
         let retained_metadata = self._directory.metadata()?;
         if !retained_metadata.is_dir()
-            || native_directory_identity(&retained_metadata)? != self.directory_identity
+            || native_directory_identity(&self._directory, &retained_metadata)?
+                != self.directory_identity
         {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -103,10 +104,14 @@ fn open_directory(path: &Path) -> io::Result<File> {
     File::open(path)
 }
 
-fn native_directory_identity(metadata: &std::fs::Metadata) -> io::Result<DirectoryIdentity> {
+fn native_directory_identity(
+    directory: &File,
+    metadata: &std::fs::Metadata,
+) -> io::Result<DirectoryIdentity> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
+        let _ = directory;
         return Ok(DirectoryIdentity::Unix {
             device: metadata.dev(),
             inode: metadata.ino(),
@@ -114,8 +119,25 @@ fn native_directory_identity(metadata: &std::fs::Metadata) -> io::Result<Directo
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        return windows_directory_identity(metadata.volume_serial_number(), metadata.file_index());
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+
+        let _ = metadata;
+        let mut information = BY_HANDLE_FILE_INFORMATION::default();
+        let success =
+            unsafe { GetFileInformationByHandle(directory.as_raw_handle(), &mut information) };
+        if success == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let file_index =
+            (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+        return windows_directory_identity(
+            Some(information.dwVolumeSerialNumber),
+            Some(file_index),
+        );
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -307,5 +329,20 @@ mod tests {
             file_index_error.to_string(),
             "workspace file identity is unavailable"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_identity_reads_a_directory_handle_on_windows() {
+        let root = tempfile::tempdir().unwrap();
+        let identity = WorkspaceIdentity::resolve(root.path()).unwrap();
+
+        assert!(matches!(
+            identity.directory_identity,
+            DirectoryIdentity::Windows {
+                volume: _,
+                file_index: _
+            }
+        ));
     }
 }
