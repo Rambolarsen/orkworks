@@ -254,7 +254,30 @@ test("legacy workspace history canonicalizes a symlinked alias during migration"
     assert.deepEqual(loaded.recentWorkspacePaths, [expectedPath, "/repo/missing"]);
   }));
 
-test("legacy workspace history over the old 64 KiB gate but under the new legacy ceiling still migrates", () =>
+test("legacy workspace history leaves non-last recentWorkspacePaths uncanonicalized, bounding sync fs resolution to one call", () =>
+  withTemporaryUserData((directory) => {
+    const realPath = join(directory, "real-workspace");
+    const aliasPath = join(directory, "alias-workspace");
+    mkdirSync(realPath);
+    symlinkSync(realPath, aliasPath, "dir");
+
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: "/repo/other",
+      recentWorkspacePaths: ["/repo/other", aliasPath],
+    };
+    writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.lastWorkspacePath, "/repo/other");
+    // aliasPath is not lastWorkspacePath, so it is intentionally left
+    // unresolved rather than paying a second synchronous realpath call.
+    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/other", aliasPath]);
+  }));
+
+test("legacy workspace history over the old 64 KiB gate but under the legacy ceiling still migrates", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
     // A handful of long (e.g. Windows extended-length) paths the pre-#569
@@ -263,13 +286,29 @@ test("legacy workspace history over the old 64 KiB gate but under the new legacy
     const legacy = { lastWorkspacePath: paths[0], recentWorkspacePaths: paths };
     const raw = JSON.stringify(legacy);
     assert.ok(Buffer.byteLength(raw, "utf8") > 64 * 1024);
-    assert.ok(Buffer.byteLength(raw, "utf8") <= 512 * 1024);
+    assert.ok(Buffer.byteLength(raw, "utf8") <= 2 * 1024 * 1024);
     writeFileSync(historyPath, raw);
 
     const loaded = readWorkspaceMemory(directory);
 
     assert.equal(loaded.diagnostic, null);
     assert.equal(loaded.lastWorkspacePath, paths[0]);
+  }));
+
+test("legacy workspace history with more entries than the old writer's 10-entry cap is diagnosed as corrupt", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: "/repo/0",
+      recentWorkspacePaths: Array.from({ length: 11 }, (_, index) => `/repo/${index}`),
+    };
+    const raw = JSON.stringify(legacy);
+    writeFileSync(historyPath, raw);
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic?.code, "corrupt_history");
+    assert.equal(readFileSync(historyPath, "utf8"), raw);
   }));
 
 test("legacy workspace history whose migrated record cannot fit is diagnosed, not silently truncated", () =>

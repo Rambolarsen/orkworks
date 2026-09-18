@@ -41,13 +41,19 @@ const fileName = "workspace-memory.json";
 const lockFileName = ".workspace-memory.lock";
 const maximumRecentPaths = 20;
 const maximumSerializedBytes = 64 * 1024;
+// The pre-#569 writer's actual cap (see validLegacyStoredMemory) — never 20.
+const maximumLegacyRecentPaths = 10;
 // Pre-#569 files predate any byte bound: the old writer capped at 10 entries
 // with no size limit, so long (e.g. Windows extended-length) paths could
-// legitimately exceed maximumSerializedBytes. Gate parsing at a larger
-// sanity ceiling instead of rejecting such files before they're even
-// inspected; migratedLegacyMemory still trims the result to fit
-// maximumSerializedBytes via boundedPaths.
-const maximumLegacySourceBytes = 512 * 1024;
+// legitimately exceed maximumSerializedBytes. Gate parsing at a sanity
+// ceiling derived from the old writer's actual worst case instead of
+// rejecting such files before they're even inspected: up to
+// maximumLegacyRecentPaths entries plus one duplicate of lastWorkspacePath,
+// each up to the Windows extended-length maximum of 32,767 UTF-16 code
+// units (~98,301 bytes worst-case UTF-8) — roughly 1.05 MiB including JSON
+// overhead. 2 MiB leaves comfortable headroom. migratedLegacyMemory still
+// trims the result to fit maximumSerializedBytes via boundedPaths.
+const maximumLegacySourceBytes = 2 * 1024 * 1024;
 const lockRetryCount = 50;
 const lockRetryDelayMs = 10;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -138,6 +144,7 @@ function validLegacyStoredMemory(value: unknown): value is LegacyStoredWorkspace
   ])) return false;
   return (raw.lastWorkspacePath === null || typeof raw.lastWorkspacePath === "string")
     && Array.isArray(raw.recentWorkspacePaths)
+    && raw.recentWorkspacePaths.length <= maximumLegacyRecentPaths
     && raw.recentWorkspacePaths.every((entry) => typeof entry === "string");
 }
 
@@ -148,6 +155,14 @@ function validLegacyStoredMemory(value: unknown): value is LegacyStoredWorkspace
 // alias would leave the other behind. Fall back to the raw string only when
 // the path no longer resolves (moved/deleted/unmounted) rather than
 // dropping history for a temporarily-inaccessible workspace.
+//
+// realpathSync.native is a synchronous, potentially slow syscall (a
+// disconnected UNC share or other unreachable network mount can block for
+// the OS network timeout), and readWorkspaceMemory runs on Electron's main
+// thread before the window is created. Resolve only lastWorkspacePath — the
+// one entry guaranteed to be touched again immediately, since it's what
+// gets auto-restored at startup — rather than every recentWorkspacePaths
+// entry, to bound the worst-case startup stall to a single call.
 function canonicalizedLegacyPath(path: string): string {
   return canonicalWorkspacePath(path) ?? path;
 }
@@ -156,7 +171,12 @@ function migratedLegacyMemory(legacy: LegacyStoredWorkspaceMemory): AppWorkspace
   const lastWorkspacePath = legacy.lastWorkspacePath === null
     ? null
     : canonicalizedLegacyPath(legacy.lastWorkspacePath);
-  const recentWorkspacePaths = legacy.recentWorkspacePaths.map(canonicalizedLegacyPath);
+  // Drop the raw alias for lastWorkspacePath so boundedPaths' string-based
+  // dedup doesn't keep both it and the canonical form side by side; other
+  // entries stay untouched and self-heal (string-dedup) once reopened.
+  const recentWorkspacePaths = legacy.lastWorkspacePath === null
+    ? legacy.recentWorkspacePaths
+    : legacy.recentWorkspacePaths.filter((path) => path !== legacy.lastWorkspacePath);
   const bounded = boundedPaths(lastWorkspacePath, recentWorkspacePaths, 0);
   // boundedPaths only returns null when even a single entry can't fit under
   // the serialized-size bound. Silently dropping recentWorkspacePaths would
