@@ -1,11 +1,21 @@
 import { resolve } from "path";
 
+const DEFAULT_DEV_PORT = 5173;
+
+function resolveDevPort() {
+  const raw = process.env.ORKWORKS_DEV_PORT;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_DEV_PORT;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return DEFAULT_DEV_PORT;
+  return port;
+}
+
 export function createViteServerOptions(root) {
   return {
     configFile: resolve(root, "vite.config.mjs"),
     root,
     server: {
-      port: 5173,
+      port: resolveDevPort(),
       strictPort: true,
     },
   };
