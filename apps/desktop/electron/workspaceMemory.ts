@@ -41,6 +41,13 @@ const fileName = "workspace-memory.json";
 const lockFileName = ".workspace-memory.lock";
 const maximumRecentPaths = 20;
 const maximumSerializedBytes = 64 * 1024;
+// Pre-#569 files predate any byte bound: the old writer capped at 10 entries
+// with no size limit, so long (e.g. Windows extended-length) paths could
+// legitimately exceed maximumSerializedBytes. Gate parsing at a larger
+// sanity ceiling instead of rejecting such files before they're even
+// inspected; migratedLegacyMemory still trims the result to fit
+// maximumSerializedBytes via boundedPaths.
+const maximumLegacySourceBytes = 512 * 1024;
 const lockRetryCount = 50;
 const lockRetryDelayMs = 10;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -134,8 +141,23 @@ function validLegacyStoredMemory(value: unknown): value is LegacyStoredWorkspace
     && raw.recentWorkspacePaths.every((entry) => typeof entry === "string");
 }
 
+// The pre-#569 writer never canonicalized paths (it stored the raw dialog
+// selection), while every current write path canonicalizes first. Without
+// this, migrating a legacy alias verbatim lets a later canonical write for
+// the same workspace add a second, string-distinct entry, and removing one
+// alias would leave the other behind. Fall back to the raw string only when
+// the path no longer resolves (moved/deleted/unmounted) rather than
+// dropping history for a temporarily-inaccessible workspace.
+function canonicalizedLegacyPath(path: string): string {
+  return canonicalWorkspacePath(path) ?? path;
+}
+
 function migratedLegacyMemory(legacy: LegacyStoredWorkspaceMemory): AppWorkspaceMemory {
-  const bounded = boundedPaths(legacy.lastWorkspacePath, legacy.recentWorkspacePaths, 0);
+  const lastWorkspacePath = legacy.lastWorkspacePath === null
+    ? null
+    : canonicalizedLegacyPath(legacy.lastWorkspacePath);
+  const recentWorkspacePaths = legacy.recentWorkspacePaths.map(canonicalizedLegacyPath);
+  const bounded = boundedPaths(lastWorkspacePath, recentWorkspacePaths, 0);
   // boundedPaths only returns null when even a single entry can't fit under
   // the serialized-size bound. Silently dropping recentWorkspacePaths would
   // produce a lastWorkspacePath not present in the list, violating the same
@@ -146,7 +168,7 @@ function migratedLegacyMemory(legacy: LegacyStoredWorkspaceMemory): AppWorkspace
   return {
     version: 1,
     revision: 0,
-    lastWorkspacePath: legacy.lastWorkspacePath,
+    lastWorkspacePath,
     recentWorkspacePaths: bounded,
     diagnostic: null,
   };
@@ -180,13 +202,18 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
 
   try {
     const source = readFileSync(target);
-    if (source.byteLength > maximumSerializedBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    if (source.byteLength > maximumLegacySourceBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     const parsed: unknown = JSON.parse(utf8Decoder.decode(source));
     if (!validStoredMemory(parsed)) {
       if (validLegacyStoredMemory(parsed)) return migratedLegacyMemory(parsed);
       return withDiagnostic(emptyMemory(), corruptDiagnostic);
     }
-    if (!memoryFits(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    // The v1 writer never produces a file over maximumSerializedBytes, so
+    // enforce that tighter bound here now that the shape is confirmed
+    // current-format rather than legacy.
+    if (source.byteLength > maximumSerializedBytes || !memoryFits(parsed)) {
+      return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    }
     return {
       version: 1,
       revision: parsed.revision,
