@@ -37,10 +37,12 @@ the user that board access is required before picking or closing work.
 ## Assumption discipline
 
 Before acting, make every assumption that could change scope, target,
-permissions, or expected behavior explicit. Treat missing context as unknown,
-not as permission to guess. Validate material assumptions against the task,
-live OrkWorks recommendation or API when applicable, authoritative specs, and
-scoped repository instructions.
+permissions, or expected behavior explicit. Investigate first, then decide:
+read the authoritative sources before committing to an interpretation or an
+action — never decide first and search for supporting evidence afterward.
+Treat missing context as unknown, not as permission to guess. Validate
+material assumptions against the task, live OrkWorks recommendation or API
+when applicable, authoritative specs, and scoped repository instructions.
 
 Separate facts, inferences, and open questions in the working update or plan.
 If authoritative evidence is missing or conflicts, stop and ask rather than
