@@ -185,6 +185,75 @@ test("forgetWorkspacePath leaves memory and revision untouched for an unknown pa
     assert.deepEqual(readWorkspaceMemory(directory), remembered);
   }));
 
+test("legacy workspace history without version/revision fields is migrated instead of diagnosed as corrupt", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: "/repo/a",
+      recentWorkspacePaths: ["/repo/a", "/repo/b"],
+    };
+    writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.version, 1);
+    assert.equal(loaded.lastWorkspacePath, "/repo/a");
+    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a", "/repo/b"]);
+
+    const remembered = rememberWorkspacePath(directory, "/repo/c");
+
+    assert.equal(remembered.diagnostic, null);
+    assert.equal(remembered.lastWorkspacePath, "/repo/c");
+    assert.deepEqual(remembered.recentWorkspacePaths, ["/repo/c", "/repo/a", "/repo/b"]);
+    assert.deepEqual(JSON.parse(readFileSync(historyPath, "utf8")), {
+      version: 1,
+      revision: remembered.revision,
+      lastWorkspacePath: "/repo/c",
+      recentWorkspacePaths: ["/repo/c", "/repo/a", "/repo/b"],
+    });
+  }));
+
+test("legacy workspace history with a cleared lastWorkspacePath still migrates", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: null,
+      recentWorkspacePaths: ["/repo/a", "/repo/b"],
+    };
+    writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.lastWorkspacePath, null);
+    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a", "/repo/b"]);
+  }));
+
+test("legacy workspace history whose migrated record cannot fit is diagnosed, not silently truncated", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    // Under the 64 KiB source-file gate on its own (no recentWorkspacePaths
+    // entry), but once migrated the candidate embeds lastWorkspacePath a
+    // second time (in recentWorkspacePaths) plus the new version/revision
+    // fields, pushing it over the bound.
+    const oversizedPath = `/repo/${"x".repeat(50_000)}`;
+    const legacy = {
+      lastWorkspacePath: oversizedPath,
+      recentWorkspacePaths: [] as string[],
+    };
+    const raw = JSON.stringify(legacy);
+    assert.ok(Buffer.byteLength(raw, "utf8") <= 64 * 1024);
+    writeFileSync(historyPath, raw);
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic?.code, "corrupt_history");
+    assert.equal(loaded.lastWorkspacePath, null);
+    assert.deepEqual(loaded.recentWorkspacePaths, []);
+    assert.equal(readFileSync(historyPath, "utf8"), raw);
+  }));
+
 test("corrupt workspace history is diagnosed and preserved across mutation attempts", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);

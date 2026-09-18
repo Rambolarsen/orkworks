@@ -111,6 +111,47 @@ function boundedPaths(
   return memoryFits({ ...candidate, recentWorkspacePaths: bounded }) ? bounded : null;
 }
 
+interface LegacyStoredWorkspaceMemory {
+  lastWorkspacePath: string | null;
+  recentWorkspacePaths: string[];
+}
+
+// Pre-#569 files predate the version/revision fields and the invariants
+// validStoredMemory enforces (deduplication, lastWorkspacePath inclusion).
+// Accept the looser shape the old writer actually produced and normalize it
+// through boundedPaths rather than rejecting installs' existing history as
+// corrupt.
+function validLegacyStoredMemory(value: unknown): value is LegacyStoredWorkspaceMemory {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const raw = value as Record<string, unknown>;
+  const keys = Object.keys(raw).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([
+    "lastWorkspacePath",
+    "recentWorkspacePaths",
+  ])) return false;
+  return (raw.lastWorkspacePath === null || typeof raw.lastWorkspacePath === "string")
+    && Array.isArray(raw.recentWorkspacePaths)
+    && raw.recentWorkspacePaths.every((entry) => typeof entry === "string");
+}
+
+function migratedLegacyMemory(legacy: LegacyStoredWorkspaceMemory): AppWorkspaceMemory {
+  const bounded = boundedPaths(legacy.lastWorkspacePath, legacy.recentWorkspacePaths, 0);
+  // boundedPaths only returns null when even a single entry can't fit under
+  // the serialized-size bound. Silently dropping recentWorkspacePaths would
+  // produce a lastWorkspacePath not present in the list, violating the same
+  // invariant validStoredMemory enforces for the current format — surface a
+  // diagnostic instead, matching how every other "doesn't fit" case here
+  // fails loud rather than discarding data quietly.
+  if (bounded === null) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+  return {
+    version: 1,
+    revision: 0,
+    lastWorkspacePath: legacy.lastWorkspacePath,
+    recentWorkspacePaths: bounded,
+    diagnostic: null,
+  };
+}
+
 function validStoredMemory(value: unknown): value is StoredWorkspaceMemory {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const raw = value as Record<string, unknown>;
@@ -141,7 +182,10 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
     const source = readFileSync(target);
     if (source.byteLength > maximumSerializedBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     const parsed: unknown = JSON.parse(utf8Decoder.decode(source));
-    if (!validStoredMemory(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    if (!validStoredMemory(parsed)) {
+      if (validLegacyStoredMemory(parsed)) return migratedLegacyMemory(parsed);
+      return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    }
     if (!memoryFits(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     return {
       version: 1,
