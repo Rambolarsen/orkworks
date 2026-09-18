@@ -50,13 +50,13 @@ orkworks/
 - New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; harness definitions resolve from embedded built-ins plus sparse versioned overrides in `~/.orkworks/harnesses.json`
 - Antigravity CLI is the supported Google coding tool (`agy`); retired Gemini CLI records and settings remain readable for compatibility but cannot start new sessions
 - Session labels are stable topics, re-seeded only after a harness-declared fresh-conversation command; delayed old-topic inference cannot overwrite the reset placeholder (ADR 0040)
-- The app remembers the last workspace and repo-local active session for relaunch restore
+- The installation remembers canonical workspace paths in path-only history; the last path is a startup hint, while repo-local session restore remains scoped to the one workspace adopted by that instance
 - The Electron main process owns app-level settings in `userData`, including canonical default hotkeys and persisted hotkeys that drive native menu accelerators
 - Session details show read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` for the selected session. Peon uses the explicitly applied provider and model from Settings; it does not fall back to another provider (see [ADR 0044](docs/adr/0044-peon-provider-first-selection.md)).
 - ADR 0023 defines the target runtime lifecycle as `creating → alive → stopping → dead`, with live attention only while a session is alive. The current implementation retains the earlier lifecycle vocabulary until that migration lands (see [ADR 0023](docs/adr/0023-simplified-session-lifecycle.md))
 - Lifecycle transitions remain metadata-driven; the previously unwired domain aggregate was removed, with a future typed state-machine tracked in [issue #181](https://github.com/Rambolarsen/orkworks/issues/181) (see [ADR 0021](docs/adr/0021-session-lifecycle-phases.md)).
 - PTY lifetime is owned by the Rust sidecar session runtime rather than by a renderer WebSocket; active work survives terminal detach while `orkworksd` stays alive (see [ADR 0022](docs/adr/0022-session-runtime-owned-pty-lifetime.md))
-- Each sidecar takes an exclusive OS lease on the workspace metadata directory before loading or reconciling sessions; a second sidecar receives a conflict instead of marking the first sidecar's live sessions dead (see [ADR 0052](docs/adr/0052-single-writer-workspace-lease.md))
+- Each independent instance owns at most one sidecar, which takes an exclusive OS lease on its workspace metadata directory before loading or reconciling sessions; another owner receives a conflict instead of being inspected or terminated (see [ADR 0052](docs/adr/0052-single-writer-workspace-lease.md) and [ADR 0060](docs/adr/0060-independent-workspace-instances.md))
 - Resumed PTY runtimes carry an internal generation so delayed callbacks from a retired runtime cannot alter its replacement (see [ADR 0041](docs/adr/0041-session-runtime-generation-ownership.md))
 - Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; dead sessions display that saved output read-only, while accepted session summaries are retained as durable checkpoints (see [ADR 0024](docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md)). (design, not yet implemented — see issue #313) A current-summary snapshot (`summary`/`summarySource`/`summaryConfidence`/`summaryObservedAt`) is planned to replace that checkpoint log, with durable workflow-friction evidence recorded separately as `WorkflowObservation`s for Taskmaster (see [ADR 0042](docs/adr/0042-workflow-observations-replace-summary-checkpoints.md))
 - Session plans/specs appear in a reusable Review tab; the renderer receives availability and document content, never a filesystem path. The sole terminal-input exception is a user-clicked, fixed review prompt that asks the active agent to delegate to a subagent when possible (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md), [ADR 0034](docs/adr/0034-user-approved-session-review-prompt.md))
@@ -132,6 +132,10 @@ apm install
 ```
 
 ## Build and release
+
+Desktop builds include the native `fs-ext` workspace-history lock and rebuild it
+for Electron. Native build tools are required. After building, run
+`pnpm rebuild fs-ext` in `apps/desktop` before running the Node test suite.
 
 The source wiring for stable-tag releases and daily `main` prereleases is
 implemented in `.github/workflows/release.yml` and
@@ -300,7 +304,7 @@ Session metadata and session API payloads now accept canonical `harnessId`, `mod
 
 ## Specs
 
-- [Concurrent workspaces](specs/multi-workspace.md) — proposed design for remembered locations and background sessions; not implemented
+- [Independent workspace instances](specs/multi-workspace.md) — proposed design for installation-scoped path history and one-workspace instances; not implemented
 - `specs/orkworks-mvp.md` — full product scope, architecture, milestones, non-goals
 - `specs/native-harness-voice-support.md` — voice support design
 - `specs/release-pipeline.md` — alpha desktop packaging and GitHub Releases workflow

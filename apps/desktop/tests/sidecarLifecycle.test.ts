@@ -95,7 +95,10 @@ class FakeTimers {
   }
 }
 
-function createHarness(spawn?: (cwd: string) => FakeProcess) {
+function createHarness(
+  spawn?: (cwd: string) => FakeProcess,
+  options: { cleanupTimeoutMs?: number } = {},
+) {
   const processes: FakeProcess[] = [];
   const spawnProcess = spawn ?? (() => {
     const process = new FakeProcess();
@@ -105,6 +108,7 @@ function createHarness(spawn?: (cwd: string) => FakeProcess) {
   const timers = new FakeTimers();
   const states: SidecarState[] = [];
   const unavailable: string[] = [];
+  const unexpectedExits: string[] = [];
   const ready: number[] = [];
   const lifecycle = createSidecarLifecycle({
     spawn: spawnProcess,
@@ -114,14 +118,14 @@ function createHarness(spawn?: (cwd: string) => FakeProcess) {
     callbacks: {
       onReady: (port) => ready.push(port),
       onUnavailable: (message) => unavailable.push(message),
+      onUnexpectedExit: (message) => unexpectedExits.push(message),
       onState: (state) => states.push(state),
     },
     readinessTimeoutMs: 10,
-    retryDelaysMs: [1, 2],
-    readyStabilityMs: 5,
+    cleanupTimeoutMs: options.cleanupTimeoutMs,
   });
 
-  return { lifecycle, processes, timers, states, unavailable, ready };
+  return { lifecycle, processes, timers, states, unavailable, unexpectedExits, ready };
 }
 
 test("rejects readiness when the process exits before publishing a port", async () => {
@@ -159,68 +163,12 @@ test("stopAndWait resolves after stopping before readiness", async () => {
   assert.equal(timers.size, 0);
 });
 
-test("stopAndWait resolves an already-exited process and cancels recovery", async () => {
-  const { lifecycle, processes, timers } = createHarness();
-  const readiness = lifecycle.start("/workspace");
-  processes[0].exit(1);
-  await assert.rejects(readiness, /exited before readiness/i);
-  assert.equal(timers.size, 1);
-
-  const stopping = lifecycle.stopAndWait(1000);
-  assert.equal(timers.size, 0);
-  timers.advanceBy(1000);
-
-  await assert.doesNotReject(stopping);
-  assert.equal(processes.length, 1);
-  assert.equal(timers.size, 0);
-});
-
-test("stopAndWait rejects an already-errored process and cancels recovery", async () => {
-  const { lifecycle, processes, timers } = createHarness();
-  const readiness = lifecycle.start("/workspace");
-  processes[0].error(new Error("spawn failed"));
-  await assert.rejects(readiness, /spawn failed/);
-  assert.equal(timers.size, 1);
-
-  const stopping = lifecycle.stopAndWait(1000);
-  assert.equal(timers.size, 0);
-  timers.advanceBy(1000);
-
-  await assert.rejects(stopping, /spawn failed/);
-  assert.equal(processes.length, 1);
-  assert.equal(timers.size, 0);
-});
-
 test("stopAndWait rejects unbounded or negative timeouts", async () => {
   for (const timeoutMs of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
     const { lifecycle } = createHarness();
 
     await assert.rejects(lifecycle.stopAndWait(timeoutMs), /finite and non-negative/i);
   }
-});
-
-test("stopAndWait timeout retains ownership until exit, across start and retry", async () => {
-  const { lifecycle, processes, timers } = createHarness();
-  const ready = lifecycle.start("C:\\workspace");
-  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
-  await ready;
-  const stopping = lifecycle.stopAndWait(50);
-  timers.advanceBy(50);
-  await assert.rejects(stopping, /timed out/i);
-  for (const restart of [() => lifecycle.start("C:\\workspace"), () => lifecycle.retry()]) {
-    const result = restart();
-    void result.catch(() => {});
-    assert.equal(processes.length, 1, "must not replace a child whose exit is unconfirmed");
-    await assert.rejects(result, /exit.*confirmed|restart OrkWorks/i);
-  }
-  processes[0].error(new Error("termination failed"));
-  await assert.rejects(lifecycle.retry(), /exit.*confirmed|restart OrkWorks/i);
-  processes[0].exit(0);
-  await lifecycle.stopAndWait(50);
-  const restarted = lifecycle.start("C:\\workspace");
-  assert.equal(processes.length, 2);
-  processes[1].stdout.emit("ORKWORKSD_PORT=5555\n");
-  assert.equal(await restarted, 5555);
 });
 
 test("stopAndWait rejects on timeout without starting a replacement", async () => {
@@ -238,58 +186,114 @@ test("stopAndWait rejects on timeout without starting a replacement", async () =
   assert.equal(timers.size, 0);
 });
 
-test("stopAndWait rejects on process error and repeated callers share one promise", async () => {
-  const { lifecycle, processes, timers } = createHarness();
-  const readiness = lifecycle.start("C:\\workspace");
-  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
-  await readiness;
-  const first = lifecycle.stopAndWait(1000);
-  const second = lifecycle.stopAndWait(1000);
-
-  assert.strictEqual(first, second);
-  processes[0].error(new Error("kill failed"));
-
-  await assert.rejects(first, /kill failed/);
-  assert.equal(timers.size, 0);
-});
-
-test("ignores exit from an obsolete generation", async () => {
+test("starts the next generation only after the old process exits", async () => {
   const { lifecycle, processes } = createHarness();
   const first = lifecycle.start("/one");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4556\n");
+  await first;
+  const stopped = lifecycle.stop();
+  processes[0].exit(0);
+  await stopped;
+
   const second = lifecycle.start("/two");
 
   processes[1].stdout.emit("ORKWORKSD_PORT=4567\n");
-  processes[0].exit(1);
 
-  await assert.rejects(first, /stopped/i);
   assert.equal(await second, 4567);
   assert.equal(lifecycle.getPort(), 4567);
 });
 
-test("stops after three automatic attempts and permits explicit retry", async () => {
+test("stop resolves only after the owned process exits", async () => {
+  const { lifecycle, processes } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4567\n");
+  await readiness;
+
+  let stopped = false;
+  const cleanup = lifecycle.stop().then(() => {
+    stopped = true;
+  });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+
+  processes[0].exit(0);
+  await cleanup;
+  assert.equal(stopped, true);
+});
+
+test("does not automatically replace an unexpectedly exited sidecar without ownership proof", async () => {
   const { lifecycle, processes, timers, states } = createHarness();
   const initial = lifecycle.start("/workspace");
   processes[0].exit(1);
   await assert.rejects(initial, /exited before readiness/i);
 
-  timers.runNext();
-  processes[1].exit(1);
-  timers.runNext();
-  processes[2].exit(1);
-
-  assert.equal(processes.length, 3);
   assert.equal(timers.size, 0);
-  assert.equal(states.at(-1), "exhausted");
+  assert.equal(processes.length, 1);
+  assert.equal(states.at(-1), "failed");
 
   const retry = lifecycle.retry();
-  processes[3].stdout.emit("ORKWORKSD_PORT=7890\n");
-
-  assert.equal(await retry, 7890);
-  assert.equal(lifecycle.getPort(), 7890);
+  await assert.rejects(retry, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_failed");
+    return true;
+  });
+  assert.equal(processes.length, 1);
 });
 
-test("notifies when a ready process exits", async () => {
-  const { lifecycle, processes, unavailable } = createHarness();
+test("cleanup timeout rejects with a typed failure and blocks replacement while the old sidecar runs", async () => {
+  const { lifecycle, processes, timers } = createHarness(undefined, { cleanupTimeoutMs: 5 });
+  const readiness = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4567\n");
+  await readiness;
+
+  const cleanup = lifecycle.stop();
+  timers.advanceBy(5);
+  await assert.rejects(cleanup, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_timeout");
+    return true;
+  });
+
+  const replacement = lifecycle.start("/next");
+  assert.equal(processes.length, 1);
+  await assert.rejects(replacement, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_timeout");
+    return true;
+  });
+});
+
+test("cleanup timeout remains sticky after process exit and blocks start and retry", async () => {
+  const { lifecycle, processes, timers } = createHarness(undefined, { cleanupTimeoutMs: 5 });
+  const readiness = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4567\n");
+  await readiness;
+
+  const cleanup = lifecycle.stop();
+  timers.advanceBy(5);
+  await assert.rejects(cleanup, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_timeout");
+    return true;
+  });
+
+  processes[0].exit(0);
+
+  const startResult = lifecycle.start("/replacement").then(
+    () => null,
+    (error: unknown) => error,
+  );
+  assert.equal(processes.length, 1, "a timed-out cleanup must remain a replacement tombstone after exit");
+  const startError = await startResult;
+  assert.equal((startError as { code?: string }).code, "cleanup_timeout");
+
+  const retryResult = lifecycle.retry().then(
+    () => null,
+    (error: unknown) => error,
+  );
+  assert.equal(processes.length, 1, "retry must remain blocked until native ownership proof");
+  const retryError = await retryResult;
+  assert.equal((retryError as { code?: string }).code, "cleanup_timeout");
+});
+
+test("unexpected exit reports unresolved ownership and blocks replacement without an ownership receipt", async () => {
+  const { lifecycle, processes, unavailable, unexpectedExits } = createHarness();
   const readiness = lifecycle.start("/workspace");
   processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
   await readiness;
@@ -298,6 +302,39 @@ test("notifies when a ready process exits", async () => {
 
   assert.equal(lifecycle.getPort(), null);
   assert.match(unavailable.at(-1) ?? "", /exited/i);
+  assert.match(unexpectedExits.at(-1) ?? "", /ownership.*unresolved/i);
+
+  const blockedReplacement = lifecycle.start("/replacement");
+  await assert.rejects(blockedReplacement, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_failed");
+    assert.match((error as Error).message, /ownership.*unresolved/i);
+    return true;
+  });
+  assert.equal(processes.length, 1, "an unresolved generation must not spawn a replacement");
+
+  await assert.rejects(lifecycle.stop(), /ownership.*unresolved/i);
+  const stillBlockedReplacement = lifecycle.retry();
+  await assert.rejects(stillBlockedReplacement, (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "cleanup_failed");
+    assert.match((error as Error).message, /ownership.*unresolved/i);
+    return true;
+  });
+  assert.equal(processes.length, 1, "process exit is not a descendant ownership receipt");
+});
+
+test("an intentionally stopped generation can be replaced after its process exits", async () => {
+  const { lifecycle, processes } = createHarness();
+  const first = lifecycle.start("/workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
+  await first;
+
+  const stopped = lifecycle.stop();
+  processes[0].exit(0);
+  await stopped;
+
+  const replacement = lifecycle.start("/replacement");
+  processes[1].stdout.emit("ORKWORKSD_PORT=4555\n");
+  assert.equal(await replacement, 4555);
 });
 
 test("rejects readiness when spawn emits an error", async () => {
@@ -358,7 +395,6 @@ test("a synchronous explicit-retry failure rejects the wired restoration readine
         if (state === "starting") restoration.beginGeneration();
       },
     },
-    retryDelaysMs: [1],
   });
 
   const initial = lifecycle.start("/workspace");
@@ -384,42 +420,6 @@ test("rejects readiness when publishing a port times out", async () => {
   assert.equal(processes[0].killed, true);
 });
 
-test("does not reset automatic retries when a ready process fails before the stability window", async () => {
-  const { lifecycle, processes, timers, states } = createHarness();
-  const initial = lifecycle.start("/workspace");
-  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
-  await initial;
-
-  processes[0].exit(1);
-  timers.advanceBy(1);
-  processes[1].exit(1);
-  timers.advanceBy(2);
-  processes[2].exit(1);
-
-  assert.equal(processes.length, 3);
-  assert.equal(states.at(-1), "exhausted");
-});
-
-test("resets automatic retries only after the ready stability window expires", async () => {
-  const { lifecycle, processes, timers, states } = createHarness();
-  const initial = lifecycle.start("/workspace");
-  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
-  await initial;
-
-  timers.advanceBy(5);
-  processes[0].exit(1);
-  assert.equal(timers.scheduledDelays.at(-1), 1);
-  timers.advanceBy(1);
-  processes[1].exit(1);
-  assert.equal(timers.scheduledDelays.at(-1), 2);
-  timers.advanceBy(2);
-  processes[2].exit(1);
-
-  assert.equal(processes.length, 3);
-  assert.equal(timers.size, 0);
-  assert.equal(states.at(-1), "exhausted");
-});
-
 test("rejects announced ports outside the valid TCP range before readiness", async () => {
   for (const announcedPort of ["0", "65536", "-1"]) {
     const { lifecycle, processes } = createHarness();
@@ -440,33 +440,4 @@ test("still discovers a valid port after noisy pre-readiness stdout", async () =
   processes[0].stdout.emit("ORKWORKSD_PORT=4321\n");
 
   assert.equal(await readiness, 4321);
-});
-
-test("uses the first retry delay after a stable ready reset", async () => {
-  const { lifecycle, processes, timers } = createHarness();
-  const initial = lifecycle.start("/workspace");
-  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
-  await initial;
-
-  timers.advanceBy(5);
-  processes[0].exit(1);
-
-  assert.equal(timers.scheduledDelays.at(-1), 1);
-
-  timers.runNext();
-  processes[1].exit(1);
-
-  assert.equal(timers.scheduledDelays.at(-1), 2);
-});
-
-test("creates only one automatic recovery sequence for repeated failure callbacks", async () => {
-  const { lifecycle, processes, timers } = createHarness();
-  const readiness = lifecycle.start("/workspace");
-  processes[0].error(new Error("spawn failed"));
-  processes[0].exit(1);
-  await assert.rejects(readiness, /spawn failed/);
-
-  assert.equal(timers.size, 1);
-  timers.runNext();
-  assert.equal(processes.length, 2);
 });

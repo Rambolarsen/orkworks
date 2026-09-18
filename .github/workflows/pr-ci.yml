@@ -36,7 +36,8 @@ jobs:
       desktop_changed: ${{ steps.filter.outputs.desktop }}
       rust_changed: ${{ steps.filter.outputs.rust }}
       windows_inference_changed: ${{ steps.filter.outputs.windows_inference }}
-      relevant_code_changed: ${{ steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true' }}
+      windows_ownership_changed: ${{ steps.filter.outputs.windows_ownership }}
+      relevant_code_changed: ${{ steps.filter.outputs.desktop == 'true' || steps.filter.outputs.rust == 'true' || steps.filter.outputs.windows_ownership == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,11 +56,16 @@ jobs:
               - 'crates/orkworksd/**'
               - 'rust-toolchain.toml'
               - '.github/workflows/pr-ci.yml'
+            windows_ownership:
+              - 'crates/process-ownership-fixture/**'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/pr-ci.yml'
 
       - name: Print routing decision
         run: |
           echo "desktop_changed=${{ steps.filter.outputs.desktop }}"
           echo "rust_changed=${{ steps.filter.outputs.rust }}"
+          echo "windows_ownership_changed=${{ steps.filter.outputs.windows_ownership }}"
 
   desktop:
     name: Desktop
@@ -148,7 +154,8 @@ jobs:
             "taskmaster::evaluator::activation_tests::custom_evaluation_rechecks_readiness_before_context_and_reservation",
             "taskmaster::evaluator::activation_tests::custom_evaluation_discards_output_revoked_while_child_is_running",
             "taskmaster::evaluator::activation_tests::custom_evaluation_recovers_after_reapproval_or_reenable",
-            "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it"
+            "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it",
+            "workspace_runtime::tests::native_identity_rejects_missing_windows_identity_parts"
           )
           foreach ($test in $required) {
             if ($listed -notcontains "$($test): test") { throw "Missing required Windows test: $test" }
@@ -164,6 +171,37 @@ jobs:
           cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::context
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::runtime::selection_tests
+      - name: Test native workspace identity on Windows
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml workspace_runtime
+
+  windows-process-ownership:
+    name: Windows process ownership fixture
+    needs: changes
+    if: needs.changes.outputs.windows_ownership_changed == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/process-ownership-fixture
+      - name: Record native Windows runner and architecture
+        shell: pwsh
+        run: |
+          Write-Host "runner.os=$env:RUNNER_OS"
+          Write-Host "runner.arch=$env:RUNNER_ARCH"
+          rustc -vV
+      - name: Require the focused Windows suite to discover tests
+        shell: pwsh
+        run: |
+          $listed = cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job -- --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $discovered = @($listed | Where-Object { $_ -match ': test$' })
+          if ($discovered.Count -eq 0) { throw "windows_job discovered zero tests" }
+          Write-Host "windows_job.discovered=$($discovered.Count)"
+      - name: Run native Windows Job Object proof
+        run: cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job
 
   noop:
     name: No relevant code changes

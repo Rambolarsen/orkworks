@@ -895,7 +895,8 @@ test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so 
   const end = source.indexOf("\n  async function createSession", start);
   const body = source.slice(start, end);
 
-  const refreshIndex = body.indexOf("const refreshed = await refreshSessions()");
+  const refreshMatch = body.match(/const refreshed = await refreshSessions\([^)]*\);/);
+  const refreshIndex = refreshMatch?.index ?? -1;
   const setActiveIndex = body.indexOf("options.onActiveSession?.(match.id)");
   assert.ok(refreshIndex !== -1, "openWorkspace should await refreshSessions()");
   assert.ok(setActiveIndex !== -1, "openWorkspace should publish the restored active session");

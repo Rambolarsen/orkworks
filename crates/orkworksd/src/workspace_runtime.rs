@@ -2,7 +2,168 @@ use fs2::FileExt;
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirectoryIdentity {
+    #[cfg(unix)]
+    Unix { device: u64, inode: u64 },
+    #[cfg(any(windows, test))]
+    Windows { volume: u32, file_index: u64 },
+    #[cfg(not(any(unix, windows)))]
+    Unsupported,
+}
+
+/// Canonical path plus native directory identity captured for one open
+/// attempt. Keeping the handle open lets the caller revalidate the same
+/// directory object after an Electron-side path check.
+#[derive(Debug)]
+pub(crate) struct WorkspaceIdentity {
+    requested_path: PathBuf,
+    canonical_path: PathBuf,
+    directory_identity: DirectoryIdentity,
+    _directory: File,
+}
+
+impl WorkspaceIdentity {
+    pub(crate) fn resolve(path: &Path) -> io::Result<Self> {
+        let canonical_path = std::fs::canonicalize(path)?;
+        let directory = open_directory(&canonical_path)?;
+        let metadata = directory.metadata()?;
+        if !metadata.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                "workspace identity is not a directory",
+            ));
+        }
+        Ok(Self {
+            requested_path: path.to_path_buf(),
+            canonical_path,
+            directory_identity: native_directory_identity(&directory, &metadata)?,
+            _directory: directory,
+        })
+    }
+
+    pub(crate) fn canonical_path(&self) -> &Path {
+        &self.canonical_path
+    }
+
+    pub(crate) fn requested_path(&self) -> &Path {
+        &self.requested_path
+    }
+
+    pub(crate) fn matches(&self, path: &Path) -> bool {
+        Self::resolve(path).is_ok_and(|candidate| candidate == *self)
+    }
+
+    pub(crate) fn revalidate(&self) -> io::Result<()> {
+        let retained_metadata = self._directory.metadata()?;
+        if !retained_metadata.is_dir()
+            || native_directory_identity(&self._directory, &retained_metadata)?
+                != self.directory_identity
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "retained workspace directory changed",
+            ));
+        }
+        let current = Self::resolve(&self.requested_path)?;
+        if current == *self {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "workspace path now resolves to a different directory",
+            ))
+        }
+    }
+}
+
+impl PartialEq for WorkspaceIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.canonical_path == other.canonical_path
+            && self.directory_identity == other.directory_identity
+    }
+}
+
+impl Eq for WorkspaceIdentity {}
+
+#[cfg(windows)]
+fn open_directory(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+}
+
+#[cfg(not(windows))]
+fn open_directory(path: &Path) -> io::Result<File> {
+    File::open(path)
+}
+
+fn native_directory_identity(
+    directory: &File,
+    metadata: &std::fs::Metadata,
+) -> io::Result<DirectoryIdentity> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let _ = directory;
+        return Ok(DirectoryIdentity::Unix {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        });
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+
+        let _ = metadata;
+        let mut information = BY_HANDLE_FILE_INFORMATION::default();
+        let success =
+            unsafe { GetFileInformationByHandle(directory.as_raw_handle(), &mut information) };
+        if success == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let file_index =
+            (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+        return windows_directory_identity(
+            Some(information.dwVolumeSerialNumber),
+            Some(file_index),
+        );
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = metadata;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "native workspace identity is unavailable",
+        ))
+    }
+}
+
+#[cfg(any(windows, test))]
+fn windows_directory_identity(
+    volume: Option<u32>,
+    file_index: Option<u64>,
+) -> io::Result<DirectoryIdentity> {
+    Ok(DirectoryIdentity::Windows {
+        volume: require_identity_part(volume, "workspace volume identity is unavailable")?,
+        file_index: require_identity_part(file_index, "workspace file identity is unavailable")?,
+    })
+}
+
+#[cfg(any(windows, test))]
+fn require_identity_part<T>(value: Option<T>, message: &'static str) -> io::Result<T> {
+    value.ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, message))
+}
 
 /// Exclusive OS-level ownership of one workspace's metadata directory.
 ///
@@ -81,11 +242,107 @@ mod tests {
         assert!(WorkspaceLease::acquire(dir.path()).is_ok());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn equivalent_directory_aliases_share_one_identity() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let alias = root.path().join("alias");
+        symlink(root.path(), &alias).unwrap();
+
+        let direct = WorkspaceIdentity::resolve(root.path()).unwrap();
+        let through_alias = WorkspaceIdentity::resolve(&alias).unwrap();
+
+        assert_eq!(direct, through_alias);
+        assert_eq!(workspace_hash(root.path()), workspace_hash(&alias));
+    }
+
+    #[test]
+    fn distinct_git_worktrees_have_distinct_identities() {
+        let root = tempfile::tempdir().unwrap();
+        let repository = git2::Repository::init(root.path()).unwrap();
+        std::fs::write(root.path().join("README"), "workspace").unwrap();
+        let mut index = repository.index().unwrap();
+        index.add_path(Path::new("README")).unwrap();
+        let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
+        let signature = git2::Signature::now("OrkWorks test", "test@example.invalid").unwrap();
+        repository
+            .commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
+            .unwrap();
+
+        let worktree = root.path().join("linked");
+        let _worktree = repository.worktree("linked", &worktree, None).unwrap();
+
+        let first = WorkspaceIdentity::resolve(root.path()).unwrap();
+        let second = WorkspaceIdentity::resolve(&worktree).unwrap();
+
+        assert_ne!(first, second);
+        assert_ne!(workspace_hash(root.path()), workspace_hash(&worktree));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_replacement_invalidates_the_retained_identity() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let alias = root.path().join("workspace");
+        symlink(first.path(), &alias).unwrap();
+
+        let identity = WorkspaceIdentity::resolve(&alias).unwrap();
+        std::fs::remove_file(&alias).unwrap();
+        symlink(second.path(), &alias).unwrap();
+
+        assert!(!identity.matches(&alias));
+        assert!(identity.revalidate().is_err());
+    }
+
     #[test]
     fn hook_observed_at_requires_utc_microsecond_precision() {
         assert!(parse_hook_observed_at("2026-07-21T08:00:00.123456Z").is_ok());
         assert!(parse_hook_observed_at("2026-07-21T08:00:00Z").is_err());
         assert!(parse_hook_observed_at("2026-07-21T08:00:00.123Z").is_err());
         assert!(parse_hook_observed_at("2026-07-21T08:00:00.123456+00:00").is_err());
+    }
+
+    #[test]
+    fn native_identity_rejects_missing_windows_identity_parts() {
+        assert!(matches!(
+            windows_directory_identity(Some(7), Some(11)),
+            Ok(DirectoryIdentity::Windows {
+                volume: 7,
+                file_index: 11
+            })
+        ));
+        let volume_error = windows_directory_identity(None, Some(11)).unwrap_err();
+        assert_eq!(volume_error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(
+            volume_error.to_string(),
+            "workspace volume identity is unavailable"
+        );
+        let file_index_error = windows_directory_identity(Some(7), None).unwrap_err();
+        assert_eq!(file_index_error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(
+            file_index_error.to_string(),
+            "workspace file identity is unavailable"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_identity_reads_a_directory_handle_on_windows() {
+        let root = tempfile::tempdir().unwrap();
+        let identity = WorkspaceIdentity::resolve(root.path()).unwrap();
+
+        assert!(matches!(
+            identity.directory_identity,
+            DirectoryIdentity::Windows {
+                volume: _,
+                file_index: _
+            }
+        ));
     }
 }

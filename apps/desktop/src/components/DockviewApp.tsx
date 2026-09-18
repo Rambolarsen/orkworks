@@ -25,6 +25,8 @@ interface DockviewAppData {
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
   activeSessionId: string | null;
+  canFixWithAi: boolean;
+  taskmasterReady: boolean;
   focusedRecommendationId: string | null;
   unreadIds: ReadonlySet<string>;
   acknowledgedIds: ReadonlySet<string>;
@@ -155,7 +157,8 @@ function RecPanel() {
   return (
     <RecommendationsPanel
       hasWorkspace={!!ctx.workspace && !ctx.isSwitchingWorkspace}
-      canFixWithAi={activeSession?.lifecycle === "alive"}
+      taskmasterReady={ctx.taskmasterReady}
+      canFixWithAi={ctx.canFixWithAi && activeSession?.lifecycle === "alive"}
       onSelectSession={ctx.onSelectSession}
       onFixWithAi={ctx.onFixWithAi}
       focusedRecommendationId={ctx.focusedRecommendationId}

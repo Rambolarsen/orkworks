@@ -27,7 +27,6 @@ mod session_projection;
 mod session_types;
 mod session_view;
 mod taskmaster;
-mod watcher;
 mod workflow_observations;
 mod workspace_runtime;
 
@@ -101,8 +100,6 @@ struct WorkspaceState {
     workflow_observations: workflow_observations::WorkflowObservationStore,
     recommendation_store: taskmaster::store::RecommendationStore,
     lease: Option<Arc<workspace_runtime::WorkspaceLease>>,
-    #[allow(dead_code)]
-    watcher: watcher::MetadataWatcher,
 }
 
 /// A queued `InputLabel` refinement request: the input line Peon should turn
@@ -556,7 +553,6 @@ pub(crate) mod test_support {
                 )
                 .expect("open recommendation store"),
                 lease: None,
-                watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
             })),
             peon: PeonState {
                 last_output: StdRwLock::new(HashMap::new()),
@@ -599,7 +595,6 @@ pub(crate) mod test_support {
             )
             .expect("open recommendation store"),
             lease: None,
-            watcher: watcher::MetadataWatcher::start(&metadata_root.join("sessions")),
         });
         state.bump_harness_probe_generation();
     }

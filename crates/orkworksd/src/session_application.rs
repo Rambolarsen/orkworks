@@ -10,8 +10,8 @@ use crate::taskmaster::rollup::{
 };
 use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
-use crate::workspace_runtime::{iso_now, orkworks_global_dir, WorkspaceLease};
-use crate::{git, metadata, migration, plan_handoff, watcher, AppState, WorkspaceState};
+use crate::workspace_runtime::{iso_now, orkworks_global_dir, WorkspaceIdentity, WorkspaceLease};
+use crate::{git, metadata, migration, plan_handoff, AppState, WorkspaceState};
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
@@ -63,6 +63,7 @@ pub(crate) enum RecommendationCompleteError {
 
 pub(crate) struct WorkspaceSnapshot {
     pub(crate) path: String,
+    pub(crate) canonical_path: String,
     pub(crate) repo_root: Option<String>,
     pub(crate) branch: Option<String>,
     pub(crate) dirty: Option<bool>,
@@ -2133,16 +2134,18 @@ impl SessionApplication {
     }
 
     pub(crate) fn open_workspace(&self, path: PathBuf) -> Result<WorkspaceSnapshot, SessionError> {
-        if !path.is_dir() {
-            return Err(SessionError::BadRequest("not a directory"));
-        }
+        let identity = WorkspaceIdentity::resolve(&path)
+            .map_err(|_| SessionError::BadRequest("not a directory"))?;
+        self.open_workspace_with_identity(identity)
+    }
+
+    pub(crate) fn open_workspace_with_identity(
+        &self,
+        identity: WorkspaceIdentity,
+    ) -> Result<WorkspaceSnapshot, SessionError> {
+        let path = identity.canonical_path().to_path_buf();
         let global_dir =
             orkworks_global_dir(&path).ok_or(SessionError::Internal("no home directory"))?;
-        for dir in &["sessions", "events", "capacity", "skills"] {
-            if let Err(error) = std::fs::create_dir_all(global_dir.join(dir)) {
-                tracing::warn!(path = %global_dir.display(), dir, %error, "failed to create metadata dir");
-            }
-        }
 
         let existing_lease = self
             .state
@@ -2153,16 +2156,39 @@ impl SessionApplication {
             .filter(|workspace| workspace.path == path)
             .and_then(|workspace| workspace.lease.clone());
         let workspace_lease = match existing_lease {
-            Some(lease) => lease,
-            None => Arc::new(WorkspaceLease::acquire(&global_dir).map_err(|error| {
-                if error.kind() == std::io::ErrorKind::WouldBlock {
-                    SessionError::Conflict
-                } else {
-                    tracing::error!(path = %path.display(), %error, "failed to acquire workspace sidecar lease");
-                    SessionError::Internal("failed to acquire workspace sidecar lease")
-                }
-            })?),
+            Some(lease) => {
+                identity.revalidate().map_err(|_| {
+                    SessionError::BadRequest("workspace identity changed before adoption")
+                })?;
+                lease
+            }
+            None => {
+                identity.revalidate().map_err(|_| {
+                    SessionError::BadRequest("workspace identity changed before adoption")
+                })?;
+                let lease = Arc::new(WorkspaceLease::acquire(&global_dir).map_err(|error| {
+                    if error.kind() == std::io::ErrorKind::WouldBlock {
+                        SessionError::Conflict
+                    } else {
+                        tracing::error!(path = %path.display(), %error, "failed to acquire workspace sidecar lease");
+                        SessionError::Internal("failed to acquire workspace sidecar lease")
+                    }
+                })?);
+                identity.revalidate().map_err(|_| {
+                    SessionError::BadRequest("workspace identity changed before adoption")
+                })?;
+                lease
+            }
         };
+        identity
+            .revalidate()
+            .map_err(|_| SessionError::BadRequest("workspace identity changed before adoption"))?;
+
+        for dir in &["sessions", "events", "capacity", "skills"] {
+            if let Err(error) = std::fs::create_dir_all(global_dir.join(dir)) {
+                tracing::warn!(path = %global_dir.display(), dir, %error, "failed to create metadata dir");
+            }
+        }
 
         let store = metadata::MetadataStore::new(&global_dir);
         migration::migrate_if_needed(&path, &global_dir);
@@ -2208,7 +2234,6 @@ impl SessionApplication {
         let last_active_session_id = memory.last_active_session_id.clone();
         let active_harness_ids = memory.active_harness_ids;
         let active_harness_revision = memory.active_harness_revision;
-        let watcher = watcher::MetadataWatcher::start(&global_dir.join("sessions"));
 
         let mut workspace = self.state.workspace.lock().unwrap();
         let workflow_observations = crate::workflow_observations::WorkflowObservationStore::open(
@@ -2242,7 +2267,6 @@ impl SessionApplication {
             workflow_observations,
             recommendation_store,
             lease: Some(workspace_lease),
-            watcher,
         });
         self.state.bump_harness_probe_generation();
 
@@ -2272,7 +2296,8 @@ impl SessionApplication {
 
         let git_context = git::detect(&path);
         Ok(WorkspaceSnapshot {
-            path: path.display().to_string(),
+            path: identity.requested_path().display().to_string(),
+            canonical_path: path.display().to_string(),
             repo_root: git_context.repo_root,
             branch: git_context.branch,
             dirty: Some(git_context.dirty),

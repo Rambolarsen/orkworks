@@ -47,11 +47,21 @@ Electron settings mutation queue with user saves, so a slow startup catalog
 request cannot overwrite newer settings. Their failures are logged without
 invalidating workspace readiness, and replacement/disposal aborts any
 in-flight step. A restoration timeout or workspace-restoration failure still
-rejects readiness and publishes an unavailable state. Initial startup uses the
-last existing workspace path when available, otherwise the development
-repository or the packaged home directory. A workspace switch persists the
-selected path before starting its replacement generation, and stale restoration
-work is aborted so an older workspace cannot become ready afterward.
+rejects readiness and publishes an unavailable state. Initial startup uses a
+canonical remembered workspace hint when available; without one it remains in
+the picker with no sidecar, health probing, or backend recovery UI. A workspace
+path is remembered only after restoration publishes readiness. Stale
+restoration work is aborted so an older workspace cannot become ready afterward.
+
+Installation history uses `fs-ext` for a bounded, nonblocking OS advisory lock
+on a retained `.workspace-memory.lock` file in Electron `userData`. Never unlink
+or rename this lock file: contenders must lock the same inode. Process exit
+releases ownership; time alone cannot evict a live writer. Under the lock,
+mutations reread history, reject revision overflow, flush a bounded temporary
+record, atomically replace the target, and verify it by read-back. Corrupt input
+is preserved and history-write failures do not roll back a ready workspace.
+`pnpm build:native` rebuilds this addon for Electron before dev/build/dist;
+after those commands, `pnpm rebuild fs-ext` restores the host Node ABI for tests.
 
 Automatic recovery is bounded: one recovery sequence makes at most three
 sidecar launches in total (the initial launch plus two automatic retries), with
@@ -63,7 +73,7 @@ fresh generation using the last sidecar working directory and resets the
 counter.
 
 The preload bridge exposes `onBackendLifecycle` and `retryBackend`. Lifecycle
-events are the narrow union `starting`, `retrying`, `ready` (with a validated
+events are the narrow union `picker` (no backend), `starting`, `retrying`, `ready` (with a validated
 port), `failed` (with a stable failure message), and `exhausted` (with a stable
 failure message). Preload canonicalizes exact event shapes and replays the
 latest main-process snapshot for late subscribers, while preserving live-event
@@ -419,7 +429,6 @@ Single binary. Top-level modules:
 - `providers.rs` — provider definitions, applied-settings store, persisted runtime state, fallback runner (`run_inference` skips disabled/capped providers in fallback order), and model listing. `builtin_provider_registry()` contains only ollama (HTTP-based, no harness). Harness-backed provider definitions are projected from the captured resolved registry, so Peon configuration remains with its harness definition rather than being duplicated. `ProcessRunner` starts harness providers through plain `Command::spawn()` with piped stdin/stdout/stderr; it has no Unix fork-time callback, setsid operation, or inherited-file-descriptor sweep. This module still carries the historical `Provider*` names, but today it is modeling the Peon inference tool registry rather than the user-facing coding-tool selector. It exposes `GET /providers` for live runtime state, `GET /providers/:id/models` for available models, and `POST /settings/providers` for durable settings application. The session Peon loop routes through `ProviderManager::run_inference`. Per-provider peon model is configured in Settings.
 - `session_types.rs` — `SessionInfo` struct, lifecycle and attention enums, and the renderer-facing session contract
 - `session_view.rs` — lifecycle-aware session projection, connectivity and terminal-outcome derivation, conflict detection, and resume-option derivation. `resolve_effective_cwds` centralizes the harness-reported → pid-probed → launch-cwd fallback chain (ADR 0032 → ADR 0031 → launch `cwd`) so git-context enrichment and cwd-collision conflict warnings agree on where a session actually is.
-- `watcher.rs` — `notify`-based file watcher for session metadata changes under the global store
 - `workflow_observations.rs` — durable, bounded `WorkflowObservation` recording (ADR 0042): validation, idempotency (15-minute replay window via tombstones), sequencing, per-session (1,000 records/2 MiB) and per-workspace (10,000 records) bounds, and a live 60-accepted/session/minute rate cap. Public surface: `open`, `record_observation`, `workspace_observations`, `delete_session_observations`, `diagnostics`. Callers never see file paths or on-disk formats.
 - `taskmaster/` — canonical passive recommendation contract, deterministic workflow-improvement evaluator, five-second generation-debounced refresh, and atomic recommendation persistence with dismissal watermarks and orphan/session cleanup.
 - `workspace_runtime.rs` — `iso_now`, `orkworks_global_dir` (workspace path hashing to global store location)

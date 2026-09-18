@@ -26,6 +26,9 @@ importers:
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9(supports-color@7.2.0)
+      fs-ext:
+        specifier: ^2.1.1
+        version: 2.1.1
       lucide-react:
         specifier: ^1.21.0
         version: 1.21.0(react@19.2.7)
@@ -71,6 +74,13 @@ importers:
         version: 8.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)
 
 packages:
+
+  nan@2.29.0:
+    resolution: {integrity: sha512-GlGk3HIvitbvs+LT3g6XUP1kpirKNvmDFwF/bmo6XNWSb/eYEs/O4bfgIEIXCZ+lIOTS5xNwDvSGMw6FJdAhtA==}
+
+  fs-ext@2.1.1:
+    resolution: {integrity: sha512-/TrISPOFhCkbgIRWK9lzscRzwPCu0PqtCcvMc9jsHKBgZGoqA0VzhspVht5Zu8lxaXjIYIBWILHpRotYkCCcQA==}
+    engines: {node: '>= 8.0.0'}
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -1524,8 +1534,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  node-abi@4.31.0:
-    resolution: {integrity: sha512-Erq5w/t3syw3s4sDsUaX4QttIdBPsGKTT1DTRsCkTonGggczhlDKm/wDX3o+HPJpQ41EjXCbcmXf0tgr5YZJXw==}
+  node-abi@4.35.0:
+    resolution: {integrity: sha512-ymk4aIzxdPopw2giv8Fs1Ec6vybGkjmyxUwVqhkI4MCy2tVfXdkOGGWieWVjL0THgH+7a8lRdevyupoYj3Js/Q==}
     engines: {node: '>=22.12.0'}
 
   node-api-version@0.2.1:
@@ -2031,6 +2041,14 @@ packages:
 
 snapshots:
 
+  nan@2.29.0: {}
+
+
+  fs-ext@2.1.1:
+    dependencies:
+      nan: 2.29.0
+
+
   '@babel/code-frame@7.29.7':
     dependencies:
       '@babel/helper-validator-identifier': 7.29.7
@@ -2207,7 +2225,7 @@ snapshots:
     dependencies:
       '@malept/cross-spawn-promise': 2.0.0
       debug: 4.4.3(supports-color@7.2.0)
-      node-abi: 4.31.0
+      node-abi: 4.35.0
       node-api-version: 0.2.1
       node-gyp: 12.4.0
       read-binary-file-arch: 1.0.6(supports-color@7.2.0)
@@ -3748,7 +3766,7 @@ snapshots:
 
   nanoid@3.3.18: {}
 
-  node-abi@4.31.0:
+  node-abi@4.35.0:
     dependencies:
       semver: 7.8.4
 

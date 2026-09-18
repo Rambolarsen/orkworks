@@ -1,11 +1,14 @@
-import type { WorkspaceInfo } from "./api";
+import type { SessionAttention, WorkflowRecommendation, WorkspaceInfo } from "./api";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings, SaveHotkeysResult } from "./appSettingsTypes";
 import type { ProviderSettings, ProviderModelsResponse, ProviderLabelsResponse, OllamaVerificationResponse, ProviderApplyStatus, RetentionApplyStatus, PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, PeonSelection } from "./providerTypes";
 import type { HarnessConfig, IntegrationStatusResult } from "./harnessTypes";
 
 export type BackendLifecycleEvent =
+  | { state: "picker"; failure?: WorkspaceLifecycleFailure }
+  | { state: "opening" | "closing" }
   | { state: "starting" | "retrying" }
-  | { state: "ready"; port: number; workspace: WorkspaceInfo | null }
+  | { state: "ready"; port: number; workspace: WorkspaceInfo | null; historyDiagnostic: WorkspaceHistoryDiagnostic | null }
+  | { state: "unresolved"; failure: WorkspaceLifecycleFailure }
   | { state: "failed" | "exhausted"; message: string };
 
 export interface UpdateCandidateIdentity {
@@ -41,6 +44,29 @@ export type UpdateStatus =
       candidate?: UpdateCandidate;
       sequence: number;
     };
+export type BackendRetryResult =
+  | { ok: true; state: "ready" }
+  | { ok: false; state: "picker" | "unresolved"; failure: WorkspaceLifecycleFailure };
+
+export type WorkspaceLifecycleFailure = {
+  code: "invalid_destination" | "cleanup_failed" | "cleanup_timeout" | "destination_conflict" | "readiness_failed" | "restoration_failed" | "quit_failed";
+  message: string;
+};
+
+export type WorkspaceHistoryDiagnostic = {
+  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
+  message: string;
+};
+
+export type InitialWorkspaceSnapshot = {
+  workspace: WorkspaceInfo | null;
+  historyDiagnostic: WorkspaceHistoryDiagnostic | null;
+};
+
+export type AcceptRecommendationOptions = {
+  sessionId: string;
+  prompt?: string;
+};
 
 export type IntegrationKey = {
   adapterId: string;
@@ -103,19 +129,22 @@ declare global {
     orkworks: {
       platform: string;
       getBackendUrl: () => Promise<string>;
-      retryBackend: () => Promise<void>;
+      retryBackend: () => Promise<BackendRetryResult>;
       getUpdateStatus: () => Promise<UpdateStatus>;
       checkForUpdates: () => Promise<UpdateStatus>;
       downloadUpdate: () => Promise<UpdateStatus>;
       requestUpdateInstall: () => Promise<UpdateStatus>;
       onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
       onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) => () => void;
-      getInitialWorkspace: () => Promise<WorkspaceInfo | null>;
+      getInitialWorkspace: () => Promise<InitialWorkspaceSnapshot>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
-    getSettings: () => Promise<AppSettings>;
+      getSettings: () => Promise<AppSettings>;
       getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
+      dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;
+      acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<WorkflowRecommendation>;
+      applyDebugAttention: (id: string, attention: SessionAttention, message?: string) => Promise<void>;
       getInferenceTrust: () => Promise<import("./inferenceTrust").InferenceAdapterView[]>;
       approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<boolean>;
       revokeInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<void>;

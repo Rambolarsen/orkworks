@@ -524,9 +524,10 @@ test("resubscribing one renderer replaces its existing main-process subscription
   assert.equal(subscribers.size, 0);
 });
 
-test("main queries current sessions and restarts through the existing lifecycle", () => {
+test("main queries current sessions and routes update recovery through the workspace coordinator", () => {
   assert.match(main, /await restoration\.getReadiness\(\)[\s\S]*listSessions\(baseUrl\)/);
   assert.match(main, /lifecycle === "alive"/);
+  assert.match(main, /workspaceSwitchCoordinator\.runUpdate\(/);
   assert.match(main, /sidecarLifecycle\.start\(restartCwd\)/);
   assert.match(main, /Restart OrkWorks to recover/);
 });

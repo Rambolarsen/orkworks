@@ -47,6 +47,7 @@ export interface UpdateServiceDependencies {
   }) => Promise<boolean>;
   stopSidecar: (timeoutMs: number) => Promise<void>;
   restartSidecar: () => Promise<void>;
+  runInstall?: (install: () => Promise<void>) => Promise<void>;
 }
 
 type UpdateChannel = UpdateCandidateIdentity["channel"];
@@ -414,17 +415,26 @@ export function createUpdateService(dependencies: UpdateServiceDependencies): Up
       publish({ state: "installing", candidate: cachedCandidate });
       if (!isCurrent()) return status;
       try {
-        await dependencies.stopSidecar(10_000);
-        if (!isCurrent()) throw new Error("Update installation was superseded");
-        await engine.quitAndInstall();
+        const install = async () => {
+          if (!isCurrent()) throw new Error("Update installation was superseded");
+          await engine.quitAndInstall();
+        };
+        if (dependencies.runInstall) {
+          await dependencies.runInstall(install);
+        } else {
+          await dependencies.stopSidecar(10_000);
+          await install();
+        }
         return status;
       } catch (error) {
         let recovered = false;
-        try {
-          await dependencies.restartSidecar();
-          recovered = true;
-        } catch {
-          // The error below tells the user how to recover manually.
+        if (!dependencies.runInstall) {
+          try {
+            await dependencies.restartSidecar();
+            recovered = true;
+          } catch {
+            // The error below tells the user how to recover manually.
+          }
         }
         activeOperation = null;
         const detail = error instanceof Error ? error.message : String(error);

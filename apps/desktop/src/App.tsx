@@ -35,7 +35,6 @@ import {
   type WorkflowRecommendation,
   listHarnesses,
   applyDebugAttention,
-  setActiveWorkspaceSession,
   getProviders,
   acceptTaskmasterRecommendation,
 } from "./api";
@@ -44,18 +43,22 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
-import type { ActiveHarnessSaveResult, BackendLifecycleEvent, IntegrationKey, UpdateStatus } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
+import type { UpdateStatus } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 
 function App() {
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>("connecting…");
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
+  const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
+  const [workspaceHistoryDiagnostic, setWorkspaceHistoryDiagnostic] = useState<WorkspaceHistoryDiagnostic | null>(null);
+  const [workspaceSwitchDiagnostic, setWorkspaceSwitchDiagnostic] = useState<string | null>(null);
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -80,9 +83,15 @@ function App() {
     hiddenSignalPanels: SignalPanelId[];
   } | null>(null);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
+  const workspaceLifecycleRef = useRef({ generation: 0, readyGeneration: null as number | null });
+  const initialWorkspaceSnapshotRef = useRef<{
+    generation: number;
+    promise: Promise<InitialWorkspaceSnapshot>;
+  } | null>(null);
   const workspaceSessionControllerRef = useRef<ReturnType<typeof createWorkspaceSessionController> | null>(null);
   if (!workspaceSessionControllerRef.current) {
     workspaceSessionControllerRef.current = createWorkspaceSessionController({
+      initialAdmissionEnabled: false,
       onWorkspace: (info) => {
         setWorkspaceState(info);
         setActiveHarnessIds(info?.activeHarnessIds ?? []);
@@ -100,10 +109,33 @@ function App() {
   const workspaceSessionController = workspaceSessionControllerRef.current;
 
   const handleBackendLifecycle = useCallback((event: BackendLifecycleEvent) => {
+    workspaceSessionController.setAdmissionEnabled(event.state === "ready");
+    setSessionAdmissionEnabled(event.state === "ready");
+    const generation = workspaceLifecycleRef.current.generation + 1;
+    workspaceLifecycleRef.current = {
+      generation,
+      readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
+    };
     if (event.state === "ready") {
+      setIsSwitchingWorkspace(false);
+      setWorkspaceSwitchDiagnostic(null);
       workspaceSessionController.setPollingEnabled(false);
       void workspaceSessionController.adoptRestoredWorkspace(event.workspace);
+      setWorkspaceHistoryDiagnostic(event.historyDiagnostic);
       setBackendStatus("connected");
+    } else if (event.state === "picker") {
+      setIsSwitchingWorkspace(false);
+      setWorkspaceSwitchDiagnostic(event.failure?.message ?? null);
+      workspaceSessionController.setPollingEnabled(false);
+      void workspaceSessionController.adoptRestoredWorkspace(null);
+      setBackendStatus("picker");
+    } else if (event.state === "opening" || event.state === "closing") {
+      setIsSwitchingWorkspace(true);
+      setBackendStatus("connecting…");
+    } else if (event.state === "unresolved") {
+      setIsSwitchingWorkspace(false);
+      setWorkspaceSwitchDiagnostic(event.failure.message);
+      setBackendStatus("unresolved");
     } else if (event.state === "failed") {
       setBackendStatus("unreachable");
     } else if (event.state === "exhausted") {
@@ -130,13 +162,23 @@ function App() {
   const handleRetryBackend = useCallback(() => {
     setBackendStatus("connecting…");
     const token = backendRetryGuardRef.current.begin();
-    void window.orkworks.retryBackend().catch(() => {
-      // A rejection from a superseded retry (e.g. a rapid double-click) must not
-      // clobber a newer retry that is still in flight or already succeeded — see #356.
-      if (backendRetryGuardRef.current.isCurrent(token)) {
-        setBackendStatus("unreachable");
-      }
-    });
+    void window.orkworks.retryBackend()
+      .then((result) => {
+        // A superseded retry (e.g. a rapid double-click) must not clobber a
+        // newer retry that is still in flight or already succeeded — see #356.
+        if (!backendRetryGuardRef.current.isCurrent(token)) return;
+        if (!result.ok) {
+          setWorkspaceSwitchDiagnostic(result.failure.message);
+          setBackendStatus(result.state);
+        }
+      })
+      .catch(() => {
+        // A genuine IPC failure has no lifecycle result to preserve, so it is
+        // the only retry failure that maps to unreachable.
+        if (backendRetryGuardRef.current.isCurrent(token)) {
+          setBackendStatus("unreachable");
+        }
+      });
   }, []);
 
   const handleBackendUnavailable = useCallback(() => {
@@ -213,6 +255,7 @@ function App() {
   }, [backendStatus, refreshHarnesses]);
 
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
+  const activeSession = sessions.find((session) => session.id === activeSessionId);
 
   const handleSaveActiveHarnesses = useCallback(async (ids: string[], scope?: IntegrationKey): Promise<ActiveHarnessSaveResult> => {
     const result = scope
@@ -290,6 +333,7 @@ function App() {
   }, []);
 
   const handleCreateSession = useCallback(async () => {
+    if (!workspaceSessionController.isAdmissionEnabled()) return;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       const runtime = await getProviders(baseUrl);
@@ -298,7 +342,7 @@ function App() {
       // dialog still opens; provider states just won't show
     }
     setNewSessionDialogOpen(true);
-  }, []);
+  }, [workspaceSessionController]);
 
   const handleConfirmNewSession = useCallback(async (opts: CreateSessionOptions) => {
     setNewSessionDialogOpen(false);
@@ -318,19 +362,34 @@ function App() {
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
+    if (!workspaceSessionController.isAdmissionEnabled()) return;
+    const activeSession = sessions.find((session) => session.id === activeSessionId);
+    if (activeSession?.lifecycle !== "alive") return;
     setFixRecommendation(recommendation);
-  }, []);
+  }, [activeSessionId, sessions, workspaceSessionController]);
 
   const handleConfirmFixWithAi = useCallback(async (prompt: string) => {
     const recommendation = fixRecommendation;
     setFixRecommendation(null);
+    const activeSession = activeSessionId
+      ? sessions.find((session) => session.id === activeSessionId)
+      : undefined;
     if (!recommendation || !activeSessionId) {
       pushToast("error", "Couldn't send the fix — no session is active.");
       return;
     }
+    if (activeSession?.lifecycle !== "alive" || !workspaceSessionController.isAdmissionEnabled()) {
+      pushToast("error", "Couldn't send the fix — no session is active.");
+      return;
+    }
+    const admissionToken = workspaceSessionController.captureAdmission();
+    const lifecycleGeneration = workspaceLifecycleRef.current.generation;
+    const isCurrentHandoff = () => workspaceSessionController.isAdmissionCurrent(admissionToken ?? -1)
+      && workspaceLifecycleRef.current.generation === lifecycleGeneration;
     try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      await acceptTaskmasterRecommendation(baseUrl, recommendation.id, {
+      if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
+      if (!isCurrentHandoff()) return;
+      await acceptTaskmasterRecommendation(recommendation.id, {
         sessionId: activeSessionId,
         // build_fix_prompt's backend default ends in \r so it submits as
         // typed text followed by Enter; since the dialog always sends an
@@ -339,10 +398,11 @@ function App() {
         // the user shouldn't see or edit a raw carriage return.
         prompt: `${prompt}\r`,
       });
+      if (!isCurrentHandoff()) return;
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");
     }
-  }, [fixRecommendation, activeSessionId]);
+  }, [fixRecommendation, activeSessionId, sessions, workspaceSessionController]);
 
   // Unread ("changed since you looked") is derived by diffing attention
   // status between session snapshots; selecting a session marks it read.
@@ -351,8 +411,8 @@ function App() {
   }, [sessions, activeSessionId]);
 
   const handleSelectSession = useCallback((id: string) => {
+    if (!workspaceSessionController.selectSession(id)) return;
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
-    workspaceSessionController.selectSession(id);
     const api = dockviewApiRef.current;
     if (api) {
       const panel = api.getPanel("terminal");
@@ -425,7 +485,7 @@ function App() {
     const onSelected = (event: Event) => {
       const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
       if (typeof sessionId !== "string") return;
-      workspaceSessionController.selectSession(sessionId);
+      if (!workspaceSessionController.selectSession(sessionId)) return;
       void refreshSessions().then((refreshed) => {
         if (refreshed) handleReviewPlan(sessionId, refreshed);
       });
@@ -444,25 +504,46 @@ function App() {
   }, [workspaceSessionController]);
 
   const handleApplyDebugAttention = useCallback(async (id: string, attention: SessionAttention, message?: string) => {
+    if (!workspaceSessionController.isAdmissionEnabled()) return;
+    const admissionToken = workspaceSessionController.captureAdmission();
     try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      await applyDebugAttention(baseUrl, id, attention, message);
+      await applyDebugAttention(id, attention, message);
+      if (!workspaceSessionController.isAdmissionCurrent(admissionToken ?? -1)) return;
       await refreshSessions();
     } catch {
       pushToast("error", "Couldn't apply debug attention.");
     }
-  }, [refreshSessions]);
+  }, [refreshSessions, workspaceSessionController]);
 
   useEffect(() => {
-    if (backendStatus !== "connected" || workspace) return;
     let cancelled = false;
     async function loadInitialWorkspace() {
-      const info = await window.orkworks.getInitialWorkspace();
-      if (!cancelled && info) {
-        await workspaceSessionController.adoptRestoredWorkspace(info);
+      try {
+        const snapshotRequest = initialWorkspaceSnapshotRef.current ?? (() => {
+          const request = {
+            generation: workspaceLifecycleRef.current.generation,
+            promise: window.orkworks.getInitialWorkspace(),
+          };
+          initialWorkspaceSnapshotRef.current = request;
+          return request;
+        })();
+        const snapshot = await snapshotRequest.promise;
+        if (cancelled) return;
+        const lifecycle = workspaceLifecycleRef.current;
+        if (
+          lifecycle.generation !== snapshotRequest.generation
+          || (lifecycle.readyGeneration !== null && lifecycle.readyGeneration >= snapshotRequest.generation)
+        ) return;
+        setWorkspaceHistoryDiagnostic(snapshot.historyDiagnostic);
+        if (backendStatus === "connected" && !workspace && snapshot.workspace) {
+          await workspaceSessionController.adoptRestoredWorkspace(snapshot.workspace);
+        }
+      } catch {
+        // Lifecycle events remain the source of truth if the snapshot is
+        // unavailable during startup.
       }
     }
-    loadInitialWorkspace();
+    void loadInitialWorkspace();
     return () => {
       cancelled = true;
     };
@@ -477,17 +558,13 @@ function App() {
   }, [backendStatus, workspace, settings, settingsOpen, activeHarnessIds]);
 
   useEffect(() => {
-    if (backendStatus !== "connected" || !activeSessionId) return;
+    if (backendStatus !== "connected" || !sessionAdmissionEnabled || !activeSessionId) return;
     const sid = activeSessionId;
-    async function persistActiveSession() {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      await setActiveWorkspaceSession(baseUrl, sid);
-    }
-    persistActiveSession().catch(() => {
+    workspaceSessionController.submitActiveSession(sid).catch(() => {
       // Silent: backend may not be ready yet on first load; the next active-
       // session change will retry.
     });
-  }, [activeSessionId, backendStatus]);
+  }, [activeSessionId, backendStatus, sessionAdmissionEnabled, workspaceSessionController]);
 
   useEffect(() => {
     return window.orkworks.onMenuCommand(({ action, panelId }) => {
@@ -630,10 +707,25 @@ function App() {
               >
                 &#x21C4;
               </button>
+              {workspaceHistoryDiagnostic && (
+                <span role="alert" title={workspaceHistoryDiagnostic.message}>
+                  Workspace history unavailable
+                </span>
+              )}
             </>
           ) : (
             <>
               <span className="titlebar-text">No workspace</span>
+              {workspaceHistoryDiagnostic && (
+                <span role="alert" title={workspaceHistoryDiagnostic.message}>
+                  Workspace history unavailable
+                </span>
+              )}
+              {workspaceSwitchDiagnostic && (
+                <span role="alert" title={workspaceSwitchDiagnostic}>
+                  Workspace switch needs attention
+                </span>
+              )}
               <button
                 className="titlebar-open-button"
                 type="button"
@@ -641,15 +733,24 @@ function App() {
               >
                 {VOCAB.openWorkspace}
               </button>
+              {workspaceSwitchDiagnostic && (
+                <button
+                  className="titlebar-open-button"
+                  type="button"
+                  onClick={handleRetryBackend}
+                >
+                  Retry
+                </button>
+              )}
             </>
           )}
         </div>
         <div className="titlebar-right">
-          <span
+          {backendStatus !== "picker" && <span
             className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
           >
             {backendStatus}
-          </span>
+          </span>}
         </div>
       </div>
       <DockviewApp
@@ -659,6 +760,8 @@ function App() {
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        canFixWithAi={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
+        taskmasterReady={sessionAdmissionEnabled}
         unreadIds={unreadState.unreadIds}
         acknowledgedIds={unreadState.acknowledgedIds}
         harnesses={harnesses}
@@ -683,14 +786,14 @@ function App() {
         dockviewApiRef={dockviewApiRef}
         signalPanelHiddenIdsRef={signalPanelHiddenIdsRef}
       />
-      {(backendStatus === "unreachable" || backendStatus === "exhausted") && (
+      {(backendStatus === "unreachable" || backendStatus === "exhausted" || backendStatus === "unresolved") && (
         <div className="backend-recovery-backdrop" role="alert">
           <section className="backend-recovery-card">
-            <h1>Backend unavailable</h1>
+            <h1>{backendStatus === "unresolved" ? "Workspace cleanup unresolved" : "Backend unavailable"}</h1>
             <p>
-              {backendStatus === "exhausted"
+              {workspaceSwitchDiagnostic ?? (backendStatus === "exhausted"
                 ? "OrkWorks could not start its sidecar after several attempts."
-                : "OrkWorks lost its connection to the sidecar."}
+                : "OrkWorks lost its connection to the sidecar.")}
             </p>
             <button type="button" className="backend-recovery-button" onClick={handleRetryBackend}>
               Retry
