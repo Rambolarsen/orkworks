@@ -18,6 +18,12 @@ pnpm install
 # Run Vite + Electron; this builds and auto-launches the Rust sidecar
 pnpm dev
 
+# Dev server port: defaults to 5173 and fails loudly when it is taken
+# (strictPort). When another checkout already holds 5173 — for example while
+# UI-verifying a change from a sibling worktree — run this checkout on its own
+# port; the resolved URL is passed to Electron either way:
+ORKWORKS_DEV_PORT=5273 pnpm dev
+
 # Build Electron and package a host-architecture release artifact
 pnpm build
 pnpm package:release

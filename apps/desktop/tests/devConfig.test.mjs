@@ -15,6 +15,42 @@ test("dev server uses the desktop Vite config and root", () => {
   assert.equal(options.server.strictPort, true);
 });
 
+test("ORKWORKS_DEV_PORT overrides the dev server port", () => {
+  const root = path.join("/tmp", "orkworks", "apps", "desktop");
+  const previous = process.env.ORKWORKS_DEV_PORT;
+  process.env.ORKWORKS_DEV_PORT = "5273";
+  try {
+    const options = createViteServerOptions(root);
+    assert.equal(options.server.port, 5273);
+    assert.equal(options.server.strictPort, true);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ORKWORKS_DEV_PORT;
+    } else {
+      process.env.ORKWORKS_DEV_PORT = previous;
+    }
+  }
+});
+
+test("invalid ORKWORKS_DEV_PORT values fall back to the default port", () => {
+  const root = path.join("/tmp", "orkworks", "apps", "desktop");
+  const previous = process.env.ORKWORKS_DEV_PORT;
+  for (const value of ["", "not-a-port", "0", "70000", "5173.5"]) {
+    process.env.ORKWORKS_DEV_PORT = value;
+    try {
+      const options = createViteServerOptions(root);
+      assert.equal(options.server.port, 5173);
+      assert.equal(options.server.strictPort, true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ORKWORKS_DEV_PORT;
+      } else {
+        process.env.ORKWORKS_DEV_PORT = previous;
+      }
+    }
+  }
+});
+
 test("dev script launches Electron through pnpm instead of npx", () => {
   const config = electronSpawnConfig("/tmp/orkworks/apps/desktop", "http://localhost:5173/");
 
