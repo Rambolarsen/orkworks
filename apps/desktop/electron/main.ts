@@ -1860,7 +1860,14 @@ app.whenReady().then(async () => {
     if (typeof path !== "string") return null;
     if (workspaceSwitchCoordinator.getCurrentWorkspacePath() === path) return null;
     const result = await workspaceSwitchCoordinator.switchWorkspace(path);
-    return result.ok ? result.workspace : null;
+    // Some failure paths inside switchWorkspaceInternal (e.g. invalid_destination,
+    // hit when a remembered path has since been moved/deleted) return a failure
+    // without ever publishing a workspace-switch event, so the renderer's
+    // workspaceSwitchDiagnostic banner would never appear. Throwing here routes
+    // every failure through the renderer's existing catch-and-toast handling in
+    // handleOpenRememberedWorkspace instead of silently no-oping.
+    if (!result.ok) throw new Error(result.failure.message);
+    return result.workspace;
   });
 
   ipcMain.on("orkworks:panel-visibility", (_event, data: { panelId: string; visible: boolean }) => {
