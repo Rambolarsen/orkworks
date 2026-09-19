@@ -61,35 +61,84 @@ function isHardAbsolutePlanContinuation(prefix: string, nextText: string): boole
   return absolutePlanPrefix && planRootContinuation;
 }
 
-function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IBufferLine; text: string }> {
+// Harnesses rewrap their own output with hard newlines plus an indentation
+// (Claude Code positions continuation rows a couple of columns in), so a
+// long plan path can be split across rows that are not marked `isWrapped`.
+// A row is an indent-continuation candidate when it begins with that indent.
+function isIndentedRow(text: string): boolean {
+  return /^[ \t]{2,}\S/.test(text);
+}
+
+// Characters that can appear inside a path token. A run of these at the end
+// of the accumulated text is a path fragment that may continue on the next
+// indented row.
+const PATH_TAIL_RUN = /[A-Za-z0-9_.~/\\:-]+$/;
+
+// The accumulated text's trailing path-chars run is an "open" path fragment:
+// a path that may still continue on the next indented row. A trailing run
+// ending in `.md` is a complete match ending exactly at the prefix end —
+// joining further would only concatenate unrelated content into a bogus
+// longer match, so that shape is closed.
+function openPlanPathTail(prefix: string): boolean {
+  const run = PATH_TAIL_RUN.exec(prefix)?.[0] ?? "";
+  return run.length > 0 && !/\.md$/.test(run);
+}
+
+function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IBufferLine; text: string; skip: number }> {
+  const textOf = (line: IBufferLine): string => line.translateToString(true);
   let start = y;
   let backSteps = 0;
   while (start > 1 && backSteps < MAX_LOGICAL_LINE_ROWS) {
     const previous = terminal.buffer.active.getLine(start - 2);
     const current = terminal.buffer.active.getLine(start - 1);
-    if (!previous || !current || (!current.isWrapped && !isHardAbsolutePlanContinuation(
-      previous.translateToString(true),
-      current.translateToString(true),
-    ))) break;
+    if (!previous || !current) break;
+    const previousText = textOf(previous);
+    const currentText = textOf(current);
+    if (!current.isWrapped && !isHardAbsolutePlanContinuation(previousText, currentText)
+      && !(isIndentedRow(currentText) && openPlanPathTail(previousText))) break;
     start -= 1;
     backSteps += 1;
   }
   const lines = [];
+  let joinedIndented = false;
   for (let current = start; current - start < MAX_LOGICAL_LINE_ROWS; current += 1) {
     const line = terminal.buffer.active.getLine(current - 1);
     if (!line) break;
-    lines.push({ y: current, line, text: line.translateToString(true) });
+    const raw = textOf(line);
+    let skip = 0;
+    if (lines.length > 0 && joinedIndented) {
+      // A row reached across a hard break by the indent rule is a harness
+      // continuation row: strip the injected indent so the joined text
+      // reconstructs the printed path exactly. Soft wrapped rows and the
+      // `/docs/` hard-break shape keep their full text; leading whitespace
+      // there is real content (e.g. a space inside a wrapped path).
+      skip = isIndentedRow(raw) ? raw.length - raw.trimStart().length : 0;
+    }
+    lines.push({ y: current, line, text: raw.slice(skip), skip });
     const next = terminal.buffer.active.getLine(current);
     if (!next) break;
-    if (next.isWrapped) continue;
+    const nextText = textOf(next);
+    if (next.isWrapped) {
+      joinedIndented = false;
+      continue;
+    }
 
     // Some harness output includes a real newline while printing a long
     // absolute path. Treat the narrow `/docs/` -> `superpowers/...` shape as
     // one path so the later relative `specs/...` fragment is not selected on
     // its own. Ordinary hard line breaks remain separate.
     const prefix = lines.map((part) => part.text).join("");
-    const nextText = next.translateToString(true);
-    if (!isHardAbsolutePlanContinuation(prefix, nextText)) break;
+    if (isHardAbsolutePlanContinuation(prefix, nextText)) {
+      joinedIndented = false;
+      continue;
+    }
+    // An indented row continues an open path fragment: join it with the
+    // indent stripped so the reconstructed text stays a valid path.
+    if (isIndentedRow(nextText) && openPlanPathTail(prefix)) {
+      joinedIndented = true;
+      continue;
+    }
+    break;
   }
   return lines;
 }
@@ -117,8 +166,11 @@ export function createTerminalPlanLinkProvider(
           const segmentStart = Math.max(startOffset, partStart);
           const segmentEnd = Math.min(endOffset, partEnd);
           if (segmentStart >= segmentEnd) continue;
-          start ??= { x: columnForTextOffset(part.line, segmentStart - partStart), y: part.y };
-          end = { x: endColumnForTextOffset(part.line, segmentEnd - partStart), y: part.y };
+          // Offsets are relative to the row's stripped text; add back the
+          // indent cells removed from a hard-continuation row so the column
+          // math maps into the real buffer row.
+          start ??= { x: columnForTextOffset(part.line, part.skip + segmentStart - partStart), y: part.y };
+          end = { x: endColumnForTextOffset(part.line, part.skip + segmentEnd - partStart), y: part.y };
         }
         if (!start || !end || y < start.y || y > end.y) return [];
         return [{

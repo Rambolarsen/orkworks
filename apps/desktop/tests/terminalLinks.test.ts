@@ -249,6 +249,43 @@ test("still finds a wrapped link that stays within the scan cap", async () => {
   terminal.dispose();
 });
 
+test("joins a harness hard-wrapped path across indented continuation rows", async () => {
+  const terminal = new Terminal({ cols: 40, rows: 6 });
+  const full = "/Users/froomiebot/workspace/orkworks/docs/superpowers/plans/2026-09-04-some-really-long-session-plan-name-file.md";
+  await new Promise<void>((resolve) => terminal.write(
+    "Wrote " + full.slice(0, 25) + "\n   " + full.slice(25) + "\n",
+    resolve,
+  ));
+  const activated: string[] = [];
+  const provider = createTerminalPlanLinkProvider(terminal, async (path) => { activated.push(path); });
+
+  for (const row of [1, 2, 3]) {
+    const links = await new Promise<any>((resolve) => provider.provideLinks(row, resolve));
+    assert.equal(links?.length, 1, `row ${row}`);
+    assert.equal(links[0].text, full);
+    links[0].activate();
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(activated, [full, full, full]);
+  terminal.dispose();
+});
+
+test("keeps separate bulleted paths on indented lines as distinct links", async () => {
+  const terminal = new Terminal({ cols: 80, rows: 4 });
+  await new Promise<void>((resolve) => terminal.write(
+    "- Wrote specs/alpha.md\n  and also specs/beta.md\n",
+    resolve,
+  ));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+  const row1 = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+  const row2 = await new Promise<any>((resolve) => provider.provideLinks(2, resolve));
+  assert.equal(row1?.length, 1);
+  assert.equal(row1[0].text, "specs/alpha.md");
+  assert.equal(row2?.length, 1);
+  assert.equal(row2[0].text, "specs/beta.md");
+  terminal.dispose();
+});
+
 test("shows a visible error when selecting a terminal plan fails", async () => {
   const terminal = new Terminal({ cols: 80, rows: 2 });
   await new Promise<void>((resolve) => terminal.write("specs/plan.md", resolve));
