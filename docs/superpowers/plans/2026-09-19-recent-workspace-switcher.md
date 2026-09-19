@@ -346,7 +346,9 @@ test("pinWorkspacePath moves a path out of recentWorkspacePaths and unpinWorkspa
     assert.equal(pinned.diagnostic, null);
     assert.deepEqual(pinned.pinnedWorkspacePaths, ["/repo/a"]);
     assert.deepEqual(pinned.recentWorkspacePaths, ["/repo/b"]);
-    assert.equal(pinned.lastWorkspacePath, "/repo/a");
+    // Pinning does not open the workspace, so lastWorkspacePath is
+    // unchanged from the last remember call.
+    assert.equal(pinned.lastWorkspacePath, "/repo/b");
 
     const unpinned = unpinWorkspacePath(directory, "/repo/a");
     assert.equal(unpinned.diagnostic, null);
