@@ -286,6 +286,22 @@ test("does not join indented line breaks that leave a short row", async () => {
   terminal.dispose();
 });
 
+test("maps a joined link range through the stripped indent of its continuation row", async () => {
+  const terminal = new Terminal({ cols: 40, rows: 4 });
+  const expected = "specs/2026-09-19-recent-workspace-switcher-design.md";
+  // Row 1 fills exactly to width mid-path; the continuation is positioned two
+  // columns into the next row, so the match both starts and ends across the
+  // indent-stripped row and the range math must account for the skip.
+  await new Promise<void>((resolve) => terminal.write("Wrote " + expected.slice(0, 34), resolve));
+  await new Promise<void>((resolve) => terminal.write("\x1b[2;3H" + expected.slice(34) + "\n", resolve));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+  const links = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+  assert.equal(links?.length, 1);
+  assert.equal(links[0].text, expected);
+  assert.deepEqual(links[0].range, { start: { x: 7, y: 1 }, end: { x: 20, y: 2 } });
+  terminal.dispose();
+});
+
 test("keeps separate bulleted paths on indented lines as distinct links", async () => {
   const terminal = new Terminal({ cols: 80, rows: 4 });
   await new Promise<void>((resolve) => terminal.write(
