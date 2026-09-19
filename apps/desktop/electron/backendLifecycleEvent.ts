@@ -35,7 +35,7 @@ export interface BackendLifecycleWorkspace {
 }
 
 export interface WorkspaceHistoryDiagnostic {
-  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
+  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed" | "pin_limit_reached";
   message: string;
 }
 
@@ -90,7 +90,8 @@ function canonicalizeHistoryDiagnostic(value: unknown): WorkspaceHistoryDiagnost
   const diagnostic = value as Record<string, unknown>;
   return (diagnostic.code === "corrupt_history"
     || diagnostic.code === "history_lock_timeout"
-    || diagnostic.code === "history_write_failed")
+    || diagnostic.code === "history_write_failed"
+    || diagnostic.code === "pin_limit_reached")
     && typeof diagnostic.message === "string"
     ? { code: diagnostic.code, message: diagnostic.message }
     : null;

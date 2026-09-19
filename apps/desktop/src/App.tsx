@@ -7,6 +7,7 @@ import FixWithAiDialog from "./components/FixWithAiDialog";
 import SettingsModal from "./components/SettingsModal";
 import type { SettingsSection } from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
+import { WorkspaceHistoryDropdown } from "./components/WorkspaceHistoryDropdown";
 import {
   EMPTY_UNREAD_STATE,
   acknowledgeSession,
@@ -290,6 +291,21 @@ function App() {
     } finally {
       setIsSwitchingWorkspace(false);
     }
+  }, []);
+
+  const handleOpenRememberedWorkspace = useCallback(async (path: string) => {
+    setIsSwitchingWorkspace(true);
+    try {
+      await window.orkworks.openRememberedWorkspace(path);
+    } catch {
+      pushToast("error", "Couldn't open workspace.");
+    } finally {
+      setIsSwitchingWorkspace(false);
+    }
+  }, []);
+
+  const handleWorkspaceHistoryError = useCallback((message: string) => {
+    pushToast("error", message);
   }, []);
 
   useEffect(() => {
@@ -698,15 +714,16 @@ function App() {
               >
                 {workspace.path.split("/").pop() || workspace.path}
               </span>
-              <button
-                className="titlebar-switch-button"
-                type="button"
-                onClick={handleOpenWorkspace}
-                title={VOCAB.switchWorkspace}
-                aria-label={VOCAB.switchWorkspace}
-              >
-                &#x21C4;
-              </button>
+              <WorkspaceHistoryDropdown
+                triggerLabel="⇄"
+                triggerClassName="titlebar-switch-button"
+                triggerAriaLabel={VOCAB.switchWorkspace}
+                currentWorkspacePath={workspace?.path ?? null}
+                isSwitching={isSwitchingWorkspace}
+                onOpenPath={handleOpenRememberedWorkspace}
+                onOpenOtherFolder={handleOpenWorkspace}
+                onError={handleWorkspaceHistoryError}
+              />
               {workspaceHistoryDiagnostic && (
                 <span role="alert" title={workspaceHistoryDiagnostic.message}>
                   Workspace history unavailable
@@ -726,13 +743,16 @@ function App() {
                   Workspace switch needs attention
                 </span>
               )}
-              <button
-                className="titlebar-open-button"
-                type="button"
-                onClick={handleOpenWorkspace}
-              >
-                {VOCAB.openWorkspace}
-              </button>
+              <WorkspaceHistoryDropdown
+                triggerLabel={VOCAB.openWorkspace}
+                triggerClassName="titlebar-open-button"
+                triggerAriaLabel={VOCAB.openWorkspace}
+                currentWorkspacePath={null}
+                isSwitching={isSwitchingWorkspace}
+                onOpenPath={handleOpenRememberedWorkspace}
+                onOpenOtherFolder={handleOpenWorkspace}
+                onError={handleWorkspaceHistoryError}
+              />
               {workspaceSwitchDiagnostic && (
                 <button
                   className="titlebar-open-button"

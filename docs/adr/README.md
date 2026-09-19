@@ -68,3 +68,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0058](./0058-signed-release-artifacts-and-native-verification.md) | Signed release artifacts and native verification | accepted |
 | [0059](./0059-immutable-daily-prereleases.md) | Immutable daily prereleases | accepted |
 | [0060](./0060-independent-workspace-instances.md) | Independent workspace instances | accepted |
+| [0061](./0061-pinned-workspace-history.md) | Pinned and enumerable installation-scoped workspace history | accepted |
