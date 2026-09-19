@@ -38,10 +38,12 @@ fully power-loss durable.
 
 ## Testing
 
-Add a Windows regression that exercises the full failure path: publish a graph
-transaction, recover it, list the recommendation, and accept the recommendation
-into a live session. Add a platform-specific helper test documenting that
-directory sync is best-effort on Windows, while retaining the missing-directory
-failure test on Unix. Ensure the Windows CI test list runs the recommendation
-store and acceptance tests. Run the focused Rust tests, full Rust formatting and
+Keep the existing acceptance regression as the end-to-end Windows coverage: it
+publishes a graph transaction, recovers and lists the recommendation, then
+accepts it into a live session. Add a focused store test for replacing an
+existing recommendation, which pins the temporary-handle lifetime fix. Add a
+platform-specific helper test documenting that directory sync is best-effort on
+Windows, while retaining the missing-directory failure test on Unix. Ensure the
+Windows CI test list runs both the recommendation-store tests and the existing
+acceptance regression. Run the focused Rust tests, full Rust formatting and
 tests, and the desktop type/test checks required by the scoped instructions.
