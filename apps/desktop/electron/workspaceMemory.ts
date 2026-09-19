@@ -18,19 +18,30 @@ import { TextDecoder } from "node:util";
 import fsExt from "fs-ext";
 
 export interface WorkspaceMemoryDiagnostic {
-  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
+  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed" | "pin_limit_reached";
   message: string;
 }
 
 export interface AppWorkspaceMemory {
-  version: 1;
+  version: 2;
   revision: number;
   lastWorkspacePath: string | null;
   recentWorkspacePaths: string[];
+  pinnedWorkspacePaths: string[];
   diagnostic: WorkspaceMemoryDiagnostic | null;
 }
 
 interface StoredWorkspaceMemory {
+  version: 2;
+  revision: number;
+  lastWorkspacePath: string | null;
+  recentWorkspacePaths: string[];
+  pinnedWorkspacePaths: string[];
+}
+
+// The pre-this-feature (ADR 0060) on-disk shape. Read-only: never written by
+// this module, only migrated forward. See ADR 0061.
+interface V1StoredWorkspaceMemory {
   version: 1;
   revision: number;
   lastWorkspacePath: string | null;
@@ -40,6 +51,7 @@ interface StoredWorkspaceMemory {
 const fileName = "workspace-memory.json";
 const lockFileName = ".workspace-memory.lock";
 const maximumRecentPaths = 20;
+const maximumPinnedPaths = 50;
 const maximumSerializedBytes = 64 * 1024;
 // The pre-#569 writer's actual cap (see validLegacyStoredMemory) — never 20.
 const maximumLegacyRecentPaths = 10;
@@ -70,10 +82,11 @@ const corruptDiagnostic: WorkspaceMemoryDiagnostic = {
 };
 
 const emptyMemory = (): AppWorkspaceMemory => ({
-  version: 1,
+  version: 2,
   revision: 0,
   lastWorkspacePath: null,
   recentWorkspacePaths: [],
+  pinnedWorkspacePaths: [],
   diagnostic: null,
 });
 
@@ -86,10 +99,11 @@ function withDiagnostic(
 
 function storedMemory(memory: AppWorkspaceMemory): StoredWorkspaceMemory {
   return {
-    version: 1,
+    version: 2,
     revision: memory.revision,
     lastWorkspacePath: memory.lastWorkspacePath,
     recentWorkspacePaths: memory.recentWorkspacePaths,
+    pinnedWorkspacePaths: memory.pinnedWorkspacePaths,
   };
 }
 
@@ -101,27 +115,34 @@ function memoryFits(memory: StoredWorkspaceMemory): boolean {
   return Buffer.byteLength(serializedMemory(memory), "utf8") <= maximumSerializedBytes;
 }
 
+// Builds the recentWorkspacePaths list for a write: puts `lastWorkspacePath`
+// first (unless it is pinned — a pinned path never lives in both lists),
+// dedupes against `paths`, bounds to maximumRecentPaths entries, then trims
+// further until the candidate record (including the caller's current
+// pinnedWorkspacePaths, which count toward the same byte budget) fits.
 function boundedPaths(
   lastWorkspacePath: string | null,
   paths: readonly string[],
+  pinnedWorkspacePaths: readonly string[],
   revision: number,
 ): string[] | null {
   const deduplicated = [
-    ...(lastWorkspacePath === null ? [] : [lastWorkspacePath]),
+    ...(lastWorkspacePath === null || pinnedWorkspacePaths.includes(lastWorkspacePath) ? [] : [lastWorkspacePath]),
     ...paths,
   ].filter((value, index, values) => values.indexOf(value) === index);
   const bounded = deduplicated.slice(0, maximumRecentPaths);
-  const candidate = {
-    version: 1 as const,
+  const candidate = (recentWorkspacePaths: string[]): StoredWorkspaceMemory => ({
+    version: 2,
     revision,
     lastWorkspacePath,
-    recentWorkspacePaths: bounded,
-  };
+    recentWorkspacePaths,
+    pinnedWorkspacePaths: [...pinnedWorkspacePaths],
+  });
 
-  while (bounded.length > 1 && !memoryFits({ ...candidate, recentWorkspacePaths: bounded })) {
+  while (bounded.length > 1 && !memoryFits(candidate(bounded))) {
     bounded.pop();
   }
-  return memoryFits({ ...candidate, recentWorkspacePaths: bounded }) ? bounded : null;
+  return memoryFits(candidate(bounded)) ? bounded : null;
 }
 
 interface LegacyStoredWorkspaceMemory {
@@ -130,7 +151,7 @@ interface LegacyStoredWorkspaceMemory {
 }
 
 // Pre-#569 files predate the version/revision fields and the invariants
-// validStoredMemory enforces (deduplication, lastWorkspacePath inclusion).
+// validV1StoredMemory enforces (deduplication, lastWorkspacePath inclusion).
 // Accept the looser shape the old writer actually produced and normalize it
 // through boundedPaths rather than rejecting installs' existing history as
 // corrupt.
@@ -174,25 +195,30 @@ function migratedLegacyMemory(legacy: LegacyStoredWorkspaceMemory): AppWorkspace
     ? null
     : canonicalizedLegacyPath(legacy.lastWorkspacePath);
   // boundedPaths prepends lastWorkspacePath itself, so an empty paths list
-  // is enough to produce the single-entry (or empty) result.
-  const bounded = boundedPaths(lastWorkspacePath, [], 0);
+  // is enough to produce the single-entry (or empty) result. No pinned
+  // paths exist yet at this migration tier.
+  const bounded = boundedPaths(lastWorkspacePath, [], [], 0);
   // boundedPaths only returns null when even a single entry can't fit under
   // the serialized-size bound. Silently dropping recentWorkspacePaths would
-  // produce a lastWorkspacePath not present in the list, violating the same
-  // invariant validStoredMemory enforces for the current format — surface a
-  // diagnostic instead, matching how every other "doesn't fit" case here
-  // fails loud rather than discarding data quietly.
+  // produce a lastWorkspacePath not present in either list, violating the
+  // same invariant validStoredMemory enforces for the current format —
+  // surface a diagnostic instead, matching how every other "doesn't fit"
+  // case here fails loud rather than discarding data quietly.
   if (bounded === null) return withDiagnostic(emptyMemory(), corruptDiagnostic);
   return {
-    version: 1,
+    version: 2,
     revision: 0,
     lastWorkspacePath,
     recentWorkspacePaths: bounded,
+    pinnedWorkspacePaths: [],
     diagnostic: null,
   };
 }
 
-function validStoredMemory(value: unknown): value is StoredWorkspaceMemory {
+// ADR 0060's original shape, unchanged: version 1, no pinnedWorkspacePaths,
+// lastWorkspacePath must appear in recentWorkspacePaths. Never written by
+// this module; only migrated forward to v2. See ADR 0061.
+function validV1StoredMemory(value: unknown): value is V1StoredWorkspaceMemory {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const raw = value as Record<string, unknown>;
   const keys = Object.keys(raw).sort();
@@ -214,6 +240,53 @@ function validStoredMemory(value: unknown): value is StoredWorkspaceMemory {
     && (raw.lastWorkspacePath === null || raw.recentWorkspacePaths.includes(raw.lastWorkspacePath));
 }
 
+function migratedV1Memory(v1: V1StoredWorkspaceMemory): AppWorkspaceMemory {
+  return {
+    version: 2,
+    revision: v1.revision,
+    lastWorkspacePath: v1.lastWorkspacePath,
+    recentWorkspacePaths: [...v1.recentWorkspacePaths],
+    pinnedWorkspacePaths: [],
+    diagnostic: null,
+  };
+}
+
+function validStoredMemory(value: unknown): value is StoredWorkspaceMemory {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const raw = value as Record<string, unknown>;
+  const keys = Object.keys(raw).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([
+    "lastWorkspacePath",
+    "pinnedWorkspacePaths",
+    "recentWorkspacePaths",
+    "revision",
+    "version",
+  ])) return false;
+  if (
+    raw.version !== 2
+    || typeof raw.revision !== "number"
+    || !Number.isSafeInteger(raw.revision)
+    || raw.revision < 0
+    || (raw.lastWorkspacePath !== null && typeof raw.lastWorkspacePath !== "string")
+    || !Array.isArray(raw.recentWorkspacePaths)
+    || !Array.isArray(raw.pinnedWorkspacePaths)
+    || raw.recentWorkspacePaths.length > maximumRecentPaths
+    || raw.pinnedWorkspacePaths.length > maximumPinnedPaths
+    || !raw.recentWorkspacePaths.every((entry) => typeof entry === "string")
+    || !raw.pinnedWorkspacePaths.every((entry) => typeof entry === "string")
+  ) return false;
+
+  const recentSet = new Set(raw.recentWorkspacePaths);
+  const pinnedSet = new Set(raw.pinnedWorkspacePaths);
+  if (recentSet.size !== raw.recentWorkspacePaths.length) return false;
+  if (pinnedSet.size !== raw.pinnedWorkspacePaths.length) return false;
+  for (const path of raw.recentWorkspacePaths) {
+    if (pinnedSet.has(path)) return false; // a path must live in at most one list
+  }
+  if (raw.lastWorkspacePath === null) return true;
+  return recentSet.has(raw.lastWorkspacePath) || pinnedSet.has(raw.lastWorkspacePath);
+}
+
 function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
   const target = workspaceMemoryPath(userDataPath);
   if (!existsSync(target)) return emptyMemory();
@@ -222,23 +295,25 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
     const source = readFileSync(target);
     if (source.byteLength > maximumLegacySourceBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     const parsed: unknown = JSON.parse(utf8Decoder.decode(source));
-    if (!validStoredMemory(parsed)) {
-      if (validLegacyStoredMemory(parsed)) return migratedLegacyMemory(parsed);
-      return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    if (validStoredMemory(parsed)) {
+      // The v2 writer never produces a file over maximumSerializedBytes, so
+      // enforce that tighter bound here now that the shape is confirmed
+      // current-format rather than legacy/v1.
+      if (source.byteLength > maximumSerializedBytes || !memoryFits(parsed)) {
+        return withDiagnostic(emptyMemory(), corruptDiagnostic);
+      }
+      return {
+        version: 2,
+        revision: parsed.revision,
+        lastWorkspacePath: parsed.lastWorkspacePath,
+        recentWorkspacePaths: [...parsed.recentWorkspacePaths],
+        pinnedWorkspacePaths: [...parsed.pinnedWorkspacePaths],
+        diagnostic: null,
+      };
     }
-    // The v1 writer never produces a file over maximumSerializedBytes, so
-    // enforce that tighter bound here now that the shape is confirmed
-    // current-format rather than legacy.
-    if (source.byteLength > maximumSerializedBytes || !memoryFits(parsed)) {
-      return withDiagnostic(emptyMemory(), corruptDiagnostic);
-    }
-    return {
-      version: 1,
-      revision: parsed.revision,
-      lastWorkspacePath: parsed.lastWorkspacePath,
-      recentWorkspacePaths: [...parsed.recentWorkspacePaths],
-      diagnostic: null,
-    };
+    if (validV1StoredMemory(parsed)) return migratedV1Memory(parsed);
+    if (validLegacyStoredMemory(parsed)) return migratedLegacyMemory(parsed);
+    return withDiagnostic(emptyMemory(), corruptDiagnostic);
   } catch {
     return withDiagnostic(emptyMemory(), corruptDiagnostic);
   }
@@ -355,7 +430,8 @@ function writeAndVerify(
 
 const noChange = Symbol("no workspace history change");
 const tooLarge = Symbol("workspace history entry too large");
-type UpdateResult = StoredWorkspaceMemory | typeof noChange | typeof tooLarge;
+const pinLimitReached = Symbol("workspace history pin limit reached");
+type UpdateResult = StoredWorkspaceMemory | typeof noChange | typeof tooLarge | typeof pinLimitReached;
 
 function updateWorkspaceMemory(
   userDataPath: string,
@@ -388,6 +464,12 @@ function updateWorkspaceMemory(
       return withDiagnostic(current, {
         code: "history_write_failed",
         message: "Workspace history revision is exhausted; the file was left unchanged.",
+      });
+    }
+    if (next === pinLimitReached) {
+      return withDiagnostic(current, {
+        code: "pin_limit_reached",
+        message: `Only ${maximumPinnedPaths} workspaces can be pinned at a time.`,
       });
     }
     if (next === tooLarge) {
@@ -439,16 +521,30 @@ export function rememberWorkspacePath(
   replaceFile: WorkspaceHistoryReplacer = replaceWorkspaceHistoryFile,
 ): AppWorkspaceMemory {
   return updateWorkspaceMemory(userDataPath, (current) => {
+    if (current.pinnedWorkspacePaths.includes(workspacePath)) {
+      // Opening an already-pinned workspace only updates lastWorkspacePath —
+      // it must never be duplicated into recentWorkspacePaths (a path lives
+      // in at most one list; see ADR 0061).
+      if (current.lastWorkspacePath === workspacePath) return noChange;
+      return {
+        version: 2,
+        revision: current.revision + 1,
+        lastWorkspacePath: workspacePath,
+        recentWorkspacePaths: current.recentWorkspacePaths,
+        pinnedWorkspacePaths: current.pinnedWorkspacePaths,
+      };
+    }
     const recentWorkspacePaths = boundedPaths(workspacePath, [
       workspacePath,
       ...current.recentWorkspacePaths.filter((path) => path !== workspacePath),
-    ], current.revision + 1);
+    ], current.pinnedWorkspacePaths, current.revision + 1);
     if (recentWorkspacePaths === null) return tooLarge;
     return {
-      version: 1,
+      version: 2,
       revision: current.revision + 1,
       lastWorkspacePath: workspacePath,
       recentWorkspacePaths,
+      pinnedWorkspacePaths: current.pinnedWorkspacePaths,
     };
   }, replaceFile);
 }
@@ -460,14 +556,67 @@ export function forgetWorkspacePath(
 ): AppWorkspaceMemory {
   return updateWorkspaceMemory(userDataPath, (current) => {
     const recentWorkspacePaths = current.recentWorkspacePaths.filter((path) => path !== workspacePath);
-    if (recentWorkspacePaths.length === current.recentWorkspacePaths.length && current.lastWorkspacePath !== workspacePath) {
-      return noChange;
-    }
+    const pinnedWorkspacePaths = current.pinnedWorkspacePaths.filter((path) => path !== workspacePath);
+    const changed = recentWorkspacePaths.length !== current.recentWorkspacePaths.length
+      || pinnedWorkspacePaths.length !== current.pinnedWorkspacePaths.length
+      || current.lastWorkspacePath === workspacePath;
+    if (!changed) return noChange;
     return {
-      version: 1,
+      version: 2,
       revision: current.revision + 1,
       lastWorkspacePath: current.lastWorkspacePath === workspacePath ? null : current.lastWorkspacePath,
       recentWorkspacePaths,
+      pinnedWorkspacePaths,
+    };
+  }, replaceFile);
+}
+
+export function pinWorkspacePath(
+  userDataPath: string,
+  workspacePath: string,
+  replaceFile: WorkspaceHistoryReplacer = replaceWorkspaceHistoryFile,
+): AppWorkspaceMemory {
+  return updateWorkspaceMemory(userDataPath, (current) => {
+    if (current.pinnedWorkspacePaths.includes(workspacePath)) return noChange;
+    // Count overflow is distinct from, and checked before, the generic
+    // byte-size check below: 50 short paths fit easily in 64 KiB, so the
+    // byte check alone would never catch a 51st pin. See ADR 0061.
+    if (current.pinnedWorkspacePaths.length >= maximumPinnedPaths) return pinLimitReached;
+    const pinnedWorkspacePaths = [workspacePath, ...current.pinnedWorkspacePaths];
+    const recentWorkspacePaths = current.recentWorkspacePaths.filter((path) => path !== workspacePath);
+    return {
+      version: 2,
+      revision: current.revision + 1,
+      lastWorkspacePath: current.lastWorkspacePath,
+      recentWorkspacePaths,
+      pinnedWorkspacePaths,
+    };
+  }, replaceFile);
+}
+
+export function unpinWorkspacePath(
+  userDataPath: string,
+  workspacePath: string,
+  replaceFile: WorkspaceHistoryReplacer = replaceWorkspaceHistoryFile,
+): AppWorkspaceMemory {
+  return updateWorkspaceMemory(userDataPath, (current) => {
+    if (!current.pinnedWorkspacePaths.includes(workspacePath)) return noChange;
+    const pinnedWorkspacePaths = current.pinnedWorkspacePaths.filter((path) => path !== workspacePath);
+    // Re-enters recentWorkspacePaths at the front, as if just opened, rather
+    // than being lost.
+    const recentWorkspacePaths = boundedPaths(
+      workspacePath,
+      current.recentWorkspacePaths,
+      pinnedWorkspacePaths,
+      current.revision + 1,
+    );
+    if (recentWorkspacePaths === null) return tooLarge;
+    return {
+      version: 2,
+      revision: current.revision + 1,
+      lastWorkspacePath: current.lastWorkspacePath,
+      recentWorkspacePaths,
+      pinnedWorkspacePaths,
     };
   }, replaceFile);
 }
