@@ -445,3 +445,11 @@ test("workspace history IPC channels are wired through main, preload, and the re
   assert.match(rendererTypes, /openRememberedWorkspace: \(path: string\) => Promise<WorkspaceInfo \| null>;/);
   assert.match(rendererTypes, /"pin_limit_reached"/);
 });
+
+test("App wires both workspace-history dropdown triggers to the remembered-open handler", () => {
+  assert.match(appSource, /import \{ WorkspaceHistoryDropdown \} from "\.\/components\/WorkspaceHistoryDropdown";/);
+  assert.equal(appSource.match(/<WorkspaceHistoryDropdown/g)?.length, 2);
+  assert.match(appSource, /onOpenPath=\{handleOpenRememberedWorkspace\}/);
+  assert.match(appSource, /onOpenOtherFolder=\{handleOpenWorkspace\}/);
+  assert.match(appSource, /await window\.orkworks\.openRememberedWorkspace\(path\);/);
+});
