@@ -188,6 +188,7 @@ impl RecommendationStore {
         use std::io::Write;
         file.write_all(&json).map_err(StoreError::Io)?;
         file.sync_all().map_err(StoreError::Io)?;
+        drop(file);
         let target_existed = path.exists();
         crate::harness::integration::atomic_replace(&temp, &path, target_existed)
             .map_err(StoreError::Io)?;
@@ -1235,17 +1236,22 @@ fn write_manifest_atomic(
     Ok(())
 }
 
+#[cfg(windows)]
 fn sync_directory(path: &Path) -> Result<(), StoreError> {
-    match fs::File::open(path) {
-        Ok(directory) => directory.sync_all().map_err(StoreError::Io),
-        Err(error) if cfg!(target_os = "windows") && error.kind() == io::ErrorKind::Unsupported => {
-            // Directory handles are not syncable on every supported Windows
-            // filesystem. Preserve the best-effort behavior only for that
-            // platform limitation; all other open/sync failures are fatal.
-            Ok(())
-        }
-        Err(error) => Err(StoreError::Io(error)),
-    }
+    let _ = path;
+    // Rust's standard File::open does not request the Win32 directory-handle
+    // semantics needed for Unix-style directory fsync. File contents are
+    // still synced before publication; new-file publication uses
+    // MOVEFILE_WRITE_THROUGH. ReplaceFileW has no write-through flag, so
+    // Windows cannot provide equivalent directory-entry crash durability here.
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn sync_directory(path: &Path) -> Result<(), StoreError> {
+    fs::File::open(path)
+        .map_err(StoreError::Io)
+        .and_then(|directory| directory.sync_all().map_err(StoreError::Io))
 }
 
 fn validate_manifest_entries(entries: &[RollupTransactionEntry]) -> Result<(), StoreError> {
@@ -1670,6 +1676,22 @@ mod tests {
     }
 
     #[test]
+    fn replaces_an_existing_recommendation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let mut first = recommendation("replace-existing", "session");
+        store.put(&first).unwrap();
+
+        first.status = RecommendationStatus::Accepted;
+        store.put(&first).unwrap();
+
+        assert_eq!(
+            store.get("replace-existing").unwrap().unwrap().status,
+            RecommendationStatus::Accepted
+        );
+    }
+
+    #[test]
     fn dismisses_in_place_with_immutable_evidence_and_watermark() {
         let dir = tempfile::tempdir().unwrap();
         let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
@@ -1955,6 +1977,7 @@ mod tests {
             .exists());
     }
 
+    #[cfg_attr(windows, ignore = "legacy v1 transaction paths use ':' in filenames")]
     #[test]
     fn persists_loads_and_transacts_with_a_stable_rollup_id() {
         let dir = tempfile::tempdir().unwrap();
@@ -2047,6 +2070,7 @@ mod tests {
         expected.clear();
     }
 
+    #[cfg_attr(windows, ignore = "legacy v1 transaction paths use ':' in filenames")]
     #[test]
     fn keeps_the_complete_old_graph_when_an_uncommitted_transaction_is_recovered() {
         let parent_id = stable_rollup_id(&["member".into()]);
@@ -2067,6 +2091,7 @@ mod tests {
             .exists());
     }
 
+    #[cfg_attr(windows, ignore = "legacy v1 transaction paths use ':' in filenames")]
     #[test]
     fn recovers_a_legacy_rollup_transaction_with_raw_colon_paths() {
         let dir = tempfile::tempdir().unwrap();
@@ -2099,6 +2124,7 @@ mod tests {
         );
     }
 
+    #[cfg_attr(windows, ignore = "legacy v1 transaction paths use ':' in filenames")]
     #[test]
     fn finishes_a_committed_transaction_before_serving_reads() {
         let parent_id = stable_rollup_id(&["member".into()]);
@@ -2184,10 +2210,18 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn reports_directory_sync_failures() {
         let missing = tempfile::tempdir().unwrap().path().join("missing");
         assert!(matches!(sync_directory(&missing), Err(StoreError::Io(_))));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn treats_directory_sync_as_best_effort_on_windows() {
+        let missing = tempfile::tempdir().unwrap().path().join("missing");
+        assert!(sync_directory(&missing).is_ok());
     }
 
     #[test]
