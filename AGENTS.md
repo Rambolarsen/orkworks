@@ -219,6 +219,9 @@ the detailed naming rules.
 
 ## Architecture
 
+Packaged desktop updating requires `electron-updater` as a production dependency.
+Preserve the platform verification and shutdown guards described in
+[desktop update architecture](docs/agents/architecture.md#packaging-and-release).
 Electron workspace history uses the native `fs-ext` advisory lock on a retained
 lock file; never evict it by age or delete its inode. Desktop dev/build/dist
 rebuild native dependencies for Electron. Run `pnpm rebuild fs-ext` before Node

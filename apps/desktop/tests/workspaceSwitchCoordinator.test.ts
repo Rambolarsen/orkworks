@@ -321,6 +321,47 @@ test("repeated switch and quit requests are serialized", async () => {
   ] satisfies WorkspaceInstanceState[]);
 });
 
+test("update shutdown holds the coordinator queue until installation completes", async () => {
+  const install = deferred<void>();
+  const started = deferred<void>();
+  const harness = createHarness();
+  const updating = harness.coordinator.runUpdate(async (workspacePath) => {
+    assert.equal(workspacePath, "/current");
+    started.resolve();
+    await install.promise;
+  });
+  const switching = harness.coordinator.switchWorkspace("/next");
+
+  await started.promise;
+  assert.deepEqual(harness.actions, ["close-current", "path:none"]);
+
+  install.resolve();
+  await updating;
+  await switching;
+  assert.equal(harness.getCurrentPath(), "/next");
+});
+
+test("failed update restores the workspace through the serialized open path", async () => {
+  const harness = createHarness();
+
+  await assert.rejects(
+    harness.coordinator.runUpdate(async () => {
+      throw new Error("installer failed");
+    }),
+    /installer failed/,
+  );
+
+  assert.equal(harness.getCurrentPath(), "/current");
+  assert.equal(harness.coordinator.getState(), "ready");
+  assert.deepEqual(harness.actions, [
+    "close-current",
+    "path:none",
+    "start:/current",
+    "history:/current",
+    "path:/current",
+  ]);
+});
+
 test("quit cleanup timeout remains unresolved and can be retried", async () => {
   let oldRuntimeExited = false;
   const harness = createHarness({

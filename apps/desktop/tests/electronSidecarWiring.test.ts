@@ -154,7 +154,7 @@ test("quit does not finalize the app after unresolved workspace cleanup", () => 
   assert.ok(start >= 0 && end > start, "before-quit handler not found");
   const handler = mainSource.slice(start, end);
   const requestStart = mainSource.indexOf("function requestQuit");
-  const requestEnd = mainSource.indexOf("\n}\n\napp.on(\"before-quit\"", requestStart);
+  const requestEnd = mainSource.indexOf('app.on("before-quit"', requestStart);
   assert.ok(requestStart >= 0 && requestEnd > requestStart, "quit request helper not found");
   const request = mainSource.slice(requestStart, requestEnd);
 
@@ -177,7 +177,7 @@ test("repeated quit requests stay prevented while cleanup is pending", () => {
   );
 
   const requestStart = mainSource.indexOf("function requestQuit");
-  const requestEnd = mainSource.indexOf("\n}\n\napp.on(\"before-quit\"", requestStart);
+  const requestEnd = mainSource.indexOf('app.on("before-quit"', requestStart);
   assert.ok(requestStart >= 0 && requestEnd > requestStart, "quit request helper not found");
   const request = mainSource.slice(requestStart, requestEnd);
   assert.match(request, /quitBypass = true;\s*app\.quit\(\);/);

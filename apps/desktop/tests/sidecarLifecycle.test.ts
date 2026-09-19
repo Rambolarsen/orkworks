@@ -23,6 +23,7 @@ class FakeProcess {
   readonly stdout = new FakeStream();
   private readonly listeners = new Map<string, Listener[]>();
   killed = false;
+  killCount = 0;
 
   on(event: "exit" | "error", listener: Listener): this {
     this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
@@ -31,6 +32,7 @@ class FakeProcess {
 
   kill(): void {
     this.killed = true;
+    this.killCount += 1;
   }
 
   exit(code: number | null): void {
@@ -134,6 +136,54 @@ test("rejects readiness when the process exits before publishing a port", async 
 
   await assert.rejects(readiness, /exited before readiness/i);
   assert.equal(lifecycle.getPort(), null);
+});
+
+test("stopAndWait resolves after the requested child exits", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const readiness = lifecycle.start("C:\\workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
+  await readiness;
+  const stopping = lifecycle.stopAndWait(1000);
+
+  processes[0].exit(0);
+
+  await assert.doesNotReject(stopping);
+  assert.equal(timers.size, 0);
+});
+
+test("stopAndWait resolves after stopping before readiness", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+  const stopping = lifecycle.stopAndWait(1000);
+
+  processes[0].exit(0);
+
+  await assert.rejects(readiness, /stopped before readiness/i);
+  await assert.doesNotReject(stopping);
+  assert.equal(timers.size, 0);
+});
+
+test("stopAndWait rejects unbounded or negative timeouts", async () => {
+  for (const timeoutMs of [-1, Number.POSITIVE_INFINITY, Number.NaN]) {
+    const { lifecycle } = createHarness();
+
+    await assert.rejects(lifecycle.stopAndWait(timeoutMs), /finite and non-negative/i);
+  }
+});
+
+test("stopAndWait rejects on timeout without starting a replacement", async () => {
+  const { lifecycle, processes, timers } = createHarness();
+  const readiness = lifecycle.start("C:\\workspace");
+  processes[0].stdout.emit("ORKWORKSD_PORT=4444\n");
+  await readiness;
+  const stopping = lifecycle.stopAndWait(50);
+
+  timers.advanceBy(50);
+
+  await assert.rejects(stopping, /timed out/i);
+  assert.equal(processes.length, 1);
+  assert.equal(processes[0].killCount, 1);
+  assert.equal(timers.size, 0);
 });
 
 test("starts the next generation only after the old process exits", async () => {

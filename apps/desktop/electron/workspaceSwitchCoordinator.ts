@@ -74,6 +74,7 @@ export interface WorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic = unk
   switchWorkspace(path: string): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic>>;
   pickWorkspace(select: () => Promise<string | null>): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic> | null>;
   retry(): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic>>;
+  runUpdate<T>(operation: (workspacePath: string | null) => Promise<T>): Promise<T>;
   close(): Promise<{ ok: true; state: "picker"; generation: number } | { ok: false; state: "unresolved"; generation: number; failure: WorkspaceSwitchFailure }>;
   quit(): Promise<{ ok: true; state: "picker"; generation: number } | { ok: false; state: "unresolved"; generation: number; failure: WorkspaceSwitchFailure }>;
 }
@@ -321,6 +322,40 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
           return { ok: false, state: "picker", generation, failure };
         }
         return switchWorkspaceInternal(lastDestination);
+      });
+    },
+
+    runUpdate<T>(operation: (workspacePath: string | null) => Promise<T>): Promise<T> {
+      return enqueue(async () => {
+        if (attemptedRuntimeCleanupFailure) {
+          throw new WorkspaceSwitchError(
+            attemptedRuntimeCleanupFailure.code,
+            attemptedRuntimeCleanupFailure.message,
+          );
+        }
+
+        const previousWorkspacePath = currentWorkspacePath;
+        if (previousWorkspacePath) {
+          const closed = await closeCurrent(++generation);
+          if (!closed.ok) {
+            throw new WorkspaceSwitchError(closed.failure.code, closed.failure.message);
+          }
+        }
+
+        try {
+          return await operation(previousWorkspacePath);
+        } catch (error: unknown) {
+          if (previousWorkspacePath && !attemptedRuntimeCleanupFailure) {
+            const restored = await switchWorkspaceInternal(previousWorkspacePath);
+            if (!restored.ok) {
+              throw new WorkspaceSwitchError(
+                restored.failure.code,
+                `${errorFrom(error).message}; ${restored.failure.message}`,
+              );
+            }
+          }
+          throw error;
+        }
       });
     },
 

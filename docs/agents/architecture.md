@@ -96,6 +96,21 @@ when the normal renderer document is not.
 
 ## Packaging and release
 
+Packaged desktop updates use the production `electron-updater` dependency in
+Electron main. Main explicitly flags packaged preload through a window argument;
+development update methods remain IPC-inert. The updater's own network session
+blocks cross-channel metadata fallback. Release identity excludes the public
+download event's local `downloadedFile` completion path. Both macOS and Windows
+installation fail closed before verification, session queries, confirmation,
+shutdown, installer invocation, or recovery. NSIS schedules quit before asynchronous
+spawn failure is known and offers no supported latch reset/retry handshake; macOS
+cannot prove native verification without arming installation. Windows signature
+verification accepts the release pipeline's exact certificate SimpleName, while
+rejecting mismatch or skipped verification. The adapter retains fresh metadata
+revalidation; neither matching metadata nor signature proof enables installation.
+A sidecar stopped for installation remains owned until its exit is confirmed,
+including after timeout. See [desktop updates](../user/updates.md) for limitations.
+
 Taskmaster's independently updated reference knowledge and separate analysis
 model follow [ADR 0054](../adr/0054-taskmaster-honors-managed-cli-policy.md) and the
 [knowledge specification](../../specs/taskmaster-knowledge.md). Electron main

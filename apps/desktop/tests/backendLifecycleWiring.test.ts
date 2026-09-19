@@ -94,7 +94,7 @@ test("a delayed initial workspace snapshot cannot overwrite a newer live lifecyc
   assert.match(appSource, /const workspaceLifecycleRef = useRef\(\{ generation: 0, readyGeneration: null as number \| null \}\)/);
   assert.match(appSource, /const generation = workspaceLifecycleRef\.current\.generation \+ 1/);
   const start = appSource.indexOf("async function loadInitialWorkspace");
-  const end = appSource.indexOf("\n    }\n    void loadInitialWorkspace", start);
+  const end = appSource.indexOf("void loadInitialWorkspace", start);
   assert.ok(start !== -1 && end > start, "initial workspace loader block not found");
   const loader = appSource.slice(start, end);
   assert.match(loader, /generation: workspaceLifecycleRef\.current\.generation/);

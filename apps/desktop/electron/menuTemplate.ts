@@ -2,7 +2,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import type { AppSettings } from "./settingsMemory";
 
 export interface MenuCommand {
-  action: "new-session" | "focus" | "reset-layout" | "open-settings";
+  action: "new-session" | "focus" | "reset-layout" | "open-settings" | "check-for-updates";
   panelId?: string;
 }
 
@@ -132,6 +132,13 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
     {
       ...(isCapturing ? { label: "Help" } : { role: "help" as const }),
       submenu: [
+        {
+          id: "check-for-updates",
+          label: "Check for updates",
+          enabled: !isCapturing,
+          click: () => sendIfNotCapturing({ action: "check-for-updates" }),
+        },
+        { type: "separator" },
         {
           id: "open-settings",
           label: "Settings…",

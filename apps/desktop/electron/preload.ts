@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { subscribeBackendLifecycle, type BackendLifecycleEvent, type BackendRetryResult, type InitialWorkspaceSnapshot } from "./backendLifecycleEvent";
+import type { UpdateStatus } from "./updateService";
 
 type IntegrationKey = {
   adapterId: string;
@@ -62,10 +63,40 @@ type TaskmasterAcceptOptions = {
   prompt?: string;
 };
 
+const developmentUpdateStatus: UpdateStatus = {
+  state: "unavailable",
+  reason: "development",
+  sequence: 0,
+};
+
+const packagedUpdater = process.argv.includes("--orkworks-packaged=true");
+
 contextBridge.exposeInMainWorld("orkworks", {
   platform: process.platform,
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
   retryBackend: (): Promise<BackendRetryResult> => ipcRenderer.invoke("retry-backend"),
+  getUpdateStatus: (): Promise<UpdateStatus> => !packagedUpdater
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("get-update-status"),
+  checkForUpdates: (): Promise<UpdateStatus> => !packagedUpdater
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("check-for-updates"),
+  downloadUpdate: (): Promise<UpdateStatus> => !packagedUpdater
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("download-update"),
+  requestUpdateInstall: (): Promise<UpdateStatus> => !packagedUpdater
+    ? Promise.resolve(developmentUpdateStatus)
+    : ipcRenderer.invoke("request-update-install"),
+  onUpdateStatus: (callback: (status: UpdateStatus) => void): (() => void) => {
+    if (!packagedUpdater) {
+      callback(developmentUpdateStatus);
+      return () => undefined;
+    }
+    const handler = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => callback(status);
+    ipcRenderer.on("update-status", handler);
+    ipcRenderer.send("subscribe-update-status");
+    return () => ipcRenderer.removeListener("update-status", handler);
+  },
   onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) =>
     subscribeBackendLifecycle(
       (listener) => {

@@ -24,10 +24,11 @@ import Toggle, { ToggleStatusText } from "./Toggle";
 import Button from "./Button";
 import Input from "./Input";
 import TaskmasterSettings from "./TaskmasterSettings";
+import type { UpdateStatus } from "../orkworksWindow";
 
 type HotkeyAction = keyof HotkeySettings;
 
-export type SettingsSection = "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "debug";
+export type SettingsSection = "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "updates" | "debug";
 
 const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
   { key: "tools", label: "Coding tools" },
@@ -35,17 +36,25 @@ const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
   { key: "recommendations", label: "Recommendations" },
   { key: "hotkeys", label: "Hotkeys" },
   { key: "retention", label: "Session retention" },
+  { key: "updates", label: "Updates" },
   { key: "debug", label: "Debug" },
 ];
 
 interface SettingsModalProps {
   initialSection?: SettingsSection;
   initialSettings: AppSettings;
+  updateStatus: UpdateStatus | null;
+  updateCurrentVersion: string | null;
+  updateChannel: "latest" | "nightly" | null;
+  // App owns window.orkworks.onUpdateStatus and passes its latest snapshot here.
+  onCheckForUpdates: () => void;
+  onDownloadUpdate: () => void;
   harnesses: HarnessConfigEntry[];
   documentRevision: string | null;
   onRefreshHarnesses: () => Promise<HarnessListResponse>;
   activeHarnessIds: string[];
   providerRuntime: ProviderRuntimeResponse | null;
+  onSectionChange: (section: SettingsSection) => void;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
   onSaveActiveHarnesses: (ids: string[], scope?: IntegrationKey) => Promise<ActiveHarnessSaveResult>;
@@ -87,7 +96,7 @@ function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
   return stripDerivedHarnessFields(harness);
 }
 
-export default function SettingsModal({ initialSection = "tools", initialSettings, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSection = "tools", initialSettings, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -102,6 +111,9 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     .filter((key, index, all) => all.indexOf(key) === index)
     .join("\0");
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
+  useEffect(() => {
+    setActiveSection(initialSection);
+  }, [initialSection]);
   const [draft, setDraft] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [savedHotkeys, setSavedHotkeys] = useState<HotkeySettings>(initialSettings.hotkeys);
   const [capturing, setCapturing] = useState<HotkeyAction | null>(null);
@@ -824,6 +836,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                   // silently assigning the next keystroke typed anywhere else.
                   setCapturing(null);
                   setActiveSection(item.key);
+                  onSectionChange(item.key);
                 }}
               >
                 {item.label}
@@ -988,6 +1001,16 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
             )}
 
             {activeSection === "recommendations" && <TaskmasterSettings />}
+
+            {activeSection === "updates" && (
+              <UpdatesSection
+                status={updateStatus}
+                currentVersion={updateCurrentVersion}
+                channel={updateChannel}
+                onCheck={onCheckForUpdates}
+                onDownload={onDownloadUpdate}
+              />
+            )}
 
             {activeSection === "debug" && (
               <div className="settings-section">
@@ -1195,6 +1218,80 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function UpdatesSection({ status, currentVersion, channel, onCheck, onDownload }: {
+  status: UpdateStatus | null;
+  currentVersion: string | null;
+  channel: "latest" | "nightly" | null;
+  onCheck: () => void;
+  onDownload: () => void;
+}) {
+  const candidate = status && "candidate" in status ? status.candidate : undefined;
+  const statusText = !status ? "Loading update status..." : (() => {
+    switch (status.state) {
+      case "unavailable": return status.reason === "development"
+        ? "Updates are unavailable in development builds."
+        : status.reason === "unsupported-platform"
+          ? "Updates are unavailable on this platform."
+          : "Updates are unavailable for this version.";
+      case "never-checked": return "Updates have not been checked yet.";
+      case "checking": return "Checking for updates...";
+      case "up-to-date": return "OrkWorks is up-to-date.";
+      case "available": return "An update is available.";
+      case "downloading": return "Downloading update...";
+      case "downloaded": return "Update downloaded. Install the signed release manually.";
+      case "installing": return "Installing update...";
+      case "error": return `Update ${status.operation} failed.`;
+    }
+  })();
+
+  return (
+    <div className="settings-section">
+      <h3>Updates</h3>
+      <p className="settings-section-copy">Check for and download signed OrkWorks updates when you choose.</p>
+      <p className="updates-warning">In-app installation is currently unavailable on Windows and macOS. Install the signed release manually.</p>
+
+      <dl className="updates-details">
+        <div><dt>Current version</dt><dd>{currentVersion ?? "Unavailable"}</dd></div>
+        <div><dt>Channel</dt><dd>{channel === "latest" ? "Stable" : channel === "nightly" ? "Nightly" : "Unavailable"}</dd></div>
+        {candidate && <div><dt>Available version</dt><dd>{candidate.identity.version}</dd></div>}
+        {candidate && <div><dt>Release tag</dt><dd>{candidate.identity.tag}</dd></div>}
+      </dl>
+
+      <div className="updates-status" role="status" aria-live="polite">{statusText}</div>
+
+      {status?.state === "downloading" && (
+        <div className="updates-progress">
+          <progress max={100} value={status.progress.percent} />
+          <span>{Math.round(status.progress.percent)}% ({status.progress.transferred.toLocaleString()} / {status.progress.total.toLocaleString()} bytes)</span>
+        </div>
+      )}
+
+      {candidate?.releaseNotes && (
+        <div className="updates-release-notes">
+          <h4>Release notes</h4>
+          <p>{candidate.releaseNotes}</p>
+        </div>
+      )}
+
+      {status?.state === "error" && <div className="updates-error" role="alert">{status.message}</div>}
+
+      <div className="updates-actions">
+        {(!status || status.state === "never-checked" || status.state === "checking" || status.state === "up-to-date" || status.state === "unavailable") && (
+          <Button variant="primary" onClick={onCheck} disabled={!status || status.state === "checking" || status.state === "unavailable"}>
+            Check for updates
+          </Button>
+        )}
+        {(status?.state === "available" || status?.state === "downloading") && (
+          <Button variant="primary" onClick={onDownload} disabled={status.state === "downloading"}>
+            Download update
+          </Button>
+        )}
+        {status?.state === "error" && <Button variant="primary" onClick={onCheck}>Retry</Button>}
+      </div>
     </div>
   );
 }

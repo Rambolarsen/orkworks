@@ -44,6 +44,7 @@ import { captureRendererHealth, type RendererHealthSample } from "./rendererHeal
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
 import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
+import type { UpdateStatus } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
@@ -62,6 +63,11 @@ function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("tools");
+  const [updateState, setUpdateState] = useState<{
+    status: UpdateStatus | null;
+    currentVersion: string | null;
+    channel: "latest" | "nightly" | null;
+  }>({ status: null, currentVersion: null, channel: null });
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
@@ -140,6 +146,18 @@ function App() {
   }, [workspaceSessionController]);
 
   useEffect(() => window.orkworks.onBackendLifecycle(handleBackendLifecycle), [handleBackendLifecycle]);
+
+  useEffect(() => window.orkworks.onUpdateStatus((status) => {
+    setUpdateState((current) => ({
+      status,
+      currentVersion: "currentVersion" in status ? status.currentVersion : current.currentVersion,
+      channel: "channel" in status
+        ? status.channel
+        : "candidate" in status && status.candidate
+          ? status.candidate.identity.channel
+          : current.channel,
+    }));
+  }), []);
 
   const handleRetryBackend = useCallback(() => {
     setBackendStatus("connecting…");
@@ -295,6 +313,22 @@ function App() {
       setProviderRuntime(runtime);
     } catch {
       // Settings are already open; provider runtime will be null
+    }
+  }, []);
+
+  const checkForUpdates = useCallback(async () => {
+    try {
+      await window.orkworks.checkForUpdates();
+    } catch {
+      pushToast("error", "Couldn't check for updates.");
+    }
+  }, []);
+
+  const downloadUpdate = useCallback(async () => {
+    try {
+      await window.orkworks.downloadUpdate();
+    } catch {
+      pushToast("error", "Couldn't download the update.");
     }
   }, []);
 
@@ -534,6 +568,12 @@ function App() {
 
   useEffect(() => {
     return window.orkworks.onMenuCommand(({ action, panelId }) => {
+      if (action === "check-for-updates") {
+        void openSettings("updates");
+        void checkForUpdates();
+        return;
+      }
+
       if (action === "open-settings") {
         openSettings();
         return;
@@ -640,7 +680,7 @@ function App() {
         synchronizeSignalPanels(api, sessions.find((session) => session.id === activeSessionId), signalPanelHiddenIdsRef.current);
       }
     });
-  }, [handleCreateSession, activeSessionId, sessions, openSettings]);
+  }, [handleCreateSession, activeSessionId, sessions, openSettings, checkForUpdates]);
 
   return (
     <div className="app-shell">
@@ -780,11 +820,17 @@ function App() {
         <SettingsModal
           initialSection={settingsSection}
           initialSettings={settings}
+          updateStatus={updateState.status}
+          updateCurrentVersion={updateState.currentVersion}
+          updateChannel={updateState.channel}
+          onCheckForUpdates={() => void checkForUpdates()}
+          onDownloadUpdate={() => void downloadUpdate()}
           harnesses={harnesses}
           documentRevision={harnessDocumentRevision}
           onRefreshHarnesses={refreshHarnesses}
           activeHarnessIds={activeHarnessIds}
           providerRuntime={providerRuntime}
+          onSectionChange={setSettingsSection}
           onClose={() => setSettingsOpen(false)}
           onSaved={(nextSettings) => setSettings(nextSettings)}
           onSaveActiveHarnesses={handleSaveActiveHarnesses}

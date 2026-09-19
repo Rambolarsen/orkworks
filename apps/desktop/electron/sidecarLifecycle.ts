@@ -23,6 +23,7 @@ export interface SidecarProcess {
 export interface SidecarLifecycle {
   start(cwd: string): Promise<number>;
   stop(): Promise<void>;
+  stopAndWait(timeoutMs: number): Promise<void>;
   retry(): Promise<number>;
   getPort(): number | null;
   dispose(): void;
@@ -53,7 +54,9 @@ interface Generation {
   ready: boolean;
   failed: boolean;
   exited: boolean;
+  processError: Error | null;
   killRequested: boolean;
+  stopWait: Promise<void> | null;
   stdout: string;
   cleanup: Promise<void>;
   resolveCleanup(): void;
@@ -74,6 +77,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
   let port: number | null = null;
   let lastCwd: string | null = null;
   let disposed = false;
+  let stoppingGeneration: Generation | null = null;
 
   const readinessTimeoutMs = options.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS;
   const cleanupTimeoutMs = options.cleanupTimeoutMs ?? DEFAULT_CLEANUP_TIMEOUT_MS;
@@ -115,7 +119,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     return value instanceof Error ? value : new Error("Sidecar launch failed");
   }
 
-  function stopCurrent(message: string): Promise<void> {
+  function stopCurrent(message: string, timeoutMs = cleanupTimeoutMs): Promise<void> {
     const previous = current;
     if (!previous) return Promise.resolve();
 
@@ -143,7 +147,7 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     if (previous.cleanupSettled) return previous.cleanup;
     previous.cleanupTimer = options.setTimeout(() => {
       settleCleanup(previous, new SidecarCleanupError("cleanup_timeout", "Sidecar cleanup timed out"));
-    }, cleanupTimeoutMs);
+    }, timeoutMs);
     return previous.cleanup;
   }
 
@@ -172,6 +176,9 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
 
   function launch(cwd: string): Promise<number> {
     if (disposed) return Promise.reject(new Error("Sidecar lifecycle has been disposed"));
+    if (stoppingGeneration?.process && !stoppingGeneration.exited) {
+      return Promise.reject(new Error("Sidecar exit has not been confirmed. Restart OrkWorks to recover."));
+    }
 
     generation += 1;
     const id = generation;
@@ -200,7 +207,9 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       ready: false,
       failed: false,
       exited: false,
+      processError: null,
       killRequested: false,
+      stopWait: null,
       stdout: "",
       cleanup,
       resolveCleanup,
@@ -232,7 +241,8 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
         }
       });
       candidate.process.on("error", (error: Error) => {
-        fail(candidate, error);
+        candidate.processError = errorFrom(error);
+        fail(candidate, candidate.processError);
       });
       candidate.process.on("exit", (code: number | null) => {
         candidate.exited = true;
@@ -274,6 +284,24 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
     stop(): Promise<void> {
       generation += 1;
       return stopCurrent("Sidecar stopped before readiness");
+    },
+
+    stopAndWait(timeoutMs: number): Promise<void> {
+      if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+        return Promise.reject(new RangeError("timeoutMs must be finite and non-negative"));
+      }
+
+      const previous = current ?? stoppingGeneration;
+      if (!previous) {
+        generation += 1;
+        return Promise.resolve();
+      }
+      if (previous.stopWait) return previous.stopWait;
+
+      stoppingGeneration = previous;
+      generation += 1;
+      previous.stopWait = stopCurrent("Sidecar stopped before readiness", timeoutMs);
+      return previous.stopWait;
     },
 
     retry(): Promise<number> {
