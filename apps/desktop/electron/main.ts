@@ -9,7 +9,7 @@ import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, ty
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevSidecarPath, getPackagedSidecarPath } from "./paths";
-import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
+import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
@@ -525,6 +525,20 @@ function toWorkspaceHistoryDiagnostic(
   diagnostic: WorkspaceMemoryDiagnostic | null,
 ): WorkspaceHistoryDiagnostic | null {
   return diagnostic ? { code: diagnostic.code, message: diagnostic.message } : null;
+}
+
+interface WorkspaceHistorySnapshot {
+  pinned: string[];
+  recent: string[];
+  diagnostic: WorkspaceHistoryDiagnostic | null;
+}
+
+function toWorkspaceHistorySnapshot(memory: ReturnType<typeof readWorkspaceMemory>): WorkspaceHistorySnapshot {
+  return {
+    pinned: memory.pinnedWorkspacePaths,
+    recent: memory.recentWorkspacePaths,
+    diagnostic: toWorkspaceHistoryDiagnostic(memory.diagnostic),
+  };
 }
 
 app.whenReady().then(async () => {
@@ -1821,6 +1835,32 @@ app.whenReady().then(async () => {
     });
     if (!result || !result.ok) return null;
     return result.workspace;
+  });
+
+  ipcMain.handle("get-workspace-history", () =>
+    toWorkspaceHistorySnapshot(readWorkspaceMemory(app.getPath("userData"))));
+
+  ipcMain.handle("pin-workspace-path", (_event, path: unknown) => {
+    if (typeof path !== "string") throw new Error("Invalid workspace path");
+    return toWorkspaceHistorySnapshot(pinWorkspacePath(app.getPath("userData"), path));
+  });
+
+  ipcMain.handle("unpin-workspace-path", (_event, path: unknown) => {
+    if (typeof path !== "string") throw new Error("Invalid workspace path");
+    return toWorkspaceHistorySnapshot(unpinWorkspacePath(app.getPath("userData"), path));
+  });
+
+  ipcMain.handle("forget-workspace-path", (_event, path: unknown) => {
+    if (typeof path !== "string") throw new Error("Invalid workspace path");
+    return toWorkspaceHistorySnapshot(forgetWorkspacePath(app.getPath("userData"), path));
+  });
+
+  ipcMain.handle("open-remembered-workspace", async (_event, path: unknown) => {
+    if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
+    if (typeof path !== "string") return null;
+    if (workspaceSwitchCoordinator.getCurrentWorkspacePath() === path) return null;
+    const result = await workspaceSwitchCoordinator.switchWorkspace(path);
+    return result.ok ? result.workspace : null;
   });
 
   ipcMain.on("orkworks:panel-visibility", (_event, data: { panelId: string; visible: boolean }) => {
