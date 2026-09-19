@@ -185,6 +185,139 @@ test("forgetWorkspacePath leaves memory and revision untouched for an unknown pa
     assert.deepEqual(readWorkspaceMemory(directory), remembered);
   }));
 
+test("legacy workspace history without version/revision fields is migrated instead of diagnosed as corrupt", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: "/repo/a",
+      recentWorkspacePaths: ["/repo/a", "/repo/b"],
+    };
+    writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.version, 1);
+    assert.equal(loaded.lastWorkspacePath, "/repo/a");
+    // Secondary entries are dropped during migration (see the dedicated
+    // "drops secondary entries" test below for why).
+    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a"]);
+
+    const remembered = rememberWorkspacePath(directory, "/repo/c");
+
+    assert.equal(remembered.diagnostic, null);
+    assert.equal(remembered.lastWorkspacePath, "/repo/c");
+    assert.deepEqual(remembered.recentWorkspacePaths, ["/repo/c", "/repo/a"]);
+    assert.deepEqual(JSON.parse(readFileSync(historyPath, "utf8")), {
+      version: 1,
+      revision: remembered.revision,
+      lastWorkspacePath: "/repo/c",
+      recentWorkspacePaths: ["/repo/c", "/repo/a"],
+    });
+  }));
+
+test("legacy workspace history with a cleared lastWorkspacePath still migrates", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: null,
+      recentWorkspacePaths: ["/repo/a", "/repo/b"],
+    };
+    writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.lastWorkspacePath, null);
+    assert.deepEqual(loaded.recentWorkspacePaths, []);
+  }));
+
+test("legacy workspace history canonicalizes lastWorkspacePath and drops secondary entries", () =>
+  withTemporaryUserData((directory) => {
+    const realPath = join(directory, "real-workspace");
+    const aliasPath = join(directory, "alias-workspace");
+    mkdirSync(realPath);
+    symlinkSync(realPath, aliasPath, "dir");
+    const expectedPath = canonicalWorkspacePath(realPath);
+
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: aliasPath,
+      recentWorkspacePaths: [aliasPath, "/repo/other", "/repo/missing"],
+    };
+    writeFileSync(historyPath, JSON.stringify(legacy, null, 2));
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.lastWorkspacePath, expectedPath);
+    // Secondary entries are dropped rather than carried forward raw (which
+    // would violate specs/multi-workspace.md's canonical-paths-only rule)
+    // or resolved (which would be unbounded synchronous fs work on
+    // Electron's main thread before the window exists). They repopulate,
+    // correctly canonicalized, as the user reopens workspaces going forward.
+    assert.deepEqual(loaded.recentWorkspacePaths, [expectedPath]);
+  }));
+
+test("legacy workspace history over the old 64 KiB gate but under the legacy ceiling still migrates", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    // A handful of long (e.g. Windows extended-length) paths the pre-#569
+    // writer would have accepted without any byte bound — the pre-parse
+    // gate must admit the file even though migration only keeps one entry.
+    const paths = Array.from({ length: 5 }, (_, index) => `/repo/${index}-${"x".repeat(15_000)}`);
+    const legacy = { lastWorkspacePath: paths[0], recentWorkspacePaths: paths };
+    const raw = JSON.stringify(legacy);
+    assert.ok(Buffer.byteLength(raw, "utf8") > 64 * 1024);
+    assert.ok(Buffer.byteLength(raw, "utf8") <= 2 * 1024 * 1024);
+    writeFileSync(historyPath, raw);
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.lastWorkspacePath, paths[0]);
+  }));
+
+test("legacy workspace history with more entries than the old writer's 10-entry cap is diagnosed as corrupt", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const legacy = {
+      lastWorkspacePath: "/repo/0",
+      recentWorkspacePaths: Array.from({ length: 11 }, (_, index) => `/repo/${index}`),
+    };
+    const raw = JSON.stringify(legacy);
+    writeFileSync(historyPath, raw);
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic?.code, "corrupt_history");
+    assert.equal(readFileSync(historyPath, "utf8"), raw);
+  }));
+
+test("legacy workspace history whose migrated record cannot fit is diagnosed, not silently truncated", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    // Under the 64 KiB source-file gate on its own (no recentWorkspacePaths
+    // entry), but once migrated the candidate embeds lastWorkspacePath a
+    // second time (in recentWorkspacePaths) plus the new version/revision
+    // fields, pushing it over the bound.
+    const oversizedPath = `/repo/${"x".repeat(50_000)}`;
+    const legacy = {
+      lastWorkspacePath: oversizedPath,
+      recentWorkspacePaths: [] as string[],
+    };
+    const raw = JSON.stringify(legacy);
+    assert.ok(Buffer.byteLength(raw, "utf8") <= 64 * 1024);
+    writeFileSync(historyPath, raw);
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic?.code, "corrupt_history");
+    assert.equal(loaded.lastWorkspacePath, null);
+    assert.deepEqual(loaded.recentWorkspacePaths, []);
+    assert.equal(readFileSync(historyPath, "utf8"), raw);
+  }));
+
 test("corrupt workspace history is diagnosed and preserved across mutation attempts", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);

@@ -41,6 +41,19 @@ const fileName = "workspace-memory.json";
 const lockFileName = ".workspace-memory.lock";
 const maximumRecentPaths = 20;
 const maximumSerializedBytes = 64 * 1024;
+// The pre-#569 writer's actual cap (see validLegacyStoredMemory) — never 20.
+const maximumLegacyRecentPaths = 10;
+// Pre-#569 files predate any byte bound: the old writer capped at 10 entries
+// with no size limit, so long (e.g. Windows extended-length) paths could
+// legitimately exceed maximumSerializedBytes. Gate parsing at a sanity
+// ceiling derived from the old writer's actual worst case instead of
+// rejecting such files before they're even inspected: up to
+// maximumLegacyRecentPaths entries plus one duplicate of lastWorkspacePath,
+// each up to the Windows extended-length maximum of 32,767 UTF-16 code
+// units (~98,301 bytes worst-case UTF-8) — roughly 1.05 MiB including JSON
+// overhead. 2 MiB leaves comfortable headroom. migratedLegacyMemory still
+// trims the result to fit maximumSerializedBytes via boundedPaths.
+const maximumLegacySourceBytes = 2 * 1024 * 1024;
 const lockRetryCount = 50;
 const lockRetryDelayMs = 10;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -111,6 +124,74 @@ function boundedPaths(
   return memoryFits({ ...candidate, recentWorkspacePaths: bounded }) ? bounded : null;
 }
 
+interface LegacyStoredWorkspaceMemory {
+  lastWorkspacePath: string | null;
+  recentWorkspacePaths: string[];
+}
+
+// Pre-#569 files predate the version/revision fields and the invariants
+// validStoredMemory enforces (deduplication, lastWorkspacePath inclusion).
+// Accept the looser shape the old writer actually produced and normalize it
+// through boundedPaths rather than rejecting installs' existing history as
+// corrupt.
+function validLegacyStoredMemory(value: unknown): value is LegacyStoredWorkspaceMemory {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const raw = value as Record<string, unknown>;
+  const keys = Object.keys(raw).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([
+    "lastWorkspacePath",
+    "recentWorkspacePaths",
+  ])) return false;
+  return (raw.lastWorkspacePath === null || typeof raw.lastWorkspacePath === "string")
+    && Array.isArray(raw.recentWorkspacePaths)
+    && raw.recentWorkspacePaths.length <= maximumLegacyRecentPaths
+    && raw.recentWorkspacePaths.every((entry) => typeof entry === "string");
+}
+
+// The pre-#569 writer never canonicalized paths (it stored the raw dialog
+// selection), while specs/multi-workspace.md requires persisting canonical
+// paths only. realpathSync.native is also a synchronous, potentially slow
+// syscall (a disconnected UNC share or other unreachable network mount can
+// block for the OS network timeout), and readWorkspaceMemory runs on
+// Electron's main thread before the window is created — resolving every
+// recentWorkspacePaths entry there risks the app appearing hung on launch.
+//
+// Rather than choosing between an unbounded synchronous cost (canonicalize
+// everything) and a spec-violating one (persist raw aliases), secondary
+// entries are dropped instead of carried forward: they're low-stakes
+// convenience shortcuts (removing one never touches project files or
+// session data) that naturally repopulate, correctly canonicalized, as the
+// user reopens workspaces going forward. Only lastWorkspacePath — the one
+// entry guaranteed to matter immediately, since it's what gets
+// auto-restored at startup — is resolved, bounding the worst-case startup
+// stall to a single call.
+function canonicalizedLegacyPath(path: string): string {
+  return canonicalWorkspacePath(path) ?? path;
+}
+
+function migratedLegacyMemory(legacy: LegacyStoredWorkspaceMemory): AppWorkspaceMemory {
+  const lastWorkspacePath = legacy.lastWorkspacePath === null
+    ? null
+    : canonicalizedLegacyPath(legacy.lastWorkspacePath);
+  // boundedPaths prepends lastWorkspacePath itself, so an empty paths list
+  // is enough to produce the single-entry (or empty) result.
+  const bounded = boundedPaths(lastWorkspacePath, [], 0);
+  // boundedPaths only returns null when even a single entry can't fit under
+  // the serialized-size bound. Silently dropping recentWorkspacePaths would
+  // produce a lastWorkspacePath not present in the list, violating the same
+  // invariant validStoredMemory enforces for the current format — surface a
+  // diagnostic instead, matching how every other "doesn't fit" case here
+  // fails loud rather than discarding data quietly.
+  if (bounded === null) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+  return {
+    version: 1,
+    revision: 0,
+    lastWorkspacePath,
+    recentWorkspacePaths: bounded,
+    diagnostic: null,
+  };
+}
+
 function validStoredMemory(value: unknown): value is StoredWorkspaceMemory {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const raw = value as Record<string, unknown>;
@@ -139,10 +220,18 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
 
   try {
     const source = readFileSync(target);
-    if (source.byteLength > maximumSerializedBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    if (source.byteLength > maximumLegacySourceBytes) return withDiagnostic(emptyMemory(), corruptDiagnostic);
     const parsed: unknown = JSON.parse(utf8Decoder.decode(source));
-    if (!validStoredMemory(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
-    if (!memoryFits(parsed)) return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    if (!validStoredMemory(parsed)) {
+      if (validLegacyStoredMemory(parsed)) return migratedLegacyMemory(parsed);
+      return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    }
+    // The v1 writer never produces a file over maximumSerializedBytes, so
+    // enforce that tighter bound here now that the shape is confirmed
+    // current-format rather than legacy.
+    if (source.byteLength > maximumSerializedBytes || !memoryFits(parsed)) {
+      return withDiagnostic(emptyMemory(), corruptDiagnostic);
+    }
     return {
       version: 1,
       revision: parsed.revision,
