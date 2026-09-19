@@ -1981,6 +1981,10 @@ mod tests {
             .exists());
     }
 
+    #[cfg_attr(
+        windows,
+        ignore = "legacy v1 transaction paths use ':' in filenames"
+    )]
     #[test]
     fn persists_loads_and_transacts_with_a_stable_rollup_id() {
         let dir = tempfile::tempdir().unwrap();
@@ -2073,6 +2077,10 @@ mod tests {
         expected.clear();
     }
 
+    #[cfg_attr(
+        windows,
+        ignore = "legacy v1 transaction paths use ':' in filenames"
+    )]
     #[test]
     fn keeps_the_complete_old_graph_when_an_uncommitted_transaction_is_recovered() {
         let parent_id = stable_rollup_id(&["member".into()]);
@@ -2093,6 +2101,10 @@ mod tests {
             .exists());
     }
 
+    #[cfg_attr(
+        windows,
+        ignore = "legacy v1 transaction paths use ':' in filenames"
+    )]
     #[test]
     fn recovers_a_legacy_rollup_transaction_with_raw_colon_paths() {
         let dir = tempfile::tempdir().unwrap();
@@ -2125,6 +2137,10 @@ mod tests {
         );
     }
 
+    #[cfg_attr(
+        windows,
+        ignore = "legacy v1 transaction paths use ':' in filenames"
+    )]
     #[test]
     fn finishes_a_committed_transaction_before_serving_reads() {
         let parent_id = stable_rollup_id(&["member".into()]);
