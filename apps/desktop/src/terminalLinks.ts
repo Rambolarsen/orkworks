@@ -84,6 +84,15 @@ function openPlanPathTail(prefix: string): boolean {
   return run.length > 0 && !/\.md$/.test(run);
 }
 
+// A genuine harness rewrap fills the row it breaks (the token overflowed the
+// width), while an ordinary indented line break leaves a short row. Requiring
+// a full row keeps natural indented line breaks (separate bullets, wrapped
+// prose) from being joined into one logical line and corrupted into a bogus
+// cross-boundary match.
+function extendsFullWidthRow(rawLength: number, cols: number): boolean {
+  return rawLength >= cols;
+}
+
 function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IBufferLine; text: string; skip: number }> {
   const textOf = (line: IBufferLine): string => line.translateToString(true);
   let start = y;
@@ -95,7 +104,8 @@ function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IB
     const previousText = textOf(previous);
     const currentText = textOf(current);
     if (!current.isWrapped && !isHardAbsolutePlanContinuation(previousText, currentText)
-      && !(isIndentedRow(currentText) && openPlanPathTail(previousText))) break;
+      && !(isIndentedRow(currentText) && extendsFullWidthRow(previousText.length, terminal.cols)
+        && openPlanPathTail(previousText))) break;
     start -= 1;
     backSteps += 1;
   }
@@ -132,9 +142,13 @@ function logicalLine(terminal: Terminal, y: number): Array<{ y: number; line: IB
       joinedIndented = false;
       continue;
     }
-    // An indented row continues an open path fragment: join it with the
+    // An indented row continues an open path fragment — but only across a
+    // genuine wrap (the row being extended is full-width): join it with the
     // indent stripped so the reconstructed text stays a valid path.
-    if (isIndentedRow(nextText) && openPlanPathTail(prefix)) {
+    const lastRow = lines.at(-1);
+    const lastRowFull = lastRow !== undefined
+      && extendsFullWidthRow(lastRow.text.length + lastRow.skip, terminal.cols);
+    if (isIndentedRow(nextText) && lastRowFull && openPlanPathTail(prefix)) {
       joinedIndented = true;
       continue;
     }

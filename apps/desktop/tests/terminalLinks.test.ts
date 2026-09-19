@@ -252,10 +252,11 @@ test("still finds a wrapped link that stays within the scan cap", async () => {
 test("joins a harness hard-wrapped path across indented continuation rows", async () => {
   const terminal = new Terminal({ cols: 40, rows: 6 });
   const full = "/Users/froomiebot/workspace/orkworks/docs/superpowers/plans/2026-09-04-some-really-long-session-plan-name-file.md";
-  await new Promise<void>((resolve) => terminal.write(
-    "Wrote " + full.slice(0, 25) + "\n   " + full.slice(25) + "\n",
-    resolve,
-  ));
+  // The harness rewrap fills the row it breaks: row 1 is exactly cols wide,
+  // and the continuation is positioned two columns into the next row the way
+  // Claude Code positions its own rewrapped output.
+  await new Promise<void>((resolve) => terminal.write("Wrote " + full.slice(0, 34), resolve));
+  await new Promise<void>((resolve) => terminal.write("\x1b[2;3H" + full.slice(34) + "\n", resolve));
   const activated: string[] = [];
   const provider = createTerminalPlanLinkProvider(terminal, async (path) => { activated.push(path); });
 
@@ -267,6 +268,21 @@ test("joins a harness hard-wrapped path across indented continuation rows", asyn
   }
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(activated, [full, full, full]);
+  terminal.dispose();
+});
+
+test("does not join indented line breaks that leave a short row", async () => {
+  const terminal = new Terminal({ cols: 80, rows: 4 });
+  await new Promise<void>((resolve) => terminal.write(
+    "- Browse specs/drafts\n  - Wrote specs/final.md\n",
+    resolve,
+  ));
+  const provider = createTerminalPlanLinkProvider(terminal, async () => {});
+  const row1 = await new Promise<any>((resolve) => provider.provideLinks(1, resolve));
+  const row2 = await new Promise<any>((resolve) => provider.provideLinks(2, resolve));
+  assert.equal(row1, undefined);
+  assert.equal(row2?.length, 1);
+  assert.equal(row2[0].text, "specs/final.md");
   terminal.dispose();
 });
 
