@@ -20,6 +20,9 @@ that helper return success without opening the directory. Keep the existing
 file-level durability and publication behavior intact:
 
 - staged files are flushed before publication;
+- temporary files are closed before Windows replacement so `ReplaceFileW` does
+  not fail on an open temporary handle, including the single-record `put`
+  path used when accepting a recommendation;
 - Windows uses `ReplaceFileW` for existing targets and `MoveFileExW` with
   `MOVEFILE_WRITE_THROUGH` for new targets;
 - Unix continues to open and sync directories, reporting real failures.
@@ -27,13 +30,18 @@ file-level durability and publication behavior intact:
 This avoids asking users to run OrkWorks elevated or weakening file-write and
 rename errors. Treating only `PermissionDenied` as benign was rejected because
 it could hide a genuine ACL failure on a path that should otherwise be
-accessible.
+accessible. Windows cannot provide the same directory-entry crash durability as
+Unix here: `MoveFileExW` requests write-through for new files, but
+`ReplaceFileW` has no equivalent write-through flag. The implementation should
+document this platform limitation rather than imply that directory metadata is
+fully power-loss durable.
 
 ## Testing
 
-Use the existing Windows recommendation acceptance regression, which currently
-reproduces the failure while listing the recommendation after a graph
-transaction. Add a platform-specific helper test documenting that directory
-sync is best-effort on Windows, while retaining the missing-directory failure
-test on Unix. Run the focused Rust tests, full Rust formatting/tests, and the
-desktop type/test checks required by the scoped instructions.
+Add a Windows regression that exercises the full failure path: publish a graph
+transaction, recover it, list the recommendation, and accept the recommendation
+into a live session. Add a platform-specific helper test documenting that
+directory sync is best-effort on Windows, while retaining the missing-directory
+failure test on Unix. Ensure the Windows CI test list runs the recommendation
+store and acceptance tests. Run the focused Rust tests, full Rust formatting and
+tests, and the desktop type/test checks required by the scoped instructions.
