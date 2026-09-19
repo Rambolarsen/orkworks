@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Check, Copy } from "lucide-react";
 import { formatBoundaryError, type FormattedBoundaryError } from "../errorBoundaryFormatting";
 
 interface ErrorBoundaryProps {
@@ -7,12 +8,24 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   caught: FormattedBoundaryError | null;
+  copied: boolean;
+}
+
+function boundaryErrorText(caught: FormattedBoundaryError): string {
+  return [
+    `${caught.name}: ${caught.message}`,
+    caught.stack,
+    caught.componentStack,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { caught: null };
+  state: ErrorBoundaryState = { caught: null, copied: false };
+  private copiedResetTimer: ReturnType<typeof setTimeout> | null = null;
 
-  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+  static getDerivedStateFromError(error: unknown): Pick<ErrorBoundaryState, "caught"> {
     return { caught: formatBoundaryError(error, {}) };
   }
 
@@ -22,8 +35,26 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
     this.setState({ caught: formatted });
   }
 
-  render(): ReactNode {
+  componentWillUnmount(): void {
+    if (this.copiedResetTimer) clearTimeout(this.copiedResetTimer);
+  }
+
+  private handleCopy = async (): Promise<void> => {
     const { caught } = this.state;
+    if (!caught) return;
+    try {
+      await navigator.clipboard.writeText(boundaryErrorText(caught));
+    } catch (err) {
+      console.error("[ErrorBoundary] failed to copy error details", err);
+      return;
+    }
+    if (this.copiedResetTimer) clearTimeout(this.copiedResetTimer);
+    this.setState({ copied: true });
+    this.copiedResetTimer = setTimeout(() => this.setState({ copied: false }), 1500);
+  };
+
+  render(): ReactNode {
+    const { caught, copied } = this.state;
     if (!caught) return this.props.children;
 
     return (
@@ -37,13 +68,19 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
           {caught.componentStack && (
             <pre className="error-boundary-stack">{caught.componentStack}</pre>
           )}
-          <button
-            type="button"
-            className="error-boundary-reload"
-            onClick={() => window.location.reload()}
-          >
-            Reload
-          </button>
+          <div className="error-boundary-actions">
+            <button type="button" className="error-boundary-copy" onClick={this.handleCopy}>
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy to clipboard"}
+            </button>
+            <button
+              type="button"
+              className="error-boundary-reload"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
+          </div>
         </div>
       </div>
     );

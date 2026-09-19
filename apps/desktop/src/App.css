@@ -2436,7 +2436,16 @@ html, body, #root {
   overflow-x: auto;
 }
 
-.error-boundary-reload {
+.error-boundary-actions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.error-boundary-reload,
+.error-boundary-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
@@ -2446,7 +2455,8 @@ html, body, #root {
   cursor: pointer;
 }
 
-.error-boundary-reload:hover {
+.error-boundary-reload:hover,
+.error-boundary-copy:hover {
   background: var(--surface-active);
 }
 
