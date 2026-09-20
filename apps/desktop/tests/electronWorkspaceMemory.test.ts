@@ -23,14 +23,17 @@ import {
   accessibleWorkspaceDirectoryPath,
   readWorkspaceMemory,
   rememberWorkspacePath,
+  pinWorkspacePath,
+  unpinWorkspacePath,
   workspaceMemoryPath,
 } from "../electron/workspaceMemory.ts";
 
 const EMPTY_MEMORY = {
-  version: 1,
+  version: 2,
   revision: 0,
   lastWorkspacePath: null,
   recentWorkspacePaths: [],
+  pinnedWorkspacePaths: [],
   diagnostic: null,
 } as const;
 
@@ -48,15 +51,16 @@ test("workspace memory round-trips the version and increasing revision", () =>
     const first = rememberWorkspacePath(directory, "/repo/a");
     const second = rememberWorkspacePath(directory, "/repo/b");
 
-    assert.equal(first.version, 1);
+    assert.equal(first.version, 2);
     assert.equal(first.revision, 1);
     assert.equal(second.revision, 2);
     assert.deepEqual(readWorkspaceMemory(directory), second);
     assert.deepEqual(JSON.parse(readFileSync(workspaceMemoryPath(directory), "utf8")), {
-      version: 1,
+      version: 2,
       revision: 2,
       lastWorkspacePath: "/repo/b",
       recentWorkspacePaths: ["/repo/b", "/repo/a"],
+      pinnedWorkspacePaths: [],
     });
   }));
 
@@ -110,10 +114,11 @@ process.stdout.write(JSON.stringify(readWorkspaceMemory(process.argv[1])));`;
 
     assert.equal(code, 0);
     assert.deepEqual(JSON.parse(stdout), {
-      version: 1,
+      version: 2,
       revision: 2,
       lastWorkspacePath: "/repo/b",
       recentWorkspacePaths: ["/repo/b", "/repo/a"],
+      pinnedWorkspacePaths: [],
       diagnostic: null,
     });
   }));
@@ -185,6 +190,94 @@ test("forgetWorkspacePath leaves memory and revision untouched for an unknown pa
     assert.deepEqual(readWorkspaceMemory(directory), remembered);
   }));
 
+test("forgetWorkspacePath removes a pinned path from pinnedWorkspacePaths", () =>
+  withTemporaryUserData((directory) => {
+    pinWorkspacePath(directory, "/repo/pinned");
+    const memory = forgetWorkspacePath(directory, "/repo/pinned");
+
+    assert.equal(memory.diagnostic, null);
+    assert.deepEqual(memory.pinnedWorkspacePaths, []);
+    assert.deepEqual(memory.recentWorkspacePaths, []);
+    assert.equal(memory.lastWorkspacePath, null);
+  }));
+
+test("pinWorkspacePath moves a path out of recentWorkspacePaths and unpinWorkspacePath reinserts it at the front", () =>
+  withTemporaryUserData((directory) => {
+    rememberWorkspacePath(directory, "/repo/a");
+    rememberWorkspacePath(directory, "/repo/b");
+
+    const pinned = pinWorkspacePath(directory, "/repo/a");
+    assert.equal(pinned.diagnostic, null);
+    assert.deepEqual(pinned.pinnedWorkspacePaths, ["/repo/a"]);
+    assert.deepEqual(pinned.recentWorkspacePaths, ["/repo/b"]);
+    // Pinning does not open the workspace, so lastWorkspacePath is
+    // unchanged from the last remember call.
+    assert.equal(pinned.lastWorkspacePath, "/repo/b");
+
+    const unpinned = unpinWorkspacePath(directory, "/repo/a");
+    assert.equal(unpinned.diagnostic, null);
+    assert.deepEqual(unpinned.pinnedWorkspacePaths, []);
+    // lastWorkspacePath stays at the front of recentWorkspacePaths; the
+    // unpinned path follows it rather than displacing it (see ADR 0061).
+    assert.deepEqual(unpinned.recentWorkspacePaths, ["/repo/b", "/repo/a"]);
+  }));
+
+test("pinWorkspacePath is a no-op when the path is already pinned", () =>
+  withTemporaryUserData((directory) => {
+    const first = pinWorkspacePath(directory, "/repo/a");
+    const second = pinWorkspacePath(directory, "/repo/a");
+    assert.deepEqual(second, first);
+  }));
+
+test("unpinWorkspacePath is a no-op for a path that is not pinned", () =>
+  withTemporaryUserData((directory) => {
+    const remembered = rememberWorkspacePath(directory, "/repo/a");
+    const result = unpinWorkspacePath(directory, "/repo/a");
+    assert.deepEqual(result, remembered);
+  }));
+
+test("pinWorkspacePath rejects a 51st pin with a distinct diagnostic instead of evicting", () =>
+  withTemporaryUserData((directory) => {
+    for (let index = 0; index < 50; index += 1) {
+      const result = pinWorkspacePath(directory, `/repo/${index}`);
+      assert.equal(result.diagnostic, null);
+    }
+    const overflow = pinWorkspacePath(directory, "/repo/overflow");
+    assert.equal(overflow.diagnostic?.code, "pin_limit_reached");
+    assert.equal(overflow.pinnedWorkspacePaths.length, 50);
+    assert.equal(overflow.pinnedWorkspacePaths.includes("/repo/overflow"), false);
+  }));
+
+test("rememberWorkspacePath updates lastWorkspacePath without duplicating an already-pinned path into recentWorkspacePaths", () =>
+  withTemporaryUserData((directory) => {
+    rememberWorkspacePath(directory, "/repo/other");
+    const pinned = pinWorkspacePath(directory, "/repo/pinned");
+    assert.deepEqual(pinned.pinnedWorkspacePaths, ["/repo/pinned"]);
+    assert.deepEqual(pinned.recentWorkspacePaths, ["/repo/other"]);
+
+    const remembered = rememberWorkspacePath(directory, "/repo/pinned");
+
+    assert.equal(remembered.diagnostic, null);
+    assert.equal(remembered.lastWorkspacePath, "/repo/pinned");
+    assert.deepEqual(remembered.pinnedWorkspacePaths, ["/repo/pinned"]);
+    assert.deepEqual(remembered.recentWorkspacePaths, ["/repo/other"]);
+    assert.equal(remembered.revision, pinned.revision + 1);
+  }));
+
+test("a v2 file whose lastWorkspacePath is pinned-only (not in recentWorkspacePaths) reloads without a corrupt diagnostic", () =>
+  withTemporaryUserData((directory) => {
+    pinWorkspacePath(directory, "/repo/pinned");
+    const remembered = rememberWorkspacePath(directory, "/repo/pinned");
+    assert.equal(remembered.diagnostic, null);
+    assert.equal(remembered.lastWorkspacePath, "/repo/pinned");
+
+    const reloaded = readWorkspaceMemory(directory);
+    assert.equal(reloaded.diagnostic, null);
+    assert.equal(reloaded.lastWorkspacePath, "/repo/pinned");
+    assert.deepEqual(reloaded.pinnedWorkspacePaths, ["/repo/pinned"]);
+    assert.deepEqual(reloaded.recentWorkspacePaths, []);
+  }));
+
 test("legacy workspace history without version/revision fields is migrated instead of diagnosed as corrupt", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
@@ -197,11 +290,12 @@ test("legacy workspace history without version/revision fields is migrated inste
     const loaded = readWorkspaceMemory(directory);
 
     assert.equal(loaded.diagnostic, null);
-    assert.equal(loaded.version, 1);
+    assert.equal(loaded.version, 2);
     assert.equal(loaded.lastWorkspacePath, "/repo/a");
     // Secondary entries are dropped during migration (see the dedicated
     // "drops secondary entries" test below for why).
     assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a"]);
+    assert.deepEqual(loaded.pinnedWorkspacePaths, []);
 
     const remembered = rememberWorkspacePath(directory, "/repo/c");
 
@@ -209,10 +303,11 @@ test("legacy workspace history without version/revision fields is migrated inste
     assert.equal(remembered.lastWorkspacePath, "/repo/c");
     assert.deepEqual(remembered.recentWorkspacePaths, ["/repo/c", "/repo/a"]);
     assert.deepEqual(JSON.parse(readFileSync(historyPath, "utf8")), {
-      version: 1,
+      version: 2,
       revision: remembered.revision,
       lastWorkspacePath: "/repo/c",
       recentWorkspacePaths: ["/repo/c", "/repo/a"],
+      pinnedWorkspacePaths: [],
     });
   }));
 
@@ -230,6 +325,7 @@ test("legacy workspace history with a cleared lastWorkspacePath still migrates",
     assert.equal(loaded.diagnostic, null);
     assert.equal(loaded.lastWorkspacePath, null);
     assert.deepEqual(loaded.recentWorkspacePaths, []);
+    assert.deepEqual(loaded.pinnedWorkspacePaths, []);
   }));
 
 test("legacy workspace history canonicalizes lastWorkspacePath and drops secondary entries", () =>
@@ -251,20 +347,12 @@ test("legacy workspace history canonicalizes lastWorkspacePath and drops seconda
 
     assert.equal(loaded.diagnostic, null);
     assert.equal(loaded.lastWorkspacePath, expectedPath);
-    // Secondary entries are dropped rather than carried forward raw (which
-    // would violate specs/multi-workspace.md's canonical-paths-only rule)
-    // or resolved (which would be unbounded synchronous fs work on
-    // Electron's main thread before the window exists). They repopulate,
-    // correctly canonicalized, as the user reopens workspaces going forward.
     assert.deepEqual(loaded.recentWorkspacePaths, [expectedPath]);
   }));
 
 test("legacy workspace history over the old 64 KiB gate but under the legacy ceiling still migrates", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
-    // A handful of long (e.g. Windows extended-length) paths the pre-#569
-    // writer would have accepted without any byte bound — the pre-parse
-    // gate must admit the file even though migration only keeps one entry.
     const paths = Array.from({ length: 5 }, (_, index) => `/repo/${index}-${"x".repeat(15_000)}`);
     const legacy = { lastWorkspacePath: paths[0], recentWorkspacePaths: paths };
     const raw = JSON.stringify(legacy);
@@ -297,10 +385,6 @@ test("legacy workspace history with more entries than the old writer's 10-entry 
 test("legacy workspace history whose migrated record cannot fit is diagnosed, not silently truncated", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
-    // Under the 64 KiB source-file gate on its own (no recentWorkspacePaths
-    // entry), but once migrated the candidate embeds lastWorkspacePath a
-    // second time (in recentWorkspacePaths) plus the new version/revision
-    // fields, pushing it over the bound.
     const oversizedPath = `/repo/${"x".repeat(50_000)}`;
     const legacy = {
       lastWorkspacePath: oversizedPath,
@@ -318,6 +402,86 @@ test("legacy workspace history whose migrated record cannot fit is diagnosed, no
     assert.equal(readFileSync(historyPath, "utf8"), raw);
   }));
 
+test("a v1 file over the 64 KiB bound is diagnosed as corrupt", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const paths = Array.from({ length: 5 }, (_, index) => `/repo/${index}-${"x".repeat(15_000)}`);
+    const v1 = {
+      version: 1,
+      revision: 1,
+      lastWorkspacePath: paths[0],
+      recentWorkspacePaths: paths,
+    };
+    const raw = JSON.stringify(v1);
+    assert.ok(Buffer.byteLength(raw, "utf8") > 64 * 1024);
+    assert.ok(Buffer.byteLength(raw, "utf8") <= 2 * 1024 * 1024);
+    writeFileSync(historyPath, raw);
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic?.code, "corrupt_history");
+    assert.equal(readFileSync(historyPath, "utf8"), raw);
+  }));
+
+test("rememberWorkspacePath evicts recents to fit a longer pinned lastWorkspacePath", () =>
+  withTemporaryUserData((directory) => {
+    const longPinnedPath = `/repo/${"x".repeat(25_000)}`;
+    pinWorkspacePath(directory, longPinnedPath);
+    for (let index = 0; index < 3; index += 1) {
+      rememberWorkspacePath(directory, `/repo/recent-${index}-${"x".repeat(10_000)}`);
+    }
+
+    const remembered = rememberWorkspacePath(directory, longPinnedPath);
+
+    assert.equal(remembered.diagnostic, null);
+    assert.equal(remembered.lastWorkspacePath, longPinnedPath);
+    assert.ok(remembered.recentWorkspacePaths.length < 3, "recent list should have been evicted to fit");
+    assert.ok(Buffer.byteLength(readFileSync(workspaceMemoryPath(directory), "utf8"), "utf8") <= 64 * 1024);
+  }));
+
+test("unpinWorkspacePath keeps the actual lastWorkspacePath present in recentWorkspacePaths", () =>
+  withTemporaryUserData((directory) => {
+    rememberWorkspacePath(directory, "/repo/last");
+    pinWorkspacePath(directory, "/repo/pinned");
+
+    const unpinned = unpinWorkspacePath(directory, "/repo/pinned");
+
+    assert.equal(unpinned.diagnostic, null);
+    assert.equal(unpinned.lastWorkspacePath, "/repo/last");
+    assert.deepEqual(unpinned.recentWorkspacePaths.slice(0, 2), ["/repo/last", "/repo/pinned"]);
+  }));
+
+test("a v1 file with no pinnedWorkspacePaths key migrates with an empty pinned list", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const v1 = {
+      version: 1,
+      revision: 5,
+      lastWorkspacePath: "/repo/a",
+      recentWorkspacePaths: ["/repo/a", "/repo/b"],
+    };
+    writeFileSync(historyPath, JSON.stringify(v1));
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic, null);
+    assert.equal(loaded.version, 2);
+    assert.equal(loaded.revision, 5);
+    assert.equal(loaded.lastWorkspacePath, "/repo/a");
+    assert.deepEqual(loaded.recentWorkspacePaths, ["/repo/a", "/repo/b"]);
+    assert.deepEqual(loaded.pinnedWorkspacePaths, []);
+
+    const pinned = pinWorkspacePath(directory, "/repo/a");
+    assert.equal(pinned.diagnostic, null);
+    assert.deepEqual(JSON.parse(readFileSync(historyPath, "utf8")), {
+      version: 2,
+      revision: 6,
+      lastWorkspacePath: "/repo/a",
+      recentWorkspacePaths: ["/repo/b"],
+      pinnedWorkspacePaths: ["/repo/a"],
+    });
+  }));
+
 test("corrupt workspace history is diagnosed and preserved across mutation attempts", () =>
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
@@ -327,6 +491,8 @@ test("corrupt workspace history is diagnosed and preserved across mutation attem
     const loaded = readWorkspaceMemory(directory);
     const remembered = rememberWorkspacePath(directory, "/repo/a");
     const forgotten = forgetWorkspacePath(directory, "/repo/a");
+    const pinned = pinWorkspacePath(directory, "/repo/a");
+    const unpinned = unpinWorkspacePath(directory, "/repo/a");
 
     assert.deepEqual(loaded, {
       ...EMPTY_MEMORY,
@@ -337,6 +503,8 @@ test("corrupt workspace history is diagnosed and preserved across mutation attem
     });
     assert.deepEqual(remembered, loaded);
     assert.deepEqual(forgotten, loaded);
+    assert.deepEqual(pinned, loaded);
+    assert.deepEqual(unpinned, loaded);
     assert.equal(readFileSync(historyPath, "utf8"), corrupt);
   }));
 
@@ -381,10 +549,11 @@ test("workspace history rejects a valid-looking file whose serialized bytes exce
   withTemporaryUserData((directory) => {
     const historyPath = workspaceMemoryPath(directory);
     const record = `${JSON.stringify({
-      version: 1,
+      version: 2,
       revision: 1,
       lastWorkspacePath: "/repo/a",
       recentWorkspacePaths: ["/repo/a"],
+      pinnedWorkspacePaths: [],
     })}${" ".repeat(64 * 1024)}\n`;
     assert.ok(Buffer.byteLength(record, "utf8") > 64 * 1024);
     writeFileSync(historyPath, record);
@@ -401,16 +570,25 @@ test("workspace history rejects oversized and duplicate records without normaliz
     const historyPath = workspaceMemoryPath(directory);
     const cases = [
       {
-        version: 1,
+        version: 2,
         revision: 2,
         lastWorkspacePath: "/repo/a",
         recentWorkspacePaths: Array.from({ length: 21 }, (_, index) => `/repo/${index}`),
+        pinnedWorkspacePaths: [],
       },
       {
-        version: 1,
+        version: 2,
         revision: 3,
         lastWorkspacePath: "/repo/a",
         recentWorkspacePaths: ["/repo/a", "/repo/a"],
+        pinnedWorkspacePaths: [],
+      },
+      {
+        version: 2,
+        revision: 4,
+        lastWorkspacePath: "/repo/a",
+        recentWorkspacePaths: ["/repo/a"],
+        pinnedWorkspacePaths: ["/repo/a"],
       },
     ];
 
@@ -467,7 +645,7 @@ test("a live OS lock is never evicted, even after five seconds; process exit rel
     assert.equal(recovered.revision, 1);
   }));
 
-test("revision overflow rejects both mutations before writing and preserves history bytes", () =>
+test("revision overflow rejects mutations before writing and preserves history bytes", () =>
   withTemporaryUserData((directory) => {
     const original = JSON.stringify({
       version: 1,
@@ -476,7 +654,15 @@ test("revision overflow rejects both mutations before writing and preserves hist
       recentWorkspacePaths: ["/repo/a"],
     });
     writeFileSync(workspaceMemoryPath(directory), original);
-    for (const mutate of [rememberWorkspacePath, forgetWorkspacePath]) {
+    // pinWorkspacePath("/repo/a") is a genuine change here (the migrated v1
+    // file has an empty pinnedWorkspacePaths, so pinning is not a no-op) and
+    // so reaches the revision-exhausted check like remember/forget do.
+    // unpinWorkspacePath is deliberately NOT included in this loop: since
+    // "/repo/a" is never pinned in this v1-migrated fixture, unpinning it
+    // would return the noChange sentinel and return early *before* the
+    // revision check runs at all — see the dedicated pinned-fixture test
+    // below for unpin's revision-exhaustion behavior instead.
+    for (const mutate of [rememberWorkspacePath, forgetWorkspacePath, pinWorkspacePath]) {
       const result = mutate(directory, "/repo/a");
       assert.equal(result.diagnostic?.code, "history_write_failed");
       assert.equal(result.revision, Number.MAX_SAFE_INTEGER);
@@ -484,6 +670,29 @@ test("revision overflow rejects both mutations before writing and preserves hist
       assert.equal(readWorkspaceMemory(directory).diagnostic, null);
     }
     assert.equal(forgetWorkspacePath(directory, "/unknown").diagnostic, null);
+  }));
+
+test("revision overflow rejects unpinWorkspacePath before writing and preserves history bytes", () =>
+  withTemporaryUserData((directory) => {
+    // unpinWorkspacePath only reaches the revision-exhausted check when
+    // unpinning is a genuine change, which requires the path to already be
+    // pinned — not expressible in a v1 fixture (v1 has no pinned list), so
+    // this uses a v2 fixture directly instead of migrating one.
+    const original = JSON.stringify({
+      version: 2,
+      revision: Number.MAX_SAFE_INTEGER,
+      lastWorkspacePath: "/repo/a",
+      recentWorkspacePaths: [],
+      pinnedWorkspacePaths: ["/repo/a"],
+    });
+    writeFileSync(workspaceMemoryPath(directory), original);
+
+    const result = unpinWorkspacePath(directory, "/repo/a");
+
+    assert.equal(result.diagnostic?.code, "history_write_failed");
+    assert.equal(result.revision, Number.MAX_SAFE_INTEGER);
+    assert.equal(readFileSync(workspaceMemoryPath(directory), "utf8"), original);
+    assert.equal(readWorkspaceMemory(directory).diagnostic, null);
   }));
 
 test("workspace history canonicalizes an alias before it is remembered", () =>
@@ -574,5 +783,39 @@ for (let index = 0; index < 40; index += 1) {
     assert.equal(memory.revision, 80);
     assert.equal(memory.recentWorkspacePaths.length, 20);
     assert.equal(new Set(memory.recentWorkspacePaths).size, 20);
+    assert.equal(memory.diagnostic, null);
+  }));
+
+test("two process writers pinning under the history lock without losing revisions", () =>
+  withTemporaryUserData(async (directory) => {
+    const moduleUrl = new URL("../electron/workspaceMemory.ts", import.meta.url).href;
+    const script = `import { pinWorkspacePath } from ${JSON.stringify(moduleUrl)};
+const directory = process.argv[1];
+const prefix = process.argv[2];
+const startAt = Number(process.argv[3]);
+while (Date.now() < startAt) {}
+for (let index = 0; index < 10; index += 1) {
+  pinWorkspacePath(directory, \`/repo/\${prefix}-\${index}\`);
+}`;
+    const startAt = Date.now() + 250;
+    const children = ["a", "b"].map((prefix) => spawn(process.execPath, [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "--eval",
+      script,
+      directory,
+      prefix,
+      String(startAt),
+    ]));
+    const codes = await Promise.all(children.map(async (child) => {
+      const [code] = await once(child, "close");
+      return code;
+    }));
+
+    assert.deepEqual(codes, [0, 0]);
+    const memory = readWorkspaceMemory(directory);
+    assert.equal(memory.revision, 20);
+    assert.equal(memory.pinnedWorkspacePaths.length, 20);
+    assert.equal(new Set(memory.pinnedWorkspacePaths).size, 20);
     assert.equal(memory.diagnostic, null);
   }));

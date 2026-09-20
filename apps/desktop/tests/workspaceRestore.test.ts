@@ -43,6 +43,7 @@ test("workspace restore parser exposes the sidecar identity and display path", a
   assert.equal(workspace.ok, true);
   if (workspace.ok) {
     assert.equal(workspace.workspace.path, "./repo");
+    assert.equal(workspace.workspace.workspaceIdentity, "/real/repo");
   }
 });
 
@@ -62,6 +63,7 @@ test("a successful /workspace response maps into the lifecycle workspace shape",
     ok: true,
     workspace: {
       path: "/repo",
+      workspaceIdentity: "/repo",
       repo_root: "/repo",
       branch: "main",
       dirty: false,

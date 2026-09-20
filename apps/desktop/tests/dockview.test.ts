@@ -810,12 +810,14 @@ test("SettingsModal uses default hotkeys from the main-process settings response
   assert.doesNotMatch(modal, /const defaultHotkeys:\s*HotkeySettings\s*=\s*\{/);
 });
 
-test("App titlebar uses the canonical workspace vocabulary (no 'Folder' drift)", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+test("App uses canonical workspace vocabulary in the titlebar and picker (no 'Folder' drift)", () => {
+  const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const listSource = readFileSync(new URL("../src/components/WorkspaceHistoryList.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /import \{ VOCAB \} from "\.\/labels"/);
-  assert.match(source, /\{VOCAB\.openWorkspace\}/);
-  assert.doesNotMatch(source, /Open Folder/);
+  assert.match(appSource, /import \{ VOCAB \} from "\.\/labels"/);
+  assert.match(listSource, /VOCAB\.workspaceHistoryOpenOtherFolder/);
+  assert.doesNotMatch(appSource, /Open Folder/);
+  assert.doesNotMatch(listSource, /Open Folder/);
 });
 
 test("Dockview keeps capacity as a non-provider surface", () => {

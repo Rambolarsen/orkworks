@@ -46,14 +46,15 @@ Recent workspace history belongs to the OrkWorks installation. It is stored in
 the installation's persistent application-data directory and survives process
 exit and restart. It is shared path data, not live instance state.
 
-The history record contains only:
+The history record contains:
 
 ```json
 {
-  "version": 1,
-  "revision": 42,
+  "version": 2,
+  "revision": 43,
   "lastWorkspacePath": "<canonical path or null>",
-  "recentWorkspacePaths": ["<canonical path>"]
+  "recentWorkspacePaths": ["<canonical path>"],
+  "pinnedWorkspacePaths": ["<canonical path>"]
 }
 ```
 
@@ -70,8 +71,11 @@ History follows these rules:
 - Add a path only after its sidecar acquires the workspace lease, reaches
   readiness, and completes restoration.
 - Move a successfully opened path to the front without duplication.
-- Retain at most 20 entries and at most 64 KiB of serialized history, evicting
-  oldest entries to satisfy both limits.
+- Retain at most 20 recent entries and at most 50 pinned entries. Pinned
+  entries never count toward the recent-entry cap and are never evicted by
+  recency logic. A path appears in at most one of the two lists at a time.
+- Retain at most 64 KiB of serialized history, evicting oldest recent entries
+  to satisfy the byte limit. Pinned entries count toward the byte budget.
 - Removing an entry deletes only that path shortcut. It never deletes project
   files, workspace metadata, sessions, or settings.
 - Every mutation takes a short-lived advisory lock, rereads the current

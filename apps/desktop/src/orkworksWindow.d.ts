@@ -54,8 +54,14 @@ export type WorkspaceLifecycleFailure = {
 };
 
 export type WorkspaceHistoryDiagnostic = {
-  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
+  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed" | "pin_limit_reached";
   message: string;
+};
+
+export type WorkspaceHistorySnapshot = {
+  pinned: string[];
+  recent: string[];
+  diagnostic: WorkspaceHistoryDiagnostic | null;
 };
 
 export type InitialWorkspaceSnapshot = {
@@ -138,6 +144,11 @@ declare global {
       onBackendLifecycle: (callback: (event: BackendLifecycleEvent) => void) => () => void;
       getInitialWorkspace: () => Promise<InitialWorkspaceSnapshot>;
       openWorkspace: () => Promise<WorkspaceInfo | null>;
+      getWorkspaceHistory: () => Promise<WorkspaceHistorySnapshot>;
+      pinWorkspacePath: (path: string) => Promise<WorkspaceHistorySnapshot>;
+      unpinWorkspacePath: (path: string) => Promise<WorkspaceHistorySnapshot>;
+      forgetWorkspacePath: (path: string) => Promise<WorkspaceHistorySnapshot>;
+      openRememberedWorkspace: (path: string) => Promise<WorkspaceInfo | null>;
       getLayout: () => Promise<string | null>;
       saveLayout: (json: string) => Promise<void>;
       getSettings: () => Promise<AppSettings>;

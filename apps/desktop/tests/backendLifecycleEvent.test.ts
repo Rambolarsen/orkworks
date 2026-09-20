@@ -26,6 +26,7 @@ test("canonicalizes valid lifecycle payloads into new trusted objects", () => {
     historyDiagnostic: null,
     workspace: {
       path: "/workspace",
+      workspaceIdentity: "/workspace",
       repo_root: "/workspace",
       branch: "main",
       dirty: false,
@@ -85,8 +86,8 @@ test("rejects extra properties and invalid ready ports", () => {
   assert.equal(canonicalizeBackendLifecycleEvent({ state: "failed", message: "offline", extra: true }), null);
 
   for (const workspace of [
-    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: "nope", activeHarnessRevision: 0 },
-    { path: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: [], activeHarnessRevision: 0, extra: true },
+    { path: "/workspace", workspaceIdentity: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: "nope", activeHarnessRevision: 0 },
+    { path: "/workspace", workspaceIdentity: "/workspace", repo_root: null, branch: null, dirty: null, lastActiveSessionId: null, activeHarnessIds: [], activeHarnessRevision: 0, extra: true },
   ]) {
     assert.equal(canonicalizeBackendLifecycleEvent({ state: "ready", port: 4444, workspace, historyDiagnostic: null }), null);
   }
@@ -98,6 +99,7 @@ test("rejects extra properties and invalid ready ports", () => {
       historyDiagnostic: null,
       workspace: {
         path: "/workspace",
+        workspaceIdentity: "/workspace",
         repo_root: null,
         branch: null,
         dirty: null,
@@ -172,6 +174,7 @@ test("a late-subscriber snapshot reaches only that subscriber and loses to newer
     historyDiagnostic: null,
     workspace: {
       path: "/workspace",
+      workspaceIdentity: "/workspace",
       repo_root: null,
       branch: null,
       dirty: null,

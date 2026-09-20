@@ -26,6 +26,7 @@ export type BackendRetryResult =
 
 export interface BackendLifecycleWorkspace {
   path: string;
+  workspaceIdentity: string;
   repo_root: string | null;
   branch: string | null;
   dirty: boolean | null;
@@ -35,7 +36,7 @@ export interface BackendLifecycleWorkspace {
 }
 
 export interface WorkspaceHistoryDiagnostic {
-  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed";
+  code: "corrupt_history" | "history_lock_timeout" | "history_write_failed" | "pin_limit_reached";
   message: string;
 }
 
@@ -53,6 +54,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   if (!hasExactKeys(value, [
     "path",
+    "workspaceIdentity",
     "repo_root",
     "branch",
     "dirty",
@@ -63,6 +65,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
 
   const workspace = value as Record<string, unknown>;
   return typeof workspace.path === "string"
+    && typeof workspace.workspaceIdentity === "string"
     && (typeof workspace.repo_root === "string" || workspace.repo_root === null)
     && (typeof workspace.branch === "string" || workspace.branch === null)
     && (typeof workspace.dirty === "boolean" || workspace.dirty === null)
@@ -74,6 +77,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
     && workspace.activeHarnessRevision >= 0
     ? {
       path: workspace.path,
+      workspaceIdentity: workspace.workspaceIdentity,
       repo_root: workspace.repo_root,
       branch: workspace.branch,
       dirty: workspace.dirty,
@@ -90,7 +94,8 @@ function canonicalizeHistoryDiagnostic(value: unknown): WorkspaceHistoryDiagnost
   const diagnostic = value as Record<string, unknown>;
   return (diagnostic.code === "corrupt_history"
     || diagnostic.code === "history_lock_timeout"
-    || diagnostic.code === "history_write_failed")
+    || diagnostic.code === "history_write_failed"
+    || diagnostic.code === "pin_limit_reached")
     && typeof diagnostic.message === "string"
     ? { code: diagnostic.code, message: diagnostic.message }
     : null;
