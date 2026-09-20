@@ -311,7 +311,14 @@ function readStoredWorkspaceMemory(userDataPath: string): AppWorkspaceMemory {
         diagnostic: null,
       };
     }
-    if (validV1StoredMemory(parsed)) return migratedV1Memory(parsed);
+    if (validV1StoredMemory(parsed)) {
+      // The v1 writer also never produced a file over maximumSerializedBytes,
+      // so reject oversized/corrupt v1 files before migrating them forward.
+      if (source.byteLength > maximumSerializedBytes) {
+        return withDiagnostic(emptyMemory(), corruptDiagnostic);
+      }
+      return migratedV1Memory(parsed);
+    }
     if (validLegacyStoredMemory(parsed)) return migratedLegacyMemory(parsed);
     return withDiagnostic(emptyMemory(), corruptDiagnostic);
   } catch {
@@ -524,13 +531,22 @@ export function rememberWorkspacePath(
     if (current.pinnedWorkspacePaths.includes(workspacePath)) {
       // Opening an already-pinned workspace only updates lastWorkspacePath —
       // it must never be duplicated into recentWorkspacePaths (a path lives
-      // in at most one list; see ADR 0061).
+      // in at most one list; see ADR 0061). Still run the recent list through
+      // boundedPaths so a much-longer lastWorkspacePath can evict old recents
+      // instead of failing the byte-budget check.
       if (current.lastWorkspacePath === workspacePath) return noChange;
+      const recentWorkspacePaths = boundedPaths(
+        workspacePath,
+        current.recentWorkspacePaths,
+        current.pinnedWorkspacePaths,
+        current.revision + 1,
+      );
+      if (recentWorkspacePaths === null) return tooLarge;
       return {
         version: 2,
         revision: current.revision + 1,
         lastWorkspacePath: workspacePath,
-        recentWorkspacePaths: current.recentWorkspacePaths,
+        recentWorkspacePaths,
         pinnedWorkspacePaths: current.pinnedWorkspacePaths,
       };
     }
@@ -603,10 +619,12 @@ export function unpinWorkspacePath(
     if (!current.pinnedWorkspacePaths.includes(workspacePath)) return noChange;
     const pinnedWorkspacePaths = current.pinnedWorkspacePaths.filter((path) => path !== workspacePath);
     // Re-enters recentWorkspacePaths at the front, as if just opened, rather
-    // than being lost.
+    // than being lost. Pass the actual lastWorkspacePath so it stays present
+    // in recentWorkspacePaths (a pinned lastWorkspacePath becomes unpinned
+    // here and therefore eligible to be prepended).
     const recentWorkspacePaths = boundedPaths(
-      workspacePath,
-      current.recentWorkspacePaths,
+      current.lastWorkspacePath,
+      [workspacePath, ...current.recentWorkspacePaths],
       pinnedWorkspacePaths,
       current.revision + 1,
     );

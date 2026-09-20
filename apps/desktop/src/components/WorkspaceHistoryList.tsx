@@ -11,7 +11,7 @@ export interface WorkspaceHistoryListProps {
 }
 
 function workspaceLabel(path: string): string {
-  return path.split("/").pop() || path;
+  return path.split(/[\\/]/).pop() || path;
 }
 
 export function WorkspaceHistoryList({

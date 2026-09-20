@@ -57,6 +57,7 @@ export async function parseWorkspaceRestoreResponse(
     ok: true,
     workspace: {
       path: displayPath,
+      workspaceIdentity,
       repo_root: rawWorkspace.repo_root ?? null,
       branch: rawWorkspace.branch ?? null,
       dirty: rawWorkspace.dirty ?? null,

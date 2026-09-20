@@ -426,6 +426,16 @@ test("the picker exposes corrupt-history diagnostics without exposing persisted 
   assert.doesNotMatch(appSource, /recentWorkspacePaths/);
 });
 
+test("open-remembered-workspace forgets stale paths that fail pre-sidecar validation", () => {
+  const start = mainSource.indexOf('ipcMain.handle("open-remembered-workspace"');
+  const end = mainSource.indexOf("\n  });", start);
+  assert.ok(start >= 0 && end > start, "open-remembered-workspace handler not found");
+  const handler = mainSource.slice(start, end);
+  assert.match(handler, /result\.failure\.code === "invalid_destination"/);
+  assert.match(handler, /forgetWorkspacePath\(app\.getPath\("userData"\), path\)/);
+  assert.match(handler, /throw new Error\(result\.failure\.message\)/);
+});
+
 test("workspace history IPC channels are wired through main, preload, and the renderer contract", () => {
   assert.match(mainSource, /ipcMain\.handle\("get-workspace-history", \(\) =>/);
   assert.match(mainSource, /ipcMain\.handle\("pin-workspace-path", \(_event, path: unknown\) => \{/);
@@ -446,10 +456,16 @@ test("workspace history IPC channels are wired through main, preload, and the re
   assert.match(rendererTypes, /"pin_limit_reached"/);
 });
 
-test("App wires both workspace-history dropdown triggers to the remembered-open handler", () => {
+test("App wires the titlebar workspace-history dropdown to the remembered-open handler", () => {
   assert.match(appSource, /import \{ WorkspaceHistoryDropdown \} from "\.\/components\/WorkspaceHistoryDropdown";/);
-  assert.equal(appSource.match(/<WorkspaceHistoryDropdown/g)?.length, 2);
+  assert.equal(appSource.match(/<WorkspaceHistoryDropdown/g)?.length, 1);
   assert.match(appSource, /onOpenPath=\{handleOpenRememberedWorkspace\}/);
   assert.match(appSource, /onOpenOtherFolder=\{handleOpenWorkspace\}/);
   assert.match(appSource, /await window\.orkworks\.openRememberedWorkspace\(path\);/);
+});
+
+test("App renders the workspace-history list directly in the no-workspace picker screen", () => {
+  assert.match(appSource, /import \{ WorkspaceHistoryList \} from "\.\/components\/WorkspaceHistoryList";/);
+  assert.match(appSource, /!workspace && \(\s*<div className="workspace-picker-screen">/);
+  assert.match(appSource, /<WorkspaceHistoryList\s+currentWorkspacePath=\{null\}/);
 });

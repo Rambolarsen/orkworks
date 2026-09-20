@@ -2724,6 +2724,27 @@ html, body, #root {
 .recommendations-diagnostics { margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--state-warn); border-radius: var(--radius-sm); color: var(--text-primary); }
 .recommendations-diagnostics p { margin-top: var(--space-1); color: var(--text-muted); } .recommendation-dismiss:disabled { cursor: wait; opacity: .65; }
 
+.workspace-picker-screen {
+  position: fixed;
+  inset: var(--titlebar-height) 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-1);
+  z-index: 10;
+}
+
+.workspace-picker-card {
+  width: min(480px, calc(100vw - var(--space-5) * 2));
+  max-height: calc(100vh - var(--titlebar-height) - var(--space-5) * 2);
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.25));
+}
+
 .workspace-history-dropdown {
   position: relative;
   display: inline-flex;

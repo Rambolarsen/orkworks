@@ -26,6 +26,7 @@ export type BackendRetryResult =
 
 export interface BackendLifecycleWorkspace {
   path: string;
+  workspaceIdentity: string;
   repo_root: string | null;
   branch: string | null;
   dirty: boolean | null;
@@ -53,6 +54,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   if (!hasExactKeys(value, [
     "path",
+    "workspaceIdentity",
     "repo_root",
     "branch",
     "dirty",
@@ -63,6 +65,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
 
   const workspace = value as Record<string, unknown>;
   return typeof workspace.path === "string"
+    && typeof workspace.workspaceIdentity === "string"
     && (typeof workspace.repo_root === "string" || workspace.repo_root === null)
     && (typeof workspace.branch === "string" || workspace.branch === null)
     && (typeof workspace.dirty === "boolean" || workspace.dirty === null)
@@ -74,6 +77,7 @@ function canonicalizeWorkspace(value: unknown): BackendLifecycleWorkspace | null
     && workspace.activeHarnessRevision >= 0
     ? {
       path: workspace.path,
+      workspaceIdentity: workspace.workspaceIdentity,
       repo_root: workspace.repo_root,
       branch: workspace.branch,
       dirty: workspace.dirty,

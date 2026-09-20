@@ -389,6 +389,7 @@ export async function forgetSession(
 
 export interface WorkspaceInfo {
   path: string;
+  workspaceIdentity: string;
   repo_root: string | null;
   branch: string | null;
   dirty: boolean | null;

@@ -217,7 +217,9 @@ test("pinWorkspacePath moves a path out of recentWorkspacePaths and unpinWorkspa
     const unpinned = unpinWorkspacePath(directory, "/repo/a");
     assert.equal(unpinned.diagnostic, null);
     assert.deepEqual(unpinned.pinnedWorkspacePaths, []);
-    assert.deepEqual(unpinned.recentWorkspacePaths, ["/repo/a", "/repo/b"]);
+    // lastWorkspacePath stays at the front of recentWorkspacePaths; the
+    // unpinned path follows it rather than displacing it (see ADR 0061).
+    assert.deepEqual(unpinned.recentWorkspacePaths, ["/repo/b", "/repo/a"]);
   }));
 
 test("pinWorkspacePath is a no-op when the path is already pinned", () =>
@@ -398,6 +400,55 @@ test("legacy workspace history whose migrated record cannot fit is diagnosed, no
     assert.equal(loaded.lastWorkspacePath, null);
     assert.deepEqual(loaded.recentWorkspacePaths, []);
     assert.equal(readFileSync(historyPath, "utf8"), raw);
+  }));
+
+test("a v1 file over the 64 KiB bound is diagnosed as corrupt", () =>
+  withTemporaryUserData((directory) => {
+    const historyPath = workspaceMemoryPath(directory);
+    const paths = Array.from({ length: 5 }, (_, index) => `/repo/${index}-${"x".repeat(15_000)}`);
+    const v1 = {
+      version: 1,
+      revision: 1,
+      lastWorkspacePath: paths[0],
+      recentWorkspacePaths: paths,
+    };
+    const raw = JSON.stringify(v1);
+    assert.ok(Buffer.byteLength(raw, "utf8") > 64 * 1024);
+    assert.ok(Buffer.byteLength(raw, "utf8") <= 2 * 1024 * 1024);
+    writeFileSync(historyPath, raw);
+
+    const loaded = readWorkspaceMemory(directory);
+
+    assert.equal(loaded.diagnostic?.code, "corrupt_history");
+    assert.equal(readFileSync(historyPath, "utf8"), raw);
+  }));
+
+test("rememberWorkspacePath evicts recents to fit a longer pinned lastWorkspacePath", () =>
+  withTemporaryUserData((directory) => {
+    const longPinnedPath = `/repo/${"x".repeat(25_000)}`;
+    pinWorkspacePath(directory, longPinnedPath);
+    for (let index = 0; index < 3; index += 1) {
+      rememberWorkspacePath(directory, `/repo/recent-${index}-${"x".repeat(10_000)}`);
+    }
+
+    const remembered = rememberWorkspacePath(directory, longPinnedPath);
+
+    assert.equal(remembered.diagnostic, null);
+    assert.equal(remembered.lastWorkspacePath, longPinnedPath);
+    assert.ok(remembered.recentWorkspacePaths.length < 3, "recent list should have been evicted to fit");
+    assert.ok(Buffer.byteLength(readFileSync(workspaceMemoryPath(directory), "utf8"), "utf8") <= 64 * 1024);
+  }));
+
+test("unpinWorkspacePath keeps the actual lastWorkspacePath present in recentWorkspacePaths", () =>
+  withTemporaryUserData((directory) => {
+    rememberWorkspacePath(directory, "/repo/last");
+    pinWorkspacePath(directory, "/repo/pinned");
+
+    const unpinned = unpinWorkspacePath(directory, "/repo/pinned");
+
+    assert.equal(unpinned.diagnostic, null);
+    assert.equal(unpinned.lastWorkspacePath, "/repo/last");
+    assert.deepEqual(unpinned.recentWorkspacePaths.slice(0, 2), ["/repo/last", "/repo/pinned"]);
   }));
 
 test("a v1 file with no pinnedWorkspacePaths key migrates with an empty pinned list", () =>

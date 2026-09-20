@@ -1866,7 +1866,15 @@ app.whenReady().then(async () => {
     // workspaceSwitchDiagnostic banner would never appear. Throwing here routes
     // every failure through the renderer's existing catch-and-toast handling in
     // handleOpenRememberedWorkspace instead of silently no-oping.
-    if (!result.ok) throw new Error(result.failure.message);
+    if (!result.ok) {
+      // Pre-sidecar validation failures (missing/inaccessible directories)
+      // never reach restoreWorkspace's removeFromHistory handling, so forget
+      // the stale shortcut here before surfacing the error.
+      if (result.failure.code === "invalid_destination") {
+        forgetWorkspacePath(app.getPath("userData"), path);
+      }
+      throw new Error(result.failure.message);
+    }
     return result.workspace;
   });
 

@@ -31,3 +31,7 @@ test("labels.ts defines the workspace-history VOCAB entries", () => {
   assert.match(labelsSource, /unpinWorkspace: "Unpin workspace"/);
   assert.match(labelsSource, /removeWorkspace: "Remove from history"/);
 });
+
+test("WorkspaceHistoryList extracts basenames on both POSIX and Windows paths", () => {
+  assert.match(listSource, /path\.split\(\/\[.*\\.*\/\]\/\)\.pop\(\)/);
+});

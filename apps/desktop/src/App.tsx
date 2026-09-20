@@ -8,6 +8,7 @@ import SettingsModal from "./components/SettingsModal";
 import type { SettingsSection } from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { WorkspaceHistoryDropdown } from "./components/WorkspaceHistoryDropdown";
+import { WorkspaceHistoryList } from "./components/WorkspaceHistoryList";
 import {
   EMPTY_UNREAD_STATE,
   acknowledgeSession,
@@ -718,7 +719,7 @@ function App() {
                 triggerLabel="⇄"
                 triggerClassName="titlebar-switch-button"
                 triggerAriaLabel={VOCAB.switchWorkspace}
-                currentWorkspacePath={workspace?.path ?? null}
+                currentWorkspacePath={workspace?.workspaceIdentity ?? workspace?.path ?? null}
                 isSwitching={isSwitchingWorkspace}
                 onOpenPath={handleOpenRememberedWorkspace}
                 onOpenOtherFolder={handleOpenWorkspace}
@@ -743,16 +744,6 @@ function App() {
                   Workspace switch needs attention
                 </span>
               )}
-              <WorkspaceHistoryDropdown
-                triggerLabel={VOCAB.openWorkspace}
-                triggerClassName="titlebar-open-button"
-                triggerAriaLabel={VOCAB.openWorkspace}
-                currentWorkspacePath={null}
-                isSwitching={isSwitchingWorkspace}
-                onOpenPath={handleOpenRememberedWorkspace}
-                onOpenOtherFolder={handleOpenWorkspace}
-                onError={handleWorkspaceHistoryError}
-              />
               {workspaceSwitchDiagnostic && (
                 <button
                   className="titlebar-open-button"
@@ -773,6 +764,19 @@ function App() {
           </span>}
         </div>
       </div>
+      {!workspace && (
+        <div className="workspace-picker-screen">
+          <section className="workspace-picker-card" aria-label="Workspace picker">
+            <WorkspaceHistoryList
+              currentWorkspacePath={null}
+              isSwitching={isSwitchingWorkspace}
+              onOpenPath={handleOpenRememberedWorkspace}
+              onOpenOtherFolder={handleOpenWorkspace}
+              onError={handleWorkspaceHistoryError}
+            />
+          </section>
+        </div>
+      )}
       <DockviewApp
         backendStatus={backendStatus}
         workspace={workspace}

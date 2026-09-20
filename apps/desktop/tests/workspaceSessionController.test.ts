@@ -25,6 +25,7 @@ function session(id: string, lifecycle: SessionInfo["lifecycle"] = "alive", stat
 function workspace(path: string, lastActiveSessionId: string | null = null): WorkspaceInfo {
   return {
     path,
+    workspaceIdentity: path,
     repo_root: path,
     branch: "main",
     dirty: false,
