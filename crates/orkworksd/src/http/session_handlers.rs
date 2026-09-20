@@ -1,8 +1,8 @@
 #[cfg(test)]
+use crate::session_application::try_install_claimed_resume_handle;
+#[cfg(test)]
 use crate::session_application::{resolve_session_launch, CreateSessionCommand};
-use crate::session_application::{
-    try_install_claimed_resume_handle, DebugAttentionSignal, SessionApplication, SessionError,
-};
+use crate::session_application::{DebugAttentionSignal, SessionApplication, SessionError};
 #[cfg(test)]
 use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
 use crate::session_projection::SessionProjection;
@@ -10,7 +10,9 @@ use crate::session_types::{MemoryState, PeonDiagnostics, SessionInfo};
 use crate::workspace_runtime::WorkspaceIdentity;
 #[cfg(test)]
 use crate::workspace_runtime::{orkworks_global_dir, WorkspaceLease};
-use crate::{git, harness, metadata, peon, AppState, SessionHandle, WorkspaceState};
+#[cfg(test)]
+use crate::{git, peon, SessionHandle};
+use crate::{harness, metadata, AppState, WorkspaceState};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
