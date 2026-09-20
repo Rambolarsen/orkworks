@@ -54,43 +54,52 @@ fn normalize_windows_drive_alias(path: &str) -> String {
     path.to_owned()
 }
 
-pub(crate) fn resolve_printed_plan_path_with_home(
-    launch_root: &Path,
-    printed_path: &str,
-    home_dir: Option<&Path>,
-) -> Result<(PathBuf, String), String> {
-    if printed_path.chars().any(char::is_control) {
-        return Err("plan path must not contain control characters".into());
+/// Enumerates sibling checkouts of the repository containing `launch_root`:
+/// every registered linked worktree plus the main checkout, each joined with
+/// the relative printed path. Used only when a relative printed path misses
+/// the session's launch root, so a path printed inside a worktree resolves
+/// to the checkout that actually holds the file.
+fn same_repository_worktree_candidates(launch_root: &Path, printed: &Path) -> Vec<PathBuf> {
+    let Ok(repo) = git2::Repository::discover(launch_root) else {
+        return Vec::new();
+    };
+    let mut candidates = Vec::new();
+    if let Ok(worktrees) = repo.worktrees() {
+        for index in 0..worktrees.len() {
+            let Some(name) = worktrees.get(index) else {
+                continue;
+            };
+            if let Ok(worktree) = repo.find_worktree(name) {
+                candidates.push(worktree.path().join(printed));
+            }
+        }
     }
-    let normalized_path = normalize_windows_drive_alias(printed_path);
-    let printed = Path::new(&normalized_path);
-    let launch_root = launch_root
+    // `repo.workdir()` is the launch root's own checkout: when the session
+    // launched inside a linked worktree it is that worktree, not the main
+    // checkout, so derive the main checkout from the common Git directory
+    // instead. A relative path that exists only in the main checkout must
+    // still resolve when the session launched in a worktree.
+    let mut main_checkout = repo.workdir().map(Path::to_path_buf);
+    if let Some(common_dir) = repo.commondir().parent() {
+        main_checkout = Some(common_dir.to_path_buf());
+    }
+    if let Some(main) = main_checkout {
+        if main != launch_root {
+            candidates.push(main.join(printed));
+        }
+    }
+    candidates
+}
+
+fn verify_plan_candidate(
+    candidate: &Path,
+    launch_root: &Path,
+) -> Result<(PathBuf, String), String> {
+    let candidate = candidate
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    let candidate = if let Some(home_relative) = printed_path
-        .strip_prefix("~/")
-        .or_else(|| printed_path.strip_prefix("~\\"))
-    {
-        home_dir
-            .ok_or("home directory is unavailable")?
-            .join(home_relative)
-    } else if printed.is_absolute() {
-        printed.to_path_buf()
-    } else {
-        if printed.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        }) {
-            return Err("relative plan path must not escape launch worktree".into());
-        }
-        launch_root.join(printed)
-    }
-    .canonicalize()
-    .map_err(|error| error.to_string())?;
     let candidate_repo = git_common_dir(&candidate)?;
-    if candidate_repo != git_common_dir(&launch_root)? {
+    if candidate_repo != git_common_dir(launch_root)? {
         return Err("plan path is outside the session repository worktree family".into());
     }
     let root = git2::Repository::discover(&candidate)
@@ -117,6 +126,58 @@ pub(crate) fn resolve_printed_plan_path_with_home(
             .ok_or("plan path is not valid UTF-8")?
             .to_owned(),
     ))
+}
+
+pub(crate) fn resolve_printed_plan_path_with_home(
+    launch_root: &Path,
+    printed_path: &str,
+    home_dir: Option<&Path>,
+) -> Result<(PathBuf, String), String> {
+    if printed_path.chars().any(char::is_control) {
+        return Err("plan path must not contain control characters".into());
+    }
+    let normalized_path = normalize_windows_drive_alias(printed_path);
+    let printed = Path::new(&normalized_path);
+    let launch_root = launch_root
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let mut candidates = Vec::new();
+    if let Some(home_relative) = printed_path
+        .strip_prefix("~/")
+        .or_else(|| printed_path.strip_prefix("~\\"))
+    {
+        candidates.push(
+            home_dir
+                .ok_or("home directory is unavailable")?
+                .join(home_relative),
+        );
+    } else if printed.is_absolute() {
+        candidates.push(printed.to_path_buf());
+    } else {
+        if printed.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return Err("relative plan path must not escape launch worktree".into());
+        }
+        candidates.push(launch_root.join(printed));
+        // A relative path printed from inside a linked worktree may only
+        // exist there. Fall back to the repository's sibling checkouts,
+        // keeping every candidate inside the same worktree family.
+        candidates.extend(same_repository_worktree_candidates(&launch_root, printed));
+    }
+    let mut first_error: Option<String> = None;
+    for candidate in &candidates {
+        match verify_plan_candidate(candidate, &launch_root) {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    Err(first_error.unwrap_or_else(|| "plan path could not be resolved".into()))
 }
 
 /// Verbs that indicate a line is reporting a file the agent just wrote,
@@ -697,6 +758,134 @@ mod tests {
             Path::new(relative.as_str()),
             Path::new("docs/superpowers/specs/example.md")
         );
+    }
+
+    #[test]
+    fn resolves_a_relative_terminal_link_via_a_linked_worktree_fallback() {
+        let base = tempfile::tempdir().unwrap();
+        let main_dir = base.path().join("main");
+        let linked_dir = base.path().join("linked");
+        fs::create_dir_all(&main_dir).unwrap();
+
+        run_git(&main_dir, &["init", "-q"]);
+        run_git(&main_dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(&main_dir, &["branch", "feature"]);
+        run_git(
+            &main_dir,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked_dir.to_str().unwrap(),
+                "feature",
+            ],
+        );
+
+        // The plan exists only in the linked worktree: the session launched in
+        // the main checkout, the agent worked in the worktree, and printed a
+        // worktree-relative path. Launch-root-relative resolution must miss
+        // and the linked-worktree fallback must find it.
+        let plan_dir = linked_dir.join("docs/superpowers/specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("example.md"), "# spec").unwrap();
+
+        let (root, relative) =
+            resolve_printed_plan_path(&main_dir, "docs/superpowers/specs/example.md").unwrap();
+        assert_eq!(root, linked_dir.canonicalize().unwrap());
+        assert_eq!(
+            Path::new(relative.as_str()),
+            Path::new("docs/superpowers/specs/example.md")
+        );
+    }
+
+    #[test]
+    fn resolves_a_relative_terminal_link_from_a_worktree_launch_root_via_the_main_checkout() {
+        let base = tempfile::tempdir().unwrap();
+        let main_dir = base.path().join("main");
+        let linked_dir = base.path().join("linked");
+        fs::create_dir_all(&main_dir).unwrap();
+
+        run_git(&main_dir, &["init", "-q"]);
+        run_git(&main_dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(&main_dir, &["branch", "feature"]);
+        run_git(
+            &main_dir,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked_dir.to_str().unwrap(),
+                "feature",
+            ],
+        );
+
+        // The session launched in the linked worktree and the plan exists
+        // only in the main checkout. `repo.workdir()` from a worktree launch
+        // root is the worktree itself, so the fallback must derive the main
+        // checkout from the common Git directory.
+        let plan_dir = main_dir.join("docs/superpowers/specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("example.md"), "# spec").unwrap();
+
+        let (root, relative) =
+            resolve_printed_plan_path(&linked_dir, "docs/superpowers/specs/example.md").unwrap();
+        assert_eq!(root, main_dir.canonicalize().unwrap());
+        assert_eq!(
+            Path::new(relative.as_str()),
+            Path::new("docs/superpowers/specs/example.md")
+        );
+    }
+
+    #[test]
+    fn keeps_launch_root_resolution_stronger_than_the_worktree_fallback() {
+        let base = tempfile::tempdir().unwrap();
+        let main_dir = base.path().join("main");
+        let linked_dir = base.path().join("linked");
+        fs::create_dir_all(&main_dir).unwrap();
+
+        run_git(&main_dir, &["init", "-q"]);
+        run_git(&main_dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(&main_dir, &["branch", "feature"]);
+        run_git(
+            &main_dir,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked_dir.to_str().unwrap(),
+                "feature",
+            ],
+        );
+
+        // Same relative path exists in both checkouts: the launch-root copy
+        // must keep winning, matching the pre-fallback behavior.
+        let plan_dir = main_dir.join("specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("shared.md"), "# main").unwrap();
+        let linked_plan_dir = linked_dir.join("specs");
+        fs::create_dir_all(&linked_plan_dir).unwrap();
+        fs::write(linked_plan_dir.join("shared.md"), "# worktree").unwrap();
+
+        let (root, relative) = resolve_printed_plan_path(&main_dir, "specs/shared.md").unwrap();
+        assert_eq!(root, main_dir.canonicalize().unwrap());
+        assert_eq!(Path::new(relative.as_str()), Path::new("specs/shared.md"));
+    }
+
+    #[test]
+    fn still_rejects_a_relative_plan_path_that_only_exists_outside_the_worktree_family() {
+        let base = tempfile::tempdir().unwrap();
+        let main_dir = base.path().join("main");
+        let foreign_dir = base.path().join("foreign-repo");
+        fs::create_dir_all(&main_dir).unwrap();
+
+        run_git(&main_dir, &["init", "-q"]);
+        run_git(&main_dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+
+        let plan_dir = foreign_dir.join("docs/superpowers/specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("example.md"), "# spec").unwrap();
+
+        assert!(resolve_printed_plan_path(&main_dir, "docs/superpowers/specs/example.md").is_err());
     }
 
     #[test]
