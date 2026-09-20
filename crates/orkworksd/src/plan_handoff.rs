@@ -74,9 +74,18 @@ fn same_repository_worktree_candidates(launch_root: &Path, printed: &Path) -> Ve
             }
         }
     }
-    if let Some(workdir) = repo.workdir() {
-        if workdir != launch_root {
-            candidates.push(workdir.join(printed));
+    // `repo.workdir()` is the launch root's own checkout: when the session
+    // launched inside a linked worktree it is that worktree, not the main
+    // checkout, so derive the main checkout from the common Git directory
+    // instead. A relative path that exists only in the main checkout must
+    // still resolve when the session launched in a worktree.
+    let mut main_checkout = repo.workdir().map(Path::to_path_buf);
+    if let Some(common_dir) = repo.commondir().parent() {
+        main_checkout = Some(common_dir.to_path_buf());
+    }
+    if let Some(main) = main_checkout {
+        if main != launch_root {
+            candidates.push(main.join(printed));
         }
     }
     candidates
@@ -783,6 +792,44 @@ mod tests {
         let (root, relative) =
             resolve_printed_plan_path(&main_dir, "docs/superpowers/specs/example.md").unwrap();
         assert_eq!(root, linked_dir.canonicalize().unwrap());
+        assert_eq!(
+            Path::new(relative.as_str()),
+            Path::new("docs/superpowers/specs/example.md")
+        );
+    }
+
+    #[test]
+    fn resolves_a_relative_terminal_link_from_a_worktree_launch_root_via_the_main_checkout() {
+        let base = tempfile::tempdir().unwrap();
+        let main_dir = base.path().join("main");
+        let linked_dir = base.path().join("linked");
+        fs::create_dir_all(&main_dir).unwrap();
+
+        run_git(&main_dir, &["init", "-q"]);
+        run_git(&main_dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        run_git(&main_dir, &["branch", "feature"]);
+        run_git(
+            &main_dir,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked_dir.to_str().unwrap(),
+                "feature",
+            ],
+        );
+
+        // The session launched in the linked worktree and the plan exists
+        // only in the main checkout. `repo.workdir()` from a worktree launch
+        // root is the worktree itself, so the fallback must derive the main
+        // checkout from the common Git directory.
+        let plan_dir = main_dir.join("docs/superpowers/specs");
+        fs::create_dir_all(&plan_dir).unwrap();
+        fs::write(plan_dir.join("example.md"), "# spec").unwrap();
+
+        let (root, relative) =
+            resolve_printed_plan_path(&linked_dir, "docs/superpowers/specs/example.md").unwrap();
+        assert_eq!(root, main_dir.canonicalize().unwrap());
         assert_eq!(
             Path::new(relative.as_str()),
             Path::new("docs/superpowers/specs/example.md")
