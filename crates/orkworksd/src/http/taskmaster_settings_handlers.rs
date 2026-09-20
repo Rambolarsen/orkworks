@@ -36,6 +36,8 @@ fn workspace_path(state: &AppState) -> Option<std::path::PathBuf> {
 }
 
 fn runtime_for(state: &AppState) -> TaskmasterRuntime {
+    #[cfg(not(test))]
+    let _ = state;
     #[cfg(test)]
     let root = state
         .workspace

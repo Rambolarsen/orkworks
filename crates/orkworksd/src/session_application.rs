@@ -11,7 +11,7 @@ use crate::taskmaster::rollup::{
 use crate::taskmaster::{Recommendation, RecommendationStatus, RecommendationType};
 use crate::workspace_runtime::parse_hook_observed_at;
 use crate::workspace_runtime::{iso_now, orkworks_global_dir, WorkspaceIdentity, WorkspaceLease};
-use crate::{git, metadata, migration, plan_handoff, AppState, WorkspaceState};
+use crate::{git, metadata, migration, AppState, WorkspaceState};
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};

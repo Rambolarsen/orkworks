@@ -689,6 +689,7 @@ fn remembered_session_info(
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::SessionProjection;
     use crate::AppState;
