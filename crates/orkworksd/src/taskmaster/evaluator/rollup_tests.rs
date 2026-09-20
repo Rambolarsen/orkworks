@@ -1,5 +1,7 @@
 use super::*;
-use crate::taskmaster::rollup::{build_rollup_family_snapshots, stable_rollup_id, RollupCluster};
+use crate::taskmaster::rollup::{
+    build_rollup_family_snapshots_with_offset, stable_rollup_id, RollupCluster,
+};
 use crate::taskmaster::runtime::{
     EvaluationSnapshot, KnowledgeBundle, KnowledgePage, TaskmasterSelection, TaskmasterSettings,
 };
@@ -208,8 +210,10 @@ fn rollup_prompt_is_bounded_and_labels_all_supplied_data_untrusted() {
 #[test]
 fn rollup_parser_accepts_same_target_clusters_and_rejects_invalid_response_as_a_whole() {
     let recommendations = [recommendation("a", 1), recommendation("b", 2)];
-    let snapshots = build_rollup_family_snapshots(&recommendations).unwrap();
-    let valid = parse_rollup_model_output(&output(&[cluster(&["b", "a"])]), &snapshots).unwrap();
+    let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+    let valid =
+        crate::taskmaster::rollup::validate_rollup_clusters(&snapshots, &[cluster(&["b", "a"])])
+            .unwrap();
     assert_eq!(valid[0].member_recommendation_ids, vec!["a", "b"]);
 
     let combined = serde_json::json!({
@@ -219,23 +223,22 @@ fn rollup_parser_accepts_same_target_clusters_and_rejects_invalid_response_as_a_
     })
     .to_string();
     assert_eq!(
-        parse_rollup_model_output(&combined, &snapshots).unwrap(),
-        vec![cluster(&["a", "b"])]
+        parse_provider_response(&combined, Some(&snapshots))
+            .unwrap()
+            .rollups,
+        Some(vec![cluster(&["a", "b"])])
     );
 
-    let invalid = parse_rollup_model_output(
-        &output(&[cluster(&["a", "b"]), cluster(&["b", "a"])]),
+    let invalid = crate::taskmaster::rollup::validate_rollup_clusters(
         &snapshots,
+        &[cluster(&["a", "b"]), cluster(&["b", "a"])],
     );
     assert!(matches!(
         invalid,
         Err(crate::taskmaster::rollup::RollupValidationError::DuplicateCluster)
     ));
 
-    assert!(matches!(
-        parse_rollup_model_output("not-json", &snapshots),
-        Err(crate::taskmaster::rollup::RollupValidationError::MalformedResponse)
-    ));
+    assert!(parse_provider_response("not-json", Some(&snapshots)).is_err());
 }
 
 #[test]
@@ -245,9 +248,11 @@ fn rollup_candidates_exclude_unbacked_proactive_hypotheses() {
     proactive.workflow_improvement.observation_ids.clear();
     proactive.source_session_ids.clear();
 
-    let snapshots =
-        build_rollup_family_snapshots(&[recommendation("a", 1), recommendation("b", 2), proactive])
-            .unwrap();
+    let snapshots = build_rollup_family_snapshots_with_offset(
+        &[recommendation("a", 1), recommendation("b", 2), proactive],
+        0,
+    )
+    .unwrap();
 
     assert_eq!(
         snapshots
@@ -290,14 +295,14 @@ fn stale_rollup_tokens_preserve_exact_recommendations() {
         |token: &mut RollupEvaluationToken| token.provider = "other".into(),
         |token: &mut RollupEvaluationToken| token.family_snapshot_hash.push('x'),
     ] {
-        let mut token = request.token.clone();
-        mutate(&mut token);
-        assert!(!apply_rollup_model_output(
+        let mut mutated = request.clone();
+        mutate(&mut mutated.token);
+        assert!(!apply_combined_output(
             &state,
             &runtime,
             &snapshot,
-            &token,
-            &request.snapshots,
+            directory.path(),
+            &mutated,
             &output(&[cluster(&["a", "b"])]),
         ));
     }
@@ -330,17 +335,17 @@ fn active_proposed_parent_members_remain_in_the_next_rollup_snapshot() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let request =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        directory.path(),
+        &request,
         &output(&[cluster(&["a", "b"])]),
     ));
 
     let current = stored_recommendations(&state);
-    let snapshots = build_rollup_family_snapshots(&current).unwrap();
+    let snapshots = build_rollup_family_snapshots_with_offset(&current, 0).unwrap();
 
     assert_eq!(
         snapshots
@@ -358,12 +363,12 @@ fn evaluator_output_refreshes_an_existing_proposed_rollup_in_place() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let initial =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &initial.token,
-        &initial.snapshots,
+        directory.path(),
+        &initial,
         &output(&[cluster(&["a", "b"])]),
     ));
 
@@ -412,12 +417,12 @@ fn evaluator_output_supersedes_a_changed_rollup_and_releases_unassigned_members(
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let initial =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &initial.token,
-        &initial.snapshots,
+        directory.path(),
+        &initial,
         &output(&[cluster(&["a", "b"])]),
     ));
 
@@ -463,23 +468,23 @@ fn split_rollup_parent_reassigns_all_members_in_one_transaction() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let initial =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &initial.token,
-        &initial.snapshots,
+        directory.path(),
+        &initial,
         &output(&[cluster(&["a", "b", "c", "d"])]),
     ));
 
     let current = stored_recommendations(&state);
     let split = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &split.token,
-        &split.snapshots,
+        directory.path(),
+        &split,
         &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])]),
     ));
 
@@ -514,23 +519,23 @@ fn rejects_a_rollup_that_would_supersede_multiple_active_parents() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let initial =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &initial.token,
-        &initial.snapshots,
+        directory.path(),
+        &initial,
         &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])]),
     ));
 
     let current = stored_recommendations(&state);
     let merge = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
-    assert!(!apply_rollup_model_output(
+    assert!(!apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &merge.token,
-        &merge.snapshots,
+        directory.path(),
+        &merge,
         &output(&[cluster(&["a", "b", "c", "d"])]),
     ));
 }
@@ -543,12 +548,12 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
     let request =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
     let first = output(&[cluster(&["a", "b"])]);
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        directory.path(),
+        &request,
         &first,
     ));
 
@@ -569,22 +574,22 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
 
     let mut updated_cluster = cluster(&["b", "a"]);
     updated_cluster.title = "Updated title".into();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &refresh.token,
-        &refresh.snapshots,
+        directory.path(),
+        &refresh,
         &output(&[updated_cluster]),
     ));
     let mut repeated = cluster(&["a", "b"]);
     repeated.title = "Updated title".into();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &refresh.token,
-        &refresh.snapshots,
+        directory.path(),
+        &refresh,
         &output(&[repeated]),
     ));
 
@@ -628,12 +633,12 @@ fn stale_evaluator_result_cannot_reparent_a_member_after_parent_membership_chang
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let initial =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &initial.token,
-        &initial.snapshots,
+        directory.path(),
+        &initial,
         &output(&[cluster(&["a", "b"])]),
     ));
 
@@ -682,12 +687,12 @@ fn stale_evaluator_result_cannot_mutate_an_executing_parent() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let initial =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &initial.token,
-        &initial.snapshots,
+        directory.path(),
+        &initial,
         &output(&[cluster(&["a", "b"])]),
     ));
     let current = stored_recommendations(&state);
@@ -914,12 +919,12 @@ fn failed_multi_cluster_application_leaves_the_old_graph_unchanged() {
         .list()
         .unwrap();
 
-    assert!(!apply_rollup_model_output(
+    assert!(!apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        directory.path(),
+        &request,
         &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])]),
     ));
 
@@ -942,12 +947,12 @@ fn stale_rollup_cannot_reparent_a_member_from_an_active_parent() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let request =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        directory.path(),
+        &request,
         &output(&[cluster(&["a", "b"])]),
     ));
     let before = state
@@ -960,12 +965,12 @@ fn stale_rollup_cannot_reparent_a_member_from_an_active_parent() {
         .list()
         .unwrap();
 
-    assert!(!apply_rollup_model_output(
+    assert!(!apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        directory.path(),
+        &request,
         &output(&[cluster(&["a", "c"])]),
     ));
 
@@ -1043,12 +1048,12 @@ fn empty_rollup_result_releases_only_supplied_active_parent_groups() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let request =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        directory.path(),
+        &request,
         &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])])
     ));
     let current = stored_recommendations(&state);
@@ -1099,12 +1104,12 @@ fn valid_subset_result_dissolves_an_omitted_supplied_parent() {
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
     let request =
         build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
-    assert!(apply_rollup_model_output(
+    assert!(apply_combined_output(
         &state,
         &runtime,
         &snapshot,
-        &request.token,
-        &request.snapshots,
+        directory.path(),
+        &request,
         &output(&[cluster(&["a", "b"]), cluster(&["c", "d"])])
     ));
     let refresh = build_rollup_request(
@@ -1280,7 +1285,7 @@ fn omitted_rollups_are_not_an_authoritative_empty_result() {
         legacy_only
     ));
     assert_eq!(stored_recommendations(&state), before);
-    assert!(parse_rollup_model_output(legacy_only, &request.snapshots).is_err());
+    assert!(parse_provider_response(legacy_only, Some(&request.snapshots)).is_err());
     assert!(parse_provider_response(legacy_only, None).is_ok());
 }
 

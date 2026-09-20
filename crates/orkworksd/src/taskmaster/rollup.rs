@@ -50,16 +50,12 @@ pub(crate) struct RollupCluster {
     pub summary: String,
 }
 
-pub(crate) type RollupModelCluster = RollupCluster;
-pub(crate) type ValidatedRollupCluster = RollupCluster;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RollupValidationError {
     TooManyFamilies,
     TooManyObservations,
     InputTooLarge,
     ResponseTooLarge,
-    MalformedResponse,
     UnknownMemberId(String),
     EmptyCluster,
     DuplicateCluster,
@@ -74,12 +70,6 @@ pub(crate) enum RollupValidationError {
 }
 
 impl RollupFamilySnapshot {
-    pub(crate) fn from_recommendation(
-        recommendation: &Recommendation,
-    ) -> Result<Self, RollupValidationError> {
-        Self::from_recommendation_with_active_parent(recommendation, None)
-    }
-
     pub(crate) fn from_recommendation_with_active_parent(
         recommendation: &Recommendation,
         active_parent: Option<&Recommendation>,
@@ -120,12 +110,6 @@ impl RollupFamilySnapshot {
         snapshot.evidence_snapshot_hash = snapshot_hash(&snapshot);
         Ok(snapshot)
     }
-}
-
-pub(crate) fn build_rollup_family_snapshots(
-    recommendations: &[Recommendation],
-) -> Result<Vec<RollupFamilySnapshot>, RollupValidationError> {
-    build_rollup_family_snapshots_with_offset(recommendations, 0)
 }
 
 /// Builds a deterministic batch of exact families. `batch_offset` rotates the
@@ -521,11 +505,14 @@ mod tests {
     }
 
     fn snapshot(id: &str, target_surface: TargetSurface) -> RollupFamilySnapshot {
-        RollupFamilySnapshot::from_recommendation(&recommendation(
-            id,
-            target_surface,
-            vec![evidence("observation-a", 1, "session-a", Impact::Low)],
-        ))
+        RollupFamilySnapshot::from_recommendation_with_active_parent(
+            &recommendation(
+                id,
+                target_surface,
+                vec![evidence("observation-a", 1, "session-a", Impact::Low)],
+            ),
+            None,
+        )
         .unwrap()
     }
 
@@ -872,7 +859,9 @@ mod tests {
                 .collect(),
         );
         recommendation.evidence.reverse();
-        let snapshot = RollupFamilySnapshot::from_recommendation(&recommendation).unwrap();
+        let snapshot =
+            RollupFamilySnapshot::from_recommendation_with_active_parent(&recommendation, None)
+                .unwrap();
         assert_eq!(snapshot.representative_evidence.len(), 3);
         assert_eq!(snapshot.representative_evidence[0].sequence, 1);
         assert_eq!(snapshot.representative_evidence[1].sequence, 5);
@@ -899,7 +888,7 @@ mod tests {
                 )
             })
             .collect();
-        let snapshots = build_rollup_family_snapshots(&recommendations).unwrap();
+        let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
         assert_eq!(snapshots.len(), 32);
         assert!(
             snapshots
@@ -1045,7 +1034,9 @@ mod tests {
                 })
                 .collect(),
         );
-        let snapshot = RollupFamilySnapshot::from_recommendation(&recommendation).unwrap();
+        let snapshot =
+            RollupFamilySnapshot::from_recommendation_with_active_parent(&recommendation, None)
+                .unwrap();
         assert_eq!(snapshot.representative_evidence.len(), 3);
         assert_eq!(
             snapshot.source_session_ids.len(),

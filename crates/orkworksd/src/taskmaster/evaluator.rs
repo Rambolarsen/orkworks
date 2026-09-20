@@ -6,8 +6,7 @@
 
 use crate::taskmaster::rollup::{
     build_rollup_family_snapshots_with_offset, serialized_size, validate_rollup_clusters,
-    RollupCluster, RollupFamilySnapshot, RollupValidationError, MAX_ROLLUP_INPUT_BYTES,
-    MAX_ROLLUP_RESPONSE_BYTES,
+    RollupCluster, RollupFamilySnapshot, MAX_ROLLUP_INPUT_BYTES, MAX_ROLLUP_RESPONSE_BYTES,
 };
 use crate::taskmaster::runtime::{
     taskmaster_global_dir, EvaluationSnapshot, RollupEvaluationToken, TaskmasterRuntime,
@@ -166,24 +165,6 @@ fn provider_cache_key(
     Ok(hex::encode(sha2::Sha256::digest(identity)))
 }
 
-pub(crate) fn parse_rollup_model_output(
-    output: &str,
-    snapshots: &[RollupFamilySnapshot],
-) -> Result<Vec<RollupCluster>, RollupValidationError> {
-    if output.len() > MAX_ROLLUP_RESPONSE_BYTES {
-        return Err(RollupValidationError::ResponseTooLarge);
-    }
-    let model = serde_json::from_str::<ModelOutput>(output)
-        .map_err(|_| RollupValidationError::MalformedResponse)?;
-    validate_rollup_clusters(
-        snapshots,
-        model
-            .rollups
-            .as_deref()
-            .ok_or(RollupValidationError::MalformedResponse)?,
-    )
-}
-
 fn parse_provider_response(
     output: &str,
     snapshots: Option<&[RollupFamilySnapshot]>,
@@ -215,64 +196,6 @@ fn parse_provider_response(
         None => {}
     }
     Ok(model)
-}
-
-pub(crate) fn apply_rollup_model_output(
-    state: &Arc<AppState>,
-    runtime: &TaskmasterRuntime,
-    snapshot: &EvaluationSnapshot,
-    token: &RollupEvaluationToken,
-    snapshots: &[RollupFamilySnapshot],
-    output: &str,
-) -> bool {
-    if token.prompt_version != ROLLUP_PROMPT_VERSION {
-        return false;
-    }
-    let expected_hash = hex::encode(sha2::Sha256::digest(match serde_json::to_vec(snapshots) {
-        Ok(bytes) => bytes,
-        Err(_) => return false,
-    }));
-    if expected_hash != token.family_snapshot_hash {
-        return false;
-    }
-    let Ok(model) = parse_provider_response(output, Some(snapshots)) else {
-        return false;
-    };
-    let clusters = model.rollups.unwrap_or_default();
-    apply_rollup_model_clusters(state, runtime, snapshot, token, snapshots, &clusters)
-}
-
-fn apply_rollup_model_clusters(
-    state: &Arc<AppState>,
-    runtime: &TaskmasterRuntime,
-    snapshot: &EvaluationSnapshot,
-    token: &RollupEvaluationToken,
-    snapshots: &[RollupFamilySnapshot],
-    clusters: &[RollupCluster],
-) -> bool {
-    let workspace_path = {
-        let workspace = state.workspace.lock().expect("workspace lock poisoned");
-        let Some(workspace) = workspace.as_ref() else {
-            return false;
-        };
-        workspace.path.clone()
-    };
-    let mut applied = false;
-    let _ = runtime.with_current_rollup_evaluation(
-        &state.harness_store,
-        &workspace_path,
-        snapshot,
-        token,
-        || {
-            applied = SessionApplication::new(state.clone()).apply_rollup_clusters(
-                token.workspace_instance,
-                snapshots,
-                &clusters,
-                token.generation,
-            );
-        },
-    );
-    applied
 }
 
 #[derive(Deserialize)]
@@ -578,6 +501,7 @@ fn build_taskmaster_prompt(
     }).to_string()
 }
 
+#[cfg(test)]
 fn apply_model_output(
     state: &Arc<AppState>,
     runtime: &TaskmasterRuntime,

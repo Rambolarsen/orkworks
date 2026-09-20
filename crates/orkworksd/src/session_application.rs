@@ -412,30 +412,6 @@ impl SessionApplication {
         })
     }
 
-    /// Applies validated semantic clusters while the active workspace lock is
-    /// held. Exact recommendations are re-read and matched to the supplied
-    /// evidence snapshots before the recoverable graph transaction runs.
-    pub(crate) fn apply_rollup_clusters(
-        &self,
-        workspace_instance: u64,
-        supplied_snapshots: &[RollupFamilySnapshot],
-        clusters: &[RollupCluster],
-        generation: u64,
-    ) -> bool {
-        let workspace_guard = self.state.workspace.lock().unwrap();
-        let Some(workspace) = workspace_guard.as_ref() else {
-            return false;
-        };
-        Self::apply_rollup_clusters_locked(
-            workspace,
-            workspace_instance,
-            supplied_snapshots,
-            clusters,
-            generation,
-            &[],
-        )
-    }
-
     /// The caller holds the workspace lock. Legacy updates and the rollup graph
     /// are staged together so any validation failure leaves both unchanged.
     pub(crate) fn apply_rollup_clusters_locked(
@@ -8380,8 +8356,11 @@ mod tests {
             .iter()
             .map(|recommendation| recommendation.id.clone())
             .collect::<Vec<_>>();
-        let snapshots =
-            crate::taskmaster::rollup::build_rollup_family_snapshots(&exact_families).unwrap();
+        let snapshots = crate::taskmaster::rollup::build_rollup_family_snapshots_with_offset(
+            &exact_families,
+            0,
+        )
+        .unwrap();
         let instance_id = state
             .workspace
             .lock()
@@ -8391,17 +8370,23 @@ mod tests {
             .workflow_observations
             .instance_id();
 
-        assert!(application.apply_rollup_clusters(
-            instance_id,
-            &snapshots,
-            &[RollupCluster {
-                member_recommendation_ids: member_ids.clone(),
-                target_surface: crate::taskmaster::TargetSurface::Tooling,
-                title: "Combined setup problems".into(),
-                summary: "Keep the setup reliable".into(),
-            }],
-            1,
-        ));
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            assert!(SessionApplication::apply_rollup_clusters_locked(
+                workspace,
+                instance_id,
+                &snapshots,
+                &[RollupCluster {
+                    member_recommendation_ids: member_ids.clone(),
+                    target_surface: crate::taskmaster::TargetSurface::Tooling,
+                    title: "Combined setup problems".into(),
+                    summary: "Keep the setup reliable".into(),
+                }],
+                1,
+                &[],
+            ));
+        }
         let parent_id = stable_rollup_id(&member_ids);
         let before = application.get_recommendation(&parent_id).unwrap().unwrap();
         assert_eq!(before.workflow_improvement.recurrence_count, 10);
@@ -8478,7 +8463,9 @@ mod tests {
             .iter()
             .map(|recommendation| recommendation.id.clone())
             .collect::<Vec<_>>();
-        let snapshots = crate::taskmaster::rollup::build_rollup_family_snapshots(&members).unwrap();
+        let snapshots =
+            crate::taskmaster::rollup::build_rollup_family_snapshots_with_offset(&members, 0)
+                .unwrap();
         let instance_id = state
             .workspace
             .lock()
@@ -8487,22 +8474,32 @@ mod tests {
             .unwrap()
             .workflow_observations
             .instance_id();
-        assert!(application.apply_rollup_clusters(
-            instance_id,
-            &snapshots,
-            &[RollupCluster {
-                member_recommendation_ids: member_ids.clone(),
-                target_surface: crate::taskmaster::TargetSurface::Tooling,
-                title: "Combined setup problems".into(),
-                summary: "Keep the setup reliable".into(),
-            }],
-            1,
-        ));
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            assert!(SessionApplication::apply_rollup_clusters_locked(
+                workspace,
+                instance_id,
+                &snapshots,
+                &[RollupCluster {
+                    member_recommendation_ids: member_ids.clone(),
+                    target_surface: crate::taskmaster::TargetSurface::Tooling,
+                    title: "Combined setup problems".into(),
+                    summary: "Keep the setup reliable".into(),
+                }],
+                1,
+                &[],
+            ));
+        }
         let parent_id = stable_rollup_id(&member_ids);
         let parent = application.get_recommendation(&parent_id).unwrap().unwrap();
         let rolled_up_records = application.list_recommendations().unwrap().0;
         let rollup_snapshots =
-            crate::taskmaster::rollup::build_rollup_family_snapshots(&rolled_up_records).unwrap();
+            crate::taskmaster::rollup::build_rollup_family_snapshots_with_offset(
+                &rolled_up_records,
+                0,
+            )
+            .unwrap();
         let mut executing = parent.clone();
         executing.status = RecommendationStatus::Executing;
         executing.target_session_id = Some("active-session".into());
@@ -8515,17 +8512,23 @@ mod tests {
             .recommendation_store
             .put(&executing)
             .unwrap();
-        assert!(!application.apply_rollup_clusters(
-            instance_id,
-            &rollup_snapshots,
-            &[RollupCluster {
-                member_recommendation_ids: member_ids,
-                target_surface: crate::taskmaster::TargetSurface::Tooling,
-                title: "Combined setup problems".into(),
-                summary: "Keep the setup reliable".into(),
-            }],
-            2,
-        ));
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let workspace = workspace.as_ref().unwrap();
+            assert!(!SessionApplication::apply_rollup_clusters_locked(
+                workspace,
+                instance_id,
+                &rollup_snapshots,
+                &[RollupCluster {
+                    member_recommendation_ids: member_ids,
+                    target_surface: crate::taskmaster::TargetSurface::Tooling,
+                    title: "Combined setup problems".into(),
+                    summary: "Keep the setup reliable".into(),
+                }],
+                2,
+                &[],
+            ));
+        }
         assert_eq!(
             application
                 .get_recommendation(&parent_id)
