@@ -976,6 +976,7 @@ where
                                     first_revision: *first_revision,
                                     last_revision: *last_revision,
                                 },
+                                &output_snapshot,
                                 &inf.workflow_observations,
                             );
                             accepted_observation = result.accepted_observation;
@@ -1798,6 +1799,7 @@ mod tests {
                 first_revision: 1,
                 last_revision: 1,
             },
+            &["old runtime evidence".to_string()],
             &[peon::PeonWorkflowObservation {
                 kind: crate::workflow_observations::ObservationKind::Obstacle,
                 description: "old runtime observation".into(),

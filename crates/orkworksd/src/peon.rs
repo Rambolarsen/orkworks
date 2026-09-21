@@ -1221,6 +1221,26 @@ pub fn is_terminal_observed_status(observed: Option<&str>) -> bool {
     )
 }
 
+/// Returns true if `evidence` actually appears in the terminal text Peon
+/// captured for this inference call. Claude Code hard-wraps long output
+/// lines (paths, bulleted commit lists) into separate PTY rows with an
+/// indented continuation row; by the time those rows reach `build_prompt`
+/// the wrap indent has already been stripped, so the model sees fragments
+/// with no signal that they are one logical line. When the model can't
+/// reconstruct the fragments cleanly it can produce a garbled paraphrase —
+/// see recommendation-c96a57164037ba7d, whose "evidence" field merged
+/// pieces of two unrelated wrapped file paths. Grounding evidence against
+/// the actual captured text catches that corruption (and any other cause
+/// of an ungrounded citation) before it is ever persisted.
+pub fn evidence_is_grounded(evidence: &str, output: &[String]) -> bool {
+    let evidence = evidence.trim();
+    if evidence.is_empty() {
+        return false;
+    }
+    let haystack = output.join("\n");
+    haystack.contains(evidence)
+}
+
 pub fn build_prompt(output: &[String]) -> String {
     let output_text: String = output
         .iter()
@@ -2425,6 +2445,45 @@ mod tests {
         let prompt = build_prompt(&[]);
 
         assert!(!prompt.contains("Fixing peon model detection"));
+    }
+
+    #[test]
+    fn evidence_is_grounded_accepts_a_verbatim_excerpt() {
+        let output = vec![
+            "docs: design generic harness capability system".to_string(),
+            "- `ad33be8` design generic harness capability system".to_string(),
+        ];
+
+        assert!(evidence_is_grounded(
+            "- `ad33be8` design generic harness capability system",
+            &output
+        ));
+    }
+
+    #[test]
+    fn evidence_is_grounded_rejects_text_the_captured_output_never_contained() {
+        // Reproduces the corrupted observation recorded in
+        // recommendation-c96a57164037ba7d: the model's "evidence" field named
+        // a file path that does not appear anywhere in what Peon captured,
+        // merging fragments of two unrelated wrapped terminal lines.
+        let output = vec![
+            "docs/agents/decisions/2026-07-22-harness-capability-system-design.md".to_string(),
+            "docs/superpowers/specs/2026-07-23-terminal-markdown-document-tabs-design.md"
+                .to_string(),
+        ];
+
+        assert!(!evidence_is_grounded(
+            "docs/harness-capability-a-termin-markdown-design-review",
+            &output
+        ));
+    }
+
+    #[test]
+    fn evidence_is_grounded_rejects_blank_evidence() {
+        assert!(!evidence_is_grounded(
+            "   ",
+            &["some real output".to_string()]
+        ));
     }
 
     #[test]

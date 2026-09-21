@@ -1052,6 +1052,7 @@ impl SessionApplication {
         session_id: &str,
         generation: u64,
         scan_result: Option<&crate::providers::ProviderRunResult>,
+        captured_output: &[String],
     ) -> FinalPeonScanResult {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
@@ -1106,6 +1107,14 @@ impl SessionApplication {
         let mut observation_accepted = false;
         if let Some(inference) = scan_result.inference.as_ref() {
             for (index, candidate) in inference.workflow_observations.iter().enumerate() {
+                if !peon::evidence_is_grounded(&candidate.evidence, captured_output) {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        candidate_index = index,
+                        "dropping final peon workflow observation: evidence not grounded in captured terminal output"
+                    );
+                    continue;
+                }
                 let key = format!("final-scan:{generation}:{index}");
                 let mut recorded = false;
                 for attempt in 0..3 {
@@ -1174,12 +1183,14 @@ impl SessionApplication {
         session_id: &str,
         captured_workspace_path: Option<&Path>,
         output_range: &PeonObservationOutputRange,
+        captured_output: &[String],
         candidates: &[peon::PeonWorkflowObservation],
     ) -> PeonObservationRecordResult {
         self.record_peon_workflow_observations_inner(
             session_id,
             captured_workspace_path,
             output_range,
+            captured_output,
             candidates,
             None,
         )
@@ -1191,12 +1202,14 @@ impl SessionApplication {
         captured_workspace_path: Option<&Path>,
         attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
         output_range: &PeonObservationOutputRange,
+        captured_output: &[String],
         candidates: &[peon::PeonWorkflowObservation],
     ) -> PeonObservationRecordResult {
         self.record_peon_workflow_observations_inner(
             session_id,
             captured_workspace_path,
             output_range,
+            captured_output,
             candidates,
             Some(attempt),
         )
@@ -1207,6 +1220,7 @@ impl SessionApplication {
         session_id: &str,
         captured_workspace_path: Option<&Path>,
         output_range: &PeonObservationOutputRange,
+        captured_output: &[String],
         candidates: &[peon::PeonWorkflowObservation],
         attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
     ) -> PeonObservationRecordResult {
@@ -1259,6 +1273,14 @@ impl SessionApplication {
         let mut accepted_observation = false;
         let mut output_range_completed = true;
         for (candidate_index, candidate) in candidates.iter().enumerate() {
+            if !peon::evidence_is_grounded(&candidate.evidence, captured_output) {
+                tracing::warn!(
+                    session_id,
+                    candidate_index,
+                    "dropping peon workflow observation: evidence not grounded in captured terminal output"
+                );
+                continue;
+            }
             let key = peon_observation_key(
                 &output_range.runtime_instance_id,
                 session_id,
@@ -4072,10 +4094,13 @@ mod tests {
             confidence: 0.8,
         }];
 
+        let captured_output = vec!["retry output".to_string()];
+
         let first = SessionApplication::new(state.clone()).record_peon_workflow_observations(
             id,
             Some(root.path()),
             &range,
+            &captured_output,
             &candidates,
         );
         assert!(first.accepted_observation);
@@ -4085,6 +4110,7 @@ mod tests {
             id,
             Some(root.path()),
             &range,
+            &captured_output,
             &candidates,
         );
         assert!(!duplicate.accepted_observation);
@@ -4107,6 +4133,73 @@ mod tests {
             observations[0].problem_area.as_deref(),
             Some("command retry")
         );
+    }
+
+    #[test]
+    fn drops_peon_observation_whose_evidence_is_not_in_the_captured_output() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "workflow-observation-ungrounded";
+        let metadata = crate::test_support::test_session_metadata(
+            id,
+            "Workflow observation",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let range = PeonObservationOutputRange {
+            runtime_instance_id: "runtime-a".into(),
+            run_generation: 4,
+            first_revision: 10,
+            last_revision: 12,
+        };
+        // Reproduces recommendation-c96a57164037ba7d: a model-authored
+        // "evidence" field naming a path that never appeared in what Peon
+        // actually captured (a merged fragment of two unrelated hard-wrapped
+        // terminal lines).
+        let candidates = vec![peon::PeonWorkflowObservation {
+            kind: crate::workflow_observations::ObservationKind::Obstacle,
+            description: "Found duplicate commits".into(),
+            evidence: "docs/harness-capability-a-termin-markdown-design-review".into(),
+            problem_area: Some("stale docs".into()),
+            reported_impact: crate::workflow_observations::Impact::Medium,
+            confidence: 0.6,
+        }];
+        let captured_output = vec![
+            "docs/agents/decisions/2026-07-22-harness-capability-system-design.md".to_string(),
+            "docs/superpowers/specs/2026-07-23-terminal-markdown-document-tabs-design.md"
+                .to_string(),
+        ];
+
+        let result = SessionApplication::new(state.clone()).record_peon_workflow_observations(
+            id,
+            Some(root.path()),
+            &range,
+            &captured_output,
+            &candidates,
+        );
+
+        assert!(!result.accepted_observation);
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -4171,14 +4264,24 @@ mod tests {
             runtime: std::collections::HashMap::new(),
         };
 
-        let first =
-            SessionApplication::new(state.clone()).persist_final_peon_scan(id, 7, Some(&scan));
+        let captured_output = vec!["retry output".to_string()];
+
+        let first = SessionApplication::new(state.clone()).persist_final_peon_scan(
+            id,
+            7,
+            Some(&scan),
+            &captured_output,
+        );
         assert!(first.should_finalize);
         assert!(first.observation_accepted);
         assert_eq!(first.metadata.unwrap().lifecycle_phase, "ending");
 
-        let duplicate =
-            SessionApplication::new(state.clone()).persist_final_peon_scan(id, 7, Some(&scan));
+        let duplicate = SessionApplication::new(state.clone()).persist_final_peon_scan(
+            id,
+            7,
+            Some(&scan),
+            &captured_output,
+        );
         assert!(duplicate.should_finalize);
         assert!(!duplicate.observation_accepted);
         assert_eq!(
@@ -4194,6 +4297,89 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn drops_final_scan_observation_whose_evidence_is_not_in_the_captured_output() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "final-scan-ungrounded";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Final scan",
+            &root.path().display().to_string(),
+            "ending",
+            "before",
+            "before",
+        );
+        metadata.lifecycle_phase = "ending".into();
+        metadata.lifecycle = "live".into();
+        metadata.terminal_outcome = None;
+        metadata.pending_terminal_status = Some("ended".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let candidate = peon::PeonWorkflowObservation {
+            kind: crate::workflow_observations::ObservationKind::Obstacle,
+            description: "Found duplicate commits".into(),
+            evidence: "docs/harness-capability-a-termin-markdown-design-review".into(),
+            problem_area: None,
+            reported_impact: crate::workflow_observations::Impact::Medium,
+            confidence: 0.6,
+        };
+        let scan = crate::providers::ProviderRunResult {
+            inference: Some(peon::PeonInference {
+                observed_status: Some("done".into()),
+                phase: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.9,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: vec![candidate],
+            }),
+            observation: None,
+            attempts: vec![],
+            runtime: std::collections::HashMap::new(),
+        };
+        let captured_output = vec![
+            "docs/agents/decisions/2026-07-22-harness-capability-system-design.md".to_string(),
+            "docs/superpowers/specs/2026-07-23-terminal-markdown-document-tabs-design.md"
+                .to_string(),
+        ];
+
+        let result = SessionApplication::new(state.clone()).persist_final_peon_scan(
+            id,
+            7,
+            Some(&scan),
+            &captured_output,
+        );
+
+        assert!(result.should_finalize);
+        assert!(!result.observation_accepted);
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -4234,7 +4420,7 @@ mod tests {
         };
 
         let result =
-            SessionApplication::new(state.clone()).persist_final_peon_scan(id, 8, Some(&scan));
+            SessionApplication::new(state.clone()).persist_final_peon_scan(id, 8, Some(&scan), &[]);
         assert!(result.should_finalize);
         assert!(!result.observation_accepted);
         let persisted = state
@@ -4258,6 +4444,7 @@ mod tests {
             "missing-final-scan",
             1,
             None,
+            &[],
         );
         assert!(missing.should_finalize);
         assert!(!missing.observation_accepted);
@@ -4278,6 +4465,7 @@ mod tests {
             "missing-final-scan",
             2,
             Some(&provider_scan),
+            &[],
         );
         assert!(missing_with_provider.should_finalize);
         assert!(!missing_with_provider.observation_accepted);
@@ -4300,7 +4488,7 @@ mod tests {
             .unwrap()
             .metadata
             .write_session(&metadata);
-        let ended = SessionApplication::new(state).persist_final_peon_scan(id, 1, None);
+        let ended = SessionApplication::new(state).persist_final_peon_scan(id, 1, None, &[]);
         assert!(!ended.should_finalize);
         assert!(!ended.observation_accepted);
         assert_eq!(ended.metadata.unwrap().lifecycle_phase, "ended");

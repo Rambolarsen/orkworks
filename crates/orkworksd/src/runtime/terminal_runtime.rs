@@ -971,7 +971,7 @@ pub(crate) async fn finalize_session_ending(
     }
 
     let final_scan = crate::session_application::SessionApplication::new(state.clone())
-        .persist_final_peon_scan(&id, generation, scan_result.as_ref());
+        .persist_final_peon_scan(&id, generation, scan_result.as_ref(), &output_snapshot);
     if !final_scan.should_finalize {
         return;
     }
