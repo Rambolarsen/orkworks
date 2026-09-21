@@ -1241,6 +1241,42 @@ pub fn evidence_is_grounded(evidence: &str, output: &[String]) -> bool {
     haystack.contains(evidence)
 }
 
+/// Rejoins Claude Code's hard-wrapped continuation rows using the PTY's
+/// current column width as the wrap signal: a captured line at or beyond the
+/// terminal width is almost certainly a row the harness wrapped rather than
+/// a genuinely short line, so it is concatenated directly onto the next
+/// captured line — no separator, since a hard wrap can split mid-word —
+/// instead of being treated as its own logical line. Chained wraps (three or
+/// more physical rows for one logical line) fall out naturally: each join
+/// re-checks the newly extended line's length before deciding on the next
+/// row.
+///
+/// This is a best-effort heuristic, not a terminal-width-aware renderer: it
+/// counts `char`s rather than display width (so wide/CJK or emoji characters
+/// can throw off the column count), and a coincidentally full-width line
+/// with an unrelated line after it is indistinguishable from a real wrap —
+/// inherent to any signal this cheap. It intentionally does not touch the
+/// underlying `RingBuffer`/`output_buffer` or its line-count bookkeeping;
+/// callers pass it a local, already-captured snapshot.
+pub fn rejoin_hard_wrapped_lines(lines: &[String], cols: u16) -> Vec<String> {
+    if cols == 0 {
+        return lines.to_vec();
+    }
+    let cols = cols as usize;
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+    for line in lines {
+        let previous_was_full_width = result
+            .last()
+            .is_some_and(|previous: &String| previous.chars().count() >= cols);
+        if previous_was_full_width {
+            result.last_mut().unwrap().push_str(line);
+        } else {
+            result.push(line.clone());
+        }
+    }
+    result
+}
+
 pub fn build_prompt(output: &[String]) -> String {
     let output_text: String = output
         .iter()
@@ -2484,6 +2520,79 @@ mod tests {
             "   ",
             &["some real output".to_string()]
         ));
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_joins_a_full_width_row_onto_the_next() {
+        let lines = vec!["0123456789".to_string(), "tail".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_lines(&lines, 10),
+            vec!["0123456789tail".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_leaves_short_lines_separate() {
+        let lines = vec!["short".to_string(), "also short".to_string()];
+
+        assert_eq!(rejoin_hard_wrapped_lines(&lines, 80), lines);
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_chains_across_three_wrapped_rows() {
+        let lines = vec![
+            "0123456789".to_string(),
+            "0123456789".to_string(),
+            "tail".to_string(),
+        ];
+
+        assert_eq!(
+            rejoin_hard_wrapped_lines(&lines, 10),
+            vec!["01234567890123456789tail".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_leaves_a_trailing_full_width_line_alone() {
+        let lines = vec!["short".to_string(), "0123456789".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_lines(&lines, 10),
+            vec!["short".to_string(), "0123456789".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_returns_input_unchanged_for_zero_cols() {
+        let lines = vec!["a".to_string(), "b".to_string()];
+
+        assert_eq!(rejoin_hard_wrapped_lines(&lines, 0), lines);
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_reassembles_a_realistic_wrapped_bullet_line() {
+        // Mirrors the shape of the corruption behind recommendation-c96a57164037ba7d:
+        // a bulleted commit/path line long enough that the harness hard-wraps it.
+        let logical_line =
+            "- `ad33be8` design generic harness capability system: docs/agents/decisions/design.md";
+        let cols = 40usize;
+        let mut wrapped = Vec::new();
+        let mut rest = logical_line;
+        while rest.chars().count() > cols {
+            let split_at = rest
+                .char_indices()
+                .nth(cols)
+                .map(|(i, _)| i)
+                .unwrap_or(rest.len());
+            wrapped.push(rest[..split_at].to_string());
+            rest = &rest[split_at..];
+        }
+        wrapped.push(rest.to_string());
+
+        let rejoined = rejoin_hard_wrapped_lines(&wrapped, cols as u16);
+
+        assert_eq!(rejoined, vec![logical_line.to_string()]);
     }
 
     #[test]

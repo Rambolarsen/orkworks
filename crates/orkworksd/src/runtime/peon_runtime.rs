@@ -636,11 +636,12 @@ where
                 }
             }
 
-            let (output_snapshot, output_boundary) = {
+            let (output_snapshot, output_boundary, output_cols) = {
                 let mut sessions = state.sessions.lock().unwrap();
                 match sessions.get_mut(&session_id) {
                     Some(handle) => match mode {
                         InferenceMode::Output => {
+                            let cols = handle.runtime.last_cols;
                             let capture_is_current =
                                 handle.runtime.peon_output_capture.as_ref().is_some_and(
                                     |capture| {
@@ -688,11 +689,12 @@ where
                                             capture.runtime_instance_id,
                                             handle.runtime.run_generation(),
                                         )),
+                                        cols,
                                     )
                                 })
-                                .unwrap_or((Vec::new(), None))
+                                .unwrap_or((Vec::new(), None, cols))
                         }
-                        InferenceMode::InputLabel => (Vec::new(), None),
+                        InferenceMode::InputLabel => (Vec::new(), None, 0),
                     },
                     None => {
                         state.peon.in_flight.write().unwrap().remove(&session_id);
@@ -701,6 +703,8 @@ where
                     }
                 }
             };
+
+            let output_snapshot = peon::rejoin_hard_wrapped_lines(&output_snapshot, output_cols);
 
             let hint = (matches!(mode, InferenceMode::InputLabel))
                 .then(|| state.peon.label_hint.write().unwrap().remove(&session_id))
