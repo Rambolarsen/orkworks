@@ -930,7 +930,10 @@ pub(crate) async fn finalize_session_ending(
                 if handle.runtime.run_generation() == generation
                     && handle.info.lifecycle_phase == "ending" =>
             {
-                handle.output_buffer.snapshot()
+                peon::rejoin_hard_wrapped_lines(
+                    &handle.output_buffer.snapshot(),
+                    handle.runtime.last_cols,
+                )
             }
             _ => return,
         }
@@ -3745,6 +3748,221 @@ mod tests {
         assert_eq!(meta.status, "ended");
         assert_eq!(snapshot.value.as_deref(), Some("blocked"));
         assert_eq!(snapshot.source, "peon");
+    }
+
+    #[tokio::test]
+    async fn finalize_session_ending_rejoins_hard_wrapped_lines_before_grounding_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let orkworks = dir.path().join(".orkworks");
+        std::fs::create_dir_all(orkworks.join("sessions")).unwrap();
+        std::fs::create_dir_all(orkworks.join("events")).unwrap();
+
+        let config = crate::peon::PeonConfig::from_env();
+
+        // A logical line long enough that Claude Code would hard-wrap it at
+        // an 80-column terminal (the default session width below).
+        let logical_line =
+            "- `ad33be8` design generic harness capability system: docs/agents/decisions/design.md";
+        let cols = crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS as usize;
+        let mut wrapped = Vec::new();
+        let mut rest = logical_line;
+        while rest.chars().count() > cols {
+            let split_at = rest
+                .char_indices()
+                .nth(cols)
+                .map(|(i, _)| i)
+                .unwrap_or(rest.len());
+            wrapped.push(rest[..split_at].to_string());
+            rest = &rest[split_at..];
+        }
+        wrapped.push(rest.to_string());
+        assert!(
+            wrapped.len() > 1,
+            "fixture must actually wrap for this test to be meaningful"
+        );
+
+        let stdout = format!(
+            r#"{{"observedStatus":"done","confidence":0.9,"workflowObservations":[{{"kind":"obstacle","description":"Found a stale commit","evidence":{},"reportedImpact":"medium","confidence":0.7}}]}}"#,
+            serde_json::to_string(logical_line).unwrap()
+        );
+
+        let state = Arc::new(crate::AppState {
+            sessions: Mutex::new(HashMap::new()),
+            projection_lock: Mutex::new(()),
+            session_pids: Mutex::new(HashMap::new()),
+            workspace: Mutex::new(Some(crate::WorkspaceState {
+                path: dir.path().to_path_buf(),
+                metadata: metadata::MetadataStore::new(&orkworks),
+                workflow_observations:
+                    crate::workflow_observations::WorkflowObservationStore::open(orkworks.clone())
+                        .expect("open workflow observation store"),
+                recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                    orkworks.clone(),
+                )
+                .expect("open recommendation store"),
+                lease: None,
+            })),
+            peon: crate::PeonState {
+                last_output: RwLock::new(HashMap::new()),
+                last_inference: RwLock::new(HashMap::new()),
+                in_flight: RwLock::new(HashSet::new()),
+                label_hint: RwLock::new(HashMap::new()),
+                label_pending: RwLock::new(HashSet::new()),
+                label_epochs: RwLock::new(HashMap::new()),
+                input_buf: RwLock::new(HashMap::new()),
+                reported_cwd: RwLock::new(HashMap::new()),
+                diagnostics: RwLock::new(HashMap::new()),
+                config,
+            },
+            harness_catalog: crate::test_support::test_harness_components().0,
+            harness_store: crate::test_support::test_harness_components().1,
+            integration_probe_cache: crate::harness::probe_cache::VersionProbeCache::new(),
+            retention_config: tokio::sync::RwLock::new(crate::RetentionConfig::default()),
+            bound_port: AtomicU16::new(0),
+            providers: providers::ProviderManager::for_tests(
+                providers::ProviderSettingsPayload {
+                    version: 1,
+                    revision: 1,
+                    peon_model: None,
+                    peon_selection: Some(providers::PeonSelection {
+                        provider: "opencode".into(),
+                        model: "fake-model".into(),
+                        reasoning_effort: None,
+                        ollama_base_url: None,
+                    }),
+                    ollama_base_url: providers::default_ollama_base_url(),
+                    providers: vec![providers::ProviderSettingsEntry {
+                        id: "opencode".to_string(),
+                        enabled: true,
+                        fallback_order: 0,
+                        model: None,
+                        default_state: providers::ProviderCapacityState::Healthy,
+                        override_state: None,
+                    }],
+                },
+                vec![providers::FakeProvider::new("opencode").stdout(&stdout)],
+            ),
+        });
+
+        let session_id = "ending-wrapped-evidence".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = test_session_info(
+            session_id.clone(),
+            "Test",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
+        info.lifecycle_phase = "ending".into();
+        state.sessions.lock().unwrap().insert(
+            session_id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                resume_in_progress: false,
+                at_usage_limit_latched: false,
+                capacity_check_pending: false,
+                output_lines_seen: 0,
+                scan_bytes_seen: 0,
+                resume_scan_origin: None,
+                pending_capacity_visible_once: false,
+                active_work_hook: false,
+            },
+        );
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&session_id).unwrap();
+            for line in &wrapped {
+                handle.output_buffer.push(line.clone());
+            }
+        }
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&metadata::SessionMetadata {
+                id: session_id.clone(),
+                label: "Test".into(),
+                label_from_initial_prompt: false,
+                workspace: dir.path().display().to_string(),
+                task: "".into(),
+                harness: "".into(),
+                model: "".into(),
+                cwd: dir.path().display().to_string(),
+                status: "running".into(),
+                work_phase: "unknown".into(),
+                lifecycle_phase: "ending".into(),
+                lifecycle: "stopping".into(),
+                attention: None,
+                plan_path: None,
+                connectivity: "online".into(),
+                terminal_outcome: None,
+                pending_terminal_status: Some("ended".into()),
+                observed_status: None,
+                ending_observed_status_snapshot: None,
+                final_observed_status_snapshot: None,
+                summary: None,
+                next_action: None,
+                needs_user_input: None,
+                detected_question: None,
+                suggested_options: None,
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                peon_last_inference: None,
+                provider_id: None,
+                provider_label: None,
+                provider_model: None,
+                provider_state: None,
+                created_at: "now".into(),
+                last_activity: "now".into(),
+                last_output_at: None,
+                metadata_source: "process".into(),
+                metadata_confidence: 1.0,
+                repo_root: None,
+                branch: None,
+                dirty: None,
+                changed_files: None,
+                is_worktree: None,
+                resume: None,
+                resume_options: vec![],
+                harness_session_id_source: None,
+                harness_session_id_confidence: None,
+                harness_session_id_captured_at: None,
+                resumed_from: None,
+                last_user_input: None,
+            });
+        }
+
+        let generation = state.sessions.lock().unwrap()[&session_id]
+            .runtime
+            .run_generation();
+        finalize_session_ending(
+            state.clone(),
+            session_id.clone(),
+            generation,
+            "ended".to_string(),
+        )
+        .await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let observations = ws.workflow_observations.workspace_observations().unwrap();
+        assert_eq!(
+            observations.len(),
+            1,
+            "final-scan observation citing a hard-wrapped logical line must survive evidence grounding"
+        );
+        assert_eq!(observations[0].evidence, logical_line);
     }
 
     #[test]
