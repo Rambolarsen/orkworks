@@ -2820,6 +2820,9 @@ html, body, #root {
 
 .workspace-history-row-action {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--text-muted);
