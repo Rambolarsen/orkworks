@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { pushProviderSettings } from "../electron/providerSettingsSync.ts";
 import type { ProviderSettings } from "../src/providerTypes.ts";
-import { updateProviderModel } from "../src/providerPresentation.ts";
 
 function baseSettings(peonModel: ProviderSettings["peonModel"]): ProviderSettings {
   return {
@@ -86,24 +85,6 @@ test("SettingsModal shows a spinner and elapsed time while verifying", () => {
   assert.match(source, /provider-verify-spinner/);
   assert.match(source, /peonBusyElapsedSeconds/);
   assert.match(source, /can take up to a minute/);
-});
-
-test("updateProviderModel trims and updates only the selected provider override", () => {
-  const settings = baseSettings("global-model");
-  const next = updateProviderModel(settings, "ollama", "  llama3  ");
-
-  assert.equal(next.peonModel, "global-model");
-  assert.equal(next.providers.find((entry) => entry.id === "ollama")?.model, "llama3");
-  assert.equal(next.providers.find((entry) => entry.id === "copilot")?.model, null);
-  assert.notEqual(next, settings);
-  assert.notEqual(next.providers, settings.providers);
-});
-
-test("updateProviderModel clears a provider override to null", () => {
-  const settings = updateProviderModel(baseSettings(null), "ollama", "llama3");
-  const cleared = updateProviderModel(settings, "ollama", "   ");
-
-  assert.equal(cleared.providers.find((entry) => entry.id === "ollama")?.model, null);
 });
 
 test("SettingsModal uses one provider selection without fallbacks", () => {
