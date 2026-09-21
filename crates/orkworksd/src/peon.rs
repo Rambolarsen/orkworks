@@ -1001,7 +1001,7 @@ Available fields:
 - detectedHarness: name of the AI coding harness visible in the terminal (e.g. \"claude-code\", \"opencode\", \"codex\", \"aider\", \"gemini-cli\"), or omit if not detectable
 - detectedModel: model identifier visible in the terminal output (e.g. \"claude-sonnet-4-5\", \"gpt-4o\"), or omit if not detectable
 - harnessSessionId: the harness's internal session identifier visible in terminal output (e.g. a UUID, session hex string, or ID shown in a \"resume\" or \"continue\" prompt), or omit if not detectable
-- workflowObservations: array of at most five concrete workflow-friction candidates. Each candidate must have kind (one of repetition, obstacle, missing_context, assumption, correction, workaround, verification_gap), description, optional problemArea (a short neutral recurring-problem identity, under eight words; omit task verbs, IDs, PR numbers, timestamps, and transient evidence), evidence, reportedImpact (low, medium, or high), and confidence from 0.0 to 1.0. Only report friction that made the work harder than necessary; never report ordinary progress, terminal redraws, or speculative advice.
+- workflowObservations: array of at most five concrete workflow-friction candidates. Each candidate must have kind (one of repetition, obstacle, missing_context, assumption, correction, workaround, verification_gap), description, optional problemArea (a short neutral recurring-problem identity, under eight words; omit task verbs, IDs, PR numbers, timestamps, and transient evidence), evidence (a contiguous verbatim excerpt copied character-for-character from the terminal output above; observations whose evidence does not literally appear in the captured output are discarded as unverifiable), reportedImpact (low, medium, or high), and confidence from 0.0 to 1.0. Only report friction that made the work harder than necessary; never report ordinary progress, terminal redraws, or speculative advice.
 
 If a line starting with '[User input]:' is present, it is what the user just typed to the AI coding tool. Use it to derive a short, direct, present-tense summary of what the user is doing — like a commit-message subject line. NEVER start the summary with \"User\", \"User is\", \"User wants\", \"User asked\", \"User requested\", or \"User typed\". Keep it under 8 words and use only concrete task information present in the terminal output. The summary must name the concrete task topic, never a generic instruction or control narration such as \"instructing the agent\" or \"continuing current task execution\". Preserve every explicit PR number from the user input (for example, \"PR #249\" or \"pull request #249\").";
 
@@ -1219,6 +1219,62 @@ pub fn is_terminal_observed_status(observed: Option<&str>) -> bool {
         observed,
         Some("idle" | "stale" | "done" | "waiting_for_input" | "blocked" | "failed")
     )
+}
+
+/// Returns true if `evidence` actually appears in the terminal text Peon
+/// captured for this inference call. Claude Code hard-wraps long output
+/// lines (paths, bulleted commit lists) into separate PTY rows with an
+/// indented continuation row; by the time those rows reach `build_prompt`
+/// the wrap indent has already been stripped, so the model sees fragments
+/// with no signal that they are one logical line. When the model can't
+/// reconstruct the fragments cleanly it can produce a garbled paraphrase —
+/// see recommendation-c96a57164037ba7d, whose "evidence" field merged
+/// pieces of two unrelated wrapped file paths. Grounding evidence against
+/// the actual captured text catches that corruption (and any other cause
+/// of an ungrounded citation) before it is ever persisted.
+pub fn evidence_is_grounded(evidence: &str, output: &[String]) -> bool {
+    let evidence = evidence.trim();
+    if evidence.is_empty() {
+        return false;
+    }
+    let haystack = output.join("\n");
+    haystack.contains(evidence)
+}
+
+/// Rejoins Claude Code's hard-wrapped continuation rows using the PTY's
+/// current column width as the wrap signal: a captured line at or beyond the
+/// terminal width is almost certainly a row the harness wrapped rather than
+/// a genuinely short line, so it is concatenated directly onto the next
+/// captured line — no separator, since a hard wrap can split mid-word —
+/// instead of being treated as its own logical line. Chained wraps (three or
+/// more physical rows for one logical line) fall out naturally: each join
+/// re-checks the newly extended line's length before deciding on the next
+/// row.
+///
+/// This is a best-effort heuristic, not a terminal-width-aware renderer: it
+/// counts `char`s rather than display width (so wide/CJK or emoji characters
+/// can throw off the column count), and a coincidentally full-width line
+/// with an unrelated line after it is indistinguishable from a real wrap —
+/// inherent to any signal this cheap. It intentionally does not touch the
+/// underlying `RingBuffer`/`output_buffer` or its line-count bookkeeping;
+/// callers pass it a local, already-captured snapshot.
+pub fn rejoin_hard_wrapped_lines(lines: &[String], cols: u16) -> Vec<String> {
+    if cols == 0 {
+        return lines.to_vec();
+    }
+    let cols = cols as usize;
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+    for line in lines {
+        let previous_was_full_width = result
+            .last()
+            .is_some_and(|previous: &String| previous.chars().count() >= cols);
+        if previous_was_full_width {
+            result.last_mut().unwrap().push_str(line);
+        } else {
+            result.push(line.clone());
+        }
+    }
+    result
 }
 
 pub fn build_prompt(output: &[String]) -> String {
@@ -2425,6 +2481,118 @@ mod tests {
         let prompt = build_prompt(&[]);
 
         assert!(!prompt.contains("Fixing peon model detection"));
+    }
+
+    #[test]
+    fn evidence_is_grounded_accepts_a_verbatim_excerpt() {
+        let output = vec![
+            "docs: design generic harness capability system".to_string(),
+            "- `ad33be8` design generic harness capability system".to_string(),
+        ];
+
+        assert!(evidence_is_grounded(
+            "- `ad33be8` design generic harness capability system",
+            &output
+        ));
+    }
+
+    #[test]
+    fn evidence_is_grounded_rejects_text_the_captured_output_never_contained() {
+        // Reproduces the corrupted observation recorded in
+        // recommendation-c96a57164037ba7d: the model's "evidence" field named
+        // a file path that does not appear anywhere in what Peon captured,
+        // merging fragments of two unrelated wrapped terminal lines.
+        let output = vec![
+            "docs/agents/decisions/2026-07-22-harness-capability-system-design.md".to_string(),
+            "docs/superpowers/specs/2026-07-23-terminal-markdown-document-tabs-design.md"
+                .to_string(),
+        ];
+
+        assert!(!evidence_is_grounded(
+            "docs/harness-capability-a-termin-markdown-design-review",
+            &output
+        ));
+    }
+
+    #[test]
+    fn evidence_is_grounded_rejects_blank_evidence() {
+        assert!(!evidence_is_grounded(
+            "   ",
+            &["some real output".to_string()]
+        ));
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_joins_a_full_width_row_onto_the_next() {
+        let lines = vec!["0123456789".to_string(), "tail".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_lines(&lines, 10),
+            vec!["0123456789tail".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_leaves_short_lines_separate() {
+        let lines = vec!["short".to_string(), "also short".to_string()];
+
+        assert_eq!(rejoin_hard_wrapped_lines(&lines, 80), lines);
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_chains_across_three_wrapped_rows() {
+        let lines = vec![
+            "0123456789".to_string(),
+            "0123456789".to_string(),
+            "tail".to_string(),
+        ];
+
+        assert_eq!(
+            rejoin_hard_wrapped_lines(&lines, 10),
+            vec!["01234567890123456789tail".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_leaves_a_trailing_full_width_line_alone() {
+        let lines = vec!["short".to_string(), "0123456789".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_lines(&lines, 10),
+            vec!["short".to_string(), "0123456789".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_returns_input_unchanged_for_zero_cols() {
+        let lines = vec!["a".to_string(), "b".to_string()];
+
+        assert_eq!(rejoin_hard_wrapped_lines(&lines, 0), lines);
+    }
+
+    #[test]
+    fn rejoin_hard_wrapped_lines_reassembles_a_realistic_wrapped_bullet_line() {
+        // Mirrors the shape of the corruption behind recommendation-c96a57164037ba7d:
+        // a bulleted commit/path line long enough that the harness hard-wraps it.
+        let logical_line =
+            "- `ad33be8` design generic harness capability system: docs/agents/decisions/design.md";
+        let cols = 40usize;
+        let mut wrapped = Vec::new();
+        let mut rest = logical_line;
+        while rest.chars().count() > cols {
+            let split_at = rest
+                .char_indices()
+                .nth(cols)
+                .map(|(i, _)| i)
+                .unwrap_or(rest.len());
+            wrapped.push(rest[..split_at].to_string());
+            rest = &rest[split_at..];
+        }
+        wrapped.push(rest.to_string());
+
+        let rejoined = rejoin_hard_wrapped_lines(&wrapped, cols as u16);
+
+        assert_eq!(rejoined, vec![logical_line.to_string()]);
     }
 
     #[test]
