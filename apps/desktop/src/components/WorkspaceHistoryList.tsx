@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Pin, PinOff } from "lucide-react";
 import { VOCAB } from "../labels";
 import type { WorkspaceHistorySnapshot } from "../orkworksWindow";
 
@@ -74,7 +75,7 @@ export function WorkspaceHistoryList({
           title={pinned ? VOCAB.unpinWorkspace : VOCAB.pinWorkspace}
           onClick={() => (pinned ? handleUnpin(path) : handlePin(path))}
         >
-          {pinned ? "📌" : "📍"}
+          {pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
         </button>
         <button
           type="button"
