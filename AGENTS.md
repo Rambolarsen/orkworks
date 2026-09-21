@@ -71,7 +71,7 @@ reference detail and progressive disclosure.
 
 ## Assumption discipline
 
-Before acting, make every assumption that could change the scope, target, permissions, or expected behavior explicit. Treat missing context as unknown, not as permission to guess.
+Before acting, make every assumption that could change the scope, target, permissions, or expected behavior explicit. Investigate first, then decide: read the authoritative sources before committing to an interpretation or an action — never decide first and search for supporting evidence afterward. Treat missing context as unknown, not as permission to guess.
 
 - Validate material assumptions against the authoritative source for the task: the user's request, the live OrkWorks recommendation/API when working from a recommendation, applicable specs, and scoped repository instructions.
 - Distinguish facts, inferences, and open questions in the working update or plan. If authoritative evidence is missing or conflicts, stop and ask rather than silently choosing an interpretation.
