@@ -8,7 +8,7 @@ import { taskmasterRequest } from "./taskmasterSettings";
 import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
 import * as path from "path";
 import { pathToFileURL } from "url";
-import { getDevSidecarPath, getPackagedSidecarPath } from "./paths";
+import { getDevSidecarPath, getDevUserDataPath, getPackagedSidecarPath } from "./paths";
 import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import type { AppSettings } from "./settingsMemory";
@@ -48,6 +48,18 @@ import {
 import { getWindowChromeOptions } from "./windowChrome";
 
 app.setName("OrkWorks");
+
+// A dev checkout running with ORKWORKS_DEV_PORT (the documented way to run
+// `pnpm dev` while another checkout holds port 5173) gets userData scoped to
+// this repo root and port, so two parallel dev instances never share workspace
+// memory or settings; a rejected remembered-workspace restore in one instance
+// must not delete the other instance's persisted state via forgetWorkspacePath.
+if (!app.isPackaged && (process.env.ORKWORKS_DEV_PORT ?? "").trim() !== "") {
+  app.setPath(
+    "userData",
+    getDevUserDataPath(__dirname, app.getPath("userData"), (process.env.ORKWORKS_DEV_PORT ?? "").trim()),
+  );
+}
 
 let mainWindow: BrowserWindow | null = null;
 let sidecarLifecycle: SidecarLifecycle | null = null;
