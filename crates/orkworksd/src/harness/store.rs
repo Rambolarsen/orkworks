@@ -57,6 +57,10 @@ pub(crate) struct HarnessSnapshot {
     pub document_revision: Option<HarnessDocumentRevision>,
     pub origins: BTreeMap<String, DefinitionOrigin>,
     pub stored_patches: BTreeMap<String, HarnessPatch>,
+    /// No production reader yet; verified by
+    /// `http::harness_handlers::tests` to confirm a deleted harness's
+    /// compatibility profile is cleared from the snapshot.
+    #[allow(dead_code)]
     pub compatibility_profiles: BTreeMap<String, super::compatibility::CompatibilityProfile>,
 }
 
