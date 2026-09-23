@@ -383,6 +383,12 @@ test("main fixes the updater provider and maps public updater events", () => {
 });
 
 test("a delayed event from an old updater operation cannot complete a newer operation", async () => {
+  // The engine gates update candidates on the platform-specific metadata
+  // file and payload extension, so the fixture must speak the same dialect
+  // as updateCandidate for the platform the test process runs on. On Linux
+  // CI this is latest.yml/OrkWorks.exe; on macOS hosts latest-mac.yml/zip.
+  const metadataFile = process.platform === "darwin" ? "latest-mac.yml" : "latest.yml";
+  const payloadName = process.platform === "darwin" ? "OrkWorks.zip" : "OrkWorks.exe";
   class FakeUpdater extends EventEmitter {
     autoDownload = true;
     autoInstallOnAppQuit = true;
@@ -393,7 +399,7 @@ test("a delayed event from an old updater operation cannot complete a newer oper
     intercept: ((details: { url: string }, callback: (result: unknown) => void) => void) | undefined;
     netSession = { webRequest: { onBeforeRequest: (_filter: unknown, listener: typeof this.intercept) => { this.intercept = listener; } } };
     requestMetadata(tag: string) {
-      this.intercept?.({ url: `https://github.com/Rambolarsen/orkworks/releases/download/${tag}/latest.yml` }, () => {});
+      this.intercept?.({ url: `https://github.com/Rambolarsen/orkworks/releases/download/${tag}/${metadataFile}` }, () => {});
     }
 
     setFeedURL() {}
@@ -426,11 +432,11 @@ test("a delayed event from an old updater operation cannot complete a newer oper
   const firstInfo = {
     version: "1.0.1",
     tag: "v1.0.1",
-    files: [{ url: "OrkWorks.exe", sha512: Buffer.alloc(64, 1).toString("base64") }],
+    files: [{ url: payloadName, sha512: Buffer.alloc(64, 1).toString("base64") }],
     releaseDate: "2026-09-16T00:00:00Z",
     releaseNotes: null,
   };
-  const secondInfo = { ...firstInfo, version: "1.0.2", tag: "v1.0.2", files: [{ url: "OrkWorks.exe", sha512: Buffer.alloc(64, 2).toString("base64") }] };
+  const secondInfo = { ...firstInfo, version: "1.0.2", tag: "v1.0.2", files: [{ url: payloadName, sha512: Buffer.alloc(64, 2).toString("base64") }] };
 
   const first = engine.checkForUpdates(1);
   await settle();
