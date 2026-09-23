@@ -25,6 +25,15 @@ The session details keep its working directory and Git context near the
 conversation. OrkWorks shows context; your existing tools still create
 branches, manage worktrees, and merge changes.
 
+## Scroll a terminal
+
+Use the mouse wheel or scrollbar to look back through terminal history. Some
+coding tools run a full-screen interface that captures mouse input, so the
+wheel scrolls that tool's view instead. OpenCode is one: if the wheel does
+nothing there, scroll with OpenCode's own keys — `PageUp` / `PageDown` by
+page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
+`Ctrl+Alt+D` by half page.
+
 ## Read a plan beside the terminal
 
 When a session has an associated readable Markdown plan or specification,
