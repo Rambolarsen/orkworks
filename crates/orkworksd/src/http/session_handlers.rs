@@ -547,7 +547,19 @@ async fn report_harness_session_inner(
             .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
             .map(|handle| handle.runtime.identity());
         if let Some(runtime_identity) = runtime_identity {
-            schedule_codex_label_refresh(state, id, native_session_id, runtime_identity);
+            let refresh_epoch = {
+                let mut label_epochs = state.peon.label_epochs.write().unwrap();
+                let epoch = label_epochs.entry(id.clone()).or_insert(0);
+                *epoch = epoch.saturating_add(1);
+                *epoch
+            };
+            schedule_codex_label_refresh(
+                state,
+                id,
+                native_session_id,
+                runtime_identity,
+                refresh_epoch,
+            );
         }
     }
 
@@ -570,6 +582,7 @@ fn schedule_codex_label_refresh(
     session_id: String,
     native_session_id: String,
     runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
+    refresh_epoch: u64,
 ) {
     tokio::spawn(async move {
         for delay in [
@@ -597,6 +610,7 @@ fn schedule_codex_label_refresh(
                 &native_session_id,
                 candidate.text,
                 &runtime_identity,
+                refresh_epoch,
             ) {
                 return;
             }

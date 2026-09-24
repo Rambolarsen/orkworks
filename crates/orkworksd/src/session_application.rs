@@ -2063,7 +2063,12 @@ impl SessionApplication {
         native_session_id: &str,
         label: String,
         runtime_identity: &crate::runtime::session_runtime::RuntimeIdentity,
+        expected_label_epoch: u64,
     ) -> bool {
+        let label_epochs = self.state.peon.label_epochs.read().unwrap();
+        if label_epochs.get(id).copied().unwrap_or(0) != expected_label_epoch {
+            return false;
+        }
         let ws_guard = self.state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
             return false;
@@ -8303,6 +8308,7 @@ mod tests {
                 "thread-42",
                 "Saved Codex name".into(),
                 &runtime_identity,
+                0,
             )
         );
         let stored = state
@@ -8331,6 +8337,22 @@ mod tests {
                 "thread-42",
                 "Stale name".into(),
                 &wrong_identity,
+                0,
+            )
+        );
+        state
+            .peon
+            .label_epochs
+            .write()
+            .unwrap()
+            .insert(id.into(), 1);
+        assert!(
+            !SessionApplication::new(state).persist_codex_label_for_runtime(
+                id,
+                "thread-42",
+                "Reset-stale name".into(),
+                &runtime_identity,
+                0,
             )
         );
     }
@@ -8378,6 +8400,7 @@ mod tests {
                 "thread-43",
                 "Native name".into(),
                 &runtime_identity,
+                0,
             )
         );
         assert_eq!(
