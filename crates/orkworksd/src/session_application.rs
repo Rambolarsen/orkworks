@@ -2426,6 +2426,7 @@ impl SessionApplication {
                 tracing::warn!(path = %global_dir.display(), dir, %error, "failed to create metadata dir");
             }
         }
+        crate::workspace_runtime::write_origin_file_if_absent(&global_dir, &path);
 
         let store = metadata::MetadataStore::new(&global_dir);
         migration::migrate_if_needed(&path, &global_dir);

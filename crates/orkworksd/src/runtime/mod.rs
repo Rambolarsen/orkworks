@@ -4,3 +4,4 @@ pub(crate) mod retention;
 pub(crate) mod session_runtime;
 pub(crate) mod terminal_http;
 pub(crate) mod terminal_runtime;
+pub(crate) mod workspace_gc;
