@@ -223,6 +223,201 @@ fn activation_retry_reflushes_record_after_post_publication_sync_failure() {
 }
 
 #[test]
+fn resume_retry_reflushes_published_approval_after_sync_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+    store
+        .transition(
+            "plan-1",
+            1,
+            &input.compute_plan_digest().unwrap(),
+            PlanStatus::Paused,
+        )
+        .unwrap();
+    let mut renewed = original;
+    renewed.approval_id = "approval-2".into();
+    renewed.approved_at = "2026-09-24T01:00:00Z".into();
+
+    store.fail_after_publication_once();
+    assert!(matches!(
+        store.resume(&renewed, 0),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    assert!(matches!(
+        store.resume(&renewed, 1),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    let mut expired_retry = renewed.clone();
+    expired_retry.expires_at = "2026-09-24T02:00:00Z".into();
+    assert!(matches!(
+        store.resume(&expired_retry, 0),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    let retry = store.resume(&renewed, 0).unwrap();
+    assert_eq!(retry.status, PlanStatus::Active);
+    assert_eq!(retry.approval, Some(renewed));
+}
+
+#[test]
+fn resume_retry_waits_for_recovery_reflush_barrier() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+    store
+        .transition(
+            "plan-1",
+            1,
+            &input.compute_plan_digest().unwrap(),
+            PlanStatus::Paused,
+        )
+        .unwrap();
+    let mut renewed = original;
+    renewed.approval_id = "approval-2".into();
+    renewed.approved_at = "2026-09-24T01:00:00Z".into();
+
+    store.fail_after_publication_once();
+    assert!(matches!(
+        store.resume(&renewed, 0),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    store.fail_recovery_reflush_once();
+    assert!(matches!(
+        store.resume(&renewed, 0),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    assert_eq!(
+        store.resume(&renewed, 0).unwrap().status,
+        PlanStatus::Active
+    );
+}
+
+#[test]
+fn renewed_approvals_round_trip_as_immutable_history() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+    let digest = input.compute_plan_digest().unwrap();
+    store
+        .transition("plan-1", 1, &digest, PlanStatus::Paused)
+        .unwrap();
+    let mut first_renewal = original.clone();
+    first_renewal.approval_id = "approval-2".into();
+    first_renewal.approved_at = "2026-09-24T01:00:00Z".into();
+    store.resume(&first_renewal, 0).unwrap();
+    store
+        .transition("plan-1", 1, &digest, PlanStatus::Paused)
+        .unwrap();
+    let mut second_renewal = original.clone();
+    second_renewal.approval_id = "approval-3".into();
+    second_renewal.approved_at = "2026-09-24T02:00:00Z".into();
+    store.resume(&second_renewal, 0).unwrap();
+
+    let reopened =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let record = reopened.get("plan-1", 1).unwrap().unwrap();
+    assert_eq!(record.approval, Some(second_renewal.clone()));
+    let disk: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(stored_path(root.path(), 1)).unwrap()).unwrap();
+    assert_eq!(
+        disk["approval_history"],
+        serde_json::json!([original, first_renewal, second_renewal])
+    );
+}
+
+#[test]
+fn legacy_record_without_history_gains_original_approval_on_resume() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+    let path = stored_path(root.path(), 1);
+    let mut legacy: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    legacy.as_object_mut().unwrap().remove("approval_history");
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let reopened =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    reopened
+        .transition(
+            "plan-1",
+            1,
+            &input.compute_plan_digest().unwrap(),
+            PlanStatus::Paused,
+        )
+        .unwrap();
+    let mut renewed = original.clone();
+    renewed.approval_id = "approval-2".into();
+    renewed.approved_at = "2026-09-24T01:00:00Z".into();
+    reopened.resume(&renewed, 0).unwrap();
+    let disk: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        disk["approval_history"],
+        serde_json::json!([original, renewed])
+    );
+}
+
+#[test]
+fn expired_historical_approval_remains_readable_but_tampering_fails_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+    store
+        .transition(
+            "plan-1",
+            1,
+            &input.compute_plan_digest().unwrap(),
+            PlanStatus::Paused,
+        )
+        .unwrap();
+    let mut renewed = original;
+    renewed.approval_id = "approval-2".into();
+    renewed.approved_at = "2026-09-24T01:00:00Z".into();
+    store.resume(&renewed, 0).unwrap();
+    let path = stored_path(root.path(), 1);
+    let mut disk: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    disk["approval_history"][0]["expires_at"] = "2026-09-24T00:30:00Z".into();
+    std::fs::write(&path, serde_json::to_vec(&disk).unwrap()).unwrap();
+    assert!(CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").is_ok());
+
+    for mutation in ["plan_digest", "approved_at", "approval_id", "unknown_field"] {
+        let mut changed = disk.clone();
+        match mutation {
+            "plan_digest" => changed["approval_history"][0]["plan_digest"] = "0".repeat(64).into(),
+            "approved_at" => changed["approval_history"][0]["approved_at"] = "nonsense".into(),
+            "approval_id" => changed["approval_history"][0]["approval_id"] = "approval-2".into(),
+            _ => changed["approval_history"][0]["unknown_field"] = true.into(),
+        }
+        let bytes = serde_json::to_vec(&changed).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+}
+
+#[test]
 fn transition_retry_reflushes_record_after_post_publication_sync_failure() {
     let root = tempfile::tempdir().unwrap();
     let store =
@@ -469,6 +664,7 @@ fn coordinator_store_rejects_expired_approval_progress_but_allows_expiry() {
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     record["approval"]["approved_at"] = "2019-01-01T00:00:00Z".into();
     record["approval"]["expires_at"] = "2020-01-01T00:00:00Z".into();
+    record["approval_history"][0] = record["approval"].clone();
     let before = serde_json::to_vec(&record).unwrap();
     std::fs::write(&path, &before).unwrap();
     let digest = input.compute_plan_digest().unwrap();

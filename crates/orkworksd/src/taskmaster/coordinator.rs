@@ -605,6 +605,22 @@ pub(crate) struct PlanApproval {
 }
 
 impl PlanApproval {
+    pub(crate) fn validate_historical_against(
+        &self,
+        plan: &PlanRevision,
+    ) -> Result<(), CoordinatorError> {
+        let approved: DateTime<Utc> = self
+            .approved_at
+            .parse()
+            .map_err(|_| CoordinatorError::Invalid("approved at"))?;
+        if approved > Utc::now() {
+            return Err(CoordinatorError::Invalid("approved at"));
+        }
+        // Validate binding and expiry ordering at approval time. A prior
+        // approval may have expired after it was replaced by a renewal.
+        self.validate_against_at(plan, approved)
+    }
+
     pub(crate) fn validate_against(&self, plan: &PlanRevision) -> Result<(), CoordinatorError> {
         self.validate_against_at(plan, Utc::now())
     }

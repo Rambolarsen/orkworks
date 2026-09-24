@@ -2,6 +2,7 @@
 
 use super::coordinator::{CoordinatorError, PlanApproval, PlanRevision, PlanStatus};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -47,6 +48,7 @@ pub(crate) struct StoredPlan {
     pub plan: PlanRevision,
     pub status: PlanStatus,
     pub approval: Option<PlanApproval>,
+    pub approval_history: Vec<PlanApproval>,
 }
 
 #[derive(Deserialize)]
@@ -55,6 +57,8 @@ struct DiskRecord {
     plan: PlanRevision,
     status: PlanStatus,
     approval: Option<PlanApproval>,
+    #[serde(default)]
+    approval_history: Vec<PlanApproval>,
 }
 
 pub(crate) struct CoordinatorStore {
@@ -66,6 +70,8 @@ pub(crate) struct CoordinatorStore {
     before_publication: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     fail_after_publication: AtomicBool,
+    #[cfg(test)]
+    fail_recovery_reflush: AtomicBool,
 }
 
 impl CoordinatorStore {
@@ -95,6 +101,8 @@ impl CoordinatorStore {
             before_publication: Mutex::new(None),
             #[cfg(test)]
             fail_after_publication: AtomicBool::new(false),
+            #[cfg(test)]
+            fail_recovery_reflush: AtomicBool::new(false),
         };
         let lock = store.lock_file()?;
         lock.sync_all()?;
@@ -154,6 +162,7 @@ impl CoordinatorStore {
             plan: plan.clone(),
             status: PlanStatus::Proposed,
             approval: None,
+            approval_history: Vec::new(),
         };
         self.publish(&id, plan.revision(), None, &record)
     }
@@ -224,6 +233,7 @@ impl CoordinatorStore {
         let previous = record.clone();
         record.status = PlanStatus::Active;
         record.approval = Some(approval.clone());
+        record.approval_history.push(approval.clone());
         self.publish(
             &approval.plan_id,
             approval.revision,
@@ -290,6 +300,15 @@ impl CoordinatorStore {
         let mut record = self
             .read_at(&approval.plan_id, approval.revision)?
             .ok_or(CoordinatorStoreError::Stale)?;
+        if record.status == PlanStatus::Active && record.approval.as_ref() == Some(approval) {
+            if approval.revocation_generation != current_generation {
+                return Err(CoordinatorStoreError::Stale);
+            }
+            approval
+                .validate_against(&record.plan)
+                .map_err(|_| CoordinatorStoreError::Stale)?;
+            return Ok(record);
+        }
         record
             .status
             .can_resume(approval, &record.plan, current_generation)
@@ -306,12 +325,18 @@ impl CoordinatorStore {
             .approved_at
             .parse()
             .map_err(|_| CoordinatorStoreError::Stale)?;
-        if approval.approval_id == previous_approval.approval_id || renewed_at <= previous_at {
+        if record
+            .approval_history
+            .iter()
+            .any(|prior| prior.approval_id == approval.approval_id)
+            || renewed_at <= previous_at
+        {
             return Err(CoordinatorStoreError::Stale);
         }
         let previous = record.clone();
         record.status = PlanStatus::Active;
         record.approval = Some(approval.clone());
+        record.approval_history.push(approval.clone());
         self.publish(
             &approval.plan_id,
             approval.revision,
@@ -363,6 +388,11 @@ impl CoordinatorStore {
         self.fail_after_publication.store(true, Ordering::SeqCst);
     }
 
+    #[cfg(test)]
+    pub(super) fn fail_recovery_reflush_once(&self) {
+        self.fail_recovery_reflush.store(true, Ordering::SeqCst);
+    }
+
     fn check_current_revision(&self, id: &str, revision: u64) -> Result<(), CoordinatorStoreError> {
         if self.read_all()?.iter().any(|record| {
             identity(&record.plan)
@@ -403,6 +433,10 @@ impl CoordinatorStore {
                     fs::remove_file(entry.path())?;
                     sync_dir(&plan_dir.path())?;
                 }
+            }
+            #[cfg(test)]
+            if self.fail_recovery_reflush.swap(false, Ordering::SeqCst) {
+                return Err(io::Error::other("injected recovery reflush failure").into());
             }
             sync_dir(&plan_dir.path())?;
         }
@@ -552,12 +586,32 @@ fn read_record(path: &Path, id: &str, revision: u64) -> Result<StoredPlan, Coord
     {
         return Err(CoordinatorStoreError::Invalid("approval state".into()));
     }
+    let mut history = disk.approval_history;
+    if history.is_empty() {
+        if let Some(approval) = &disk.approval {
+            // Records written before approval history existed have one approval.
+            history.push(approval.clone());
+        }
+    }
     if let Some(approval) = &disk.approval {
-        let approved_at = approval
-            .approved_at
-            .parse()
-            .map_err(|_| CoordinatorStoreError::Invalid("approval timestamp".into()))?;
-        approval.validate_against_at(&plan, approved_at)?;
+        if history.last() != Some(approval) {
+            return Err(CoordinatorStoreError::Invalid("approval history".into()));
+        }
+        let mut ids = HashSet::new();
+        let mut previous_at = None;
+        for entry in &history {
+            entry.validate_historical_against(&plan)?;
+            let approved_at: chrono::DateTime<chrono::Utc> = entry
+                .approved_at
+                .parse()
+                .map_err(|_| CoordinatorStoreError::Invalid("approval timestamp".into()))?;
+            if !ids.insert(&entry.approval_id)
+                || previous_at.is_some_and(|previous| approved_at <= previous)
+            {
+                return Err(CoordinatorStoreError::Invalid("approval history".into()));
+            }
+            previous_at = Some(approved_at);
+        }
     } else if matches!(
         disk.status,
         PlanStatus::Active
@@ -566,11 +620,14 @@ fn read_record(path: &Path, id: &str, revision: u64) -> Result<StoredPlan, Coord
             | PlanStatus::Failed
     ) {
         return Err(CoordinatorStoreError::Invalid("missing approval".into()));
+    } else if !history.is_empty() {
+        return Err(CoordinatorStoreError::Invalid("approval history".into()));
     }
     Ok(StoredPlan {
         plan,
         status: disk.status,
         approval: disk.approval,
+        approval_history: history,
     })
 }
 
