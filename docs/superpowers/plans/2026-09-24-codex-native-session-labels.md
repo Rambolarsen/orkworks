@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2021, Axum/Tokio, bundled `rusqlite`, serde metadata, existing Codex hook reporter and per-session report capability.
 
-**Spec:** `docs/superpowers/specs/2026-09-24-codex-native-session-labels-design.md` and ADR 0062.
+**Spec:** `docs/superpowers/specs/2026-09-24-codex-native-session-labels-design.md` and ADR 0063.
 
 ## Global Constraints
 
@@ -92,7 +92,7 @@
 - Modify: `docs/agents/harness-integration-contracts.md`
 - Modify: `specs/orkworks-mvp.md`
 
-- [ ] **Step 1: Add the accepted label-source and Codex adapter contract** with the exact path, precedence, privacy, fallback, and opportunistic-refresh limits from ADR 0062.
+- [ ] **Step 1: Add the accepted label-source and Codex adapter contract** with the exact path, precedence, privacy, fallback, and opportunistic-refresh limits from ADR 0063.
 - [ ] **Step 2: Run repository documentation checks** relevant to changed Markdown and confirm links resolve.
 - [ ] **Step 3: Commit** with `git add docs/agents/architecture.md docs/agents/harness-integration-contracts.md specs/orkworks-mvp.md && git commit -m "docs: document Codex native session labels"`.
 
@@ -105,4 +105,4 @@
 - [ ] **Step 2: Run `cargo build --manifest-path crates/orkworksd/Cargo.toml`** and confirm the sidecar builds with bundled SQLite.
 - [ ] **Step 3: Run `cargo test --manifest-path crates/orkworksd/Cargo.toml`** and record the complete passing output.
 - [ ] **Step 4: Run `git diff --check` and the repository documentation checks**.
-- [ ] **Step 5: Inspect the final diff against issue #602 and ADR 0062**, then request the required `/code-review low` gate for this Rust change.
+- [ ] **Step 5: Inspect the final diff against issue #602 and ADR 0063**, then request the required `/code-review low` gate for this Rust change.

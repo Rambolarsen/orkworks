@@ -654,20 +654,50 @@ app.whenReady().then(async () => {
     return body;
   }
 
-  function normalizeRecommendationAcceptOptions(value: unknown): { sessionId: string; prompt?: string } {
+  function normalizeRecommendationAcceptOptions(value: unknown): {
+    sessionId: string;
+    prompt?: string;
+    packetRevision?: number;
+    evidenceFingerprint?: string;
+    idempotencyKey?: string;
+  } {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new Error("Invalid recommendation handoff.");
     }
-    const input = value as { sessionId?: unknown; prompt?: unknown };
+    const input = value as {
+      sessionId?: unknown;
+      prompt?: unknown;
+      packetRevision?: unknown;
+      evidenceFingerprint?: unknown;
+      idempotencyKey?: unknown;
+    };
     if (typeof input.sessionId !== "string" || !input.sessionId) {
       throw new Error("Invalid recommendation handoff session.");
     }
     if (input.prompt !== undefined && typeof input.prompt !== "string") {
       throw new Error("Invalid recommendation handoff prompt.");
     }
+    if (input.packetRevision !== undefined
+      && (!Number.isInteger(input.packetRevision) || (input.packetRevision as number) <= 0)) {
+      throw new Error("Invalid completion packet revision.");
+    }
+    if (input.evidenceFingerprint !== undefined
+      && (typeof input.evidenceFingerprint !== "string" || !/^[0-9a-f]{64}$/i.test(input.evidenceFingerprint))) {
+      throw new Error("Invalid completion packet evidence fingerprint.");
+    }
+    if (input.idempotencyKey !== undefined
+      && (typeof input.idempotencyKey !== "string"
+        || input.idempotencyKey.length === 0
+        || input.idempotencyKey.length > 128
+        || /[\s\x00-\x1f\x7f]/.test(input.idempotencyKey))) {
+      throw new Error("Invalid completion packet idempotency key.");
+    }
     return {
       sessionId: input.sessionId,
       ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+      ...(input.packetRevision === undefined ? {} : { packetRevision: input.packetRevision as number }),
+      ...(input.evidenceFingerprint === undefined ? {} : { evidenceFingerprint: input.evidenceFingerprint as string }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey as string }),
     };
   }
 

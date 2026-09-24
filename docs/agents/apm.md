@@ -41,6 +41,9 @@ The APM lifecycle in `apm.yml` removes the incompatible Superpowers `SessionStar
 
 [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — minimalist ruleset that enforces YAGNI: check necessity, stdlib, platform feature, dependency, one-liner before writing code. OpenCode is configured through the repo-root `opencode.json`:
 
+Ponytail is intentionally deployed for the Copilot and OpenCode targets in
+`apm.yml`; other APM targets do not receive this plugin.
+
 ```json
 {
   "plugin": ["apm_modules/DietrichGebert/ponytail/.opencode/plugins/ponytail.mjs"]

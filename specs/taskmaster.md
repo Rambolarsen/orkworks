@@ -402,6 +402,42 @@ Taskmaster may say that the work is ready for the user. It must not mark the wor
 
 ## Workflow-improvement recommendations
 
+### Guided completion packets (Phase 1)
+
+Taskmaster may carry an optional `completionPacket` projection on an existing
+recommendation. A packet is scoped to exactly one source session, one
+workspace-local change subject, and one workspace snapshot. If concurrent dirty
+workspace activity makes attribution ambiguous, the packet records
+`inconclusive` attribution and cannot claim review readiness.
+
+The packet stores versioned evidence and provenance: source session,
+observation time, workspace and snapshot identity, verification command/result
+and applicable revision, independent reviewer identity/outcome and revision,
+the proposed action, and explicit missing or conflicting evidence. Readiness is
+derived and limited to `verification_needed`, `review_ready`,
+`findings_need_fix`, or `ready_for_user_review`; the last state means only that
+the work is ready for the user to inspect and never means user acceptance.
+
+Packets and their mutations are bound to an immutable revision and evidence
+fingerprint. Accept and complete requests must carry the current revision,
+fingerprint, and an idempotency key. Prompt, model, scope, role, or evidence
+changes create a superseding packet revision, preserve lineage, clear prior
+approval, and return the recommendation to `proposed`. Stale, malformed,
+cross-workspace, unauthorized, cancelled, or late results are rejected. A
+missing target session can be recovered to `proposed` without discarding the
+packet evidence.
+
+This projection does not add a second lifecycle system or change the existing
+single-active-context and explicit-approval rules. The authenticated
+`completion-packet` report only updates an existing recommendation; it cannot
+start a session, focus a terminal, edit files, mutate Git, or delegate work.
+
+Recursive coordination and child-session orchestration remain explicitly
+deferred. Before any coordinator implementation, this specification must be
+amended with bounded capability, approval, role, budget, graph, cancellation,
+recovery, and authenticated-report semantics, and receive a dedicated ADR and
+implementation plan.
+
 `improve_workflow` is the passive variant of the canonical recommendation contract described above. It never resumes or focuses an existing session, and it never edits repository files, instructions, skills, tests, or tooling itself — the only exception is through the explicit `accept` action described below, which starts no new session but submits a prompt into a session the user is already running. It exposes one explicit, user-confirmed `accept` action that sends a prompt derived from the recommendation into the user's currently active session, scoped to editing the recommended target surface — it never resumes, reopens, or modifies any session that supplied evidence for it.
 
 ### Eligibility

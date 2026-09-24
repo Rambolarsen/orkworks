@@ -6,7 +6,13 @@ import {
   type ObservationDiagnostic,
   type WorkflowRecommendation,
 } from "../api.ts";
-import { formatImpact, formatRecurrence, formatTargetSurface } from "../taskmaster.ts";
+import {
+  formatImpact,
+  formatPacketEvidence,
+  formatPacketReadiness,
+  formatRecurrence,
+  formatTargetSurface,
+} from "../taskmaster.ts";
 import EmptyState from "./EmptyState";
 import RecommendationEvidence from "./RecommendationEvidence";
 
@@ -81,6 +87,23 @@ function RecommendationCard({
         <div><dt>{recommendation.rollupMemberIds.length > 0 ? "Combined evidence" : "Evidence origin"}</dt><dd>{recommendation.evidence.length ? formatRecurrence(recommendation) : "Repository discovery"}</dd></div>
         <div><dt>Expected benefit</dt><dd>{improvement.expectedBenefit}</dd></div>
       </dl>
+      {recommendation.completionPacket && (
+        <section className="completion-packet" aria-label="Completion packet">
+          <div className="completion-packet-header">
+            <strong>Completion packet</strong>
+            <span className="recommendation-status">{formatPacketReadiness(recommendation.completionPacket.readiness)}</span>
+          </div>
+          <p>{formatPacketEvidence(recommendation.completionPacket)}</p>
+          <p>Observed {recommendation.completionPacket.observedAt} · revision {recommendation.completionPacket.revision}</p>
+          {(recommendation.completionPacket.missingEvidence.length > 0 || recommendation.completionPacket.conflictingEvidence.length > 0) && (
+            <ul>
+              {[...recommendation.completionPacket.missingEvidence, ...recommendation.completionPacket.conflictingEvidence].map((issue, index) => (
+                <li key={`${issue.kind}-${index}`}>{issue.kind}: {issue.detail}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       <div className="recommendation-sessions">
         {improvement.affectedSessionIds.map((sessionId) => (
           <button key={sessionId} type="button" onClick={() => onSelectSession?.(sessionId)}>

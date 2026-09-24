@@ -274,7 +274,7 @@ full protocol detail.
 - Priority: user > agent > peon > backend_inference > process > unknown > debug
 - Peon reads terminal output, writes inferred metadata, never types into terminals
 - Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive; losing the renderer terminal attachment alone must not end the session
-- `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. Rendered in the session detail panel as "Task history," distinct from the session's `label` (title), which carries provenance and is separate from this turn-by-turn activity log (ADR 0062).
+- `GET /sessions/:id/summary-log` exposes checkpoints in append order as timestamp, summary, source, and nullable confidence; missing data returns `{ "entries": [] }`. Rendered in the session detail panel as "Task history," distinct from the session's `label` (title), which carries provenance and is separate from this turn-by-turn activity log (ADR 0063).
 - Taskmaster consumes normalized metadata and proposes cross-session transitions; v1 requires explicit user approval for every action. The implemented passive `improve_workflow` recommendation requires no approval to *display* — it still cannot focus a terminal or edit a file on its own, and it never starts a session. It can be dismissed, or explicitly accepted by the user to send a generated fix prompt into the user's currently active session, scoped to the recommended target surface (ADR 0042, ADR 0048).
 
 ## Key conventions from specs
@@ -297,7 +297,7 @@ and [product boundaries and terminology](docs/agents/product-boundaries.md).
 
 ## APM and agent plugins
 
-Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed by [APM](https://github.com/anthropics/apm) at the repo root (`apm.yml`). Run `apm install` from the repo root to populate skills and hooks for all configured targets (claude, codex, copilot, opencode). APM lifecycle commands are trust-gated; run `apm lifecycle trust` once in a new checkout so the post-install/post-update repair can remove Superpowers' incompatible Codex `SessionStart` registration. The repair can also be run directly with `bash scripts/repair-codex-session-start-hooks.sh`.
+Agent dependencies (Superpowers, Ponytail, Claude Mem, rust-skills) are managed by [APM](https://github.com/anthropics/apm) at the repo root (`apm.yml`). Run `apm install` from the repo root to populate skills and hooks for all configured targets (claude, codex, copilot, opencode); Ponytail is intentionally scoped to Copilot and OpenCode. APM lifecycle commands are trust-gated; run `apm lifecycle trust` once in a new checkout so the post-install/post-update repair can remove Superpowers' incompatible Codex `SessionStart` registration. The repair can also be run directly with `bash scripts/repair-codex-session-start-hooks.sh`.
 
 See [`docs/agents/apm.md`](docs/agents/apm.md) for the full plugin list, generated path layout, and OpenCode configuration.
 

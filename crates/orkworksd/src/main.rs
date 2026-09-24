@@ -57,7 +57,7 @@ use crate::http::session_handlers::{
 };
 use crate::http::taskmaster_handlers::{
     accept_recommendation, complete_recommendation, dismiss_recommendation, get_recommendation,
-    list_recommendations,
+    list_recommendations, report_completion_packet,
 };
 use crate::http::taskmaster_settings_handlers::{
     get_taskmaster_settings, post_taskmaster_knowledge, set_taskmaster_settings,
@@ -407,6 +407,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/taskmaster/recommendations/:id/complete",
             post(complete_recommendation),
+        )
+        .route(
+            "/taskmaster/recommendations/:id/completion-packet",
+            post(report_completion_packet),
         )
         .route("/harnesses", get(list_harnesses).post(create_harness))
         .route("/harnesses/:source_id/duplicate", post(duplicate_harness))
