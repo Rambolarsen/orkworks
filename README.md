@@ -16,6 +16,15 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Architecture
 
+The proposed [Coordinator design gate](specs/taskmaster.md#coordinator-design-gate)
+describes a future bounded Taskmaster coordinator using immutable,
+user-approved root plans, broker-enforced child tools, resource ceilings, and
+server-attested results. It is separate from rollout Phase 2 (the deterministic
+evaluator) and is not implemented. [ADR 0064](docs/adr/0064-bounded-taskmaster-coordinator.md)
+remains proposed; accepting the design authorizes only a separate implementation
+plan and its review, not coordinator code, child APIs, or runtime launches.
+Taskmaster v1's explicit user approval and single-active-context rules remain.
+
 Background CLI inference owns its process tree for bounded cleanup, using Unix
 process groups and Windows Job objects. See [ADR 0055](docs/adr/0055-json-taskmaster-inference-adapters.md)
 for the transport contract; native Windows desktop validation remains tracked in

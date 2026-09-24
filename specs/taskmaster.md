@@ -190,6 +190,106 @@ Taskmaster v1 does not:
 - send review findings into a running terminal automatically
 - keep chaining sessions indefinitely
 
+## Coordinator design gate
+
+Coordinator implementation is explicitly deferred behind the Coordinator design
+gate tracked by [issue #604](https://github.com/Rambolarsen/orkworks/issues/604)
+and [ADR 0064](../docs/adr/0064-bounded-taskmaster-coordinator.md). This
+section records the proposed boundary; it does not expand v1 scope or
+authorize coordinator code. Approval of the design gate authorizes only a
+separate implementation plan and its review; it does not authorize child APIs
+or runtime launches.
+
+This gate is separate from rollout Phase 2, the deterministic evaluator.
+Only if a later, separately reviewed implementation plan is approved may a
+future coordinator execute a user-approved, immutable root-plan revision
+represented as a bounded DAG of child tasks. A plan declares
+parentage, explicit required/optional nodes (including delegation slots), issue
+and success criteria, workspace/path scope, role, initial tools and maximum
+capability envelope, dependencies, model constraints, retry limits, normalized
+execution budgets, and concurrency ceilings. Approval includes the effective
+prompt/context template, deterministic derivation rules and exact inputs,
+server-rendered bytes and digest; parent edits require a new revision and
+renewed approval. Approval binds to one OrkWorks instance,
+workspace, plan revision, evidence fingerprint, expiry, and revocation
+generation.
+
+The server issues an opaque coordinator capability and per-child lease
+capabilities bound to canonical plan/evidence digests, approval identity, and
+the workspace. A parent may revoke a child's tools; any runtime grant must fit
+the intersection of the active parent lease, the target node's pre-approved maximum
+envelope, and an unconsumed predeclared grant slot, without exceeding scoped
+authority, budget, retries, or concurrency. A child may request
+missing capabilities through a structured, server-validated insufficiency
+report; requests outside that envelope require a new plan revision and renewed
+user approval. Server-enforced hard denials apply to every role and arbitrary
+command path. Every child invocation crosses a server-owned broker checking
+executable identity, arguments, canonical cwd, allowlisted environment,
+declared resource effects, live lease, capability revision, ceilings, and hard
+denials. Children have no direct shell/process or tool access outside this
+broker; commands and descendants require enforceable resource confinement.
+Child prose and asserted effects confer no authority. If enforcement cannot be
+guaranteed, the invocation fails closed. Children may edit files and run bounded
+commands in their assigned scope, but they never receive Git mutation, merge approval,
+credentials, permission changes, destructive actions, scope expansion, provider
+substitution, or implicit delegation.
+
+Each attempt must declare finite wall-clock, aggregate CPU, memory,
+process-count, output-byte, token, cost, and tool-invocation ceilings in addition
+to its normalized execution-unit reservation. Unsupported ceilings make a
+provider/platform ineligible. A lost or uncertain launch response retains its
+budget and concurrency reservation as `orphaned`; there is no refund, retry,
+or replacement until explicit reconciliation proves non-start or termination.
+Only proven non-start permits a refund; started work consumes its unit.
+
+Plan revisions are immutable. Graph cycles, duplicate logical spawns, invalid
+dependencies, stale or late results, and ambiguous crash recovery fail closed.
+Dependent nodes launch only after required dependencies have machine-validated
+terminal success. Completion evaluates exactly the declared required set,
+including required delegation-slot nodes and their transitive dependencies;
+unused optional slots do not block completion. Launched optional work must be
+quiescent before plan completion. `ready_for_user_review` is nonterminal. Failure,
+cancellation, conflict, or orphaning blocks descendants and escalates to the
+parent. All write/write and write/read overlaps are rejected unless an approved
+exclusive resource lease serializes the accesses, including verification.
+
+Every attempt binds server-observed input/output workspace revisions and
+change subjects, including scoped hashes and write attribution. Result
+acceptance atomically revalidates these against current content, dependencies,
+and lease state; stale or conflicting evidence cannot advance graph state.
+Only server-attested broker/verifier receipts with observed command identity,
+result, and scope-bound output hashes prove success; child-authored claims
+and hashes remain context only.
+
+`paused -> active` requires fresh user approval of the same immutable revision,
+bound to the current server-observed workspace subject, expiry, and revocation
+generation, with capability rotation. A changed evidence subject, scope, or
+budget requires a new revision. Pause quiesces tools; cancellation, expiry,
+and revocation fence mutations, revoke tool channels, and require process-tree
+termination within a mandatory finite approved deadline. Unproven termination
+becomes `orphaned`/`recovery_required`, retaining reservations and conflicting
+locks without refund or relaunch until explicit reconciliation.
+
+Launches, grants, retries, cancellations, reports, and recovery are
+authenticated, version-checked, strict, and idempotent, with durable launch
+acknowledgements and crash-safe orphan handling. The coordinator must preserve
+lineage and redacted evidence and cannot infer user approval from silence or
+from `ready_for_user_review`. The design's
+[hard portable limits](../docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md#hard-portable-limits)
+bound graph count/depth, fields, prompt/context, command requests, evidence,
+reports/output, and retained audit/lineage/idempotency records before mutation.
+Eviction redacts payloads and retains bounded tombstones; immutable plan,
+approval, and lineage digests survive in a bounded registry. Pinned recovery
+evidence and registry exhaustion block admission instead of discarding proof
+or expanding storage. These are proposed documentation defaults, not runtime
+implementation claims.
+
+Product and architecture decisions, credentials or permissions, destructive
+actions, Git mutation or merge approval, scope/authority expansion, conflicting
+high-confidence results, and unrecoverable blockers remain mandatory user
+escalations. The full proposed design is in
+[`docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`](../docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md).
+
 ## Inputs
 
 Taskmaster evaluates workspace-level state from the following sources.
@@ -433,10 +533,10 @@ single-active-context and explicit-approval rules. The authenticated
 start a session, focus a terminal, edit files, mutate Git, or delegate work.
 
 Recursive coordination and child-session orchestration remain explicitly
-deferred. Before any coordinator implementation, this specification must be
-amended with bounded capability, approval, role, budget, graph, cancellation,
-recovery, and authenticated-report semantics, and receive a dedicated ADR and
-implementation plan.
+deferred behind the proposed [Coordinator design gate](#coordinator-design-gate)
+and [ADR 0064](../docs/adr/0064-bounded-taskmaster-coordinator.md). Written
+acceptance of that design authorizes only a separate implementation plan and
+its review; coordinator implementation still requires that plan's approval.
 
 `improve_workflow` is the passive variant of the canonical recommendation contract described above. It never resumes or focuses an existing session, and it never edits repository files, instructions, skills, tests, or tooling itself — the only exception is through the explicit `accept` action described below, which starts no new session but submits a prompt into a session the user is already running. It exposes one explicit, user-confirmed `accept` action that sends a prompt derived from the recommendation into the user's currently active session, scoped to editing the recommended target surface — it never resumes, reopens, or modifies any session that supplied evidence for it.
 
