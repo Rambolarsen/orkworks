@@ -50,7 +50,7 @@ pub(crate) struct StoredPlan {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DiskRecord {
-    plan: serde_json::Value,
+    plan: PlanRevision,
     status: PlanStatus,
     approval: Option<PlanApproval>,
 }
@@ -58,16 +58,29 @@ struct DiskRecord {
 pub(crate) struct CoordinatorStore {
     dir: PathBuf,
     mutation: Mutex<()>,
+    #[cfg(test)]
+    before_publication: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl CoordinatorStore {
     pub(crate) fn open(root: PathBuf) -> Result<Self, CoordinatorStoreError> {
         let dir = root.join("coordinator/plans");
-        fs::create_dir_all(&dir)?;
+        ensure_durable_directory(&dir)?;
         let store = Self {
             dir,
             mutation: Mutex::new(()),
+            #[cfg(test)]
+            before_publication: Mutex::new(None),
         };
+        let lock = store.lock_file()?;
+        lock.sync_all()?;
+        sync_dir(
+            store
+                .dir
+                .parent()
+                .ok_or_else(|| CoordinatorStoreError::Invalid("coordinator directory".into()))?,
+        )?;
+        drop(lock);
         store.recover()?;
         Ok(store)
     }
@@ -77,6 +90,7 @@ impl CoordinatorStore {
             .mutation
             .lock()
             .map_err(|_| CoordinatorStoreError::Stale)?;
+        let _lease = self.lock_file()?;
         self.recover_inner()?;
         plan.validate()?;
         let (id, digest) = identity(plan)?;
@@ -125,6 +139,7 @@ impl CoordinatorStore {
             .mutation
             .lock()
             .map_err(|_| CoordinatorStoreError::Stale)?;
+        let _lease = self.lock_file()?;
         self.recover_inner()?;
         safe_id(plan_id)?;
         if revision == 0 {
@@ -141,6 +156,7 @@ impl CoordinatorStore {
             .mutation
             .lock()
             .map_err(|_| CoordinatorStoreError::Stale)?;
+        let _lease = self.lock_file()?;
         self.recover_inner()?;
         safe_id(&approval.plan_id)?;
         let records = self.read_all()?;
@@ -190,6 +206,7 @@ impl CoordinatorStore {
             .mutation
             .lock()
             .map_err(|_| CoordinatorStoreError::Stale)?;
+        let _lease = self.lock_file()?;
         self.recover_inner()?;
         safe_id(plan_id)?;
         let mut record = self
@@ -197,6 +214,15 @@ impl CoordinatorStore {
             .ok_or(CoordinatorStoreError::Stale)?;
         if identity(&record.plan)?.1 != expected_digest || !record.status.allows_transition(next) {
             return Err(CoordinatorStoreError::Stale);
+        }
+        if requires_live_approval(next) {
+            self.check_current_revision(plan_id, revision)?;
+            record
+                .approval
+                .as_ref()
+                .ok_or(CoordinatorStoreError::Stale)?
+                .validate_against(&record.plan)
+                .map_err(|_| CoordinatorStoreError::Stale)?;
         }
         let previous = record.clone();
         record.status = next;
@@ -209,7 +235,48 @@ impl CoordinatorStore {
             .mutation
             .lock()
             .map_err(|_| CoordinatorStoreError::Stale)?;
+        let _lease = self.lock_file()?;
         self.recover_inner()
+    }
+
+    // External writers are supported only when they acquire this retained
+    // advisory lease before reading, recovering, or publishing coordinator files.
+    // They must never unlink or replace the lock inode.
+    fn lock_file(&self) -> Result<File, CoordinatorStoreError> {
+        let path = self
+            .dir
+            .parent()
+            .ok_or_else(|| CoordinatorStoreError::Invalid("coordinator directory".into()))?
+            .join(".coordinator.lock");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(CoordinatorStoreError::Invalid(
+                "coordinator lock type".into(),
+            ));
+        }
+        fs2::FileExt::lock_exclusive(&file)?;
+        Ok(file)
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_before_publication_hook(&self, hook: Box<dyn Fn() + Send + Sync>) {
+        *self.before_publication.lock().unwrap() = Some(hook);
+    }
+
+    fn check_current_revision(&self, id: &str, revision: u64) -> Result<(), CoordinatorStoreError> {
+        if self.read_all()?.iter().any(|record| {
+            identity(&record.plan)
+                .ok()
+                .is_some_and(|(other, _)| other == id)
+                && record.plan.revision() > revision
+        }) {
+            return Err(CoordinatorStoreError::Stale);
+        }
+        Ok(())
     }
 
     fn recover_inner(&self) -> Result<(), CoordinatorStoreError> {
@@ -298,7 +365,7 @@ impl CoordinatorStore {
         let parent = path
             .parent()
             .ok_or_else(|| CoordinatorStoreError::Invalid("record path".into()))?;
-        fs::create_dir_all(parent)?;
+        ensure_durable_directory(parent)?;
         let bytes = serde_json::to_vec(record)
             .map_err(|error| CoordinatorStoreError::Invalid(error.to_string()))?;
         if bytes.len() > MAX_RECORD_BYTES {
@@ -316,6 +383,26 @@ impl CoordinatorStore {
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
+        #[cfg(test)]
+        if let Some(hook) = self.before_publication.lock().unwrap().take() {
+            hook();
+        }
+        // The lease serializes cooperating handles; this last check also catches
+        // externally replaced records before the atomic publication boundary.
+        if self.read_at(id, revision)?.as_ref() != expected {
+            return Err(CoordinatorStoreError::Stale);
+        }
+        if expected.is_none() || requires_live_approval(record.status) {
+            self.check_current_revision(id, revision)?;
+        }
+        if requires_live_approval(record.status) {
+            record
+                .approval
+                .as_ref()
+                .ok_or(CoordinatorStoreError::Stale)?
+                .validate_against(&record.plan)
+                .map_err(|_| CoordinatorStoreError::Stale)?;
+        }
         crate::harness::integration::atomic_replace(&temp, &path, path.exists())?;
         sync_dir(parent)?;
         Ok(())
@@ -338,9 +425,7 @@ fn read_record(path: &Path, id: &str, revision: u64) -> Result<StoredPlan, Coord
     }
     let disk: DiskRecord = serde_json::from_slice(&bytes)
         .map_err(|error| CoordinatorStoreError::Invalid(error.to_string()))?;
-    let plan_bytes = serde_json::to_vec(&disk.plan)
-        .map_err(|error| CoordinatorStoreError::Invalid(error.to_string()))?;
-    let plan = PlanRevision::from_persisted_bytes(&plan_bytes)?;
+    let plan = disk.plan;
     let (stored_id, _) = identity(&plan)?;
     if stored_id != id || plan.revision() != revision {
         return Err(CoordinatorStoreError::Invalid(
@@ -398,9 +483,91 @@ fn safe_id(id: &str) -> Result<(), CoordinatorStoreError> {
     Ok(())
 }
 
-fn sync_dir(path: &Path) -> Result<(), CoordinatorStoreError> {
-    if let Ok(dir) = File::open(path) {
-        dir.sync_all()?;
+fn requires_live_approval(status: PlanStatus) -> bool {
+    matches!(
+        status,
+        PlanStatus::Active | PlanStatus::ReadyForUserReview | PlanStatus::Completed
+    )
+}
+
+fn ensure_durable_directory(path: &Path) -> Result<(), CoordinatorStoreError> {
+    ensure_durable_directory_with(path, &sync_dir)
+}
+
+fn ensure_durable_directory_with(
+    path: &Path,
+    sync: &impl Fn(&Path) -> Result<(), CoordinatorStoreError>,
+) -> Result<(), CoordinatorStoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => return Ok(()),
+        Ok(_) => return Err(CoordinatorStoreError::Invalid("directory type".into())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| CoordinatorStoreError::Invalid("directory parent".into()))?;
+    ensure_durable_directory_with(parent, sync)?;
+    match fs::create_dir(path) {
+        Ok(()) => sync(parent)?,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            if !fs::symlink_metadata(path)?.file_type().is_dir() {
+                return Err(CoordinatorStoreError::Invalid("directory type".into()));
+            }
+        }
+        Err(error) => return Err(error.into()),
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn sync_dir(path: &Path) -> Result<(), CoordinatorStoreError> {
+    // Standard File::open cannot open a Windows directory for Unix-style
+    // fsync. Validate the path; publication uses MOVEFILE_WRITE_THROUGH for
+    // new files, while replacement cannot offer equivalent directory sync.
+    if !fs::metadata(path)?.is_dir() {
+        return Err(CoordinatorStoreError::Invalid("directory type".into()));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn sync_dir(path: &Path) -> Result<(), CoordinatorStoreError> {
+    File::open(path)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod durability_tests {
+    use super::*;
+
+    #[test]
+    fn directory_sync_propagates_open_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing");
+        assert!(matches!(
+            sync_dir(&missing),
+            Err(CoordinatorStoreError::Io(_))
+        ));
+    }
+
+    #[test]
+    fn new_directory_hierarchy_syncs_each_parent_and_propagates_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("coordinator");
+        let leaf = first.join("plans");
+        let synced = std::cell::RefCell::new(Vec::new());
+        let result = ensure_durable_directory_with(&leaf, &|parent| {
+            synced.borrow_mut().push(parent.to_path_buf());
+            if parent == first {
+                Err(io::Error::new(io::ErrorKind::PermissionDenied, "injected sync failure").into())
+            } else {
+                Ok(())
+            }
+        });
+        assert!(
+            matches!(result, Err(CoordinatorStoreError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
+        );
+        assert_eq!(*synced.borrow(), vec![root.path().to_path_buf(), first]);
+    }
 }

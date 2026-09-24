@@ -328,8 +328,10 @@ impl PlanRevision {
         if bytes.len() > MAX_PERSISTED_REVISION_BYTES {
             return Err(CoordinatorError::Invalid("persisted revision size"));
         }
-        let stored: PersistedPlanRevision = serde_json::from_slice(bytes)
-            .map_err(|e| CoordinatorError::Serialization(e.to_string()))?;
+        serde_json::from_slice(bytes).map_err(|e| CoordinatorError::Serialization(e.to_string()))
+    }
+
+    fn from_persisted(stored: PersistedPlanRevision) -> Result<Self, CoordinatorError> {
         let plan = Self::from_proposal(PlanProposalInput {
             version: stored.version,
             instance_id: stored.instance_id,
@@ -500,6 +502,13 @@ impl PlanRevision {
             return Err(CoordinatorError::Invalid("evidence digest"));
         }
         Ok(())
+    }
+}
+
+impl<'de> Deserialize<'de> for PlanRevision {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let stored = PersistedPlanRevision::deserialize(deserializer)?;
+        Self::from_persisted(stored).map_err(|error| serde::de::Error::custom(format!("{error:?}")))
     }
 }
 

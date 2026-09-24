@@ -2,6 +2,7 @@ use super::coordinator::*;
 use super::coordinator_store::{CoordinatorStore, CoordinatorStoreError};
 use chrono::{TimeZone, Utc};
 use serde::Serialize;
+use std::io::Write;
 
 fn fixed_now() -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 24, 12, 0, 0).unwrap()
@@ -258,6 +259,166 @@ fn coordinator_store_superseded_approval_and_revoked_transition_fail_closed() {
         Err(CoordinatorStoreError::Stale)
     ));
     assert_eq!(std::fs::read(stored_path(root.path(), 2)).unwrap(), before);
+}
+
+#[test]
+fn coordinator_store_rejects_superseded_progress_but_allows_cancellation() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let first = plan();
+    store.put_proposed(&approved_plan(&first)).unwrap();
+    store.activate(&approval(&first)).unwrap();
+    let mut second = first.clone();
+    second.revision = 2;
+    second.supersedes = Some("approval-1".into());
+    store.put_proposed(&approved_plan(&second)).unwrap();
+    let path = stored_path(root.path(), 1);
+    let before = std::fs::read(&path).unwrap();
+    assert!(matches!(
+        store.transition(
+            "plan-1",
+            1,
+            &first.compute_plan_digest().unwrap(),
+            PlanStatus::Completed
+        ),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().status,
+        PlanStatus::Active
+    );
+    assert_eq!(
+        store
+            .transition(
+                "plan-1",
+                1,
+                &first.compute_plan_digest().unwrap(),
+                PlanStatus::Cancelled
+            )
+            .unwrap()
+            .status,
+        PlanStatus::Cancelled
+    );
+}
+
+#[test]
+fn coordinator_store_rejects_expired_approval_progress_but_allows_expiry() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    store.activate(&approval(&input)).unwrap();
+    let path = stored_path(root.path(), 1);
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record["approval"]["approved_at"] = "2019-01-01T00:00:00Z".into();
+    record["approval"]["expires_at"] = "2020-01-01T00:00:00Z".into();
+    let before = serde_json::to_vec(&record).unwrap();
+    std::fs::write(&path, &before).unwrap();
+    let digest = input.compute_plan_digest().unwrap();
+    assert!(matches!(
+        store.transition("plan-1", 1, &digest, PlanStatus::Completed),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().status,
+        PlanStatus::Active
+    );
+    assert_eq!(
+        store
+            .transition("plan-1", 1, &digest, PlanStatus::Expired)
+            .unwrap()
+            .status,
+        PlanStatus::Expired
+    );
+}
+
+#[test]
+fn coordinator_store_recovery_waits_for_external_writer_lease() {
+    let root = tempfile::tempdir().unwrap();
+    let first = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let second = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    first.put_proposed(&approved_plan(&plan())).unwrap();
+    let temp = stored_path(root.path(), 1).with_extension("json.tmp");
+    std::fs::write(&temp, b"incomplete publication").unwrap();
+    let lease_path = root.path().join("coordinator/.coordinator.lock");
+    let mut lease = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&lease_path)
+        .unwrap();
+    lease.write_all(b"").unwrap();
+    fs2::FileExt::lock_exclusive(&lease).unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        done_tx.send(second.recover()).unwrap();
+    });
+    started_rx.recv().unwrap();
+    assert!(done_rx
+        .recv_timeout(std::time::Duration::from_millis(100))
+        .is_err());
+    assert!(temp.exists());
+    fs2::FileExt::unlock(&lease).unwrap();
+    assert!(done_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap()
+        .is_ok());
+    worker.join().unwrap();
+    assert!(!temp.exists());
+}
+
+#[test]
+fn coordinator_store_revalidates_after_temp_sync_before_publication() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let path = stored_path(root.path(), 1);
+    let original = std::fs::read(&path).unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    value["status"] = "recovery_required".into();
+    let external = serde_json::to_vec(&value).unwrap();
+    let external_for_hook = external.clone();
+    let path_for_hook = path.clone();
+    store.set_before_publication_hook(Box::new(move || {
+        std::fs::write(&path_for_hook, &external_for_hook).unwrap();
+    }));
+    assert!(matches!(
+        store.activate(&approval(&input)),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), external);
+}
+
+#[test]
+fn coordinator_store_rejects_duplicate_plan_and_node_fields_without_mutation() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    store.put_proposed(&approved_plan(&plan())).unwrap();
+    let path = stored_path(root.path(), 1);
+    let original = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+    for duplicate in [
+        original.replacen(
+            "\"plan_id\":\"plan-1\"",
+            "\"plan_id\":\"plan-1\",\"plan_id\":\"plan-1\"",
+            1,
+        ),
+        original.replacen(
+            "\"task\":\"implement domain\"",
+            "\"task\":\"implement domain\",\"task\":\"implement domain\"",
+            1,
+        ),
+    ] {
+        assert_ne!(duplicate, original);
+        std::fs::write(&path, duplicate.as_bytes()).unwrap();
+        assert!(CoordinatorStore::open(root.path().to_path_buf()).is_err());
+        assert!(store.get("plan-1", 1).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), duplicate.as_bytes());
+    }
 }
 
 #[test]
