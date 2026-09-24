@@ -261,6 +261,7 @@ impl CoordinatorStore {
         plan_id: &str,
         revision: u64,
         expected_digest: &str,
+        current_generation: u64,
         next: PlanStatus,
     ) -> Result<StoredPlan, CoordinatorStoreError> {
         let _guard = self
@@ -278,10 +279,14 @@ impl CoordinatorStore {
         }
         if requires_live_approval(next) {
             self.check_current_revision(plan_id, revision)?;
-            record
+            let approval = record
                 .approval
                 .as_ref()
-                .ok_or(CoordinatorStoreError::Stale)?
+                .ok_or(CoordinatorStoreError::Stale)?;
+            if approval.revocation_generation != current_generation {
+                return Err(CoordinatorStoreError::Stale);
+            }
+            approval
                 .validate_against(&record.plan)
                 .map_err(|_| CoordinatorStoreError::Stale)?;
         }

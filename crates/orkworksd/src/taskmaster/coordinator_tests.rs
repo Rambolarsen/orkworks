@@ -179,10 +179,10 @@ fn paused_plan_resumes_only_with_renewed_current_approval() {
     store.activate(&original, 0).unwrap();
     let digest = input.compute_plan_digest().unwrap();
     store
-        .transition("plan-1", 1, &digest, PlanStatus::Paused)
+        .transition("plan-1", 1, &digest, 0, PlanStatus::Paused)
         .unwrap();
     assert!(matches!(
-        store.transition("plan-1", 1, &digest, PlanStatus::Active),
+        store.transition("plan-1", 1, &digest, 0, PlanStatus::Active),
         Err(CoordinatorStoreError::Stale)
     ));
     assert!(matches!(
@@ -238,6 +238,7 @@ fn resume_retry_reflushes_published_approval_after_sync_failure() {
             "plan-1",
             1,
             &input.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Paused,
         )
         .unwrap();
@@ -291,6 +292,7 @@ fn resume_retry_after_failed_publication_rejects_superseded_revision() {
             "plan-1",
             1,
             &first.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Paused,
         )
         .unwrap();
@@ -332,6 +334,7 @@ fn resume_retry_waits_for_recovery_reflush_barrier() {
             "plan-1",
             1,
             &input.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Paused,
         )
         .unwrap();
@@ -369,6 +372,7 @@ fn exact_resume_retry_samples_expiry_after_recovery() {
             "plan-1",
             1,
             &input.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Paused,
         )
         .unwrap();
@@ -415,14 +419,14 @@ fn renewed_approvals_round_trip_as_immutable_history() {
     store.activate(&original, 0).unwrap();
     let digest = input.compute_plan_digest().unwrap();
     store
-        .transition("plan-1", 1, &digest, PlanStatus::Paused)
+        .transition("plan-1", 1, &digest, 0, PlanStatus::Paused)
         .unwrap();
     let mut first_renewal = original.clone();
     first_renewal.approval_id = "approval-2".into();
     first_renewal.approved_at = "2026-09-24T01:00:00Z".into();
     store.resume(&first_renewal, 0).unwrap();
     store
-        .transition("plan-1", 1, &digest, PlanStatus::Paused)
+        .transition("plan-1", 1, &digest, 0, PlanStatus::Paused)
         .unwrap();
     let mut second_renewal = original.clone();
     second_renewal.approval_id = "approval-3".into();
@@ -462,6 +466,7 @@ fn legacy_record_without_history_gains_original_approval_on_resume() {
             "plan-1",
             1,
             &input.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Paused,
         )
         .unwrap();
@@ -525,6 +530,7 @@ fn present_null_approval_history_rejects_reopen_and_mutation_without_changing_by
             "plan-1",
             1,
             &input.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Paused,
         ),
         Err(CoordinatorStoreError::Invalid(_))
@@ -546,6 +552,7 @@ fn expired_historical_approval_remains_readable_but_tampering_fails_closed() {
             "plan-1",
             1,
             &input.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Paused,
         )
         .unwrap();
@@ -588,12 +595,12 @@ fn transition_retry_reflushes_record_after_post_publication_sync_failure() {
     let digest = input.compute_plan_digest().unwrap();
     store.fail_after_publication_once();
     assert!(matches!(
-        store.transition("plan-1", 1, &digest, PlanStatus::Paused),
+        store.transition("plan-1", 1, &digest, 0, PlanStatus::Paused),
         Err(CoordinatorStoreError::Io(_))
     ));
     assert_eq!(
         store
-            .transition("plan-1", 1, &digest, PlanStatus::Paused)
+            .transition("plan-1", 1, &digest, 0, PlanStatus::Paused)
             .unwrap()
             .status,
         PlanStatus::Paused
@@ -730,6 +737,7 @@ fn coordinator_store_stale_transition_preserves_external_record() {
             "plan-1",
             1,
             &input.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Active
         ),
         Err(CoordinatorStoreError::Stale)
@@ -759,11 +767,11 @@ fn coordinator_store_superseded_approval_and_revoked_transition_fail_closed() {
     store.activate(&current, 0).unwrap();
     let digest = second.compute_plan_digest().unwrap();
     store
-        .transition("plan-1", 2, &digest, PlanStatus::Revoked)
+        .transition("plan-1", 2, &digest, 0, PlanStatus::Revoked)
         .unwrap();
     let before = std::fs::read(stored_path(root.path(), 2)).unwrap();
     assert!(matches!(
-        store.transition("plan-1", 2, &digest, PlanStatus::Active),
+        store.transition("plan-1", 2, &digest, 0, PlanStatus::Active),
         Err(CoordinatorStoreError::Stale)
     ));
     assert_eq!(std::fs::read(stored_path(root.path(), 2)).unwrap(), before);
@@ -788,6 +796,7 @@ fn coordinator_store_rejects_superseded_progress_but_allows_cancellation() {
             "plan-1",
             1,
             &first.compute_plan_digest().unwrap(),
+            0,
             PlanStatus::Completed
         ),
         Err(CoordinatorStoreError::Stale)
@@ -803,6 +812,7 @@ fn coordinator_store_rejects_superseded_progress_but_allows_cancellation() {
                 "plan-1",
                 1,
                 &first.compute_plan_digest().unwrap(),
+                0,
                 PlanStatus::Cancelled
             )
             .unwrap()
@@ -829,7 +839,7 @@ fn coordinator_store_rejects_expired_approval_progress_but_allows_expiry() {
     std::fs::write(&path, &before).unwrap();
     let digest = input.compute_plan_digest().unwrap();
     assert!(matches!(
-        store.transition("plan-1", 1, &digest, PlanStatus::Completed),
+        store.transition("plan-1", 1, &digest, 0, PlanStatus::Completed),
         Err(CoordinatorStoreError::Stale)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -839,10 +849,37 @@ fn coordinator_store_rejects_expired_approval_progress_but_allows_expiry() {
     );
     assert_eq!(
         store
-            .transition("plan-1", 1, &digest, PlanStatus::Expired)
+            .transition("plan-1", 1, &digest, 0, PlanStatus::Expired)
             .unwrap()
             .status,
         PlanStatus::Expired
+    );
+}
+
+#[test]
+fn coordinator_store_rejects_live_transition_after_revocation_generation_advances() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    store.activate(&approval(&input), 0).unwrap();
+    let digest = input.compute_plan_digest().unwrap();
+
+    assert!(matches!(
+        store.transition("plan-1", 1, &digest, 1, PlanStatus::Completed),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().status,
+        PlanStatus::Active
+    );
+    assert_eq!(
+        store
+            .transition("plan-1", 1, &digest, 0, PlanStatus::Completed)
+            .unwrap()
+            .status,
+        PlanStatus::Completed
     );
 }
 
@@ -955,14 +992,14 @@ fn coordinator_store_terminal_and_recovery_states_cannot_reactivate() {
         let approval = approval(&input);
         store.activate(&approval, 0).unwrap();
         let digest = input.compute_plan_digest().unwrap();
-        store.transition("plan-1", 1, &digest, terminal).unwrap();
+        store.transition("plan-1", 1, &digest, 0, terminal).unwrap();
         let before = std::fs::read(stored_path(root.path(), 1)).unwrap();
         assert!(matches!(
             store.activate(&approval, 0),
             Err(CoordinatorStoreError::Stale)
         ));
         assert!(matches!(
-            store.transition("plan-1", 1, &digest, PlanStatus::Active),
+            store.transition("plan-1", 1, &digest, 0, PlanStatus::Active),
             Err(CoordinatorStoreError::Stale)
         ));
         assert_eq!(std::fs::read(stored_path(root.path(), 1)).unwrap(), before);
