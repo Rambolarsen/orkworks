@@ -13,6 +13,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod git;
+mod codex_session_store;
 mod harness;
 mod http;
 mod metadata;
