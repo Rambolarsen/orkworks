@@ -1,14 +1,18 @@
 use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, MutexGuard};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 static LABEL_REFRESH_GENERATIONS: LazyLock<Mutex<std::collections::HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static LABEL_REFRESH_GATES: LazyLock<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 static BLOCKED_NATIVE_LABEL_IDS: LazyLock<Mutex<std::collections::HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 pub(crate) fn reserve_label_refresh_generation(session_id: &str) -> u64 {
+    let gate = label_refresh_gate(session_id);
+    let _gate = gate.lock().unwrap();
     let mut generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
     let generation = generations.entry(session_id.to_owned()).or_insert(0);
     *generation = generation.saturating_add(1);
@@ -20,6 +24,8 @@ pub(crate) fn invalidate_label_refresh_generation(session_id: &str) {
 }
 
 pub(crate) fn clear_label_refresh_generation(session_id: &str) {
+    let gate = label_refresh_gate(session_id);
+    let _gate = gate.lock().unwrap();
     LABEL_REFRESH_GENERATIONS.lock().unwrap().remove(session_id);
 }
 
@@ -54,13 +60,30 @@ pub(crate) fn accept_native_label_identity(session_id: &str, native_session_id: 
     }
 }
 
-pub(crate) fn hold_label_refresh_generation(
+fn label_refresh_gate(session_id: &str) -> Arc<Mutex<()>> {
+    LABEL_REFRESH_GATES
+        .lock()
+        .unwrap()
+        .entry(session_id.to_owned())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
+pub(crate) fn with_label_refresh_generation<T>(
     session_id: &str,
     expected_generation: u64,
-) -> Option<MutexGuard<'static, std::collections::HashMap<String, u64>>> {
-    let generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
-    (generations.get(session_id).copied().unwrap_or(0) == expected_generation)
-        .then_some(generations)
+    operation: impl FnOnce() -> T,
+) -> Option<T> {
+    let gate = label_refresh_gate(session_id);
+    let _gate = gate.lock().unwrap();
+    let matches = LABEL_REFRESH_GENERATIONS
+        .lock()
+        .unwrap()
+        .get(session_id)
+        .copied()
+        .unwrap_or(0)
+        == expected_generation;
+    matches.then(operation)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

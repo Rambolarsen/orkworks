@@ -2234,50 +2234,51 @@ impl SessionApplication {
         if crate::codex_session_store::native_label_refresh_is_blocked(id, native_session_id) {
             return false;
         }
-        let Some(_refresh_generation) = crate::codex_session_store::hold_label_refresh_generation(
+        crate::codex_session_store::with_label_refresh_generation(
             id,
             expected_refresh_generation,
-        ) else {
-            return false;
-        };
-        let ws_guard = self.state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard.as_ref() else {
-            return false;
-        };
-        let Some(mut meta) = ws.metadata.read_session(id) else {
-            return false;
-        };
-        if meta.harness != "codex"
-            || meta.lifecycle_phase != "active"
-            || !meta.label_source.is_automatic()
-            || meta
-                .resume
-                .as_ref()
-                .and_then(|resume| resume.harness_session_id.as_deref())
-                != Some(native_session_id)
-        {
-            return false;
-        }
+            || {
+                let ws_guard = self.state.workspace.lock().unwrap();
+                let Some(ws) = ws_guard.as_ref() else {
+                    return false;
+                };
+                let Some(mut meta) = ws.metadata.read_session(id) else {
+                    return false;
+                };
+                if meta.harness != "codex"
+                    || meta.lifecycle_phase != "active"
+                    || !meta.label_source.is_automatic()
+                    || meta
+                        .resume
+                        .as_ref()
+                        .and_then(|resume| resume.harness_session_id.as_deref())
+                        != Some(native_session_id)
+                {
+                    return false;
+                }
 
-        let mut sessions = self.state.sessions.lock().unwrap();
-        let Some(handle) = sessions.get_mut(id) else {
-            return false;
-        };
-        if !handle.runtime.matches_identity(runtime_identity)
-            || handle.info.lifecycle_phase != "active"
-            || handle.info.harness.as_deref() != Some("codex")
-        {
-            return false;
-        }
+                let mut sessions = self.state.sessions.lock().unwrap();
+                let Some(handle) = sessions.get_mut(id) else {
+                    return false;
+                };
+                if !handle.runtime.matches_identity(runtime_identity)
+                    || handle.info.lifecycle_phase != "active"
+                    || handle.info.harness.as_deref() != Some("codex")
+                {
+                    return false;
+                }
 
-        meta.label = label.clone();
-        meta.label_source = metadata::LabelSource::Codex;
-        meta.label_from_initial_prompt = false;
-        if ws.metadata.try_write_session(&meta).is_err() {
-            return false;
-        }
-        handle.info.label = label;
-        true
+                meta.label = label.clone();
+                meta.label_source = metadata::LabelSource::Codex;
+                meta.label_from_initial_prompt = false;
+                if ws.metadata.try_write_session(&meta).is_err() {
+                    return false;
+                }
+                handle.info.label = label;
+                true
+            },
+        )
+        .unwrap_or(false)
     }
 
     /// Completes an ending session after the runtime has collected its final
