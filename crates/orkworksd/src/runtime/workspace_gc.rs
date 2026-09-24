@@ -43,12 +43,16 @@ pub(crate) fn gc_stale_workspaces_once(workspaces_root: &Path) -> GcSummary {
             }
         };
         let source_still_exists = std::fs::metadata(&origin.canonical_path).is_ok();
-        drop(lease);
 
         if source_still_exists {
+            drop(lease);
             summary.kept += 1;
             continue;
         }
+        // Hold the lease through removal itself: dropping it first would
+        // reopen the window it exists to close, letting a concurrent
+        // sidecar acquire the lock and start using the directory right
+        // before it's deleted out from under it.
         match std::fs::remove_dir_all(&dir) {
             Ok(()) => summary.removed.push(dir.display().to_string()),
             Err(error) => {
@@ -59,6 +63,7 @@ pub(crate) fn gc_stale_workspaces_once(workspaces_root: &Path) -> GcSummary {
                 );
             }
         }
+        drop(lease);
     }
     summary
 }
