@@ -24,6 +24,28 @@ fn bounded(value: &str, max: usize, field: &'static str) -> Result<(), Coordinat
     Ok(())
 }
 
+fn prose(value: &str, max: usize, field: &'static str) -> Result<(), CoordinatorError> {
+    if value.is_empty()
+        || value.len() > max
+        || value
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    {
+        return Err(CoordinatorError::Invalid(field));
+    }
+    Ok(())
+}
+
+fn prose_list(values: &[String], field: &'static str) -> Result<(), CoordinatorError> {
+    if values.len() > MAX_ITEMS {
+        return Err(CoordinatorError::Invalid(field));
+    }
+    for value in values {
+        prose(value, MAX_TEXT, field)?;
+    }
+    Ok(())
+}
+
 fn id(value: &str, field: &'static str) -> Result<(), CoordinatorError> {
     bounded(value, MAX_ID, field)?;
     if !value
@@ -56,6 +78,7 @@ fn scopes(values: &[String]) -> Result<(), CoordinatorError> {
     strings(values, MAX_TEXT, "scope")?;
     for path in values {
         if path.starts_with('/')
+            || path.as_bytes().get(1) == Some(&b':')
             || path.contains('\\')
             || path
                 .split('/')
@@ -153,6 +176,7 @@ pub(crate) enum Role {
 #[serde(deny_unknown_fields)]
 pub(crate) struct PlanNode {
     pub id: String,
+    #[serde(deserialize_with = "required_parent_id")]
     pub parent_id: Option<String>,
     pub task: String,
     pub success_criteria: Vec<String>,
@@ -169,23 +193,29 @@ pub(crate) struct PlanNode {
     pub concurrency_class: String,
 }
 
+fn required_parent_id<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(deserializer)
+}
+
 impl PlanNode {
     fn validate(&self) -> Result<(), CoordinatorError> {
         id(&self.id, "node id")?;
         if let Some(parent) = &self.parent_id {
             id(parent, "parent id")?;
         }
-        bounded(&self.task, MAX_TEXT, "task")?;
+        prose(&self.task, MAX_TEXT, "task")?;
         if self.success_criteria.is_empty() {
             return Err(CoordinatorError::Invalid("success criteria"));
         }
-        strings(&self.success_criteria, MAX_TEXT, "success criteria")?;
-        bounded(&self.prompt_context, MAX_TEXT, "prompt context")?;
+        prose_list(&self.success_criteria, "success criteria")?;
+        prose(&self.prompt_context, MAX_TEXT, "prompt context")?;
         digest(&self.prompt_context_digest, "prompt digest")?;
         if self.prompt_context_digest != sha256_hex(self.prompt_context.as_bytes()) {
             return Err(CoordinatorError::Invalid("prompt digest"));
         }
-        bounded(&self.output_contract, MAX_TEXT, "output contract")?;
+        prose(&self.output_contract, MAX_TEXT, "output contract")?;
         if self.scope.is_empty() {
             return Err(CoordinatorError::Invalid("scope"));
         }
@@ -219,9 +249,28 @@ impl PlanNode {
     }
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub(crate) struct PlanRevision {
+    version: u32,
+    instance_id: String,
+    workspace_id: String,
+    plan_id: String,
+    revision: u64,
+    revocation_generation: u64,
+    supersedes: Option<String>,
+    subject: WorkspaceChangeSubject,
+    evidence: PlanEvidence,
+    nodes: Vec<PlanNode>,
+    total_budget_units: u64,
+    max_concurrency: u32,
+    plan_digest: String,
+    evidence_digest: String,
+}
+
+/// The only accepted proposal input. Digest fields are deliberately absent.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct PlanRevision {
+pub(crate) struct PlanProposalInput {
     pub version: u32,
     pub instance_id: String,
     pub workspace_id: String,
@@ -234,8 +283,6 @@ pub(crate) struct PlanRevision {
     pub nodes: Vec<PlanNode>,
     pub total_budget_units: u64,
     pub max_concurrency: u32,
-    pub plan_digest: Option<String>,
-    pub evidence_digest: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -255,6 +302,32 @@ struct PlanDigestMaterial<'a> {
 }
 
 impl PlanRevision {
+    pub(crate) fn from_proposal(input: PlanProposalInput) -> Result<Self, CoordinatorError> {
+        let mut plan = Self {
+            version: input.version,
+            instance_id: input.instance_id,
+            workspace_id: input.workspace_id,
+            plan_id: input.plan_id,
+            revision: input.revision,
+            revocation_generation: input.revocation_generation,
+            supersedes: input.supersedes,
+            subject: input.subject,
+            evidence: input.evidence,
+            nodes: input.nodes,
+            total_budget_units: input.total_budget_units,
+            max_concurrency: input.max_concurrency,
+            plan_digest: String::new(),
+            evidence_digest: String::new(),
+        };
+        plan.plan_digest = plan.compute_plan_digest()?;
+        plan.evidence_digest = plan.compute_evidence_digest()?;
+        plan.validate()?;
+        Ok(plan)
+    }
+
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
     pub(crate) fn compute_plan_digest(&self) -> Result<String, CoordinatorError> {
         let material = PlanDigestMaterial {
             version: self.version,
@@ -305,8 +378,8 @@ impl PlanRevision {
             "repository revision",
         )?;
         strings(&self.subject.dirty_paths, MAX_TEXT, "dirty paths")?;
-        bounded(&self.evidence.subject, MAX_TEXT, "evidence subject")?;
-        strings(&self.evidence.references, MAX_TEXT, "evidence references")?;
+        prose(&self.evidence.subject, MAX_TEXT, "evidence subject")?;
+        prose_list(&self.evidence.references, "evidence references")?;
         if self.nodes.is_empty() || self.nodes.len() > MAX_NODES {
             return Err(CoordinatorError::Invalid("nodes"));
         }
@@ -324,6 +397,37 @@ impl PlanRevision {
                 return Err(CoordinatorError::Invalid("graph reference"));
             }
         }
+        // Parent and dependency edges share one DAG; a cycle through either kind is invalid.
+        let by_id: std::collections::HashMap<_, _> = self
+            .nodes
+            .iter()
+            .map(|node| (node.id.as_str(), node))
+            .collect();
+        fn visit<'a>(
+            name: &'a str,
+            by_id: &std::collections::HashMap<&'a str, &'a PlanNode>,
+            visiting: &mut std::collections::HashSet<&'a str>,
+            visited: &mut std::collections::HashSet<&'a str>,
+        ) -> Result<(), CoordinatorError> {
+            if visited.contains(name) {
+                return Ok(());
+            }
+            if !visiting.insert(name) {
+                return Err(CoordinatorError::Invalid("graph cycle"));
+            }
+            let node = by_id[name];
+            for next in node.parent_id.iter().chain(node.dependencies.iter()) {
+                visit(next, by_id, visiting, visited)?;
+            }
+            visiting.remove(name);
+            visited.insert(name);
+            Ok(())
+        }
+        let mut visiting = std::collections::HashSet::new();
+        let mut visited = std::collections::HashSet::new();
+        for node in &self.nodes {
+            visit(&node.id, &by_id, &mut visiting, &mut visited)?;
+        }
         if self.total_budget_units == 0 || self.max_concurrency == 0 {
             return Err(CoordinatorError::Invalid("limits"));
         }
@@ -335,17 +439,78 @@ impl PlanRevision {
         if reserved > self.total_budget_units {
             return Err(CoordinatorError::Invalid("budget"));
         }
-        if let Some(supplied) = &self.plan_digest {
-            if supplied != &self.compute_plan_digest()? {
-                return Err(CoordinatorError::Invalid("plan digest"));
-            }
+        if self.plan_digest != self.compute_plan_digest()? {
+            return Err(CoordinatorError::Invalid("plan digest"));
         }
-        if let Some(supplied) = &self.evidence_digest {
-            if supplied != &self.compute_evidence_digest()? {
-                return Err(CoordinatorError::Invalid("evidence digest"));
-            }
+        if self.evidence_digest != self.compute_evidence_digest()? {
+            return Err(CoordinatorError::Invalid("evidence digest"));
         }
         Ok(())
+    }
+}
+
+impl PlanProposalInput {
+    pub(crate) fn validate(&self) -> Result<(), CoordinatorError> {
+        PlanRevision::from_proposal(self.clone()).map(|_| ())
+    }
+    pub(crate) fn compute_plan_digest(&self) -> Result<String, CoordinatorError> {
+        PlanRevision::from_proposal(self.clone())?.compute_plan_digest()
+    }
+    pub(crate) fn compute_evidence_digest(&self) -> Result<String, CoordinatorError> {
+        PlanRevision::from_proposal(self.clone())?.compute_evidence_digest()
+    }
+}
+
+/// Consuming activation prevents further mutation of the approved revision.
+/// Later edits start as a new, digest-free proposal with a higher revision.
+#[derive(Debug)]
+pub(crate) struct ApprovedPlanRevision {
+    plan: PlanRevision,
+    approval: PlanApproval,
+    plan_digest: String,
+}
+
+impl ApprovedPlanRevision {
+    pub(crate) fn activate(
+        plan: PlanRevision,
+        approval: PlanApproval,
+        current_generation: u64,
+        now: DateTime<Utc>,
+    ) -> Result<Self, CoordinatorError> {
+        PlanStatus::Proposed.can_activate_at(&approval, &plan, current_generation, now)?;
+        let plan_digest = plan.compute_plan_digest()?;
+        Ok(Self {
+            plan,
+            approval,
+            plan_digest,
+        })
+    }
+
+    pub(crate) fn plan_digest(&self) -> &str {
+        &self.plan_digest
+    }
+    pub(crate) fn revision(&self) -> u64 {
+        self.plan.revision
+    }
+    pub(crate) fn propose_revision(&self) -> Result<PlanProposalInput, CoordinatorError> {
+        Ok(PlanProposalInput {
+            version: self.plan.version,
+            instance_id: self.plan.instance_id.clone(),
+            workspace_id: self.plan.workspace_id.clone(),
+            plan_id: self.plan.plan_id.clone(),
+            revision: self
+                .plan
+                .revision
+                .checked_add(1)
+                .ok_or(CoordinatorError::Invalid("revision overflow"))?,
+            revocation_generation: self.plan.revocation_generation,
+            supersedes: Some(self.approval.approval_id.clone()),
+            subject: self.plan.subject.clone(),
+            evidence: self.plan.evidence.clone(),
+            nodes: self.plan.nodes.clone(),
+            total_budget_units: self.plan.total_budget_units,
+            max_concurrency: self.plan.max_concurrency,
+        })
     }
 }
 
@@ -369,6 +534,14 @@ pub(crate) struct PlanApproval {
 
 impl PlanApproval {
     pub(crate) fn validate_against(&self, plan: &PlanRevision) -> Result<(), CoordinatorError> {
+        self.validate_against_at(plan, Utc::now())
+    }
+
+    pub(crate) fn validate_against_at(
+        &self,
+        plan: &PlanRevision,
+        now: DateTime<Utc>,
+    ) -> Result<(), CoordinatorError> {
         plan.validate()?;
         if self.version != 1 {
             return Err(CoordinatorError::Invalid("approval version"));
@@ -383,7 +556,7 @@ impl PlanApproval {
             .expires_at
             .parse()
             .map_err(|_| CoordinatorError::Invalid("expires at"))?;
-        if expires <= approved || expires <= Utc::now() {
+        if approved > now || expires <= approved || expires <= now {
             return Err(CoordinatorError::Invalid("approval expired"));
         }
         if self.instance_id != plan.instance_id
@@ -424,19 +597,26 @@ impl PlanStatus {
         plan: &PlanRevision,
         current_generation: u64,
     ) -> Result<(), CoordinatorError> {
+        self.can_activate_at(approval, plan, current_generation, Utc::now())
+    }
+
+    pub(crate) fn can_activate_at(
+        self,
+        approval: &PlanApproval,
+        plan: &PlanRevision,
+        current_generation: u64,
+        now: DateTime<Utc>,
+    ) -> Result<(), CoordinatorError> {
         if self != Self::Proposed || approval.revocation_generation != current_generation {
             return Err(CoordinatorError::Invalid("activation state"));
         }
-        approval.validate_against(plan)
+        approval.validate_against_at(plan, now)
     }
     pub(crate) fn allows_transition(self, next: Self) -> bool {
         matches!(
             (self, next),
             (Self::Draft, Self::Proposed)
-                | (
-                    Self::Proposed,
-                    Self::Active | Self::Paused | Self::RecoveryRequired
-                )
+                | (Self::Proposed, Self::Paused | Self::RecoveryRequired)
                 | (
                     Self::Active,
                     Self::ReadyForUserReview
@@ -450,11 +630,11 @@ impl PlanStatus {
                 )
                 | (
                     Self::ReadyForUserReview,
-                    Self::Active | Self::Failed | Self::Cancelled | Self::Expired | Self::Revoked
+                    Self::Failed | Self::Cancelled | Self::Expired | Self::Revoked
                 )
                 | (
                     Self::Paused,
-                    Self::Active | Self::Cancelled | Self::Expired | Self::Revoked
+                    Self::Cancelled | Self::Expired | Self::Revoked
                 )
         )
     }
@@ -536,10 +716,19 @@ impl CapabilityRequest {
         if self.expected_cost == 0 {
             return Err(CoordinatorError::Invalid("expected cost"));
         }
-        bounded(&self.reason, MAX_TEXT, "reason")?;
-        strings(&self.evidence, MAX_TEXT, "evidence")?;
+        prose(&self.reason, MAX_TEXT, "reason")?;
+        prose_list(&self.evidence, "evidence")?;
         if self.kind.is_hard_denied() {
             return Err(CoordinatorError::HardDenied(self.kind));
+        }
+        if !matches!(
+            (self.kind, self.tool_id.as_str()),
+            (CapabilityKind::ReadFile, "read_file")
+                | (CapabilityKind::WriteFile, "write_file")
+                | (CapabilityKind::RunBoundedCommand, "run_bounded_command")
+                | (CapabilityKind::GitRead, "git_read")
+        ) {
+            return Err(CoordinatorError::Invalid("capability tool mismatch"));
         }
         Ok(())
     }
