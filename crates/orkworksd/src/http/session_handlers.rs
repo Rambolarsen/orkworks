@@ -547,12 +547,7 @@ async fn report_harness_session_inner(
             .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
             .map(|handle| handle.runtime.identity());
         if let Some(runtime_identity) = runtime_identity {
-            let refresh_epoch = {
-                let mut label_epochs = state.peon.label_epochs.write().unwrap();
-                let epoch = label_epochs.entry(id.clone()).or_insert(0);
-                *epoch = epoch.saturating_add(1);
-                *epoch
-            };
+            let refresh_epoch = crate::codex_session_store::reserve_label_refresh_generation(&id);
             schedule_codex_label_refresh(
                 state,
                 id,

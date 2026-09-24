@@ -750,6 +750,14 @@ impl ReporterAssetResolver {
         }
         Ok(destination)
     }
+
+    pub(crate) fn is_current(&self, asset_name: &str) -> Result<bool, IntegrationError> {
+        self.stable_path(asset_name)?;
+        let source = self.source_dir.join(asset_name);
+        let destination = self.stable_path(asset_name)?;
+        let source_bytes = fs::read(source)?;
+        Ok(fs::read(destination).ok().as_deref() == Some(source_bytes.as_slice()))
+    }
 }
 
 #[derive(Debug)]

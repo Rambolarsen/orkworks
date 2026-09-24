@@ -1,6 +1,34 @@
 use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
+
+static LABEL_REFRESH_GENERATIONS: LazyLock<Mutex<std::collections::HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+pub(crate) fn reserve_label_refresh_generation(session_id: &str) -> u64 {
+    let mut generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
+    let generation = generations.entry(session_id.to_owned()).or_insert(0);
+    *generation = generation.saturating_add(1);
+    *generation
+}
+
+pub(crate) fn invalidate_label_refresh_generation(session_id: &str) {
+    let _ = reserve_label_refresh_generation(session_id);
+}
+
+pub(crate) fn clear_label_refresh_generation(session_id: &str) {
+    LABEL_REFRESH_GENERATIONS.lock().unwrap().remove(session_id);
+}
+
+pub(crate) fn hold_label_refresh_generation(
+    session_id: &str,
+    expected_generation: u64,
+) -> Option<MutexGuard<'static, std::collections::HashMap<String, u64>>> {
+    let generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
+    (generations.get(session_id).copied().unwrap_or(0) == expected_generation)
+        .then_some(generations)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodexLabelField {

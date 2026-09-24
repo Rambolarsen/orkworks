@@ -1869,6 +1869,7 @@ impl SessionApplication {
     /// older refinement cannot restore the previous conversation's label.
     pub(crate) fn reset_session_topic(&self, id: &str) -> bool {
         let placeholder = crate::session_types::placeholder_label(id);
+        crate::codex_session_store::invalidate_label_refresh_generation(id);
         let mut epochs = self.state.peon.label_epochs.write().unwrap();
         let epoch = epochs.entry(id.to_string()).or_insert(0);
         *epoch = epoch.saturating_add(1);
@@ -1931,6 +1932,7 @@ impl SessionApplication {
     /// locks, so this deliberately acquires only their existing write guards
     /// in order.
     pub(crate) fn clear_forgotten_session_tracking(&self, id: &str) {
+        crate::codex_session_store::clear_label_refresh_generation(id);
         self.state.peon.label_epochs.write().unwrap().remove(id);
         self.state.peon.label_hint.write().unwrap().remove(id);
         self.state.peon.label_pending.write().unwrap().remove(id);
@@ -1965,6 +1967,7 @@ impl SessionApplication {
         if runtime_identity.is_some() && !owns_runtime_diagnostics {
             return;
         }
+        crate::codex_session_store::clear_label_refresh_generation(id);
         self.state.peon.last_output.write().unwrap().remove(id);
         self.state.peon.last_inference.write().unwrap().remove(id);
         self.state.peon.input_buf.write().unwrap().remove(id);
@@ -2063,12 +2066,14 @@ impl SessionApplication {
         native_session_id: &str,
         label: String,
         runtime_identity: &crate::runtime::session_runtime::RuntimeIdentity,
-        expected_label_epoch: u64,
+        expected_refresh_generation: u64,
     ) -> bool {
-        let label_epochs = self.state.peon.label_epochs.read().unwrap();
-        if label_epochs.get(id).copied().unwrap_or(0) != expected_label_epoch {
+        let Some(_refresh_generation) = crate::codex_session_store::hold_label_refresh_generation(
+            id,
+            expected_refresh_generation,
+        ) else {
             return false;
-        }
+        };
         let ws_guard = self.state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
             return false;
@@ -2102,7 +2107,9 @@ impl SessionApplication {
         meta.label = label.clone();
         meta.label_source = metadata::LabelSource::Codex;
         meta.label_from_initial_prompt = false;
-        ws.metadata.write_session(&meta);
+        if ws.metadata.try_write_session(&meta).is_err() {
+            return false;
+        }
         handle.info.label = label;
         true
     }
@@ -8340,12 +8347,7 @@ mod tests {
                 0,
             )
         );
-        state
-            .peon
-            .label_epochs
-            .write()
-            .unwrap()
-            .insert(id.into(), 1);
+        crate::codex_session_store::invalidate_label_refresh_generation(id);
         assert!(
             !SessionApplication::new(state).persist_codex_label_for_runtime(
                 id,
