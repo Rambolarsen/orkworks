@@ -104,16 +104,159 @@ fn stored_path(root: &std::path::Path, revision: u64) -> std::path::PathBuf {
 }
 
 #[test]
+fn plan_ids_must_be_lowercase_to_avoid_case_insensitive_directory_aliases() {
+    let mut input = plan();
+    input.plan_id = "Plan-1".into();
+    assert!(input.validate().is_err());
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    assert!(matches!(
+        store.get("Plan-1", 1),
+        Err(CoordinatorStoreError::Invalid(_))
+    ));
+}
+
+#[test]
+fn activation_rejects_approval_after_live_revocation_generation_advances() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let old = approval(&input);
+    assert!(matches!(
+        store.activate(&old, 1),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().status,
+        PlanStatus::Proposed
+    );
+}
+
+#[test]
+fn store_rejects_foreign_proposals_and_records_on_read_and_reopen() {
+    for (instance_id, workspace_id) in
+        [("instance-2", "workspace-1"), ("instance-1", "workspace-2")]
+    {
+        let root = tempfile::tempdir().unwrap();
+        let expected =
+            CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+        let mut foreign = plan();
+        foreign.instance_id = instance_id.into();
+        foreign.workspace_id = workspace_id.into();
+        foreign.subject.workspace_id = workspace_id.into();
+        assert!(matches!(
+            expected.put_proposed(&approved_plan(&foreign)),
+            Err(CoordinatorStoreError::Invalid(_))
+        ));
+        let foreign_store =
+            CoordinatorStore::open(root.path().to_path_buf(), instance_id, workspace_id).unwrap();
+        foreign_store
+            .put_proposed(&approved_plan(&foreign))
+            .unwrap();
+        assert!(matches!(
+            expected.get("plan-1", 1),
+            Err(CoordinatorStoreError::Invalid(_))
+        ));
+        assert!(
+            CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").is_err()
+        );
+    }
+}
+
+#[test]
+fn paused_plan_resumes_only_with_renewed_current_approval() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+    let digest = input.compute_plan_digest().unwrap();
+    store
+        .transition("plan-1", 1, &digest, PlanStatus::Paused)
+        .unwrap();
+    assert!(matches!(
+        store.transition("plan-1", 1, &digest, PlanStatus::Active),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert!(matches!(
+        store.resume(&original, 0),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    let mut renewed = original.clone();
+    renewed.approval_id = "approval-2".into();
+    renewed.approved_at = "2026-09-24T01:00:00Z".into();
+    assert!(matches!(
+        store.resume(&renewed, 1),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(
+        store.resume(&renewed, 0).unwrap().status,
+        PlanStatus::Active
+    );
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().approval,
+        Some(renewed)
+    );
+}
+
+#[test]
+fn activation_retry_reflushes_record_after_post_publication_sync_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let approval = approval(&input);
+    store.fail_after_publication_once();
+    assert!(matches!(
+        store.activate(&approval, 0),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    let retry = store.activate(&approval, 0).unwrap();
+    assert_eq!(retry.status, PlanStatus::Active);
+    assert_eq!(retry.approval, Some(approval));
+}
+
+#[test]
+fn transition_retry_reflushes_record_after_post_publication_sync_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    store.activate(&approval(&input), 0).unwrap();
+    let digest = input.compute_plan_digest().unwrap();
+    store.fail_after_publication_once();
+    assert!(matches!(
+        store.transition("plan-1", 1, &digest, PlanStatus::Paused),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    assert_eq!(
+        store
+            .transition("plan-1", 1, &digest, PlanStatus::Paused)
+            .unwrap()
+            .status,
+        PlanStatus::Paused
+    );
+}
+
+#[test]
 fn coordinator_store_rejects_stale_activation() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let input = plan();
     let revision = approved_plan(&input);
     store.put_proposed(&revision).unwrap();
     let mut stale = approval(&input);
     stale.plan_digest = "0".repeat(64);
     assert!(matches!(
-        store.activate(&stale),
+        store.activate(&stale, 0),
         Err(CoordinatorStoreError::Stale)
     ));
     assert_eq!(
@@ -121,19 +264,20 @@ fn coordinator_store_rejects_stale_activation() {
         PlanStatus::Proposed
     );
     assert_eq!(
-        store.activate(&approval(&input)).unwrap().status,
+        store.activate(&approval(&input), 0).unwrap().status,
         PlanStatus::Active
     );
-    assert!(matches!(
-        store.activate(&approval(&input)),
-        Err(CoordinatorStoreError::Stale)
-    ));
+    assert_eq!(
+        store.activate(&approval(&input), 0).unwrap().status,
+        PlanStatus::Active
+    );
 }
 
 #[test]
 fn coordinator_store_round_trips_and_rejects_conflicting_revision() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let input = plan();
     let revision = approved_plan(&input);
     store.put_proposed(&revision).unwrap();
@@ -154,7 +298,8 @@ fn coordinator_store_round_trips_and_rejects_conflicting_revision() {
 #[test]
 fn coordinator_store_rejects_corrupt_records_without_deleting_them() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     store.put_proposed(&approved_plan(&plan())).unwrap();
     let path = stored_path(root.path(), 1);
     let original = std::fs::read(&path).unwrap();
@@ -164,7 +309,9 @@ fn coordinator_store_rejects_corrupt_records_without_deleting_them() {
         serde_json::to_vec(&value).unwrap()
     }] {
         std::fs::write(&path, &corrupt).unwrap();
-        assert!(CoordinatorStore::open(root.path().to_path_buf()).is_err());
+        assert!(
+            CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").is_err()
+        );
         assert!(store.get("plan-1", 1).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), corrupt);
     }
@@ -173,25 +320,29 @@ fn coordinator_store_rejects_corrupt_records_without_deleting_them() {
 #[test]
 fn coordinator_store_rejects_inconsistent_approval_state() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let input = plan();
     store.put_proposed(&approved_plan(&input)).unwrap();
-    store.activate(&approval(&input)).unwrap();
+    store.activate(&approval(&input), 0).unwrap();
     let path = stored_path(root.path(), 1);
     let mut value: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     value["status"] = "proposed".into();
     let corrupt = serde_json::to_vec(&value).unwrap();
     std::fs::write(&path, &corrupt).unwrap();
-    assert!(CoordinatorStore::open(root.path().to_path_buf()).is_err());
-    assert!(store.activate(&approval(&input)).is_err());
+    assert!(
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").is_err()
+    );
+    assert!(store.activate(&approval(&input), 0).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), corrupt);
 }
 
 #[test]
 fn coordinator_store_recovers_abandoned_temp_without_publishing_it() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     store.put_proposed(&approved_plan(&plan())).unwrap();
     let path = stored_path(root.path(), 1);
     let before = std::fs::read(&path).unwrap();
@@ -209,7 +360,8 @@ fn coordinator_store_recovers_abandoned_temp_without_publishing_it() {
 #[test]
 fn coordinator_store_stale_transition_preserves_external_record() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let input = plan();
     store.put_proposed(&approved_plan(&input)).unwrap();
     let path = stored_path(root.path(), 1);
@@ -233,7 +385,8 @@ fn coordinator_store_stale_transition_preserves_external_record() {
 #[test]
 fn coordinator_store_superseded_approval_and_revoked_transition_fail_closed() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let first = plan();
     store.put_proposed(&approved_plan(&first)).unwrap();
     let mut second = first.clone();
@@ -243,12 +396,12 @@ fn coordinator_store_superseded_approval_and_revoked_transition_fail_closed() {
     let mut old = approval(&first);
     old.revision = 1;
     assert!(matches!(
-        store.activate(&old),
+        store.activate(&old, 0),
         Err(CoordinatorStoreError::Stale)
     ));
     let mut current = approval(&second);
     current.supersedes = second.supersedes.clone();
-    store.activate(&current).unwrap();
+    store.activate(&current, 0).unwrap();
     let digest = second.compute_plan_digest().unwrap();
     store
         .transition("plan-1", 2, &digest, PlanStatus::Revoked)
@@ -264,10 +417,11 @@ fn coordinator_store_superseded_approval_and_revoked_transition_fail_closed() {
 #[test]
 fn coordinator_store_rejects_superseded_progress_but_allows_cancellation() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let first = plan();
     store.put_proposed(&approved_plan(&first)).unwrap();
-    store.activate(&approval(&first)).unwrap();
+    store.activate(&approval(&first), 0).unwrap();
     let mut second = first.clone();
     second.revision = 2;
     second.supersedes = Some("approval-1".into());
@@ -305,10 +459,11 @@ fn coordinator_store_rejects_superseded_progress_but_allows_cancellation() {
 #[test]
 fn coordinator_store_rejects_expired_approval_progress_but_allows_expiry() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let input = plan();
     store.put_proposed(&approved_plan(&input)).unwrap();
-    store.activate(&approval(&input)).unwrap();
+    store.activate(&approval(&input), 0).unwrap();
     let path = stored_path(root.path(), 1);
     let mut record: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -338,8 +493,10 @@ fn coordinator_store_rejects_expired_approval_progress_but_allows_expiry() {
 #[test]
 fn coordinator_store_recovery_waits_for_external_writer_lease() {
     let root = tempfile::tempdir().unwrap();
-    let first = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
-    let second = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let first =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let second =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     first.put_proposed(&approved_plan(&plan())).unwrap();
     let temp = stored_path(root.path(), 1).with_extension("json.tmp");
     std::fs::write(&temp, b"incomplete publication").unwrap();
@@ -374,7 +531,8 @@ fn coordinator_store_recovery_waits_for_external_writer_lease() {
 #[test]
 fn coordinator_store_revalidates_after_temp_sync_before_publication() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     let input = plan();
     store.put_proposed(&approved_plan(&input)).unwrap();
     let path = stored_path(root.path(), 1);
@@ -388,7 +546,7 @@ fn coordinator_store_revalidates_after_temp_sync_before_publication() {
         std::fs::write(&path_for_hook, &external_for_hook).unwrap();
     }));
     assert!(matches!(
-        store.activate(&approval(&input)),
+        store.activate(&approval(&input), 0),
         Err(CoordinatorStoreError::Stale)
     ));
     assert_eq!(std::fs::read(&path).unwrap(), external);
@@ -397,7 +555,8 @@ fn coordinator_store_revalidates_after_temp_sync_before_publication() {
 #[test]
 fn coordinator_store_rejects_duplicate_plan_and_node_fields_without_mutation() {
     let root = tempfile::tempdir().unwrap();
-    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
     store.put_proposed(&approved_plan(&plan())).unwrap();
     let path = stored_path(root.path(), 1);
     let original = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
@@ -415,7 +574,9 @@ fn coordinator_store_rejects_duplicate_plan_and_node_fields_without_mutation() {
     ] {
         assert_ne!(duplicate, original);
         std::fs::write(&path, duplicate.as_bytes()).unwrap();
-        assert!(CoordinatorStore::open(root.path().to_path_buf()).is_err());
+        assert!(
+            CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").is_err()
+        );
         assert!(store.get("plan-1", 1).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), duplicate.as_bytes());
     }
@@ -431,16 +592,17 @@ fn coordinator_store_terminal_and_recovery_states_cannot_reactivate() {
         PlanStatus::RecoveryRequired,
     ] {
         let root = tempfile::tempdir().unwrap();
-        let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+        let store =
+            CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
         let input = plan();
         store.put_proposed(&approved_plan(&input)).unwrap();
         let approval = approval(&input);
-        store.activate(&approval).unwrap();
+        store.activate(&approval, 0).unwrap();
         let digest = input.compute_plan_digest().unwrap();
         store.transition("plan-1", 1, &digest, terminal).unwrap();
         let before = std::fs::read(stored_path(root.path(), 1)).unwrap();
         assert!(matches!(
-            store.activate(&approval),
+            store.activate(&approval, 0),
             Err(CoordinatorStoreError::Stale)
         ));
         assert!(matches!(

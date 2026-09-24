@@ -384,6 +384,12 @@ impl PlanRevision {
     pub(crate) fn revision(&self) -> u64 {
         self.revision
     }
+    pub(crate) fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+    pub(crate) fn workspace_id(&self) -> &str {
+        &self.workspace_id
+    }
     pub(crate) fn compute_plan_digest(&self) -> Result<String, CoordinatorError> {
         let material = PlanDigestMaterial {
             version: self.version,
@@ -417,6 +423,9 @@ impl PlanRevision {
         id(&self.instance_id, "instance id")?;
         id(&self.workspace_id, "workspace id")?;
         id(&self.plan_id, "plan id")?;
+        if self.plan_id.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            return Err(CoordinatorError::Invalid("plan id"));
+        }
         if self.revision == 0 {
             return Err(CoordinatorError::Invalid("revision"));
         }
@@ -674,6 +683,17 @@ impl PlanStatus {
             return Err(CoordinatorError::Invalid("activation state"));
         }
         approval.validate_against_at(plan, now)
+    }
+    pub(crate) fn can_resume(
+        self,
+        approval: &PlanApproval,
+        plan: &PlanRevision,
+        current_generation: u64,
+    ) -> Result<(), CoordinatorError> {
+        if self != Self::Paused || approval.revocation_generation != current_generation {
+            return Err(CoordinatorError::Invalid("resume state"));
+        }
+        approval.validate_against(plan)
     }
     pub(crate) fn allows_transition(self, next: Self) -> bool {
         matches!(

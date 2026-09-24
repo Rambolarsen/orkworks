@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 const MAX_RECORD_BYTES: usize = 2 * 1024 * 1024 + 8192;
@@ -57,20 +59,42 @@ struct DiskRecord {
 
 pub(crate) struct CoordinatorStore {
     dir: PathBuf,
+    instance_id: String,
+    workspace_id: String,
     mutation: Mutex<()>,
     #[cfg(test)]
     before_publication: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    fail_after_publication: AtomicBool,
 }
 
 impl CoordinatorStore {
-    pub(crate) fn open(root: PathBuf) -> Result<Self, CoordinatorStoreError> {
+    pub(crate) fn open(
+        root: PathBuf,
+        instance_id: &str,
+        workspace_id: &str,
+    ) -> Result<Self, CoordinatorStoreError> {
+        for (value, field) in [(instance_id, "instance id"), (workspace_id, "workspace id")] {
+            if value.is_empty()
+                || value.len() > 128
+                || !value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+            {
+                return Err(CoordinatorStoreError::Invalid(field.into()));
+            }
+        }
         let dir = root.join("coordinator/plans");
         ensure_durable_directory(&dir)?;
         let store = Self {
             dir,
+            instance_id: instance_id.into(),
+            workspace_id: workspace_id.into(),
             mutation: Mutex::new(()),
             #[cfg(test)]
             before_publication: Mutex::new(None),
+            #[cfg(test)]
+            fail_after_publication: AtomicBool::new(false),
         };
         let lock = store.lock_file()?;
         lock.sync_all()?;
@@ -93,6 +117,7 @@ impl CoordinatorStore {
         let _lease = self.lock_file()?;
         self.recover_inner()?;
         plan.validate()?;
+        self.check_identity(plan)?;
         let (id, digest) = identity(plan)?;
         let records = self.read_all()?;
         let latest = records
@@ -154,6 +179,7 @@ impl CoordinatorStore {
     pub(crate) fn activate(
         &self,
         approval: &PlanApproval,
+        current_generation: u64,
     ) -> Result<StoredPlan, CoordinatorStoreError> {
         let _guard = self
             .mutation
@@ -177,6 +203,15 @@ impl CoordinatorStore {
         let mut record = self
             .read_at(&approval.plan_id, approval.revision)?
             .ok_or(CoordinatorStoreError::Stale)?;
+        if record.status == PlanStatus::Active && record.approval.as_ref() == Some(approval) {
+            if approval.revocation_generation != current_generation {
+                return Err(CoordinatorStoreError::Stale);
+            }
+            approval
+                .validate_against(&record.plan)
+                .map_err(|_| CoordinatorStoreError::Stale)?;
+            return Ok(record);
+        }
         if record.status != PlanStatus::Proposed
             || approval.plan_digest != identity(&record.plan)?.1
         {
@@ -184,7 +219,7 @@ impl CoordinatorStore {
         }
         record
             .status
-            .can_activate(approval, &record.plan, approval.revocation_generation)
+            .can_activate(approval, &record.plan, current_generation)
             .map_err(|_| CoordinatorStoreError::Stale)?;
         let previous = record.clone();
         record.status = PlanStatus::Active;
@@ -215,7 +250,7 @@ impl CoordinatorStore {
         let mut record = self
             .read_at(plan_id, revision)?
             .ok_or(CoordinatorStoreError::Stale)?;
-        if identity(&record.plan)?.1 != expected_digest || !record.status.allows_transition(next) {
+        if identity(&record.plan)?.1 != expected_digest || next == PlanStatus::Active {
             return Err(CoordinatorStoreError::Stale);
         }
         if requires_live_approval(next) {
@@ -227,9 +262,62 @@ impl CoordinatorStore {
                 .validate_against(&record.plan)
                 .map_err(|_| CoordinatorStoreError::Stale)?;
         }
+        if record.status == next {
+            return Ok(record);
+        }
+        if !record.status.allows_transition(next) {
+            return Err(CoordinatorStoreError::Stale);
+        }
         let previous = record.clone();
         record.status = next;
         self.publish(plan_id, revision, Some(&previous), &record)?;
+        Ok(record)
+    }
+
+    pub(crate) fn resume(
+        &self,
+        approval: &PlanApproval,
+        current_generation: u64,
+    ) -> Result<StoredPlan, CoordinatorStoreError> {
+        let _guard = self
+            .mutation
+            .lock()
+            .map_err(|_| CoordinatorStoreError::Stale)?;
+        let _lease = self.lock_file()?;
+        self.recover_inner()?;
+        safe_id(&approval.plan_id)?;
+        self.check_current_revision(&approval.plan_id, approval.revision)?;
+        let mut record = self
+            .read_at(&approval.plan_id, approval.revision)?
+            .ok_or(CoordinatorStoreError::Stale)?;
+        record
+            .status
+            .can_resume(approval, &record.plan, current_generation)
+            .map_err(|_| CoordinatorStoreError::Stale)?;
+        let previous_approval = record
+            .approval
+            .as_ref()
+            .ok_or(CoordinatorStoreError::Stale)?;
+        let previous_at: chrono::DateTime<chrono::Utc> = previous_approval
+            .approved_at
+            .parse()
+            .map_err(|_| CoordinatorStoreError::Stale)?;
+        let renewed_at: chrono::DateTime<chrono::Utc> = approval
+            .approved_at
+            .parse()
+            .map_err(|_| CoordinatorStoreError::Stale)?;
+        if approval.approval_id == previous_approval.approval_id || renewed_at <= previous_at {
+            return Err(CoordinatorStoreError::Stale);
+        }
+        let previous = record.clone();
+        record.status = PlanStatus::Active;
+        record.approval = Some(approval.clone());
+        self.publish(
+            &approval.plan_id,
+            approval.revision,
+            Some(&previous),
+            &record,
+        )?;
         Ok(record)
     }
 
@@ -270,6 +358,11 @@ impl CoordinatorStore {
         *self.before_publication.lock().unwrap() = Some(hook);
     }
 
+    #[cfg(test)]
+    pub(super) fn fail_after_publication_once(&self) {
+        self.fail_after_publication.store(true, Ordering::SeqCst);
+    }
+
     fn check_current_revision(&self, id: &str, revision: u64) -> Result<(), CoordinatorStoreError> {
         if self.read_all()?.iter().any(|record| {
             identity(&record.plan)
@@ -280,6 +373,18 @@ impl CoordinatorStore {
             return Err(CoordinatorStoreError::Stale);
         }
         Ok(())
+    }
+
+    fn check_identity(&self, plan: &PlanRevision) -> Result<(), CoordinatorStoreError> {
+        if plan.instance_id() != self.instance_id || plan.workspace_id() != self.workspace_id {
+            return Err(CoordinatorStoreError::Invalid("store identity".into()));
+        }
+        Ok(())
+    }
+
+    fn validate_record(&self, record: StoredPlan) -> Result<StoredPlan, CoordinatorStoreError> {
+        self.check_identity(&record.plan)?;
+        Ok(record)
     }
 
     fn recover_inner(&self) -> Result<(), CoordinatorStoreError> {
@@ -299,6 +404,7 @@ impl CoordinatorStore {
                     sync_dir(&plan_dir.path())?;
                 }
             }
+            sync_dir(&plan_dir.path())?;
         }
         Ok(())
     }
@@ -334,7 +440,7 @@ impl CoordinatorStore {
                 {
                     return Err(CoordinatorStoreError::Invalid("revision file type".into()));
                 }
-                records.push(read_record(&entry.path(), &id, revision)?);
+                records.push(self.validate_record(read_record(&entry.path(), &id, revision)?)?);
             }
         }
         Ok(records)
@@ -347,7 +453,9 @@ impl CoordinatorStore {
     ) -> Result<Option<StoredPlan>, CoordinatorStoreError> {
         let path = self.path(id, revision);
         match fs::metadata(&path) {
-            Ok(_) => read_record(&path, id, revision).map(Some),
+            Ok(_) => read_record(&path, id, revision)
+                .and_then(|record| self.validate_record(record))
+                .map(Some),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -407,6 +515,10 @@ impl CoordinatorStore {
                 .map_err(|_| CoordinatorStoreError::Stale)?;
         }
         publish_atomic(&temp, &path, expected.is_some())?;
+        #[cfg(test)]
+        if self.fail_after_publication.swap(false, Ordering::SeqCst) {
+            return Err(io::Error::other("injected post-publication sync failure").into());
+        }
         sync_dir(parent)?;
         Ok(())
     }
@@ -475,9 +587,9 @@ fn identity(plan: &PlanRevision) -> Result<(String, String), CoordinatorStoreErr
 fn safe_id(id: &str) -> Result<(), CoordinatorStoreError> {
     if id.is_empty()
         || id.len() > 128
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        || !id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+        })
         || id == "."
         || id == ".."
     {
