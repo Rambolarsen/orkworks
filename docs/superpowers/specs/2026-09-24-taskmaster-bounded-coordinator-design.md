@@ -3,7 +3,7 @@
 - Status: proposed Coordinator design gate
 - Date: 2026-09-24
 - Tracking issue: [#604](https://github.com/Rambolarsen/orkworks/issues/604)
-- Related ADR: [0063](../../adr/0063-bounded-taskmaster-coordinator.md)
+- Related ADR: [0064](../../adr/0064-bounded-taskmaster-coordinator.md)
 
 ## Purpose and boundary
 
@@ -479,6 +479,6 @@ Before implementation planning begins, written review must confirm that:
    Phase 1 completion-packet work.
 
 No coordinator code, child-session API, or autonomous launch path should be
-implemented until this design and [ADR 0063](../../adr/0063-bounded-taskmaster-coordinator.md)
+implemented until this design and [ADR 0064](../../adr/0064-bounded-taskmaster-coordinator.md)
 are approved in writing. Once approved, that approval authorizes only the
 separate implementation plan and its review gates.

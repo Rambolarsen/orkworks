@@ -1,4 +1,4 @@
-# ADR 0063: Bounded Taskmaster coordinator uses approved root plans
+# ADR 0064: Bounded Taskmaster coordinator uses approved root plans
 
 - Status: proposed
 - Deciders: OrkWorks maintainers

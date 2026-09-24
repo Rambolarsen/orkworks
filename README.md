@@ -20,7 +20,7 @@ The proposed [Coordinator design gate](specs/taskmaster.md#coordinator-design-ga
 describes a future bounded Taskmaster coordinator using immutable,
 user-approved root plans, broker-enforced child tools, resource ceilings, and
 server-attested results. It is separate from rollout Phase 2 (the deterministic
-evaluator) and is not implemented. [ADR 0063](docs/adr/0063-bounded-taskmaster-coordinator.md)
+evaluator) and is not implemented. [ADR 0064](docs/adr/0064-bounded-taskmaster-coordinator.md)
 remains proposed; accepting the design authorizes only a separate implementation
 plan and its review, not coordinator code, child APIs, or runtime launches.
 Taskmaster v1's explicit user approval and single-active-context rules remain.

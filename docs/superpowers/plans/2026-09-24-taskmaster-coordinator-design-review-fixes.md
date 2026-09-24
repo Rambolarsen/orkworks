@@ -4,7 +4,7 @@
 
 **Goal:** Resolve the outstanding design-review findings for the bounded Taskmaster coordinator without authorizing coordinator runtime implementation.
 
-**Architecture:** Strengthen the design contract across the coordinator design spec, Taskmaster authority section, ADR 0063, and user-facing architecture summary. The contract will make execution policy, resource/revision binding, bounded evidence, and recovery semantics explicit while retaining the separate design gate and implementation-plan boundary.
+**Architecture:** Strengthen the design contract across the coordinator design spec, Taskmaster authority section, ADR 0064, and user-facing architecture summary. The contract will make execution policy, resource/revision binding, bounded evidence, and recovery semantics explicit while retaining the separate design gate and implementation-plan boundary.
 
 **Tech Stack:** Markdown, repository documentation checks, GitHub PR review threads.
 
@@ -22,11 +22,11 @@
 **Files:**
 - Modify: `docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`
 - Modify: `specs/taskmaster.md`
-- Modify: `docs/adr/0063-bounded-taskmaster-coordinator.md`
+- Modify: `docs/adr/0064-bounded-taskmaster-coordinator.md`
 
 **Interfaces:**
 - The design spec is authoritative for the future coordinator contract.
-- `specs/taskmaster.md` and ADR 0063 summarize the same boundary without authorizing implementation.
+- `specs/taskmaster.md` and ADR 0064 summarize the same boundary without authorizing implementation.
 
 - [ ] **Step 1: Add the tool-broker contract.** State that every child command/tool invocation crosses a server-owned broker that checks executable, arguments, cwd, environment, declared resource effects, lease, capability revision, and hard denials; prohibit direct shell/process access and make child prose non-authoritative.
 - [ ] **Step 2: Bind grants to the target node.** Require every runtime grant to be a subset of the active parent lease, the target node’s pre-approved maximum envelope, and an unconsumed slot.
@@ -39,7 +39,7 @@
 **Files:**
 - Modify: `docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`
 - Modify: `specs/taskmaster.md`
-- Modify: `docs/adr/0063-bounded-taskmaster-coordinator.md`
+- Modify: `docs/adr/0064-bounded-taskmaster-coordinator.md`
 
 - [ ] **Step 1: Add required-node semantics.** Add a required/optional or deterministic activation field to each immutable node and require completion to evaluate only the declared required set.
 - [ ] **Step 2: Define pause/resume.** Add `paused -> active` only through fresh user approval bound to the same immutable revision, current workspace subject, expiry, and revocation generation; scope or budget changes require a new revision.
@@ -52,7 +52,7 @@
 **Files:**
 - Modify: `docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`
 - Modify: `specs/taskmaster.md`
-- Modify: `docs/adr/0063-bounded-taskmaster-coordinator.md`
+- Modify: `docs/adr/0064-bounded-taskmaster-coordinator.md`
 
 - [ ] **Step 1: Bind effective prompt/context.** Include the server-rendered prompt/context template, derivation inputs, and resulting digest in the immutable revision; parent edits require a new revision and approval.
 - [ ] **Step 2: Add hard portable limits.** Specify finite maximums for graph nodes/depth, text fields, prompt/context, command requests, evidence items/bytes, reports, and retained audit/lineage records; reject over-limit requests before mutation.
@@ -64,7 +64,7 @@
 - Modify: `specs/taskmaster.md`
 - Modify: `README.md`
 - Modify: `docs/adr/README.md`
-- Modify: `docs/adr/0063-bounded-taskmaster-coordinator.md`
+- Modify: `docs/adr/0064-bounded-taskmaster-coordinator.md`
 
 - [ ] **Step 1: Rename the coordinator design gate.** Use `Coordinator design gate` consistently and reserve `Phase 2` for the existing deterministic evaluator rollout.
 - [ ] **Step 2: Update the README architecture summary.** Explain that coordinator work is proposed, separately gated, and not implemented or authorized by the design ADR.

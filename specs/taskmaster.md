@@ -194,7 +194,7 @@ Taskmaster v1 does not:
 
 Coordinator implementation is explicitly deferred behind the Coordinator design
 gate tracked by [issue #604](https://github.com/Rambolarsen/orkworks/issues/604)
-and [ADR 0063](../docs/adr/0063-bounded-taskmaster-coordinator.md). This
+and [ADR 0064](../docs/adr/0064-bounded-taskmaster-coordinator.md). This
 section records the proposed boundary; it does not expand v1 scope or
 authorize coordinator code. Approval of the design gate authorizes only a
 separate implementation plan and its review; it does not authorize child APIs
@@ -534,7 +534,7 @@ start a session, focus a terminal, edit files, mutate Git, or delegate work.
 
 Recursive coordination and child-session orchestration remain explicitly
 deferred behind the proposed [Coordinator design gate](#coordinator-design-gate)
-and [ADR 0063](../docs/adr/0063-bounded-taskmaster-coordinator.md). Written
+and [ADR 0064](../docs/adr/0064-bounded-taskmaster-coordinator.md). Written
 acceptance of that design authorizes only a separate implementation plan and
 its review; coordinator implementation still requires that plan's approval.
 

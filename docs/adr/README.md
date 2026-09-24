@@ -71,4 +71,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0061](./0061-pinned-workspace-history.md) | Pinned and enumerable installation-scoped workspace history | accepted |
 | [0062](./0062-guided-completion-packets.md) | Guided completion packets stay recommendation projections | accepted |
 | [0063](./0063-codex-native-session-labels.md) | Codex native session names enrich automatic session labels | accepted |
-| [0063](./0063-bounded-taskmaster-coordinator.md) | Bounded Taskmaster coordinator uses approved root plans | proposed — [Coordinator design gate](../../specs/taskmaster.md#coordinator-design-gate); design approval permits only a separate implementation plan and review |
+| [0064](./0064-bounded-taskmaster-coordinator.md) | Bounded Taskmaster coordinator uses approved root plans | proposed — [Coordinator design gate](../../specs/taskmaster.md#coordinator-design-gate); design approval permits only a separate implementation plan and review |
