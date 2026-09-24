@@ -61,6 +61,9 @@ type ActiveHarnessSaveResult = {
 type TaskmasterAcceptOptions = {
   sessionId: string;
   prompt?: string;
+  packetRevision?: number;
+  evidenceFingerprint?: string;
+  idempotencyKey?: string;
 };
 
 const developmentUpdateStatus: UpdateStatus = {

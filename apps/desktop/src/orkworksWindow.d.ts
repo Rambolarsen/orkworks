@@ -72,6 +72,9 @@ export type InitialWorkspaceSnapshot = {
 export type AcceptRecommendationOptions = {
   sessionId: string;
   prompt?: string;
+  packetRevision?: number;
+  evidenceFingerprint?: string;
+  idempotencyKey?: string;
 };
 
 export type IntegrationKey = {

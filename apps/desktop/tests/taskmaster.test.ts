@@ -2,14 +2,54 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import type { WorkflowRecommendation } from "../src/api.ts";
+import type { CompletionPacket, WorkflowRecommendation } from "../src/api.ts";
 import {
   buildFixPromptDraft,
   formatImpact,
   formatRecurrence,
+  formatPacketReadiness,
+  formatPacketEvidence,
   formatTargetSurface,
   sortedEvidence,
 } from "../src/taskmaster.ts";
+
+const completionPacket: CompletionPacket = {
+  schemaVersion: 1,
+  evidenceVersion: 1,
+  packetId: "packet-1",
+  sourceSessionId: "session-source",
+  observedAt: "2026-09-24T10:00:00Z",
+  provenance: {
+    sourceSessionId: "session-source",
+    workspaceId: "workspace-1",
+    workspaceSnapshotId: "snapshot-1",
+    observedAt: "2026-09-24T10:00:00Z",
+  },
+  subject: {
+    workspaceId: "workspace-1",
+    scope: "src/taskmaster",
+    snapshotId: "snapshot-1",
+    attribution: "unambiguous",
+    changedPaths: ["src/taskmaster/mod.rs"],
+  },
+  verification: {
+    command: "cargo test",
+    result: "passed",
+    applicableRevision: "snapshot-1",
+    observedAt: "2026-09-24T10:01:00Z",
+  },
+  review: null,
+  missingEvidence: [],
+  conflictingEvidence: [],
+  action: { prompt: "Review", model: "review-model", scope: "src/taskmaster", role: "review" },
+  readiness: "review_ready",
+  revision: 1,
+  evidenceFingerprint: "a".repeat(64),
+  approval: null,
+  supersedesPacketId: null,
+  lineage: [],
+  completionIdempotencyKey: null,
+};
 
 const recommendation: WorkflowRecommendation = {
   id: "rec-1",
@@ -77,7 +117,16 @@ const recommendation: WorkflowRecommendation = {
   rollupMemberDedupeKeys: [],
   rollupGeneration: null,
   rolledUpBy: null,
+  completionPacket: null,
 };
+
+test("completion packet helpers expose readiness and bounded provenance", () => {
+  assert.equal(formatPacketReadiness(completionPacket.readiness), "Review Ready");
+  assert.equal(
+    formatPacketEvidence(completionPacket),
+    "Source session session-source · Snapshot snapshot-1 · 1 changed path",
+  );
+});
 
 test("Taskmaster presentation helpers format labels and recurrence", () => {
   assert.equal(formatImpact("high"), "High");
@@ -385,6 +434,19 @@ test("Recommendations panel exposes evidence, dismissal, and an explicit fix-wit
   assert.doesNotMatch(source, />Execute</);
   assert.doesNotMatch(source, /Start session/);
   assert.doesNotMatch(source, />Edit</);
+});
+
+test("Recommendations panel renders completion packet provenance without adding autonomous actions", () => {
+  const source = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /completionPacket/);
+  assert.match(source, /formatPacketReadiness/);
+  assert.match(source, /formatPacketEvidence/);
+  assert.doesNotMatch(source, /Start review/);
+  assert.doesNotMatch(source, /Run command/);
 });
 
 test("Recommendations panel presents rollup family metadata with combined evidence", () => {

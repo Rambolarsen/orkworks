@@ -508,6 +508,94 @@ export type TargetSurface = "instructions" | "skill" | "test" | "tooling" | "doc
 export type ObservationKind =
   | "repetition" | "obstacle" | "missing_context" | "assumption"
   | "correction" | "workaround" | "verification_gap";
+export type PacketAttribution = "unambiguous" | "inconclusive";
+export type PacketReadiness =
+  | "verification_needed" | "review_ready" | "findings_need_fix" | "ready_for_user_review";
+export type CompletionVerificationResult = "passed" | "failed" | "not_run";
+export type CompletionReviewOutcome = "no_findings" | "findings";
+export type CompletionActionRole = "review" | "verification" | "fix" | "user_review";
+export type CompletionEvidenceIssueKind = "missing" | "conflict";
+
+export interface CompletionEvidenceProvenance {
+  sourceSessionId: string;
+  workspaceId: string;
+  workspaceSnapshotId: string;
+  observedAt: string;
+}
+
+export interface CompletionChangeSubject {
+  workspaceId: string;
+  scope: string;
+  snapshotId: string;
+  attribution: PacketAttribution;
+  changedPaths: string[];
+}
+
+export interface CompletionVerification {
+  command: string;
+  result: CompletionVerificationResult;
+  applicableRevision: string;
+  observedAt: string;
+}
+
+export interface CompletionReview {
+  reviewerSessionId: string;
+  reviewerIdentity: string;
+  independent: boolean;
+  outcome: CompletionReviewOutcome;
+  applicableRevision: string;
+  observedAt: string;
+}
+
+export interface CompletionEvidenceIssue {
+  kind: CompletionEvidenceIssueKind;
+  detail: string;
+}
+
+export interface CompletionAction {
+  prompt: string;
+  model: string | null;
+  scope: string;
+  role: CompletionActionRole;
+}
+
+export interface CompletionApproval {
+  approvedAt: string;
+  approver: string;
+  revision: number;
+  evidenceFingerprint: string;
+  actionFingerprint: string;
+  idempotencyKey: string;
+}
+
+export interface CompletionPacketLineage {
+  packetId: string;
+  revision: number;
+  evidenceFingerprint: string;
+  supersededAt: string;
+}
+
+export interface CompletionPacket {
+  schemaVersion: number;
+  evidenceVersion: number;
+  packetId: string;
+  sourceSessionId: string;
+  observedAt: string;
+  provenance: CompletionEvidenceProvenance;
+  subject: CompletionChangeSubject;
+  verification: CompletionVerification | null;
+  review: CompletionReview | null;
+  missingEvidence: CompletionEvidenceIssue[];
+  conflictingEvidence: CompletionEvidenceIssue[];
+  action: CompletionAction;
+  readiness: PacketReadiness;
+  revision: number;
+  evidenceFingerprint: string;
+  approval: CompletionApproval | null;
+  supersedesPacketId: string | null;
+  lineage: CompletionPacketLineage[];
+  completionIdempotencyKey: string | null;
+}
 
 export interface WorkflowObservationEvidence {
   observationId: string;
@@ -571,6 +659,7 @@ export interface WorkflowRecommendation {
   updatedAt: string;
   expiresAt: string | null;
   workflowImprovement: WorkflowImprovement;
+  completionPacket?: CompletionPacket | null;
   rollupMemberIds: string[];
   rollupMemberDedupeKeys: string[];
   rollupGeneration: number | null;
@@ -630,6 +719,9 @@ export async function dismissTaskmasterRecommendation(
 export interface AcceptRecommendationOptions {
   sessionId: string;
   prompt?: string;
+  packetRevision?: number;
+  evidenceFingerprint?: string;
+  idempotencyKey?: string;
 }
 
 export async function acceptTaskmasterRecommendation(

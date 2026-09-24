@@ -5,6 +5,7 @@ use crate::plan_handoff::{
 use crate::runtime::observed_status::apply_live_attention_fields;
 use crate::session_types::{MemoryState, SessionInfo};
 use crate::session_view::{connectivity_for_status, terminal_outcome_for_status};
+use crate::taskmaster::completion::CompletionMutationRequest;
 use crate::taskmaster::rollup::{
     project_parent_evidence, stable_rollup_id, RollupCluster, RollupFamilySnapshot,
 };
@@ -57,6 +58,12 @@ pub(crate) enum RecommendationAcceptError {
 
 #[derive(Debug)]
 pub(crate) enum RecommendationCompleteError {
+    Conflict,
+    Store(crate::taskmaster::store::StoreError),
+}
+
+#[derive(Debug)]
+pub(crate) enum RecommendationPacketError {
     Conflict,
     Store(crate::taskmaster::store::StoreError),
 }
@@ -731,6 +738,63 @@ impl SessionApplication {
             .map_err(RecommendationDismissError::Store)
     }
 
+    /// Attaches or supersedes one evidence packet on an existing workflow
+    /// recommendation. The caller must be the packet's source session; this
+    /// remains a projection update and never creates or starts a session.
+    pub(crate) fn report_completion_packet(
+        &self,
+        id: &str,
+        source_session_id: &str,
+        packet: crate::taskmaster::completion::CompletionPacket,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationPacketError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let workspace = workspace_guard
+            .as_ref()
+            .ok_or(RecommendationPacketError::Conflict)?;
+        let Some(existing) = workspace
+            .recommendation_store
+            .get(id)
+            .map_err(RecommendationPacketError::Store)?
+        else {
+            return Ok(None);
+        };
+        if existing.recommendation_type != RecommendationType::ImproveWorkflow
+            || existing.source_session_ids.len() != 1
+            || existing.source_session_ids[0] != source_session_id
+            || packet.source_session_id != source_session_id
+            || packet.provenance.source_session_id != source_session_id
+        {
+            return Err(RecommendationPacketError::Conflict);
+        }
+
+        if let Some(current_packet) = existing.completion_packet.as_ref() {
+            return workspace
+                .recommendation_store
+                .replace_completion_packet(
+                    id,
+                    current_packet.revision,
+                    packet,
+                    chrono::Utc::now().to_rfc3339(),
+                )
+                .map_err(RecommendationPacketError::Store);
+        }
+        if existing.status != RecommendationStatus::Proposed
+            || packet.revision != 1
+            || packet.supersedes_packet_id.is_some()
+            || !packet.lineage.is_empty()
+        {
+            return Err(RecommendationPacketError::Conflict);
+        }
+        let mut updated = existing;
+        updated.completion_packet = Some(packet);
+        updated.updated_at = chrono::Utc::now().to_rfc3339();
+        workspace
+            .recommendation_store
+            .put(&updated)
+            .map_err(RecommendationPacketError::Store)?;
+        Ok(Some(updated))
+    }
+
     /// Sends a Taskmaster-generated fix prompt into `session_id`'s live PTY
     /// through the same `submit_approved_input` path `request_plan_review`
     /// already uses — no session is created, resumed, or reconfigured; the
@@ -748,6 +812,17 @@ impl SessionApplication {
         id: &str,
         session_id: &str,
         prompt_override: Option<String>,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
+        self.accept_recommendation_with_packet(id, session_id, prompt_override, None)
+            .await
+    }
+
+    pub(crate) async fn accept_recommendation_with_packet(
+        &self,
+        id: &str,
+        session_id: &str,
+        prompt_override: Option<String>,
+        packet_mutation: Option<CompletionMutationRequest>,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
         let (prompt, title) = {
             let workspace_guard = self.state.workspace.lock().unwrap();
@@ -773,14 +848,36 @@ impl SessionApplication {
             if metadata.lifecycle != "alive" {
                 return Err(RecommendationAcceptError::Conflict);
             }
-            let prompt = prompt_override
-                .map(|prompt| ensure_recommendation_handoff_contract(prompt, &recommendation))
-                .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
-            workspace
-                .recommendation_store
-                .begin_execution(id, session_id.to_string(), chrono::Utc::now().to_rfc3339())
-                .map_err(RecommendationAcceptError::Store)?
-                .ok_or(RecommendationAcceptError::Conflict)?;
+            let prompt = if let Some(packet) = &recommendation.completion_packet {
+                if prompt_override.is_some() {
+                    return Err(RecommendationAcceptError::Conflict);
+                }
+                let mutation = packet_mutation
+                    .as_ref()
+                    .ok_or(RecommendationAcceptError::Conflict)?;
+                workspace
+                    .recommendation_store
+                    .begin_execution_checked(
+                        id,
+                        session_id.to_string(),
+                        chrono::Utc::now().to_rfc3339(),
+                        mutation,
+                        "user".into(),
+                    )
+                    .map_err(RecommendationAcceptError::Store)?
+                    .ok_or(RecommendationAcceptError::Conflict)?;
+                format!("{}\r", packet.action.prompt.trim_end_matches('\r'))
+            } else {
+                let prompt = prompt_override
+                    .map(|prompt| ensure_recommendation_handoff_contract(prompt, &recommendation))
+                    .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
+                workspace
+                    .recommendation_store
+                    .begin_execution(id, session_id.to_string(), chrono::Utc::now().to_rfc3339())
+                    .map_err(RecommendationAcceptError::Store)?
+                    .ok_or(RecommendationAcceptError::Conflict)?;
+                prompt
+            };
             (prompt, recommendation.title.clone())
         };
 
@@ -837,6 +934,16 @@ impl SessionApplication {
         session_id: &str,
         summary: Option<String>,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationCompleteError> {
+        self.complete_recommendation_with_packet(id, session_id, summary, None)
+    }
+
+    pub(crate) fn complete_recommendation_with_packet(
+        &self,
+        id: &str,
+        session_id: &str,
+        summary: Option<String>,
+        packet_mutation: Option<CompletionMutationRequest>,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationCompleteError> {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard
             .as_ref()
@@ -855,7 +962,48 @@ impl SessionApplication {
             return Err(RecommendationCompleteError::Conflict);
         }
 
-        // A retry after the agent has already reported completion is safe and
+        if existing.completion_packet.is_some() {
+            let mutation = packet_mutation
+                .as_ref()
+                .ok_or(RecommendationCompleteError::Conflict)?;
+            let completed = workspace
+                .recommendation_store
+                .complete_accepted_checked(id, chrono::Utc::now().to_rfc3339(), mutation)
+                .map_err(RecommendationCompleteError::Store)?
+                .ok_or(RecommendationCompleteError::Conflict)?;
+            // A retry after the agent has already reported completion is safe
+            // only when it carries the same packet revision, evidence
+            // fingerprint, and idempotency key.
+            if existing.status == RecommendationStatus::Completed {
+                return Ok(Some(completed));
+            }
+            let event = metadata::Event {
+                event_type: "taskmaster_fix_completed".into(),
+                timestamp: iso_now(),
+                status: "working".into(),
+                observed_status: Some("working".into()),
+                confidence: None,
+                summary: Some(summary.unwrap_or_else(|| "Taskmaster fix completed.".into())),
+                source: Some("agent".into()),
+                recommendation_id: Some(id.to_string()),
+            };
+            if let Err(error) = workspace.metadata.try_append_event(session_id, &event) {
+                if let Err(rollback_error) = workspace.recommendation_store.put(&existing) {
+                    tracing::error!(
+                        recommendation_id = %id,
+                        %error,
+                        %rollback_error,
+                        "failed to roll back recommendation after completion event persistence failure"
+                    );
+                }
+                return Err(RecommendationCompleteError::Store(
+                    crate::taskmaster::store::StoreError::Io(error),
+                ));
+            }
+            return Ok(Some(completed));
+        }
+
+        // A retry after an agent has already reported completion is safe and
         // does not append a duplicate history event.
         if existing.status == RecommendationStatus::Completed {
             return Ok(Some(existing));
@@ -2253,6 +2401,14 @@ impl SessionApplication {
             .into_iter()
             .map(|session| session.id)
             .collect::<std::collections::HashSet<_>>();
+        if let Err(error) = recommendation_store
+            .recover_orphaned_packet_executions(&retained_session_ids, iso_now())
+        {
+            tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned completion packets");
+            return Err(SessionError::Internal(
+                "failed to recover orphaned completion packets",
+            ));
+        }
         if let Err(error) = recommendation_store.scrub_orphans(&retained_session_ids) {
             tracing::warn!(path = %global_dir.display(), %error, "failed to scrub orphaned recommendations");
             return Err(SessionError::Internal(
