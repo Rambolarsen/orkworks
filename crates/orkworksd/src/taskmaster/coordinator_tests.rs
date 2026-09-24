@@ -1,4 +1,5 @@
 use super::coordinator::*;
+use super::coordinator_store::{CoordinatorStore, CoordinatorStoreError};
 use chrono::{TimeZone, Utc};
 use serde::Serialize;
 
@@ -93,6 +94,199 @@ fn approval(plan: &PlanProposalInput) -> PlanApproval {
         expires_at: "2099-01-01T00:00:00Z".into(),
         revocation_generation: 0,
         supersedes: None,
+    }
+}
+
+fn stored_path(root: &std::path::Path, revision: u64) -> std::path::PathBuf {
+    root.join("coordinator/plans/plan-1")
+        .join(format!("{revision}.json"))
+}
+
+#[test]
+fn coordinator_store_rejects_stale_activation() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let input = plan();
+    let revision = approved_plan(&input);
+    store.put_proposed(&revision).unwrap();
+    let mut stale = approval(&input);
+    stale.plan_digest = "0".repeat(64);
+    assert!(matches!(
+        store.activate(&stale),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().status,
+        PlanStatus::Proposed
+    );
+    assert_eq!(
+        store.activate(&approval(&input)).unwrap().status,
+        PlanStatus::Active
+    );
+    assert!(matches!(
+        store.activate(&approval(&input)),
+        Err(CoordinatorStoreError::Stale)
+    ));
+}
+
+#[test]
+fn coordinator_store_round_trips_and_rejects_conflicting_revision() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let input = plan();
+    let revision = approved_plan(&input);
+    store.put_proposed(&revision).unwrap();
+    assert!(stored_path(root.path(), 1).exists());
+    assert_eq!(store.get("missing", 1).unwrap(), None);
+    let record = store.get("plan-1", 1).unwrap().unwrap();
+    assert_eq!(record.plan, revision);
+    let before = std::fs::read(stored_path(root.path(), 1)).unwrap();
+    let mut other = input;
+    other.nodes[0].task.push('!');
+    assert!(matches!(
+        store.put_proposed(&approved_plan(&other)),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(std::fs::read(stored_path(root.path(), 1)).unwrap(), before);
+}
+
+#[test]
+fn coordinator_store_rejects_corrupt_records_without_deleting_them() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    store.put_proposed(&approved_plan(&plan())).unwrap();
+    let path = stored_path(root.path(), 1);
+    let original = std::fs::read(&path).unwrap();
+    for corrupt in [b"{bad json".to_vec(), vec![b' '; 2 * 1024 * 1024 + 8193], {
+        let mut value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        value["unknown"] = true.into();
+        serde_json::to_vec(&value).unwrap()
+    }] {
+        std::fs::write(&path, &corrupt).unwrap();
+        assert!(CoordinatorStore::open(root.path().to_path_buf()).is_err());
+        assert!(store.get("plan-1", 1).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), corrupt);
+    }
+}
+
+#[test]
+fn coordinator_store_rejects_inconsistent_approval_state() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    store.activate(&approval(&input)).unwrap();
+    let path = stored_path(root.path(), 1);
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    value["status"] = "proposed".into();
+    let corrupt = serde_json::to_vec(&value).unwrap();
+    std::fs::write(&path, &corrupt).unwrap();
+    assert!(CoordinatorStore::open(root.path().to_path_buf()).is_err());
+    assert!(store.activate(&approval(&input)).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), corrupt);
+}
+
+#[test]
+fn coordinator_store_recovers_abandoned_temp_without_publishing_it() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    store.put_proposed(&approved_plan(&plan())).unwrap();
+    let path = stored_path(root.path(), 1);
+    let before = std::fs::read(&path).unwrap();
+    let temp = path.with_extension("json.tmp");
+    std::fs::write(&temp, b"unfinished").unwrap();
+    store.recover().unwrap();
+    assert!(!temp.exists());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().status,
+        PlanStatus::Proposed
+    );
+}
+
+#[test]
+fn coordinator_store_stale_transition_preserves_external_record() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let path = stored_path(root.path(), 1);
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    value["status"] = "recovery_required".into();
+    let external = serde_json::to_vec(&value).unwrap();
+    std::fs::write(&path, &external).unwrap();
+    assert!(matches!(
+        store.transition(
+            "plan-1",
+            1,
+            &input.compute_plan_digest().unwrap(),
+            PlanStatus::Active
+        ),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), external);
+}
+
+#[test]
+fn coordinator_store_superseded_approval_and_revoked_transition_fail_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+    let first = plan();
+    store.put_proposed(&approved_plan(&first)).unwrap();
+    let mut second = first.clone();
+    second.revision = 2;
+    second.supersedes = Some("approval-1".into());
+    store.put_proposed(&approved_plan(&second)).unwrap();
+    let mut old = approval(&first);
+    old.revision = 1;
+    assert!(matches!(
+        store.activate(&old),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    let mut current = approval(&second);
+    current.supersedes = second.supersedes.clone();
+    store.activate(&current).unwrap();
+    let digest = second.compute_plan_digest().unwrap();
+    store
+        .transition("plan-1", 2, &digest, PlanStatus::Revoked)
+        .unwrap();
+    let before = std::fs::read(stored_path(root.path(), 2)).unwrap();
+    assert!(matches!(
+        store.transition("plan-1", 2, &digest, PlanStatus::Active),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(std::fs::read(stored_path(root.path(), 2)).unwrap(), before);
+}
+
+#[test]
+fn coordinator_store_terminal_and_recovery_states_cannot_reactivate() {
+    for terminal in [
+        PlanStatus::Completed,
+        PlanStatus::Failed,
+        PlanStatus::Cancelled,
+        PlanStatus::Revoked,
+        PlanStatus::RecoveryRequired,
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let store = CoordinatorStore::open(root.path().to_path_buf()).unwrap();
+        let input = plan();
+        store.put_proposed(&approved_plan(&input)).unwrap();
+        let approval = approval(&input);
+        store.activate(&approval).unwrap();
+        let digest = input.compute_plan_digest().unwrap();
+        store.transition("plan-1", 1, &digest, terminal).unwrap();
+        let before = std::fs::read(stored_path(root.path(), 1)).unwrap();
+        assert!(matches!(
+            store.activate(&approval),
+            Err(CoordinatorStoreError::Stale)
+        ));
+        assert!(matches!(
+            store.transition("plan-1", 1, &digest, PlanStatus::Active),
+            Err(CoordinatorStoreError::Stale)
+        ));
+        assert_eq!(std::fs::read(stored_path(root.path(), 1)).unwrap(), before);
     }
 }
 

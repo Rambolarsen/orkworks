@@ -3,6 +3,7 @@ pub(crate) mod completion;
 pub(crate) mod completion_tests;
 pub(crate) mod context;
 pub(crate) mod coordinator;
+pub(crate) mod coordinator_store;
 #[cfg(test)]
 mod coordinator_tests;
 pub(crate) mod evaluator;
