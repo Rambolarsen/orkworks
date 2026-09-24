@@ -2,6 +2,10 @@ pub(crate) mod completion;
 #[cfg(test)]
 pub(crate) mod completion_tests;
 pub(crate) mod context;
+pub(crate) mod coordinator;
+pub(crate) mod coordinator_store;
+#[cfg(test)]
+mod coordinator_tests;
 pub(crate) mod evaluator;
 pub(crate) mod inference_approval;
 pub(crate) mod inference_trust;
