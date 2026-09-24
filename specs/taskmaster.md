@@ -196,7 +196,9 @@ Coordinator implementation is explicitly deferred behind a separate design
 gate tracked by [issue #604](https://github.com/Rambolarsen/orkworks/issues/604)
 and [ADR 0063](../docs/adr/0063-bounded-taskmaster-coordinator.md). This
 section records the proposed boundary; it does not expand v1 scope or
-authorize coordinator code.
+authorize coordinator code. Approval of the design gate authorizes only a
+separate implementation plan and its review; it does not authorize child APIs
+or runtime launches.
 
 If the gate is approved, Taskmaster may execute a user-approved, immutable
 root-plan revision represented as a bounded DAG of child tasks. A plan declares
@@ -207,22 +209,28 @@ workspace, plan revision, evidence fingerprint, expiry, and revocation
 generation.
 
 The server issues an opaque coordinator capability and per-child lease
-capabilities. A parent may grant or revoke tools at runtime only from the
-already-approved envelope and without exceeding the total scoped authority,
-budget, retries, or concurrency. A child may request missing capabilities;
-requests outside that envelope require a new plan revision and renewed user
-approval. Children may edit files and run bounded commands in their assigned
-scope, but default roles do not grant Git mutation, merge approval,
-credentials, permission changes, destructive actions, scope expansion, or
-implicit delegation.
+capabilities bound to canonical plan/evidence digests, approval identity, and
+the workspace. A parent may grant or revoke tools at runtime only from the
+already-approved, explicitly grantable envelope and without exceeding the
+total scoped authority, budget, retries, or concurrency. A child may request
+missing capabilities through a structured, server-validated insufficiency
+report; requests outside that envelope require a new plan revision and renewed
+user approval. Server-enforced hard denials apply to every role and arbitrary
+command path: children may edit files and run bounded commands in their
+assigned scope, but they never receive Git mutation, merge approval,
+credentials, permission changes, destructive actions, scope expansion, provider
+substitution, or implicit delegation.
 
 Plan revisions are immutable. Graph cycles, duplicate logical spawns, invalid
 dependencies, stale or late results, and ambiguous crash recovery fail closed.
-Dependent nodes launch only after required dependencies succeed; failure,
+Dependent nodes launch only after required dependencies have machine-validated
+terminal success; `ready_for_user_review` is nonterminal. Failure,
 cancellation, conflict, or orphaning blocks descendants and escalates to the
-parent. Launches, grants, retries, cancellations, reports, and recovery are
-authenticated, version-checked, strict, and idempotent. The coordinator must
-preserve lineage and evidence and cannot infer user approval from silence or
+parent. Canonical resource scopes reject unsafe shared-workspace overlap.
+Launches, grants, retries, cancellations, reports, and recovery are
+authenticated, version-checked, strict, and idempotent, with durable launch
+acknowledgements and crash-safe orphan handling. The coordinator must preserve
+lineage and redacted evidence and cannot infer user approval from silence or
 from `ready_for_user_review`.
 
 Product and architecture decisions, credentials or permissions, destructive
