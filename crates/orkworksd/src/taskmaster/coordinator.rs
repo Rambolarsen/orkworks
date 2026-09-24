@@ -371,6 +371,11 @@ impl PlanRevision {
         plan.plan_digest = plan.compute_plan_digest()?;
         plan.evidence_digest = plan.compute_evidence_digest()?;
         plan.validate()?;
+        let serialized = serde_json::to_vec(&plan)
+            .map_err(|e| CoordinatorError::Serialization(e.to_string()))?;
+        if serialized.len() > MAX_PERSISTED_REVISION_BYTES {
+            return Err(CoordinatorError::Invalid("persisted revision size"));
+        }
         Ok(plan)
     }
 

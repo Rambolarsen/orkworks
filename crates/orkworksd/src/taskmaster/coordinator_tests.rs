@@ -580,3 +580,42 @@ fn persisted_revision_rejects_tampering_unknown_fields_and_bad_version() {
         );
     }
 }
+
+fn many_nodes(count: usize) -> PlanProposalInput {
+    let mut input = plan();
+    let template = input.nodes[0].clone();
+    input.nodes = (0..count)
+        .map(|index| {
+            let mut node = template.clone();
+            node.id = format!("node-{index}");
+            node.task = "x".repeat(16 * 1024);
+            node
+        })
+        .collect();
+    input.total_budget_units = count as u64;
+    input
+}
+
+#[test]
+fn valid_large_revision_round_trips_below_record_limit() {
+    let revision = PlanRevision::from_proposal(many_nodes(100)).unwrap();
+    let bytes = serde_json::to_vec(&revision).unwrap();
+    assert!(bytes.len() > 1_000_000, "{}", bytes.len());
+    assert!(bytes.len() <= 2 * 1024 * 1024, "{}", bytes.len());
+    assert_eq!(
+        PlanRevision::from_persisted_bytes(&bytes).unwrap(),
+        revision
+    );
+}
+
+#[test]
+fn oversized_revision_is_rejected_at_creation() {
+    let input = many_nodes(128);
+    let encoded_proposal = serde_json::to_vec(&input).unwrap();
+    assert!(
+        encoded_proposal.len() > 2 * 1024 * 1024,
+        "{}",
+        encoded_proposal.len()
+    );
+    assert!(PlanRevision::from_proposal(input).is_err());
+}
