@@ -1,4 +1,11 @@
-import type { Impact, TargetSurface, WorkflowObservationEvidence, WorkflowRecommendation } from "./api.ts";
+import type {
+  CompletionPacket,
+  Impact,
+  PacketReadiness,
+  TargetSurface,
+  WorkflowObservationEvidence,
+  WorkflowRecommendation,
+} from "./api.ts";
 
 export function formatImpact(impact: Impact): string {
   return impact[0].toUpperCase() + impact.slice(1);
@@ -6,6 +13,30 @@ export function formatImpact(impact: Impact): string {
 
 export function formatTargetSurface(surface: TargetSurface): string {
   return surface[0].toUpperCase() + surface.slice(1);
+}
+
+export function formatPacketReadiness(readiness: PacketReadiness): string {
+  return readiness
+    .split("_")
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function formatPacketEvidence(packet: CompletionPacket): string {
+  const pathCount = packet.subject.changedPaths.length;
+  return `Source session ${packet.sourceSessionId} · Snapshot ${packet.subject.snapshotId} · ${pathCount} changed path${pathCount === 1 ? "" : "s"}`;
+}
+
+export function buildCompletionPacketAcceptOptions(packet: CompletionPacket): {
+  packetRevision: number;
+  evidenceFingerprint: string;
+  idempotencyKey: string;
+} {
+  return {
+    packetRevision: packet.revision,
+    evidenceFingerprint: packet.evidenceFingerprint,
+    idempotencyKey: `packet-accept-${packet.revision}-${packet.evidenceFingerprint}`,
+  };
 }
 
 export function formatRecurrence(recommendation: WorkflowRecommendation): string {

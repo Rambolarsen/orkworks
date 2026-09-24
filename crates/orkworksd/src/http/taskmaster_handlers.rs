@@ -2,8 +2,9 @@ use crate::http::ErrorResponse;
 use crate::runtime::terminal_runtime::{record_report_attempt, workflow_report_session_for_token};
 use crate::session_application::{
     RecommendationAcceptError, RecommendationCompleteError, RecommendationDismissError,
-    RecommendationQueryError, SessionApplication,
+    RecommendationPacketError, RecommendationQueryError, SessionApplication,
 };
+use crate::taskmaster::completion::CompletionMutationRequest;
 use crate::taskmaster::store::StoreError;
 use crate::taskmaster::Recommendation;
 use crate::AppState;
@@ -36,6 +37,8 @@ pub(crate) struct AcceptRequest {
     session_id: String,
     #[serde(default)]
     prompt: Option<String>,
+    #[serde(flatten)]
+    packet_mutation: Option<CompletionMutationRequest>,
 }
 
 #[derive(Deserialize)]
@@ -43,6 +46,8 @@ pub(crate) struct AcceptRequest {
 pub(crate) struct CompleteRequest {
     #[serde(default)]
     summary: Option<String>,
+    #[serde(flatten)]
+    packet_mutation: Option<CompletionMutationRequest>,
 }
 
 const MAX_COMPLETION_SUMMARY_CHARS: usize = 2_000;
@@ -86,8 +91,14 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn store_error(error: StoreError) -> Response {
-    if matches!(error, StoreError::InvalidTransition) {
+    if matches!(
+        error,
+        StoreError::InvalidTransition | StoreError::StalePacket { .. }
+    ) {
         return StatusCode::CONFLICT.into_response();
+    }
+    if matches!(error, StoreError::GraphInvariant(_)) {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -96,6 +107,34 @@ fn store_error(error: StoreError) -> Response {
         }),
     )
         .into_response()
+}
+
+pub(crate) async fn report_completion_packet(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Some(token) = bearer_token(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let Some(session_id) = workflow_report_session_for_token(token) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    if !record_report_attempt(&session_id) {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    let Ok(packet) =
+        serde_json::from_slice::<crate::taskmaster::completion::CompletionPacket>(&body)
+    else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    match SessionApplication::new(state).report_completion_packet(&id, &session_id, packet) {
+        Ok(Some(recommendation)) => Json(recommendation).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(RecommendationPacketError::Conflict) => StatusCode::CONFLICT.into_response(),
+        Err(RecommendationPacketError::Store(error)) => store_error(error),
+    }
 }
 
 pub(crate) async fn list_recommendations(State(state): State<Arc<AppState>>) -> Response {
@@ -148,8 +187,20 @@ pub(crate) async fn accept_recommendation(
     Path(id): Path<String>,
     Json(request): Json<AcceptRequest>,
 ) -> Response {
+    if request
+        .packet_mutation
+        .as_ref()
+        .is_some_and(|mutation| mutation.validate().is_err())
+    {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
     match SessionApplication::new(state)
-        .accept_recommendation(&id, &request.session_id, request.prompt)
+        .accept_recommendation_with_packet(
+            &id,
+            &request.session_id,
+            request.prompt,
+            request.packet_mutation,
+        )
         .await
     {
         Ok(Some(recommendation)) => Json(recommendation).into_response(),
@@ -175,14 +226,20 @@ pub(crate) async fn complete_recommendation(
     if !record_report_attempt(&session_id) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
-    let summary = if body.is_empty() {
-        None
+    let (summary, packet_mutation) = if body.is_empty() {
+        (None, None)
     } else {
         let Ok(request) = serde_json::from_slice::<CompleteRequest>(&body) else {
             return StatusCode::BAD_REQUEST.into_response();
         };
-        request.summary
+        (request.summary, request.packet_mutation)
     };
+    if packet_mutation
+        .as_ref()
+        .is_some_and(|mutation| mutation.validate().is_err())
+    {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
     if summary
         .as_deref()
         .is_some_and(|value| value.chars().count() > MAX_COMPLETION_SUMMARY_CHARS)
@@ -190,7 +247,12 @@ pub(crate) async fn complete_recommendation(
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
 
-    match SessionApplication::new(state).complete_recommendation(&id, &session_id, summary) {
+    match SessionApplication::new(state).complete_recommendation_with_packet(
+        &id,
+        &session_id,
+        summary,
+        packet_mutation,
+    ) {
         Ok(Some(recommendation)) => Json(recommendation).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(RecommendationCompleteError::Conflict) => StatusCode::CONFLICT.into_response(),
@@ -267,6 +329,7 @@ mod tests {
                 supersedes_recommendation_id: None,
                 dismissal_watermark: None,
             },
+            completion_packet: None,
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,
@@ -398,6 +461,92 @@ mod tests {
             .status(),
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    #[tokio::test]
+    async fn completion_packet_report_requires_a_valid_token_and_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        assert_eq!(
+            report_completion_packet(
+                State(state.clone()),
+                Path("missing".into()),
+                HeaderMap::new(),
+                Bytes::new(),
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        set_workflow_report_token("packet-source", "packet-token".into());
+        let response = report_completion_packet(
+            State(state),
+            Path("missing".into()),
+            authorization("packet-token"),
+            Bytes::from_static(br#"{"notACompletionPacket":true}"#),
+        )
+        .await;
+        clear_workflow_report_token("packet-source");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn completion_packet_report_binds_packet_to_the_source_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let recommendation = recommendation_fixture(
+            "packet-report",
+            RecommendationStatus::Proposed,
+            "packet-source",
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&recommendation)
+            .unwrap();
+
+        set_workflow_report_token("other-source", "other-token".into());
+        let mut packet = crate::taskmaster::completion_tests::test_packet();
+        packet.source_session_id = "packet-source".into();
+        packet.provenance.source_session_id = "packet-source".into();
+        packet.evidence_fingerprint = packet.computed_evidence_fingerprint();
+        let response = report_completion_packet(
+            State(state.clone()),
+            Path("packet-report".into()),
+            authorization("other-token"),
+            Bytes::from(serde_json::to_vec(&packet).unwrap()),
+        )
+        .await;
+        clear_workflow_report_token("other-source");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
+        set_workflow_report_token("packet-source", "packet-token".into());
+        let response = report_completion_packet(
+            State(state.clone()),
+            Path("packet-report".into()),
+            authorization("packet-token"),
+            Bytes::from(serde_json::to_vec(&packet).unwrap()),
+        )
+        .await;
+        clear_workflow_report_token("packet-source");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get("packet-report")
+            .unwrap()
+            .unwrap()
+            .completion_packet
+            .is_some());
     }
 
     #[tokio::test]
@@ -667,6 +816,7 @@ mod tests {
             Json(AcceptRequest {
                 session_id: "unrelated-session".into(),
                 prompt: Some("attempted mutation".into()),
+                packet_mutation: None,
             }),
         )
         .await;
@@ -713,6 +863,7 @@ mod tests {
             Json(AcceptRequest {
                 session_id: "no-session".into(),
                 prompt: None,
+                packet_mutation: None,
             }),
         )
         .await;
@@ -766,6 +917,7 @@ mod tests {
             Json(AcceptRequest {
                 session_id: "no-such-session".into(),
                 prompt: None,
+                packet_mutation: None,
             }),
         )
         .await;
@@ -841,6 +993,7 @@ mod tests {
             Json(AcceptRequest {
                 session_id: "some-other-session".into(),
                 prompt: None,
+                packet_mutation: None,
             }),
         )
         .await;

@@ -1,3 +1,4 @@
+use super::completion::CompletionMutationRequest;
 use super::rollup::stable_rollup_id;
 use super::{DismissalWatermark, Recommendation, RecommendationStatus, RecommendationType};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,7 @@ pub(crate) enum StoreError {
     Json(serde_json::Error),
     InvalidTransition,
     StaleExpectedHash { id: String },
+    StalePacket { id: String },
     GraphInvariant(String),
     Recovery(String),
 }
@@ -33,6 +35,9 @@ impl std::fmt::Display for StoreError {
             }
             Self::StaleExpectedHash { id } => {
                 write!(f, "recommendation file changed since it was read: {id}")
+            }
+            Self::StalePacket { id } => {
+                write!(f, "completion packet changed since it was read: {id}")
             }
             Self::GraphInvariant(message) => write!(f, "recommendation graph invariant: {message}"),
             Self::Recovery(message) => write!(f, "recommendation recovery unavailable: {message}"),
@@ -171,9 +176,11 @@ impl RecommendationStore {
         }
         let path = self.path_for(id);
         match fs::read_to_string(path) {
-            Ok(json) => serde_json::from_str(&json)
-                .map(Some)
-                .map_err(StoreError::Json),
+            Ok(json) => {
+                let recommendation = serde_json::from_str(&json).map_err(StoreError::Json)?;
+                validate_recommendation(&recommendation)?;
+                Ok(Some(recommendation))
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(StoreError::Io(error)),
         }
@@ -181,6 +188,7 @@ impl RecommendationStore {
 
     pub(crate) fn put(&self, recommendation: &Recommendation) -> Result<(), StoreError> {
         self.recover_transactions()?;
+        validate_recommendation(recommendation)?;
         let json = serde_json::to_vec_pretty(recommendation).map_err(StoreError::Json)?;
         let path = self.path_for(&recommendation.id);
         let temp = path.with_extension("json.tmp");
@@ -510,6 +518,10 @@ impl RecommendationStore {
         recommendation.status = RecommendationStatus::Dismissed;
         recommendation.updated_at = dismissed_at;
         recommendation.workflow_improvement.dismissal_watermark = Some(watermark);
+        if let Some(packet) = recommendation.completion_packet.as_mut() {
+            packet.approval = None;
+            packet.completion_idempotency_key = None;
+        }
         self.put(&recommendation)?;
         Ok(Some(recommendation))
     }
@@ -535,6 +547,47 @@ impl RecommendationStore {
         {
             return Err(StoreError::InvalidTransition);
         }
+        recommendation.status = RecommendationStatus::Executing;
+        recommendation.target_session_id = Some(target_session_id);
+        recommendation.updated_at = started_at;
+        self.put(&recommendation)?;
+        Ok(Some(recommendation))
+    }
+
+    pub(crate) fn begin_execution_checked(
+        &self,
+        id: &str,
+        target_session_id: String,
+        started_at: String,
+        mutation: &CompletionMutationRequest,
+        approver: String,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        mutation.validate().map_err(StoreError::GraphInvariant)?;
+        let Some(mut recommendation) = self.get(id)? else {
+            return Ok(None);
+        };
+        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+            || recommendation.status != RecommendationStatus::Proposed
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        let Some(packet) = recommendation.completion_packet.as_mut() else {
+            return Err(StoreError::InvalidTransition);
+        };
+        if packet.revision != mutation.packet_revision
+            || packet.evidence_fingerprint != mutation.evidence_fingerprint
+        {
+            return Err(StoreError::StalePacket { id: id.into() });
+        }
+        packet.approval = Some(super::completion::CompletionApproval {
+            approved_at: started_at.clone(),
+            approver,
+            revision: packet.revision,
+            evidence_fingerprint: packet.evidence_fingerprint.clone(),
+            action_fingerprint: packet.action_fingerprint(),
+            idempotency_key: mutation.idempotency_key.clone(),
+        });
+        packet.completion_idempotency_key = None;
         recommendation.status = RecommendationStatus::Executing;
         recommendation.target_session_id = Some(target_session_id);
         recommendation.updated_at = started_at;
@@ -583,6 +636,53 @@ impl RecommendationStore {
         Ok(Some(recommendation))
     }
 
+    pub(crate) fn complete_accepted_checked(
+        &self,
+        id: &str,
+        completed_at: String,
+        mutation: &CompletionMutationRequest,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        mutation.validate().map_err(StoreError::GraphInvariant)?;
+        let Some(mut recommendation) = self.get(id)? else {
+            return Ok(None);
+        };
+        let Some(packet) = recommendation.completion_packet.as_mut() else {
+            return Err(StoreError::InvalidTransition);
+        };
+        if packet.revision != mutation.packet_revision
+            || packet.evidence_fingerprint != mutation.evidence_fingerprint
+        {
+            return Err(StoreError::StalePacket { id: id.into() });
+        }
+        if recommendation.status == RecommendationStatus::Completed {
+            return if packet.completion_idempotency_key.as_deref()
+                == Some(mutation.idempotency_key.as_str())
+            {
+                Ok(Some(recommendation))
+            } else {
+                Err(StoreError::StalePacket { id: id.into() })
+            };
+        }
+        if packet
+            .approval
+            .as_ref()
+            .is_none_or(|approval| approval.idempotency_key != mutation.idempotency_key)
+        {
+            return Err(StoreError::StalePacket { id: id.into() });
+        }
+        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
+            || recommendation.status != RecommendationStatus::Accepted
+            || packet.approval.is_none()
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        packet.completion_idempotency_key = Some(mutation.idempotency_key.clone());
+        recommendation.status = RecommendationStatus::Completed;
+        recommendation.updated_at = completed_at;
+        self.put(&recommendation)?;
+        Ok(Some(recommendation))
+    }
+
     /// Rolls a reservation back to `Proposed` after the PTY write fails, so
     /// the user can retry rather than being stuck.
     pub(crate) fn cancel_execution(
@@ -600,9 +700,148 @@ impl RecommendationStore {
         }
         recommendation.status = RecommendationStatus::Proposed;
         recommendation.target_session_id = None;
+        if let Some(packet) = recommendation.completion_packet.as_mut() {
+            packet.approval = None;
+            packet.completion_idempotency_key = None;
+        }
         recommendation.updated_at = cancelled_at;
         self.put(&recommendation)?;
         Ok(Some(recommendation))
+    }
+
+    /// Replaces the evidence/action projection with a new immutable packet
+    /// revision. The previous packet remains auditable through lineage, while
+    /// any approval or completion capability is invalidated and the
+    /// recommendation returns to the user-approvable proposed state.
+    pub(crate) fn replace_completion_packet(
+        &self,
+        id: &str,
+        expected_revision: u64,
+        mut replacement: super::completion::CompletionPacket,
+        updated_at: String,
+    ) -> Result<Option<Recommendation>, StoreError> {
+        self.recover_transactions()?;
+        let stored = self.read_all_stored_by_id()?;
+        let Some(current_record) = stored.get(id) else {
+            return Ok(None);
+        };
+        let current = &current_record.recommendation;
+        if current.recommendation_type != RecommendationType::ImproveWorkflow
+            || !matches!(
+                current.status,
+                RecommendationStatus::Proposed
+                    | RecommendationStatus::Executing
+                    | RecommendationStatus::Accepted
+            )
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        let Some(old_packet) = current.completion_packet.as_ref() else {
+            return Err(StoreError::InvalidTransition);
+        };
+        if old_packet.revision != expected_revision
+            || replacement.revision != old_packet.revision.saturating_add(1)
+            || replacement.packet_id == old_packet.packet_id
+        {
+            return Err(StoreError::StalePacket { id: id.into() });
+        }
+
+        let mut lineage = old_packet.lineage.clone();
+        lineage.push(super::completion::CompletionPacketLineage {
+            packet_id: old_packet.packet_id.clone(),
+            revision: old_packet.revision,
+            evidence_fingerprint: old_packet.evidence_fingerprint.clone(),
+            superseded_at: updated_at.clone(),
+        });
+        replacement.supersedes_packet_id = Some(old_packet.packet_id.clone());
+        replacement.lineage = lineage;
+        replacement.approval = None;
+        replacement.completion_idempotency_key = None;
+
+        let mut next = current.clone();
+        next.status = RecommendationStatus::Proposed;
+        next.target_session_id = None;
+        next.updated_at = updated_at;
+        next.completion_packet = Some(replacement);
+        validate_recommendation(&next)?;
+        let mut preview = stored
+            .iter()
+            .map(|(record_id, record)| (record_id.clone(), record.recommendation.clone()))
+            .collect::<BTreeMap<_, _>>();
+        preview.insert(id.into(), next.clone());
+        validate_graph_records(&preview.values().cloned().collect::<Vec<_>>())?;
+
+        let expected = BTreeMap::from([(id.into(), Some(current_record.hash.clone()))]);
+        let replacements = BTreeMap::from([(
+            id.into(),
+            Replacement {
+                old: Some(current_record.bytes.clone()),
+                new: Some(serde_json::to_vec_pretty(&next).map_err(StoreError::Json)?),
+            },
+        )]);
+        self.commit_replacements(&expected, replacements)?;
+        Ok(Some(next))
+    }
+
+    /// Recover accepted/executing packet recommendations whose target session
+    /// disappeared before reporting a result. Evidence remains intact and a
+    /// new explicit user approval is required for a retry.
+    pub(crate) fn recover_orphaned_packet_executions(
+        &self,
+        retained_session_ids: &HashSet<String>,
+        recovered_at: String,
+    ) -> Result<Vec<String>, StoreError> {
+        self.recover_transactions()?;
+        let stored = self.read_all_stored_by_id()?;
+        let mut expected = BTreeMap::new();
+        let mut replacements = BTreeMap::new();
+        let mut recovered = Vec::new();
+        let mut preview = stored
+            .iter()
+            .map(|(id, record)| (id.clone(), record.recommendation.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        for (id, record) in &stored {
+            let recommendation = &record.recommendation;
+            let Some(target_session_id) = recommendation.target_session_id.as_deref() else {
+                continue;
+            };
+            if !recommendation.completion_packet.as_ref().is_some_and(|_| {
+                matches!(
+                    recommendation.status,
+                    RecommendationStatus::Executing | RecommendationStatus::Accepted
+                )
+            }) || retained_session_ids.contains(target_session_id)
+            {
+                continue;
+            }
+            let mut next = recommendation.clone();
+            next.status = RecommendationStatus::Proposed;
+            next.target_session_id = None;
+            next.updated_at = recovered_at.clone();
+            if let Some(packet) = next.completion_packet.as_mut() {
+                packet.approval = None;
+                packet.completion_idempotency_key = None;
+            }
+            validate_recommendation(&next)?;
+            expected.insert(id.clone(), Some(record.hash.clone()));
+            replacements.insert(
+                id.clone(),
+                Replacement {
+                    old: Some(record.bytes.clone()),
+                    new: Some(serde_json::to_vec_pretty(&next).map_err(StoreError::Json)?),
+                },
+            );
+            preview.insert(id.clone(), next);
+            recovered.push(id.clone());
+        }
+
+        if recovered.is_empty() {
+            return Ok(recovered);
+        }
+        validate_graph_records(&preview.values().cloned().collect::<Vec<_>>())?;
+        self.commit_replacements(&expected, replacements)?;
+        Ok(recovered)
     }
 
     pub(crate) fn delete_referencing_session(&self, session_id: &str) -> Result<(), StoreError> {
@@ -691,12 +930,15 @@ impl RecommendationStore {
 
     fn read_path(&self, path: &Path) -> Result<Recommendation, StoreError> {
         let json = fs::read_to_string(path).map_err(StoreError::Io)?;
-        serde_json::from_str(&json).map_err(StoreError::Json)
+        let recommendation = serde_json::from_str(&json).map_err(StoreError::Json)?;
+        validate_recommendation(&recommendation)?;
+        Ok(recommendation)
     }
 
     fn read_stored_path(&self, path: &Path) -> Result<StoredRecommendation, StoreError> {
         let bytes = fs::read(path).map_err(StoreError::Io)?;
         let recommendation = serde_json::from_slice(&bytes).map_err(StoreError::Json)?;
+        validate_recommendation(&recommendation)?;
         Ok(StoredRecommendation {
             recommendation,
             hash: hash_bytes(&bytes),
@@ -1307,6 +1549,36 @@ fn recommendation_filename(id: &str) -> String {
     format!("{}.json", filename_component(id))
 }
 
+fn validate_recommendation(recommendation: &Recommendation) -> Result<(), StoreError> {
+    if let Some(packet) = &recommendation.completion_packet {
+        packet
+            .validate(&recommendation.workspace_id)
+            .map_err(StoreError::GraphInvariant)?;
+        if recommendation.source_session_ids.len() != 1
+            || recommendation.source_session_ids[0] != packet.source_session_id
+        {
+            return Err(StoreError::GraphInvariant(
+                "completion packet must have one matching source session".into(),
+            ));
+        }
+        let approval_required = matches!(
+            recommendation.status,
+            RecommendationStatus::Executing
+                | RecommendationStatus::Accepted
+                | RecommendationStatus::Completed
+        );
+        if packet.approval.is_some() != approval_required
+            || packet.completion_idempotency_key.is_some()
+                != (recommendation.status == RecommendationStatus::Completed)
+        {
+            return Err(StoreError::GraphInvariant(
+                "completion packet approval does not match recommendation lifecycle".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn transaction_staged_path(id: &str) -> String {
     format!("staged/{}.json", filename_component(id))
 }
@@ -1568,6 +1840,7 @@ mod tests {
                 supersedes_recommendation_id: None,
                 dismissal_watermark: None,
             },
+            completion_packet: None,
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,
@@ -1612,6 +1885,24 @@ mod tests {
             .collect()
     }
 
+    fn packet_recommendation() -> Recommendation {
+        let mut recommendation = recommendation("packet-recommendation", "session-source");
+        recommendation.completion_packet = Some(crate::taskmaster::completion_tests::test_packet());
+        recommendation
+    }
+
+    fn packet_mutation(
+        recommendation: &Recommendation,
+        key: &str,
+    ) -> super::super::completion::CompletionMutationRequest {
+        let packet = recommendation.completion_packet.as_ref().unwrap();
+        super::super::completion::CompletionMutationRequest {
+            packet_revision: packet.revision,
+            evidence_fingerprint: packet.evidence_fingerprint.clone(),
+            idempotency_key: key.into(),
+        }
+    }
+
     #[test]
     fn persists_canonical_json_and_reloads_after_restart() {
         let dir = tempfile::tempdir().unwrap();
@@ -1634,6 +1925,243 @@ mod tests {
                 .unwrap(),
             Some(original)
         );
+    }
+
+    #[test]
+    fn put_rejects_a_tampered_completion_packet() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let mut recommendation = packet_recommendation();
+        recommendation
+            .completion_packet
+            .as_mut()
+            .unwrap()
+            .evidence_fingerprint = "forged".into();
+
+        assert!(matches!(
+            store.put(&recommendation),
+            Err(StoreError::GraphInvariant(message)) if message.contains("completion packet")
+        ));
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn packet_execution_requires_current_revision_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let recommendation = packet_recommendation();
+        store.put(&recommendation).unwrap();
+        let mutation = packet_mutation(&recommendation, "accept-1");
+
+        let mut stale = mutation.clone();
+        stale.packet_revision += 1;
+        assert!(matches!(
+            store.begin_execution_checked(
+                "packet-recommendation",
+                "session-target".into(),
+                "2026-09-24T10:05:00Z".into(),
+                &stale,
+                "user".into(),
+            ),
+            Err(StoreError::StalePacket { .. })
+        ));
+        assert_eq!(
+            store.get("packet-recommendation").unwrap().unwrap().status,
+            RecommendationStatus::Proposed
+        );
+
+        store
+            .begin_execution_checked(
+                "packet-recommendation",
+                "session-target".into(),
+                "2026-09-24T10:05:00Z".into(),
+                &mutation,
+                "user".into(),
+            )
+            .unwrap();
+        let accepted = store
+            .complete_execution("packet-recommendation", "2026-09-24T10:06:00Z".into())
+            .unwrap()
+            .unwrap();
+        let mut wrong_completion = packet_mutation(&accepted, "complete-1");
+        assert!(matches!(
+            store.complete_accepted_checked(
+                "packet-recommendation",
+                "2026-09-24T10:06:30Z".into(),
+                &wrong_completion,
+            ),
+            Err(StoreError::StalePacket { .. })
+        ));
+        assert_eq!(
+            store.get("packet-recommendation").unwrap().unwrap().status,
+            RecommendationStatus::Accepted
+        );
+        let completion = packet_mutation(&accepted, "accept-1");
+        store
+            .complete_accepted_checked(
+                "packet-recommendation",
+                "2026-09-24T10:07:00Z".into(),
+                &completion,
+            )
+            .unwrap();
+        assert!(store
+            .complete_accepted_checked(
+                "packet-recommendation",
+                "2026-09-24T10:08:00Z".into(),
+                &completion,
+            )
+            .unwrap()
+            .is_some());
+
+        wrong_completion = completion;
+        wrong_completion.idempotency_key = "different-result".into();
+        assert!(matches!(
+            store.complete_accepted_checked(
+                "packet-recommendation",
+                "2026-09-24T10:09:00Z".into(),
+                &wrong_completion,
+            ),
+            Err(StoreError::StalePacket { .. })
+        ));
+    }
+
+    #[test]
+    fn cancelling_packet_execution_clears_approval_for_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let recommendation = packet_recommendation();
+        store.put(&recommendation).unwrap();
+        let mutation = packet_mutation(&recommendation, "accept-cancel");
+        store
+            .begin_execution_checked(
+                "packet-recommendation",
+                "session-target".into(),
+                "2026-09-24T10:05:00Z".into(),
+                &mutation,
+                "user".into(),
+            )
+            .unwrap();
+        store
+            .cancel_execution("packet-recommendation", "2026-09-24T10:06:00Z".into())
+            .unwrap();
+        let retry = store.get("packet-recommendation").unwrap().unwrap();
+        assert_eq!(retry.status, RecommendationStatus::Proposed);
+        assert!(retry.completion_packet.unwrap().approval.is_none());
+    }
+
+    #[test]
+    fn packet_approval_must_match_recommendation_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let mut recommendation = packet_recommendation();
+        let packet = recommendation.completion_packet.as_ref().unwrap().clone();
+        recommendation.completion_packet.as_mut().unwrap().approval =
+            Some(super::super::completion::CompletionApproval {
+                approved_at: "2026-09-24T10:05:00Z".into(),
+                approver: "user".into(),
+                revision: packet.revision,
+                evidence_fingerprint: packet.evidence_fingerprint.clone(),
+                action_fingerprint: packet.action_fingerprint(),
+                idempotency_key: "accept-1".into(),
+            });
+        assert!(matches!(
+            store.put(&recommendation),
+            Err(StoreError::GraphInvariant(message)) if message.contains("lifecycle")
+        ));
+    }
+
+    #[test]
+    fn replacing_packet_invalidates_approval_and_preserves_lineage() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let recommendation = packet_recommendation();
+        store.put(&recommendation).unwrap();
+        let mutation = packet_mutation(&recommendation, "accept-before-edit");
+        store
+            .begin_execution_checked(
+                "packet-recommendation",
+                "session-target".into(),
+                "2026-09-24T10:05:00Z".into(),
+                &mutation,
+                "user".into(),
+            )
+            .unwrap();
+        store
+            .cancel_execution("packet-recommendation", "2026-09-24T10:06:00Z".into())
+            .unwrap();
+
+        let current = store.get("packet-recommendation").unwrap().unwrap();
+        let old_packet = current.completion_packet.clone().unwrap();
+        let mut replacement = old_packet.clone();
+        replacement.packet_id = "packet-2".into();
+        replacement
+            .action
+            .prompt
+            .push_str(" with the updated scope");
+        replacement.revision = old_packet.revision + 1;
+        replacement.evidence_fingerprint = replacement.computed_evidence_fingerprint();
+        replacement.readiness = replacement.derived_readiness();
+
+        let updated = store
+            .replace_completion_packet(
+                "packet-recommendation",
+                old_packet.revision,
+                replacement,
+                "2026-09-24T10:07:00Z".into(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.status, RecommendationStatus::Proposed);
+        assert!(updated.target_session_id.is_none());
+        let packet = updated.completion_packet.unwrap();
+        assert!(packet.approval.is_none());
+        assert_eq!(packet.completion_idempotency_key, None);
+        assert_eq!(packet.supersedes_packet_id.as_deref(), Some("packet-1"));
+        assert_eq!(packet.lineage.len(), 1);
+        assert_eq!(packet.lineage[0].packet_id, "packet-1");
+
+        assert!(matches!(
+            store.replace_completion_packet(
+                "packet-recommendation",
+                old_packet.revision,
+                packet,
+                "2026-09-24T10:08:00Z".into(),
+            ),
+            Err(StoreError::StalePacket { .. })
+        ));
+    }
+
+    #[test]
+    fn orphaned_packet_target_is_recovered_for_user_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let recommendation = packet_recommendation();
+        store.put(&recommendation).unwrap();
+        let mutation = packet_mutation(&recommendation, "accept-orphan");
+        store
+            .begin_execution_checked(
+                "packet-recommendation",
+                "session-missing".into(),
+                "2026-09-24T10:05:00Z".into(),
+                &mutation,
+                "user".into(),
+            )
+            .unwrap();
+        store
+            .complete_execution("packet-recommendation", "2026-09-24T10:06:00Z".into())
+            .unwrap();
+
+        let recovered = store
+            .recover_orphaned_packet_executions(
+                &HashSet::from(["session-source".to_string()]),
+                "2026-09-24T10:07:00Z".into(),
+            )
+            .unwrap();
+        assert_eq!(recovered, vec!["packet-recommendation"]);
+        let recommendation = store.get("packet-recommendation").unwrap().unwrap();
+        assert_eq!(recommendation.status, RecommendationStatus::Proposed);
+        assert!(recommendation.target_session_id.is_none());
+        assert!(recommendation.completion_packet.unwrap().approval.is_none());
     }
 
     #[test]

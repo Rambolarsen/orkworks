@@ -40,7 +40,7 @@ import {
   getProviders,
   acceptTaskmasterRecommendation,
 } from "./api";
-import { buildFixPromptDraft } from "./taskmaster";
+import { buildCompletionPacketAcceptOptions, buildFixPromptDraft } from "./taskmaster";
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
@@ -406,15 +406,18 @@ function App() {
     try {
       if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
       if (!isCurrentHandoff()) return;
-      await acceptTaskmasterRecommendation(recommendation.id, {
-        sessionId: activeSessionId,
-        // build_fix_prompt's backend default ends in \r so it submits as
-        // typed text followed by Enter; since the dialog always sends an
-        // explicit override, that default never applies here, so \r must be
-        // added on this side too. The dialog draft omits it deliberately —
-        // the user shouldn't see or edit a raw carriage return.
-        prompt: `${prompt}\r`,
-      });
+      const packet = recommendation.completionPacket;
+      await acceptTaskmasterRecommendation(recommendation.id, packet
+        ? { sessionId: activeSessionId, ...buildCompletionPacketAcceptOptions(packet) }
+        : {
+          sessionId: activeSessionId,
+          // build_fix_prompt's backend default ends in \r so it submits as
+          // typed text followed by Enter; since the dialog always sends an
+          // explicit override, that default never applies here, so \r must be
+          // added on this side too. The dialog draft omits it deliberately —
+          // the user shouldn't see or edit a raw carriage return.
+          prompt: `${prompt}\r`,
+        });
       if (!isCurrentHandoff()) return;
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");
@@ -835,7 +838,8 @@ function App() {
       )}
       {fixRecommendation && (
         <FixWithAiDialog
-          initialPrompt={buildFixPromptDraft(fixRecommendation)}
+          initialPrompt={fixRecommendation.completionPacket?.action.prompt ?? buildFixPromptDraft(fixRecommendation)}
+          promptReadOnly={Boolean(fixRecommendation.completionPacket)}
           onConfirm={handleConfirmFixWithAi}
           onCancel={() => setFixRecommendation(null)}
         />

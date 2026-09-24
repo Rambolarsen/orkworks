@@ -1,3 +1,6 @@
+pub(crate) mod completion;
+#[cfg(test)]
+pub(crate) mod completion_tests;
 pub(crate) mod context;
 pub(crate) mod evaluator;
 pub(crate) mod inference_approval;
@@ -129,6 +132,8 @@ pub(crate) struct Recommendation {
     pub updated_at: String,
     pub expires_at: Option<String>,
     pub workflow_improvement: WorkflowImprovement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_packet: Option<completion::CompletionPacket>,
     #[serde(default)]
     pub rollup_member_ids: Vec<String>,
     #[serde(default)]
@@ -464,6 +469,7 @@ pub(crate) fn evaluate_workflow_improvements(
                 supersedes_recommendation_id: supersedes,
                 dismissal_watermark: None,
             },
+            completion_packet: None,
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation,
