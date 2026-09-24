@@ -547,14 +547,17 @@ async fn report_harness_session_inner(
             .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
             .map(|handle| handle.runtime.identity());
         if let Some(runtime_identity) = runtime_identity {
-            let refresh_epoch = crate::codex_session_store::reserve_label_refresh_generation(&id);
-            schedule_codex_label_refresh(
-                state,
-                id,
-                native_session_id,
-                runtime_identity,
-                refresh_epoch,
-            );
+            if crate::codex_session_store::accept_native_label_identity(&id, &native_session_id) {
+                let refresh_epoch =
+                    crate::codex_session_store::reserve_label_refresh_generation(&id);
+                schedule_codex_label_refresh(
+                    state,
+                    id,
+                    native_session_id,
+                    runtime_identity,
+                    refresh_epoch,
+                );
+            }
         }
     }
 
@@ -600,6 +603,12 @@ fn schedule_codex_label_refresh(
             let Some(candidate) = candidate else {
                 continue;
             };
+            if crate::codex_session_store::native_label_refresh_is_blocked(
+                &session_id,
+                &native_session_id,
+            ) {
+                return;
+            }
             if SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
                 &session_id,
                 &native_session_id,

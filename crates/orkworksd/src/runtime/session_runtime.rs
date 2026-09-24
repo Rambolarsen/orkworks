@@ -879,13 +879,18 @@ pub(crate) async fn start_session_runtime(
         cmd.env(&key, &value);
     }
 
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    // The capability is installed only once the child has actually spawned;
-    // any earlier `?` return above leaves no capability behind for this
-    // session id. `set_workflow_report_token` overwrites any prior value,
-    // which is exactly the desired "replaced on resume" behavior since
-    // resume re-enters this same function.
     set_workflow_report_token(&id, report_token.clone());
+    let mut child = match pair.slave.spawn_command(cmd) {
+        Ok(child) => child,
+        Err(error) => {
+            clear_workflow_report_token_if_matches(&id, &report_token);
+            return Err(error.to_string());
+        }
+    };
+    // `set_workflow_report_token` overwrites any prior value, which is exactly
+    // the desired "replaced on resume" behavior. It is installed before the
+    // spawn so an immediate SessionStart report can authorize native-label
+    // enrichment; failed spawns clear only this startup's capability.
     let owns_spawned_generation = state
         .sessions
         .lock()

@@ -5,6 +5,8 @@ use std::time::Duration;
 
 static LABEL_REFRESH_GENERATIONS: LazyLock<Mutex<std::collections::HashMap<String, u64>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+static BLOCKED_NATIVE_LABEL_IDS: LazyLock<Mutex<std::collections::HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 pub(crate) fn reserve_label_refresh_generation(session_id: &str) -> u64 {
     let mut generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
@@ -19,6 +21,37 @@ pub(crate) fn invalidate_label_refresh_generation(session_id: &str) {
 
 pub(crate) fn clear_label_refresh_generation(session_id: &str) {
     LABEL_REFRESH_GENERATIONS.lock().unwrap().remove(session_id);
+}
+
+pub(crate) fn block_native_label_refresh(session_id: &str, native_session_id: &str) {
+    BLOCKED_NATIVE_LABEL_IDS
+        .lock()
+        .unwrap()
+        .insert(session_id.to_owned(), native_session_id.to_owned());
+}
+
+pub(crate) fn clear_native_label_refresh_block(session_id: &str) {
+    BLOCKED_NATIVE_LABEL_IDS.lock().unwrap().remove(session_id);
+}
+
+pub(crate) fn native_label_refresh_is_blocked(session_id: &str, native_session_id: &str) -> bool {
+    BLOCKED_NATIVE_LABEL_IDS
+        .lock()
+        .unwrap()
+        .get(session_id)
+        .is_some_and(|blocked| blocked == native_session_id)
+}
+
+pub(crate) fn accept_native_label_identity(session_id: &str, native_session_id: &str) -> bool {
+    let mut blocked = BLOCKED_NATIVE_LABEL_IDS.lock().unwrap();
+    match blocked.get(session_id) {
+        Some(previous) if previous == native_session_id => false,
+        Some(_) => {
+            blocked.remove(session_id);
+            true
+        }
+        None => true,
+    }
 }
 
 pub(crate) fn hold_label_refresh_generation(
@@ -231,5 +264,20 @@ mod tests {
             lookup_label_candidate_at(file.path(), "native-6"),
             Err(CodexStoreError::Unavailable)
         ));
+    }
+
+    #[test]
+    fn reset_blocks_the_previous_native_identity_until_a_new_one_arrives() {
+        let session_id = "native-label-reset-block-test";
+        let old_native_id = "old-native-id";
+        let new_native_id = "new-native-id";
+        clear_native_label_refresh_block(session_id);
+
+        block_native_label_refresh(session_id, old_native_id);
+        assert!(native_label_refresh_is_blocked(session_id, old_native_id));
+        assert!(!accept_native_label_identity(session_id, old_native_id));
+        assert!(accept_native_label_identity(session_id, new_native_id));
+        assert!(!native_label_refresh_is_blocked(session_id, old_native_id));
+        clear_native_label_refresh_block(session_id);
     }
 }

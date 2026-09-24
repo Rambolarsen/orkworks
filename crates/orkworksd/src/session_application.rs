@@ -1869,6 +1869,19 @@ impl SessionApplication {
     /// older refinement cannot restore the previous conversation's label.
     pub(crate) fn reset_session_topic(&self, id: &str) -> bool {
         let placeholder = crate::session_types::placeholder_label(id);
+        let previous_native_session_id = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .and_then(|metadata| metadata.resume.and_then(|resume| resume.harness_session_id));
+        if let Some(native_session_id) = previous_native_session_id.as_deref() {
+            crate::codex_session_store::block_native_label_refresh(id, native_session_id);
+        } else {
+            crate::codex_session_store::clear_native_label_refresh_block(id);
+        }
         crate::codex_session_store::invalidate_label_refresh_generation(id);
         let mut epochs = self.state.peon.label_epochs.write().unwrap();
         let epoch = epochs.entry(id.to_string()).or_insert(0);
@@ -1933,6 +1946,7 @@ impl SessionApplication {
     /// in order.
     pub(crate) fn clear_forgotten_session_tracking(&self, id: &str) {
         crate::codex_session_store::clear_label_refresh_generation(id);
+        crate::codex_session_store::clear_native_label_refresh_block(id);
         self.state.peon.label_epochs.write().unwrap().remove(id);
         self.state.peon.label_hint.write().unwrap().remove(id);
         self.state.peon.label_pending.write().unwrap().remove(id);
@@ -1968,6 +1982,7 @@ impl SessionApplication {
             return;
         }
         crate::codex_session_store::clear_label_refresh_generation(id);
+        crate::codex_session_store::clear_native_label_refresh_block(id);
         self.state.peon.last_output.write().unwrap().remove(id);
         self.state.peon.last_inference.write().unwrap().remove(id);
         self.state.peon.input_buf.write().unwrap().remove(id);
@@ -2068,6 +2083,9 @@ impl SessionApplication {
         runtime_identity: &crate::runtime::session_runtime::RuntimeIdentity,
         expected_refresh_generation: u64,
     ) -> bool {
+        if crate::codex_session_store::native_label_refresh_is_blocked(id, native_session_id) {
+            return false;
+        }
         let Some(_refresh_generation) = crate::codex_session_store::hold_label_refresh_generation(
             id,
             expected_refresh_generation,
