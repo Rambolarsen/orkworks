@@ -258,4 +258,3 @@ If the plan required no edits, leave it unchanged. Commit only implementation fi
 - [ ] **Step 4: Handoff boundary**
 
 Stop this plan after the foundation PR is opened. The next plan must separately specify graph/resource scope, budget/idempotency, launcher/recovery, and user escalation UI before those systems are implemented.
-
