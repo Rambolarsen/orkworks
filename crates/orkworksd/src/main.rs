@@ -67,6 +67,7 @@ use crate::runtime::retention::retention_cleanup_task;
 use crate::runtime::terminal_http::{
     get_summary_log, get_terminal_output, session_terminal_handler,
 };
+use crate::runtime::workspace_gc::gc_stale_workspaces_task;
 use crate::session_types::{PeonDiagnostics, PeonSchedulerState, SessionInfo};
 
 struct SessionHandle {
@@ -280,6 +281,11 @@ async fn main() {
             retention_cleanup_task(retention_state).await;
         });
     }
+
+    // One-shot cleanup of stale ~/.orkworks/workspaces/<hash>/ directories
+    // (e.g. left behind by a removed git worktree). Independent of any
+    // opened workspace, so it can run concurrently with startup.
+    tokio::spawn(gc_stale_workspaces_task());
 
     let app = build_router(state.clone());
 

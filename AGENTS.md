@@ -267,6 +267,7 @@ full protocol detail.
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/workspaces/<hash>/.sidecar.lock` — retained lock file whose OS advisory lock identifies the sidecar currently owning workspace metadata; lock ownership releases automatically when that sidecar exits (ADR 0052)
+- `~/.orkworks/workspaces/<hash>/origin.json` — the canonical filesystem path that produced this workspace's hash, written once when the directory is first created. `workspace_hash` is a one-way SHA-256 of the canonical path, so this is the only way to trace a directory back to its source; it lets sidecar startup garbage-collect directories whose source path (e.g. a removed git worktree) no longer exists, while leaving directories without one (created before this file existed) untouched rather than guessed at. A directory currently held by another sidecar's `.sidecar.lock` is never removed regardless of path existence.
 - `~/.orkworks/workspaces/<hash>/codex-hook-observation.json` — the last Codex hook fingerprint observed executing; Settings reports Codex activation only when it matches the currently installed hook definition
 - `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
 - `~/.orkworks/harnesses.json` — global harness definitions

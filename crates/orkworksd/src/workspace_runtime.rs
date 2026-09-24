@@ -1,4 +1,5 @@
 use fs2::FileExt;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -220,17 +221,89 @@ pub(crate) fn workspace_hash(path: &std::path::Path) -> String {
     hex::encode(&result[..8])
 }
 
+pub(crate) fn orkworks_workspaces_root() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".orkworks").join("workspaces"))
+}
+
 pub(crate) fn orkworks_global_dir(workspace_path: &std::path::Path) -> Option<PathBuf> {
-    dirs::home_dir().map(|h| {
-        h.join(".orkworks")
-            .join("workspaces")
-            .join(workspace_hash(workspace_path))
-    })
+    orkworks_workspaces_root().map(|root| root.join(workspace_hash(workspace_path)))
+}
+
+const ORIGIN_FILE_NAME: &str = "origin.json";
+
+/// Records the canonical path a workspace metadata directory belongs to.
+///
+/// `workspace_hash` is one-way, so this is the only way to trace a directory
+/// under `~/.orkworks/workspaces/` back to the path that produced it —
+/// required so garbage collection (see `runtime::workspace_gc`) can tell a
+/// stale directory (source path deleted, e.g. a removed worktree) from a
+/// directory it simply doesn't recognize (no origin file: leave alone).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct WorkspaceOrigin {
+    pub canonical_path: String,
+}
+
+/// Writes the origin file the first time a workspace directory is created.
+/// A no-op if one already exists, so repeated opens of the same workspace
+/// don't churn disk writes.
+pub(crate) fn write_origin_file_if_absent(global_dir: &Path, canonical_path: &Path) {
+    let origin = WorkspaceOrigin {
+        canonical_path: canonical_path.to_string_lossy().into_owned(),
+    };
+    let Ok(contents) = serde_json::to_vec_pretty(&origin) else {
+        return;
+    };
+    let result = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(global_dir.join(ORIGIN_FILE_NAME))
+        .and_then(|mut file| {
+            use std::io::Write;
+            file.write_all(&contents)
+        });
+    if let Err(error) = result {
+        if error.kind() != io::ErrorKind::AlreadyExists {
+            tracing::warn!(path = %global_dir.display(), %error, "failed to write workspace origin file");
+        }
+    }
+}
+
+/// Reads a workspace directory's origin file, if it has one.
+pub(crate) fn read_origin_file(global_dir: &Path) -> Option<WorkspaceOrigin> {
+    let contents = std::fs::read(global_dir.join(ORIGIN_FILE_NAME)).ok()?;
+    serde_json::from_slice(&contents).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_origin_file_if_absent_creates_a_readable_origin_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let canonical_path = Path::new("/some/workspace/path");
+
+        write_origin_file_if_absent(dir.path(), canonical_path);
+
+        let origin = read_origin_file(dir.path()).unwrap();
+        assert_eq!(origin.canonical_path, canonical_path.to_string_lossy());
+    }
+
+    #[test]
+    fn write_origin_file_if_absent_does_not_clobber_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_origin_file_if_absent(dir.path(), Path::new("/first/path"));
+        write_origin_file_if_absent(dir.path(), Path::new("/second/path"));
+
+        let origin = read_origin_file(dir.path()).unwrap();
+        assert_eq!(origin.canonical_path, "/first/path");
+    }
+
+    #[test]
+    fn read_origin_file_returns_none_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_origin_file(dir.path()).is_none());
+    }
 
     #[test]
     fn workspace_lease_is_exclusive_and_reusable() {
