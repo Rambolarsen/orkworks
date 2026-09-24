@@ -42,9 +42,17 @@ pub(crate) fn gc_stale_workspaces_once(workspaces_root: &Path) -> GcSummary {
                 continue;
             }
         };
-        let source_still_exists = std::fs::metadata(&origin.canonical_path).is_ok();
+        // Only a definitive "not found" counts as stale. Any other error
+        // (permission denied, a transient filesystem hiccup, ...) means the
+        // question can't be answered right now, so the directory is kept —
+        // deletion here is irreversible, and the cleanup scope is sources
+        // that no longer exist, not sources that merely failed to stat.
+        let source_definitely_gone = matches!(
+            std::fs::metadata(&origin.canonical_path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        );
 
-        if source_still_exists {
+        if !source_definitely_gone {
             drop(lease);
             summary.kept += 1;
             continue;
@@ -146,6 +154,33 @@ mod tests {
         assert!(summary.removed.is_empty());
         assert!(active.exists());
         drop(held_lease);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keeps_a_directory_when_the_source_check_fails_with_something_other_than_not_found() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let locked_parent = tempfile::tempdir().unwrap();
+        let unreachable_child = locked_parent.path().join("child");
+        std::fs::create_dir_all(&unreachable_child).unwrap();
+        // Strip execute permission on the parent so stat'ing the child fails
+        // with PermissionDenied, not NotFound — the child genuinely exists.
+        std::fs::set_permissions(locked_parent.path(), std::fs::Permissions::from_mode(0o600))
+            .unwrap();
+
+        let ambiguous = workspace_dir(root.path(), "ambiguous");
+        write_origin_file_if_absent(&ambiguous, &unreachable_child);
+
+        let summary = gc_stale_workspaces_once(root.path());
+
+        std::fs::set_permissions(locked_parent.path(), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+
+        assert_eq!(summary.kept, 1);
+        assert!(summary.removed.is_empty());
+        assert!(ambiguous.exists());
     }
 
     #[test]

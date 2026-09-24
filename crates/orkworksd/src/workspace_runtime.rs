@@ -238,33 +238,44 @@ const ORIGIN_FILE_NAME: &str = "origin.json";
 /// required so garbage collection (see `runtime::workspace_gc`) can tell a
 /// stale directory (source path deleted, e.g. a removed worktree) from a
 /// directory it simply doesn't recognize (no origin file: leave alone).
+///
+/// `PathBuf`'s `Serialize` impl requires valid UTF-8 and errors otherwise,
+/// rather than the lossy conversion used elsewhere in this file for display
+/// purposes — that distinction matters here because GC uses this value to
+/// decide whether to delete a directory. A lossily re-encoded non-UTF-8 path
+/// almost never matches the real filesystem entry, which would make a live
+/// workspace look deleted and destroy its metadata. `write_origin_file_if_absent`
+/// already treats a serialization failure as "don't write" (see below), so a
+/// non-UTF-8 path simply never gets an origin file and stays in the existing,
+/// already-safe "no origin file: leave alone" bucket instead of risking a
+/// false deletion.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct WorkspaceOrigin {
-    pub canonical_path: String,
+    pub canonical_path: PathBuf,
 }
 
 /// Writes the origin file the first time a workspace directory is created.
 /// A no-op if one already exists, so repeated opens of the same workspace
-/// don't churn disk writes.
+/// don't churn disk writes. Publishes via write-temp-then-rename so a crash
+/// mid-write can never leave a truncated `origin.json` behind — GC treats an
+/// unparseable origin file exactly like a missing one (see `read_origin_file`),
+/// which would otherwise permanently strand that directory from cleanup.
 pub(crate) fn write_origin_file_if_absent(global_dir: &Path, canonical_path: &Path) {
+    let target = global_dir.join(ORIGIN_FILE_NAME);
+    if target.exists() {
+        return;
+    }
     let origin = WorkspaceOrigin {
-        canonical_path: canonical_path.to_string_lossy().into_owned(),
+        canonical_path: canonical_path.to_path_buf(),
     };
     let Ok(contents) = serde_json::to_vec_pretty(&origin) else {
         return;
     };
-    let result = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(global_dir.join(ORIGIN_FILE_NAME))
-        .and_then(|mut file| {
-            use std::io::Write;
-            file.write_all(&contents)
-        });
+    let tmp = global_dir.join(format!("{ORIGIN_FILE_NAME}.tmp"));
+    let result = std::fs::write(&tmp, &contents).and_then(|()| std::fs::rename(&tmp, &target));
     if let Err(error) = result {
-        if error.kind() != io::ErrorKind::AlreadyExists {
-            tracing::warn!(path = %global_dir.display(), %error, "failed to write workspace origin file");
-        }
+        let _ = std::fs::remove_file(&tmp);
+        tracing::warn!(path = %global_dir.display(), %error, "failed to write workspace origin file");
     }
 }
 
@@ -286,7 +297,7 @@ mod tests {
         write_origin_file_if_absent(dir.path(), canonical_path);
 
         let origin = read_origin_file(dir.path()).unwrap();
-        assert_eq!(origin.canonical_path, canonical_path.to_string_lossy());
+        assert_eq!(origin.canonical_path, canonical_path);
     }
 
     #[test]
@@ -296,13 +307,39 @@ mod tests {
         write_origin_file_if_absent(dir.path(), Path::new("/second/path"));
 
         let origin = read_origin_file(dir.path()).unwrap();
-        assert_eq!(origin.canonical_path, "/first/path");
+        assert_eq!(origin.canonical_path, Path::new("/first/path"));
+    }
+
+    #[test]
+    fn write_origin_file_if_absent_leaves_no_temp_file_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        write_origin_file_if_absent(dir.path(), Path::new("/some/path"));
+
+        assert!(!dir.path().join("origin.json.tmp").exists());
     }
 
     #[test]
     fn read_origin_file_returns_none_when_absent() {
         let dir = tempfile::tempdir().unwrap();
         assert!(read_origin_file(dir.path()).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_origin_file_if_absent_skips_a_non_utf8_path_instead_of_corrupting_it() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let non_utf8 = OsStr::from_bytes(b"/some/\xff\xfe/path");
+
+        write_origin_file_if_absent(dir.path(), Path::new(non_utf8));
+
+        // Serializing a non-UTF-8 PathBuf fails, so nothing is written — the
+        // directory falls into the existing "no origin file" safety bucket
+        // instead of getting a lossily-corrupted, GC-misleading record.
+        assert!(read_origin_file(dir.path()).is_none());
+        assert!(!dir.path().join("origin.json").exists());
     }
 
     #[test]
