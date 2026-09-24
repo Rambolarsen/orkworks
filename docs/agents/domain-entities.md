@@ -32,7 +32,7 @@ File: `crates/orkworksd/src/metadata.rs`
 `SessionMetadata` is the persisted record read from and written to `~/.orkworks/workspaces/<hash>/sessions/<id>.json`. It is a flat, serde-mapped struct — not an aggregate with behavior. Notable fields:
 
 - `id`, `workspace`, `task`, `cwd`
-- `label` — the session's display title: a one-shot, Peon-authored topic (ADR 0029), not the turn-by-turn activity in `summary`. A descriptive New Session dialog prompt is an immediate bootstrap fallback; the first later descriptive terminal input may replace that fallback once, so shared startup context does not freeze the title for every child session (ADR 0047). A descriptive terminal input with no bootstrap prompt seeds the title directly. Peon's `InputLabel` inference refines the selected topic; the first later descriptive terminal input clears the bootstrap marker, after which the topic is frozen. Not part of the `metadata_source`/`metadata_confidence` precedence system below — it is one-shot-then-frozen, not contended.
+- `label` — the session's display title, with persisted `labelSource` provenance, not the turn-by-turn activity in `summary`. New sessions begin with a placeholder, bootstrap prompt, or terminal-input source; Peon may refine its automatic topic, and authenticated Codex reports may replace automatic sources when the native thread provides a name/title. A future explicit user source wins. Sessions written before `labelSource` existed deserialize as `legacy` and are preserved from native replacement because their provenance is unknown (ADR 0062). A descriptive New Session dialog prompt is an immediate bootstrap fallback; the first later descriptive terminal input may replace that fallback once (ADR 0047).
 - `harness: String` (serialized `harnessId`, aliased from legacy `harness`)
 - `model: String` (serialized `modelId`, aliased from legacy `model`)
 - `status: String` — process/terminal state (see vocabulary below)
@@ -111,9 +111,10 @@ the replacement of summary-checkpoint history remain pending under
 `summarySource` (`agent` | `peon`), `summaryConfidence`, and
 `summaryObservedAt`, all four written or cleared together — replacing the
 durable summary-checkpoint mechanism superseded ADR 0024 added to the event
-log. `label` (ADR 0029, restated by ADR 0042) is unaffected: it stays a
-one-shot, Peon-authored topic outside this snapshot and outside the
-`metadata_source`/`metadata_confidence` precedence system.
+log. `label` (ADR 0029, extended by ADR 0062) remains outside this snapshot
+and outside the `metadata_source`/`metadata_confidence` precedence system;
+its `labelSource` provenance lets automatic Peon and Codex title updates
+coexist with future explicit user labels.
 
 A new, independent record type, `WorkflowObservation`, answers "what made
 this work harder than necessary?" rather than "what is happening now?":

@@ -609,7 +609,6 @@ fn schedule_codex_label_refresh(
             ) {
                 return;
             }
-            return;
         }
     });
 }

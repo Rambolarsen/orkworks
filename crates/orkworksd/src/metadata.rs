@@ -503,7 +503,6 @@ impl LabelSource {
                 | Self::TerminalInput
                 | Self::Peon
                 | Self::Codex
-                | Self::Legacy
         )
     }
 
@@ -2190,6 +2189,13 @@ fn terminal_output_exceeds_line_limit(path: &Path, max_lines: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_label_provenance_is_not_automatic_for_native_replacement() {
+        assert!(!LabelSource::Legacy.is_automatic());
+        assert!(LabelSource::Placeholder.is_automatic());
+        assert!(LabelSource::Peon.is_automatic());
+    }
 
     fn peon_inference_with_summary(
         summary: Option<&str>,
