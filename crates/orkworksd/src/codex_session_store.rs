@@ -97,19 +97,47 @@ fn lookup_label_candidate_at(
         .busy_timeout(Duration::from_millis(100))
         .map_err(|_| CodexStoreError::Unavailable)?;
 
-    let row = connection
-        .query_row(
-            "SELECT name, title FROM threads WHERE id = ?1 LIMIT 1",
-            [native_session_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                ))
-            },
-        )
-        .optional()
-        .map_err(|_| CodexStoreError::Unavailable)?;
+    let has_name_column = {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(threads)")
+            .map_err(|_| CodexStoreError::Unavailable)?;
+        let mut rows = statement
+            .query([])
+            .map_err(|_| CodexStoreError::Unavailable)?;
+        let mut found = false;
+        while let Some(row) = rows.next().map_err(|_| CodexStoreError::Unavailable)? {
+            found |= row
+                .get::<_, String>(1)
+                .map_err(|_| CodexStoreError::Unavailable)?
+                == "name";
+        }
+        found
+    };
+
+    let row = if has_name_column {
+        connection
+            .query_row(
+                "SELECT name, title FROM threads WHERE id = ?1 LIMIT 1",
+                [native_session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| CodexStoreError::Unavailable)?
+    } else {
+        connection
+            .query_row(
+                "SELECT title FROM threads WHERE id = ?1 LIMIT 1",
+                [native_session_id],
+                |row| Ok((None, row.get::<_, Option<String>>(0)?)),
+            )
+            .optional()
+            .map_err(|_| CodexStoreError::Unavailable)?
+    };
 
     let Some((name, title)) = row else {
         return Ok(None);
@@ -264,6 +292,29 @@ mod tests {
             lookup_label_candidate_at(file.path(), "native-6"),
             Err(CodexStoreError::Unavailable)
         ));
+    }
+
+    #[test]
+    fn reads_title_when_the_optional_name_column_is_absent() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let connection = Connection::open(file.path()).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE threads (
+                    id TEXT PRIMARY KEY,
+                    title TEXT
+                );
+                INSERT INTO threads (id, title) VALUES ('native-title-only', 'Title only');",
+            )
+            .unwrap();
+
+        assert_eq!(
+            lookup_label_candidate_at(file.path(), "native-title-only").unwrap(),
+            Some(CodexLabelCandidate {
+                text: "Title only".into(),
+                field: CodexLabelField::Title,
+            })
+        );
     }
 
     #[test]
