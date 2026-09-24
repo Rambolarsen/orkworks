@@ -491,6 +491,54 @@ pub(crate) fn collect_input_line(buf: &mut String, data: &str) -> (Option<String
     (result, line_completed)
 }
 
+/// Returns whether a PTY input frame contains a mouse button report. SGR
+/// reports are preferred by xterm.js; the legacy X10 form is retained for
+/// terminals that still emit it. Mouse motion and wheel reports are excluded
+/// so merely moving or scrolling over a Codex prompt cannot clear attention.
+fn contains_mouse_button_event(data: &str) -> bool {
+    let chars: Vec<char> = data.chars().collect();
+    let mut index = 0;
+    while index + 2 < chars.len() {
+        if chars[index] != '\x1b' || chars[index + 1] != '[' {
+            index += 1;
+            continue;
+        }
+
+        if chars[index + 2] == '<' {
+            let mut cursor = index + 3;
+            let code_start = cursor;
+            while cursor < chars.len() && chars[cursor].is_ascii_digit() {
+                cursor += 1;
+            }
+            if cursor == code_start || cursor >= chars.len() || chars[cursor] != ';' {
+                index += 1;
+                continue;
+            }
+            let Ok(code) = chars[code_start..cursor]
+                .iter()
+                .collect::<String>()
+                .parse::<u16>()
+            else {
+                index += 1;
+                continue;
+            };
+            while cursor < chars.len() && !matches!(chars[cursor], 'M' | 'm') {
+                cursor += 1;
+            }
+            if cursor < chars.len() && code < 32 {
+                return true;
+            }
+        } else if chars[index + 2] == 'M' && index + 5 < chars.len() {
+            let code = chars[index + 3] as u32;
+            if (32..64).contains(&code) {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
 /// Records accepted terminal input for usage-limit rechecks, labels, and pending work signals.
 /// Call only once delivery is actually accepted — never for input dropped by
 /// `PendingActionQueue`.
@@ -568,7 +616,14 @@ fn record_terminal_input_impl(
         // prompt's default answer), which must still count as a submitted
         // line here. `buf_grew`: see `mark_committed_input_working`'s doc
         // comment for the narrow single-key commit it gates.
-        mark_committed_input_working(state, id, output_boundary, line_completed, buf_grew);
+        mark_committed_input_working(
+            state,
+            id,
+            output_boundary,
+            line_completed,
+            buf_grew,
+            contains_mouse_button_event(data),
+        );
     }
 
     let line = collected_line?;
@@ -694,6 +749,7 @@ fn mark_committed_input_working(
     output_boundary: Option<u64>,
     line_completed: bool,
     printable_keystroke: bool,
+    mouse_button_event: bool,
 ) {
     let ws_guard = state.workspace.lock().unwrap();
     let mut sessions = state.sessions.lock().unwrap();
@@ -726,7 +782,12 @@ fn mark_committed_input_working(
             (false, Some("agent")) | (true, Some("codex_hook")) => true,
             _ => false,
         };
-    let commit_working = !already_working && (line_completed || single_key_qualifies);
+    let codex_mouse_click_qualifies = mouse_button_event
+        && handle.active_work_hook
+        && handle.info.attention.as_deref() == Some("needs_you")
+        && handle.info.metadata_source.as_deref() == Some("codex_hook");
+    let commit_working =
+        !already_working && (line_completed || single_key_qualifies || codex_mouse_click_qualifies);
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
@@ -1661,6 +1722,54 @@ mod tests {
         assert_eq!(record_terminal_input(&state, session_id, "y"), None);
 
         assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn codex_permission_mouse_click_clears_hook_prompt_to_working() {
+        let session_id = "codex-permission-mouse-click";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.metadata_source = Some("codex_hook".into());
+            handle.active_work_hook = true;
+        }
+        {
+            let ws = state.workspace.lock().unwrap();
+            let mut meta = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(session_id)
+                .unwrap();
+            meta.metadata_source = "codex_hook".into();
+            ws.as_ref().unwrap().metadata.write_session(&meta);
+        }
+
+        assert_eq!(
+            record_terminal_input(&state, session_id, "\x1b[<0;10;5M"),
+            None
+        );
+
+        assert_prompt_is_cleared_as_working(&state, session_id);
+    }
+
+    #[test]
+    fn codex_permission_mouse_motion_does_not_clear_hook_prompt() {
+        let session_id = "codex-permission-mouse-motion";
+        let (state, _dir) = prompted_session_state(session_id);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.info.metadata_source = Some("codex_hook".into());
+            handle.active_work_hook = true;
+        }
+
+        record_terminal_input(&state, session_id, "\x1b[<35;10;5M");
+
+        let info = state.sessions.lock().unwrap()[session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
     }
 
     #[test]
