@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import type { CompletionPacket, WorkflowRecommendation } from "../src/api.ts";
 import {
   buildFixPromptDraft,
+  buildCompletionPacketAcceptOptions,
   formatImpact,
   formatRecurrence,
   formatPacketReadiness,
@@ -311,6 +312,26 @@ test("Fix with AI always presses Enter regardless of dialog edits", () => {
   const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRecommendation", handlerIndex));
 
   assert.match(handlerBlock, /prompt: `\$\{prompt\}\\r`/);
+});
+
+test("packet-backed Fix with AI binds acceptance to the packet revision and fingerprint", () => {
+  assert.deepEqual(buildCompletionPacketAcceptOptions(completionPacket), {
+    packetRevision: 1,
+    evidenceFingerprint: "a".repeat(64),
+    idempotencyKey: `packet-accept-1-${"a".repeat(64)}`,
+  });
+
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const start = app.indexOf("const handleConfirmFixWithAi");
+  const end = app.indexOf("// Unread", start);
+  const handler = app.slice(start, end);
+  assert.match(handler, /const packet = recommendation\.completionPacket;/);
+  assert.match(handler, /buildCompletionPacketAcceptOptions\(packet\)/);
+  assert.match(handler, /prompt: `\$\{prompt\}\\r`/);
+
+  const dialog = readFileSync(new URL("../src/components/FixWithAiDialog.tsx", import.meta.url), "utf8");
+  assert.match(dialog, /promptReadOnly\?: boolean/);
+  assert.match(dialog, /readOnly=\{promptReadOnly\}/);
 });
 
 test("Fix with AI surfaces an error instead of silently closing when no session is active", () => {

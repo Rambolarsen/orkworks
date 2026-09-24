@@ -663,6 +663,13 @@ impl RecommendationStore {
                 Err(StoreError::StalePacket { id: id.into() })
             };
         }
+        if packet
+            .approval
+            .as_ref()
+            .is_none_or(|approval| approval.idempotency_key != mutation.idempotency_key)
+        {
+            return Err(StoreError::StalePacket { id: id.into() });
+        }
         if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
             || recommendation.status != RecommendationStatus::Accepted
             || packet.approval.is_none()
@@ -1976,7 +1983,20 @@ mod tests {
             .complete_execution("packet-recommendation", "2026-09-24T10:06:00Z".into())
             .unwrap()
             .unwrap();
-        let completion = packet_mutation(&accepted, "complete-1");
+        let mut wrong_completion = packet_mutation(&accepted, "complete-1");
+        assert!(matches!(
+            store.complete_accepted_checked(
+                "packet-recommendation",
+                "2026-09-24T10:06:30Z".into(),
+                &wrong_completion,
+            ),
+            Err(StoreError::StalePacket { .. })
+        ));
+        assert_eq!(
+            store.get("packet-recommendation").unwrap().unwrap().status,
+            RecommendationStatus::Accepted
+        );
+        let completion = packet_mutation(&accepted, "accept-1");
         store
             .complete_accepted_checked(
                 "packet-recommendation",
@@ -1993,13 +2013,13 @@ mod tests {
             .unwrap()
             .is_some());
 
-        let mut late = completion;
-        late.idempotency_key = "different-result".into();
+        wrong_completion = completion;
+        wrong_completion.idempotency_key = "different-result".into();
         assert!(matches!(
             store.complete_accepted_checked(
                 "packet-recommendation",
                 "2026-09-24T10:09:00Z".into(),
-                &late,
+                &wrong_completion,
             ),
             Err(StoreError::StalePacket { .. })
         ));

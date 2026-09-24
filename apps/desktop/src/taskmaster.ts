@@ -27,6 +27,18 @@ export function formatPacketEvidence(packet: CompletionPacket): string {
   return `Source session ${packet.sourceSessionId} · Snapshot ${packet.subject.snapshotId} · ${pathCount} changed path${pathCount === 1 ? "" : "s"}`;
 }
 
+export function buildCompletionPacketAcceptOptions(packet: CompletionPacket): {
+  packetRevision: number;
+  evidenceFingerprint: string;
+  idempotencyKey: string;
+} {
+  return {
+    packetRevision: packet.revision,
+    evidenceFingerprint: packet.evidenceFingerprint,
+    idempotencyKey: `packet-accept-${packet.revision}-${packet.evidenceFingerprint}`,
+  };
+}
+
 export function formatRecurrence(recommendation: WorkflowRecommendation): string {
   const count = recommendation.workflowImprovement.recurrenceCount;
   const sessions = recommendation.workflowImprovement.affectedSessionIds.length;

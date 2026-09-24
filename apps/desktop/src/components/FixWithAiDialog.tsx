@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 
 interface FixWithAiDialogProps {
   initialPrompt: string;
+  promptReadOnly?: boolean;
   onConfirm: (prompt: string) => void;
   onCancel: () => void;
 }
 
-export default function FixWithAiDialog({ initialPrompt, onConfirm, onCancel }: FixWithAiDialogProps) {
+export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false, onConfirm, onCancel }: FixWithAiDialogProps) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -60,6 +61,7 @@ export default function FixWithAiDialog({ initialPrompt, onConfirm, onCancel }: 
               className="new-session-textarea"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              readOnly={promptReadOnly}
               rows={8}
             />
           </div>
