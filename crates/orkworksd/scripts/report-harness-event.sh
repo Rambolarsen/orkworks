@@ -197,7 +197,12 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
   else
     session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98}' "$escaped_session_id" "$session_source")
   fi
+  session_auth_header=()
+  if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
+    session_auth_header=(-H "Authorization: Bearer $ORKWORKS_REPORT_TOKEN")
+  fi
   curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
     -H "Content-Type: application/json" \
+    "${session_auth_header[@]}" \
     -d "$session_payload" >/dev/null || true
 fi

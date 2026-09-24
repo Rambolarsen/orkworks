@@ -349,6 +349,8 @@ impl ResumeOption {
 pub struct SessionMetadata {
     pub id: String,
     pub label: String,
+    #[serde(rename = "labelSource", default)]
+    pub label_source: LabelSource,
     /// Whether the current label came only from the bootstrap prompt. The
     /// first later descriptive terminal input may replace it once.
     #[serde(
@@ -472,6 +474,49 @@ pub struct SessionMetadata {
     pub resumed_from: Option<String>,
     #[serde(rename = "lastUserInput", skip_serializing_if = "Option::is_none")]
     pub last_user_input: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelSource {
+    Placeholder,
+    InitialPrompt,
+    TerminalInput,
+    Peon,
+    Codex,
+    User,
+    Legacy,
+}
+
+impl Default for LabelSource {
+    fn default() -> Self {
+        Self::Legacy
+    }
+}
+
+impl LabelSource {
+    pub(crate) fn is_automatic(self) -> bool {
+        matches!(
+            self,
+            Self::Placeholder
+                | Self::InitialPrompt
+                | Self::TerminalInput
+                | Self::Peon
+                | Self::Codex
+                | Self::Legacy
+        )
+    }
+
+    pub(crate) fn accepts_peon(self) -> bool {
+        matches!(
+            self,
+            Self::Placeholder
+                | Self::InitialPrompt
+                | Self::TerminalInput
+                | Self::Peon
+                | Self::Legacy
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -780,6 +825,7 @@ pub(crate) fn assert_session_metadata_serializes_connectivity_terminal_outcome_a
     let meta = SessionMetadata {
         id: "s1".into(),
         label: "Test".into(),
+        label_source: LabelSource::Legacy,
         label_from_initial_prompt: false,
         workspace: "/tmp".into(),
         task: String::new(),
@@ -2209,6 +2255,7 @@ mod tests {
         let meta = SessionMetadata {
             id: "test-1".into(),
             label: "Test".into(),
+            label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
@@ -2726,6 +2773,7 @@ mod tests {
         store.write_session(&SessionMetadata {
             id: "rename-test".into(),
             label: "Session abc12345".into(),
+            label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
@@ -2879,6 +2927,7 @@ mod tests {
         store.write_session(&SessionMetadata {
             id: "test-peon-observer".into(),
             label: "Test".into(),
+            label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
@@ -3243,6 +3292,7 @@ mod tests {
         SessionMetadata {
             id: id.into(),
             label: "Test".into(),
+            label_source: LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: "/tmp".into(),
             task: "".into(),
