@@ -1,7 +1,7 @@
 //! Durable coordinator definitions and approval state. No runtime authority lives here.
 
 use super::coordinator::{CoordinatorError, PlanApproval, PlanRevision, PlanStatus};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -57,8 +57,17 @@ struct DiskRecord {
     plan: PlanRevision,
     status: PlanStatus,
     approval: Option<PlanApproval>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present_history")]
     approval_history: Option<Vec<PlanApproval>>,
+}
+
+fn deserialize_present_history<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<PlanApproval>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::deserialize(deserializer).map(Some)
 }
 
 pub(crate) struct CoordinatorStore {
@@ -72,6 +81,8 @@ pub(crate) struct CoordinatorStore {
     fail_after_publication: AtomicBool,
     #[cfg(test)]
     fail_recovery_reflush: AtomicBool,
+    #[cfg(test)]
+    resume_clock: Mutex<Option<Box<dyn Fn() -> chrono::DateTime<chrono::Utc> + Send + Sync>>>,
 }
 
 impl CoordinatorStore {
@@ -103,6 +114,8 @@ impl CoordinatorStore {
             fail_after_publication: AtomicBool::new(false),
             #[cfg(test)]
             fail_recovery_reflush: AtomicBool::new(false),
+            #[cfg(test)]
+            resume_clock: Mutex::new(None),
         };
         let lock = store.lock_file()?;
         lock.sync_all()?;
@@ -289,7 +302,7 @@ impl CoordinatorStore {
         approval: &PlanApproval,
         current_generation: u64,
     ) -> Result<StoredPlan, CoordinatorStoreError> {
-        self.resume_at(approval, current_generation, chrono::Utc::now())
+        self.resume_with_clock(approval, current_generation, || self.resume_now())
     }
 
     pub(crate) fn resume_at(
@@ -297,6 +310,23 @@ impl CoordinatorStore {
         approval: &PlanApproval,
         current_generation: u64,
         now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<StoredPlan, CoordinatorStoreError> {
+        self.resume_with_clock(approval, current_generation, || now)
+    }
+
+    fn resume_now(&self) -> chrono::DateTime<chrono::Utc> {
+        #[cfg(test)]
+        if let Some(clock) = self.resume_clock.lock().unwrap().as_ref() {
+            return clock();
+        }
+        chrono::Utc::now()
+    }
+
+    fn resume_with_clock(
+        &self,
+        approval: &PlanApproval,
+        current_generation: u64,
+        clock: impl FnOnce() -> chrono::DateTime<chrono::Utc>,
     ) -> Result<StoredPlan, CoordinatorStoreError> {
         let _guard = self
             .mutation
@@ -309,6 +339,7 @@ impl CoordinatorStore {
         let mut record = self
             .read_at(&approval.plan_id, approval.revision)?
             .ok_or(CoordinatorStoreError::Stale)?;
+        let now = clock();
         if record.status == PlanStatus::Active && record.approval.as_ref() == Some(approval) {
             if approval.revocation_generation != current_generation {
                 return Err(CoordinatorStoreError::Stale);
@@ -400,6 +431,14 @@ impl CoordinatorStore {
     #[cfg(test)]
     pub(super) fn fail_recovery_reflush_once(&self) {
         self.fail_recovery_reflush.store(true, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_resume_clock(
+        &self,
+        clock: Box<dyn Fn() -> chrono::DateTime<chrono::Utc> + Send + Sync>,
+    ) {
+        *self.resume_clock.lock().unwrap() = Some(clock);
     }
 
     fn check_current_revision(&self, id: &str, revision: u64) -> Result<(), CoordinatorStoreError> {

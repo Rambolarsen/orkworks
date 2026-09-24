@@ -3,6 +3,8 @@ use super::coordinator_store::{CoordinatorStore, CoordinatorStoreError};
 use chrono::{TimeZone, Utc};
 use serde::Serialize;
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 fn fixed_now() -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 24, 12, 0, 0).unwrap()
@@ -354,6 +356,55 @@ fn resume_retry_waits_for_recovery_reflush_barrier() {
 }
 
 #[test]
+fn exact_resume_retry_samples_expiry_after_recovery() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+    store
+        .transition(
+            "plan-1",
+            1,
+            &input.compute_plan_digest().unwrap(),
+            PlanStatus::Paused,
+        )
+        .unwrap();
+    let mut renewed = original;
+    renewed.approval_id = "approval-2".into();
+    renewed.approved_at = "2026-09-24T01:00:00Z".into();
+
+    store.fail_after_publication_once();
+    assert!(matches!(
+        store.resume_at(&renewed, 0, fixed_now()),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    let path = stored_path(root.path(), 1);
+    let bytes = std::fs::read(&path).unwrap();
+
+    let samples = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&samples);
+    store.set_resume_clock(Box::new(move || {
+        observed.fetch_add(1, Ordering::SeqCst);
+        Utc.with_ymd_and_hms(2100, 1, 1, 0, 0, 0).unwrap()
+    }));
+    store.fail_recovery_reflush_once();
+    assert!(matches!(
+        store.resume(&renewed, 0),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    assert_eq!(samples.load(Ordering::SeqCst), 0);
+    assert!(matches!(
+        store.resume(&renewed, 0),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(samples.load(Ordering::SeqCst), 1);
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+}
+
+#[test]
 fn renewed_approvals_round_trip_as_immutable_history() {
     let root = tempfile::tempdir().unwrap();
     let store =
@@ -443,6 +494,39 @@ fn present_empty_approval_history_is_rejected_without_mutating_record() {
 
     assert!(matches!(
         CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1"),
+        Err(CoordinatorStoreError::Invalid(_))
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
+fn present_null_approval_history_rejects_reopen_and_mutation_without_changing_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    let original = approval(&input);
+    store.activate(&original, 0).unwrap();
+
+    let path = stored_path(root.path(), 1);
+    let mut disk: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    disk["approval_history"] = serde_json::Value::Null;
+    let bytes = serde_json::to_vec(&disk).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1"),
+        Err(CoordinatorStoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        store.transition(
+            "plan-1",
+            1,
+            &input.compute_plan_digest().unwrap(),
+            PlanStatus::Paused,
+        ),
         Err(CoordinatorStoreError::Invalid(_))
     ));
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
