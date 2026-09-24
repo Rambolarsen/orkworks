@@ -14,7 +14,7 @@ dependencies:
   apm:
     - obra/superpowers#b36e0829c6d0140e93cfef2ca599b1b07d4a7797 # v6.3.0
     - git: DietrichGebert/ponytail#24b0b98e16f5c66de296654f2cb480c22ea8debc # v4.2.0
-      targets: [copilot]
+      targets: [copilot, opencode]
     - thedotmack/claude-mem#89ca057a464fd7fb127c9d17dd02f77ef907a13c # v13.23.1
     - leonardomso/rust-skills#fd2a861ab0406a4ac536a55274d14ea6fd1ca9c9
     - git: mattpocock/skills#6acc160e4e0cd062dbbbd7a1b26ae92855edf07e # v1.2.3
