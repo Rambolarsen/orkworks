@@ -190,6 +190,47 @@ Taskmaster v1 does not:
 - send review findings into a running terminal automatically
 - keep chaining sessions indefinitely
 
+## Phase 2 design gate: bounded root-plan coordinator
+
+Coordinator implementation is explicitly deferred behind a separate design
+gate tracked by [issue #604](https://github.com/Rambolarsen/orkworks/issues/604)
+and [ADR 0063](../docs/adr/0063-bounded-taskmaster-coordinator.md). This
+section records the proposed boundary; it does not expand v1 scope or
+authorize coordinator code.
+
+If the gate is approved, Taskmaster may execute a user-approved, immutable
+root-plan revision represented as a bounded DAG of child tasks. A plan declares
+parentage, issue and success criteria, workspace/path scope, role, allowed
+tools, dependencies, model constraints, retry limits, normalized execution
+budgets, and concurrency ceilings. Approval binds to one OrkWorks instance,
+workspace, plan revision, evidence fingerprint, expiry, and revocation
+generation.
+
+The server issues an opaque coordinator capability and per-child lease
+capabilities. A parent may grant or revoke tools at runtime only from the
+already-approved envelope and without exceeding the total scoped authority,
+budget, retries, or concurrency. A child may request missing capabilities;
+requests outside that envelope require a new plan revision and renewed user
+approval. Children may edit files and run bounded commands in their assigned
+scope, but default roles do not grant Git mutation, merge approval,
+credentials, permission changes, destructive actions, scope expansion, or
+implicit delegation.
+
+Plan revisions are immutable. Graph cycles, duplicate logical spawns, invalid
+dependencies, stale or late results, and ambiguous crash recovery fail closed.
+Dependent nodes launch only after required dependencies succeed; failure,
+cancellation, conflict, or orphaning blocks descendants and escalates to the
+parent. Launches, grants, retries, cancellations, reports, and recovery are
+authenticated, version-checked, strict, and idempotent. The coordinator must
+preserve lineage and evidence and cannot infer user approval from silence or
+from `ready_for_user_review`.
+
+Product and architecture decisions, credentials or permissions, destructive
+actions, Git mutation or merge approval, scope/authority expansion, conflicting
+high-confidence results, and unrecoverable blockers remain mandatory user
+escalations. The full proposed design is in
+[`docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`](../docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md).
+
 ## Inputs
 
 Taskmaster evaluates workspace-level state from the following sources.
