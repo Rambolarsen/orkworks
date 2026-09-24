@@ -114,6 +114,9 @@ impl CoordinatorStore {
                 && current.plan == *plan
                 && current.status == PlanStatus::Proposed
             {
+                // A prior publication may have reached the target before its
+                // directory flush failed. A retry must reestablish that barrier.
+                sync_dir(&self.dir.join(&id))?;
                 Ok(())
             } else {
                 Err(CoordinatorStoreError::Stale)
@@ -403,7 +406,7 @@ impl CoordinatorStore {
                 .validate_against(&record.plan)
                 .map_err(|_| CoordinatorStoreError::Stale)?;
         }
-        crate::harness::integration::atomic_replace(&temp, &path, path.exists())?;
+        publish_atomic(&temp, &path, expected.is_some())?;
         sync_dir(parent)?;
         Ok(())
     }
@@ -490,6 +493,37 @@ fn requires_live_approval(status: PlanStatus) -> bool {
     )
 }
 
+#[cfg(not(windows))]
+fn publish_atomic(source: &Path, target: &Path, target_existed: bool) -> io::Result<()> {
+    crate::harness::integration::atomic_replace(source, target, target_existed)
+}
+
+#[cfg(windows)]
+fn publish_atomic(source: &Path, target: &Path, target_existed: bool) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    // Both paths are siblings created by publish(), so COPY_ALLOWED is never
+    // needed. Unlike ReplaceFileW, MoveFileExW supports WRITE_THROUGH for both
+    // first publication and replacement of a synced temporary file.
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    let flags = MOVEFILE_WRITE_THROUGH
+        | if target_existed {
+            MOVEFILE_REPLACE_EXISTING
+        } else {
+            0
+        };
+    // SAFETY: both path buffers are NUL-terminated and live through the call.
+    if unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), flags) } == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 fn ensure_durable_directory(path: &Path) -> Result<(), CoordinatorStoreError> {
     ensure_durable_directory_with(path, &sync_dir)
 }
@@ -499,7 +533,12 @@ fn ensure_durable_directory_with(
     sync: &impl Fn(&Path) -> Result<(), CoordinatorStoreError>,
 ) -> Result<(), CoordinatorStoreError> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => return Ok(()),
+        Ok(metadata) if metadata.file_type().is_dir() => {
+            if let Some(parent) = path.parent().filter(|parent| *parent != path) {
+                sync(parent)?;
+            }
+            return Ok(());
+        }
         Ok(_) => return Err(CoordinatorStoreError::Invalid("directory type".into())),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
@@ -514,6 +553,7 @@ fn ensure_durable_directory_with(
             if !fs::symlink_metadata(path)?.file_type().is_dir() {
                 return Err(CoordinatorStoreError::Invalid("directory type".into()));
             }
+            sync(parent)?;
         }
         Err(error) => return Err(error.into()),
     }
@@ -522,12 +562,20 @@ fn ensure_durable_directory_with(
 
 #[cfg(windows)]
 fn sync_dir(path: &Path) -> Result<(), CoordinatorStoreError> {
-    // Standard File::open cannot open a Windows directory for Unix-style
-    // fsync. Validate the path; publication uses MOVEFILE_WRITE_THROUGH for
-    // new files, while replacement cannot offer equivalent directory sync.
-    if !fs::metadata(path)?.is_dir() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+
+    if !fs::symlink_metadata(path)?.file_type().is_dir() {
         return Err(CoordinatorStoreError::Invalid("directory type".into()));
     }
+    // Opening a directory requires BACKUP_SEMANTICS. FlushFileBuffers needs
+    // write access; if the filesystem rejects either operation, durability
+    // has not been acknowledged and the coordinator must fail closed.
+    OpenOptions::new()
+        .write(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?
+        .sync_all()?;
     Ok(())
 }
 
@@ -540,6 +588,30 @@ fn sync_dir(path: &Path) -> Result<(), CoordinatorStoreError> {
 #[cfg(test)]
 mod durability_tests {
     use super::*;
+
+    #[test]
+    fn publication_preserves_initial_collision_and_replaces_existing_record() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("1.json");
+        let temporary = root.path().join("1.json.tmp");
+
+        fs::write(&temporary, b"first").unwrap();
+        publish_atomic(&temporary, &target, false).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"first");
+        assert!(!temporary.exists());
+
+        fs::write(&temporary, b"second").unwrap();
+        #[cfg(windows)]
+        {
+            assert!(publish_atomic(&temporary, &target, false).is_err());
+            assert_eq!(fs::read(&target).unwrap(), b"first");
+            assert_eq!(fs::read(&temporary).unwrap(), b"second");
+        }
+
+        publish_atomic(&temporary, &target, true).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"second");
+        assert!(!temporary.exists());
+    }
 
     #[test]
     fn directory_sync_propagates_open_failure() {
@@ -568,6 +640,75 @@ mod durability_tests {
         assert!(
             matches!(result, Err(CoordinatorStoreError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
         );
-        assert_eq!(*synced.borrow(), vec![root.path().to_path_buf(), first]);
+        assert!(synced
+            .borrow()
+            .ends_with(&[root.path().to_path_buf(), first]));
+    }
+
+    #[test]
+    fn retry_after_parent_sync_failure_reestablishes_directory_barrier() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("coordinator");
+        let leaf = first.join("plans");
+        let attempts = std::cell::Cell::new(0);
+        let sync = |parent: &Path| {
+            if parent == root.path() {
+                attempts.set(attempts.get() + 1);
+                if attempts.get() == 1 {
+                    return Err(
+                        io::Error::new(io::ErrorKind::Other, "injected sync failure").into(),
+                    );
+                }
+            }
+            Ok(())
+        };
+
+        assert!(ensure_durable_directory_with(&leaf, &sync).is_err());
+        assert!(first.is_dir());
+        assert!(!leaf.exists());
+        ensure_durable_directory_with(&leaf, &sync).unwrap();
+        assert_eq!(attempts.get(), 2);
+        assert!(leaf.is_dir());
+    }
+
+    #[test]
+    fn existing_directory_retries_its_parent_sync() {
+        let root = tempfile::tempdir().unwrap();
+        let leaf = root.path().join("plans");
+        let attempts = std::cell::Cell::new(0);
+        let sync = |parent: &Path| {
+            if parent != root.path() {
+                return Ok(());
+            }
+            attempts.set(attempts.get() + 1);
+            if attempts.get() == 1 {
+                return Err(io::Error::new(io::ErrorKind::Other, "injected sync failure").into());
+            }
+            Ok(())
+        };
+
+        assert!(ensure_durable_directory_with(&leaf, &sync).is_err());
+        assert!(leaf.is_dir());
+        ensure_durable_directory_with(&leaf, &sync).unwrap();
+        assert_eq!(attempts.get(), 2);
+    }
+
+    #[test]
+    fn already_exists_race_syncs_parent_before_success() {
+        let root = tempfile::tempdir().unwrap();
+        let leaf = root.path().join("plans");
+        let synced_parent = std::cell::Cell::new(false);
+        ensure_durable_directory_with(&leaf, &|parent| {
+            if parent == root.path().parent().unwrap() {
+                fs::create_dir(&leaf).unwrap();
+            } else if parent == root.path() {
+                synced_parent.set(true);
+            }
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(leaf.is_dir());
+        assert!(synced_parent.get());
     }
 }
