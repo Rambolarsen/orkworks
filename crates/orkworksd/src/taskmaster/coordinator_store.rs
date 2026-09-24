@@ -58,7 +58,7 @@ struct DiskRecord {
     status: PlanStatus,
     approval: Option<PlanApproval>,
     #[serde(default)]
-    approval_history: Vec<PlanApproval>,
+    approval_history: Option<Vec<PlanApproval>>,
 }
 
 pub(crate) struct CoordinatorStore {
@@ -289,6 +289,15 @@ impl CoordinatorStore {
         approval: &PlanApproval,
         current_generation: u64,
     ) -> Result<StoredPlan, CoordinatorStoreError> {
+        self.resume_at(approval, current_generation, chrono::Utc::now())
+    }
+
+    pub(crate) fn resume_at(
+        &self,
+        approval: &PlanApproval,
+        current_generation: u64,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<StoredPlan, CoordinatorStoreError> {
         let _guard = self
             .mutation
             .lock()
@@ -305,13 +314,13 @@ impl CoordinatorStore {
                 return Err(CoordinatorStoreError::Stale);
             }
             approval
-                .validate_against(&record.plan)
+                .validate_against_at(&record.plan, now)
                 .map_err(|_| CoordinatorStoreError::Stale)?;
             return Ok(record);
         }
         record
             .status
-            .can_resume(approval, &record.plan, current_generation)
+            .can_resume_at(approval, &record.plan, current_generation, now)
             .map_err(|_| CoordinatorStoreError::Stale)?;
         let previous_approval = record
             .approval
@@ -586,13 +595,11 @@ fn read_record(path: &Path, id: &str, revision: u64) -> Result<StoredPlan, Coord
     {
         return Err(CoordinatorStoreError::Invalid("approval state".into()));
     }
-    let mut history = disk.approval_history;
-    if history.is_empty() {
-        if let Some(approval) = &disk.approval {
-            // Records written before approval history existed have one approval.
-            history.push(approval.clone());
-        }
-    }
+    // Only a missing field denotes a legacy record. A present empty array
+    // cannot stand in for the current approval.
+    let history = disk
+        .approval_history
+        .unwrap_or_else(|| disk.approval.iter().cloned().collect());
     if let Some(approval) = &disk.approval {
         if history.last() != Some(approval) {
             return Err(CoordinatorStoreError::Invalid("approval history".into()));

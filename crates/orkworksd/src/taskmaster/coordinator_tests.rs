@@ -242,25 +242,78 @@ fn resume_retry_reflushes_published_approval_after_sync_failure() {
     let mut renewed = original;
     renewed.approval_id = "approval-2".into();
     renewed.approved_at = "2026-09-24T01:00:00Z".into();
+    let now = Utc::now();
+    renewed.expires_at = (now + chrono::Duration::hours(1)).to_rfc3339();
 
     store.fail_after_publication_once();
     assert!(matches!(
-        store.resume(&renewed, 0),
+        store.resume_at(&renewed, 0, now),
         Err(CoordinatorStoreError::Io(_))
     ));
     assert!(matches!(
-        store.resume(&renewed, 1),
+        store.resume_at(&renewed, 1, now + chrono::Duration::minutes(30)),
         Err(CoordinatorStoreError::Stale)
     ));
-    let mut expired_retry = renewed.clone();
-    expired_retry.expires_at = "2026-09-24T02:00:00Z".into();
+    let mut changed_retry = renewed.clone();
+    changed_retry.expires_at = (now + chrono::Duration::hours(2)).to_rfc3339();
     assert!(matches!(
-        store.resume(&expired_retry, 0),
+        store.resume_at(&changed_retry, 0, now + chrono::Duration::minutes(30)),
         Err(CoordinatorStoreError::Stale)
     ));
-    let retry = store.resume(&renewed, 0).unwrap();
+    let retry = store
+        .resume_at(&renewed, 0, now + chrono::Duration::minutes(30))
+        .unwrap();
     assert_eq!(retry.status, PlanStatus::Active);
-    assert_eq!(retry.approval, Some(renewed));
+    assert_eq!(retry.approval, Some(renewed.clone()));
+    assert!(matches!(
+        store.resume_at(&renewed, 0, now + chrono::Duration::hours(2)),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(
+        store.get("plan-1", 1).unwrap().unwrap().approval,
+        Some(renewed)
+    );
+}
+
+#[test]
+fn resume_retry_after_failed_publication_rejects_superseded_revision() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let first = plan();
+    store.put_proposed(&approved_plan(&first)).unwrap();
+    let original = approval(&first);
+    store.activate(&original, 0).unwrap();
+    store
+        .transition(
+            "plan-1",
+            1,
+            &first.compute_plan_digest().unwrap(),
+            PlanStatus::Paused,
+        )
+        .unwrap();
+    let mut renewed = original;
+    renewed.approval_id = "approval-2".into();
+    renewed.approved_at = "2026-09-24T01:00:00Z".into();
+    let now = Utc::now();
+    renewed.expires_at = (now + chrono::Duration::hours(1)).to_rfc3339();
+
+    store.fail_after_publication_once();
+    assert!(matches!(
+        store.resume_at(&renewed, 0, now),
+        Err(CoordinatorStoreError::Io(_))
+    ));
+    let mut second = first;
+    second.revision = 2;
+    second.supersedes = Some(renewed.approval_id.clone());
+    store.put_proposed(&approved_plan(&second)).unwrap();
+    let before = std::fs::read(stored_path(root.path(), 1)).unwrap();
+
+    assert!(matches!(
+        store.resume_at(&renewed, 0, now + chrono::Duration::minutes(30)),
+        Err(CoordinatorStoreError::Stale)
+    ));
+    assert_eq!(std::fs::read(stored_path(root.path(), 1)).unwrap(), before);
 }
 
 #[test]
@@ -370,6 +423,29 @@ fn legacy_record_without_history_gains_original_approval_on_resume() {
         disk["approval_history"],
         serde_json::json!([original, renewed])
     );
+}
+
+#[test]
+fn present_empty_approval_history_is_rejected_without_mutating_record() {
+    let root = tempfile::tempdir().unwrap();
+    let store =
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1").unwrap();
+    let input = plan();
+    store.put_proposed(&approved_plan(&input)).unwrap();
+    store.activate(&approval(&input), 0).unwrap();
+
+    let path = stored_path(root.path(), 1);
+    let mut disk: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    disk["approval_history"] = serde_json::json!([]);
+    let bytes = serde_json::to_vec(&disk).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        CoordinatorStore::open(root.path().to_path_buf(), "instance-1", "workspace-1"),
+        Err(CoordinatorStoreError::Invalid(_))
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }
 
 #[test]

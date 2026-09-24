@@ -706,10 +706,20 @@ impl PlanStatus {
         plan: &PlanRevision,
         current_generation: u64,
     ) -> Result<(), CoordinatorError> {
+        self.can_resume_at(approval, plan, current_generation, Utc::now())
+    }
+
+    pub(crate) fn can_resume_at(
+        self,
+        approval: &PlanApproval,
+        plan: &PlanRevision,
+        current_generation: u64,
+        now: DateTime<Utc>,
+    ) -> Result<(), CoordinatorError> {
         if self != Self::Paused || approval.revocation_generation != current_generation {
             return Err(CoordinatorError::Invalid("resume state"));
         }
-        approval.validate_against(plan)
+        approval.validate_against_at(plan, now)
     }
     pub(crate) fn allows_transition(self, next: Self) -> bool {
         matches!(
