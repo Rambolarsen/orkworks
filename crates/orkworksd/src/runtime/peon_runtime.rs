@@ -3246,6 +3246,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -3827,6 +3828,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -3997,6 +3999,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -4185,6 +4188,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -4358,6 +4362,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -4529,6 +4534,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -4710,6 +4716,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -4900,6 +4907,7 @@ mod tests {
                 ws.metadata.write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Test".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),

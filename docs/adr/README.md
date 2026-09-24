@@ -70,3 +70,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0060](./0060-independent-workspace-instances.md) | Independent workspace instances | accepted |
 | [0061](./0061-pinned-workspace-history.md) | Pinned and enumerable installation-scoped workspace history | accepted |
 | [0062](./0062-guided-completion-packets.md) | Guided completion packets stay recommendation projections | accepted |
+| [0063](./0063-codex-native-session-labels.md) | Codex native session names enrich automatic session labels | accepted |

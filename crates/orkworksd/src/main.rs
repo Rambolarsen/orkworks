@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod codex_session_store;
 mod git;
 mod harness;
 mod http;
@@ -50,7 +51,7 @@ use crate::http::provider_handlers::{
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session,
-    get_session_plan_content, list_sessions, report_attention, report_harness_session,
+    get_session_plan_content, list_sessions, report_attention, report_harness_session_with_headers,
     report_session_plan_path, request_session_plan_review, resume_session, select_terminal_plan,
     set_active_harnesses, set_active_session, set_workspace,
 };
@@ -378,7 +379,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions/:id/resume", post(resume_session))
         .route(
             "/sessions/:id/harness-session",
-            post(report_harness_session),
+            post(report_harness_session_with_headers),
         )
         .route("/sessions/:id/attention", post(report_attention))
         .route("/sessions/:id/plan-path", post(report_session_plan_path))
@@ -682,6 +683,7 @@ pub(crate) mod test_support {
         metadata::SessionMetadata {
             id: id.into(),
             label: label.into(),
+            label_source: metadata::LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: workspace.into(),
             task: String::new(),

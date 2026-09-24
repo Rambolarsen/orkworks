@@ -1535,8 +1535,10 @@ impl SessionApplication {
                 if label_worthy
                     && (is_placeholder_label(&metadata.label, id)
                         || metadata.label_from_initial_prompt)
+                    && metadata.label_source.accepts_peon()
                 {
                     metadata.label = label_line.to_string();
+                    metadata.label_source = metadata::LabelSource::TerminalInput;
                     metadata.label_from_initial_prompt = false;
                     seeded_label = true;
                 }
@@ -2015,6 +2017,20 @@ impl SessionApplication {
     /// older refinement cannot restore the previous conversation's label.
     pub(crate) fn reset_session_topic(&self, id: &str) -> bool {
         let placeholder = crate::session_types::placeholder_label(id);
+        let previous_native_session_id = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .and_then(|metadata| metadata.resume.and_then(|resume| resume.harness_session_id));
+        if let Some(native_session_id) = previous_native_session_id.as_deref() {
+            crate::codex_session_store::block_native_label_refresh(id, native_session_id);
+        } else {
+            crate::codex_session_store::clear_native_label_refresh_block(id);
+        }
+        crate::codex_session_store::invalidate_label_refresh_generation(id);
         let mut epochs = self.state.peon.label_epochs.write().unwrap();
         let epoch = epochs.entry(id.to_string()).or_insert(0);
         *epoch = epoch.saturating_add(1);
@@ -2026,6 +2042,7 @@ impl SessionApplication {
             if let Some(ref ws) = *ws_guard {
                 if let Some(mut meta) = ws.metadata.read_session(id) {
                     meta.label = placeholder.clone();
+                    meta.label_source = metadata::LabelSource::Placeholder;
                     meta.label_from_initial_prompt = false;
                     ws.metadata.write_session(&meta);
                 }
@@ -2076,6 +2093,8 @@ impl SessionApplication {
     /// locks, so this deliberately acquires only their existing write guards
     /// in order.
     pub(crate) fn clear_forgotten_session_tracking(&self, id: &str) {
+        crate::codex_session_store::clear_label_refresh_generation(id);
+        crate::codex_session_store::clear_native_label_refresh_block(id);
         self.state.peon.label_epochs.write().unwrap().remove(id);
         self.state.peon.label_hint.write().unwrap().remove(id);
         self.state.peon.label_pending.write().unwrap().remove(id);
@@ -2110,6 +2129,8 @@ impl SessionApplication {
         if runtime_identity.is_some() && !owns_runtime_diagnostics {
             return;
         }
+        crate::codex_session_store::clear_label_refresh_generation(id);
+        crate::codex_session_store::clear_native_label_refresh_block(id);
         self.state.peon.last_output.write().unwrap().remove(id);
         self.state.peon.last_inference.write().unwrap().remove(id);
         self.state.peon.input_buf.write().unwrap().remove(id);
@@ -2133,7 +2154,11 @@ impl SessionApplication {
         let ws_guard = self.state.workspace.lock().unwrap();
         if let Some(ws) = ws_guard.as_ref() {
             if let Some(mut meta) = ws.metadata.read_session(id) {
+                if !meta.label_source.accepts_peon() {
+                    return false;
+                }
                 meta.label = label.clone();
+                meta.label_source = metadata::LabelSource::Peon;
                 ws.metadata.write_session(&meta);
                 updated = true;
             }
@@ -2174,7 +2199,15 @@ impl SessionApplication {
                 if from_initial_prompt && !meta.label_from_initial_prompt {
                     return false;
                 }
+                if !meta.label_source.accepts_peon() {
+                    return false;
+                }
                 meta.label = label.clone();
+                meta.label_source = if from_initial_prompt {
+                    metadata::LabelSource::InitialPrompt
+                } else {
+                    metadata::LabelSource::Peon
+                };
                 ws.metadata.write_session(&meta);
                 updated = true;
             } else if from_initial_prompt {
@@ -2188,6 +2221,64 @@ impl SessionApplication {
             updated = true;
         }
         updated
+    }
+
+    pub(crate) fn persist_codex_label_for_runtime(
+        &self,
+        id: &str,
+        native_session_id: &str,
+        label: String,
+        runtime_identity: &crate::runtime::session_runtime::RuntimeIdentity,
+        expected_refresh_generation: u64,
+    ) -> bool {
+        if crate::codex_session_store::native_label_refresh_is_blocked(id, native_session_id) {
+            return false;
+        }
+        crate::codex_session_store::with_label_refresh_generation(
+            id,
+            expected_refresh_generation,
+            || {
+                let ws_guard = self.state.workspace.lock().unwrap();
+                let Some(ws) = ws_guard.as_ref() else {
+                    return false;
+                };
+                let Some(mut meta) = ws.metadata.read_session(id) else {
+                    return false;
+                };
+                if meta.harness != "codex"
+                    || meta.lifecycle_phase != "active"
+                    || !meta.label_source.is_automatic()
+                    || meta
+                        .resume
+                        .as_ref()
+                        .and_then(|resume| resume.harness_session_id.as_deref())
+                        != Some(native_session_id)
+                {
+                    return false;
+                }
+
+                let mut sessions = self.state.sessions.lock().unwrap();
+                let Some(handle) = sessions.get_mut(id) else {
+                    return false;
+                };
+                if !handle.runtime.matches_identity(runtime_identity)
+                    || handle.info.lifecycle_phase != "active"
+                    || handle.info.harness.as_deref() != Some("codex")
+                {
+                    return false;
+                }
+
+                meta.label = label.clone();
+                meta.label_source = metadata::LabelSource::Codex;
+                meta.label_from_initial_prompt = false;
+                if ws.metadata.try_write_session(&meta).is_err() {
+                    return false;
+                }
+                handle.info.label = label;
+                true
+            },
+        )
+        .unwrap_or(false)
     }
 
     /// Completes an ending session after the runtime has collected its final
@@ -3963,6 +4054,11 @@ async fn create_session_workflow(
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: id.clone(),
                 label: info.label.clone(),
+                label_source: if initial_prompt_label.is_some() {
+                    metadata::LabelSource::InitialPrompt
+                } else {
+                    metadata::LabelSource::Placeholder
+                },
                 label_from_initial_prompt: initial_prompt_label.is_some(),
                 workspace: ws.path.display().to_string(),
                 task: String::new(),
@@ -8349,6 +8445,154 @@ mod tests {
             "New topic"
         );
         assert_eq!(state.sessions.lock().unwrap()[id].info.label, "New topic");
+    }
+
+    #[test]
+    fn persist_codex_label_requires_exact_live_identity_and_automatic_source() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "persist-codex-label";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Placeholder",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "codex".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.label_source = metadata::LabelSource::Peon;
+        metadata.resume = Some(crate::harness::ResumeMemory {
+            state: crate::harness::ResumeState::Available,
+            preferred_strategy: crate::harness::ResumeStrategy::Exact,
+            harness_session_id: Some("thread-42".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("codex".into());
+        let runtime_identity = handle.runtime.identity();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        assert!(
+            SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
+                id,
+                "thread-42",
+                "Saved Codex name".into(),
+                &runtime_identity,
+                0,
+            )
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.label, "Saved Codex name");
+        assert_eq!(stored.label_source, metadata::LabelSource::Codex);
+        assert_eq!(
+            state.sessions.lock().unwrap()[id].info.label,
+            "Saved Codex name"
+        );
+
+        let wrong_identity = crate::runtime::session_runtime::RuntimeIdentity {
+            runtime_instance_id: "stale-runtime".into(),
+            run_generation: runtime_identity.run_generation,
+        };
+        assert!(
+            !SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
+                id,
+                "thread-42",
+                "Stale name".into(),
+                &wrong_identity,
+                0,
+            )
+        );
+        crate::codex_session_store::invalidate_label_refresh_generation(id);
+        assert!(
+            !SessionApplication::new(state).persist_codex_label_for_runtime(
+                id,
+                "thread-42",
+                "Reset-stale name".into(),
+                &runtime_identity,
+                0,
+            )
+        );
+    }
+
+    #[test]
+    fn persist_codex_label_does_not_replace_user_source() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "persist-codex-user-label";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "User label",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "codex".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.label_source = metadata::LabelSource::User;
+        metadata.resume = Some(crate::harness::ResumeMemory {
+            state: crate::harness::ResumeState::Available,
+            preferred_strategy: crate::harness::ResumeStrategy::Exact,
+            harness_session_id: Some("thread-43".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("codex".into());
+        let runtime_identity = handle.runtime.identity();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        assert!(
+            !SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
+                id,
+                "thread-43",
+                "Native name".into(),
+                &runtime_identity,
+                0,
+            )
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .label,
+            "User label"
+        );
     }
 
     #[test]

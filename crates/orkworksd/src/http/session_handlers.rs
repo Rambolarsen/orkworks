@@ -1,3 +1,4 @@
+use crate::runtime::terminal_runtime::verify_workflow_report_token;
 #[cfg(test)]
 use crate::session_application::try_install_claimed_resume_handle;
 #[cfg(test)]
@@ -476,20 +477,42 @@ fn application_error_response(
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn report_harness_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
+    report_harness_session_inner(state, id, HeaderMap::new(), req).await
+}
+
+pub(crate) async fn report_harness_session_with_headers(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<HarnessSessionReportRequest>,
+) -> impl IntoResponse {
+    report_harness_session_inner(state, id, headers, req).await
+}
+
+async fn report_harness_session_inner(
+    state: Arc<AppState>,
+    id: String,
+    headers: HeaderMap,
+    req: HarnessSessionReportRequest,
+) -> axum::response::Response {
     let observation_state = state.clone();
     let is_codex_hook = req.source == "codex_hook";
+    let native_session_id = req.harness_session_id.clone();
+    let private_lookup_authorized = is_codex_hook
+        && bearer_token(&headers).is_some_and(|token| verify_workflow_report_token(&id, token));
     let report = metadata::HarnessSessionReport {
         harness_session_id: req.harness_session_id,
         source: req.source,
         confidence: req.confidence,
     };
 
-    let result = match SessionApplication::new(state).report_harness_session(&id, report) {
+    let result = match SessionApplication::new(state.clone()).report_harness_session(&id, report) {
         Ok(result) => result,
         Err(crate::session_application::SessionError::Conflict) => {
             return axum::http::StatusCode::CONFLICT.into_response();
@@ -514,6 +537,30 @@ pub(crate) async fn report_harness_session(
         }
     }
 
+    if private_lookup_authorized && matches!(result, metadata::HarnessSessionMergeResult::Accepted)
+    {
+        let runtime_identity = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&id)
+            .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
+            .map(|handle| handle.runtime.identity());
+        if let Some(runtime_identity) = runtime_identity {
+            if crate::codex_session_store::accept_native_label_identity(&id, &native_session_id) {
+                let refresh_epoch =
+                    crate::codex_session_store::reserve_label_refresh_generation(&id);
+                schedule_codex_label_refresh(
+                    state,
+                    id,
+                    native_session_id,
+                    runtime_identity,
+                    refresh_epoch,
+                );
+            }
+        }
+    }
+
     match result {
         metadata::HarnessSessionMergeResult::Accepted
         | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence => {
@@ -526,6 +573,63 @@ pub(crate) async fn report_harness_session(
             axum::http::StatusCode::BAD_REQUEST.into_response()
         }
     }
+}
+
+fn schedule_codex_label_refresh(
+    state: Arc<AppState>,
+    session_id: String,
+    native_session_id: String,
+    runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
+    refresh_epoch: u64,
+) {
+    tokio::spawn(async move {
+        for delay in [
+            std::time::Duration::ZERO,
+            std::time::Duration::from_millis(100),
+            std::time::Duration::from_millis(500),
+        ] {
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            let lookup_id = native_session_id.clone();
+            let candidate = tokio::task::spawn_blocking(move || {
+                crate::codex_session_store::lookup_label_candidate(&lookup_id)
+                    .ok()
+                    .flatten()
+            })
+            .await
+            .ok()
+            .flatten();
+            let Some(candidate) = candidate else {
+                continue;
+            };
+            if crate::codex_session_store::native_label_refresh_is_blocked(
+                &session_id,
+                &native_session_id,
+            ) {
+                return;
+            }
+            if SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
+                &session_id,
+                &native_session_id,
+                candidate.text,
+                &runtime_identity,
+                refresh_epoch,
+            ) {
+                return;
+            }
+        }
+    });
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    let value = headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?;
+    value
+        .strip_prefix("Bearer ")
+        .filter(|token| !token.is_empty())
 }
 
 /// Dev-only convenience for exercising UI/runtime convergence without a real
@@ -1257,6 +1361,7 @@ mod tests {
         metadata::SessionMetadata {
             id: id.into(),
             label: "Test".into(),
+            label_source: metadata::LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: workspace.clone(),
             task: "".into(),
@@ -1650,6 +1755,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: "known".into(),
                     label: "Known".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -1796,6 +1902,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Known".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -3018,6 +3125,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Resume Attached".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -3135,6 +3243,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Resume Detached Live".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -3282,6 +3391,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: "attention-known".into(),
                     label: "Known".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -5335,6 +5445,7 @@ mod tests {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: session_id.clone(),
                 label: "Killed".into(),
+                label_source: metadata::LabelSource::Legacy,
                 label_from_initial_prompt: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
@@ -5627,6 +5738,7 @@ mod tests {
                 .write_session(&metadata::SessionMetadata {
                     id: session_id.clone(),
                     label: "Delete Ending".into(),
+                    label_source: metadata::LabelSource::Legacy,
                     label_from_initial_prompt: false,
                     workspace: dir.path().display().to_string(),
                     task: "".into(),
@@ -6709,6 +6821,7 @@ mod tests {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: "remembered-derived".into(),
                 label: "Remembered Derived".into(),
+                label_source: metadata::LabelSource::Legacy,
                 label_from_initial_prompt: false,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),

@@ -333,7 +333,23 @@ impl JsonHookHandler {
 impl IntegrationHandler for JsonHookHandler {
     fn status(&self, ctx: &IntegrationContext<'_>) -> Result<IntegrationStatus, IntegrationError> {
         let result = self.load(ctx).and_then(|(_, document, reporter)| {
-            self.status_from_document(ctx, &document, &reporter)
+            let mut status = self.status_from_document(ctx, &document, &reporter)?;
+            if status.registration == IntegrationRegistration::Installed
+                && !ctx
+                    .reporter_assets
+                    .is_current(ReporterPlatform::current().asset_name())?
+            {
+                status.registration = IntegrationRegistration::Drifted;
+                status.activation = IntegrationActivation::Unknown;
+                status.confirmation = None;
+                status.diagnostics.push(IntegrationDiagnostic {
+                    code: "reporter_asset_drifted".into(),
+                    message: "The installed OrkWorks reporter differs from the supported version."
+                        .into(),
+                    action: Some("reconcile".into()),
+                });
+            }
+            Ok(status)
         });
         Ok(match result {
             Ok(status) => status,

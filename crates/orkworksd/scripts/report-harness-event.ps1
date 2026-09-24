@@ -158,7 +158,11 @@ if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
             $sessionReport["hookFingerprint"] = $HookFingerprint
         }
         $sessionBody = $sessionReport | ConvertTo-Json -Compress
+        $sessionHeaders = @{}
+        if ($env:ORKWORKS_REPORT_TOKEN) {
+            $sessionHeaders["Authorization"] = "Bearer $($env:ORKWORKS_REPORT_TOKEN)"
+        }
         Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
-            -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
+            -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
     } catch {}
 }

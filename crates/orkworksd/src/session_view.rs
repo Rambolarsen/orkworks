@@ -460,6 +460,7 @@ mod tests {
         let meta = metadata::SessionMetadata {
             id: "stale-handle".into(),
             label: "Stale Handle".into(),
+            label_source: metadata::LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: "/tmp/project".into(),
             task: "".into(),
@@ -583,6 +584,7 @@ mod tests {
         let meta = metadata::SessionMetadata {
             id: "merge-derived".into(),
             label: "Merge Derived".into(),
+            label_source: metadata::LabelSource::Legacy,
             label_from_initial_prompt: false,
             workspace: "/tmp/project".into(),
             task: "".into(),
