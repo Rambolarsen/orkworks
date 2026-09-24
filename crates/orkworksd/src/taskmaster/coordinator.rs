@@ -9,6 +9,7 @@ const MAX_ID: usize = 128;
 const MAX_TEXT: usize = 16 * 1024;
 const MAX_ITEMS: usize = 256;
 const MAX_NODES: usize = 128;
+const MAX_PERSISTED_REVISION_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CoordinatorError {
@@ -285,6 +286,26 @@ pub(crate) struct PlanProposalInput {
     pub max_concurrency: u32,
 }
 
+/// Disk-only shape. Proposal decoding uses `PlanProposalInput` and cannot accept these digests.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PersistedPlanRevision {
+    version: u32,
+    instance_id: String,
+    workspace_id: String,
+    plan_id: String,
+    revision: u64,
+    revocation_generation: u64,
+    supersedes: Option<String>,
+    subject: WorkspaceChangeSubject,
+    evidence: PlanEvidence,
+    nodes: Vec<PlanNode>,
+    total_budget_units: u64,
+    max_concurrency: u32,
+    plan_digest: String,
+    evidence_digest: String,
+}
+
 #[derive(Serialize)]
 struct PlanDigestMaterial<'a> {
     version: u32,
@@ -302,6 +323,34 @@ struct PlanDigestMaterial<'a> {
 }
 
 impl PlanRevision {
+    /// Reload a server-issued record. This is not a proposal-input decoder.
+    pub(crate) fn from_persisted_bytes(bytes: &[u8]) -> Result<Self, CoordinatorError> {
+        if bytes.len() > MAX_PERSISTED_REVISION_BYTES {
+            return Err(CoordinatorError::Invalid("persisted revision size"));
+        }
+        let stored: PersistedPlanRevision = serde_json::from_slice(bytes)
+            .map_err(|e| CoordinatorError::Serialization(e.to_string()))?;
+        let plan = Self::from_proposal(PlanProposalInput {
+            version: stored.version,
+            instance_id: stored.instance_id,
+            workspace_id: stored.workspace_id,
+            plan_id: stored.plan_id,
+            revision: stored.revision,
+            revocation_generation: stored.revocation_generation,
+            supersedes: stored.supersedes,
+            subject: stored.subject,
+            evidence: stored.evidence,
+            nodes: stored.nodes,
+            total_budget_units: stored.total_budget_units,
+            max_concurrency: stored.max_concurrency,
+        })?;
+        if stored.plan_digest != plan.plan_digest || stored.evidence_digest != plan.evidence_digest
+        {
+            return Err(CoordinatorError::Invalid("persisted digest"));
+        }
+        Ok(plan)
+    }
+
     pub(crate) fn from_proposal(input: PlanProposalInput) -> Result<Self, CoordinatorError> {
         let mut plan = Self {
             version: input.version,

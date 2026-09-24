@@ -530,3 +530,53 @@ fn every_approved_plan_field_changes_digest_or_fails_validation() {
         }
     }
 }
+
+#[test]
+fn persisted_revision_round_trips_through_validated_decoder() {
+    let original = approved_plan(&plan());
+    let bytes = serde_json::to_vec(&original).unwrap();
+    let loaded = PlanRevision::from_persisted_bytes(&bytes).unwrap();
+    assert_eq!(loaded, original);
+    assert_eq!(
+        loaded.compute_plan_digest().unwrap(),
+        original.compute_plan_digest().unwrap()
+    );
+    assert_eq!(
+        loaded.compute_evidence_digest().unwrap(),
+        original.compute_evidence_digest().unwrap()
+    );
+    assert!(serde_json::from_slice::<PlanProposalInput>(&bytes).is_err());
+}
+
+#[test]
+fn persisted_revision_rejects_tampering_unknown_fields_and_bad_version() {
+    let original = serde_json::to_value(approved_plan(&plan())).unwrap();
+    for field in [
+        "plan_digest",
+        "evidence_digest",
+        "nodes",
+        "version",
+        "unknown",
+    ] {
+        let mut changed = original.clone();
+        match field {
+            "plan_digest" | "evidence_digest" => changed[field] = "0".repeat(64).into(),
+            "nodes" => changed["nodes"][0]["task"] = "tampered".into(),
+            "version" => changed["version"] = 2.into(),
+            _ => changed[field] = true.into(),
+        }
+        let bytes = serde_json::to_vec(&changed).unwrap();
+        assert!(
+            PlanRevision::from_persisted_bytes(&bytes).is_err(),
+            "{field}"
+        );
+    }
+    for missing in ["plan_digest", "evidence_digest"] {
+        let mut changed = original.clone();
+        changed.as_object_mut().unwrap().remove(missing);
+        assert!(
+            PlanRevision::from_persisted_bytes(&serde_json::to_vec(&changed).unwrap()).is_err(),
+            "missing {missing}"
+        );
+    }
+}
