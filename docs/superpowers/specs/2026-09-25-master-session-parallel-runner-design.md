@@ -96,14 +96,19 @@ draft
   -> cleaned
 
 running_batch -> paused
+provisioning -> paused
 paused -> approved (fresh approval, unchanged plan and workspace subject)
 paused -> recovery_required (termination or launch state is uncertain)
 recovery_required -> paused (reconciliation proves quiescence)
 recovery_required -> proposed (a new revision is required)
-proposed / approved / running_batch -> cancelling
+proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
 cancelling -> recovery_required (quiescence is unproven)
 provisioning / running_batch -> failed (no live child remains)
+approved / provisioning / running_batch -> expiring
+expiring -> expired (all children quiesced)
+expiring -> recovery_required (quiescence is unproven)
+expired -> cancelling (user-authenticated cancellation only)
 ```
 
 Approval activates exactly one plan revision. Provisioning is idempotent: a
@@ -111,6 +116,15 @@ retry returns the already-recorded worktree/child allocation when the
 canonical request matches, and refuses a collision when it does not. Every
 mutation checks the live coordinator capability, approval expiry and
 revocation generation, plan digest, workspace identity, and idempotency key.
+
+Pausing is an atomic mutation fence: it revokes all active child leases,
+prevents new launches, and requests bounded termination of every acknowledged
+child process tree. The plan may return to `approved` only after all children
+are quiescent and the user grants fresh approval. Provisioning can therefore
+be paused safely even when only some worktrees have been allocated. Expiry
+uses the same fence and termination rule, but the coordinator capability is
+not required for the resulting user-authenticated cancellation; an expired
+plan cannot resume or launch new work.
 
 Children in a batch launch concurrently only after all their worktrees have
 been created and recorded. A later batch cannot launch until the previous
@@ -135,7 +149,7 @@ combined result for cleanup only; it does not imply merge or Git acceptance.
 ## Worktree lifecycle
 
 After plan approval, OrkWorks provisions a unique worktree for every approved
-child from the plan's recorded base revision. This is an infrastructure
+child from the plan's recorded clean base revision. This is an infrastructure
 operation performed on behalf of the approved plan; it does not grant child
 sessions Git mutation authority. The allocation records the repository
 identity, base revision, worktree path, branch or detached identity, owning
@@ -161,9 +175,12 @@ mismatch blocks cleanup and leaves the plan paused for user intervention.
 
 The plan, approval, batch definitions, worktree allocations, child links,
 completion reports, server-attested attempt receipts, lease generations, and
-cleanup outcome are durable records. The approval binds the server-observed
-repository revision, dirty-path set, workspace identity, and attribution
-confidence at approval time. Provisioning fails if that subject changed.
+cleanup outcome are durable records. Approval is allowed only when the server
+observes a clean workspace: the repository revision, an empty dirty-path set,
+workspace identity, and clean-state observation are recorded as the base
+subject. The design does not snapshot or replay uncommitted content. Approval
+and provisioning fail if any dirty path appears or the recorded base subject
+changes.
 Mutations carry the current plan revision/digest, live capability or lease,
 and an idempotency key. Old revisions and late child reports cannot advance
 the current plan.
@@ -172,9 +189,13 @@ The coordinator never infers completion from terminal text, a stop hook, an
 idle signal, or child-authored prose. The child report is evidence only. The
 server advances a batch only after it validates a report against the assigned
 child, worktree, plan revision, current batch, and lease, observes the child
-session's terminal state, and records a machine-attested attempt receipt that
-binds the report digest, observed process/session identity, output contract,
-and workspace change subject.
+session's successful terminal status and exit result, verifies the declared
+output contract or artifact evidence through the server/trusted verifier, and
+records a machine-attested attempt receipt that binds the report digest,
+observed process/session identity, output contract, verified output or
+artifact digests, and workspace change subject. A killed, errored, nonzero, or
+otherwise unsuccessful child cannot advance a batch even if its report claims
+success.
 
 The existing recommendation lifecycle remains unchanged for ordinary
 Taskmaster recommendations. The approve-once behavior is available only for
@@ -187,9 +208,16 @@ autonomous.
   batch unless the durable record proves which children were safely created.
 - A child failure pauses the plan and retains all worktrees for diagnosis.
 - A lost or stale report cannot advance the batch or start a replacement.
+- Pausing during provisioning or execution revokes every child lease, fences
+  new launches, and quiesces acknowledged children before fresh approval is
+  possible.
 - A user cancellation installs a mutation fence, revokes active child leases,
   and requests bounded termination of every child process tree. It retains
   worktrees until termination is proven and the user chooses cleanup.
+- Approval expiry installs the same fence and termination request. User-
+  authenticated cancellation remains available after the coordinator
+  capability expires; expiry never authorizes resume, relaunch, or cleanup by
+  itself.
 - If termination or launch acknowledgement is uncertain, the plan enters
   `recovery_required`; reservations and worktrees remain held until
   reconciliation proves non-start or termination. No replacement launch or
@@ -203,8 +231,8 @@ autonomous.
 The implementation must test, without launching real coding tools:
 
 - exact-plan approval and rejection of post-approval edits;
-- approval binding to the server-observed base revision, workspace identity,
-  dirty-path set, attribution confidence, expiry, and revocation generation;
+- rejection of approval for dirty workspaces, plus binding to the observed
+  clean base revision, workspace identity, expiry, and revocation generation;
 - concurrent provisioning of unique worktrees and collision refusal;
 - child launch records bound to an allocation ID, lease, assigned worktree,
   plan revision, and batch, with arbitrary cwd substitution refused;
@@ -213,10 +241,13 @@ The implementation must test, without launching real coding tools:
   completion reports;
 - machine-attested attempt receipt creation and rejection of reports that do
   not match observed session/process state;
+- rejection of nonzero, killed, errored, or unverified-output attempts even
+  when child prose claims success;
 - batch pause on failure or ambiguity;
 - later-batch gating on required prior results;
 - refusal to treat unmerged earlier worktree edits as later-batch input;
-- cancellation lease revocation, process-tree quiescence, and
+- pause, provisioning cancellation, and expiry lease revocation, process-tree
+  quiescence, and
   `recovery_required` reconciliation;
 - cleanup authorization after user acceptance;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
