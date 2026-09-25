@@ -2361,8 +2361,11 @@ mod tests {
         let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
         let member = recommendation("member", "session");
         store.put(&member).unwrap();
-        let mut expected = BTreeMap::from([(member.id.clone(), Some("stale".into()))]);
         let parent = rollup_parent(parent_id.as_str(), &["member"]);
+        let mut expected = BTreeMap::from([
+            (member.id.clone(), Some("stale".into())),
+            (parent.id.clone(), None),
+        ]);
         let mut rolled_member = member.clone();
         rolled_member.status = RecommendationStatus::RolledUp;
         rolled_member.rolled_up_by = Some(parent.id.clone());
@@ -2616,12 +2619,15 @@ mod tests {
         let mut rolled_a = member_a.clone();
         rolled_a.status = RecommendationStatus::RolledUp;
         rolled_a.rolled_up_by = Some(successor.id.clone());
+        let mut released_b = old_member_b.clone();
+        released_b.status = RecommendationStatus::Proposed;
+        released_b.rolled_up_by = None;
         let mut expected = expected_present(&[&old_parent, &old_member_a, &old_member_b]);
         expected.insert(successor.id.clone(), None);
         store
             .apply_recommendation_graph_transaction(
                 &expected,
-                &[superseded_parent, rolled_a, old_member_b.clone(), successor],
+                &[superseded_parent, rolled_a, released_b, successor],
             )
             .unwrap();
 
@@ -2699,6 +2705,20 @@ mod tests {
             Some(terminal_parent)
         );
         assert_eq!(store.get("member").unwrap(), Some(member));
+    }
+
+    #[test]
+    fn rejects_a_graph_transaction_whose_parent_references_a_member_absent_from_the_batch() {
+        let parent_id = stable_rollup_id(&["member".into()]);
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let parent = rollup_parent(parent_id.as_str(), &["member"]);
+        let expected = BTreeMap::from([(parent.id.clone(), None)]);
+
+        let result = store.apply_recommendation_graph_transaction(&expected, &[parent]);
+
+        assert!(matches!(result, Err(StoreError::GraphInvariant(_))));
+        assert!(store.get(parent_id.as_str()).unwrap().is_none());
     }
 
     #[test]
