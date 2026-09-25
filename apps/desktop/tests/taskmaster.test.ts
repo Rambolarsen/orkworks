@@ -419,9 +419,9 @@ test("App runs accepted Fix with AI feedback only after the handoff generation g
   assert.match(handler, /const acceptedRecommendation = await acceptTaskmasterRecommendation/);
   const accepted = handler.indexOf("const acceptedRecommendation = await acceptTaskmasterRecommendation");
   const generationGuard = handler.indexOf("if (!isCurrentHandoff()) return;", accepted);
-  const feedback = handler.indexOf("handleAcceptedFixWithAi(acceptedRecommendation");
+  const feedback = handler.indexOf("handleAcceptedFixWithAi(");
   assert.ok(accepted >= 0 && generationGuard > accepted && feedback > generationGuard);
-  assert.match(handler.slice(feedback), /sessions, handleSelectSession, \(message\) => pushToast\("info", message\)\)/);
+  assert.match(handler.slice(feedback), /handleAcceptedFixWithAi\(\s*acceptedRecommendation,\s*sessions,\s*handleSelectSession,\s*\(message\) => pushToast\("info", message\),?\s*\)/);
 
   const selectionStart = app.indexOf("const handleSelectSession");
   const selectionEnd = app.indexOf("const handleKillSession", selectionStart);
