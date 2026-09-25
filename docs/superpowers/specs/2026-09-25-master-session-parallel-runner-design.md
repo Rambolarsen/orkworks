@@ -113,6 +113,7 @@ expiring -> expired (all children quiesced)
 expiring -> recovery_required (quiescence is unproven)
 expiring -> cancelling (user-authenticated cancellation only)
 expired -> cancelling (user-authenticated cancellation only)
+expired -> proposed (user creates a new revision; old approval remains invalid)
 ```
 
 Approval activates exactly one plan revision. Provisioning is idempotent: a
@@ -136,7 +137,8 @@ can follow an expired approval, never the generic `recovery_required -> paused
 -> approved` path. The server persists a single recovery `fence_reason`
 (`paused`, `expiry`, `cancellation`, or `other`) and evaluates it atomically;
 the cancellation reason can reach only `cancelled`, never `paused`, `proposed`,
-or `approved`.
+or `approved`. An `expired -> proposed` transition creates a new immutable
+revision and approval request; it never resumes or mutates the expired one.
 
 Children in a batch launch concurrently only after all their worktrees have
 been created and recorded. A later batch cannot launch until the previous
@@ -266,6 +268,7 @@ The implementation must test, without launching real coding tools:
   `recovery_required` reconciliation;
 - cancellation during expiry and preservation of cancellation intent through
   uncertain termination, with no return to approval;
+- creation of a new revision after expiry without reviving the expired approval;
 - cleanup authorization after user acceptance;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
