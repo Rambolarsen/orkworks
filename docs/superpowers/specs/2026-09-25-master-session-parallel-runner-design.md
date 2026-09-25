@@ -386,7 +386,8 @@ The implementation must test, without launching real coding tools:
 - cleanup authorization after user acceptance or explicit discard;
 - discard authorization from `recovery_required` records
   `fence_reason=discarding`, keeps the plan in recovery, and rejects cleanup
-  until reconciliation proves quiescence;
+  until full cleanup-state reconciliation proves quiescence and validates
+  plan-owned worktree identity, path, and safety;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
 
