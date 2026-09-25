@@ -99,8 +99,10 @@ running_batch -> paused
 provisioning -> paused
 paused -> approved (fresh approval, unchanged plan and workspace subject)
 paused -> recovery_required (termination or launch state is uncertain)
+paused -> cancelling (user-authenticated cancellation)
 recovery_required -> paused (reconciliation proves quiescence)
-recovery_required -> proposed (a new revision is required)
+recovery_required -> expired (expiry fence is reconciled; no resume allowed)
+recovery_required -> proposed (a new revision is required; mandatory after expiry)
 proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
 cancelling -> recovery_required (quiescence is unproven)
@@ -116,6 +118,8 @@ retry returns the already-recorded worktree/child allocation when the
 canonical request matches, and refuses a collision when it does not. Every
 mutation checks the live coordinator capability, approval expiry and
 revocation generation, plan digest, workspace identity, and idempotency key.
+The authenticated user-cancellation operation from `paused`, `expiring`, or
+`expired` is the explicit exception to the coordinator-capability check.
 
 Pausing is an atomic mutation fence: it revokes all active child leases,
 prevents new launches, and requests bounded termination of every acknowledged
@@ -124,7 +128,10 @@ are quiescent and the user grants fresh approval. Provisioning can therefore
 be paused safely even when only some worktrees have been allocated. Expiry
 uses the same fence and termination rule, but the coordinator capability is
 not required for the resulting user-authenticated cancellation; an expired
-plan cannot resume or launch new work.
+plan cannot resume or launch new work. The expiry reason is retained through
+`recovery_required`; only reconciliation to `expired` or a new plan revision
+can follow an expired approval, never the generic `recovery_required -> paused
+-> approved` path.
 
 Children in a batch launch concurrently only after all their worktrees have
 been created and recorded. A later batch cannot launch until the previous
@@ -192,10 +199,10 @@ child, worktree, plan revision, current batch, and lease, observes the child
 session's successful terminal status and exit result, verifies the declared
 output contract or artifact evidence through the server/trusted verifier, and
 records a machine-attested attempt receipt that binds the report digest,
-observed process/session identity, output contract, verified output or
-artifact digests, and workspace change subject. A killed, errored, nonzero, or
-otherwise unsuccessful child cannot advance a batch even if its report claims
-success.
+observed process/session identity, attempt ID, lease ID, observed terminal
+status and exit result, output contract, verified output or artifact digests,
+and workspace change subject. A killed, errored, nonzero, or otherwise
+unsuccessful child cannot advance a batch even if its report claims success.
 
 The existing recommendation lifecycle remains unchanged for ordinary
 Taskmaster recommendations. The approve-once behavior is available only for
@@ -241,6 +248,8 @@ The implementation must test, without launching real coding tools:
   completion reports;
 - machine-attested attempt receipt creation and rejection of reports that do
   not match observed session/process state;
+- receipt binding to the exact attempt and lease plus observed terminal status
+  and exit result;
 - rejection of nonzero, killed, errored, or unverified-output attempts even
   when child prose claims success;
 - batch pause on failure or ambiguity;
