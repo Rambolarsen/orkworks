@@ -303,11 +303,13 @@ prerequisites are proven.
 
 Each child edits only its assigned plan-owned worktree. Results are reported
 to the master, but the runner does not transfer or integrate child changes.
-The user manually integrates or discards wanted edits. Cleanup requires
-explicit acceptance/discard, quiescence proof, and a fresh clean ownership
-check; dirty or uncertain worktrees remain for the user. Branches and commits
-are preserved. Skills may guide plan preparation and hooks may report lifecycle
-observations, but neither grants approval, starts children, or proves success.
+The user manually integrates or discards wanted edits. Cleanup requires a
+recorded, authenticated post-run disposition (`accept_success`, `reject`,
+`abandon`, or `discard`, as permitted by the lifecycle), quiescence proof, and
+a fresh clean ownership check; dirty or uncertain worktrees remain for the
+user. Branches and commits are preserved. Skills may guide plan preparation
+and hooks may report lifecycle observations, but neither grants approval,
+starts children, or proves success.
 
 ## Inputs
 

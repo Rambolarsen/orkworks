@@ -110,10 +110,10 @@ sidecar retains ownership of only its own workspace metadata, each child
 sidecar owns only its assigned worktree workspace, and no instance gains
 cross-workspace focus, attention, or general control. The runner's worktree
 creation and cleanup limits are defined by that design; child edits remain
-for manual user integration, and cleanup requires a clean, quiescent,
-plan-owned worktree. Implementation remains gated on review of the separate
-runner implementation plan and native proof of generation-specific child
-process ownership and confinement.
+for manual user integration, and cleanup requires a state-valid recorded user
+disposition plus a clean, quiescent, plan-owned worktree. Implementation
+remains gated on review of the separate runner implementation plan and native
+proof of generation-specific child process ownership and confinement.
 
 On Windows, use filesystem semantics for junctions, symlinks, drive-letter,
 separator, case, UNC, and extended-path spellings; do not lowercase paths or
@@ -222,13 +222,14 @@ leases are insufficient. Without proof, startup remains **Picker** or
 
 ## Process-ownership prerequisite
 
-Issue [#545](https://github.com/Rambolarsen/orkworks/issues/545) is a hard
-prerequisite for unavailable-sidecar cleanup and replacement or relaunch
-adoption. The production ownership boundary must enumerate every process family
-that can outlive its launch request, including PTY and long-lived inference
-children. Discovery, version-probe, Git, shell, and coding-tool helpers may be
-excluded only when native evidence proves they finish within bounded operations
-and cannot detach or leave descendants.
+Issue [#545](https://github.com/Rambolarsen/orkworks/issues/545) is closed, but
+its closure does not itself provide the native evidence required for
+unavailable-sidecar cleanup and replacement or relaunch adoption. That evidence
+remains a hard prerequisite. The production ownership boundary must enumerate
+every process family that can outlive its launch request, including PTY and
+long-lived inference children. Discovery, version-probe, Git, shell, and
+coding-tool helpers may be excluded only when native evidence proves they
+finish within bounded operations and cannot detach or leave descendants.
 
 Each included child must be registered before execution or fail closed. Cleanup
 must enumerate and terminate only that generation's registered descendants,

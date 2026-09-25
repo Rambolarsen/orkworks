@@ -63,14 +63,15 @@ owned runtime. Forced termination and crash recovery cannot infer descendant
 exit from persisted PIDs, process names, executable paths, or a released metadata
 lease.
 
-Issue [#545](https://github.com/Rambolarsen/orkworks/issues/545) remains a hard
-prerequisite for unavailable-sidecar cleanup and replacement or relaunch
-adoption. Every process family that can outlive its launch request must be
-registered with a crash-surviving native ownership boundary, or be proven by
-native evidence unable to detach or leave descendants. Unsupported platforms
-fail closed. No runtime implementation may claim successful cleanup or launch a
-replacement until the applicable mechanism proves bounded, generation-specific
-exit while preserving foreign processes.
+Issue [#545](https://github.com/Rambolarsen/orkworks/issues/545) is closed, but
+its closure does not itself provide the native evidence required for
+unavailable-sidecar cleanup and replacement or relaunch adoption. That
+evidence remains a hard prerequisite. Every process family that can outlive its
+launch request must be registered with a crash-surviving native ownership
+boundary, or be proven by native evidence unable to detach or leave descendants.
+Unsupported platforms fail closed. No runtime implementation may claim
+successful cleanup or launch a replacement until the applicable mechanism
+proves bounded, generation-specific exit while preserving foreign processes.
 
 The detailed proposed behavior and executable acceptance contract live in the
 [independent workspace specification](../../specs/multi-workspace.md) and its

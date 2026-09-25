@@ -121,10 +121,12 @@ OrkWorks should not create, delete, merge, rebase, reset, or clean up worktrees 
 The separately reviewed master-session runner design is a narrow, opt-in
 exception to that MVP boundary. If its implementation plan is separately
 approved, OrkWorks may provision one worktree per approved child and remove
-only clean, quiescent worktrees created by that plan after explicit user
-acceptance or discard authorization. The user manually integrates or discards
-child edits first. The runner never copies changes, commits, merges, rebases,
-pushes, or deletes branches; dirty or uncertain worktrees remain for the user.
+only clean, quiescent worktrees created by that plan after a recorded,
+authenticated post-run disposition (`accept_success`, `reject`, `abandon`, or
+`discard`, as permitted by the lifecycle). The user manually integrates or
+discards child edits first. The runner never copies changes, commits, merges,
+rebases, pushes, or deletes branches; dirty or uncertain worktrees remain for
+the user.
 
 ## Repo Skills Boundary
 
