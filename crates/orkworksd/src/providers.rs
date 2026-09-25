@@ -3645,7 +3645,18 @@ mod tests {
 
         let args = vec![pidfile.to_string_lossy().into_owned()];
         let prompt = "x".repeat(1024 * 1024);
-        let result = ProcessRunner.run("test", script.to_str().unwrap(), &args, &prompt, 1, None);
+        // The 10s budget is a test-chosen margin, not a production timeout:
+        // the runner's single budget covers prompt write plus output, so it
+        // starts counting from spawn submission and the child's fork/exec +
+        // `exec 0<&-` latency counts against it. Under full-suite parallel
+        // load that startup occasionally misses 1s, and the runner then
+        // legitimately reports the separate "timed out" outcome instead of
+        // the broken pipe this test pins (observed flake, issue #623). The
+        // broken pipe normally lands within ~10ms of spawn, so the larger
+        // margin costs nothing on a healthy host and stays bounded (the
+        // child is SIGKILLed at the deadline); the cleanup and error-shape
+        // assertions are unchanged.
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &args, &prompt, 10, None);
 
         assert!(!result.success);
         assert!(

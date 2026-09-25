@@ -407,7 +407,25 @@ mod tests {
         std::fs::write(&bin, "#!/bin/sh\necho 'fake-tool 1.2.3'\n").unwrap();
         make_test_executable(&bin);
 
-        let output = probe_tool_version(&bin).await.expect("should run");
+        // probe_tool_version's 3s deadline is production behavior, so the
+        // test cannot widen it. It covers the child's fork/exec latency, and
+        // under full-suite parallel load that occasionally misses 3s even for
+        // a trivial script, making the probe legitimately return None
+        // (observed flake, issue #623). Retry with a fresh probe per attempt:
+        // a deterministic regression (spawn broken, writer wrong) still
+        // returns None every attempt and fails, while scheduling noise only
+        // shifts which attempt lands.
+        let mut output = None;
+        for attempt in 0..5 {
+            output = probe_tool_version(&bin).await;
+            if output.is_some() {
+                if attempt > 0 {
+                    eprintln!("probe succeeded on attempt {attempt}");
+                }
+                break;
+            }
+        }
+        let output = output.expect("probe should return output within 5 attempts under load");
         assert_eq!(parse_version_token(&output), Some((1, 2, 3)));
     }
 
