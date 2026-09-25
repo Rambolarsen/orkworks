@@ -30,11 +30,11 @@ Not verified and intentionally still gated:
 - production routing through a proven cross-platform owner boundary;
 - native Windows/macOS/Linux acceptance rows unavailable in this checkout.
 
-Until issue [#545](https://github.com/Rambolarsen/orkworks/issues/545) has
-native evidence and a production seam audit, the acceptance rows below that
-require crash-surviving ownership remain unverified. The implementation must
-remain fail-closed for replacement and relaunch after unexpected ownership
-loss.
+Issue [#545](https://github.com/Rambolarsen/orkworks/issues/545) is closed, but
+closure is not evidence. Until the native process-ownership evidence and
+production-seam audit are complete, the acceptance rows below that require
+crash-surviving ownership remain unverified. The implementation must remain
+fail-closed for replacement and relaunch after unexpected ownership loss.
 
 ## Test setup
 
@@ -149,9 +149,11 @@ and [#544](https://github.com/Rambolarsen/orkworks/issues/544) before treating
 their paths as evidence.
 
 Before enabling unavailable-sidecar cleanup, replacement, or relaunch adoption,
-complete [#545](https://github.com/Rambolarsen/orkworks/issues/545) with native
-Windows and macOS evidence plus portable Linux coverage. A sidecar handle, PID
-list, unproven process group, or released lease is insufficient. Include every
+produce and review native Windows and macOS evidence plus portable Linux
+coverage for the selected ownership mechanism. Issue
+[#545](https://github.com/Rambolarsen/orkworks/issues/545) tracked this work,
+but its closure is not the acceptance gate. A sidecar handle, PID list,
+unproven process group, or released lease is insufficient. Include every
 production process family that can detach or leave descendants.
 
 ## Resource and durability experiment

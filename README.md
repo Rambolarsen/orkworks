@@ -36,9 +36,9 @@ failed children or create a combined code draft; a rerun needs a new plan
 approval. Its implementation plan still requires review, and child launch
 remains gated on native confinement and process-ownership proof. Cleanup
 requires a recorded, state-valid user
-disposition (accept, reject, abandon, or discard), followed by quiescence and
-clean-ownership checks; closing issue #545 does not substitute for native
-evidence.
+disposition (`accept_success`, `reject`, `abandon`, or `discard`), followed by
+quiescence and clean-ownership checks; closing issue #545 does not substitute
+for native evidence.
 
 Background CLI inference owns its process tree for bounded cleanup, using Unix
 process groups and Windows Job objects. See [ADR 0055](docs/adr/0055-json-taskmaster-inference-adapters.md)
