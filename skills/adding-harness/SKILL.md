@@ -35,8 +35,9 @@ Use this skill before adding a new harness or changing an existing harness adapt
 9. Record native voice support. Voice must remain pass-through unless a spec explicitly says otherwise.
 10. Record capacity/context/status signals the harness exposes and whether they are documented enough to parse.
 11. Record in-session label-reset commands per ADR 0040 (`HarnessDefinition.labelResetCommands`): verify the harness's start-fresh commands against primary documentation or the installed CLI, declare them with cited evidence, or explicitly declare none — an empty declaration must be verified-absent, never unexamined.
-12. Add or update tests for launch command rendering, resume strategy selection, session ID capture, label-reset command declarations, and remembered-session UI state.
-13. Update `docs/agents/architecture.md`, relevant specs, and ADRs if the adapter adds routes, metadata fields, protocol changes, or new boundaries.
+12. Changing a harness's `labelResetCommands` (including going from verified-none to declared) invalidates any existing test that pins that harness's declaration state. Search the test suite for premises that assume the harness declares no reset commands (or a specific set) and update them in the same change — PR #432 declared Codex's `["/clear", "/new"]` and silently invalidated the premise of the scope test `declared_reset_is_scoped_to_the_harness_that_declares_it`, requiring a follow-up fix (#448, #450) that a declaration-focused checklist alone did not catch.
+13. Add or update tests for launch command rendering, resume strategy selection, session ID capture, label-reset command declarations, and remembered-session UI state.
+14. Update `docs/agents/architecture.md`, relevant specs, and ADRs if the adapter adds routes, metadata fields, protocol changes, or new boundaries.
 
 ## Output
 
