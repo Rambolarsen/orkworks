@@ -71,7 +71,7 @@ OrkWorks is the authority for the approved plan. It:
   server-observed session/process state into an attempt receipt;
 - pauses the plan on stale, ambiguous, failed, or conflicting results; and
 - performs the master's cleanup request only after explicit user acceptance of
-  the combined work.
+  the combined work or an explicit authenticated user discard authorization.
 
 ### Child sessions
 
@@ -97,13 +97,27 @@ runtime. OrkWorks starts each child in a dedicated child runtime/sidecar whose
 sole workspace is the assigned worktree, and the child runtime reports through
 the plan-bound authenticated coordinator channel.
 
-This plan-bound channel is an explicit parent/child capability, not a peer
-instance registry, cross-instance focus mechanism, attention rollup, or general
+The plan-bound channel uses a server-issued child runtime capability distinct
+from the master coordinator capability. It is bound to the plan revision and
+digest, child allocation/worktree identity, dedicated runtime identity,
+current attempt and lease, allowed report/tool audience, and expiry/revocation
+generation. The child runtime presents that capability only to the
+server-owned coordinator broker; it cannot use it as a master capability, in
+another child workspace, or to address a peer sidecar. The broker validates
+the parent plan authority and child capability together before accepting a
+report or forwarding an invocation, and the dedicated runtime separately
+proves its own workspace-scoped identity to its local sidecar.
+
+This is an explicit parent/child capability channel, not a peer instance
+registry, cross-instance focus mechanism, attention rollup, or general
 cross-workspace controller. It does not weaken ADR 0060's one-workspace-per-
 instance boundary. Before implementation, ADR 0060 and the related workspace
-spec must be amended or explicitly extended to record this coordinator-owned
-child-runtime topology, its metadata ownership, shutdown proof, and the
-boundary between master-plan records and child-workspace records.
+spec must be amended or explicitly extended to record this bounded
+coordinator-broker authority, child-runtime capability, metadata ownership,
+shutdown proof, and boundary between master-plan records and child-workspace
+records. Until that amendment is accepted, this runner is design-only and
+cannot be implemented by reusing the ordinary workspace-scoped capability or
+by having one sidecar own several workspaces.
 
 The bounded coordinator contract remains in force: every child invocation
 crosses the server-owned broker, uses the approved tool/provider envelope,
@@ -147,8 +161,8 @@ expiring -> recovery_required (quiescence is unproven)
 expiring -> cancelling (user-authenticated cancellation only)
 expired -> cancelling (user-authenticated cancellation only)
 expired -> proposed (user creates a new revision; old approval remains invalid)
-awaiting_acceptance / failed / cancelled / expired / revoked -> discarding
-discarding -> cleaned (user-authorized cleanup completed)
+awaiting_acceptance / failed / cancelled / expired / revoked -> discarding (explicit user discard/rejection/abandonment)
+discarding -> cleaned (the discard authorization's cleanup completed)
 discarding -> recovery_required (cleanup or quiescence is uncertain)
 ```
 
@@ -158,10 +172,11 @@ canonical request matches, and refuses a collision when it does not. Every
 post-approval runtime mutation checks the live coordinator capability, approval
 expiry and revocation generation, plan digest, workspace identity, and
 idempotency key. Draft proposal, user approval, pre-approval cancellation,
-post-terminal discard, and system-generated expiry/revocation transitions use
-their own authenticated user or server authority and do not require a
-coordinator capability that has not yet been issued. User cancellation and
-discard remain available after coordinator expiry or revocation.
+post-terminal discard use authenticated user authority; system-generated
+expiry/revocation transitions use server authority. These transitions do not
+require a coordinator capability that has not yet been issued. User
+cancellation and discard remain available after coordinator expiry or
+revocation.
 
 Pausing is an atomic mutation fence: it revokes all active child leases,
 prevents new launches, and requests bounded termination of every acknowledged
@@ -184,9 +199,11 @@ Revocation uses the same mutation fence and bounded process-tree termination as
 pause, cancellation, and expiry. A revoked plan cannot resume, relaunch, or
 advance; it can only enter user-authorized `discarding`. A user rejection or
 abandonment in `awaiting_acceptance`, `failed`, `cancelled`, `expired`, or
-`revoked` likewise enters `discarding`. Cleanup requires every child to be
-quiescent, validates that each worktree is still plan-owned and safe to remove,
-and preserves branches and commits. If cleanup or quiescence is uncertain,
+`revoked` likewise enters `discarding`; reaching one of those terminal states
+alone never authorizes cleanup. The authenticated discard transition records
+the cleanup authorization. Cleanup requires every child to be quiescent,
+validates that each worktree is still plan-owned and safe to remove, and
+preserves branches and commits. If cleanup or quiescence is uncertain,
 `fence_reason=discarding` keeps the plan in recovery until reconciliation; it
 cannot become runnable again.
 
@@ -240,13 +257,13 @@ the assigned worktree. If the host platform cannot enforce that confinement,
 the child is not launched. Children receive the assigned working directory
 and must not provision or remove worktrees themselves.
 
-After explicit user acceptance, or explicit user rejection/abandonment through
-the `discarding` state, the master may request cleanup of only worktrees
-created by that plan. OrkWorks validates and executes that request. Cleanup
-preserves branches and commits unless the user separately authorizes their
-deletion. A dirty worktree, active child, path mismatch, or ownership mismatch
-blocks cleanup and leaves the plan in `discarding` or `recovery_required` for
-user intervention.
+After explicit user acceptance, or an explicit authenticated user rejection,
+abandonment, or discard transition into `discarding`, the master may request
+cleanup of only worktrees created by that plan. OrkWorks validates and
+executes that request. Cleanup preserves branches and commits unless the user
+separately authorizes their deletion. A dirty worktree, active child, path
+mismatch, or ownership mismatch blocks cleanup and leaves the plan in
+`discarding` or `recovery_required` for user intervention.
 
 ## Persistence and safety
 
