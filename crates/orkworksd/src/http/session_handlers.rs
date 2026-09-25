@@ -5606,7 +5606,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn observation_count_read_failure_keeps_response_successful_with_null_count() {
+    async fn absent_observation_count_serializes_as_null() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "count-read-failed";

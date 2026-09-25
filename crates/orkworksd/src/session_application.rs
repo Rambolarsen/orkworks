@@ -5017,7 +5017,13 @@ mod tests {
                 .open_workspace(root.path().to_path_buf())
                 .unwrap();
 
-            assert!(!snapshot.canonical_path.is_empty());
+            assert_eq!(
+                snapshot.canonical_path,
+                std::fs::canonicalize(root.path())
+                    .unwrap()
+                    .display()
+                    .to_string()
+            );
         });
     }
 
