@@ -40,7 +40,8 @@ This slice does not provide:
 - parallel children in one shared working directory;
 - autonomous commit, merge, rebase, push, branch deletion, or user acceptance;
 - a general-purpose command broker, budget engine, or provider substitution
-  system beyond the minimum worktree-bound launch fence; or
+  system beyond the bounded broker, budget, and provider controls required by
+  the existing coordinator contract; or
 - a new harness-specific replacement for existing hooks and skills.
 
 ## Roles and responsibilities
@@ -60,9 +61,12 @@ OrkWorks is the authority for the approved plan. It:
 - binds approval to the immutable plan revision and workspace;
 - issues and checks a coordinator capability and one child lease per attempt;
 - creates one isolated worktree per child after approval;
-- starts children through a worktree-bound extension of the existing
-  session-creation path;
+- starts each child through a dedicated one-workspace child runtime bound to
+  its worktree; a master sidecar never owns child workspaces;
 - records parent session, plan, batch, worktree, and child identities;
+- routes every child tool invocation through the coordinator's server-owned
+  broker with finite per-attempt ceilings, normalized reservations, and hard
+  denials;
 - accepts only authenticated, current child reports that can be combined with
   server-observed session/process state into an attempt receipt;
 - pauses the plan on stale, ambiguous, failed, or conflicting results; and
@@ -84,6 +88,30 @@ Existing hooks report lifecycle signals such as turn completion or idle
 state. A stop/idle signal is not task success and cannot launch another child.
 No hook or skill is trusted as the durable approval authority.
 
+### Workspace ownership and runtime topology
+
+Each child worktree is a distinct workspace identity. The master sidecar owns
+only the master workspace and its plan metadata; it must not adopt child
+workspaces or launch their sessions through the master's existing workspace
+runtime. OrkWorks starts each child in a dedicated child runtime/sidecar whose
+sole workspace is the assigned worktree, and the child runtime reports through
+the plan-bound authenticated coordinator channel.
+
+This plan-bound channel is an explicit parent/child capability, not a peer
+instance registry, cross-instance focus mechanism, attention rollup, or general
+cross-workspace controller. It does not weaken ADR 0060's one-workspace-per-
+instance boundary. Before implementation, ADR 0060 and the related workspace
+spec must be amended or explicitly extended to record this coordinator-owned
+child-runtime topology, its metadata ownership, shutdown proof, and the
+boundary between master-plan records and child-workspace records.
+
+The bounded coordinator contract remains in force: every child invocation
+crosses the server-owned broker, uses the approved tool/provider envelope,
+consumes finite wall-clock, CPU, memory, process, output, token, cost, and
+tool-invocation ceilings, and is rejected when confinement or a ceiling cannot
+be enforced. This design narrows the plan topology and batch lifecycle; it
+does not replace or relax those controls.
+
 ## Lifecycle
 
 ```text
@@ -100,9 +128,14 @@ provisioning -> paused
 paused -> approved (fresh approval, unchanged plan and workspace subject)
 paused -> recovery_required (termination or launch state is uncertain)
 paused -> cancelling (user-authenticated cancellation)
+approved / provisioning / running_batch / paused -> revoking
+revoking -> revoked (all children quiesced)
+revoking -> recovery_required (quiescence is unproven)
 recovery_required -> paused (fence_reason=paused; reconciliation proves quiescence)
 recovery_required -> expired (fence_reason=expiry; reconciliation proves quiescence)
 recovery_required -> cancelled (fence_reason=cancellation; reconciliation proves quiescence)
+recovery_required -> revoked (fence_reason=revocation; reconciliation proves quiescence)
+recovery_required -> discarding (fence_reason=discarding; cleanup state is reconciled)
 recovery_required -> proposed (fence_reason=other; a new revision is required)
 proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
@@ -114,15 +147,21 @@ expiring -> recovery_required (quiescence is unproven)
 expiring -> cancelling (user-authenticated cancellation only)
 expired -> cancelling (user-authenticated cancellation only)
 expired -> proposed (user creates a new revision; old approval remains invalid)
+awaiting_acceptance / failed / cancelled / expired / revoked -> discarding
+discarding -> cleaned (user-authorized cleanup completed)
+discarding -> recovery_required (cleanup or quiescence is uncertain)
 ```
 
 Approval activates exactly one plan revision. Provisioning is idempotent: a
 retry returns the already-recorded worktree/child allocation when the
 canonical request matches, and refuses a collision when it does not. Every
-mutation checks the live coordinator capability, approval expiry and
-revocation generation, plan digest, workspace identity, and idempotency key.
-The authenticated user-cancellation operation from `paused`, `expiring`, or
-`expired` is the explicit exception to the coordinator-capability check.
+post-approval runtime mutation checks the live coordinator capability, approval
+expiry and revocation generation, plan digest, workspace identity, and
+idempotency key. Draft proposal, user approval, pre-approval cancellation,
+post-terminal discard, and system-generated expiry/revocation transitions use
+their own authenticated user or server authority and do not require a
+coordinator capability that has not yet been issued. User cancellation and
+discard remain available after coordinator expiry or revocation.
 
 Pausing is an atomic mutation fence: it revokes all active child leases,
 prevents new launches, and requests bounded termination of every acknowledged
@@ -135,16 +174,38 @@ plan cannot resume or launch new work. The expiry reason is retained through
 `recovery_required`; only reconciliation to `expired` or a new plan revision
 can follow an expired approval, never the generic `recovery_required -> paused
 -> approved` path. The server persists a single recovery `fence_reason`
-(`paused`, `expiry`, `cancellation`, or `other`) and evaluates it atomically;
+(`paused`, `expiry`, `cancellation`, `revocation`, `discarding`, or `other`)
+and evaluates it atomically;
 the cancellation reason can reach only `cancelled`, never `paused`, `proposed`,
 or `approved`. An `expired -> proposed` transition creates a new immutable
 revision and approval request; it never resumes or mutates the expired one.
+
+Revocation uses the same mutation fence and bounded process-tree termination as
+pause, cancellation, and expiry. A revoked plan cannot resume, relaunch, or
+advance; it can only enter user-authorized `discarding`. A user rejection or
+abandonment in `awaiting_acceptance`, `failed`, `cancelled`, `expired`, or
+`revoked` likewise enters `discarding`. Cleanup requires every child to be
+quiescent, validates that each worktree is still plan-owned and safe to remove,
+and preserves branches and commits. If cleanup or quiescence is uncertain,
+`fence_reason=discarding` keeps the plan in recovery until reconciliation; it
+cannot become runnable again.
 
 Children in a batch launch concurrently only after all their worktrees have
 been created and recorded. A later batch cannot launch until the previous
 batch's required children have server-attested attempt receipts. A failed,
 missing, stale, or ambiguous result pauses the plan; it does not trigger an
 unapproved replacement child.
+
+Child completion uses a runner-specific one-shot handshake rather than an
+ordinary stop/idle event. The child submits its authenticated result report;
+the coordinator seals that attempt and asks the dedicated child runtime to
+gracefully terminate the harness. The runtime acknowledges the sealed report,
+closes the session, and reports the observed process exit. Only a server-
+observed successful exit/status within the finite termination deadline can
+produce a successful attempt receipt. A child that remains running, exits with
+an error, is killed, or misses the handshake is failed or enters recovery and
+cannot advance the batch. This keeps the existing interactive harnesses
+usable while giving coordinator children an explicit one-shot completion mode.
 
 When a batch completes, the coordinator advances the current-batch pointer to
 the next already-approved batch. Later batches may consume only persisted
@@ -179,11 +240,13 @@ the assigned worktree. If the host platform cannot enforce that confinement,
 the child is not launched. Children receive the assigned working directory
 and must not provision or remove worktrees themselves.
 
-After explicit user acceptance, the master may request cleanup of only
-worktrees created by that plan. OrkWorks validates and executes that request.
-Cleanup preserves branches and commits unless the user separately authorizes
-their deletion. A dirty worktree, active child, path mismatch, or ownership
-mismatch blocks cleanup and leaves the plan paused for user intervention.
+After explicit user acceptance, or explicit user rejection/abandonment through
+the `discarding` state, the master may request cleanup of only worktrees
+created by that plan. OrkWorks validates and executes that request. Cleanup
+preserves branches and commits unless the user separately authorizes their
+deletion. A dirty worktree, active child, path mismatch, or ownership mismatch
+blocks cleanup and leaves the plan in `discarding` or `recovery_required` for
+user intervention.
 
 ## Persistence and safety
 
@@ -220,7 +283,9 @@ autonomous.
 ## Failure handling
 
 - Worktree creation failure pauses provisioning without launching a partial
-  batch unless the durable record proves which children were safely created.
+  batch. A durable partial-allocation record may only resume idempotent
+  provisioning or roll it back; no child launches until every worktree in the
+  batch is ready and recorded.
 - A child failure pauses the plan and retains all worktrees for diagnosis.
 - A lost or stale report cannot advance the batch or start a replacement.
 - Pausing during provisioning or execution revokes every child lease, fences
@@ -233,6 +298,9 @@ autonomous.
   authenticated cancellation remains available after the coordinator
   capability expires; expiry never authorizes resume, relaunch, or cleanup by
   itself.
+- Approval revocation installs the same fence and termination request. A
+  revoked plan cannot resume or relaunch; it remains available only for
+  reconciliation and explicit user-authorized discard.
 - If termination or launch acknowledgement is uncertain, the plan enters
   `recovery_required`; reservations and worktrees remain held until
   reconciliation proves non-start or termination. No replacement launch or
@@ -258,6 +326,8 @@ The implementation must test, without launching real coding tools:
   not match observed session/process state;
 - receipt binding to the exact attempt and lease plus observed terminal status
   and exit result;
+- successful report-to-exit handshake, including timeout, running-session,
+  killed-process, and nonzero-exit rejection;
 - rejection of nonzero, killed, errored, or unverified-output attempts even
   when child prose claims success;
 - batch pause on failure or ambiguity;
@@ -268,7 +338,10 @@ The implementation must test, without launching real coding tools:
   `recovery_required` reconciliation;
 - cancellation during expiry and preservation of cancellation intent through
   uncertain termination, with no return to approval;
+- pre-approval user authorization and post-approval capability enforcement;
+- revocation fencing and recovery without relaunch;
 - creation of a new revision after expiry without reviving the expired approval;
+- partial provisioning recovery without launching an incomplete batch;
 - cleanup authorization after user acceptance;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
