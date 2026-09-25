@@ -104,9 +104,15 @@ current attempt and lease, allowed report/tool audience, and expiry/revocation
 generation. The child runtime presents that capability only to the
 server-owned coordinator broker; it cannot use it as a master capability, in
 another child workspace, or to address a peer sidecar. The broker validates
-the parent plan authority and child capability together before accepting a
-report or forwarding an invocation, and the dedicated runtime separately
-proves its own workspace-scoped identity to its local sidecar.
+each caller's capability at its own boundary and joins the parent plan,
+allocation, runtime, and attempt through a durable server-side association; no
+request carries both the master and child capabilities. The master sidecar
+authenticates a launch, pause, or recovery command with its master capability.
+The child runtime authenticates a report or runtime acknowledgement with its
+child capability. For a child invocation, the broker uses the already
+authorized master dispatch and sends an allocation-scoped envelope over the
+child runtime's authenticated broker connection. The dedicated runtime
+separately proves its own workspace-scoped identity to its local sidecar.
 
 This is an explicit parent/child capability channel, not a peer instance
 registry, cross-instance focus mechanism, attention rollup, or general
@@ -118,6 +124,16 @@ shutdown proof, and boundary between master-plan records and child-workspace
 records. Until that amendment is accepted, this runner is design-only and
 cannot be implemented by reusing the ordinary workspace-scoped capability or
 by having one sidecar own several workspaces.
+
+The companion coordinator contract must add this broker audience and durable
+plan-to-runtime association while retaining the root plan's master
+instance/workspace binding. ADR 0060 and the workspace specification must
+record that the broker is a bounded parent/child control plane, not an
+OrkWorks instance, workspace metadata owner, or peer registry; that each child
+sidecar still owns only its assigned workspace; and that broker shutdown and
+child-runtime termination require server-observed, generation-specific proof.
+Those companion amendments are prerequisites for implementation, not changes
+that this design may silently assume.
 
 The bounded coordinator contract remains in force: every child invocation
 crosses the server-owned broker, uses the approved tool/provider envelope,
@@ -161,9 +177,11 @@ expiring -> recovery_required (quiescence is unproven)
 expiring -> cancelling (user-authenticated cancellation only)
 expired -> cancelling (user-authenticated cancellation only)
 expired -> proposed (user creates a new revision; old approval remains invalid)
-awaiting_acceptance / failed / cancelled / expired / revoked -> discarding (explicit user discard/rejection/abandonment)
+awaiting_acceptance -> discarding (explicit user acceptance or discard/rejection/abandonment)
+failed / cancelled / expired / revoked -> discarding (explicit user discard/rejection/abandonment)
 discarding -> cleaned (the discard authorization's cleanup completed)
 discarding -> recovery_required (cleanup or quiescence is uncertain)
+recovery_required -> discarding (authenticated user discard installs fence_reason=discarding before reconciliation)
 ```
 
 Approval activates exactly one plan revision. Provisioning is idempotent: a
@@ -175,8 +193,9 @@ idempotency key. Draft proposal, user approval, pre-approval cancellation,
 post-terminal discard use authenticated user authority; system-generated
 expiry/revocation transitions use server authority. These transitions do not
 require a coordinator capability that has not yet been issued. User
-cancellation and discard remain available after coordinator expiry or
-revocation.
+cancellation and discard, including discard from `recovery_required`, remain
+available after coordinator expiry or revocation. The recovery discard action
+installs `fence_reason=discarding` atomically before cleanup reconciliation.
 
 Pausing is an atomic mutation fence: it revokes all active child leases,
 prevents new launches, and requests bounded termination of every acknowledged
@@ -236,7 +255,9 @@ automatically.
 
 Child completion is distinct from user acceptance. After all approved batches
 finish, the plan enters `awaiting_acceptance`. User acceptance approves the
-combined result for cleanup only; it does not imply merge or Git acceptance.
+combined result for cleanup only and transitions the plan into `discarding`; it
+does not imply merge or Git acceptance. Rejection, abandonment, or discard
+uses the same cleanup path but records a non-acceptance disposition.
 
 ## Worktree lifecycle
 
@@ -356,10 +377,13 @@ The implementation must test, without launching real coding tools:
 - cancellation during expiry and preservation of cancellation intent through
   uncertain termination, with no return to approval;
 - pre-approval user authorization and post-approval capability enforcement;
+- server-side parent/child capability association without cross-workspace token
+  reuse or peer-sidecar control;
 - revocation fencing and recovery without relaunch;
 - creation of a new revision after expiry without reviving the expired approval;
 - partial provisioning recovery without launching an incomplete batch;
-- cleanup authorization after user acceptance;
+- cleanup authorization after user acceptance or explicit discard;
+- discard authorization from `recovery_required` before cleanup reconciliation;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
 
