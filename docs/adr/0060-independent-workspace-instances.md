@@ -140,3 +140,20 @@ generation-specific proof that the complete owned process tree has exited.
 Unsupported or ambiguous ownership fails closed. This amendment does not
 authorize multi-workspace metadata ownership, a peer-instance registry,
 cross-workspace focus, or general workflow control.
+
+## Amendment — 2026-09-25: native child-launch gate remains closed
+
+The [native confinement validation record](../validation/master-session-runner-confinement.md)
+documents the Taskmaster runner's current qualification status. No
+OS/harness combination is proven eligible: the interactive PTY path has no
+production-backed worktree confinement boundary, complete process-tree owner,
+credential-isolation boundary, or tested harness-specific successful-exit
+contract. Existing provider-process containment and OS-level candidate
+mechanisms are not evidence for interactive harness launches.
+
+This is an absence-of-proof finding, not the result of failed native fixture
+runs. No runner adversarial fixtures were run for this checkpoint. Runner
+launch remains unavailable until a production-backed native boundary and
+exact OS/harness evidence pass; the work to provide that boundary and evidence
+is tracked by [issue #617](https://github.com/Rambolarsen/orkworks/issues/617),
+under parent issue [#610](https://github.com/Rambolarsen/orkworks/issues/610).
