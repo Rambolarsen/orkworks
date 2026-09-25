@@ -52,7 +52,7 @@ Do not change `rootDir` in `tsconfig.node.json` or `tsconfig.json` to accommodat
 
 ## Settings coding-tool toggle confirmation
 
-Flipping a coding tool's Settings toggle off→on immediately persists the merged active-tool selection and reconciles only that tool's integration group (`enableHarnessIntegrationImmediate`). Because that path reuses the shared Electron-main `confirmMutations` step, the native OS confirmation dialog — listing the install or repair it is about to perform — pops at toggle time, not at the later modal-wide Save click. This is intentional, not a regression; do not change or document it as deferred to Save. Flipping on→off remains draft-only; its cleanup mutation still waits for Save.
+Flipping an integration-capable coding tool's Settings toggle off→on immediately persists the merged active-tool selection and reconciles only that tool's integration group (`enableHarnessIntegrationImmediate`); a coding tool without an integration binding stays draft until Save. When that reconcile plans an install or repair, it shows the native OS confirmation dialog — listing the mutation it is about to perform — at toggle time, not at the later modal-wide Save click; when no mutation is planned (integration already healthy, unsupported, or its status lookup failed) no dialog appears. This is intentional, not a regression; do not change or document it as deferred to Save. Flipping on→off remains draft-only; its cleanup mutation still waits for Save.
 
 ## Architecture references
 
