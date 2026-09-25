@@ -20,15 +20,16 @@ group, or asserted PID.
 The current non-retired built-in interactive definitions are Claude Code
 (`claude-code`), OpenCode (`opencode`), Codex (`codex`), Antigravity CLI
 (`antigravity`), Aider (`aider`), GitHub Copilot CLI (`copilot`), and
-`generic-shell`. Custom command-template harnesses use the same generic PTY
-path and are also unqualified. Gemini (`gemini`) is retired and is not a
-candidate for new launches.
+`generic-shell`. Custom harness definitions using either `command-template`
+or `platform-shell` launch kinds use the generic PTY path and are also
+unqualified. Gemini (`gemini`) is retired and is not a candidate for new
+launches.
 
 | OS target | Harnesses considered | Current eligibility | Evidence status |
 | --- | --- | --- | --- |
-| macOS (native host audited: arm64) | Every non-retired built-in listed above; custom command-template harnesses | None | Source/entitlement audit only; no runner fixture or harness test run |
-| Windows | Every non-retired built-in listed above; custom command-template harnesses | None | Native mechanisms researched; no production harness integration or runner fixture run |
-| Linux | Every non-retired built-in listed above; custom command-template harnesses | None | Native mechanisms researched; no production harness integration or runner fixture run |
+| macOS (native host audited: arm64) | Every non-retired built-in listed above; custom definitions using either `command-template` or `platform-shell` | None | Source/entitlement audit only; no runner fixture or harness test run |
+| Windows | Every non-retired built-in listed above; custom definitions using either `command-template` or `platform-shell` | None | Native mechanisms researched; no production harness integration or runner fixture run |
+| Linux | Every non-retired built-in listed above; custom definitions using either `command-template` or `platform-shell` | None | Native mechanisms researched; no production harness integration or runner fixture run |
 
 The table is deliberately conservative: it describes current OrkWorks
 qualification, not the theoretical capabilities of an OS. A future pass must
