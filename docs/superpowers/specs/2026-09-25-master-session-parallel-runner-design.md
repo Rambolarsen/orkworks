@@ -384,7 +384,9 @@ The implementation must test, without launching real coding tools:
 - creation of a new revision after expiry without reviving the expired approval;
 - partial provisioning recovery without launching an incomplete batch;
 - cleanup authorization after user acceptance or explicit discard;
-- discard authorization from `recovery_required` before cleanup reconciliation;
+- discard authorization from `recovery_required` records
+  `fence_reason=discarding`, keeps the plan in recovery, and rejects cleanup
+  until reconciliation proves quiescence;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
 
