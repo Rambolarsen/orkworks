@@ -49,14 +49,6 @@ impl WorkspaceIdentity {
         &self.canonical_path
     }
 
-    pub(crate) fn requested_path(&self) -> &Path {
-        &self.requested_path
-    }
-
-    pub(crate) fn matches(&self, path: &Path) -> bool {
-        Self::resolve(path).is_ok_and(|candidate| candidate == *self)
-    }
-
     pub(crate) fn revalidate(&self) -> io::Result<()> {
         let retained_metadata = self._directory.metadata()?;
         if !retained_metadata.is_dir()
@@ -406,7 +398,6 @@ mod tests {
         std::fs::remove_file(&alias).unwrap();
         symlink(second.path(), &alias).unwrap();
 
-        assert!(!identity.matches(&alias));
         assert!(identity.revalidate().is_err());
     }
 

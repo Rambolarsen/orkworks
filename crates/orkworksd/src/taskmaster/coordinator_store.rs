@@ -1,4 +1,7 @@
 //! Durable coordinator definitions and approval state. No runtime authority lives here.
+#![allow(dead_code)]
+// Intentionally dormant persistence-only foundation (PR #607, design gate #604 /
+// ADR 0064); wired up by the approved parallel runner follow-up (#610).
 
 use super::coordinator::{CoordinatorError, PlanApproval, PlanRevision, PlanStatus};
 use serde::{Deserialize, Deserializer, Serialize};

@@ -210,6 +210,7 @@ impl HarnessStore {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn mutate<F>(
         &self,
         catalog: &HarnessCatalog,

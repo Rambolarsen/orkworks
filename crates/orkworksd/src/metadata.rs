@@ -1614,6 +1614,7 @@ impl MetadataStore {
     /// authoritative source are turn boundaries that must apply immediately (e.g.
     /// `working` -> `waiting_for_input` as soon as the model finishes), not gated
     /// behind a staleness window.
+    #[cfg(test)]
     pub fn merge_agent_attention_signal(
         &self,
         id: &str,
@@ -1923,6 +1924,7 @@ impl MetadataStore {
         self.events_dir().join(format!("{}.terminal", id))
     }
 
+    #[cfg(test)]
     pub fn append_terminal_output_lines(&self, id: &str, lines: &[String]) {
         let records = lines
             .iter()

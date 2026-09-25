@@ -1,4 +1,7 @@
 //! Bounded, data-only coordinator records. Runtime authority is deliberately absent.
+#![allow(dead_code)]
+// Intentionally dormant persistence-only foundation (PR #607, design gate #604 /
+// ADR 0064); wired up by the approved parallel runner follow-up (#610).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

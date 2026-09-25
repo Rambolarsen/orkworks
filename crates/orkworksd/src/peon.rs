@@ -130,14 +130,6 @@ impl RingBuffer {
         self.lines.iter().map(|(_, line)| line.clone()).collect()
     }
 
-    pub fn snapshot_after(&self, revision: u64) -> Vec<String> {
-        self.lines
-            .iter()
-            .filter(|(line_revision, _)| *line_revision > revision)
-            .map(|(_, line)| line.clone())
-            .collect()
-    }
-
     pub fn snapshot_after_with_revisions(&self, revision: u64) -> Option<RingSnapshot> {
         let lines: Vec<(u64, String)> = self
             .lines
@@ -1330,7 +1322,10 @@ mod tests {
         buf.push("new output".into());
 
         assert!(boundary > first);
-        assert_eq!(buf.snapshot_after(boundary), vec!["new output"]);
+        assert_eq!(
+            buf.snapshot_after_with_revisions(boundary).unwrap().lines,
+            vec!["new output"]
+        );
         assert!(buf.has_after(boundary));
         assert!(!buf.has_after(boundary + 1));
     }

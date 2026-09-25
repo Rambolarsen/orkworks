@@ -12,8 +12,8 @@ use crate::workspace_runtime::WorkspaceIdentity;
 #[cfg(test)]
 use crate::workspace_runtime::{orkworks_global_dir, WorkspaceLease};
 #[cfg(test)]
-use crate::{git, peon, SessionHandle};
-use crate::{harness, metadata, AppState, WorkspaceState};
+use crate::{git, peon, SessionHandle, WorkspaceState};
+use crate::{harness, metadata, AppState};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -21,6 +21,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -734,26 +735,6 @@ fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
         })
     });
     project_peon_diagnostics(info, snapshot, observation_count);
-}
-
-fn snapshot_observation_counts<F, E>(
-    workspace: Option<&WorkspaceState>,
-    session_ids: impl IntoIterator<Item = String>,
-    mut read_count: F,
-) -> HashMap<String, Option<usize>>
-where
-    F: FnMut(&WorkspaceState, &str) -> Result<usize, E>,
-{
-    let Some(workspace) = workspace else {
-        return HashMap::new();
-    };
-    session_ids
-        .into_iter()
-        .map(|session_id| {
-            let count = read_count(workspace, &session_id).ok();
-            (session_id, count)
-        })
-        .collect()
 }
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -5287,7 +5268,10 @@ mod tests {
                 "2024-01-01T00:00:00Z",
                 "2024-01-01T00:00:00Z",
             ));
-            store.append_terminal_output_lines(&session_id, &["hello".to_string()]);
+            store.append_terminal_output_records(
+                &session_id,
+                &[crate::metadata::TerminalOutputRecord::raw("hello", "")],
+            );
             assert_eq!(
                 store.read_terminal_output(&session_id, 10),
                 vec!["hello".to_string()]
@@ -5622,24 +5606,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn observation_count_read_failure_keeps_response_successful_with_null_count() {
+    async fn absent_observation_count_serializes_as_null() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "count-read-failed";
-        let workspace = state.workspace.lock().unwrap();
-        let counts = snapshot_observation_counts(
-            workspace.as_ref(),
-            [session_id.to_string()],
-            |_workspace, _session_id| Err("read failed"),
-        );
-        drop(workspace);
-
         let mut info = test_session_info(session_id, "Live", "/tmp", "running", "now");
-        project_peon_diagnostics(
-            &mut info,
-            Some(test_peon_diagnostics()),
-            counts.get(session_id).copied().flatten(),
-        );
+        project_peon_diagnostics(&mut info, Some(test_peon_diagnostics()), None);
         let response = Json(info).into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);

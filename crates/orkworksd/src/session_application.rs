@@ -69,7 +69,6 @@ pub(crate) enum RecommendationPacketError {
 }
 
 pub(crate) struct WorkspaceSnapshot {
-    pub(crate) path: String,
     pub(crate) canonical_path: String,
     pub(crate) repo_root: Option<String>,
     pub(crate) branch: Option<String>,
@@ -807,16 +806,6 @@ impl SessionApplication {
     /// the terminal, and only one would win the later store transition —
     /// this reservation makes the second request lose at the eligibility
     /// check instead, before any write happens.
-    pub(crate) async fn accept_recommendation(
-        &self,
-        id: &str,
-        session_id: &str,
-        prompt_override: Option<String>,
-    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
-        self.accept_recommendation_with_packet(id, session_id, prompt_override, None)
-            .await
-    }
-
     pub(crate) async fn accept_recommendation_with_packet(
         &self,
         id: &str,
@@ -928,15 +917,6 @@ impl SessionApplication {
 
     /// Completes an accepted Taskmaster recommendation from the reporting
     /// capability owned by the session that received its fix prompt.
-    pub(crate) fn complete_recommendation(
-        &self,
-        id: &str,
-        session_id: &str,
-        summary: Option<String>,
-    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationCompleteError> {
-        self.complete_recommendation_with_packet(id, session_id, summary, None)
-    }
-
     pub(crate) fn complete_recommendation_with_packet(
         &self,
         id: &str,
@@ -1049,6 +1029,7 @@ impl SessionApplication {
     /// a workspace switch cannot separate the decision from the write. The
     /// caller retains ownership of active-hook normalization, live projection,
     /// and retry scheduling.
+    #[cfg(test)]
     pub(crate) fn persist_peon_observation(
         &self,
         session_id: &str,
@@ -1326,6 +1307,7 @@ impl SessionApplication {
     /// Workspace attribution, stable idempotency keys, persistence, and retry
     /// classification live here. The caller retains ownership of capture
     /// cursors, retry timers, and evaluator scheduling.
+    #[cfg(test)]
     pub(crate) fn record_peon_workflow_observations(
         &self,
         session_id: &str,
@@ -1899,106 +1881,6 @@ impl SessionApplication {
             .unwrap_or_default()
     }
 
-    /// Records an input frame accepted by the PTY and, for a completed line,
-    /// commits the process-owned working transition. The workspace-to-sessions
-    /// lock order is deliberate: persisted and live state must not diverge.
-    pub(crate) fn commit_accepted_input(
-        &self,
-        id: &str,
-        output_boundary: Option<u64>,
-        line_completed: bool,
-    ) {
-        let ws_guard = self.state.workspace.lock().unwrap();
-        let mut sessions = self.state.sessions.lock().unwrap();
-        let Some(handle) = sessions.get_mut(id) else {
-            return;
-        };
-        if handle.info.lifecycle != "alive" {
-            return;
-        }
-        let already_working = handle.info.observed_status.as_deref() == Some("working")
-            && handle.info.attention.as_deref() == Some("working")
-            && handle.info.metadata_source.as_deref() == Some("process")
-            && handle.info.metadata_confidence == Some(1.0)
-            && handle.info.needs_user_input.is_none()
-            && handle.info.detected_question.is_none()
-            && handle.info.suggested_options.is_none()
-            && handle.pending_work_signal.is_none();
-        let commit_working = !already_working && line_completed;
-        let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
-            tracing::warn!(session_id = %id, "input generation overflow");
-            return;
-        };
-        let accepted_at = chrono::Utc::now();
-        if !commit_working || already_working {
-            handle.runtime.input_generation = next_generation;
-            handle.runtime.accepted_input_at = Some(accepted_at);
-            handle.runtime.min_peon_output_revision =
-                output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-            drop(sessions);
-            drop(ws_guard);
-            self.state
-                .peon
-                .last_output
-                .write()
-                .unwrap()
-                .insert(id.to_string(), tokio::time::Instant::now());
-            return;
-        }
-        let fields = crate::runtime::observed_status::process_transition_fields(
-            crate::runtime::observed_status::ProcessTransition::CommittedWorking,
-        );
-        if ws_guard.is_none() {
-            crate::runtime::observed_status::apply_process_transition_to_handle(
-                &mut handle.info,
-                &fields,
-            );
-            handle.pending_work_signal = None;
-            handle.runtime.input_generation = next_generation;
-            handle.runtime.accepted_input_at = Some(accepted_at);
-            handle.runtime.min_peon_output_revision =
-                output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-            drop(sessions);
-            drop(ws_guard);
-            self.state
-                .peon
-                .last_output
-                .write()
-                .unwrap()
-                .insert(id.to_string(), tokio::time::Instant::now());
-            return;
-        }
-        let ws = ws_guard.as_ref().expect("workspace checked above");
-        let Some(mut meta) = ws.metadata.read_session(id) else {
-            return;
-        };
-        if meta.lifecycle != "alive" {
-            return;
-        }
-        crate::runtime::observed_status::apply_process_transition_to_meta(&mut meta, &fields);
-        if ws.metadata.try_write_session(&meta).is_err() {
-            tracing::warn!(session_id = %id, "failed to persist input attention transition");
-            return;
-        }
-        crate::runtime::observed_status::apply_process_transition_to_handle(
-            &mut handle.info,
-            &fields,
-        );
-        handle.pending_work_signal = None;
-        handle.runtime.input_generation = next_generation;
-        handle.runtime.accepted_input_at = Some(accepted_at);
-        handle.runtime.min_peon_output_revision =
-            output_boundary.unwrap_or(handle.runtime.peon_output_revision);
-        drop(sessions);
-        drop(ws_guard);
-        self.state
-            .peon
-            .last_output
-            .write()
-            .unwrap()
-            .insert(id.to_string(), tokio::time::Instant::now());
-    }
-
     /// Applies the Peon idle-timeout transition to persisted metadata and the
     /// live session. The persisted state is re-read while the workspace and
     /// sessions locks are held in that order; the live projection happens
@@ -2163,6 +2045,7 @@ impl SessionApplication {
 
     /// Persists a validated Peon input label while preventing a reset from
     /// racing between the durable and live projections.
+    #[cfg(test)]
     pub(crate) fn persist_input_label(&self, id: &str, label: String, captured_epoch: u64) -> bool {
         let epochs = self.state.peon.label_epochs.read().unwrap();
         let current_epoch = epochs.get(id).copied().unwrap_or(0);
@@ -2390,6 +2273,7 @@ impl SessionApplication {
         false
     }
 
+    #[cfg(test)]
     pub(crate) fn open_workspace(&self, path: PathBuf) -> Result<WorkspaceSnapshot, SessionError> {
         let identity = WorkspaceIdentity::resolve(&path)
             .map_err(|_| SessionError::BadRequest("not a directory"))?;
@@ -2562,7 +2446,6 @@ impl SessionApplication {
 
         let git_context = git::detect(&path);
         Ok(WorkspaceSnapshot {
-            path: identity.requested_path().display().to_string(),
             canonical_path: path.display().to_string(),
             repo_root: git_context.repo_root,
             branch: git_context.branch,
@@ -3204,6 +3087,7 @@ impl SessionApplication {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn set_active_harnesses(
         &self,
         active_harness_ids: Vec<String>,
@@ -5133,7 +5017,13 @@ mod tests {
                 .open_workspace(root.path().to_path_buf())
                 .unwrap();
 
-            assert_eq!(snapshot.path, root.path().to_string_lossy());
+            assert_eq!(
+                snapshot.canonical_path,
+                std::fs::canonicalize(root.path())
+                    .unwrap()
+                    .display()
+                    .to_string()
+            );
         });
     }
 
@@ -5310,74 +5200,6 @@ mod tests {
         assert_eq!(live.status, "error");
         assert_eq!(live.lifecycle_phase, "ended");
         assert_eq!(live.terminal_outcome.as_deref(), Some("error"));
-    }
-
-    #[test]
-    fn commit_accepted_input_updates_detached_live_session_without_persisted_state() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let id = "commit-input-detached";
-        let mut handle = attention_test_handle(id, root.path());
-        handle.info.attention = Some("needs_you".into());
-        handle.info.observed_status = Some("waiting_for_input".into());
-        handle.info.needs_user_input = Some(true);
-        let prior_generation = handle.runtime.input_generation;
-        state.sessions.lock().unwrap().insert(id.into(), handle);
-        *state.workspace.lock().unwrap() = None;
-
-        SessionApplication::new(state.clone()).commit_accepted_input(id, Some(7), true);
-
-        let sessions = state.sessions.lock().unwrap();
-        let live = &sessions[id];
-        assert_eq!(live.info.attention.as_deref(), Some("working"));
-        assert_eq!(live.info.observed_status.as_deref(), Some("working"));
-        assert_eq!(live.runtime.input_generation, prior_generation + 1);
-        assert_eq!(live.runtime.min_peon_output_revision, 7);
-        assert!(live.runtime.accepted_input_at.is_some());
-    }
-
-    #[test]
-    fn commit_accepted_input_advances_partial_frame_without_working_transition() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let id = "commit-input-partial";
-        let mut handle = attention_test_handle(id, root.path());
-        handle.info.attention = Some("needs_you".into());
-        handle.info.observed_status = Some("waiting_for_input".into());
-        handle.info.needs_user_input = Some(true);
-        state.sessions.lock().unwrap().insert(id.into(), handle);
-        *state.workspace.lock().unwrap() = None;
-
-        SessionApplication::new(state.clone()).commit_accepted_input(id, Some(3), false);
-
-        let sessions = state.sessions.lock().unwrap();
-        let live = &sessions[id];
-        assert_eq!(live.info.attention.as_deref(), Some("needs_you"));
-        assert_eq!(
-            live.info.observed_status.as_deref(),
-            Some("waiting_for_input")
-        );
-        assert_eq!(live.runtime.input_generation, 1);
-        assert_eq!(live.runtime.min_peon_output_revision, 3);
-        assert!(live.runtime.accepted_input_at.is_some());
-    }
-
-    #[test]
-    fn commit_accepted_input_ignores_generation_overflow() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let id = "commit-input-overflow";
-        let mut handle = attention_test_handle(id, root.path());
-        handle.runtime.input_generation = u64::MAX;
-        state.sessions.lock().unwrap().insert(id.into(), handle);
-        *state.workspace.lock().unwrap() = None;
-
-        SessionApplication::new(state.clone()).commit_accepted_input(id, Some(3), true);
-
-        let sessions = state.sessions.lock().unwrap();
-        let live = &sessions[id];
-        assert_eq!(live.runtime.input_generation, u64::MAX);
-        assert!(live.runtime.accepted_input_at.is_none());
     }
 
     #[test]
@@ -9310,7 +9132,12 @@ mod tests {
         let recommendation_id_for_task = recommendation_id.clone();
         let mut request = tokio::spawn(async move {
             application
-                .accept_recommendation(&recommendation_id_for_task, session_id, None)
+                .accept_recommendation_with_packet(
+                    &recommendation_id_for_task,
+                    session_id,
+                    None,
+                    None,
+                )
                 .await
         });
         let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
@@ -9370,17 +9197,18 @@ mod tests {
 
         let application = SessionApplication::new(state.clone());
         let completed = application
-            .complete_recommendation(
+            .complete_recommendation_with_packet(
                 &recommendation_id,
                 session_id,
                 Some("Verified the fix in the target session.".into()),
+                None,
             )
             .unwrap()
             .unwrap();
         assert_eq!(completed.status, RecommendationStatus::Completed);
 
         let repeated = application
-            .complete_recommendation(&recommendation_id, session_id, None)
+            .complete_recommendation_with_packet(&recommendation_id, session_id, None, None)
             .unwrap()
             .unwrap();
         assert_eq!(repeated.status, RecommendationStatus::Completed);
@@ -9441,10 +9269,11 @@ mod tests {
             .events_dir();
         std::fs::write(events_dir, "not a directory").unwrap();
 
-        let result = SessionApplication::new(state.clone()).complete_recommendation(
+        let result = SessionApplication::new(state.clone()).complete_recommendation_with_packet(
             &recommendation_id,
             session_id,
             Some("The event cannot be persisted.".into()),
+            None,
         );
         assert!(matches!(
             result,
@@ -9489,10 +9318,11 @@ mod tests {
         let recommendation_id_for_task = recommendation_id.clone();
         let mut request = tokio::spawn(async move {
             application
-                .accept_recommendation(
+                .accept_recommendation_with_packet(
                     &recommendation_id_for_task,
                     session_id,
                     Some("custom text\r".into()),
+                    None,
                 )
                 .await
         });
@@ -9542,7 +9372,7 @@ mod tests {
         let application = SessionApplication::new(state.clone());
         assert!(matches!(
             application
-                .accept_recommendation(&recommendation_id, session_id, None)
+                .accept_recommendation_with_packet(&recommendation_id, session_id, None, None)
                 .await,
             Err(RecommendationAcceptError::Conflict)
         ));
@@ -9557,7 +9387,12 @@ mod tests {
         let application = SessionApplication::new(state.clone());
         assert!(matches!(
             application
-                .accept_recommendation(&recommendation_id, "no-such-session", None)
+                .accept_recommendation_with_packet(
+                    &recommendation_id,
+                    "no-such-session",
+                    None,
+                    None
+                )
                 .await,
             Err(RecommendationAcceptError::SessionNotFound)
         ));
@@ -9578,7 +9413,7 @@ mod tests {
 
         assert!(matches!(
             application
-                .accept_recommendation(&recommendation_id, session_id, None)
+                .accept_recommendation_with_packet(&recommendation_id, session_id, None, None)
                 .await,
             Err(RecommendationAcceptError::Conflict)
         ));
@@ -9594,7 +9429,7 @@ mod tests {
         let application = SessionApplication::new(state.clone());
         assert_eq!(
             application
-                .accept_recommendation("missing-recommendation", session_id, None)
+                .accept_recommendation_with_packet("missing-recommendation", session_id, None, None)
                 .await
                 .unwrap(),
             None

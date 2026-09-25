@@ -356,19 +356,6 @@ impl TaskmasterRuntime {
 
     /// Reservations are durable before a provider call. A failed call consumes
     /// its reservation, so process restarts cannot reset usage accounting.
-    pub(crate) fn reserve_evaluation(&self, workspace: &Path, now: &str) -> Result<bool, String> {
-        self.reserve_evaluation_for_inputs(workspace, now, None)
-    }
-
-    pub(crate) fn reserve_evaluation_for_inputs(
-        &self,
-        workspace: &Path,
-        now: &str,
-        cache_key: Option<&str>,
-    ) -> Result<bool, String> {
-        self.reserve_current(workspace, now, cache_key, None)
-    }
-
     pub(crate) fn reserve_current(
         &self,
         workspace: &Path,
@@ -443,16 +430,6 @@ impl TaskmasterRuntime {
             .insert(workspace.clone(), now.to_string());
         write_json(&self.root.join("evaluations.json"), &data.ledger)?;
         Ok(true)
-    }
-
-    pub(crate) fn knowledge_pages(&self) -> Vec<KnowledgePage> {
-        self.data
-            .lock()
-            .expect("taskmaster runtime lock poisoned")
-            .knowledge
-            .as_ref()
-            .map(|bundle| bundle.pages.clone())
-            .unwrap_or_default()
     }
 
     pub(crate) fn evaluation_snapshot(&self, workspace: &Path) -> Option<EvaluationSnapshot> {
@@ -918,7 +895,7 @@ mod tests {
             0
         );
         assert!(runtime
-            .reserve_evaluation(directory.path(), "2026-09-09T00:00:00Z")
+            .reserve_current(directory.path(), "2026-09-09T00:00:00Z", None, None)
             .is_err());
     }
 
@@ -1044,10 +1021,11 @@ mod tests {
         )
         .unwrap();
         assert!(runtime
-            .reserve_evaluation_for_inputs(
+            .reserve_current(
                 directory.path(),
                 "2026-09-12T12:00:00Z",
-                Some("old-attempt")
+                Some("old-attempt"),
+                None
             )
             .unwrap());
         let ledger: EvaluationLedger =
