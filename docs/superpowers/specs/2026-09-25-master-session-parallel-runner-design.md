@@ -71,8 +71,8 @@ OrkWorks is the authority for the approved plan. It:
 - accepts only authenticated, current child reports that can be combined with
   server-observed session/process state into an attempt receipt;
 - pauses the plan on stale, ambiguous, failed, or conflicting results; and
-- performs the master's cleanup request only after explicit user acceptance of
-  the combined work or an explicit authenticated user discard authorization.
+- performs cleanup only after recording the user's authenticated disposition:
+  acceptance of a successful result, rejection, abandonment, or discard.
 
 ### Child sessions
 
@@ -165,7 +165,7 @@ recovery_required -> paused (fence_reason=paused; reconciliation proves quiescen
 recovery_required -> expired (fence_reason=expiry; reconciliation proves quiescence)
 recovery_required -> cancelled (fence_reason=cancellation; reconciliation proves quiescence)
 recovery_required -> revoked (fence_reason=revocation; reconciliation proves quiescence)
-recovery_required -> discarding (fence_reason=discarding; only after cleanup state is reconciled)
+recovery_required -> cleanup_pending (fence_reason=cleanup; only after cleanup state is reconciled)
 recovery_required -> proposed (fence_reason=other; a new revision is required)
 proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
@@ -177,10 +177,10 @@ expiring -> recovery_required (quiescence is unproven)
 expiring -> cancelling (user-authenticated cancellation only)
 expired -> cancelling (user-authenticated cancellation only)
 expired -> proposed (user creates a new revision; old approval remains invalid)
-awaiting_acceptance -> discarding (explicit user acceptance or discard/rejection/abandonment)
-failed / cancelled / expired / revoked -> discarding (explicit user discard/rejection/abandonment)
-discarding -> cleaned (the discard authorization's cleanup completed)
-discarding -> recovery_required (cleanup or quiescence is uncertain)
+awaiting_acceptance -> cleanup_pending (recorded accept_success / reject / abandon / discard disposition)
+failed / cancelled / expired / revoked -> cleanup_pending (recorded reject / abandon / discard disposition)
+cleanup_pending -> cleaned (the recorded disposition's cleanup completed)
+cleanup_pending -> recovery_required (cleanup or quiescence is uncertain)
 ```
 
 Approval activates exactly one plan revision. Provisioning is idempotent: a
@@ -194,8 +194,8 @@ expiry/revocation transitions use server authority. These transitions do not
 require a coordinator capability that has not yet been issued. User
 cancellation and discard, including discard from `recovery_required`, remain
 available after coordinator expiry or revocation. The recovery discard action
-installs `fence_reason=discarding` atomically while the plan remains in
-`recovery_required`; only reconciliation can then transition it to `discarding`
+installs `fence_reason=cleanup` atomically while the plan remains in
+`recovery_required`; only reconciliation can then transition it to `cleanup_pending`
 and permit cleanup.
 
 Pausing is an atomic mutation fence: it revokes all active child leases,
@@ -209,7 +209,7 @@ plan cannot resume or launch new work. The expiry reason is retained through
 `recovery_required`; only reconciliation to `expired` or a new plan revision
 can follow an expired approval, never the generic `recovery_required -> paused
 -> approved` path. The server persists a single recovery `fence_reason`
-(`paused`, `expiry`, `cancellation`, `revocation`, `discarding`, or `other`)
+(`paused`, `expiry`, `cancellation`, `revocation`, `cleanup`, or `other`)
 and evaluates it atomically;
 the cancellation reason can reach only `cancelled`, never `paused`, `proposed`,
 or `approved`. An `expired -> proposed` transition creates a new immutable
@@ -218,16 +218,34 @@ When a child failure triggers the pause, that failure fence is retained while
 live sibling children are being quiesced; after quiescence is proven and no
 live child remains, the plan transitions to `failed` rather than resuming.
 
+The authenticated post-run disposition is a durable value separate from the
+plan lifecycle status: `accept_success`, `reject`, `abandon`, or `discard`.
+`accept_success` is valid only from `awaiting_acceptance`; it records that the
+user accepted the successful result for review/integration, not that OrkWorks
+may integrate code. `reject`, `abandon`, and `discard` are valid from
+`awaiting_acceptance`, `failed`, `cancelled`, `expired`, or `revoked`. From
+`recovery_required`, only an authenticated reject/abandon/discard cleanup intent
+is allowed; it records the disposition and atomically sets
+`fence_reason=cleanup`, but remains in recovery until reconciliation proves
+quiescence and cleanup state. Proposal rejection before approval is a separate
+decision and does not authorize worktree cleanup. The server persists the
+authenticated disposition and its actor/time before entering `cleanup_pending`;
+a repeated request is idempotent only when the disposition matches. A
+conflicting disposition or one invalid for the current state is rejected
+without cleanup. Every cleanup attempt checks
+the recorded disposition, quiescence, plan ownership, and fresh clean status;
+even a valid disposition cannot remove a dirty or ambiguous worktree.
+
 Revocation uses the same mutation fence and bounded process-tree termination as
 pause, cancellation, and expiry. A revoked plan cannot resume, relaunch, or
-advance; it can only enter user-authorized `discarding`. A user rejection or
-abandonment in `awaiting_acceptance`, `failed`, `cancelled`, `expired`, or
-`revoked` likewise enters `discarding`; reaching one of those terminal states
-alone never authorizes cleanup. The authenticated discard transition records
-the cleanup authorization. Cleanup requires every child to be quiescent,
+advance; it can only enter user-authorized `cleanup_pending`. Rejection, abandonment,
+or discard in `awaiting_acceptance`, `failed`, `cancelled`, `expired`, or
+`revoked` likewise enters `cleanup_pending`; reaching one of those terminal states
+alone never authorizes cleanup. The authenticated disposition transition records
+which user choice authorized cleanup. Cleanup requires every child to be quiescent,
 validates that each worktree is still plan-owned and safe to remove, and
 preserves branches and commits. If cleanup or quiescence is uncertain,
-`fence_reason=discarding` keeps the plan in recovery until reconciliation; it
+`fence_reason=cleanup` keeps the plan in recovery until reconciliation; it
 cannot become runnable again.
 
 Children in a batch launch concurrently only after all their worktrees have
@@ -269,7 +287,7 @@ disposal. The runner never commits, merges, copies, or deletes branches.
 
 Child completion is distinct from user acceptance. After all approved batches
 finish, the plan enters `awaiting_acceptance`. User acceptance approves the
-combined result for cleanup only and transitions the plan into `discarding`; it
+combined result for cleanup only and transitions the plan into `cleanup_pending`; it
 does not imply merge or Git acceptance. Rejection, abandonment, or discard
 uses the same cleanup path but records a non-acceptance disposition.
 
@@ -293,12 +311,12 @@ the child is not launched. Children receive the assigned working directory
 and must not provision or remove worktrees themselves.
 
 After explicit user acceptance, or an explicit authenticated user rejection,
-abandonment, or discard transition into `discarding`, the master may request
+abandonment, or discard transition into `cleanup_pending`, the master may request
 cleanup of only worktrees created by that plan. OrkWorks validates and
 executes that request. Cleanup preserves branches and commits. Branch deletion
 is outside this runner, even when cleanup is authorized. A dirty worktree, active child, path
 mismatch, or ownership mismatch blocks cleanup and leaves the plan in
-`discarding` or `recovery_required` for user intervention.
+`cleanup_pending` or `recovery_required` for user intervention.
 
 ## Persistence and safety
 
@@ -406,11 +424,11 @@ The implementation must test, without launching real coding tools:
 - revocation fencing and recovery without relaunch;
 - creation of a new revision after expiry without reviving the expired approval;
 - partial provisioning recovery without launching an incomplete batch;
-- cleanup authorization after user acceptance or explicit discard;
-- discard authorization from `recovery_required` records
-  `fence_reason=discarding`, keeps the plan in recovery, and rejects cleanup
-  until full cleanup-state reconciliation proves quiescence and validates
-  plan-owned worktree identity, path, and safety;
+- cleanup authorization after a state-valid recorded user disposition;
+- reject, abandon, and discard cleanup intents from `recovery_required` each
+  atomically record the disposition and `fence_reason=cleanup`, remain in
+  recovery, and reject cleanup until full reconciliation proves quiescence and
+  validates cleanup state plus plan-owned worktree identity, path, and safety;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
 

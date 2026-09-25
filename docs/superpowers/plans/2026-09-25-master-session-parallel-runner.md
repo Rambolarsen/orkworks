@@ -57,9 +57,10 @@
 
 **Interfaces:**
 - Consumes: `PlanRevision`, `PlanApproval`, `PlanStatus`, `CoordinatorStore::{put_proposed,get,activate,transition,resume}`, canonical JSON/digest validation, and the existing Electron-only sidecar authority.
-- Produces: a runner plan revision with ordered batches, a desktop-imported candidate bound to its source master session, user-authenticated proposal/approval/revocation, and durable status that cannot launch work by itself.
+- Produces: a runner plan revision with ordered batches, a desktop-imported candidate bound to its source master session, user-authenticated proposal/approval/revocation and post-run disposition, and durable status that cannot launch work by itself.
 
 - [ ] Add a batch-plan representation that reuses the existing coordinator identity, canonicalization, immutable revision, and approval checks while rejecting dependency edges outside the declared batch order.
+- [ ] Persist a typed post-run disposition (`accept_success`, `reject`, `abandon`, or `discard`) separately from lifecycle status; validate allowed dispositions against the current state and record authenticated actor/time before authorizing cleanup. Keep pre-approval proposal rejection separate from cleanup authorization.
 - [ ] Validate every child contract, prompt digest, harness/model choice, worktree policy, output contract, retry count, concurrency ceiling, finite budget, and required-child membership before persisting a proposal.
 - [ ] Add `POST /taskmaster/plans` for the desktop to import and persist a candidate under Electron-only user authority; bind its source session and active workspace, and reject the per-session report capability as proposal or approval authority.
 - [ ] Add `GET /taskmaster/plans/:id` for the current proposal, immutable plan, approval summary, batch state, and child result projection; redact bearer values and private environment data.
@@ -81,15 +82,16 @@
 
 **Interfaces:**
 - Consumes: the proposal and detail routes from Task 2 plus existing narrow Electron-to-sidecar authentication.
-- Produces: a user-visible complete plan review, explicit approval/rejection, status/results view, and neutral master-session instructions that can prepare a candidate but cannot create an authorized proposal or launch it.
+- Produces: a user-visible complete plan review, explicit proposal approval/rejection, distinct post-run result acceptance or reject/abandon/discard actions, status/results view, and neutral master-session instructions that can prepare a candidate but cannot create an authorized proposal or launch it.
 
 - [ ] Add typed desktop API methods for proposing, reading, approving, pausing, cancelling, and requesting cleanup of a plan; expose only the methods required by the UI through preload.
 - [ ] Render the exact batches, child prompts/contracts, harness/model selections, worktree/base subject, limits, and cleanup behavior before approval; make approve and reject explicit user actions.
+- [ ] After execution, expose separate authenticated actions for accepting a successful result (`accept_success`) and rejecting, abandoning, or discarding results; show which disposition is recorded and explain that none integrates code or overrides clean-worktree cleanup checks.
 - [ ] Show progress and validated child reports without adding parallel terminal rendering or treating a hook/idle signal as completion.
 - [ ] State in the UI that child edits remain in separate worktrees and require manual integration; show each worktree's clean/dirty status and explain why cleanup is blocked while dirty.
 - [ ] Add a paste/import field for the structured JSON candidate emitted by the master-session skill; show the normalized candidate for review, and keep import separate from the user's explicit approval of the exact plan revision. Do not scrape or interpret terminal output automatically.
 - [ ] Add the master-session skill to instruct bounded decomposition, independent batch selection, candidate formatting, and escalation; state that the skill cannot create an authorized proposal, approve, launch, change an approved plan, or certify success.
-- [ ] Test approval visibility and exact-digest binding, malformed proposal display, rejection, stale-plan errors, dirty-worktree cleanup refusal, and the single-active-context UI invariant.
+- [ ] Test approval visibility and exact-digest binding, malformed proposal display, pre-approval rejection without cleanup authority, each allowed post-run disposition by lifecycle state, conflicting/idempotent disposition requests, dirty-worktree cleanup refusal, and the single-active-context UI invariant.
 
 ### Task 4: Allocate plan-owned worktrees and launch dedicated child runtimes
 
@@ -112,6 +114,7 @@
 - [ ] Add a dedicated child-runtime launcher that resolves cwd from the server-owned allocation ID, starts one-workspace sidecars, and never lets a request choose an arbitrary path or sidecar address.
 - [ ] Issue child capabilities separately from the master coordinator capability; bind each to the plan digest, approval, allocation/worktree, child session, batch, attempt, allowed broker audience, expiry, and revocation generation.
 - [ ] Persist launch-pending and launch-acknowledged states atomically; uncertain launch responses retain reservations and enter recovery instead of retrying or refunding.
+- [ ] Persist each attempt's normalized budget reservation atomically with lease, launch-token, attempt/plan lifecycle, and coordinator graph state: reserve before dispatch, refund only after server-proven non-start, mark the unit consumed once work starts, and require a fresh reservation for every retry. Preserve reservations while launch/start state is uncertain; crash recovery must never leave reservation and launch/attempt/graph state divergent.
 - [ ] Prove concurrent allocations are unique, unauthorized paths and cwd substitutions are rejected, cross-workspace token reuse fails, and startup fails closed when platform confinement is absent.
 
 ### Task 5: Broker child commands and enforce finite execution limits
@@ -130,8 +133,10 @@
 - [ ] Validate executable identity, arguments, canonical cwd, environment allowlist, declared file/resource effects, lease state, capability revision, hard denials, and all remaining ceilings atomically before each invocation.
 - [ ] Enforce wall-clock, aggregate process-tree CPU, memory, process count, output bytes, input/output tokens, cost, and invocation count; reject a provider or platform that cannot enforce any required ceiling.
 - [ ] Deny Git mutation, credentials, permission changes, destructive commands, scope/provider/budget/retry expansion, direct child process access, and any invocation that can bypass the broker.
+- [ ] Reserve approved worst-case token/cost and tool units atomically before dispatch; consume the reservation once start is confirmed, and refund only when server evidence proves the invocation never started. A reserved/launch-pending state or missing acknowledgement alone is not proof of non-start.
+- [ ] Require a new reservation for each retry without resetting any started attempt's counters; retain budget and concurrency reservations for orphaned/uncertain launches until recovery proves non-start or termination.
 - [ ] Hold read/write resource leases through command completion and result capture; reject conflicting read/write and write/write overlaps unless the approved contract serializes them.
-- [ ] Test each hard denial, exhausted limit, shell/interpreter indirection, descendant process, concurrent resource conflict, lease revocation during execution, and sanitized receipt output.
+- [ ] Test each hard denial, exhausted limit, shell/interpreter indirection, descendant process, concurrent resource conflict, lease revocation during execution, sanitized receipt output, atomic reservation under concurrent dispatch, proven-non-start refund, started-work consumption after termination, uncertain-launch retention, fresh retry reservation, and crash/restart consistency across reservation, launch-token, lease, attempt/plan lifecycle, and coordinator graph transitions.
 
 ### Task 6: Validate child completion and advance parallel batches
 
@@ -169,10 +174,10 @@
 
 - [ ] Make pause, cancellation, expiry, and revocation install a durable mutation fence, revoke child leases, stop new launches, and request bounded termination of every owned process tree.
 - [ ] Preserve a single recovery `fence_reason`; reconcile uncertain launch, termination, and cleanup only from generation-specific server-observed evidence.
-- [ ] Keep failed or cancelled plans and their child worktrees for diagnosis; allow cleanup from those states only after explicit user discard/rejection/abandonment, not acceptance.
-- [ ] Define acceptance as approval to finish a successful plan and review results, not code integration. Require the user to integrate or discard desired edits manually before cleanup; do not copy edits, commit, merge, or delete branches.
-- [ ] Allow cleanup only after explicit user acceptance/discard authorization, proven child quiescence, and fresh checks that each path is plan-owned, unchanged, and clean; a dirty or ambiguous worktree remains and reports a recovery/user action.
-- [ ] Test cancellation during provisioning and execution, expiry/revocation races, restart with pending launch, uncertain process exit, dirty and foreign worktree refusal, path replacement, clean-worktree removal, and branch/commit preservation.
+- [ ] Keep failed or cancelled plans and their child worktrees for diagnosis; allow cleanup from those states only after recorded user rejection/abandonment/discard, never `accept_success`.
+- [ ] Define `accept_success` as acceptance of a successful result for user review/integration, not code integration; permit it only from `awaiting_acceptance`. Permit reject/abandon/discard only from the states specified in the runner design. Require the user to integrate or discard desired edits manually before cleanup; do not copy edits, commit, merge, or delete branches.
+- [ ] Allow cleanup only after a valid, authenticated, recorded disposition, proven child quiescence, and fresh checks that each path is plan-owned, unchanged, and clean; a dirty or ambiguous worktree remains and reports a recovery/user action.
+- [ ] Test the disposition-by-lifecycle-state matrix, including reject/abandon/discard from `recovery_required`; verify disposition and cleanup fence are recorded atomically, cleanup is refused until reconciliation proves quiescence and cleanup state, wrong/conflicting dispositions are rejected, same-disposition retries are idempotent, and no invalid disposition authorizes cleanup. Also test cancellation during provisioning and execution, expiry/revocation races, restart with pending launch, uncertain process exit, dirty and foreign worktree refusal, path replacement, clean-worktree removal, and branch/commit preservation.
 
 ### Task 8: Integrate the runner into Taskmaster and complete cross-platform verification
 
@@ -201,6 +206,8 @@
 - **Workspace ownership risk:** ADR 0060 keeps one workspace per instance and names #545 as a hard prerequisite for crash cleanup/relaunch proof. #545 is closed, but the current ADR and approved runner design still require generation-specific proof for child runtime shutdown. The implementation must link qualifying evidence rather than infer it from issue closure.
 - **Foundation reuse:** the repository already has a data-only coordinator model and durable store in `taskmaster/coordinator.rs` and `taskmaster/coordinator_store.rs`. Reuse their plan digests, immutable revisions, approval validation, atomic publication, and recovery behavior; do not fork ordinary Taskmaster recommendation state or expose a general DAG as this runner's product model.
 - **Proposal boundary:** the approved design requires user authority for proposal and approval transitions. This plan treats master output as an untrusted structured candidate that the user imports through the desktop; the desktop authenticates proposal persistence and the separate approval action. A session-report capability cannot create proposals or authorize launches.
+- **Disposition boundary:** pre-approval rejection is not cleanup authorization. After execution, `accept_success` is distinct from reject/abandon/discard, persisted separately from lifecycle status, and valid only for the specified states; every cleanup path checks that recorded disposition plus quiescence and clean ownership.
+- **Reservation lifecycle:** the existing coordinator contract defines normalized per-attempt reservations. The runner must atomically reserve before dispatch, refund only on proven non-start, consume once work starts, preserve uncertain reservations through recovery, and allocate a fresh reservation for every retry.
 
 ## Self-review
 
