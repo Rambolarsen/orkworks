@@ -206,216 +206,6 @@ impl RecommendationStore {
         Ok(())
     }
 
-    pub(crate) fn apply_rollup_transaction(
-        &self,
-        expected: &BTreeMap<String, Option<String>>,
-        parent: &Recommendation,
-        members: &[Recommendation],
-    ) -> Result<(), StoreError> {
-        self.recover_transactions()?;
-        self.validate_graph()?;
-        let stored = self.read_all_stored_by_id()?;
-        let current = stored
-            .iter()
-            .map(|(id, record)| (id.clone(), record.recommendation.clone()))
-            .collect::<BTreeMap<_, _>>();
-        self.verify_expected(expected, &current)?;
-
-        let member_ids = members
-            .iter()
-            .map(|member| member.id.clone())
-            .collect::<BTreeSet<_>>();
-        if !valid_id(&parent.id)
-            || parent.status != RecommendationStatus::Proposed
-            || parent.rolled_up_by.is_some()
-            || member_ids.is_empty()
-            || member_ids.len() != members.len()
-            || member_ids.contains(&parent.id)
-            || member_ids.iter().any(|id| !valid_id(id))
-            || parent.rollup_member_ids.iter().any(|id| !valid_id(id))
-            || member_ids
-                != parent
-                    .rollup_member_ids
-                    .iter()
-                    .cloned()
-                    .collect::<BTreeSet<_>>()
-            || parent.rollup_member_ids.len() != member_ids.len()
-        {
-            return Err(StoreError::GraphInvariant(
-                "rollup parent and members do not describe one complete graph".into(),
-            ));
-        }
-        if member_ids.iter().any(|id| !current.contains_key(id)) {
-            return Err(StoreError::GraphInvariant(
-                "every rollup member must already exist".into(),
-            ));
-        }
-        if let Some(existing_parent) = current.get(&parent.id) {
-            if existing_parent.status != RecommendationStatus::Proposed
-                || existing_parent.rollup_member_ids.is_empty()
-            {
-                return Err(StoreError::InvalidTransition);
-            }
-        }
-
-        let mut parent_record = parent.clone();
-        parent_record.rollup_member_ids = member_ids.iter().cloned().collect();
-        parent_record.rollup_member_dedupe_keys = members
-            .iter()
-            .map(|member| (member.id.clone(), member.dedupe_key.clone()))
-            .collect::<BTreeMap<_, _>>()
-            .into_values()
-            .collect();
-        parent_record.rollup_member_dedupe_keys.sort();
-
-        let can_reparent_from = parent_record
-            .workflow_improvement
-            .supersedes_recommendation_id
-            .as_deref()
-            .filter(|old_parent_id| {
-                current
-                    .get(*old_parent_id)
-                    .is_some_and(|old_parent| old_parent.status == RecommendationStatus::Proposed)
-            });
-
-        let mut replacements = BTreeMap::new();
-        replacements.insert(
-            parent_record.id.clone(),
-            serde_json::to_vec_pretty(&parent_record).map_err(StoreError::Json)?,
-        );
-        for member in members {
-            if !member.rollup_member_ids.is_empty() {
-                return Err(StoreError::GraphInvariant(format!(
-                    "member {} cannot also be a rollup parent",
-                    member.id
-                )));
-            }
-            if member.recommendation_type != RecommendationType::ImproveWorkflow
-                || !matches!(
-                    member.status,
-                    RecommendationStatus::Proposed | RecommendationStatus::RolledUp
-                )
-                || member
-                    .rolled_up_by
-                    .as_deref()
-                    .is_some_and(|id| id != parent.id && Some(id) != can_reparent_from)
-                || member.workflow_improvement.target_surface
-                    != parent.workflow_improvement.target_surface
-            {
-                return Err(StoreError::InvalidTransition);
-            }
-            if let Some(existing) = current.get(&member.id) {
-                if !matches!(
-                    existing.status,
-                    RecommendationStatus::Proposed | RecommendationStatus::RolledUp
-                ) && existing.id != parent.id
-                {
-                    return Err(StoreError::InvalidTransition);
-                }
-                if existing
-                    .rolled_up_by
-                    .as_deref()
-                    .is_some_and(|id| id != parent.id && Some(id) != can_reparent_from)
-                {
-                    return Err(StoreError::GraphInvariant(format!(
-                        "member {} already belongs to another current parent",
-                        member.id
-                    )));
-                }
-            }
-            let mut member_record = member.clone();
-            member_record.status = RecommendationStatus::RolledUp;
-            member_record.rolled_up_by = Some(parent.id.clone());
-            replacements.insert(
-                member_record.id.clone(),
-                serde_json::to_vec_pretty(&member_record).map_err(StoreError::Json)?,
-            );
-        }
-
-        if let Some(old_parent_id) = parent_record
-            .workflow_improvement
-            .supersedes_recommendation_id
-            .as_deref()
-        {
-            if old_parent_id == parent_record.id {
-                return Err(StoreError::GraphInvariant(
-                    "a rollup cannot supersede itself".into(),
-                ));
-            }
-            if let Some(old_parent) = current.get(old_parent_id) {
-                if old_parent.status == RecommendationStatus::Proposed
-                    && !old_parent.rollup_member_ids.is_empty()
-                {
-                    let mut superseded = old_parent.clone();
-                    superseded.status = RecommendationStatus::Superseded;
-                    superseded.updated_at = parent_record.updated_at.clone();
-                    replacements.insert(
-                        superseded.id.clone(),
-                        serde_json::to_vec_pretty(&superseded).map_err(StoreError::Json)?,
-                    );
-                    for old_member_id in &old_parent.rollup_member_ids {
-                        if member_ids.contains(old_member_id) {
-                            continue;
-                        }
-                        let Some(old_member) = current.get(old_member_id) else {
-                            return Err(StoreError::GraphInvariant(format!(
-                                "superseded parent references missing member {old_member_id}"
-                            )));
-                        };
-                        if old_member.rolled_up_by.as_deref() == Some(old_parent_id) {
-                            let mut released = old_member.clone();
-                            released.status = RecommendationStatus::Proposed;
-                            released.rolled_up_by = None;
-                            replacements.insert(
-                                released.id.clone(),
-                                serde_json::to_vec_pretty(&released).map_err(StoreError::Json)?,
-                            );
-                        }
-                    }
-                } else if matches!(
-                    old_parent.status,
-                    RecommendationStatus::Accepted
-                        | RecommendationStatus::Completed
-                        | RecommendationStatus::Dismissed
-                        | RecommendationStatus::Expired
-                        | RecommendationStatus::Failed
-                ) {
-                    // Terminal graphs are immutable history. A successor may
-                    // point at one, but it must not release or re-parent it.
-                } else if old_parent.rollup_member_ids.is_empty() {
-                    return Err(StoreError::GraphInvariant(
-                        "superseded recommendation is not a rollup parent".into(),
-                    ));
-                }
-            }
-        }
-
-        let replacements: BTreeMap<String, Replacement> = replacements
-            .into_iter()
-            .map(|(id, new)| {
-                let old = stored.get(&id).map(|record| record.bytes.clone());
-                (
-                    id,
-                    Replacement {
-                        old,
-                        new: Some(new),
-                    },
-                )
-            })
-            .collect();
-        let mut preview = current.clone();
-        for (id, replacement) in &replacements {
-            let bytes = replacement
-                .new
-                .as_ref()
-                .expect("rollup replacements have new content");
-            let recommendation = serde_json::from_slice(bytes).map_err(StoreError::Json)?;
-            preview.insert(id.clone(), recommendation);
-        }
-        validate_graph_records(&preview.values().cloned().collect::<Vec<_>>())?;
-        self.commit_replacements(expected, replacements)
-    }
-
     /// Atomically publishes a complete recommendation graph assembled by the
     /// evaluator. The evaluator owns the in-memory projection; this boundary
     /// owns optimistic concurrency, graph validation, and durable publication.
@@ -2478,6 +2268,12 @@ mod tests {
         store.put(&member_a).unwrap();
         store.put(&member_b).unwrap();
         let parent = rollup_parent(parent_1_id.as_str(), &["member-a", "member-b"]);
+        let mut rolled_a = member_a.clone();
+        rolled_a.status = RecommendationStatus::RolledUp;
+        rolled_a.rolled_up_by = Some(parent.id.clone());
+        let mut rolled_b = member_b.clone();
+        rolled_b.status = RecommendationStatus::RolledUp;
+        rolled_b.rolled_up_by = Some(parent.id.clone());
         let expected = BTreeMap::from([
             (member_a.id.clone(), Some(expected_hash(&member_a))),
             (member_b.id.clone(), Some(expected_hash(&member_b))),
@@ -2485,7 +2281,7 @@ mod tests {
         ]);
 
         store
-            .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
+            .apply_recommendation_graph_transaction(&expected, &[rolled_a, rolled_b, parent])
             .unwrap();
 
         let persisted_parent = store.get(parent_1_id.as_str()).unwrap().unwrap();
@@ -2516,6 +2312,12 @@ mod tests {
         store.put(&member_b).unwrap();
         let parent_id = stable_rollup_id(&["member-a".into(), "member-b".into()]);
         let parent = rollup_parent(&parent_id, &["member-a", "member-b"]);
+        let mut rolled_a = member_a.clone();
+        rolled_a.status = RecommendationStatus::RolledUp;
+        rolled_a.rolled_up_by = Some(parent.id.clone());
+        let mut rolled_b = member_b.clone();
+        rolled_b.status = RecommendationStatus::RolledUp;
+        rolled_b.rolled_up_by = Some(parent.id.clone());
         let expected = BTreeMap::from([
             (member_a.id.clone(), Some(expected_hash(&member_a))),
             (member_b.id.clone(), Some(expected_hash(&member_b))),
@@ -2523,7 +2325,7 @@ mod tests {
         ]);
 
         store
-            .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
+            .apply_recommendation_graph_transaction(&expected, &[rolled_a, rolled_b, parent])
             .unwrap();
 
         let encoded_path = store.path_for(&parent_id);
@@ -2542,10 +2344,7 @@ mod tests {
     fn encodes_rollup_id_only_in_the_filesystem_filename() {
         let dir = tempfile::tempdir().unwrap();
         let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
-        store.put(&recommendation("member-a", "session-a")).unwrap();
-        store.put(&recommendation("member-b", "session-b")).unwrap();
         let parent_id = stable_rollup_id(&["member-a".into(), "member-b".into()]);
-        let parent = rollup_parent(&parent_id, &["member-a", "member-b"]);
 
         assert!(!store
             .path_for(&parent_id)
@@ -2553,31 +2352,6 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .contains(':'));
-
-        let expected = BTreeMap::from([
-            (
-                "member-a".into(),
-                Some(expected_hash(&store.get("member-a").unwrap().unwrap())),
-            ),
-            (
-                "member-b".into(),
-                Some(expected_hash(&store.get("member-b").unwrap().unwrap())),
-            ),
-            (parent_id.clone(), None),
-        ]);
-        store
-            .apply_rollup_transaction(
-                &expected,
-                &parent,
-                &[
-                    store.get("member-a").unwrap().unwrap(),
-                    store.get("member-b").unwrap().unwrap(),
-                ],
-            )
-            .unwrap();
-        let persisted = store.get(&parent_id).unwrap().unwrap();
-        assert_eq!(persisted.id, parent_id);
-        assert_eq!(persisted.rollup_member_ids, ["member-a", "member-b"]);
     }
 
     #[test]
@@ -2589,8 +2363,12 @@ mod tests {
         store.put(&member).unwrap();
         let mut expected = BTreeMap::from([(member.id.clone(), Some("stale".into()))]);
         let parent = rollup_parent(parent_id.as_str(), &["member"]);
+        let mut rolled_member = member.clone();
+        rolled_member.status = RecommendationStatus::RolledUp;
+        rolled_member.rolled_up_by = Some(parent.id.clone());
 
-        let result = store.apply_rollup_transaction(&expected, &parent, &[member.clone()]);
+        let result = store
+            .apply_recommendation_graph_transaction(&expected, &[rolled_member, parent.clone()]);
 
         assert!(matches!(result, Err(StoreError::StaleExpectedHash { .. })));
         assert_eq!(store.get("member").unwrap(), Some(member));
@@ -2753,47 +2531,6 @@ mod tests {
     }
 
     #[test]
-    fn releases_unassigned_members_and_supersedes_a_changed_proposed_parent() {
-        let parent_old_id = stable_rollup_id(&["member-a".into(), "member-b".into()]);
-        let parent_new_id = stable_rollup_id(&["member-a".into()]);
-        let dir = tempfile::tempdir().unwrap();
-        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
-        let member_a = recommendation("member-a", "session-a");
-        let member_b = recommendation("member-b", "session-b");
-        let old_parent = rollup_parent(parent_old_id.as_str(), &["member-a", "member-b"]);
-        let mut old_member_a = member_a.clone();
-        old_member_a.status = RecommendationStatus::RolledUp;
-        old_member_a.rolled_up_by = Some(old_parent.id.clone());
-        let mut old_member_b = member_b.clone();
-        old_member_b.status = RecommendationStatus::RolledUp;
-        old_member_b.rolled_up_by = Some(old_parent.id.clone());
-        store.put(&old_parent).unwrap();
-        store.put(&old_member_a).unwrap();
-        store.put(&old_member_b).unwrap();
-        let mut successor = rollup_parent(parent_new_id.as_str(), &["member-a"]);
-        successor.workflow_improvement.supersedes_recommendation_id = Some(old_parent.id.clone());
-        let expected = expected_present(&[&old_parent, &old_member_a, &old_member_b]);
-
-        store
-            .apply_rollup_transaction(&expected, &successor, &[member_a])
-            .unwrap();
-
-        assert_eq!(
-            store.get(parent_old_id.as_str()).unwrap().unwrap().status,
-            RecommendationStatus::Superseded
-        );
-        assert_eq!(
-            store.get("member-a").unwrap().unwrap().rolled_up_by,
-            Some(parent_new_id.as_str().into())
-        );
-        assert_eq!(
-            store.get("member-b").unwrap().unwrap().status,
-            RecommendationStatus::Proposed
-        );
-        assert_eq!(store.get("member-b").unwrap().unwrap().rolled_up_by, None);
-    }
-
-    #[test]
     fn session_cleanup_removes_an_entire_parent_member_graph() {
         let parent_id = stable_rollup_id(&["member".into()]);
         let dir = tempfile::tempdir().unwrap();
@@ -2824,6 +2561,12 @@ mod tests {
         store.put(&member_a).unwrap();
         store.put(&member_b).unwrap();
         let parent = rollup_parent(parent_id.as_str(), &["member-a", "member-b"]);
+        let mut rolled_a = member_a.clone();
+        rolled_a.status = RecommendationStatus::RolledUp;
+        rolled_a.rolled_up_by = Some(parent.id.clone());
+        let mut rolled_b = member_b.clone();
+        rolled_b.status = RecommendationStatus::RolledUp;
+        rolled_b.rolled_up_by = Some(parent.id.clone());
         let expected = BTreeMap::from([
             (member_a.id.clone(), Some(expected_hash(&member_a))),
             (member_b.id.clone(), Some(expected_hash(&member_b))),
@@ -2831,7 +2574,10 @@ mod tests {
         ]);
         set_fault_point(Some(FaultPoint::Publication(1)));
         assert!(store
-            .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
+            .apply_recommendation_graph_transaction(
+                &expected,
+                &[rolled_a, rolled_b, parent.clone()]
+            )
             .is_err());
         set_fault_point(None);
 
@@ -2865,11 +2611,17 @@ mod tests {
 
         let mut successor = rollup_parent(parent_new_id.as_str(), &["member-a"]);
         successor.workflow_improvement.supersedes_recommendation_id = Some(old_parent.id.clone());
+        let mut superseded_parent = old_parent.clone();
+        superseded_parent.status = RecommendationStatus::Superseded;
+        let mut rolled_a = member_a.clone();
+        rolled_a.status = RecommendationStatus::RolledUp;
+        rolled_a.rolled_up_by = Some(successor.id.clone());
+        let mut expected = expected_present(&[&old_parent, &old_member_a, &old_member_b]);
+        expected.insert(successor.id.clone(), None);
         store
-            .apply_rollup_transaction(
-                &expected_present(&[&old_parent, &old_member_a, &old_member_b]),
-                &successor,
-                &[member_a],
+            .apply_recommendation_graph_transaction(
+                &expected,
+                &[superseded_parent, rolled_a, old_member_b.clone(), successor],
             )
             .unwrap();
 
@@ -2893,6 +2645,12 @@ mod tests {
         store.put(&member_a).unwrap();
         store.put(&member_b).unwrap();
         let parent = rollup_parent(parent_id.as_str(), &["member-a", "member-b"]);
+        let mut rolled_a = member_a.clone();
+        rolled_a.status = RecommendationStatus::RolledUp;
+        rolled_a.rolled_up_by = Some(parent.id.clone());
+        let mut rolled_b = member_b.clone();
+        rolled_b.status = RecommendationStatus::RolledUp;
+        rolled_b.rolled_up_by = Some(parent.id.clone());
         let expected = BTreeMap::from([
             (member_a.id.clone(), Some(expected_hash(&member_a))),
             (member_b.id.clone(), Some(expected_hash(&member_b))),
@@ -2900,7 +2658,10 @@ mod tests {
         ]);
         set_fault_point(Some(FaultPoint::Publication(1)));
         assert!(store
-            .apply_rollup_transaction(&expected, &parent, &[member_a, member_b])
+            .apply_recommendation_graph_transaction(
+                &expected,
+                &[rolled_a, rolled_b, parent.clone()]
+            )
             .is_err());
         set_fault_point(None);
 
@@ -2924,9 +2685,13 @@ mod tests {
         store.put(&terminal_parent).unwrap();
         store.put(&member).unwrap();
         let successor = rollup_parent(parent_id.as_str(), &["member"]);
+        let mut rolled_member = member.clone();
+        rolled_member.status = RecommendationStatus::RolledUp;
+        rolled_member.rolled_up_by = Some(successor.id.clone());
         let expected = expected_present(&[&terminal_parent, &member]);
 
-        let result = store.apply_rollup_transaction(&expected, &successor, &[member.clone()]);
+        let result =
+            store.apply_recommendation_graph_transaction(&expected, &[rolled_member, successor]);
 
         assert!(matches!(result, Err(StoreError::InvalidTransition)));
         assert_eq!(
@@ -2934,47 +2699,6 @@ mod tests {
             Some(terminal_parent)
         );
         assert_eq!(store.get("member").unwrap(), Some(member));
-    }
-
-    #[test]
-    fn rejects_missing_or_colliding_member_ids_before_staging() {
-        let parent_id = stable_rollup_id(&["missing".into()]);
-        let nested_parent_id = stable_rollup_id(&["existing".into()]);
-        let dir = tempfile::tempdir().unwrap();
-        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
-        let existing = recommendation("existing", "session");
-        store.put(&existing).unwrap();
-
-        let missing_parent = rollup_parent(parent_id.as_str(), &["missing"]);
-        let missing = store.apply_rollup_transaction(
-            &BTreeMap::from([(parent_id.as_str().into(), None)]),
-            &missing_parent,
-            &[recommendation("missing", "session")],
-        );
-        assert!(matches!(missing, Err(StoreError::GraphInvariant(_))));
-        assert!(store.get(parent_id.as_str()).unwrap().is_none());
-        assert!(store.get("missing").unwrap().is_none());
-
-        let collision_parent = rollup_parent("existing", &["existing"]);
-        let collision = store.apply_rollup_transaction(
-            &BTreeMap::from([("existing".into(), Some(expected_hash(&existing)))]),
-            &collision_parent,
-            &[existing.clone()],
-        );
-        assert!(matches!(collision, Err(StoreError::GraphInvariant(_))));
-        assert_eq!(store.get("existing").unwrap(), Some(existing.clone()));
-
-        let mut nested_member = existing.clone();
-        nested_member.rollup_member_ids = vec!["child".into()];
-        nested_member.rollup_member_dedupe_keys = vec!["child-dedupe".into()];
-        let nested_parent = rollup_parent(nested_parent_id.as_str(), &["existing"]);
-        let nested = store.apply_rollup_transaction(
-            &BTreeMap::from([("existing".into(), Some(expected_hash(&existing)))]),
-            &nested_parent,
-            &[nested_member],
-        );
-        assert!(matches!(nested, Err(StoreError::GraphInvariant(_))));
-        assert!(store.get(nested_parent_id.as_str()).unwrap().is_none());
     }
 
     #[test]
@@ -3037,8 +2761,17 @@ mod tests {
                 (member_b.id.clone(), Some(expected_hash(&member_b))),
                 (parent.id.clone(), None),
             ]);
+            let mut rolled_a = member_a.clone();
+            rolled_a.status = RecommendationStatus::RolledUp;
+            rolled_a.rolled_up_by = Some(parent.id.clone());
+            let mut rolled_b = member_b.clone();
+            rolled_b.status = RecommendationStatus::RolledUp;
+            rolled_b.rolled_up_by = Some(parent.id.clone());
             set_fault_point(Some(fault));
-            let result = store.apply_rollup_transaction(&expected, &parent, &[member_a, member_b]);
+            let result = store.apply_recommendation_graph_transaction(
+                &expected,
+                &[rolled_a, rolled_b, parent.clone()],
+            );
             set_fault_point(None);
             assert!(result.is_err());
 

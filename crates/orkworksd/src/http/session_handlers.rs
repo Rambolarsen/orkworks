@@ -5607,8 +5607,6 @@ mod tests {
 
     #[tokio::test]
     async fn absent_observation_count_serializes_as_null() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
         let session_id = "count-read-failed";
         let mut info = test_session_info(session_id, "Live", "/tmp", "running", "now");
         project_peon_diagnostics(&mut info, Some(test_peon_diagnostics()), None);
