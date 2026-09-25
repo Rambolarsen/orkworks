@@ -17,10 +17,14 @@ recommends before it controls: it does not replace Claude Code, Codex,
 OpenCode, Gemini CLI, or Aider.
 
 The MVP does not own Git workflow, worktree management, merging, or arbitrary
-task decomposition. Taskmaster may recommend session transitions, but v1 never
-starts a session without explicit user approval. If a requested change is a
-specified non-goal, decline it and identify the applicable non-goal; do not
-implement it partially.
+task decomposition. The separately gated master-session runner is a narrow
+exception: one complete immutable plan requires explicit user approval before
+it can start child sessions or provision worktrees. Child edits remain isolated
+for manual user integration; cleanup is limited to clean, quiescent worktrees
+created by that plan. It never commits, merges, copies changes, or deletes
+branches. Ordinary Taskmaster recommendations keep their existing per-action
+approval requirements. If a requested change is a specified non-goal, decline
+it and identify the applicable non-goal; do not implement it partially.
 
 Harness voice support is pass-through only. OrkWorks never captures, proxies,
 or stores native-voice audio. Preserve metadata source and confidence wherever
