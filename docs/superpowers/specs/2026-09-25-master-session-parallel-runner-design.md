@@ -100,10 +100,10 @@ provisioning -> paused
 paused -> approved (fresh approval, unchanged plan and workspace subject)
 paused -> recovery_required (termination or launch state is uncertain)
 paused -> cancelling (user-authenticated cancellation)
-recovery_required -> paused (non-cancelled, non-expired reconciliation proves quiescence)
-recovery_required -> expired (expiry fence is reconciled; no resume allowed)
-recovery_required -> cancelled (cancellation fence is reconciled; no resume allowed)
-recovery_required -> proposed (a new revision is required; mandatory after expiry)
+recovery_required -> paused (fence_reason=paused; reconciliation proves quiescence)
+recovery_required -> expired (fence_reason=expiry; reconciliation proves quiescence)
+recovery_required -> cancelled (fence_reason=cancellation; reconciliation proves quiescence)
+recovery_required -> proposed (fence_reason=other; a new revision is required)
 proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
 cancelling -> recovery_required (quiescence is unproven; cancellation intent retained)
@@ -133,9 +133,10 @@ not required for the resulting user-authenticated cancellation; an expired
 plan cannot resume or launch new work. The expiry reason is retained through
 `recovery_required`; only reconciliation to `expired` or a new plan revision
 can follow an expired approval, never the generic `recovery_required -> paused
--> approved` path. A cancellation fence is also retained through
-`recovery_required`; reconciliation of that fence can reach only `cancelled`,
-never `paused`, `proposed`, or `approved`.
+-> approved` path. The server persists a single recovery `fence_reason`
+(`paused`, `expiry`, `cancellation`, or `other`) and evaluates it atomically;
+the cancellation reason can reach only `cancelled`, never `paused`, `proposed`,
+or `approved`.
 
 Children in a batch launch concurrently only after all their worktrees have
 been created and recorded. A later batch cannot launch until the previous
@@ -186,7 +187,8 @@ mismatch blocks cleanup and leaves the plan paused for user intervention.
 
 The plan, approval, batch definitions, worktree allocations, child links,
 completion reports, server-attested attempt receipts, lease generations, and
-cleanup outcome are durable records. Approval is allowed only when the server
+cleanup outcome, and any recovery fence reason are durable records. Approval is
+allowed only when the server
 observes a clean workspace: the repository revision, an empty dirty-path set,
 workspace identity, and clean-state observation are recorded as the base
 subject. The design does not snapshot or replay uncommitted content. Approval
