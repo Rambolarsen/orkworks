@@ -100,16 +100,18 @@ provisioning -> paused
 paused -> approved (fresh approval, unchanged plan and workspace subject)
 paused -> recovery_required (termination or launch state is uncertain)
 paused -> cancelling (user-authenticated cancellation)
-recovery_required -> paused (reconciliation proves quiescence)
+recovery_required -> paused (non-cancelled, non-expired reconciliation proves quiescence)
 recovery_required -> expired (expiry fence is reconciled; no resume allowed)
+recovery_required -> cancelled (cancellation fence is reconciled; no resume allowed)
 recovery_required -> proposed (a new revision is required; mandatory after expiry)
 proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
-cancelling -> recovery_required (quiescence is unproven)
+cancelling -> recovery_required (quiescence is unproven; cancellation intent retained)
 provisioning / running_batch -> failed (no live child remains)
 approved / provisioning / running_batch -> expiring
 expiring -> expired (all children quiesced)
 expiring -> recovery_required (quiescence is unproven)
+expiring -> cancelling (user-authenticated cancellation only)
 expired -> cancelling (user-authenticated cancellation only)
 ```
 
@@ -131,7 +133,9 @@ not required for the resulting user-authenticated cancellation; an expired
 plan cannot resume or launch new work. The expiry reason is retained through
 `recovery_required`; only reconciliation to `expired` or a new plan revision
 can follow an expired approval, never the generic `recovery_required -> paused
--> approved` path.
+-> approved` path. A cancellation fence is also retained through
+`recovery_required`; reconciliation of that fence can reach only `cancelled`,
+never `paused`, `proposed`, or `approved`.
 
 Children in a batch launch concurrently only after all their worktrees have
 been created and recorded. A later batch cannot launch until the previous
@@ -258,6 +262,8 @@ The implementation must test, without launching real coding tools:
 - pause, provisioning cancellation, and expiry lease revocation, process-tree
   quiescence, and
   `recovery_required` reconciliation;
+- cancellation during expiry and preservation of cancellation intent through
+  uncertain termination, with no return to approval;
 - cleanup authorization after user acceptance;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
