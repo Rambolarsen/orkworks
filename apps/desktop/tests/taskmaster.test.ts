@@ -398,7 +398,8 @@ test("accepted Fix with AI selects the receiving session and confirms it by name
   const generationGuard = handler.indexOf("if (!isCurrentHandoff()) return;", accepted);
   const selectTarget = handler.indexOf("handleSelectSession(targetSessionId)", generationGuard);
   assert.ok(accepted >= 0 && generationGuard > accepted && selectTarget > generationGuard);
-  assert.match(handler.slice(selectTarget), /pushToast\("info", `Fix sent to \$\{[^}]+\}\.`\)/);
+  assert.match(handler, /const targetSession = sessions\.find\(\(session\) => session\.id === targetSessionId\);/);
+  assert.match(handler, /pushToast\("info", `Fix sent to \$\{targetSession\?\.label \?\? targetSessionId\}\.`\);/);
 
   const selectionStart = app.indexOf("const handleSelectSession");
   const selectionEnd = app.indexOf("const handleKillSession", selectionStart);
