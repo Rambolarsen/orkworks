@@ -9807,7 +9807,7 @@ mod tests {
         handle.info.metadata_confidence = Some(1.0);
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
-        SessionApplication::new(state.clone()).commit_accepted_input(id, None, true);
+        crate::runtime::terminal_runtime::record_terminal_input(&state, id, "y\r");
 
         let after_input = state
             .workspace
