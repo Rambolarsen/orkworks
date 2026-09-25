@@ -1696,7 +1696,32 @@ impl MetadataStore {
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary)
+        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, None)
+    }
+
+    /// Merges Peon's descriptive fields while retaining the live Codex hook's
+    /// status/attention authority. A hook-capable session can continue
+    /// producing ambiguous terminal output while Codex is working; that
+    /// output must not become a durable `needs_you` transition merely because
+    /// the hook signal has aged past the normal Peon overwrite window.
+    pub fn merge_peon_inference_with_history_preserving_hook_status(
+        &self,
+        id: &str,
+        inf: &crate::peon::PeonInference,
+        timestamp: &str,
+        provider: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
+        hook_status: &str,
+        hook_confidence: f64,
+    ) -> std::io::Result<PeonMergeOutcome> {
+        self.merge_peon_inference_inner(
+            id,
+            inf,
+            timestamp,
+            provider,
+            history_summary,
+            Some((hook_status, hook_confidence)),
+        )
     }
 
     #[cfg(test)]
@@ -1707,7 +1732,7 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(id, inf, timestamp, provider, inf.summary.as_deref())
+        self.merge_peon_inference_inner(id, inf, timestamp, provider, inf.summary.as_deref(), None)
     }
 
     fn merge_peon_inference_inner(
@@ -1717,6 +1742,7 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
+        hook_status: Option<(&str, f64)>,
     ) -> std::io::Result<PeonMergeOutcome> {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
@@ -1726,9 +1752,13 @@ impl MetadataStore {
         };
 
         // The merge defends itself: no caller ordering can bypass the
-        // source-priority ladder (issue #400).
+        // source-priority ladder (issue #400). An active Codex hook is the
+        // explicit exception: its status remains authoritative while Peon
+        // still contributes descriptive fields.
         let existing_age = self.session_modified_secs_ago(id);
-        if !source_priority::can_overwrite("peon", &meta.metadata_source, existing_age) {
+        if (hook_status.is_none() || meta.metadata_source == "user")
+            && !source_priority::can_overwrite("peon", &meta.metadata_source, existing_age)
+        {
             return Ok(PeonMergeOutcome::SkippedHigherPriority {
                 permanent_hold: meta.metadata_source == "user",
             });
@@ -1777,9 +1807,25 @@ impl MetadataStore {
             meta.failed_test.clone(),
         );
 
-        meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
-        if meta.lifecycle == "alive" {
-            meta.attention = canonical_attention(meta.observed_status.as_deref());
+        if let Some((hook_status, hook_confidence)) = hook_status {
+            meta.observed_status = Some(hook_status.to_string());
+            if meta.lifecycle == "alive" {
+                meta.attention = canonical_attention(Some(hook_status));
+            }
+            // A Codex hook remains authoritative after accepted input, but the
+            // input transition is a newer process-owned provenance. Preserve
+            // that provenance instead of making the next Peon pass look like
+            // another hook event; otherwise a later hook report could be
+            // confused with the transition that followed the approval.
+            if meta.metadata_source != "process" {
+                meta.metadata_source = "codex_hook".into();
+                meta.metadata_confidence = hook_confidence;
+            }
+        } else {
+            meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
+            if meta.lifecycle == "alive" {
+                meta.attention = canonical_attention(meta.observed_status.as_deref());
+            }
         }
         if let Some(ref phase) = inf.phase {
             meta.work_phase = normalize_work_phase(phase);
@@ -1788,20 +1834,27 @@ impl MetadataStore {
         // it must not be clobbered here (ADR 0029).
         meta.summary = history_summary.map(str::to_string).or(meta.summary);
         meta.next_action = inf.next_action.clone().or(meta.next_action);
-        meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
-        // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
-        let incoming_q = inf
-            .detected_question
-            .as_deref()
-            .filter(|q| !q.is_empty())
-            .map(str::to_string);
-        // Options belong to their question; clear them when the question changes so
-        // stale options never appear under a different question.
-        if incoming_q.is_some() && incoming_q.as_deref() != meta.detected_question.as_deref() {
-            meta.suggested_options = None;
+        if hook_status.is_none() {
+            meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         }
-        meta.detected_question = incoming_q.or(meta.detected_question);
-        meta.suggested_options = inf.suggested_options.clone().or(meta.suggested_options);
+        // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
+        if hook_status.is_none() {
+            let incoming_q = inf
+                .detected_question
+                .as_deref()
+                .filter(|q| !q.is_empty())
+                .map(str::to_string);
+            // Options belong to their question; clear them when the question changes so
+            // stale options never appear under a different question.
+            if incoming_q.is_some() && incoming_q.as_deref() != meta.detected_question.as_deref() {
+                meta.suggested_options = None;
+            }
+            meta.detected_question = incoming_q.or(meta.detected_question);
+            meta.suggested_options = inf.suggested_options.clone().or(meta.suggested_options);
+        }
+        // Hook authority covers attention and prompt fields only. Peon still
+        // contributes useful diagnostics about blockers and failed work while
+        // Codex is processing the turn.
         meta.blocker_description = inf.blocker_description.clone().or(meta.blocker_description);
         meta.failed_command = inf.failed_command.clone().or(meta.failed_command);
         meta.failed_test = inf.failed_test.clone().or(meta.failed_test);
@@ -1837,8 +1890,10 @@ impl MetadataStore {
             meta.last_activity = timestamp.to_string();
         }
         meta.peon_last_inference = Some(timestamp.to_string());
-        meta.metadata_source = "peon".into();
-        meta.metadata_confidence = inf.confidence;
+        if hook_status.is_none() {
+            meta.metadata_source = "peon".into();
+            meta.metadata_confidence = inf.confidence;
+        }
 
         if let Some(p) = provider {
             meta.provider_id = Some(p.provider_id.clone());
@@ -1856,7 +1911,9 @@ impl MetadataStore {
             event_type: "peon.inference".into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
-            observed_status: inf.observed_status.clone(),
+            observed_status: hook_status
+                .map(|(status, _)| status.to_string())
+                .or_else(|| inf.observed_status.clone()),
             confidence: Some(inf.confidence),
             summary: checkpoint,
             source: checkpoint_source,

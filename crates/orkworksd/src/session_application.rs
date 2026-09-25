@@ -1112,9 +1112,9 @@ impl SessionApplication {
         // the rest of the application layer. Keep the validation guard while
         // persisting so a replacement cannot pass the check and then receive
         // the old runtime's durable inference.
-        let _sessions_guard = if let Some(attempt) = attempt {
-            let sessions = self.state.sessions.lock().unwrap();
-            let current = sessions.get(session_id).is_some_and(|handle| {
+        let sessions_guard = self.state.sessions.lock().unwrap();
+        if let Some(attempt) = attempt {
+            let current = sessions_guard.get(session_id).is_some_and(|handle| {
                 handle.runtime.matches_identity(&attempt.runtime_identity)
                     && handle.info.lifecycle_phase == "active"
             });
@@ -1131,10 +1131,29 @@ impl SessionApplication {
                     workspace_path: None,
                 };
             }
-            Some(sessions)
-        } else {
-            None
-        };
+        }
+
+        let hook_authority = sessions_guard
+            .get(session_id)
+            .filter(|handle| {
+                handle.active_work_hook
+                    && handle.info.lifecycle == "alive"
+                    && handle.info.lifecycle_phase == "active"
+                    && (handle.info.harness_id.as_deref() == Some("codex")
+                        || handle.info.harness.as_deref() == Some("codex"))
+                    && matches!(
+                        handle.info.metadata_source.as_deref(),
+                        Some("codex_hook") | Some("process")
+                    )
+            })
+            .and_then(|handle| {
+                handle.info.observed_status.as_deref().map(|status| {
+                    (
+                        status.to_string(),
+                        handle.info.metadata_confidence.unwrap_or(1.0),
+                    )
+                })
+            });
 
         if let Some(observation) = provider_observation {
             workspace
@@ -1153,13 +1172,29 @@ impl SessionApplication {
 
         // The merge enforces the source-priority ladder itself (issue #400);
         // its outcome is the only gate.
-        match workspace.metadata.merge_peon_inference_with_history(
-            session_id,
-            inference,
-            timestamp,
-            provider_observation,
-            history_summary,
-        ) {
+        let merge_result = if let Some((hook_status, hook_confidence)) = hook_authority {
+            workspace
+                .metadata
+                .merge_peon_inference_with_history_preserving_hook_status(
+                    session_id,
+                    inference,
+                    timestamp,
+                    provider_observation,
+                    history_summary,
+                    &hook_status,
+                    hook_confidence,
+                )
+        } else {
+            workspace.metadata.merge_peon_inference_with_history(
+                session_id,
+                inference,
+                timestamp,
+                provider_observation,
+                history_summary,
+            )
+        };
+
+        match merge_result {
             Ok(metadata::PeonMergeOutcome::Applied) => PeonInferencePersistenceResult {
                 inference_persisted: true,
                 permanent_hold: false,
@@ -9510,6 +9545,230 @@ mod tests {
         assert_eq!(stored.summary.as_deref(), Some("Need a decision"));
         assert_eq!(stored.provider_id.as_deref(), Some("claude-code"));
         assert_eq!(stored.provider_model.as_deref(), Some("sonnet"));
+    }
+
+    #[test]
+    fn active_codex_hook_keeps_peon_waiting_inference_from_becoming_needs_you() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "peon-inference-codex-hook-authority";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Codex work",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.observed_status = Some("working".into());
+        metadata.attention = Some("working".into());
+        metadata.metadata_source = "codex_hook".into();
+        metadata.metadata_confidence = 0.99;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let metadata_path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir()
+            .join(format!("{id}.json"));
+        let stale = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        std::fs::File::options()
+            .write(true)
+            .open(metadata_path)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_accessed(stale)
+                    .set_modified(stale),
+            )
+            .unwrap();
+
+        let mut handle = attention_test_handle(id, root.path());
+        handle.active_work_hook = true;
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.lifecycle = "alive".into();
+        handle.info.harness_id = Some("codex".into());
+        handle.info.harness = Some("codex".into());
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        handle.info.metadata_source = Some("codex_hook".into());
+        handle.info.metadata_confidence = Some(0.99);
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let inference = crate::peon::PeonInference {
+            observed_status: Some("waiting_for_input".into()),
+            phase: None,
+            summary: Some("Still editing the requested change".into()),
+            next_action: None,
+            needs_user_input: Some(true),
+            detected_question: Some("Should I stop?".into()),
+            suggested_options: Some(vec!["yes".into(), "no".into()]),
+            blocker_description: Some("Ambiguous terminal prompt-like output".into()),
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+            workflow_observations: Vec::new(),
+        };
+
+        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+            id,
+            Some(&inference),
+            None,
+            Some("Still editing the requested change"),
+            "later",
+        );
+
+        assert!(result.inference_persisted);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("working"));
+        assert_eq!(stored.attention.as_deref(), Some("working"));
+        assert_eq!(stored.metadata_source, "codex_hook");
+        assert_eq!(stored.metadata_confidence, 0.99);
+        assert_eq!(
+            stored.summary.as_deref(),
+            Some("Still editing the requested change")
+        );
+        assert_eq!(
+            stored.blocker_description.as_deref(),
+            Some("Ambiguous terminal prompt-like output")
+        );
+        assert_eq!(stored.needs_user_input, None);
+        assert_eq!(stored.detected_question, None);
+        assert_eq!(stored.suggested_options, None);
+    }
+
+    #[test]
+    fn active_codex_hook_stays_authoritative_after_input_becomes_process_sourced() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "peon-inference-codex-after-input";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Codex approval",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "codex".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.observed_status = Some("waiting_for_input".into());
+        metadata.attention = Some("needs_you".into());
+        metadata.needs_user_input = Some(true);
+        metadata.detected_question = Some("Approve?".into());
+        metadata.metadata_source = "codex_hook".into();
+        metadata.metadata_confidence = 1.0;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let mut handle = attention_test_handle(id, root.path());
+        handle.active_work_hook = true;
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.lifecycle = "alive".into();
+        handle.info.harness_id = Some("codex".into());
+        handle.info.harness = Some("codex".into());
+        handle.info.observed_status = Some("waiting_for_input".into());
+        handle.info.attention = Some("needs_you".into());
+        handle.info.needs_user_input = Some(true);
+        handle.info.detected_question = Some("Approve?".into());
+        handle.info.metadata_source = Some("codex_hook".into());
+        handle.info.metadata_confidence = Some(1.0);
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        SessionApplication::new(state.clone()).commit_accepted_input(id, None, true);
+
+        let after_input = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(after_input.observed_status.as_deref(), Some("working"));
+        assert_eq!(after_input.metadata_source, "process");
+
+        let inference = crate::peon::PeonInference {
+            observed_status: Some("waiting_for_input".into()),
+            phase: None,
+            summary: Some("Codex is still applying the change".into()),
+            next_action: None,
+            needs_user_input: Some(true),
+            detected_question: Some("Should I stop?".into()),
+            suggested_options: Some(vec!["yes".into(), "no".into()]),
+            blocker_description: Some("Prompt-like terminal output".into()),
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+            workflow_observations: Vec::new(),
+        };
+
+        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+            id,
+            Some(&inference),
+            None,
+            Some("Codex is still applying the change"),
+            "later",
+        );
+
+        assert!(result.inference_persisted);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("working"));
+        assert_eq!(stored.attention.as_deref(), Some("working"));
+        assert_eq!(stored.metadata_source, "process");
+        assert_eq!(stored.metadata_confidence, 1.0);
+        assert_eq!(
+            stored.blocker_description.as_deref(),
+            Some("Prompt-like terminal output")
+        );
+        assert_eq!(stored.needs_user_input, None);
+        assert_eq!(stored.detected_question, None);
+        assert_eq!(stored.suggested_options, None);
     }
 
     #[test]
