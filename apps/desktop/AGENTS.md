@@ -50,6 +50,10 @@ IPC contract types shared across the boundary must be defined independently in b
 
 Do not change `rootDir` in `tsconfig.node.json` or `tsconfig.json` to accommodate a new import. Reconsider the dependency direction instead.
 
+## Settings coding-tool toggle confirmation
+
+Flipping an integration-capable coding tool's Settings toggle off→on immediately persists the merged active-tool selection and reconciles only that tool's integration group (`enableHarnessIntegrationImmediate`); a coding tool without an integration binding stays draft until Save. When that reconcile plans an install or repair, it shows the native OS confirmation dialog — listing the mutation it is about to perform — at toggle time, not at the later modal-wide Save click; when no mutation is planned (integration already healthy, unsupported, or its status lookup failed) no dialog appears. This is intentional, not a regression; do not change or document it as deferred to Save. Flipping on→off remains draft-only; its cleanup mutation still waits for Save.
+
 ## Architecture references
 
 Read [`docs/agents/architecture.md`](../../docs/agents/architecture.md) for the Electron-main, preload, renderer, sidecar, and panel-layout boundaries. For cross-component work, also read [`crates/orkworksd/AGENTS.md`](../../crates/orkworksd/AGENTS.md).
