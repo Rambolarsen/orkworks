@@ -628,6 +628,26 @@ impl WorkflowObservationStore {
             .map_or(0, |cache| cache.observations.len()))
     }
 
+    /// Returns one session's retained accepted observations, ascending by
+    /// `sequence`. Never returns internal tombstones. Empty when the session
+    /// has no cached segment.
+    pub(crate) fn session_observations(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<WorkflowObservation>, StoreError> {
+        let inner = self.inner.lock().unwrap();
+        Ok(inner
+            .session_cache
+            .get(session_id)
+            .map_or(Vec::new(), |cache| {
+                cache
+                    .observations
+                    .iter()
+                    .map(|s| s.observation.clone())
+                    .collect()
+            }))
+    }
+
     pub(crate) fn delete_session_observations(&self, session_id: &str) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         let path = self.segment_path(session_id);
@@ -1478,6 +1498,52 @@ mod tests {
 
         assert_eq!(store.session_observation_count("session-1").unwrap(), 1);
         assert_eq!(store.session_observation_count("session-2").unwrap(), 0);
+    }
+
+    #[test]
+    fn session_observations_returns_only_that_sessions_records_in_sequence_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+
+        store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "key-1",
+                candidate(ObservationKind::Obstacle, "first observation", "evidence a"),
+            )
+            .unwrap();
+        store
+            .record_observation(
+                "session-2",
+                ObservationOrigin::Agent,
+                "key-2",
+                candidate(ObservationKind::Workaround, "other session", "evidence b"),
+            )
+            .unwrap();
+        store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "key-3",
+                candidate(
+                    ObservationKind::Correction,
+                    "second observation",
+                    "evidence c",
+                ),
+            )
+            .unwrap();
+
+        let observations = store.session_observations("session-1").unwrap();
+        assert_eq!(observations.len(), 2);
+        assert_eq!(observations[0].description, "first observation");
+        assert_eq!(observations[1].description, "second observation");
+        assert!(observations[0].sequence < observations[1].sequence);
+
+        assert!(store
+            .session_observations("no-such-session")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

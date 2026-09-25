@@ -66,7 +66,8 @@ use crate::http::workflow_observation_handlers::report_workflow_observation;
 use crate::runtime::peon_runtime::peon_loop;
 use crate::runtime::retention::retention_cleanup_task;
 use crate::runtime::terminal_http::{
-    get_summary_log, get_terminal_output, session_terminal_handler,
+    get_session_workflow_observations, get_summary_log, get_terminal_output,
+    session_terminal_handler,
 };
 use crate::runtime::workspace_gc::gc_stale_workspaces_task;
 use crate::session_types::{PeonDiagnostics, PeonSchedulerState, SessionInfo};
@@ -428,6 +429,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions/:id/terminal", get(session_terminal_handler))
         .route("/sessions/:id/terminal-output", get(get_terminal_output))
         .route("/sessions/:id/summary-log", get(get_summary_log))
+        .route(
+            "/sessions/:id/workflow-observations",
+            get(get_session_workflow_observations),
+        )
         .merge(
             // Isolated so the 8 KiB body cap (ADR 0042) applies only to this
             // route, not the rest of the API.

@@ -36,6 +36,27 @@ pub(crate) struct SummaryLogResponse {
     pub(crate) entries: Vec<SummaryLogEntry>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkflowObservationEntry {
+    pub(crate) id: String,
+    pub(crate) sequence: u64,
+    pub(crate) observed_at: String,
+    pub(crate) kind: crate::workflow_observations::ObservationKind,
+    pub(crate) description: String,
+    pub(crate) evidence: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) problem_area: Option<String>,
+    pub(crate) reported_impact: crate::workflow_observations::Impact,
+    pub(crate) source: crate::workflow_observations::ObservationSource,
+    pub(crate) confidence: f64,
+}
+
+#[derive(Serialize)]
+pub(crate) struct WorkflowObservationsResponse {
+    pub(crate) observations: Vec<WorkflowObservationEntry>,
+}
+
 pub(crate) async fn get_terminal_output(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -81,6 +102,36 @@ pub(crate) async fn get_summary_log(
         Vec::new()
     });
     Json(SummaryLogResponse { entries })
+}
+
+pub(crate) async fn get_session_workflow_observations(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let observations = tokio::task::spawn_blocking(move || {
+        SessionApplication::new(state)
+            .get_session_workflow_observations(&id)
+            .into_iter()
+            .map(|obs| WorkflowObservationEntry {
+                id: obs.id,
+                sequence: obs.sequence,
+                observed_at: obs.observed_at,
+                kind: obs.kind,
+                description: obs.description,
+                evidence: obs.evidence,
+                problem_area: obs.problem_area,
+                reported_impact: obs.reported_impact,
+                source: obs.source,
+                confidence: obs.confidence,
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_else(|error| {
+        tracing::error!(%error, "workflow-observations metadata task failed");
+        Vec::new()
+    });
+    Json(WorkflowObservationsResponse { observations })
 }
 
 pub(crate) async fn session_terminal_handler(
@@ -340,6 +391,82 @@ mod tests {
         let missing_workspace =
             response_json(get_summary_log(State(state), Path("any-session".into())).await).await;
         assert_eq!(missing_workspace, serde_json::json!({ "entries": [] }));
+    }
+
+    #[tokio::test]
+    async fn get_session_workflow_observations_returns_only_that_sessions_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = "obs-session".to_string();
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&test_session_metadata(
+                &session_id,
+                "Persisted",
+                dir.path().display().to_string(),
+                "ended",
+                "t0",
+                "t0",
+            ));
+            ws.workflow_observations
+                .record_observation(
+                    &session_id,
+                    crate::workflow_observations::ObservationOrigin::Agent,
+                    "key-1",
+                    crate::workflow_observations::ObservationCandidate {
+                        kind: crate::workflow_observations::ObservationKind::Obstacle,
+                        description: "Hit a snag".into(),
+                        evidence: "concrete evidence".into(),
+                        problem_area: None,
+                        reported_impact: crate::workflow_observations::Impact::Medium,
+                        confidence: None,
+                    },
+                )
+                .unwrap();
+            ws.workflow_observations
+                .record_observation(
+                    "other-session",
+                    crate::workflow_observations::ObservationOrigin::Agent,
+                    "key-2",
+                    crate::workflow_observations::ObservationCandidate {
+                        kind: crate::workflow_observations::ObservationKind::Workaround,
+                        description: "Unrelated".into(),
+                        evidence: "other evidence".into(),
+                        problem_area: None,
+                        reported_impact: crate::workflow_observations::Impact::Low,
+                        confidence: None,
+                    },
+                )
+                .unwrap();
+        }
+
+        let payload = response_json(
+            get_session_workflow_observations(State(state), Path(session_id.clone())).await,
+        )
+        .await;
+
+        let observations = payload["observations"].as_array().unwrap();
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0]["description"], "Hit a snag");
+        assert_eq!(observations[0]["kind"], "obstacle");
+        assert_eq!(observations[0]["reportedImpact"], "medium");
+        assert_eq!(observations[0]["source"], "agent");
+        assert!(observations[0].get("problemArea").is_none());
+    }
+
+    #[tokio::test]
+    async fn get_session_workflow_observations_returns_empty_for_unknown_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+
+        let payload = response_json(
+            get_session_workflow_observations(State(state), Path("unknown-session".into())).await,
+        )
+        .await;
+
+        assert_eq!(payload, serde_json::json!({ "observations": [] }));
     }
 
     #[tokio::test]

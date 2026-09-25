@@ -9,6 +9,7 @@ import {
   dismissTaskmasterRecommendation,
   duplicateHarness,
   forgetSession,
+  getSessionWorkflowObservations,
   getTaskmasterRecommendations,
   getTaskmasterRecommendation,
   listHarnesses,
@@ -230,6 +231,64 @@ test("forgetSession resolves on 200", async () => {
     Promise.resolve(new Response(null, { status: 200 }));
   try {
     await assert.doesNotReject(() => forgetSession("http://localhost:0", "test-id"));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("getSessionWorkflowObservations returns the observations array", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          observations: [
+            {
+              id: "obs-1",
+              sequence: 1,
+              observedAt: "2026-09-25T00:00:00Z",
+              kind: "obstacle",
+              description: "Hit a snag",
+              evidence: "concrete evidence",
+              reportedImpact: "medium",
+              source: "agent",
+              confidence: 0.9,
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+  try {
+    const observations = await getSessionWorkflowObservations("http://localhost:0", "test-id");
+    assert.equal(observations.length, 1);
+    assert.equal(observations[0].description, "Hit a snag");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("getSessionWorkflowObservations defaults to an empty array when missing", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
+    Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+  try {
+    const observations = await getSessionWorkflowObservations("http://localhost:0", "test-id");
+    assert.deepEqual(observations, []);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("getSessionWorkflowObservations throws on non-ok response", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = (_url: string | URL | Request, _init?: RequestInit) =>
+    Promise.resolve(new Response(null, { status: 503 }));
+  try {
+    await assert.rejects(
+      () => getSessionWorkflowObservations("http://localhost:0", "test-id"),
+      /get workflow observations failed: 503/,
+    );
   } finally {
     globalThis.fetch = origFetch;
   }
