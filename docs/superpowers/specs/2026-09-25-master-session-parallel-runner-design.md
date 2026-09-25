@@ -17,9 +17,10 @@ authority.
 
 The design deliberately uses **parallel batches** instead of exposing a
 general dependency graph. A master plan contains an ordered list of batches;
-children within one batch are independent and may run concurrently. A later
-batch starts only after the required children in the previous batch have
-reached a validated terminal result.
+children within one batch are independent and may run concurrently. This
+runner does not define optional children: every approved child in every batch
+is required. A later batch starts only after every child in the previous
+batch has reached a validated terminal result.
 
 ## Boundary and non-goals
 
@@ -145,19 +146,18 @@ does not replace or relax those controls.
 ## Lifecycle
 
 ```text
-draft
-  -> proposed
-  -> approved
-  -> provisioning
-  -> running_batch
-  -> awaiting_acceptance
-  -> cleaned
+draft -> proposed
+proposed -> approved
+approved -> provisioning
+provisioning -> running_batch
+running_batch -> awaiting_acceptance
 
 running_batch -> paused
 provisioning -> paused
 paused -> approved (fresh approval, unchanged plan and workspace subject)
 paused -> recovery_required (termination or launch state is uncertain)
 paused -> cancelling (user-authenticated cancellation)
+paused -> failed (child failure retained; no live child remains)
 approved / provisioning / running_batch / paused -> revoking
 revoking -> revoked (all children quiesced)
 revoking -> recovery_required (quiescence is unproven)
@@ -171,7 +171,7 @@ proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
 cancelling -> recovery_required (quiescence is unproven; cancellation intent retained)
 provisioning / running_batch -> failed (no live child remains)
-approved / provisioning / running_batch -> expiring
+approved / provisioning / running_batch / paused -> expiring
 expiring -> expired (all children quiesced)
 expiring -> recovery_required (quiescence is unproven)
 expiring -> cancelling (user-authenticated cancellation only)
@@ -214,6 +214,9 @@ and evaluates it atomically;
 the cancellation reason can reach only `cancelled`, never `paused`, `proposed`,
 or `approved`. An `expired -> proposed` transition creates a new immutable
 revision and approval request; it never resumes or mutates the expired one.
+When a child failure triggers the pause, that failure fence is retained while
+live sibling children are being quiesced; after quiescence is proven and no
+live child remains, the plan transitions to `failed` rather than resuming.
 
 Revocation uses the same mutation fence and bounded process-tree termination as
 pause, cancellation, and expiry. A revoked plan cannot resume, relaunch, or
@@ -228,21 +231,23 @@ preserves branches and commits. If cleanup or quiescence is uncertain,
 cannot become runnable again.
 
 Children in a batch launch concurrently only after all their worktrees have
-been created and recorded. A later batch cannot launch until the previous
-batch's required children have server-attested attempt receipts. A failed,
-missing, stale, or ambiguous result pauses the plan; it does not trigger an
-unapproved replacement child.
+been created and recorded. A later batch cannot launch until every child in
+the previous batch has a server-attested attempt receipt. A failed, missing,
+stale, or ambiguous result pauses the plan; it does not trigger an unapproved
+replacement child.
 
 Child completion uses a runner-specific one-shot handshake rather than an
 ordinary stop/idle event. The child submits its authenticated result report;
 the coordinator seals that attempt and asks the dedicated child runtime to
 gracefully terminate the harness. The runtime acknowledges the sealed report,
-closes the session, and reports the observed process exit. Only a server-
-observed successful exit/status within the finite termination deadline can
-produce a successful attempt receipt. A child that remains running, exits with
-an error, is killed, or misses the handshake is failed or enters recovery and
-cannot advance the batch. This keeps the existing interactive harnesses
-usable while giving coordinator children an explicit one-shot completion mode.
+closes the session, and reports the observed harness exit plus quiescence of
+the owned child process tree. Only a server-observed successful exit/status
+and proven process-tree quiescence within the finite termination deadline can
+produce a successful attempt receipt. A child that remains running, leaves a
+descendant process live, exits with an error, is killed, or misses the
+handshake is failed or enters recovery and cannot advance the batch. This
+keeps the existing interactive harnesses usable while giving coordinator
+children an explicit one-shot completion mode.
 
 When a batch completes, the coordinator advances the current-batch pointer to
 the next already-approved batch. Later batches may consume only persisted
@@ -294,10 +299,11 @@ completion reports, server-attested attempt receipts, lease generations, and
 cleanup outcome, and any recovery fence reason are durable records. Approval is
 allowed only when the server
 observes a clean workspace: the repository revision, an empty dirty-path set,
-workspace identity, and clean-state observation are recorded as the base
-subject. The design does not snapshot or replay uncommitted content. Approval
-and provisioning fail if any dirty path appears or the recorded base subject
-changes.
+workspace identity, attribution confidence, and clean-state observation are
+recorded as the base subject. Ambiguous attribution is inconclusive and cannot
+be approved. The design does not snapshot or replay uncommitted content.
+Approval and provisioning fail if any dirty path appears or the recorded base
+subject changes.
 Mutations carry the current plan revision/digest, live capability or lease,
 and an idempotency key. Old revisions and late child reports cannot advance
 the current plan.
@@ -306,13 +312,18 @@ The coordinator never infers completion from terminal text, a stop hook, an
 idle signal, or child-authored prose. The child report is evidence only. The
 server advances a batch only after it validates a report against the assigned
 child, worktree, plan revision, current batch, and lease, observes the child
-session's successful terminal status and exit result, verifies the declared
-output contract or artifact evidence through the server/trusted verifier, and
-records a machine-attested attempt receipt that binds the report digest,
-observed process/session identity, attempt ID, lease ID, observed terminal
-status and exit result, output contract, verified output or artifact digests,
-and workspace change subject. A killed, errored, nonzero, or otherwise
-unsuccessful child cannot advance a batch even if its report claims success.
+session's successful terminal status, exit result, and owned-process-tree
+quiescence, verifies the declared output contract or artifact evidence through
+the server/trusted verifier, and records a machine-attested attempt receipt
+that binds the report digest, observed process/session identity, attempt ID,
+lease ID, observed terminal status and exit result, output contract, verified
+output or artifact digests, and the server-observed input/output workspace
+revisions and change subjects, including scoped hashes and write attribution.
+Result acceptance atomically revalidates those subjects against current
+content, dependency inputs, and lease state; stale, conflicting, or
+ambiguously attributed results cannot advance a batch. A killed, errored,
+nonzero, or otherwise unsuccessful child cannot advance a batch even if its
+report claims success.
 
 The existing recommendation lifecycle remains unchanged for ordinary
 Taskmaster recommendations. The approve-once behavior is available only for
@@ -325,7 +336,9 @@ autonomous.
   batch. A durable partial-allocation record may only resume idempotent
   provisioning or roll it back; no child launches until every worktree in the
   batch is ready and recorded.
-- A child failure pauses the plan and retains all worktrees for diagnosis.
+- A child failure pauses the plan, retains all worktrees for diagnosis, and
+  transitions to `failed` once every live sibling child is quiescent and the
+  failure fence is reconciled.
 - A lost or stale report cannot advance the batch or start a replacement.
 - Pausing during provisioning or execution revokes every child lease, fences
   new launches, and quiesces acknowledged children before fresh approval is
@@ -354,7 +367,8 @@ The implementation must test, without launching real coding tools:
 
 - exact-plan approval and rejection of post-approval edits;
 - rejection of approval for dirty workspaces, plus binding to the observed
-  clean base revision, workspace identity, expiry, and revocation generation;
+  clean base revision, workspace identity, attribution confidence, expiry,
+  and revocation generation;
 - concurrent provisioning of unique worktrees and collision refusal;
 - child launch records bound to an allocation ID, lease, assigned worktree,
   plan revision, and batch, with arbitrary cwd substitution refused;
@@ -364,13 +378,14 @@ The implementation must test, without launching real coding tools:
 - machine-attested attempt receipt creation and rejection of reports that do
   not match observed session/process state;
 - receipt binding to the exact attempt and lease plus observed terminal status
-  and exit result;
+  and exit result, process-tree quiescence, and input/output workspace
+  subjects;
 - successful report-to-exit handshake, including timeout, running-session,
   killed-process, and nonzero-exit rejection;
 - rejection of nonzero, killed, errored, or unverified-output attempts even
   when child prose claims success;
 - batch pause on failure or ambiguity;
-- later-batch gating on required prior results;
+- later-batch gating on every prior child result;
 - refusal to treat unmerged earlier worktree edits as later-batch input;
 - pause, provisioning cancellation, and expiry lease revocation, process-tree
   quiescence, and
