@@ -165,7 +165,7 @@ recovery_required -> paused (fence_reason=paused; reconciliation proves quiescen
 recovery_required -> expired (fence_reason=expiry; reconciliation proves quiescence)
 recovery_required -> cancelled (fence_reason=cancellation; reconciliation proves quiescence)
 recovery_required -> revoked (fence_reason=revocation; reconciliation proves quiescence)
-recovery_required -> discarding (fence_reason=discarding; cleanup state is reconciled)
+recovery_required -> discarding (fence_reason=discarding; only after cleanup state is reconciled)
 recovery_required -> proposed (fence_reason=other; a new revision is required)
 proposed / approved / provisioning / running_batch -> cancelling
 cancelling -> cancelled (all children quiesced)
@@ -181,7 +181,6 @@ awaiting_acceptance -> discarding (explicit user acceptance or discard/rejection
 failed / cancelled / expired / revoked -> discarding (explicit user discard/rejection/abandonment)
 discarding -> cleaned (the discard authorization's cleanup completed)
 discarding -> recovery_required (cleanup or quiescence is uncertain)
-recovery_required -> discarding (authenticated user discard installs fence_reason=discarding before reconciliation)
 ```
 
 Approval activates exactly one plan revision. Provisioning is idempotent: a
@@ -195,7 +194,9 @@ expiry/revocation transitions use server authority. These transitions do not
 require a coordinator capability that has not yet been issued. User
 cancellation and discard, including discard from `recovery_required`, remain
 available after coordinator expiry or revocation. The recovery discard action
-installs `fence_reason=discarding` atomically before cleanup reconciliation.
+installs `fence_reason=discarding` atomically while the plan remains in
+`recovery_required`; only reconciliation can then transition it to `discarding`
+and permit cleanup.
 
 Pausing is an atomic mutation fence: it revokes all active child leases,
 prevents new launches, and requests bounded termination of every acknowledged
