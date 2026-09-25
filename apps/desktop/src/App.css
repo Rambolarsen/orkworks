@@ -2243,6 +2243,60 @@ html, body, #root {
   border-color: var(--text-secondary);
 }
 
+.detail-workflow-observations {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-3);
+}
+
+.detail-workflow-observations-title {
+  margin-bottom: var(--space-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.detail-workflow-observations-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.detail-workflow-observations-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.detail-workflow-observations-time {
+  color: var(--text-muted);
+}
+
+.detail-workflow-observations-kind {
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.detail-workflow-observations-description {
+  color: var(--text-primary);
+  flex: 1 1 100%;
+}
+
+.detail-workflow-observations-impact {
+  color: var(--text-muted);
+}
+
 .git-branch-chip {
   display: inline-flex;
   align-items: center;

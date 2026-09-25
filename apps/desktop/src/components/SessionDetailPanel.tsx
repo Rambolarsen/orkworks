@@ -1,8 +1,8 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { FileText, GitBranch, MessageCircle } from "lucide-react";
-import { getSummaryLog } from "../api";
-import type { SessionAttention, SessionInfo, SummaryLogEntry } from "../api";
+import { getSessionWorkflowObservations, getSummaryLog } from "../api";
+import type { SessionAttention, SessionInfo, SummaryLogEntry, WorkflowObservationEntry } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import { nativeVoicePresentation } from "../nativeVoicePresentation";
 import { sessionCodingTool, sessionProviderContext } from "../sessionProviderContext";
@@ -51,6 +51,8 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
   const [summaryLog, setSummaryLog] = useState<SummaryLogEntry[]>([]);
   const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
+  const [workflowObservations, setWorkflowObservations] = useState<WorkflowObservationEntry[]>([]);
+  const [workflowObservationsSessionId, setWorkflowObservationsSessionId] = useState<string | null>(null);
   const active = sessions.find((s) => s.id === activeSessionId);
   const now = useStableRelativeTimeNow(useCallback((currentNow: Date) => {
     if (!active) return null;
@@ -66,6 +68,10 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
   if (active && active.id !== summaryLogSessionId) {
     setSummaryLogSessionId(active.id);
     setSummaryLog([]);
+  }
+  if (active && active.id !== workflowObservationsSessionId) {
+    setWorkflowObservationsSessionId(active.id);
+    setWorkflowObservations([]);
   }
 
   useEffect(() => {
@@ -87,6 +93,23 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
     // inference and agent-hook attention reports alike), unlike
     // peonLastInference, which only advances for Peon's own inferences.
   }, [active?.id, active?.lastActivityAt]);
+
+  useEffect(() => {
+    if (!active || !showDebugMetadata) return;
+    let current = true;
+    const loadWorkflowObservations = () => {
+      void window.orkworks.getBackendUrl()
+        .then((baseUrl) => getSessionWorkflowObservations(baseUrl, active.id))
+        .then((observations) => { if (current) setWorkflowObservations(observations); })
+        .catch(() => { if (current) setWorkflowObservations([]); });
+    };
+    loadWorkflowObservations();
+    const workflowObservationsTimer = window.setInterval(loadWorkflowObservations, 5000);
+    return () => {
+      current = false;
+      window.clearInterval(workflowObservationsTimer);
+    };
+  }, [active?.id, active?.lastActivityAt, showDebugMetadata]);
 
   if (!active) {
     return <EmptyState message="Select an agent session to see details." />;
@@ -359,6 +382,26 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
                   </div>
                 </dl>
               </div>
+              {workflowObservations.length > 0 && (
+                <div className="detail-workflow-observations">
+                  <div className="detail-workflow-observations-title">Workflow observations</div>
+                  <ul className="detail-workflow-observations-list">
+                    {workflowObservations.map((entry) => (
+                      <li key={entry.id} className="detail-workflow-observations-item">
+                        <span className="detail-workflow-observations-time">
+                          {relativeTime(entry.observedAt, now) || entry.observedAt}
+                        </span>
+                        <span className="detail-workflow-observations-kind">{entry.kind}</span>
+                        <span className="detail-workflow-observations-description">{entry.description}</span>
+                        <span className="detail-workflow-observations-impact">{entry.reportedImpact} impact</span>
+                        <SourceBadge source={entry.source}>
+                          {sourceWithConfidence(entry.source, entry.confidence)}
+                        </SourceBadge>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
         </div>

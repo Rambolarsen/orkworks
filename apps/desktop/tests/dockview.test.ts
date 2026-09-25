@@ -396,10 +396,20 @@ test("timeout recovery opens the provider settings section", () => {
 test("SessionDetailPanel fetches and renders the summary-log checkpoint history", () => {
   const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /import\s*\{\s*getSummaryLog\s*\}\s*from\s*"\.\.\/api"/);
+  assert.match(source, /import\s*\{[^}]*\bgetSummaryLog\b[^}]*\}\s*from\s*"\.\.\/api"/);
   assert.match(source, /getSummaryLog\(baseUrl, active\.id\)/);
   assert.match(source, /detail-task-history/);
   assert.match(source, /summaryLog\.map/);
+});
+
+test("SessionDetailPanel fetches and renders raw workflow observations behind the debug flag", () => {
+  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /import\s*\{[^}]*\bgetSessionWorkflowObservations\b[^}]*\}\s*from\s*"\.\.\/api"/);
+  assert.match(source, /getSessionWorkflowObservations\(baseUrl, active\.id\)/);
+  assert.match(source, /detail-workflow-observations/);
+  assert.match(source, /workflowObservations\.map/);
+  assert.match(source, /showDebugMetadata\s*&&\s*\(/);
 });
 
 test("SessionDetailPanel resets task history synchronously on session switch, not just via effect", () => {

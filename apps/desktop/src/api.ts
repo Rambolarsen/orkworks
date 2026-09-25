@@ -472,6 +472,29 @@ export async function getSummaryLog(
   return data.entries ?? [];
 }
 
+export interface WorkflowObservationEntry {
+  id: string;
+  sequence: number;
+  observedAt: string;
+  kind: string;
+  description: string;
+  evidence: string;
+  problemArea?: string;
+  reportedImpact: string;
+  source: string;
+  confidence: number;
+}
+
+export async function getSessionWorkflowObservations(
+  baseUrl: string,
+  id: string,
+): Promise<WorkflowObservationEntry[]> {
+  const resp = await fetch(`${baseUrl}/sessions/${id}/workflow-observations`);
+  if (!resp.ok) throw new Error(`get workflow observations failed: ${resp.status}`);
+  const data = await resp.json();
+  return data.observations ?? [];
+}
+
 export interface ProviderRuntimeEntry {
   id: string;
   inferenceOnly?: boolean;

@@ -1879,6 +1879,26 @@ impl SessionApplication {
             .collect()
     }
 
+    /// Returns one session's raw `WorkflowObservation` evidence records,
+    /// ascending by `sequence`. Empty when there is no active workspace, the
+    /// session is unknown, or the session has no recorded observations.
+    pub(crate) fn get_session_workflow_observations(
+        &self,
+        session_id: &str,
+    ) -> Vec<crate::workflow_observations::WorkflowObservation> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return Vec::new();
+        };
+        if workspace.metadata.read_session(session_id).is_none() {
+            return Vec::new();
+        }
+        workspace
+            .workflow_observations
+            .session_observations(session_id)
+            .unwrap_or_default()
+    }
+
     /// Records an input frame accepted by the PTY and, for a completed line,
     /// commits the process-owned working transition. The workspace-to-sessions
     /// lock order is deliberate: persisted and live state must not diverge.
