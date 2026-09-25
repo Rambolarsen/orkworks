@@ -212,6 +212,24 @@
 - **Disposition boundary:** pre-approval rejection is not cleanup authorization. After execution, `accept_success` is distinct from reject/abandon/discard, persisted separately from lifecycle status, and valid only for the specified states; every cleanup path checks that recorded disposition plus quiescence and clean ownership.
 - **Reservation lifecycle:** the existing coordinator contract defines normalized per-attempt reservations. The runner must atomically reserve before dispatch, refund only on proven non-start, consume once work starts, and preserve uncertain reservations through recovery. This runner allows one attempt per child; retries require a new approved plan revision.
 
+## Task 1 no-go checkpoint — 2026-09-25
+
+No OS/harness combination is currently proven eligible. This is an
+absence-of-proof result, not a failed native test: the current PTY launch path
+does not contain a production-backed confinement/supervision boundary, and no
+runner-specific native fixtures were run. Do not proceed with runner launch
+implementation based on this checkpoint. The exact current matrix, code
+evidence, research candidates, and limitations are recorded in
+[`docs/validation/master-session-runner-confinement.md`](../../validation/master-session-runner-confinement.md).
+
+The originally planned Task 1 fixture-to-production boundary was underspecified:
+its file list did not identify a production native launcher for the fixtures
+to exercise. Follow-up [#617](https://github.com/Rambolarsen/orkworks/issues/617)
+records that scope expansion. Task 1 native fixture runs and per-pair
+qualification remain incomplete until that issue supplies the launcher and
+native evidence. Do not mark Task 1 complete or begin launch-dependent tasks
+until the gate is reopened with passing evidence.
+
 ## Self-review
 
 - **Spec coverage:** Tasks 1–8 cover exact prompt approval, aggregate retention, repository-relative conflicts, branch-attached prepared allocations, credential/exit/crash gates, revocation, one-attempt children, broker limits, authenticated reports, receipts, parallel batches, failure/cancellation/recovery, manual integration, guarded cleanup, and tests. Stop hooks and skills are limited to their specified roles; combined-code verification remains outside the runner.
