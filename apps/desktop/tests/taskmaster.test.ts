@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import type { CompletionPacket, WorkflowRecommendation } from "../src/api.ts";
+import { handleAcceptedFixWithAi } from "../src/taskmasterFixHandoff.ts";
 import {
   buildFixPromptDraft,
   buildCompletionPacketAcceptOptions,
@@ -386,7 +387,29 @@ test("Fix with AI sends its recommendation mutation through the main bridge", ()
   assert.doesNotMatch(handler, /getBackendUrl\(\)/);
 });
 
-test("accepted Fix with AI selects the receiving session and confirms it by name", () => {
+test("accepted Fix with AI selects and names the returned session when it differs from the active session", () => {
+  const activeSessionId = "session-active";
+  const targetSessionId = "session-receiving";
+  const sessions = [
+    { id: activeSessionId, label: "Session A" },
+    { id: targetSessionId, label: "Receiving session" },
+  ];
+  const selected: string[] = [];
+  const messages: string[] = [];
+
+  handleAcceptedFixWithAi(
+    { targetSessionId },
+    sessions,
+    (id) => selected.push(id),
+    (message) => messages.push(message),
+  );
+
+  assert.notEqual(targetSessionId, activeSessionId);
+  assert.deepEqual(selected, [targetSessionId]);
+  assert.deepEqual(messages, ["Fix sent to Receiving session."]);
+});
+
+test("App runs accepted Fix with AI feedback only after the handoff generation guard", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const start = app.indexOf("const handleConfirmFixWithAi");
   const end = app.indexOf("// Unread", start);
@@ -396,10 +419,9 @@ test("accepted Fix with AI selects the receiving session and confirms it by name
   assert.match(handler, /const acceptedRecommendation = await acceptTaskmasterRecommendation/);
   const accepted = handler.indexOf("const acceptedRecommendation = await acceptTaskmasterRecommendation");
   const generationGuard = handler.indexOf("if (!isCurrentHandoff()) return;", accepted);
-  const selectTarget = handler.indexOf("handleSelectSession(targetSessionId)", generationGuard);
-  assert.ok(accepted >= 0 && generationGuard > accepted && selectTarget > generationGuard);
-  assert.match(handler, /const targetSession = sessions\.find\(\(session\) => session\.id === targetSessionId\);/);
-  assert.match(handler, /pushToast\("info", `Fix sent to \$\{targetSession\?\.label \?\? targetSessionId\}\.`\);/);
+  const feedback = handler.indexOf("handleAcceptedFixWithAi(acceptedRecommendation");
+  assert.ok(accepted >= 0 && generationGuard > accepted && feedback > generationGuard);
+  assert.match(handler.slice(feedback), /sessions, handleSelectSession, \(message\) => pushToast\("info", message\)\)/);
 
   const selectionStart = app.indexOf("const handleSelectSession");
   const selectionEnd = app.indexOf("const handleKillSession", selectionStart);

@@ -41,6 +41,7 @@ import {
   acceptTaskmasterRecommendation,
 } from "./api";
 import { buildCompletionPacketAcceptOptions, buildFixPromptDraft } from "./taskmaster";
+import { handleAcceptedFixWithAi } from "./taskmasterFixHandoff";
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
@@ -429,11 +430,12 @@ function App() {
           prompt: `${prompt}\r`,
         });
       if (!isCurrentHandoff()) return;
-      const targetSessionId = acceptedRecommendation.targetSessionId;
-      if (!targetSessionId) return;
-      handleSelectSession(targetSessionId);
-      const targetSession = sessions.find((session) => session.id === targetSessionId);
-      pushToast("info", `Fix sent to ${targetSession?.label ?? targetSessionId}.`);
+      handleAcceptedFixWithAi(
+        acceptedRecommendation,
+        sessions,
+        handleSelectSession,
+        (message) => pushToast("info", message),
+      );
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");
     }
