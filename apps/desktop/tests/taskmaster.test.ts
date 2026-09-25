@@ -386,6 +386,28 @@ test("Fix with AI sends its recommendation mutation through the main bridge", ()
   assert.doesNotMatch(handler, /getBackendUrl\(\)/);
 });
 
+test("accepted Fix with AI selects the receiving session and confirms it by name", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const start = app.indexOf("const handleConfirmFixWithAi");
+  const end = app.indexOf("// Unread", start);
+  assert.ok(start >= 0 && end > start);
+  const handler = app.slice(start, end);
+
+  assert.match(handler, /const acceptedRecommendation = await acceptTaskmasterRecommendation/);
+  const accepted = handler.indexOf("const acceptedRecommendation = await acceptTaskmasterRecommendation");
+  const generationGuard = handler.indexOf("if (!isCurrentHandoff()) return;", accepted);
+  const selectTarget = handler.indexOf("handleSelectSession(targetSessionId)", generationGuard);
+  assert.ok(accepted >= 0 && generationGuard > accepted && selectTarget > generationGuard);
+  assert.match(handler.slice(selectTarget), /pushToast\("info", `Fix sent to \$\{[^}]+\}\.`\)/);
+
+  const selectionStart = app.indexOf("const handleSelectSession");
+  const selectionEnd = app.indexOf("const handleKillSession", selectionStart);
+  const selection = app.slice(selectionStart, selectionEnd);
+  assert.match(selection, /workspaceSessionController\.selectSession\(id\)/);
+  assert.match(selection, /acknowledgeSession\(clearUnread\(prev, id\), id\)/);
+  assert.match(selection, /panel\.api\.setActive\(\)/);
+});
+
 test("Recommendations dismissal uses the main generation-bound bridge", () => {
   const panel = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
