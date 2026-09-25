@@ -138,12 +138,6 @@ fn complete_attempt_if_active(
     state.peon.complete_attempt(session_id, attempt, result)
 }
 
-fn timeout_attempt_if_active(state: &AppState, session_id: &str, attempt: &PeonDiagnosticAttempt) {
-    if diagnostic_attempt_is_active(state, session_id, attempt) {
-        state.peon.timeout_attempt(session_id, attempt);
-    }
-}
-
 fn timeout_attempt_if_active_with_context(
     state: &AppState,
     session_id: &str,
@@ -380,6 +374,7 @@ impl crate::PeonState {
         true
     }
 
+    #[cfg(test)]
     fn timeout_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
         self.timeout_attempt_with_context(session_id, attempt, None);
     }

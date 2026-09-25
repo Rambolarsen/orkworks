@@ -174,21 +174,6 @@ fn normalize_provider_model(model: Option<String>) -> Option<String> {
     })
 }
 
-fn normalize_provider_model_ref(model: Option<&str>) -> Option<String> {
-    model.and_then(|value| {
-        let trimmed = value.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_string())
-    })
-}
-
-fn resolve_provider_model(
-    entry: &ProviderSettingsEntry,
-    global_model: Option<&str>,
-) -> Option<String> {
-    normalize_provider_model_ref(entry.model.as_deref())
-        .or_else(|| normalize_provider_model_ref(global_model))
-}
-
 impl Default for ProviderSettingsPayload {
     fn default() -> Self {
         Self {
@@ -2500,6 +2485,7 @@ impl ProviderManager {
         )
     }
 
+    #[cfg(test)]
     pub fn run_inference(&self, _scope: PeonScope, output: &[String]) -> ProviderRunResult {
         self.run_inference_with_applied(_scope, output, self.get_applied())
     }
@@ -3891,23 +3877,6 @@ mod tests {
         let entry: ProviderSettingsEntry = serde_json::from_value(payload).unwrap();
 
         assert_eq!(entry.model.as_deref(), Some("  llama3  "));
-    }
-
-    #[test]
-    fn resolve_provider_model_prefers_entry_then_global_then_none() {
-        let provider_override = entry("copilot").model(Some("  llama3  ")).build();
-        let global_only = entry("copilot").build();
-        let blank_override = entry("copilot").model(Some("   ")).build();
-
-        assert_eq!(
-            resolve_provider_model(&provider_override, Some(" global-model ")).as_deref(),
-            Some("llama3")
-        );
-        assert_eq!(
-            resolve_provider_model(&global_only, Some(" global-model ")).as_deref(),
-            Some("global-model")
-        );
-        assert_eq!(resolve_provider_model(&blank_override, Some("   ")), None);
     }
 
     #[test]
