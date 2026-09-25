@@ -60,8 +60,9 @@ The Windows Job Object in
 inference. It is not attached to interactive harness launches and currently
 sets kill-on-close, not the runner's complete confinement/resource policy.
 Existing Windows provider fixture results in
-[ADR 0056](../adr/0056-one-sidecar-per-open-workspace.md) remain fixture
-evidence for that provider path only.
+[ADR 0056](../adr/0056-one-sidecar-per-open-workspace.md) demonstrate only the
+standalone Job Object mechanism; ADR 0056 states that production provider,
+PTY, and harness roots were outside that fixture boundary.
 
 The existing PTY runtime also does not provide the runner's required
 server-observed successful completion contract. A normal harness completion
