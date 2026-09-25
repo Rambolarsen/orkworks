@@ -4004,6 +4004,7 @@ mod tests {
                 id: session_id.clone(),
                 label: "Test".into(),
                 label_from_initial_prompt: false,
+                label_source: metadata::LabelSource::Legacy,
                 workspace: dir.path().display().to_string(),
                 task: "".into(),
                 harness: "".into(),
