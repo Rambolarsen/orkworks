@@ -25,10 +25,13 @@ reached a validated terminal result.
 
 The user approves one exact master-plan revision. The approved revision fixes
 the goal, batches, child task contracts, prompts, harness/model choices,
-working-directory policy, and cleanup policy. The master may choose the
-decomposition before approval, but it cannot add, remove, reorder, or broaden
-child authority after approval. Any such change creates a new proposed
-revision and requires approval.
+working-directory policy, cleanup policy, and the server-observed workspace
+snapshot/change subject from which worktrees will be provisioned. The
+approval also binds a server-issued coordinator capability and the finite
+child lease/attempt envelope. The master may choose the decomposition before
+approval, but it cannot add, remove, reorder, or broaden child authority after
+approval. Any such change creates a new proposed revision and requires
+approval.
 
 This slice does not provide:
 
@@ -36,7 +39,8 @@ This slice does not provide:
 - dynamic child creation, recursive delegation, or unrestricted swarming;
 - parallel children in one shared working directory;
 - autonomous commit, merge, rebase, push, branch deletion, or user acceptance;
-- a generic command broker, budget engine, or provider substitution system; or
+- a general-purpose command broker, budget engine, or provider substitution
+  system beyond the minimum worktree-bound launch fence; or
 - a new harness-specific replacement for existing hooks and skills.
 
 ## Roles and responsibilities
@@ -54,10 +58,13 @@ approved plan or treat child prose as proof of completion.
 OrkWorks is the authority for the approved plan. It:
 
 - binds approval to the immutable plan revision and workspace;
+- issues and checks a coordinator capability and one child lease per attempt;
 - creates one isolated worktree per child after approval;
-- starts children through the existing session-creation path;
+- starts children through a worktree-bound extension of the existing
+  session-creation path;
 - records parent session, plan, batch, worktree, and child identities;
-- accepts only authenticated, current child completion/failure reports;
+- accepts only authenticated, current child reports that can be combined with
+  server-observed session/process state into an attempt receipt;
 - pauses the plan on stale, ambiguous, failed, or conflicting results; and
 - performs the master's cleanup request only after explicit user acceptance of
   the combined work.
@@ -65,9 +72,10 @@ OrkWorks is the authority for the approved plan. It:
 ### Child sessions
 
 Children receive a fixed task contract, prompt, assigned worktree, and
-approved harness/model selection. They may work only in that worktree and
-report results through the existing authenticated completion mechanism. A
-child cannot create another child or alter the master plan.
+approved harness/model selection, plus a short-lived lease bound to the plan,
+batch, attempt, and worktree. They may work only in that worktree and report
+results through a plan-bound authenticated report. A child cannot create
+another child, acquire a broader lease, or alter the master plan.
 
 ### Harness skills and hooks
 
@@ -88,24 +96,37 @@ draft
   -> cleaned
 
 running_batch -> paused
-proposed / approved / running_batch -> cancelled
-provisioning / running_batch -> failed
+paused -> approved (fresh approval, unchanged plan and workspace subject)
+paused -> recovery_required (termination or launch state is uncertain)
+recovery_required -> paused (reconciliation proves quiescence)
+recovery_required -> proposed (a new revision is required)
+proposed / approved / running_batch -> cancelling
+cancelling -> cancelled (all children quiesced)
+cancelling -> recovery_required (quiescence is unproven)
+provisioning / running_batch -> failed (no live child remains)
 ```
 
 Approval activates exactly one plan revision. Provisioning is idempotent: a
 retry returns the already-recorded worktree/child allocation when the
-canonical request matches, and refuses a collision when it does not.
+canonical request matches, and refuses a collision when it does not. Every
+mutation checks the live coordinator capability, approval expiry and
+revocation generation, plan digest, workspace identity, and idempotency key.
 
 Children in a batch launch concurrently only after all their worktrees have
 been created and recorded. A later batch cannot launch until the previous
-batch's required children have authenticated terminal results. A failed,
+batch's required children have server-attested attempt receipts. A failed,
 missing, stale, or ambiguous result pauses the plan; it does not trigger an
 unapproved replacement child.
 
 When a batch completes, the coordinator advances the current-batch pointer to
-the next already-approved batch. The master may use the persisted results to
-prepare synthesis or a cleanup request, but this slice does not inject a new
-prompt into a running master terminal automatically.
+the next already-approved batch. Later batches may consume only persisted
+reports and explicitly declared artifacts. They cannot assume that code edits
+from an earlier worktree are present, because this slice does not merge,
+cherry-pick, or copy code between worktrees. A code-dependent follow-up needs
+an explicit integration step and a new approved plan revision. The master may
+use persisted results to prepare synthesis or a cleanup request, but this
+slice does not inject a new prompt into a running master terminal
+automatically.
 
 Child completion is distinct from user acceptance. After all approved batches
 finish, the plan enters `awaiting_acceptance`. User acceptance approves the
@@ -122,9 +143,13 @@ plan revision, batch, and child session.
 
 Provisioning must refuse paths or repository identities that are outside the
 workspace policy, collide with another live allocation, point at the primary
-checkout, or no longer match the recorded repository. Children receive the
-assigned working directory and must not provision or remove worktrees
-themselves.
+checkout, or no longer match the recorded repository. The server passes a
+worktree allocation ID to the launch path and resolves the real cwd from its
+own allocation record; callers cannot substitute an arbitrary cwd. The launch
+fence must also prevent the child process and its descendants from escaping
+the assigned worktree. If the host platform cannot enforce that confinement,
+the child is not launched. Children receive the assigned working directory
+and must not provision or remove worktrees themselves.
 
 After explicit user acceptance, the master may request cleanup of only
 worktrees created by that plan. OrkWorks validates and executes that request.
@@ -135,14 +160,21 @@ mismatch blocks cleanup and leaves the plan paused for user intervention.
 ## Persistence and safety
 
 The plan, approval, batch definitions, worktree allocations, child links,
-completion reports, and cleanup outcome are durable records. Mutations carry
-the current plan revision/digest and an idempotency key. Old revisions and
-late child reports cannot advance the current plan.
+completion reports, server-attested attempt receipts, lease generations, and
+cleanup outcome are durable records. The approval binds the server-observed
+repository revision, dirty-path set, workspace identity, and attribution
+confidence at approval time. Provisioning fails if that subject changed.
+Mutations carry the current plan revision/digest, live capability or lease,
+and an idempotency key. Old revisions and late child reports cannot advance
+the current plan.
 
 The coordinator never infers completion from terminal text, a stop hook, an
-idle signal, or child-authored prose. It requires the existing authenticated
-report path and validates that the report belongs to the assigned child,
-worktree, plan revision, and current batch.
+idle signal, or child-authored prose. The child report is evidence only. The
+server advances a batch only after it validates a report against the assigned
+child, worktree, plan revision, current batch, and lease, observes the child
+session's terminal state, and records a machine-attested attempt receipt that
+binds the report digest, observed process/session identity, output contract,
+and workspace change subject.
 
 The existing recommendation lifecycle remains unchanged for ordinary
 Taskmaster recommendations. The approve-once behavior is available only for
@@ -155,8 +187,13 @@ autonomous.
   batch unless the durable record proves which children were safely created.
 - A child failure pauses the plan and retains all worktrees for diagnosis.
 - A lost or stale report cannot advance the batch or start a replacement.
-- A user cancellation stops future launches and retains worktrees until the
-  user chooses cleanup.
+- A user cancellation installs a mutation fence, revokes active child leases,
+  and requests bounded termination of every child process tree. It retains
+  worktrees until termination is proven and the user chooses cleanup.
+- If termination or launch acknowledgement is uncertain, the plan enters
+  `recovery_required`; reservations and worktrees remain held until
+  reconciliation proves non-start or termination. No replacement launch or
+  cleanup is allowed before then.
 - Cleanup never removes a dirty or mismatched worktree automatically.
 - A plan revision change invalidates old child reports and allocations for
   execution purposes; their records remain available for audit.
@@ -166,11 +203,21 @@ autonomous.
 The implementation must test, without launching real coding tools:
 
 - exact-plan approval and rejection of post-approval edits;
+- approval binding to the server-observed base revision, workspace identity,
+  dirty-path set, attribution confidence, expiry, and revocation generation;
 - concurrent provisioning of unique worktrees and collision refusal;
-- child launch records bound to the assigned worktree and batch;
-- stale, cross-plan, duplicate, and unauthenticated completion reports;
+- child launch records bound to an allocation ID, lease, assigned worktree,
+  plan revision, and batch, with arbitrary cwd substitution refused;
+- refusal to launch when worktree confinement cannot be enforced;
+- stale, cross-plan, duplicate, unauthenticated, and child-authored-only
+  completion reports;
+- machine-attested attempt receipt creation and rejection of reports that do
+  not match observed session/process state;
 - batch pause on failure or ambiguity;
 - later-batch gating on required prior results;
+- refusal to treat unmerged earlier worktree edits as later-batch input;
+- cancellation lease revocation, process-tree quiescence, and
+  `recovery_required` reconciliation;
 - cleanup authorization after user acceptance;
 - refusal to remove dirty, active, mismatched, or foreign worktrees; and
 - preservation of branches and commits during cleanup.
