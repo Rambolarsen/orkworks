@@ -125,8 +125,11 @@ only clean, quiescent worktrees created by that plan after a recorded,
 authenticated post-run disposition (`accept_success`, `reject`, `abandon`, or
 `discard`, as permitted by the lifecycle). The user manually integrates or
 discards child edits first. The runner never copies changes, commits, merges,
-rebases, pushes, or deletes branches; dirty or uncertain worktrees remain for
-the user.
+rebases, pushes, changes existing branches, or deletes branches. Worktree
+allocation creates a unique plan-owned branch per linked worktree and preserves
+it after safe worktree cleanup. Each child has one attempt, and rerunning it
+requires a new approved plan. The runner does not combine child code or verify
+the user's integrated result. Dirty or uncertain worktrees remain for the user.
 
 ## Repo Skills Boundary
 

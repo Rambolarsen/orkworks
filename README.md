@@ -28,10 +28,14 @@ Taskmaster v1's explicit user approval and single-active-context rules remain.
 The proposed [master-session parallel runner](docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md)
 adds one separately approved plan of required parallel batches. Child changes
 remain in their allocated worktrees for manual user integration; the runner
-does not combine code, mutate branches, or commit. Its only Git operations are
-the approved plan-owned worktree lifecycle. Its implementation plan still
-requires review, and child launch remains gated on native confinement and
-process-ownership proof. Cleanup requires a recorded, state-valid user
+does not combine code, alter existing branches, or commit. Worktree allocation
+creates a unique plan-owned branch for each linked worktree and preserves it
+after safe worktree cleanup; branches are never deleted. The runner's Git
+operations are limited to this approved worktree lifecycle. It does not retry
+failed children or create a combined code draft; a rerun needs a new plan
+approval. Its implementation plan still requires review, and child launch
+remains gated on native confinement and process-ownership proof. Cleanup
+requires a recorded, state-valid user
 disposition (accept, reject, abandon, or discard), followed by quiescence and
 clean-ownership checks; closing issue #545 does not substitute for native
 evidence.

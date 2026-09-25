@@ -139,10 +139,14 @@ capability and remain subordinate to the broker's server-owned checks.
 
 For this runner, child edits stay in isolated plan-owned worktrees for manual
 user integration. The runner cannot transfer edits, commit, merge, or delete
-branches. Cleanup requires a recorded, authenticated post-run disposition:
+branches. Worktree allocation creates one unique plan-owned branch per linked
+worktree and cleanup preserves it. Cleanup requires a recorded, authenticated
+post-run disposition:
 `accept_success`, `reject`, `abandon`, or `discard`, as permitted by the
 runner's lifecycle rules, plus proven child quiescence and a fresh check that
 each allocated worktree is clean and still plan-owned. A dirty or uncertain
-worktree remains for the user. The separate implementation plan and native
-confinement/ownership proof are prerequisites; this amendment does not
+worktree remains for the user. Each child has one attempt; a rerun needs a new
+approved plan revision. The runner does not produce or verify a combined code
+draft. The separate implementation plan and native confinement/ownership proof
+are prerequisites; this amendment does not
 authorize runtime implementation.

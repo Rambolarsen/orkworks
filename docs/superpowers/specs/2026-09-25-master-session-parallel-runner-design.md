@@ -29,7 +29,11 @@ the goal, batches, child task contracts, prompts, harness/model choices,
 working-directory policy, cleanup policy, and the server-observed workspace
 snapshot/change subject from which worktrees will be provisioned. The
 approval also binds a server-issued coordinator capability and the finite
-child lease/attempt envelope. The master may choose the decomposition before
+child lease/attempt envelope, effective prompt/context templates and inputs,
+server-rendered child prompt bytes and digest, and canonical repository-relative
+resource scopes. The exact rendered prompt is shown for approval and its
+derivation inputs and harness/model definition generation are revalidated
+before dispatch. The master may choose the decomposition before
 approval, but it cannot add, remove, reorder, or broaden child authority after
 approval. Any such change creates a new proposed revision and requires
 approval.
@@ -40,6 +44,10 @@ This slice does not provide:
 - dynamic child creation, recursive delegation, or unrestricted swarming;
 - parallel children in one shared working directory;
 - autonomous commit, merge, rebase, push, branch deletion, or user acceptance;
+- automatic retries within an approved plan; each child has one attempt, and
+  rerunning failed work requires a new proposed revision and user approval;
+- a runner-owned combined code draft or post-integration correctness review;
+  code integration and verification remain the user's separate workflow;
 - a general-purpose command broker, budget engine, or provider substitution
   system beyond the bounded broker, budget, and provider controls required by
   the existing coordinator contract; or
@@ -257,7 +265,10 @@ replacement child.
 Child completion uses a runner-specific one-shot handshake rather than an
 ordinary stop/idle event. The child submits its authenticated result report;
 the coordinator seals that attempt and asks the dedicated child runtime to
-gracefully terminate the harness. The runtime acknowledges the sealed report,
+gracefully terminate the harness through a broker-fenced EOF or
+harness-specific completion operation. Only OS/harness combinations with a
+tested clean-exit path are eligible; `Kill` is termination, never successful
+completion. The runtime acknowledges the sealed report,
 closes the session, and reports the observed harness exit plus quiescence of
 the owned child process tree. Only a server-observed successful exit/status
 and proven process-tree quiescence within the finite termination deadline can
@@ -266,6 +277,12 @@ descendant process live, exits with an error, is killed, or misses the
 handshake is failed or enters recovery and cannot advance the batch. This
 keeps the existing interactive harnesses usable while giving coordinator
 children an explicit one-shot completion mode.
+
+Every runner child has one attempt. A failed or ambiguous attempt pauses the
+plan and is retained for inspection; it cannot be retried or replaced within
+that approved revision. Re-execution requires a new proposed plan revision and
+fresh user approval, avoiding a second retry-authorization state machine in
+this runner slice.
 
 When a batch completes, the coordinator advances the current-batch pointer to
 the next already-approved batch. Later batches may consume only persisted
@@ -279,17 +296,21 @@ automatically.
 
 Child code remains in its assigned worktree. The master reports each child's
 result and worktree identity; it does not combine or transfer file changes.
-After inspecting the results, the user manually integrates or discards any
-wanted edits. Acceptance of the plan result authorizes cleanup only after this
-manual handoff has left the plan-owned worktrees clean. If a worktree remains
-dirty, cleanup is refused and the user retains it for integration or manual
-disposal. The runner never commits, merges, copies, or deletes branches.
+After inspecting the per-child reports and receipts, the user manually
+integrates or discards any wanted edits. Acceptance of successful plan results
+authorizes cleanup only after this manual handoff has left the plan-owned
+worktrees clean. If a worktree remains dirty, cleanup is refused and the user
+retains it for integration or manual disposal. The runner never creates a
+combined code draft, performs post-integration verification, commits, merges,
+copies, changes existing branches, or deletes branches; it creates only the
+new plan-owned branch needed to attach each allocated worktree.
 
 Child completion is distinct from user acceptance. After all approved batches
 finish, the plan enters `awaiting_acceptance`. User acceptance approves the
-combined result for cleanup only and transitions the plan into `cleanup_pending`; it
-does not imply merge or Git acceptance. Rejection, abandonment, or discard
-uses the same cleanup path but records a non-acceptance disposition.
+collected per-child results for cleanup only and transitions the plan into
+`cleanup_pending`; it does not imply a combined code result, integration, or
+Git acceptance. Rejection, abandonment, or discard uses the same cleanup path
+but records a non-acceptance disposition.
 
 ## Worktree lifecycle
 
@@ -297,18 +318,29 @@ After plan approval, OrkWorks provisions a unique worktree for every approved
 child from the plan's recorded clean base revision. This is an infrastructure
 operation performed on behalf of the approved plan; it does not grant child
 sessions Git mutation authority. The allocation records the repository
-identity, base revision, worktree path, branch or detached identity, owning
-plan revision, batch, and child session.
+identity, base revision, worktree path, unique plan-owned branch, owning plan
+revision, batch, and child session. The approved plan authorizes creating that
+branch as part of worktree allocation; every linked worktree must be attached
+to it. Detached linked worktrees are not eligible. Removing a clean worktree
+preserves its branch and any commits; branch deletion remains outside this
+runner.
 
-Provisioning must refuse paths or repository identities that are outside the
-workspace policy, collide with another live allocation, point at the primary
-checkout, or no longer match the recorded repository. The server passes a
-worktree allocation ID to the launch path and resolves the real cwd from its
-own allocation record; callers cannot substitute an arbitrary cwd. The launch
-fence must also prevent the child process and its descendants from escaping
-the assigned worktree. If the host platform cannot enforce that confinement,
-the child is not launched. Children receive the assigned working directory
-and must not provision or remove worktrees themselves.
+Before any Git mutation, the allocator durably records a `prepared` intent
+containing the repository, base, path, branch, plan, batch, and child IDs. Only
+then may it create the linked worktree and transition the same allocation to
+`allocated`. Restart reconciliation may adopt only an exact match to that
+intent; partial or foreign state enters recovery and is never blindly removed
+or relaunched. Provisioning must refuse paths or repository identities outside
+the workspace policy, collisions, the primary checkout, detached worktrees,
+and a changed repository. The server resolves cwd from the allocation ID, not
+caller input. Native confinement must prevent the child process and descendants
+from escaping the worktree. Children cannot provision or remove worktrees.
+
+If the master sidecar crashes while a child is acknowledged, a crash-surviving
+process owner must terminate the child sidecar and complete process tree. If
+this cannot be proven for an OS/harness combination, that combination is
+ineligible. On restart, uncertain state enters `recovery_required` and cannot
+advance, relaunch, retry, or clean up.
 
 After explicit user acceptance, or an explicit authenticated user rejection,
 abandonment, or discard transition into `cleanup_pending`, the master may request
@@ -392,13 +424,23 @@ autonomous.
 The implementation must test, without launching real coding tools:
 
 - exact-plan approval and rejection of post-approval edits;
+- rendered prompt/context bytes and derivation inputs in the approval digest,
+  with changes to inputs or harness/model generation rejected before dispatch;
+- aggregate retention caps, pinned live recovery evidence, fail-closed
+  admission, and bounded tombstone compaction;
+- rejection of conflicting same-batch repository-relative resources across
+  distinct worktrees;
 - rejection of approval for dirty workspaces, plus binding to the observed
   clean base revision, workspace identity, attribution confidence, expiry,
   and revocation generation;
-- concurrent provisioning of unique worktrees and collision refusal;
+- prepared-allocation journaling before Git mutation, crash-point
+  reconciliation, attached owner-authorized branches, detached-worktree
+  refusal, and preservation of branches/commits;
 - child launch records bound to an allocation ID, lease, assigned worktree,
   plan revision, and batch, with arbitrary cwd substitution refused;
 - refusal to launch when worktree confinement cannot be enforced;
+- credential isolation using fake home/keychain state, with unsupported
+  harnesses failing closed;
 - stale, cross-plan, duplicate, unauthenticated, and child-authored-only
   completion reports;
 - machine-attested attempt receipt creation and rejection of reports that do
@@ -408,6 +450,8 @@ The implementation must test, without launching real coding tools:
   subjects;
 - successful report-to-exit handshake, including timeout, running-session,
   killed-process, and nonzero-exit rejection;
+- clean successful harness exit without using the kill path, gated per
+  OS/harness combination;
 - rejection of nonzero, killed, errored, or unverified-output attempts even
   when child prose claims success;
 - batch pause on failure or ambiguity;
@@ -416,12 +460,16 @@ The implementation must test, without launching real coding tools:
 - pause, provisioning cancellation, and expiry lease revocation, process-tree
   quiescence, and
   `recovery_required` reconciliation;
+- master-sidecar crash with an acknowledged child, proving termination or
+  authenticated reattachment before recovery, with no duplicate launch;
 - cancellation during expiry and preservation of cancellation intent through
   uncertain termination, with no return to approval;
 - pre-approval user authorization and post-approval capability enforcement;
 - server-side parent/child capability association without cross-workspace token
   reuse or peer-sidecar control;
 - revocation fencing and recovery without relaunch;
+- revocation as a distinct authenticated desktop action, not pause/cancel;
+- single-attempt child failure, with no same-plan retry or replacement;
 - creation of a new revision after expiry without reviving the expired approval;
 - partial provisioning recovery without launching an incomplete batch;
 - cleanup authorization after a state-valid recorded user disposition;

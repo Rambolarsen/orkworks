@@ -111,9 +111,11 @@ sidecar owns only its assigned worktree workspace, and no instance gains
 cross-workspace focus, attention, or general control. The runner's worktree
 creation and cleanup limits are defined by that design; child edits remain
 for manual user integration, and cleanup requires a state-valid recorded user
-disposition plus a clean, quiescent, plan-owned worktree. Implementation
-remains gated on review of the separate runner implementation plan and native
-proof of generation-specific child process ownership and confinement.
+disposition plus a clean, quiescent, plan-owned worktree. Each allocated
+worktree is attached to a unique plan-owned branch that is preserved at cleanup.
+Implementation remains gated on review of the separate runner implementation
+plan and native proof of generation-specific child process ownership and
+confinement.
 
 On Windows, use filesystem semantics for junctions, symlinks, drive-letter,
 separator, case, UNC, and extended-path spellings; do not lowercase paths or
