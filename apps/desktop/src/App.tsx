@@ -41,6 +41,7 @@ import {
   acceptTaskmasterRecommendation,
 } from "./api";
 import { buildCompletionPacketAcceptOptions, buildFixPromptDraft } from "./taskmaster";
+import { handleAcceptedFixWithAi } from "./taskmasterFixHandoff";
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
@@ -378,6 +379,16 @@ function App() {
 
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
+  const handleSelectSession = useCallback((id: string) => {
+    if (!workspaceSessionController.selectSession(id)) return;
+    setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
+    const api = dockviewApiRef.current;
+    if (api) {
+      const panel = api.getPanel("terminal");
+      if (panel) panel.api.setActive();
+    }
+  }, [workspaceSessionController]);
+
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
     const activeSession = sessions.find((session) => session.id === activeSessionId);
@@ -407,7 +418,7 @@ function App() {
       if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
       if (!isCurrentHandoff()) return;
       const packet = recommendation.completionPacket;
-      await acceptTaskmasterRecommendation(recommendation.id, packet
+      const acceptedRecommendation = await acceptTaskmasterRecommendation(recommendation.id, packet
         ? { sessionId: activeSessionId, ...buildCompletionPacketAcceptOptions(packet) }
         : {
           sessionId: activeSessionId,
@@ -419,26 +430,22 @@ function App() {
           prompt: `${prompt}\r`,
         });
       if (!isCurrentHandoff()) return;
+      handleAcceptedFixWithAi(
+        acceptedRecommendation,
+        sessions,
+        handleSelectSession,
+        (message) => pushToast("info", message),
+      );
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");
     }
-  }, [fixRecommendation, activeSessionId, sessions, workspaceSessionController]);
+  }, [fixRecommendation, activeSessionId, sessions, workspaceSessionController, handleSelectSession]);
 
   // Unread ("changed since you looked") is derived by diffing attention
   // status between session snapshots; selecting a session marks it read.
   useEffect(() => {
     setUnreadState((prev) => trackUnread(prev, sessions, activeSessionId));
   }, [sessions, activeSessionId]);
-
-  const handleSelectSession = useCallback((id: string) => {
-    if (!workspaceSessionController.selectSession(id)) return;
-    setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
-    const api = dockviewApiRef.current;
-    if (api) {
-      const panel = api.getPanel("terminal");
-      if (panel) panel.api.setActive();
-    }
-  }, [workspaceSessionController]);
 
   const handleKillSession = useCallback(
     async (id: string) => {

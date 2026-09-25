@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import type { CompletionPacket, WorkflowRecommendation } from "../src/api.ts";
+import { handleAcceptedFixWithAi } from "../src/taskmasterFixHandoff.ts";
 import {
   buildFixPromptDraft,
   buildCompletionPacketAcceptOptions,
@@ -384,6 +385,50 @@ test("Fix with AI sends its recommendation mutation through the main bridge", ()
   const handler = app.slice(start, end);
   assert.match(handler, /await acceptTaskmasterRecommendation\(recommendation\.id/);
   assert.doesNotMatch(handler, /getBackendUrl\(\)/);
+});
+
+test("accepted Fix with AI selects and names the returned session when it differs from the active session", () => {
+  const activeSessionId = "session-active";
+  const targetSessionId = "session-receiving";
+  const sessions = [
+    { id: activeSessionId, label: "Session A" },
+    { id: targetSessionId, label: "Receiving session" },
+  ];
+  const selected: string[] = [];
+  const messages: string[] = [];
+
+  handleAcceptedFixWithAi(
+    { targetSessionId },
+    sessions,
+    (id) => selected.push(id),
+    (message) => messages.push(message),
+  );
+
+  assert.notEqual(targetSessionId, activeSessionId);
+  assert.deepEqual(selected, [targetSessionId]);
+  assert.deepEqual(messages, ["Fix sent to Receiving session."]);
+});
+
+test("App runs accepted Fix with AI feedback only after the handoff generation guard", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const start = app.indexOf("const handleConfirmFixWithAi");
+  const end = app.indexOf("// Unread", start);
+  assert.ok(start >= 0 && end > start);
+  const handler = app.slice(start, end);
+
+  assert.match(handler, /const acceptedRecommendation = await acceptTaskmasterRecommendation/);
+  const accepted = handler.indexOf("const acceptedRecommendation = await acceptTaskmasterRecommendation");
+  const generationGuard = handler.indexOf("if (!isCurrentHandoff()) return;", accepted);
+  const feedback = handler.indexOf("handleAcceptedFixWithAi(");
+  assert.ok(accepted >= 0 && generationGuard > accepted && feedback > generationGuard);
+  assert.match(handler.slice(feedback), /handleAcceptedFixWithAi\(\s*acceptedRecommendation,\s*sessions,\s*handleSelectSession,\s*\(message\) => pushToast\("info", message\),?\s*\)/);
+
+  const selectionStart = app.indexOf("const handleSelectSession");
+  const selectionEnd = app.indexOf("const handleKillSession", selectionStart);
+  const selection = app.slice(selectionStart, selectionEnd);
+  assert.match(selection, /workspaceSessionController\.selectSession\(id\)/);
+  assert.match(selection, /acknowledgeSession\(clearUnread\(prev, id\), id\)/);
+  assert.match(selection, /panel\.api\.setActive\(\)/);
 });
 
 test("Recommendations dismissal uses the main generation-bound bridge", () => {
