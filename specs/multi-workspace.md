@@ -102,6 +102,19 @@ Canonical filesystem identity coalesces equivalent aliases. Different Git
 worktrees remain different workspaces even when they share a Git common
 directory. This feature does not create, delete, or manage Git worktrees.
 
+The proposed [master-session parallel runner](../docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md)
+is a separately gated exception. Its parent/child broker may start dedicated
+one-workspace child runtimes for worktrees allocated by an explicitly approved
+plan. This bounded association is not a peer-instance registry: the master
+sidecar retains ownership of only its own workspace metadata, each child
+sidecar owns only its assigned worktree workspace, and no instance gains
+cross-workspace focus, attention, or general control. The runner's worktree
+creation and cleanup limits are defined by that design; child edits remain
+for manual user integration, and cleanup requires a clean, quiescent,
+plan-owned worktree. Implementation remains gated on review of the separate
+runner implementation plan and native proof of generation-specific child
+process ownership and confinement.
+
 On Windows, use filesystem semantics for junctions, symlinks, drive-letter,
 separator, case, UNC, and extended-path spellings; do not lowercase paths or
 assume distinct shares are aliases. Preserve distinctions on case-sensitive

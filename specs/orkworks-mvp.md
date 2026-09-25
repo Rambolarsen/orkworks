@@ -118,6 +118,13 @@ This looks like a risky implementation task. A separate worktree may be safer.
 The user, repo skill, harness, or existing workflow decides whether to create a worktree.
 
 OrkWorks should not create, delete, merge, rebase, reset, or clean up worktrees in the MVP.
+The separately reviewed master-session runner design is a narrow, opt-in
+exception to that MVP boundary. If its implementation plan is separately
+approved, OrkWorks may provision one worktree per approved child and remove
+only clean, quiescent worktrees created by that plan after explicit user
+acceptance or discard authorization. The user manually integrates or discards
+child edits first. The runner never copies changes, commits, merges, rebases,
+pushes, or deletes branches; dirty or uncertain worktrees remain for the user.
 
 ## Repo Skills Boundary
 
@@ -753,6 +760,12 @@ The MVP is not:
 - a cloud sync service
 - a universal billing tracker
 - a replacement for OpenCode, Claude Code, Codex CLI, Antigravity CLI, or Aider
+
+The separately gated master-session runner is limited to one immutable,
+explicitly approved plan with independent parallel batches. It does not make
+the MVP a general-purpose multi-agent planner or Git worktree manager; its
+scope remains subject to the runner design, its reviewed implementation plan,
+and the hard limits above.
 
 Gemini CLI is retired for new sessions because its individual Code Assist tier
 is no longer supported. Its legacy `gemini` harness definition remains readable

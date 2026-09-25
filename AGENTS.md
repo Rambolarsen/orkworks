@@ -253,7 +253,7 @@ The detailed paths, bounds, lifecycle, authentication, and ADR reference are in 
 - Priority: user > agent > peon > backend_inference > process > unknown > debug.
 - Peon reads terminal output and writes inferred metadata; it never types into terminals.
 - Within one independent instance, detached runtimes keep draining terminal output, persisting history, and feeding Peon while `orkworksd` remains alive; losing a renderer terminal attachment alone must not end a session. A workspace switch closes that instance's runtime before opening another workspace; it does not create a peer-runtime registry.
-- Taskmaster proposes cross-session transitions, but v1 requires explicit user approval for every action. `improve_workflow` may display without approval, but cannot focus a terminal, edit a file, or start a session; a user may dismiss it or accept it to send a scoped fix prompt to their active session.
+- Taskmaster proposes cross-session transitions, but ordinary v1 recommendations require explicit user approval for every action. `improve_workflow` may display without approval, but cannot focus a terminal, edit a file, or start a session; a user may dismiss it or accept it to send a scoped fix prompt to their active session. The proposed master-session runner is a separately gated exception: it cannot launch children or create worktrees until the user approves one exact plan revision and its reviewed implementation plan is approved. Child edits stay in separate worktrees for manual user integration; cleanup is allowed only for clean, quiescent, plan-owned worktrees.
 The current metadata paths and behavior are also summarized below for quick
 operational reference; the architecture concept remains authoritative for the
 full protocol detail.
@@ -280,8 +280,8 @@ full protocol detail.
 
 ## Key conventions from specs
 
-- MVP does not own Git workflow, worktree management, merging, or arbitrary task decomposition
-- Taskmaster may recommend session transitions but must not start sessions without explicit user approval in v1
+- MVP does not own Git workflow, worktree management, merging, or arbitrary task decomposition, except for the separately gated master-session runner's approved-plan worktree provisioning and clean-worktree cleanup
+- Taskmaster may recommend session transitions but must not start sessions without explicit user approval in v1; the proposed runner requires one explicit approval of the complete immutable plan before child launch
 - If asked to implement something listed as a non-goal in the specs, decline and explain which non-goal applies. Do not implement it even partially.
 - Harness voice is pass-through only — OrkWorks never captures/proxies/stores audio for native voice
 - Store metadata source and confidence where possible

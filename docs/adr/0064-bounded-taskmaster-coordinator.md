@@ -125,3 +125,22 @@ must still be reviewed and approved.
 - Acceptance of this ADR and the accompanying Coordinator design gate
   authorizes only a separate implementation plan and its review. Coordinator
   implementation remains unauthorized until that separate plan is approved.
+
+## Amendment — 2026-09-25: ordered-batch master-session runner
+
+The [master-session parallel runner design](../superpowers/specs/2026-09-25-master-session-parallel-runner-design.md)
+defines a narrower execution mode over the coordinator foundation. Its public
+plan shape is an ordered list of parallel batches with every child required;
+it does not expose the generic DAG, optional-node, or dynamic-delegation
+capabilities described above. Approval still binds one immutable plan and
+server-observed workspace evidence. The child-runtime capability and durable
+plan-to-runtime association are distinct from the master coordinator
+capability and remain subordinate to the broker's server-owned checks.
+
+For this runner, child edits stay in isolated plan-owned worktrees for manual
+user integration. The runner cannot transfer edits, commit, merge, or delete
+branches. Cleanup requires explicit user acceptance or discard authorization,
+proven child quiescence, and a fresh check that each allocated worktree is
+clean and still plan-owned. A dirty or uncertain worktree remains for the
+user. The separate implementation plan and native confinement/ownership proof
+are prerequisites; this amendment does not authorize runtime implementation.

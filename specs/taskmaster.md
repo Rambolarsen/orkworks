@@ -186,7 +186,7 @@ Taskmaster v1 does not:
 - replace Peon session observation
 - parse all raw terminal output independently of Peon
 - run an unrestricted autonomous multi-agent swarm
-- create or clean up Git worktrees
+- create or clean up Git worktrees outside the separately gated master-session runner
 - send review findings into a running terminal automatically
 - keep chaining sessions indefinitely
 
@@ -289,6 +289,25 @@ actions, Git mutation or merge approval, scope/authority expansion, conflicting
 high-confidence results, and unrecoverable blockers remain mandatory user
 escalations. The full proposed design is in
 [`docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`](../docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md).
+
+### Master-session parallel runner extension
+
+The reviewed [master-session parallel runner design](../docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md)
+narrows this coordinator path to ordered parallel batches of required,
+independent children. It is not a general DAG, dynamic delegation, or a
+shared-worktree execution system. One explicit user approval binds the exact
+plan and clean workspace evidence before any child launch or worktree
+provisioning. Runtime authority remains deferred until the separate
+implementation plan is reviewed and approved and the platform confinement
+prerequisites are proven.
+
+Each child edits only its assigned plan-owned worktree. Results are reported
+to the master, but the runner does not transfer or integrate child changes.
+The user manually integrates or discards wanted edits. Cleanup requires
+explicit acceptance/discard, quiescence proof, and a fresh clean ownership
+check; dirty or uncertain worktrees remain for the user. Branches and commits
+are preserved. Skills may guide plan preparation and hooks may report lifecycle
+observations, but neither grants approval, starts children, or proves success.
 
 ## Inputs
 

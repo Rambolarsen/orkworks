@@ -116,3 +116,26 @@ and ADR 0052's single-writer workspace lease remain in force. ADR 0056 is
 superseded as implementation authority but retained, including its 2026-09-15
 evidence amendment, as the historical record of the rejected multi-sidecar
 proposal and the incomplete ownership evidence that still motivates #545.
+
+## Amendment — 2026-09-25: bounded master-plan child runtimes
+
+This amendment records the narrow parent/child control-plane exception in the
+[master-session parallel runner design](../superpowers/specs/2026-09-25-master-session-parallel-runner-design.md).
+The one-workspace-per-instance decision remains in force: a master sidecar
+continues to own only its workspace metadata, and each dedicated child sidecar
+owns only its assigned worktree workspace. A master plan may maintain a
+durable, plan-scoped association with child runtimes it launched after the
+user approved one immutable plan revision. That association is not a peer
+registry and grants no discovery, focus, attention, or control over unrelated
+OrkWorks instances.
+
+The parent/child broker may authorize only the launch, report, pause, recovery,
+and cleanup operations declared by the approved plan. It uses distinct
+master and child capabilities and server-owned runtime/allocation identities;
+it does not reuse workspace metadata authority across sidecars. Before any
+child launch, pause acknowledgement, recovery, or cleanup can claim success,
+the applicable platform must provide enforceable worktree confinement and
+generation-specific proof that the complete owned process tree has exited.
+Unsupported or ambiguous ownership fails closed. This amendment does not
+authorize multi-workspace metadata ownership, a peer-instance registry,
+cross-workspace focus, or general workflow control.

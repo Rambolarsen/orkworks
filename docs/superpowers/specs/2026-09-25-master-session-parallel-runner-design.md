@@ -259,6 +259,14 @@ use persisted results to prepare synthesis or a cleanup request, but this
 slice does not inject a new prompt into a running master terminal
 automatically.
 
+Child code remains in its assigned worktree. The master reports each child's
+result and worktree identity; it does not combine or transfer file changes.
+After inspecting the results, the user manually integrates or discards any
+wanted edits. Acceptance of the plan result authorizes cleanup only after this
+manual handoff has left the plan-owned worktrees clean. If a worktree remains
+dirty, cleanup is refused and the user retains it for integration or manual
+disposal. The runner never commits, merges, copies, or deletes branches.
+
 Child completion is distinct from user acceptance. After all approved batches
 finish, the plan enters `awaiting_acceptance`. User acceptance approves the
 combined result for cleanup only and transitions the plan into `discarding`; it
@@ -287,8 +295,8 @@ and must not provision or remove worktrees themselves.
 After explicit user acceptance, or an explicit authenticated user rejection,
 abandonment, or discard transition into `discarding`, the master may request
 cleanup of only worktrees created by that plan. OrkWorks validates and
-executes that request. Cleanup preserves branches and commits unless the user
-separately authorizes their deletion. A dirty worktree, active child, path
+executes that request. Cleanup preserves branches and commits. Branch deletion
+is outside this runner, even when cleanup is authorized. A dirty worktree, active child, path
 mismatch, or ownership mismatch blocks cleanup and leaves the plan in
 `discarding` or `recovery_required` for user intervention.
 

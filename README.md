@@ -25,6 +25,14 @@ remains proposed; accepting the design authorizes only a separate implementation
 plan and its review, not coordinator code, child APIs, or runtime launches.
 Taskmaster v1's explicit user approval and single-active-context rules remain.
 
+The proposed [master-session parallel runner](docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md)
+adds one separately approved plan of required parallel batches. Child changes
+remain in their allocated worktrees for manual user integration; the runner
+does not combine code, mutate branches, or commit. Its only Git operations are
+the approved plan-owned worktree lifecycle. Its implementation plan still
+requires review, and child launch remains gated on native confinement and
+process-ownership proof.
+
 Background CLI inference owns its process tree for bounded cleanup, using Unix
 process groups and Windows Job objects. See [ADR 0055](docs/adr/0055-json-taskmaster-inference-adapters.md)
 for the transport contract; native Windows desktop validation remains tracked in
