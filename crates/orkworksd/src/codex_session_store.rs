@@ -117,6 +117,54 @@ pub(crate) fn has_saved_session(native_session_id: &str) -> bool {
     is_saved_thread_at(&path, native_session_id)
 }
 
+pub(crate) fn saved_sessions(native_session_ids: &[String]) -> std::collections::HashSet<String> {
+    let Some(path) = codex_store_path() else {
+        return std::collections::HashSet::new();
+    };
+    saved_sessions_at(&path, native_session_ids)
+}
+
+fn saved_sessions_at(
+    path: &Path,
+    native_session_ids: &[String],
+) -> std::collections::HashSet<String> {
+    if native_session_ids.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    let Ok(connection) =
+        Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return std::collections::HashSet::new();
+    };
+    if connection.busy_timeout(Duration::from_millis(100)).is_err() {
+        return std::collections::HashSet::new();
+    }
+    let mut saved = std::collections::HashSet::new();
+    for chunk in native_session_ids.chunks(500) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("SELECT id, rollout_path FROM threads WHERE id IN ({placeholders})");
+        let Ok(mut statement) = connection.prepare(&sql) else {
+            return std::collections::HashSet::new();
+        };
+        let Ok(rows) = statement.query_map(rusqlite::params_from_iter(chunk), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        }) else {
+            return std::collections::HashSet::new();
+        };
+        for row in rows {
+            let Ok((native_session_id, rollout_path)) = row else {
+                return std::collections::HashSet::new();
+            };
+            if rollout_path.is_some_and(|path| Path::new(&path).is_file()) {
+                saved.insert(native_session_id);
+            }
+        }
+    }
+    saved
+}
+
 fn is_saved_thread_at(path: &Path, native_session_id: &str) -> bool {
     if native_session_id.is_empty() {
         return false;
@@ -332,6 +380,43 @@ mod tests {
 
         std::fs::remove_file(rollout.path()).unwrap();
         assert!(!is_saved_thread_at(file.path(), "native-saved"));
+    }
+
+    #[test]
+    fn saved_sessions_batches_ids_on_one_read_connection() {
+        let file = fixture();
+        let rollout = tempfile::NamedTempFile::new().unwrap();
+        let connection = Connection::open(file.path()).unwrap();
+        connection
+            .execute_batch("ALTER TABLE threads ADD COLUMN rollout_path TEXT;")
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO threads (id, rollout_path) VALUES (?1, ?2)",
+                ("native-saved", rollout.path().to_string_lossy().as_ref()),
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO threads (id, rollout_path) VALUES (?1, ?2)",
+                ("native-no-rollout", "/missing/rollout.jsonl"),
+            )
+            .unwrap();
+        drop(connection);
+
+        let saved = saved_sessions_at(
+            file.path(),
+            &[
+                "native-saved".into(),
+                "native-missing".into(),
+                "native-no-rollout".into(),
+            ],
+        );
+
+        assert_eq!(
+            saved,
+            std::collections::HashSet::from(["native-saved".into()])
+        );
     }
 
     #[test]

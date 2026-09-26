@@ -86,6 +86,36 @@ impl SessionProjection {
             .as_ref()
             .map(metadata::MetadataStore::read_all_sessions)
             .unwrap_or_default();
+        let mut codex_native_session_ids = live_sessions
+            .iter()
+            .filter_map(|info| {
+                let meta = metadata_map.get(&info.id);
+                let harness_id = meta
+                    .and_then(|meta| (!meta.harness.is_empty()).then_some(meta.harness.as_str()))
+                    .or(info.harness_id.as_deref());
+                (harness_id == Some("codex"))
+                    .then(|| {
+                        meta.and_then(|meta| meta.resume.as_ref())
+                            .or(info.resume.as_ref())
+                    })
+                    .flatten()
+                    .and_then(|resume| resume.harness_session_id.clone())
+            })
+            .collect::<Vec<_>>();
+        codex_native_session_ids.extend(
+            remembered_sessions
+                .iter()
+                .filter(|meta| meta.harness == "codex")
+                .filter_map(|meta| {
+                    meta.resume
+                        .as_ref()
+                        .and_then(|resume| resume.harness_session_id.clone())
+                }),
+        );
+        codex_native_session_ids.sort_unstable();
+        codex_native_session_ids.dedup();
+        let saved_codex_session_ids =
+            crate::codex_session_store::saved_sessions(&codex_native_session_ids);
         let live_ids: HashSet<String> = live_sessions.iter().map(|info| info.id.clone()).collect();
         let peon_last_inference = self.state.peon.last_inference.read().unwrap();
 
@@ -104,6 +134,7 @@ impl SessionProjection {
                     meta,
                     peon_last_inference.get(&id),
                     resolved_harness,
+                    &saved_codex_session_ids,
                 );
                 info.has_openable_plan =
                     meta.and_then(|meta| meta.plan_path.as_ref())
@@ -125,6 +156,7 @@ impl SessionProjection {
                 &meta,
                 &registry,
                 workspace.as_ref(),
+                &saved_codex_session_ids,
             ));
         }
 
@@ -610,13 +642,18 @@ fn remembered_session_info(
     meta: &metadata::SessionMetadata,
     registry: &crate::harness::registry::ResolvedHarnessRegistry,
     workspace: Option<&WorkspaceSnapshot>,
+    saved_codex_session_ids: &std::collections::HashSet<String>,
 ) -> SessionInfo {
     let resolved_harness = (!meta.harness.is_empty())
         .then_some(meta.harness.as_str())
         .and_then(|id| registry.get(id))
         .or_else(|| registry.get("generic-shell"));
-    let (memory_state, resume_strategy) =
-        derive_memory_state(false, meta.resume.as_ref(), resolved_harness);
+    let (memory_state, resume_strategy) = derive_memory_state(
+        false,
+        meta.resume.as_ref(),
+        resolved_harness,
+        saved_codex_session_ids,
+    );
     let mut resume = meta.resume.clone();
     if memory_state == crate::session_types::MemoryState::Unsupported
         && resolved_harness.is_some_and(|harness| harness.definition.id == "codex")

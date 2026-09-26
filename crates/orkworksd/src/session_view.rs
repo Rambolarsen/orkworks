@@ -140,6 +140,7 @@ pub(crate) fn merge_live_session_info(
     meta: Option<&metadata::SessionMetadata>,
     peon_last_inference: Option<&String>,
     harness: Option<&ResolvedHarness>,
+    saved_codex_session_ids: &std::collections::HashSet<String>,
 ) -> SessionInfo {
     // `info.status` reflects the in-memory process-handle registry, which can
     // lag persisted metadata's `lifecycle_phase` (e.g. a harness process that
@@ -154,6 +155,7 @@ pub(crate) fn merge_live_session_info(
         meta.and_then(|m| m.resume.as_ref())
             .or(info.resume.as_ref()),
         harness,
+        saved_codex_session_ids,
     );
     let mut resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
     if !is_live
@@ -305,6 +307,7 @@ pub(crate) fn derive_memory_state(
     is_live: bool,
     resume: Option<&harness::ResumeMemory>,
     harness: Option<&ResolvedHarness>,
+    saved_codex_session_ids: &std::collections::HashSet<String>,
 ) -> (MemoryState, harness::ResumeStrategy) {
     if is_live {
         return (MemoryState::Live, harness::ResumeStrategy::None);
@@ -321,9 +324,7 @@ pub(crate) fn derive_memory_state(
         && resume
             .harness_session_id
             .as_deref()
-            .is_some_and(|native_session_id| {
-                !crate::codex_session_store::has_saved_session(native_session_id)
-            })
+            .is_some_and(|native_session_id| !saved_codex_session_ids.contains(native_session_id))
     {
         return (MemoryState::Unsupported, harness::ResumeStrategy::None);
     }
@@ -445,7 +446,13 @@ mod tests {
         };
         let harness = harness("opencode");
 
-        let merged = merge_live_session_info(info, None, None, Some(&harness));
+        let merged = merge_live_session_info(
+            info,
+            None,
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(merged.connectivity.as_deref(), Some("offline"));
         assert_eq!(merged.terminal_outcome.as_deref(), Some("ended"));
@@ -547,7 +554,13 @@ mod tests {
         };
         let harness = harness("claude-code");
 
-        let merged = merge_live_session_info(info, Some(&meta), None, Some(&harness));
+        let merged = merge_live_session_info(
+            info,
+            Some(&meta),
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(merged.lifecycle_phase, "ended");
         assert_ne!(merged.memory_state, MemoryState::Live);
@@ -576,7 +589,13 @@ mod tests {
         };
         let harness = harness("generic-shell");
 
-        let merged = merge_live_session_info(info, None, None, Some(&harness));
+        let merged = merge_live_session_info(
+            info,
+            None,
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(merged.lifecycle, "alive");
         assert_eq!(merged.attention.as_deref(), Some("capped"));
@@ -677,7 +696,13 @@ mod tests {
         };
         let harness = harness("claude-code");
 
-        let merged = merge_live_session_info(info, Some(&meta), None, Some(&harness));
+        let merged = merge_live_session_info(
+            info,
+            Some(&meta),
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(merged.resume_options.len(), 3);
         assert_eq!(
@@ -887,7 +912,12 @@ mod tests {
             last_seen_at: None,
         };
 
-        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), Some(&harness));
+        let (memory_state, strategy) = derive_memory_state(
+            false,
+            Some(&resume),
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(memory_state, MemoryState::Resumable);
         assert_eq!(strategy, harness::ResumeStrategy::Exact);
@@ -904,10 +934,34 @@ mod tests {
             last_seen_at: None,
         };
 
-        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), Some(&harness));
+        let (memory_state, strategy) = derive_memory_state(
+            false,
+            Some(&resume),
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(memory_state, MemoryState::Unsupported);
         assert_eq!(strategy, harness::ResumeStrategy::None);
+    }
+
+    #[test]
+    fn memory_state_uses_batched_saved_codex_ids() {
+        let harness = harness("codex");
+        let resume = harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("saved-thread".into()),
+            latest_fallback: false,
+            last_seen_at: None,
+        };
+        let saved = std::collections::HashSet::from(["saved-thread".to_owned()]);
+
+        let (memory_state, strategy) =
+            derive_memory_state(false, Some(&resume), Some(&harness), &saved);
+
+        assert_eq!(memory_state, MemoryState::Resumable);
+        assert_eq!(strategy, harness::ResumeStrategy::Exact);
     }
 
     #[test]
@@ -921,7 +975,12 @@ mod tests {
             last_seen_at: None,
         };
 
-        let (memory_state, strategy) = derive_memory_state(false, Some(&resume), Some(&harness));
+        let (memory_state, strategy) = derive_memory_state(
+            false,
+            Some(&resume),
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(memory_state, MemoryState::Unsupported);
         assert_eq!(strategy, harness::ResumeStrategy::None);
@@ -955,7 +1014,13 @@ mod tests {
             "before",
         );
 
-        let projected = merge_live_session_info(info, Some(&meta), None, Some(&harness));
+        let projected = merge_live_session_info(
+            info,
+            Some(&meta),
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(projected.memory_state, MemoryState::Unsupported);
         assert_eq!(
@@ -969,7 +1034,12 @@ mod tests {
     fn memory_state_marks_active_session_as_live() {
         let harness = harness("generic-shell");
 
-        let (memory_state, strategy) = derive_memory_state(true, None, Some(&harness));
+        let (memory_state, strategy) = derive_memory_state(
+            true,
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(memory_state, MemoryState::Live);
         assert_eq!(strategy, harness::ResumeStrategy::None);
@@ -1059,7 +1129,13 @@ mod tests {
             observed_at: Some("2026-06-28T09:01:00Z".into()),
         });
 
-        let merged = merge_live_session_info(info, Some(&meta), None, None);
+        let merged = merge_live_session_info(
+            info,
+            Some(&meta),
+            None,
+            None,
+            &std::collections::HashSet::new(),
+        );
 
         assert_eq!(merged.final_observed_status.as_deref(), Some("done"));
     }
