@@ -708,6 +708,7 @@ export interface ManualTaskmasterAnalysisResponse {
     | "daily_limit_reached"
     | "unavailable";
   recommendation?: WorkflowRecommendation;
+  recoveryAllowed: boolean;
   message?: string;
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   dismissTaskmasterRecommendation,
   getTaskmasterRecommendation,
   getTaskmasterRecommendations,
@@ -26,7 +27,10 @@ interface RecommendationsPanelProps {
 }
 
 function isActiveBrainRecommendation(recommendation: WorkflowRecommendation): boolean {
-  return recommendation.type === "improve_workflow"
+  const brainDerived = recommendation.dedupeKey.startsWith("proactive:v1:")
+    || recommendation.dedupeKey.startsWith("rollup:v1:");
+  return brainDerived
+    && recommendation.type === "improve_workflow"
     && (recommendation.status === "proposed"
       || recommendation.status === "accepted"
       || recommendation.status === "executing");
@@ -158,6 +162,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
   const [analysisError, setAnalysisError] = useState<string>();
   const [blockedRecommendation, setBlockedRecommendation] = useState<WorkflowRecommendation>();
   const [blockedRecommendationId, setBlockedRecommendationId] = useState<string>();
+  const [blockedRecommendationRecoveryAllowed, setBlockedRecommendationRecoveryAllowed] = useState(false);
   const refreshGeneration = useRef(0);
   const workspaceGeneration = useRef(0);
 
@@ -178,10 +183,16 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
           } else {
             setBlockedRecommendation(undefined);
             setBlockedRecommendationId(undefined);
+            setBlockedRecommendationRecoveryAllowed(false);
             setAnalysisMessage(undefined);
           }
-        } catch {
-          // Keep the returned active recommendation visible if its detail is temporarily unavailable.
+        } catch (cause) {
+          if (cause instanceof ApiError && cause.status === 404) {
+            setBlockedRecommendation(undefined);
+            setBlockedRecommendationId(undefined);
+            setBlockedRecommendationRecoveryAllowed(false);
+            setAnalysisMessage(undefined);
+          }
         }
       }
       if (
@@ -222,6 +233,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       setDiagnostics([]);
       setBlockedRecommendation(undefined);
       setBlockedRecommendationId(undefined);
+      setBlockedRecommendationRecoveryAllowed(false);
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
@@ -235,6 +247,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       setDiagnostics([]);
       setBlockedRecommendation(undefined);
       setBlockedRecommendationId(undefined);
+      setBlockedRecommendationRecoveryAllowed(false);
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
@@ -259,6 +272,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     if (active) {
       setBlockedRecommendation(active);
       setBlockedRecommendationId(active.id);
+      setBlockedRecommendationRecoveryAllowed(false);
       setAnalysisError(undefined);
       setAnalysisMessage(activeRecommendationMessage(active));
       return;
@@ -274,6 +288,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       if (result.status === "active_recommendation" && result.recommendation) {
         setBlockedRecommendation(result.recommendation);
         setBlockedRecommendationId(result.recommendation.id);
+        setBlockedRecommendationRecoveryAllowed(result.recoveryAllowed);
         setAnalysisMessage(activeRecommendationMessage(result.recommendation));
       } else {
         setAnalysisMessage(result.message);
@@ -327,7 +342,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       {analysisMessage && <div className="recommendation-analysis-status" role="status">
         {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
         <p>{analysisMessage}</p>
-        {blockedRecommendation?.status === "executing" && <button
+        {blockedRecommendation?.status === "executing" && blockedRecommendationRecoveryAllowed && <button
           type="button"
           disabled={dismissing === blockedRecommendation.id}
           onClick={() => void dismiss(blockedRecommendation.id)}

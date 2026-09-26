@@ -578,7 +578,7 @@ impl RecommendationStore {
     /// a new explicit user approval is required for a retry.
     pub(crate) fn recover_orphaned_executions(
         &self,
-        retained_session_ids: &HashSet<String>,
+        live_session_ids: &HashSet<String>,
         recovered_at: String,
     ) -> Result<Vec<String>, StoreError> {
         self.recover_transactions()?;
@@ -599,7 +599,7 @@ impl RecommendationStore {
             if !matches!(
                 recommendation.status,
                 RecommendationStatus::Executing | RecommendationStatus::Accepted
-            ) || retained_session_ids.contains(target_session_id)
+            ) || live_session_ids.contains(target_session_id)
             {
                 continue;
             }
@@ -1970,6 +1970,28 @@ mod tests {
 
         assert_eq!(recovered, vec!["orphaned-workflow"]);
         let recommendation = store.get("orphaned-workflow").unwrap().unwrap();
+        assert_eq!(recommendation.status, RecommendationStatus::Proposed);
+        assert!(recommendation.target_session_id.is_none());
+    }
+
+    #[test]
+    fn accepted_recommendation_is_recovered_when_its_target_is_not_live() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let mut recommendation = recommendation("orphaned-accepted", "source-session");
+        recommendation.status = RecommendationStatus::Accepted;
+        recommendation.target_session_id = Some("dead-target".into());
+        store.put(&recommendation).unwrap();
+
+        let recovered = store
+            .recover_orphaned_executions(
+                &HashSet::from(["unrelated-live-session".to_string()]),
+                "2026-09-24T10:08:00Z".into(),
+            )
+            .unwrap();
+
+        assert_eq!(recovered, vec!["orphaned-accepted"]);
+        let recommendation = store.get("orphaned-accepted").unwrap().unwrap();
         assert_eq!(recommendation.status, RecommendationStatus::Proposed);
         assert!(recommendation.target_session_id.is_none());
     }

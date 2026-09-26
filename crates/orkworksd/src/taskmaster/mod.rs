@@ -42,7 +42,7 @@ pub(crate) fn active_workflow_recommendation(
     recommendations: &[Recommendation],
 ) -> Option<&Recommendation> {
     recommendations.iter().find(|recommendation| {
-        recommendation.recommendation_type == RecommendationType::ImproveWorkflow
+        is_brain_workflow_recommendation(recommendation)
             && matches!(
                 recommendation.status,
                 RecommendationStatus::Proposed
@@ -50,6 +50,12 @@ pub(crate) fn active_workflow_recommendation(
                     | RecommendationStatus::Executing
             )
     })
+}
+
+pub(crate) fn is_brain_workflow_recommendation(recommendation: &Recommendation) -> bool {
+    recommendation.recommendation_type == RecommendationType::ImproveWorkflow
+        && (recommendation.dedupe_key.starts_with("proactive:v1:")
+            || recommendation.dedupe_key.starts_with("rollup:v1:"))
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -857,9 +863,22 @@ mod tests {
         ] {
             recommendation.status = status;
             assert!(
+                active_workflow_recommendation(std::slice::from_ref(&recommendation)).is_none()
+            );
+        }
+        recommendation.dedupe_key = "proactive:v1:documentation:fact-hash".into();
+        for status in [
+            RecommendationStatus::Proposed,
+            RecommendationStatus::Accepted,
+            RecommendationStatus::Executing,
+        ] {
+            recommendation.status = status;
+            assert!(
                 active_workflow_recommendation(std::slice::from_ref(&recommendation)).is_some()
             );
         }
+        recommendation.dedupe_key = "rollup:v1:brain-derived".into();
+        assert!(active_workflow_recommendation(std::slice::from_ref(&recommendation)).is_some());
         for status in [
             RecommendationStatus::Completed,
             RecommendationStatus::Dismissed,

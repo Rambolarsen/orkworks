@@ -626,6 +626,9 @@ test("Recommendations panel treats readiness as explicit Taskmaster admission", 
   assert.match(source, /disabled=\{!hasWorkspace \|\| !taskmasterReady\}/);
   assert.match(source, /refreshGeneration\.current/);
   assert.match(source, /dismissTaskmasterRecommendation/);
+  assert.match(source, /dedupeKey\.startsWith\("proactive:v1:"\)/);
+  assert.match(source, /dedupeKey\.startsWith\("rollup:v1:"\)/);
+  assert.match(source, /cause instanceof ApiError && cause\.status === 404/);
 });
 
 test("Recommendations panel links affected sessions through the shared selection callback", () => {

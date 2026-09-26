@@ -59,6 +59,7 @@ struct ManualAnalysisResponse {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     recommendation: Option<Recommendation>,
+    recovery_allowed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<&'static str>,
 }
@@ -68,9 +69,14 @@ fn manual_analysis_response(
     recommendation: Option<Recommendation>,
     message: Option<&'static str>,
 ) -> Response {
+    let recovery_allowed = recommendation.as_ref().is_some_and(|recommendation| {
+        recommendation.status == crate::taskmaster::RecommendationStatus::Executing
+            && !crate::session_application::recommendation_delivery_in_flight_id(&recommendation.id)
+    });
     Json(ManualAnalysisResponse {
         status,
         recommendation,
+        recovery_allowed,
         message,
     })
     .into_response()
@@ -169,6 +175,13 @@ pub(crate) async fn analyze_taskmaster(
     {
         return status.into_response();
     }
+    let live_session_ids = state
+        .sessions
+        .lock()
+        .expect("session map lock poisoned")
+        .keys()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
     let (workspace_path, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
@@ -178,6 +191,12 @@ pub(crate) async fn analyze_taskmaster(
                 Some("Open a workspace before requesting Brain analysis."),
             );
         };
+        if let Err(error) = workspace
+            .recommendation_store
+            .recover_orphaned_executions(&live_session_ids, chrono::Utc::now().to_rfc3339())
+        {
+            return store_error(error);
+        }
         let Ok(recommendations) = workspace.recommendation_store.list() else {
             return manual_analysis_response(
                 "unavailable",

@@ -103,7 +103,10 @@ Before accepting a manual analysis request, Taskmaster checks for an active
 `improve_workflow` recommendation in `proposed`, `accepted`, or `executing`
 status. If one exists, it does not start another analysis. The desktop surfaces
 that recommendation and asks the user to implement it through the existing
-explicit **Fix with AI** handoff. Dismissed, completed, and superseded
+explicit **Fix with AI** handoff. Brain proposals use the `proactive:v1:`
+deduplication namespace, and Brain-created rollup parents use `rollup:v1:`;
+deterministic observation recommendations use `improve_workflow:v1:` and do
+not block manual analysis. Dismissed, completed, and superseded
 recommendations do not block a later manual run; normal evidence identity,
 dismissal watermarks, and lifecycle rules still prevent duplicate or stale
 recommendations. This gate applies only to Brain-derived workflow-improvement

@@ -16,9 +16,56 @@ use crate::{git, metadata, migration, AppState, WorkspaceState};
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+
+static PENDING_RECOMMENDATION_DELIVERIES: OnceLock<Mutex<HashSet<(PathBuf, String)>>> =
+    OnceLock::new();
+
+fn pending_recommendation_deliveries() -> &'static Mutex<HashSet<(PathBuf, String)>> {
+    PENDING_RECOMMENDATION_DELIVERIES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+struct RecommendationDeliveryGuard((PathBuf, String));
+
+impl RecommendationDeliveryGuard {
+    fn new(workspace_path: &Path, recommendation_id: &str) -> Self {
+        let key = (workspace_path.to_path_buf(), recommendation_id.to_string());
+        pending_recommendation_deliveries()
+            .lock()
+            .expect("pending recommendation lock poisoned")
+            .insert(key.clone());
+        Self(key)
+    }
+}
+
+impl Drop for RecommendationDeliveryGuard {
+    fn drop(&mut self) {
+        pending_recommendation_deliveries()
+            .lock()
+            .expect("pending recommendation lock poisoned")
+            .remove(&self.0);
+    }
+}
+
+pub(crate) fn recommendation_delivery_in_flight(
+    workspace_path: &Path,
+    recommendation_id: &str,
+) -> bool {
+    pending_recommendation_deliveries()
+        .lock()
+        .expect("pending recommendation lock poisoned")
+        .contains(&(workspace_path.to_path_buf(), recommendation_id.to_string()))
+}
+
+pub(crate) fn recommendation_delivery_in_flight_id(recommendation_id: &str) -> bool {
+    pending_recommendation_deliveries()
+        .lock()
+        .expect("pending recommendation lock poisoned")
+        .iter()
+        .any(|(_, pending_id)| pending_id == recommendation_id)
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionError {
@@ -721,6 +768,9 @@ impl SessionApplication {
         let workspace = workspace_guard
             .as_ref()
             .ok_or(RecommendationDismissError::Conflict)?;
+        if recommendation_delivery_in_flight(&workspace.path, id) {
+            return Err(RecommendationDismissError::Conflict);
+        }
         let Some(existing) = workspace
             .recommendation_store
             .get(id)
@@ -818,7 +868,7 @@ impl SessionApplication {
         prompt_override: Option<String>,
         packet_mutation: Option<CompletionMutationRequest>,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
-        let (prompt, title) = {
+        let (prompt, title, _delivery_guard) = {
             let workspace_guard = self.state.workspace.lock().unwrap();
             let workspace = workspace_guard
                 .as_ref()
@@ -872,7 +922,9 @@ impl SessionApplication {
                     .ok_or(RecommendationAcceptError::Conflict)?;
                 prompt
             };
-            (prompt, recommendation.title.clone())
+            let delivery_guard =
+                RecommendationDeliveryGuard::new(&workspace.path, &recommendation.id);
+            (prompt, recommendation.title.clone(), delivery_guard)
         };
 
         let delivery = crate::runtime::terminal_runtime::submit_approved_input(
@@ -2437,14 +2489,6 @@ impl SessionApplication {
             .into_iter()
             .map(|session| session.id)
             .collect::<std::collections::HashSet<_>>();
-        if let Err(error) =
-            recommendation_store.recover_orphaned_executions(&retained_session_ids, iso_now())
-        {
-            tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned recommendation executions");
-            return Err(SessionError::Internal(
-                "failed to recover orphaned recommendation executions",
-            ));
-        }
         if let Err(error) = recommendation_store.scrub_orphans(&retained_session_ids) {
             tracing::warn!(path = %global_dir.display(), %error, "failed to scrub orphaned recommendations");
             return Err(SessionError::Internal(
@@ -2478,6 +2522,15 @@ impl SessionApplication {
                         .metadata
                         .write_session(&metadata::reconcile_orphaned_session(session, &now));
                 }
+            }
+            if let Err(error) = workspace
+                .recommendation_store
+                .recover_orphaned_executions(&live_ids, now)
+            {
+                tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned recommendation executions");
+                return Err(SessionError::Internal(
+                    "failed to recover orphaned recommendation executions",
+                ));
             }
         }
 
@@ -9126,6 +9179,23 @@ mod tests {
             )
             .unwrap();
         drop(workspace);
+
+        let delivery_guard = RecommendationDeliveryGuard::new(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path
+                .as_path(),
+            &recommendation_id,
+        );
+        assert!(matches!(
+            SessionApplication::new(state.clone()).dismiss_recommendation(&recommendation_id),
+            Err(RecommendationDismissError::Conflict)
+        ));
+        drop(delivery_guard);
 
         let dismissed = SessionApplication::new(state)
             .dismiss_recommendation(&recommendation_id)
