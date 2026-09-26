@@ -539,6 +539,7 @@ async fn report_harness_session_inner(
                 result,
                 metadata::HarnessSessionMergeResult::Accepted
                     | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
+                    | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
             )
         {
             if let Err(error) = SessionApplication::new(observation_state)
@@ -1840,6 +1841,72 @@ mod tests {
                 .as_ref()
                 .and_then(|r| r.harness_session_id.as_deref()),
             Some("native-123"),
+        );
+    }
+
+    #[tokio::test]
+    async fn ignored_codex_identity_change_still_records_hook_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let fingerprint = "b".repeat(64);
+        let mut session = test_session_metadata(
+            "known-codex",
+            "Known",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "codex".into();
+        session.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("original-native-id".into()),
+            latest_fallback: false,
+            last_seen_at: Some("before".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+
+        let response = report_harness_session(
+            State(state.clone()),
+            Path("known-codex".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "nested-native-id".into(),
+                source: "codex_hook".into(),
+                confidence: 0.98,
+                hook_fingerprint: Some(fingerprint.clone()),
+                session_start_source: None,
+                session_start_event: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let ws = state.workspace.lock().unwrap();
+        let workspace = ws.as_ref().unwrap();
+        let updated = workspace.metadata.read_session("known-codex").unwrap();
+        assert_eq!(
+            updated
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("original-native-id"),
+        );
+        assert_eq!(
+            workspace
+                .metadata
+                .read_codex_hook_observation()
+                .unwrap()
+                .fingerprint,
+            fingerprint,
         );
     }
 
