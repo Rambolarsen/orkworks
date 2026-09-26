@@ -157,7 +157,8 @@ if opencode_hook {
     let live_opencode = self.state.sessions.lock().unwrap().get(id).is_some_and(|handle| {
         handle.info.lifecycle == "alive"
             && handle.info.lifecycle_phase == "active"
-            && handle.info.harness_id.as_deref() == Some("opencode")
+            && (handle.info.harness_id.as_deref() == Some("opencode")
+                || handle.info.harness.as_deref() == Some("opencode"))
     });
     let event = signal.event.as_deref().ok_or(SessionError::EmptyBadRequest)?;
     if !live_opencode || signal.observed_at.is_none()
