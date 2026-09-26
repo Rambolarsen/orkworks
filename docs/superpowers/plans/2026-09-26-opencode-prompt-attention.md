@@ -1,5 +1,10 @@
 # OpenCode Prompt Attention Implementation Plan
 
+> **Superseded draft (2026-09-26):** The design now requires session-scoped
+> OpenCode hook activation and a Codex/OpenCode Peon attention rule. This plan
+> describes the earlier narrow rule and must be rewritten after review of the
+> revised spec. Do not execute its tasks as written.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Show Needs You for unresolved OpenCode questions and permissions, preserve it through unrelated turn events and Peon observations, and avoid dropping rapid prompt reports.
