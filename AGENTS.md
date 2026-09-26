@@ -341,10 +341,10 @@ The applied provider/model in Settings is authoritative for inference; the
 Peon-detected session model is best-effort, first-detection-wins, and has no
 manual override. For harnesses with configured capacity patterns a genuine
 rate limit surfaces through the session's capped attention status (reset
-hint only when the banner carries one) and the provider state on the
-providers API and new-session dialog; a grounded workflow observation of
-this kind can still corroborate a real cap. Do not resume or reopen
-another session as a workaround.
+hint only when the banner carries one) and, for an enabled provider entry,
+the provider state on the providers API and new-session dialog; a grounded
+workflow observation of this kind can still corroborate a real cap. Do not
+resume or reopen another session as a workaround.
 
 ## MCP configuration
 

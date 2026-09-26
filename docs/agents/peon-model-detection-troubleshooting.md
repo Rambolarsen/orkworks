@@ -235,12 +235,16 @@ refute it:
   "checking capacity" while that scan is pending. A disabled provider entry
   reports "disabled" before any of that, so neither surface shows its cap.
   A provider whose configured capacity state — the default or override
-  state persisted in the provider settings, settable through the provider
-  settings API rather than any Settings UI — is capped is skipped for
+  state in the persisted provider settings — is capped is skipped for
   session inference instead of retried, and a failed provider invocation's
-  stderr is parsed into an error summary plus a reset hint on the same API
-  response. The configured default or override is not mutated by provider
-  stderr, and no Settings UI renders or edits that state today.
+  stderr is parsed into an error summary, plus a reset hint only when the
+  stderr carries parseable trailing detail, on the same API response. The
+  configured default or override is not mutated by provider stderr.
+  Durable provider settings are written by the desktop app to its
+  settings store and pushed to the sidecar; the sidecar's provider
+  settings HTTP endpoint applies and synchronizes them in memory but does
+  not write them to disk, and no Settings UI renders or edits the
+  capacity state today.
 
 When a recommendation asks you to "remove or document the obstacle: rate
 limit reached", read the current signals for corroboration, not dismissal.
