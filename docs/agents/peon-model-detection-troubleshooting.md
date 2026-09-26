@@ -84,13 +84,16 @@ Verified example (September 2026, one observation, one OpenCode session): the
 only terminal grounding was the OpenCode banner lines
 `Session   Claude cap affecting opencode usage` and
 `Continue  opencode -s <id>` — a human-written label about Claude usage-cap
-limits plus a resume hint (the banner's resumable session ID differed from
-the observed session's captured harness session ID, so the banner named
-another session). The words "signal" and "capacity" appeared zero times
-individually in the ANSI-stripped terminal capture, so no wrap reassembly
-could ever join them into "signal capacity" and the required verbatim
-evidence excerpt was ungrounded; the description paraphrased a label, not
-the session's work.
+limits plus a resume hint. The observed session's captured harness session ID
+came from the OpenCode hook (`harnessSessionIdSource: opencode_hook`), and the
+banner's resumable session ID differed from it — a non-circular comparison, so
+the banner named another session. The persisted evidence value — "Search
+results show signal capacity in Claude harness to OpenCode" — contains the
+words "signal" and "capacity"; reproducing Peon's reassembly on the raw
+capture (column width from `<id>.terminal-size`, escape sequences intact)
+leaves zero occurrences of either word, so the evidence excerpt could not
+have been copied character-for-character from the capture and the observation
+was ungrounded; the description paraphrased a label, not the session's work.
 
 Signals that an observation is this noise, not a verified defect:
 
@@ -117,17 +120,23 @@ Signals that an observation is this noise, not a verified defect:
   excerpt split by an escape sequence is rejected even though it reads as
   contiguous after stripping. Searching an ANSI-stripped copy is a
   readability aid only: absence there proves absence only when no wrap
-  reassembly could join rows into the phrase, so reproduce the reassembly
-  before concluding an accepted observation was ungrounded; and a stripped
-  hit does not prove Peon accepted it. Peon's prompt pins only the evidence
-  field as a contiguous verbatim excerpt; the `description` may legitimately
+  reassembly could join rows into the phrase, so reproduce the reassembly —
+  on the raw capture, with the recorded column width — before concluding an
+  accepted observation was ungrounded; and a stripped hit does not prove
+  Peon accepted it. Peon's prompt pins only the evidence field as a
+  contiguous verbatim excerpt; the `description` may legitimately
   paraphrase, so a paraphrased description alone is not a noise signal.
+  Test the persisted `evidence` value, not the description's wording.
 - The only verbatim match is UI chrome — session labels, banners, resume
   hints, or session lists — and the displayed session ID or title does not
   correlate with the observed session. A session's own resume banner names
-  itself, so chrome can describe this session's work; correlate the banner's
-  resumable session ID with the observed session's captured harness session
-  ID before treating a match as noise.
+  itself, so chrome can describe this session's work. Correlate only
+  against a captured harness session ID with non-Peon provenance (hook or
+  agent source): Peon-inferred IDs are persisted from visible resume
+  output, so comparing a banner ID against a peon-sourced captured ID is
+  circular — the banner itself may have created the match. Without an
+  independently sourced ID, UI-chrome-only evidence is low-specificity,
+  not proof either way.
 
 Handling is the same as below: if it is confirmed noise, documentation is a
 valid resolution — do not act on the obstacle, and do not modify
