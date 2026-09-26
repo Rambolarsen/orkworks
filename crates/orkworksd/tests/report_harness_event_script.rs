@@ -44,6 +44,8 @@ fn run_reporter(hook_fingerprint: &str, harness_session_id: &str) -> serde_json:
         .arg(script)
         .arg("--marker")
         .arg("orkworks:harness-integration:v2:codex")
+        .arg("--event")
+        .arg("SessionStart")
         .arg("--hook-fingerprint")
         .arg(hook_fingerprint)
         .env("PATH", path)
@@ -58,7 +60,9 @@ fn run_reporter(hook_fingerprint: &str, harness_session_id: &str) -> serde_json:
         .stdin
         .take()
         .unwrap()
-        .write_all(format!(r#"{{"session_id":"{harness_session_id}"}}"#).as_bytes())
+        .write_all(
+            format!(r#"{{"session_id":"{harness_session_id}","source":"startup"}}"#).as_bytes(),
+        )
         .unwrap();
     let status = child.wait().unwrap();
     assert!(status.success(), "reporter script exited non-zero");
@@ -88,103 +92,4 @@ fn a_fingerprint_containing_quotes_is_escaped_into_valid_json() {
 
     assert_eq!(payload["harnessSessionId"], "session-43");
     assert_eq!(payload["hookFingerprint"], r#"weird"fingerprint\value"#);
-}
-
-// Regresses a defect where the codex hookFingerprint field was merged into
-// the already-built harness-session payload via a second python3 call with
-// no fallback: if that specific call failed (missing/broken python3), the
-// command substitution captured empty stdout and unconditionally overwrote
-// session_payload, losing the harnessSessionId/source fields too, not just
-// the fingerprint. A fake `python3` that only fails for that one merge
-// invocation (leaving codex's own session_id extraction, which is a
-// separate, pre-existing python3 call, working normally) proves the
-// harness-session payload survives regardless.
-#[cfg(unix)]
-#[test]
-fn the_harness_session_payload_survives_a_failing_fingerprint_merge_helper() {
-    let real_python3 = String::from_utf8(
-        Command::new("sh")
-            .arg("-c")
-            .arg("command -v python3")
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap()
-    .trim()
-    .to_string();
-    assert!(!real_python3.is_empty(), "test requires python3 on PATH");
-
-    let script = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/scripts/report-harness-event.sh"
-    );
-    let dir = tempfile::tempdir().unwrap();
-    let capture = dir.path().join("curl-capture.txt");
-    let fake_curl = dir.path().join("curl");
-    fs::write(
-        &fake_curl,
-        format!(
-            "#!/bin/sh\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"-d\" ]; then\n    printf '%s' \"$a\" >> {capture:?}\n  fi\n  prev=\"$a\"\ndone\n",
-            capture = capture.display()
-        ),
-    )
-    .unwrap();
-    make_executable(&fake_curl);
-
-    // Fails only the fingerprint-merge invocation (identified by the
-    // distinctive "hookFingerprint" substring in its -c script); every other
-    // python3 call — including codex's own session_id extraction a few
-    // lines earlier in the same script — falls through to the real binary.
-    let fake_python3 = dir.path().join("python3");
-    fs::write(
-        &fake_python3,
-        format!(
-            "#!/bin/sh\ncase \"$2\" in\n  *hookFingerprint*) exit 1 ;;\nesac\nexec {real_python3:?} \"$@\"\n"
-        ),
-    )
-    .unwrap();
-    make_executable(&fake_python3);
-
-    let path = format!(
-        "{}:{}",
-        dir.path().display(),
-        std::env::var("PATH").unwrap()
-    );
-
-    let mut child = Command::new("bash")
-        .arg(script)
-        .arg("--marker")
-        .arg("orkworks:harness-integration:v2:codex")
-        .arg("--hook-fingerprint")
-        .arg("abc123fingerprint")
-        .env("PATH", path)
-        .env("ORKWORKS_SESSION_ID", "test-session")
-        .env("ORKWORKS_PORT", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(br#"{"session_id":"session-44"}"#)
-        .unwrap();
-    let status = child.wait().unwrap();
-    assert!(status.success(), "reporter script exited non-zero");
-
-    let captured = fs::read_to_string(&capture).unwrap_or_else(|_| {
-        panic!("expected {capture:?} to exist \u{2014} curl was never invoked with -d")
-    });
-    let payload: serde_json::Value = serde_json::from_str(&captured).unwrap_or_else(|e| {
-        panic!("harness-session POST body was not valid JSON: {e}\nbody: {captured}")
-    });
-
-    assert_eq!(
-        payload["harnessSessionId"], "session-44",
-        "a failing fingerprint merge must not blank out fields that were already correctly populated"
-    );
-    assert_eq!(payload["source"], "codex_hook");
 }

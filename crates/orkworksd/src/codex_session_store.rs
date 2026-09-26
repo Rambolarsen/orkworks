@@ -10,13 +10,10 @@ static LABEL_REFRESH_GATES: LazyLock<Mutex<std::collections::HashMap<String, Arc
 #[derive(Clone)]
 struct BlockedNativeLabelRefresh {
     native_session_id: String,
-    owner_process_id: Option<u32>,
 }
 static BLOCKED_NATIVE_LABEL_IDS: LazyLock<
     Mutex<std::collections::HashMap<String, BlockedNativeLabelRefresh>>,
 > = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-static CODEX_OWNER_PROCESS_IDS: LazyLock<Mutex<std::collections::HashMap<String, u32>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 pub(crate) fn reserve_label_refresh_generation(session_id: &str) -> u64 {
     let gate = label_refresh_gate(session_id);
@@ -37,37 +34,11 @@ pub(crate) fn clear_label_refresh_generation(session_id: &str) {
     LABEL_REFRESH_GENERATIONS.lock().unwrap().remove(session_id);
 }
 
-pub(crate) fn set_codex_owner_process_id(session_id: &str, process_id: u32) {
-    if process_id > 0 {
-        CODEX_OWNER_PROCESS_IDS
-            .lock()
-            .unwrap()
-            .insert(session_id.to_owned(), process_id);
-    }
-}
-
-pub(crate) fn codex_owner_process_id(session_id: &str) -> Option<u32> {
-    CODEX_OWNER_PROCESS_IDS
-        .lock()
-        .unwrap()
-        .get(session_id)
-        .copied()
-}
-
-pub(crate) fn clear_codex_owner_process_id(session_id: &str) {
-    CODEX_OWNER_PROCESS_IDS.lock().unwrap().remove(session_id);
-}
-
-pub(crate) fn block_native_label_refresh(
-    session_id: &str,
-    native_session_id: &str,
-    owner_process_id: Option<u32>,
-) {
+pub(crate) fn block_native_label_refresh(session_id: &str, native_session_id: &str) {
     BLOCKED_NATIVE_LABEL_IDS.lock().unwrap().insert(
         session_id.to_owned(),
         BlockedNativeLabelRefresh {
             native_session_id: native_session_id.to_owned(),
-            owner_process_id,
         },
     );
 }
@@ -84,21 +55,15 @@ pub(crate) fn native_label_refresh_is_blocked(session_id: &str, native_session_i
         .is_some_and(|blocked| blocked.native_session_id == native_session_id)
 }
 
-pub(crate) fn native_identity_reset_is_authorized_for_process(
+pub(crate) fn native_identity_reset_is_authorized(
     session_id: &str,
     native_session_id: &str,
-    process_id: Option<u32>,
 ) -> bool {
-    let Some(process_id) = process_id.filter(|process_id| *process_id > 0) else {
-        return false;
-    };
     let blocked = BLOCKED_NATIVE_LABEL_IDS.lock().unwrap();
     let Some(blocked) = blocked.get(session_id) else {
         return false;
     };
     blocked.native_session_id == native_session_id
-        && blocked.owner_process_id == Some(process_id)
-        && codex_owner_process_id(session_id) == Some(process_id)
 }
 
 pub(crate) fn accept_native_label_identity(session_id: &str, native_session_id: &str) -> bool {
@@ -547,7 +512,7 @@ mod tests {
         let new_native_id = "new-native-id";
         clear_native_label_refresh_block(session_id);
 
-        block_native_label_refresh(session_id, old_native_id, Some(41_000));
+        block_native_label_refresh(session_id, old_native_id);
         assert!(native_label_refresh_is_blocked(session_id, old_native_id));
         assert!(!accept_native_label_identity(session_id, old_native_id));
         assert!(accept_native_label_identity(session_id, new_native_id));
@@ -556,30 +521,24 @@ mod tests {
     }
 
     #[test]
-    fn reset_authorization_requires_the_original_codex_process() {
+    fn reset_authorization_requires_the_recorded_native_identity() {
         let session_id = "native-label-reset-process-test";
         clear_native_label_refresh_block(session_id);
-        clear_codex_owner_process_id(session_id);
-        set_codex_owner_process_id(session_id, 41_000);
-        block_native_label_refresh(session_id, "old-native-id", Some(41_000));
+        block_native_label_refresh(session_id, "old-native-id");
 
-        assert!(native_identity_reset_is_authorized_for_process(
+        assert!(native_identity_reset_is_authorized(
             session_id,
-            "old-native-id",
-            Some(41_000),
+            "old-native-id"
         ));
-        assert!(!native_identity_reset_is_authorized_for_process(
+        assert!(!native_identity_reset_is_authorized(
             session_id,
-            "old-native-id",
-            Some(42_000),
+            "different-old-id"
         ));
-        assert!(!native_identity_reset_is_authorized_for_process(
-            session_id,
-            "old-native-id",
-            None,
+        assert!(!native_identity_reset_is_authorized(
+            "other-session",
+            "old-native-id"
         ));
 
         clear_native_label_refresh_block(session_id);
-        clear_codex_owner_process_id(session_id);
     }
 }

@@ -106,7 +106,8 @@ fi
 # directory — issue #241) and "session_id" on every event; extract both from
 # one parse of the same payload rather than spawning python3 twice. Codex's
 # SessionStart payload carries other fields too (cwd, hook_event_name,
-# source, ...) but we only extract "session_id" from it. Copilot's
+# source, ...). Only that root lifecycle event reports native identity;
+# subagent events remain within the owning Codex session. Copilot's
 # notification payload uses camelCase "sessionId" (not "session_id") per
 # https://docs.github.com/en/copilot/reference/hooks-reference, alongside its
 # own "cwd". `session_source` doubles as
@@ -119,34 +120,6 @@ session_start_source=""
 session_start_event=""
 session_source=""
 codex_attention="no"
-codex_process_id=""
-
-# Hook commands may be launched through one or more shell wrappers. Walk a
-# bounded ancestor chain to find the Codex process whose SessionStart invoked
-# this hook. The sidecar uses this only as an in-memory ownership binding; if
-# process inspection is unavailable, omit it so an explicit reset fails closed.
-find_codex_process_id() {
-  local candidate_pid="$PPID"
-  local parent_pid=""
-  local process_name=""
-  local depth=0
-  while [ "$depth" -lt 16 ] && [ -n "$candidate_pid" ] && [ "$candidate_pid" -gt 1 ] 2>/dev/null; do
-    process_name="$(ps -p "$candidate_pid" -o comm= 2>/dev/null | sed 's#.*/##' | tr '[:upper:]' '[:lower:]')"
-    case "$process_name" in
-      codex|codex.exe)
-        printf '%s' "$candidate_pid"
-        return 0
-        ;;
-    esac
-    parent_pid="$(ps -p "$candidate_pid" -o ppid= 2>/dev/null | tr -d '[:space:]')"
-    case "$parent_pid" in
-      ''|*[!0-9]*) return 1 ;;
-    esac
-    candidate_pid="$parent_pid"
-    depth=$((depth + 1))
-  done
-  return 1
-}
 
 case "$marker" in
   *:claude-code)
@@ -166,12 +139,11 @@ case "$marker" in
   *:codex)
     codex_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import json,sys; data=json.load(sys.stdin); source=(data.get("source") or "") if sys.argv[1] == "SessionStart" else ""; print("%s\x1f%s" % (data.get("session_id") or "", source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
+      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; source=(data.get("source") or "") if is_start else ""; session_id=(data.get("session_id") or "") if is_start else ""; print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
     )" || true
     IFS=$'\x1f' read -r harness_session_id session_start_source <<< "$codex_fields"
     if [ -n "$session_start_source" ]; then
       session_start_event="SessionStart"
-      codex_process_id="$(find_codex_process_id 2>/dev/null || true)"
     fi
     session_source="codex_hook"
     case "$event" in
@@ -235,9 +207,6 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
   fi
   if [ "$session_source" = "codex_hook" ] && [ -n "$session_start_source" ] && [ "$session_start_event" = "SessionStart" ]; then
     session_payload="${session_payload%?},\"sessionStartSource\":\"$session_start_source\",\"sessionStartEvent\":\"$session_start_event\"}"
-    if [ -n "$codex_process_id" ]; then
-      session_payload="$(python3 -c 'import json,sys; payload=json.loads(sys.argv[1]); payload["codexProcessId"]=int(sys.argv[2]); print(json.dumps(payload,separators=(",",":")))' "$session_payload" "$codex_process_id" 2>/dev/null)" || true
-    fi
   fi
   session_curl_config=""
   if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then

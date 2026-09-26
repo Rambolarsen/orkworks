@@ -1,6 +1,6 @@
 # Codex exact session identity and resume
 
-- Status: accepted
+- Status: superseded by [ADR 0067](./0067-codex-subagents-share-owning-session-identity.md)
 - Deciders: OrkWorks maintainers
 - Date: 2026-09-26
 
@@ -16,6 +16,10 @@ instead of the conversation OrkWorks launched.
 Codex also reports its native thread ID before its local rollout is necessarily
 available. A thread ID alone does not prove that Codex can resume the thread.
 Resuming the latest thread instead would risk switching conversations.
+
+Codex CLI subagents run inside their owning Codex session. They are not
+independent OrkWorks sessions and do not receive separate OrkWorks session
+IDs. Only the owning CLI's root `SessionStart` reports native identity.
 
 ## Decision
 

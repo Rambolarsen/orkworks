@@ -42,6 +42,8 @@ Codex resume uses the exact conversation ID captured by its hook. OrkWorks
 checks that Codex still has the thread and its local rollout saved before
 resuming; it will not switch to Codex's latest conversation. A newly started
 Codex thread may not be resumable until Codex has saved its rollout.
+Codex CLI subagents remain part of their parent OrkWorks session and do not
+appear as separate OrkWorks sessions.
 
 Use the arrow beside a tool to show or hide its details; collapsing keeps
 unsaved custom-path edits. If an enabled tool needs installation or repair,

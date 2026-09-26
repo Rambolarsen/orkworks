@@ -56,8 +56,8 @@ if ($ReportPlanPath) {
 # directory) on every event, alongside "session_id" below. Forwarding it
 # lets the sidecar track where the agent is actually working, not just
 # where its process was launched (issue #241). Codex's SessionStart payload
-# carries other fields too (cwd, hook_event_name, source, ...) but we only
-# extract "session_id" from it. Copilot's notification payload uses camelCase
+# carries other fields too (cwd, hook_event_name, source, ...); only that root
+# lifecycle event reports native identity. Copilot's notification payload uses camelCase
 # "sessionId" (not "session_id") per
 # https://docs.github.com/en/copilot/reference/hooks-reference, alongside its
 # own "cwd". $sessionSource doubles as the harness-session
@@ -70,23 +70,6 @@ $sessionStartSource = ""
 $sessionStartEvent = ""
 $sessionSource = ""
 $codexAttention = $false
-$codexProcessId = $null
-
-# Follow a bounded parent chain so PowerShell wrappers do not hide the Codex
-# process that owns the SessionStart event. Failure to inspect ancestry leaves
-# the process ID absent; the sidecar then rejects a clear identity change.
-function Find-CodexProcessId {
-    $candidateId = $PID
-    for ($depth = 0; $depth -lt 16 -and $candidateId -gt 1; $depth++) {
-        try {
-            $process = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $candidateId" -ErrorAction Stop
-            if (-not $process) { return $null }
-            if ([string]$process.Name -match '^(?i:codex)(\.exe)?$') { return [int]$process.ProcessId }
-            $candidateId = [int]$process.ParentProcessId
-        } catch { return $null }
-    }
-    return $null
-}
 
 if ($Marker -clike "*:claude-code") {
     try {
@@ -109,13 +92,12 @@ if ($Marker -clike "*:claude-code") {
 } elseif ($Marker -clike "*:codex") {
     try {
         $data = $payload | ConvertFrom-Json
-        if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id) {
+        if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.session_id) {
             $harnessSessionId = ([string]$data.session_id).Trim()
         }
         if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.source -in @("startup", "resume", "clear", "compact")) {
             $sessionStartSource = [string]$data.source
             $sessionStartEvent = "SessionStart"
-            $codexProcessId = Find-CodexProcessId
         }
     } catch {}
     $sessionSource = "codex_hook"
@@ -185,9 +167,6 @@ if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
         if ($sessionSource -eq "codex_hook" -and $sessionStartSource) {
             $sessionReport["sessionStartSource"] = $sessionStartSource
             $sessionReport["sessionStartEvent"] = $sessionStartEvent
-            if ($codexProcessId) {
-                $sessionReport["codexProcessId"] = $codexProcessId
-            }
         }
         $sessionBody = $sessionReport | ConvertTo-Json -Compress
         $sessionHeaders = @{}

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust, Axum, rusqlite, POSIX/PowerShell hook reporters, embedded JSON harness definitions, Cargo tests.
 
-**Spec:** `specs/orkworks-mvp.md` (harness-native session ID capture); clarified by ADR 0066.
+**Spec:** `specs/orkworks-mvp.md` (harness-native session ID capture); clarified by ADR 0067, which supersedes ADR 0066's process-binding requirement.
 
 ## Global Constraints
 
@@ -17,26 +17,28 @@
 - Do not log or expose native session IDs as diagnostics.
 - Keep workspace hook mutation opt-in and ownership-aware.
 
-### Follow-up: bind clear authorization to the owning Codex process
+### Scope clarification (2026-09-26)
 
-The authenticated report token is inherited by nested processes, so it does
-not identify which Codex process owns the OrkWorks session. Codex `SessionStart`
-reports therefore include the nearest `codex` ancestor PID. The sidecar records
-that PID only after an authenticated, accepted SessionStart and captures it in
-the reset grant. A `source=clear` identity change is accepted only when its
-reported PID matches the reset grant's owner PID. Missing PID evidence preserves
-the old identity. Runtime end/forget cleanup removes the in-memory PID binding;
-a resumed Codex process can bind again through its authenticated SessionStart.
+The child agents in scope are Codex CLI subagents running inside the owning
+Codex session, not separate Codex CLI processes or OrkWorks sessions. They do
+not receive independent OrkWorks session IDs. The reporter captures native
+identity only on the root `SessionStart`; other events, including a subagent
+event if one is supplied, do not submit native identity. As approved by the
+user, reset replacement is authorized by the authenticated root `SessionStart`
+and OrkWorks' explicit reset record; reporter-supplied process IDs are not
+treated as process authentication.
 
-- [x] Test that a nested process PID cannot consume a parent `/clear` grant.
-- [x] Test that the owning process PID can replace the ID after authenticated
-  `SessionStart(source=clear)` and that missing PID fails closed.
-- [x] Report the nearest Codex ancestor PID from both POSIX and PowerShell
-  SessionStart reporters; omit it when no Codex ancestor can be identified.
-- [x] Clear owner PID state on runtime end and session forget; refresh it on an
-  authenticated accepted startup/resume/clear/compact SessionStart.
-- [x] Update ADR 0066, the MVP spec, and the harness integration contract with
-  the process-binding requirement and fail-closed behavior.
+### Follow-up: remove untrusted process identity from clear authorization
+
+- [x] Test that an authenticated `SessionStart(source=clear)` replaces the
+  native ID only after OrkWorks records the reset; unauthenticated, unrecorded,
+  or non-`SessionStart` reports cannot replace it.
+- [x] Capture native identity only for root `SessionStart`; subagent events do
+  not report an independent ID.
+- [x] Remove caller-supplied process IDs and process-owner state from the
+  reporter, HTTP request, reset grant, and session lifecycle cleanup.
+- [x] Update ADR 0067, the MVP spec, and harness integration docs with the
+  subagent ownership and reset authorization rules.
 - [x] Run reporter, session identity, lifecycle, full sidecar, formatting, and
   documentation checks.
 - [ ] Push and request the single approved fresh review.
@@ -58,6 +60,8 @@ a resumed Codex process can bind again through its authenticated SessionStart.
 - Modify: `docs/agents/harness-integration-contracts.md`
 - Modify: `docs/agents/architecture.md`
 - Create: `docs/adr/0066-codex-exact-session-identity-and-resume.md`
+- Create: `docs/adr/0067-codex-subagents-share-owning-session-identity.md`
+- Modify: `docs/adr/0066-codex-exact-session-identity-and-resume.md` to mark its process-binding decision superseded
 - Modify: `docs/adr/README.md`
 - Test: focused module tests in the Rust files above and reporter-script integration tests.
 
@@ -71,5 +75,5 @@ a resumed Codex process can bind again through its authenticated SessionStart.
 - [x] **Step 3: Implement identity-source validation and exact-ID-only Codex configuration.** The reporter forwards the SessionStart source; the request handler passes it only for the identity report; the metadata merge rejects unapproved identity changes.
 - [x] **Step 4: Implement exact saved-thread preflight.** Read only `state_5.sqlite` in read-only mode, resolve the matching `rollout_path`, and check the file before spawning `codex resume <id>`.
 - [x] **Step 5: Run focused Rust tests** for metadata merge, Codex store, harness registry, and resume workflow; run reporter integration tests for POSIX and PowerShell payload handling.
-- [x] **Step 6: Update ADR 0066 and harness/architecture docs** to state the exact ID ownership, explicit-clear replacement, saved-rollout requirement, and no `--last` fallback.
+- [x] **Step 6: Update ADR 0066/0067 and harness/architecture docs** to state the exact ID ownership, explicit-clear replacement, saved-rollout requirement, and no `--last` fallback.
 - [x] **Step 7: Run `cargo fmt --check`, relevant `cargo test`, `git diff --check`, `bash scripts/doc-check.sh`, and `bash .claude/hooks/worktree-check.sh`.**

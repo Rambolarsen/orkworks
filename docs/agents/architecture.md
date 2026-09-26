@@ -296,16 +296,15 @@ versa.
 For Codex, an identity report that also carries `ORKWORKS_REPORT_TOKEN` triggers a bounded, read-only lookup of `$CODEX_HOME/state_5.sqlite` (or `~/.codex/state_5.sqlite`), selecting `threads.name` then `threads.title` by exact native ID and storing the result as a Codex label when the current label is still automatic. Missing or unsupported data preserves the current label.
 
 Codex session identity stays bound to the conversation OrkWorks launched:
-differing Codex hook IDs are ignored, except for an authenticated `SessionStart`
-with `source=clear` after OrkWorks records that explicit reset and verifies the
-reporting process matches the in-memory Codex process bound to that session.
-The reporter uses a bounded parent-process walk; absent or mismatched process
-identity fails closed, so an inherited nested Codex process cannot replace the
-parent ID. The process binding is cleared when the OrkWorks session ends or is
-forgotten and refreshed when that session resumes. Resume requires the exact ID
-and a matching `threads` row whose `rollout_path` exists in the supported local
-Codex store. Missing or unsaved IDs never fall back to `codex resume --last`;
-see [ADR 0066](../adr/0066-codex-exact-session-identity-and-resume.md).
+differing Codex hook IDs are ignored, except for an authenticated root
+`SessionStart` with `source=clear` after OrkWorks records that explicit reset.
+Internal Codex CLI subagents remain within their parent OrkWorks session and
+receive no separate OrkWorks session ID. The report token authenticates the
+OrkWorks session but is inherited by child processes, so it does not verify
+operating-system process identity. Resume requires the exact ID and a matching
+`threads` row whose `rollout_path` exists in the supported local Codex store.
+Missing or unsaved IDs never fall back to `codex resume --last`; see
+[ADR 0067](../adr/0067-codex-subagents-share-owning-session-identity.md).
 
 Every spawned PTY session receives `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` in its environment, so an in-session hook can address the sidecar without any config look-up. Harness-native session IDs are reported through `POST /sessions/:id/harness-session`, which writes `resume.harnessSessionId` plus source/confidence/captured-at metadata. Deterministic supported sources such as the installable OpenCode plugin (issue #110; reads the same two env vars via `process.env` inside OpenCode's plugin host) and Claude hook JSON outrank Peon inference; interactive status probes remain user-triggered. Attention is deterministic where the harness exposes a needs-input-shaped event: `POST /sessions/:id/attention` accepts hook-reported statuses (hook-authoritative `working` only when the binding grants the Attention capability) and OpenCode's plugin maps `session.idle`→`idle`, `permission.asked`→`waiting_for_input`, and `session.status` busy / `permission.replied`→`working` (issue #104).
 
