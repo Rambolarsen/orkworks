@@ -10918,6 +10918,9 @@ mod tests {
         metadata.metadata_source = "user".into();
         metadata.observed_status = Some("waiting_for_input".into());
         metadata.attention = Some("needs_you".into());
+        metadata.needs_user_input = Some(true);
+        metadata.detected_question = Some("User-owned question".into());
+        metadata.suggested_options = Some(vec!["User option".into()]);
         state
             .workspace
             .lock()
@@ -10968,6 +10971,12 @@ mod tests {
         assert_eq!(stored.metadata_source, "user");
         assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(stored.attention.as_deref(), Some("needs_you"));
+        assert_eq!(stored.needs_user_input, Some(true));
+        assert_eq!(
+            stored.detected_question.as_deref(),
+            Some("User-owned question")
+        );
+        assert_eq!(stored.suggested_options, Some(vec!["User option".into()]));
         assert_eq!(stored.summary, None);
     }
 

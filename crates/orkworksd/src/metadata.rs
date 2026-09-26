@@ -1847,16 +1847,39 @@ impl MetadataStore {
                     confidence: inf.confidence.min(0.50),
                 });
 
-        if matches!(policy, PeonAttentionPolicy::NonPrompt)
-            && meta.metadata_source == "peon"
-            && meta.observed_status.as_deref() == Some("waiting_for_input")
-        {
-            meta.observed_status = None;
-            meta.attention = None;
-            meta.needs_user_input = None;
-            meta.detected_question = None;
-            meta.suggested_options = None;
-        }
+        let reconciled_peon_prompt =
+            if matches!(policy, PeonAttentionPolicy::NonPrompt) && meta.metadata_source == "peon" {
+                let before = (
+                    meta.observed_status.clone(),
+                    meta.attention.clone(),
+                    meta.needs_user_input,
+                    meta.detected_question.clone(),
+                    meta.suggested_options.clone(),
+                );
+                if meta.observed_status.as_deref() == Some("waiting_for_input") {
+                    meta.observed_status = None;
+                }
+                if meta.lifecycle == "alive" {
+                    meta.attention = canonical_attention(meta.observed_status.as_deref());
+                }
+                meta.needs_user_input = None;
+                meta.detected_question = None;
+                meta.suggested_options = None;
+                let changed = before
+                    != (
+                        meta.observed_status.clone(),
+                        meta.attention.clone(),
+                        meta.needs_user_input,
+                        meta.detected_question.clone(),
+                        meta.suggested_options.clone(),
+                    );
+                if changed {
+                    meta.last_activity = timestamp.to_string();
+                }
+                changed
+            } else {
+                false
+            };
 
         // Observer-only inference cannot resume a finished/non-working session to
         // `working` on its own. Terminal input intentionally preserves the observed
@@ -1871,6 +1894,10 @@ impl MetadataStore {
             && inf.observed_status.as_deref() == Some("working")
             && crate::peon::is_terminal_observed_status(meta.observed_status.as_deref())
         {
+            if reconciled_peon_prompt {
+                meta.peon_last_inference = Some(timestamp.to_string());
+                self.try_write_session(&meta)?;
+            }
             if let Some(report) = peon_harness_session_report {
                 let _ = self.merge_harness_session_report(id, &report, timestamp);
             }
@@ -2625,6 +2652,87 @@ mod tests {
             .unwrap();
         let after_third = store.read_session(id).unwrap();
         assert_eq!(after_third.last_activity, "t3");
+    }
+
+    #[test]
+    fn peon_nonprompt_clears_legacy_prompt_fields_with_nonwaiting_status() {
+        for (stored_status, incoming_status) in [
+            ("working", None),
+            ("blocked", None),
+            ("blocked", Some("working")),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = MetadataStore::new(dir.path());
+            let id = "legacy-peon-prompt-fields";
+            let mut meta = test_metadata(id);
+            meta.harness = "opencode".into();
+            meta.metadata_source = "peon".into();
+            meta.observed_status = Some(stored_status.into());
+            meta.attention = Some("needs_you".into());
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Old chat question?".into());
+            meta.suggested_options = Some(vec!["Old option".into()]);
+            store.write_session(&meta);
+            let mut inference = peon_inference_with_summary(Some("Fresh summary"), 0.8);
+            inference.observed_status = incoming_status.map(str::to_string);
+            let outcome = store
+                .merge_peon_inference_with_history_policy(
+                    id,
+                    &inference,
+                    "later",
+                    None,
+                    Some("Fresh summary"),
+                    PeonAttentionPolicy::NonPrompt,
+                )
+                .unwrap();
+            assert_eq!(outcome, PeonMergeOutcome::Applied);
+            let stored = store.read_session(id).unwrap();
+            assert_eq!(stored.observed_status.as_deref(), Some(stored_status));
+            assert_ne!(stored.attention.as_deref(), Some("needs_you"));
+            assert_eq!(stored.needs_user_input, None);
+            assert_eq!(stored.detected_question, None);
+            assert_eq!(stored.suggested_options, None);
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_does_not_clear_hook_owned_prompt_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "hook-owned-prompt-fields";
+        let mut meta = test_metadata(id);
+        meta.harness = "opencode".into();
+        meta.metadata_source = "agent".into();
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+        meta.needs_user_input = Some(true);
+        meta.detected_question = Some("Hook-owned question".into());
+        meta.suggested_options = Some(vec!["Hook option".into()]);
+        store.write_session(&meta);
+        store
+            .merge_peon_inference_with_history_policy(
+                id,
+                &peon_inference_with_summary(Some("New diagnostic"), 0.8),
+                "later",
+                None,
+                Some("New diagnostic"),
+                PeonAttentionPolicy::PreserveHook {
+                    status: "waiting_for_input",
+                    confidence: 1.0,
+                    source: "agent",
+                },
+            )
+            .unwrap();
+        let stored = store.read_session(id).unwrap();
+        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(stored.needs_user_input, Some(true));
+        assert_eq!(
+            stored.detected_question.as_deref(),
+            Some("Hook-owned question")
+        );
+        assert_eq!(stored.suggested_options, Some(vec!["Hook option".into()]));
+        assert_eq!(stored.summary.as_deref(), Some("New diagnostic"));
     }
 
     #[test]
