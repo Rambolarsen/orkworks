@@ -116,10 +116,14 @@ mod tests {
             .unwrap_or_default();
         candidates.push("/bin/sleep".into());
         candidates.push("/usr/bin/sleep".into());
-        candidates
-            .into_iter()
-            .find(|candidate| candidate.is_file())
-            .expect("a sleep binary must exist on unix hosts running these tests")
+        let resolved = candidates.iter().find(|candidate| candidate.is_file());
+        match resolved {
+            Some(resolved) => resolved.clone(),
+            None => panic!(
+                "no sleep binary found for procfs tests, searched: {:?}",
+                candidates
+            ),
+        }
     }
 
     #[cfg(unix)]
