@@ -45,7 +45,10 @@ fn main() {
         Some("hold-pipes") => {
             let root = PathBuf::from(env::var_os("CUSTOM_TEST_ROOT").unwrap());
             fs::write(root.join("descendant-started"), "started").unwrap();
-            std::thread::sleep(Duration::from_secs(3));
+            // Longer than the transport timeout, so a working process-tree
+            // cleanup always removes this descendant before it can record
+            // survival; the parent test's bounded poll outlives this marker.
+            std::thread::sleep(Duration::from_secs(8));
             fs::write(root.join("descendant-survived"), "survived").unwrap();
         }
         _ => panic!("unknown fixture protocol"),
@@ -57,8 +60,12 @@ fn transport(args: &[String]) {
     let mode = env::var("CUSTOM_TEST_MODE").unwrap();
     if mode == "timeout" {
         let _descendant = std::process::Command::new(env::current_exe().unwrap())
-            .arg("hold-pipes").spawn().unwrap();
-        std::thread::sleep(Duration::from_secs(3));
+            .arg("hold-pipes")
+            .spawn()
+            .unwrap();
+        // Must outlive the transport timeout so the timeout (not a natural
+        // exit) is what ends this process.
+        std::thread::sleep(Duration::from_secs(8));
     }
     let mut fields = vec![env::current_dir().unwrap().to_str().unwrap().to_owned()];
     for name in [

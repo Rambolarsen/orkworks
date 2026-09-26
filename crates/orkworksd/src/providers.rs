@@ -4717,7 +4717,10 @@ mod tests {
                 default_args: vec![],
                 model_arg_template: Some("--model={model}".into()),
                 supports_model: true,
-                timeout_secs: 1,
+                // Generous: under full-suite parallel load even a `printf`
+                // fixture can take more than a second to spawn and run; the
+                // timeout is fixture plumbing, not the behavior under test.
+                timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
                 list_models_command: Some(command.to_string_lossy().into_owned()),
