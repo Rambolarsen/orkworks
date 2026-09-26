@@ -274,6 +274,7 @@ fn manual_evaluation_discards_a_request_after_workspace_switch() {
         fixture.dir.path().join("runtime"),
         |_, _, _, _| panic!("repository context must not be collected for a stale workspace"),
         Some(requested_workspace),
+        None,
     );
 }
 

@@ -573,10 +573,10 @@ impl RecommendationStore {
         Ok(Some(next))
     }
 
-    /// Recover accepted/executing packet recommendations whose target session
-    /// disappeared before reporting a result. Evidence remains intact and a
-    /// new explicit user approval is required for a retry.
-    pub(crate) fn recover_orphaned_packet_executions(
+    /// Recover accepted/executing recommendations whose target session
+    /// disappeared before completing the handoff. Evidence remains intact and
+    /// a new explicit user approval is required for a retry.
+    pub(crate) fn recover_orphaned_executions(
         &self,
         retained_session_ids: &HashSet<String>,
         recovered_at: String,
@@ -596,12 +596,10 @@ impl RecommendationStore {
             let Some(target_session_id) = recommendation.target_session_id.as_deref() else {
                 continue;
             };
-            if !recommendation.completion_packet.as_ref().is_some_and(|_| {
-                matches!(
-                    recommendation.status,
-                    RecommendationStatus::Executing | RecommendationStatus::Accepted
-                )
-            }) || retained_session_ids.contains(target_session_id)
+            if !matches!(
+                recommendation.status,
+                RecommendationStatus::Executing | RecommendationStatus::Accepted
+            ) || retained_session_ids.contains(target_session_id)
             {
                 continue;
             }
@@ -1942,7 +1940,7 @@ mod tests {
             .unwrap();
 
         let recovered = store
-            .recover_orphaned_packet_executions(
+            .recover_orphaned_executions(
                 &HashSet::from(["session-source".to_string()]),
                 "2026-09-24T10:07:00Z".into(),
             )
@@ -1952,6 +1950,28 @@ mod tests {
         assert_eq!(recommendation.status, RecommendationStatus::Proposed);
         assert!(recommendation.target_session_id.is_none());
         assert!(recommendation.completion_packet.unwrap().approval.is_none());
+    }
+
+    #[test]
+    fn orphaned_non_packet_execution_is_recovered_for_user_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let mut recommendation = recommendation("orphaned-workflow", "source-session");
+        recommendation.status = RecommendationStatus::Executing;
+        recommendation.target_session_id = Some("deleted-target".into());
+        store.put(&recommendation).unwrap();
+
+        let recovered = store
+            .recover_orphaned_executions(
+                &HashSet::from(["source-session".to_string()]),
+                "2026-09-24T10:07:00Z".into(),
+            )
+            .unwrap();
+
+        assert_eq!(recovered, vec!["orphaned-workflow"]);
+        let recommendation = store.get("orphaned-workflow").unwrap().unwrap();
+        assert_eq!(recommendation.status, RecommendationStatus::Proposed);
+        assert!(recommendation.target_session_id.is_none());
     }
 
     #[test]

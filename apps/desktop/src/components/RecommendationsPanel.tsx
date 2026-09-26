@@ -3,7 +3,6 @@ import {
   dismissTaskmasterRecommendation,
   getTaskmasterRecommendation,
   getTaskmasterRecommendations,
-  requestManualTaskmasterAnalysis,
   type ObservationDiagnostic,
   type WorkflowRecommendation,
 } from "../api.ts";
@@ -160,6 +159,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
   const [blockedRecommendation, setBlockedRecommendation] = useState<WorkflowRecommendation>();
   const [blockedRecommendationId, setBlockedRecommendationId] = useState<string>();
   const refreshGeneration = useRef(0);
+  const workspaceGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!hasWorkspace || !taskmasterReady) return;
@@ -217,10 +217,12 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     // it visible until the next successful poll.
     if (!hasWorkspace) {
       ++refreshGeneration.current;
+      ++workspaceGeneration.current;
       setRecommendations([]);
       setDiagnostics([]);
       setBlockedRecommendation(undefined);
       setBlockedRecommendationId(undefined);
+      setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
       setError(undefined);
@@ -228,10 +230,12 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     }
     if (!taskmasterReady) {
       ++refreshGeneration.current;
+      ++workspaceGeneration.current;
       setRecommendations([]);
       setDiagnostics([]);
       setBlockedRecommendation(undefined);
       setBlockedRecommendationId(undefined);
+      setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
       setError(undefined);
@@ -263,10 +267,10 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     setAnalysisBusy(true);
     setAnalysisError(undefined);
     setAnalysisMessage(undefined);
+    const generation = workspaceGeneration.current;
     try {
-      const baseUrl = await window.orkworks.getBackendUrl();
-      if (!hasWorkspace || !taskmasterReady) return;
-      const result = await requestManualTaskmasterAnalysis(baseUrl);
+      const result = await window.orkworks.requestTaskmasterAnalysis();
+      if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
       if (result.status === "active_recommendation" && result.recommendation) {
         setBlockedRecommendation(result.recommendation);
         setBlockedRecommendationId(result.recommendation.id);
@@ -274,11 +278,12 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       } else {
         setAnalysisMessage(result.message);
       }
-      if (result.status === "scheduled") void refresh();
+      if (result.status === "scheduled" || result.status === "active_recommendation") void refresh();
     } catch (cause) {
+      if (generation !== workspaceGeneration.current) return;
       setAnalysisError(cause instanceof Error ? cause.message : "Couldn't start Brain analysis.");
     } finally {
-      setAnalysisBusy(false);
+      if (generation === workspaceGeneration.current) setAnalysisBusy(false);
     }
   }
 
@@ -322,6 +327,11 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       {analysisMessage && <div className="recommendation-analysis-status" role="status">
         {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
         <p>{analysisMessage}</p>
+        {blockedRecommendation?.status === "executing" && <button
+          type="button"
+          disabled={dismissing === blockedRecommendation.id}
+          onClick={() => void dismiss(blockedRecommendation.id)}
+        >{dismissing === blockedRecommendation.id ? "Recovering…" : "Recover stuck recommendation"}</button>}
       </div>}
       {analysisError && <p className="recommendation-error" role="alert">{analysisError}</p>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}

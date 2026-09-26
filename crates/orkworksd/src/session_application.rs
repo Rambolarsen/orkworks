@@ -729,7 +729,10 @@ impl SessionApplication {
             return Ok(None);
         };
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
-            || existing.status != RecommendationStatus::Proposed
+            || !matches!(
+                existing.status,
+                RecommendationStatus::Proposed | RecommendationStatus::Executing
+            )
         {
             return Err(RecommendationDismissError::Conflict);
         }
@@ -2434,12 +2437,12 @@ impl SessionApplication {
             .into_iter()
             .map(|session| session.id)
             .collect::<std::collections::HashSet<_>>();
-        if let Err(error) = recommendation_store
-            .recover_orphaned_packet_executions(&retained_session_ids, iso_now())
+        if let Err(error) =
+            recommendation_store.recover_orphaned_executions(&retained_session_ids, iso_now())
         {
-            tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned completion packets");
+            tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned recommendation executions");
             return Err(SessionError::Internal(
-                "failed to recover orphaned completion packets",
+                "failed to recover orphaned recommendation executions",
             ));
         }
         if let Err(error) = recommendation_store.scrub_orphans(&retained_session_ids) {
@@ -9104,6 +9107,32 @@ mod tests {
             crate::taskmaster::RecommendationStatus::Dismissed
         );
         assert!(reloaded.workflow_improvement.dismissal_watermark.is_some());
+    }
+
+    #[test]
+    fn dismiss_recommendation_can_recover_a_stuck_execution() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "stuck-execution");
+        let workspace = state.workspace.lock().unwrap();
+        workspace
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .begin_execution(
+                &recommendation_id,
+                "active-session".into(),
+                "2026-09-24T10:07:00Z".into(),
+            )
+            .unwrap();
+        drop(workspace);
+
+        let dismissed = SessionApplication::new(state)
+            .dismiss_recommendation(&recommendation_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(dismissed.status, RecommendationStatus::Dismissed);
     }
 
     fn proposed_recommendation_id(state: &Arc<AppState>, key_prefix: &str) -> String {

@@ -1253,6 +1253,16 @@ app.whenReady().then(async () => {
     return `http://127.0.0.1:${port}`;
   });
 
+  ipcMain.handle("analyze-taskmaster", async () => withReadyBackendGeneration(
+    (port, token, signal) => taskmasterMutationRequest(
+      port,
+      token,
+      "taskmaster/analyze",
+      {},
+      signal,
+    ),
+  ));
+
   ipcMain.handle("dismiss-taskmaster-recommendation", async (_event, id: unknown, reason: unknown) => {
     if (typeof id !== "string" || !id) throw new Error("Invalid recommendation ID.");
     if (reason !== undefined && typeof reason !== "string") throw new Error("Invalid dismissal reason.");

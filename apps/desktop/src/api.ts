@@ -743,13 +743,6 @@ export async function getTaskmasterRecommendation(
   return response.json();
 }
 
-export async function requestManualTaskmasterAnalysis(
-  baseUrl: string,
-): Promise<ManualTaskmasterAnalysisResponse> {
-  const response = await taskmasterRequest(baseUrl, "/taskmaster/analyze", { method: "POST" });
-  return response.json();
-}
-
 export async function dismissTaskmasterRecommendation(
   id: string,
   reason?: string,

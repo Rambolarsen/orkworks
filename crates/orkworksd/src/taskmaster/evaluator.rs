@@ -217,19 +217,23 @@ struct ModelProposal {
 }
 
 fn schedule_model_evaluation(state: Arc<AppState>) {
-    let _ = schedule_model_evaluation_with_workspace(state, None);
+    let _ = schedule_model_evaluation_with_workspace(state, None, None);
 }
 
 pub(crate) fn schedule_manual_evaluation(
     state: Arc<AppState>,
     workspace_path: std::path::PathBuf,
 ) -> bool {
-    schedule_model_evaluation_with_workspace(state, Some(workspace_path))
+    let Some(root) = taskmaster_global_dir() else {
+        return false;
+    };
+    schedule_model_evaluation_with_workspace(state, Some(workspace_path), Some(root))
 }
 
 fn schedule_model_evaluation_with_workspace(
     state: Arc<AppState>,
     manual_workspace: Option<std::path::PathBuf>,
+    lease_root: Option<std::path::PathBuf>,
 ) -> bool {
     if tokio::runtime::Handle::try_current().is_err() {
         return false;
@@ -241,46 +245,57 @@ fn schedule_model_evaluation_with_workspace(
         if *in_flight {
             return false;
         }
-        *in_flight = true;
-    }
-    tokio::task::spawn_blocking(move || {
-        struct Flight;
-        impl Drop for Flight {
-            fn drop(&mut self) {
-                clear_in_flight();
+        let lease = if let Some(root) = lease_root {
+            match TaskmasterRuntime::open(root).try_analysis_lease() {
+                Ok(Some(lease)) => Some(lease),
+                Ok(None) | Err(_) => return false,
             }
-        }
-        let _flight = Flight;
-        run_model_evaluation_with_workspace(state, manual_workspace);
-    });
+        } else {
+            None
+        };
+        *in_flight = true;
+        tokio::task::spawn_blocking(move || {
+            struct Flight;
+            impl Drop for Flight {
+                fn drop(&mut self) {
+                    clear_in_flight();
+                }
+            }
+            let _flight = Flight;
+            run_model_evaluation_with_workspace(state, manual_workspace, lease);
+        });
+    }
     true
 }
 
 fn run_model_evaluation_with_workspace(
     state: Arc<AppState>,
     manual_workspace: Option<std::path::PathBuf>,
+    analysis_lease: Option<std::fs::File>,
 ) {
     let Some(root) = taskmaster_global_dir() else {
         return;
     };
-    run_model_evaluation_at_with_workspace(state, root, manual_workspace);
+    run_model_evaluation_at_with_workspace(state, root, manual_workspace, analysis_lease);
 }
 
 #[cfg(test)]
 fn run_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
-    run_model_evaluation_at_with_workspace(state, root, None);
+    run_model_evaluation_at_with_workspace(state, root, None, None);
 }
 
 fn run_model_evaluation_at_with_workspace(
     state: Arc<AppState>,
     root: std::path::PathBuf,
     manual_workspace: Option<std::path::PathBuf>,
+    analysis_lease: Option<std::fs::File>,
 ) {
     run_model_evaluation_with_context_and_workspace(
         state,
         root,
         crate::taskmaster::context::collect_repository_facts,
         manual_workspace,
+        analysis_lease,
     );
 }
 
@@ -296,7 +311,7 @@ fn run_model_evaluation_with_context(
         &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
 ) {
-    run_model_evaluation_with_context_and_workspace(state, root, collect_facts, None);
+    run_model_evaluation_with_context_and_workspace(state, root, collect_facts, None, None);
 }
 
 fn run_model_evaluation_with_context_and_workspace(
@@ -309,6 +324,7 @@ fn run_model_evaluation_with_context_and_workspace(
         &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
     manual_workspace: Option<std::path::PathBuf>,
+    analysis_lease: Option<std::fs::File>,
 ) {
     let (workspace_path, workspace_instance, observations, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
@@ -343,8 +359,12 @@ fn run_model_evaluation_with_context_and_workspace(
     }
     let trust = super::inference_trust::InferenceTrustStore::new(root.clone());
     let runtime = TaskmasterRuntime::open(root);
-    let Ok(Some(_lease)) = runtime.try_analysis_lease() else {
-        return;
+    let _lease = match analysis_lease {
+        Some(lease) => lease,
+        None => match runtime.try_analysis_lease() {
+            Ok(Some(lease)) => lease,
+            Ok(None) | Err(_) => return,
+        },
     };
     let Some(mut snapshot) = (if manual_workspace.is_some() {
         runtime.manual_evaluation_snapshot(&workspace_path)
@@ -463,6 +483,24 @@ fn run_model_evaluation_with_context_and_workspace(
     };
     let providers = state.providers.clone();
     {
+        if manual_workspace.is_some() {
+            let workspace = state.workspace.lock().expect("workspace lock poisoned");
+            let Some(current) = workspace.as_ref() else {
+                return;
+            };
+            if current.path != workspace_path
+                || current.workflow_observations.instance_id() != workspace_instance
+            {
+                return;
+            }
+            let Ok(current_recommendations) = current.recommendation_store.list() else {
+                return;
+            };
+            if crate::taskmaster::active_workflow_recommendation(&current_recommendations).is_some()
+            {
+                return;
+            }
+        }
         let selection = snapshot
             .settings
             .selection

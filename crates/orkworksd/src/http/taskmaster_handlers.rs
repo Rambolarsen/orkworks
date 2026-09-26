@@ -161,7 +161,14 @@ pub(crate) async fn report_completion_packet(
     }
 }
 
-pub(crate) async fn analyze_taskmaster(State(state): State<Arc<AppState>>) -> Response {
+pub(crate) async fn analyze_taskmaster(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(status) = super::taskmaster_settings_handlers::authorize_taskmaster_request(&headers)
+    {
+        return status.into_response();
+    }
     let (workspace_path, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
@@ -957,6 +964,18 @@ mod tests {
                 .status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[tokio::test]
+    async fn analyze_requires_the_electron_open_workspace_capability() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State(test_app_state_with_workspace(dir.path()));
+        let response = analyze_taskmaster(state, HeaderMap::new()).await;
+        assert_ne!(response.status(), StatusCode::OK);
+        assert!(matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::SERVICE_UNAVAILABLE
+        ));
     }
 
     #[tokio::test]

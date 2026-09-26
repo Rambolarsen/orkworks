@@ -121,6 +121,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   getTaskmasterSettings: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-settings"),
+  requestTaskmasterAnalysis: (): Promise<unknown> => ipcRenderer.invoke("analyze-taskmaster"),
   dismissTaskmasterRecommendation: (id: string, reason?: string): Promise<void> =>
     ipcRenderer.invoke("dismiss-taskmaster-recommendation", id, reason),
   acceptTaskmasterRecommendation: (id: string, options: TaskmasterAcceptOptions): Promise<unknown> =>
