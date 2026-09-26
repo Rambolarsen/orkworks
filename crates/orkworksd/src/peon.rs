@@ -1238,10 +1238,11 @@ pub fn evidence_is_grounded(evidence: &str, output: &[String]) -> bool {
 /// terminal width is almost certainly a row the harness wrapped rather than
 /// a genuinely short line, so it is concatenated directly onto the next
 /// captured line — no separator, since a hard wrap can split mid-word —
-/// instead of being treated as its own logical line. Chained wraps (three or
-/// more physical rows for one logical line) fall out naturally: each join
-/// re-checks the newly extended line's length before deciding on the next
-/// row.
+/// instead of being treated as its own logical line. Chaining is row-local:
+/// a row joins the accumulated line only while the most recent appended row
+/// itself filled the terminal width, so a short final continuation row ends
+/// the chain and the next logical line starts fresh (ADR 0065). A trailing
+/// full-width line stays on its own.
 ///
 /// This is a best-effort heuristic, not a terminal-width-aware renderer: it
 /// counts `char`s rather than display width (so wide/CJK or emoji characters
@@ -1251,20 +1252,74 @@ pub fn evidence_is_grounded(evidence: &str, output: &[String]) -> bool {
 /// underlying `RingBuffer`/`output_buffer` or its line-count bookkeeping;
 /// callers pass it a local, already-captured snapshot.
 pub fn rejoin_hard_wrapped_lines(lines: &[String], cols: u16) -> Vec<String> {
+    let mut pending: Option<String> = None;
+    let mut result = rejoin_hard_wrapped_rows_streaming(&mut pending, lines, cols);
+    if let Some(tail) = pending {
+        result.push(tail);
+    }
+    result
+}
+
+/// Ingestion-time counterpart to [`rejoin_hard_wrapped_lines`]: reassembles
+/// hard-wrapped rows as they stream in, one output chunk at a time, so the
+/// shared `output_buffer` holds logical lines instead of physical rows
+/// (ADR 0065). The caller passes each chunk's already-trimmed rows and
+/// receives the lines that are complete enough to push; a chunk that ends on
+/// a full-width row (at or beyond the terminal width, the same wrap signal as
+/// the snapshot helper) is held in `pending` and prepended to the next
+/// chunk's rows, since its continuation may not have arrived yet. The caller
+/// must flush a leftover `pending` row into its buffer when no further rows
+/// can arrive (runtime exit), or the tail line is lost from the logical view.
+///
+/// Chaining is row-local: a row joins the accumulated line only while the
+/// most recent appended row itself filled the terminal width, so a real
+/// multi-row wrap (each intermediate row exactly full width) chains, but a
+/// short final continuation row stops the chain and the next logical line
+/// starts fresh. This deliberately avoids the snapshot helper's
+/// extended-length re-check, which would glue every row after the first
+/// full-width row into one line — acceptable on a throwaway snapshot, but an
+/// over-join regression if it reshaped the shared buffer's line structure.
+///
+/// Empty rows are skipped without disturbing the held prefix or the chain.
+/// `cols == 0` disables the heuristic entirely: rows pass through unchanged
+/// and `pending` is left as the caller left it. Like the snapshot helper,
+/// this counts `char`s rather than display width and cannot distinguish a
+/// coincidentally full-width row from a real wrap.
+pub fn rejoin_hard_wrapped_rows_streaming(
+    pending: &mut Option<String>,
+    rows: &[String],
+    cols: u16,
+) -> Vec<String> {
     if cols == 0 {
-        return lines.to_vec();
+        return rows.to_vec();
     }
     let cols = cols as usize;
-    let mut result: Vec<String> = Vec::with_capacity(lines.len());
-    for line in lines {
-        let previous_was_full_width = result
-            .last()
-            .is_some_and(|previous: &String| previous.chars().count() >= cols);
-        if previous_was_full_width {
-            result.last_mut().unwrap().push_str(line);
-        } else {
-            result.push(line.clone());
+    let mut result: Vec<String> = Vec::with_capacity(rows.len());
+    let mut current = pending.take();
+    // A held row is only ever stored because it filled the terminal width,
+    // so it starts the chain as if its (now-absent) row were full width.
+    let mut last_row_full_width = current.is_some();
+    for row in rows {
+        if row.is_empty() {
+            continue;
         }
+        match current.take() {
+            Some(mut previous) if last_row_full_width => {
+                previous.push_str(row);
+                current = Some(previous);
+            }
+            Some(previous) => {
+                result.push(previous);
+                current = Some(row.clone());
+            }
+            None => current = Some(row.clone()),
+        }
+        last_row_full_width = row.chars().count() >= cols;
+    }
+    match current {
+        Some(previous) if last_row_full_width => *pending = Some(previous),
+        Some(previous) => result.push(previous),
+        None => {}
     }
     result
 }
@@ -2566,6 +2621,22 @@ mod tests {
     }
 
     #[test]
+    fn rejoin_hard_wrapped_lines_ends_the_chain_after_a_short_continuation_row() {
+        // Row-local chaining (ADR 0065): once a short continuation row ends
+        // the wrap, the next logical line must not be glued onto it.
+        let lines = vec![
+            "0123456789".to_string(),
+            "tail".to_string(),
+            "next".to_string(),
+        ];
+
+        assert_eq!(
+            rejoin_hard_wrapped_lines(&lines, 10),
+            vec!["0123456789tail".to_string(), "next".to_string()]
+        );
+    }
+
+    #[test]
     fn rejoin_hard_wrapped_lines_reassembles_a_realistic_wrapped_bullet_line() {
         // Mirrors the shape of the corruption behind recommendation-c96a57164037ba7d:
         // a bulleted commit/path line long enough that the harness hard-wraps it.
@@ -2588,6 +2659,102 @@ mod tests {
         let rejoined = rejoin_hard_wrapped_lines(&wrapped, cols as u16);
 
         assert_eq!(rejoined, vec![logical_line.to_string()]);
+    }
+
+    #[test]
+    fn streaming_rejoin_joins_rows_inside_one_batch() {
+        let mut pending: Option<String> = None;
+        let rows = vec![
+            "0123456789".to_string(),
+            "tail".to_string(),
+            "next".to_string(),
+        ];
+
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &rows, 10),
+            vec!["0123456789tail".to_string(), "next".to_string()]
+        );
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn streaming_rejoin_holds_a_trailing_full_width_row_for_the_next_batch() {
+        let mut pending: Option<String> = None;
+        let rows = vec!["short".to_string(), "0123456789".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &rows, 10),
+            vec!["short".to_string()]
+        );
+        assert_eq!(pending, Some("0123456789".to_string()));
+    }
+
+    #[test]
+    fn streaming_rejoin_prepends_the_held_row_onto_the_next_batch() {
+        let mut pending: Option<String> = Some("0123456789".to_string());
+        let rows = vec!["tail".to_string(), "next".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &rows, 10),
+            vec!["0123456789tail".to_string(), "next".to_string()]
+        );
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn streaming_rejoin_chains_wraps_across_batch_boundaries() {
+        let mut pending: Option<String> = None;
+        let first = vec!["0123456789".to_string(), "0123456789".to_string()];
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &first, 10),
+            Vec::<String>::new()
+        );
+        assert_eq!(pending, Some("01234567890123456789".to_string()));
+
+        let second = vec!["tail".to_string()];
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &second, 10),
+            vec!["01234567890123456789tail".to_string()]
+        );
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn streaming_rejoin_passes_through_for_zero_cols() {
+        let mut pending: Option<String> = None;
+        let rows = vec!["a".to_string(), "b".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &rows, 0),
+            rows
+        );
+        assert_eq!(pending, None);
+    }
+
+    #[test]
+    fn streaming_rejoin_leaves_an_incoming_held_row_untouched_for_zero_cols() {
+        let mut pending: Option<String> = Some("held".to_string());
+        let rows = vec!["a".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &rows, 0),
+            rows
+        );
+        assert_eq!(pending, Some("held".to_string()));
+    }
+
+    #[test]
+    fn streaming_rejoin_skips_empty_rows_without_dropping_the_held_prefix() {
+        // The caller passes already-trimmed rows, so whitespace-only rows
+        // arrive as empty strings.
+        let mut pending: Option<String> = Some("0123456789".to_string());
+        let rows = vec![String::new(), String::new(), "tail".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &rows, 10),
+            vec!["0123456789tail".to_string()]
+        );
+        assert_eq!(pending, None);
     }
 
     #[test]

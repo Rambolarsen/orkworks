@@ -72,3 +72,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0062](./0062-guided-completion-packets.md) | Guided completion packets stay recommendation projections | accepted |
 | [0063](./0063-codex-native-session-labels.md) | Codex native session names enrich automatic session labels | accepted |
 | [0064](./0064-bounded-taskmaster-coordinator.md) | Bounded Taskmaster coordinator uses approved root plans | proposed — [Coordinator design gate](../../specs/taskmaster.md#coordinator-design-gate); design approval permits only a separate implementation plan and review |
+| [0065](./0065-ingestion-time-hard-wrap-reassembly.md) | Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer | accepted |

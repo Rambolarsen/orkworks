@@ -300,6 +300,10 @@ pub(crate) struct SessionRuntime {
     pub(crate) attached_generation: Option<u64>,
     pub(crate) last_rows: u16,
     pub(crate) last_cols: u16,
+    // Ingestion-time hard-wrap reassembly state (ADR 0065): a chunk-final row
+    // that filled the terminal width waits here for its continuation row and
+    // is flushed into output_buffer at runtime exit.
+    pub(crate) pending_wrap_prefix: Option<String>,
     pub(crate) input_generation: u64,
     pub(crate) accepted_input_at: Option<DateTime<Utc>>,
     pub(crate) last_hook_attention_at: Option<DateTime<Utc>>,
@@ -328,6 +332,7 @@ impl SessionRuntime {
                 attached_generation: None,
                 last_rows: rows,
                 last_cols: cols,
+                pending_wrap_prefix: None,
                 input_generation: 0,
                 accepted_input_at: None,
                 last_hook_attention_at: None,
@@ -358,6 +363,7 @@ impl SessionRuntime {
             attached_generation: None,
             last_rows: rows,
             last_cols: cols,
+            pending_wrap_prefix: None,
             input_generation: 0,
             accepted_input_at: None,
             last_hook_attention_at: None,
@@ -746,6 +752,12 @@ pub(crate) async fn handle_runtime_exit(
         };
         handle.runtime.attached_generation = None;
         handle.terminal_attached = false;
+        // ADR 0065: no further rows can arrive once the runtime exits, so a
+        // held full-width row must join the logical buffer view before the
+        // ending finalizer reads it.
+        if let Some(prefix) = handle.runtime.pending_wrap_prefix.take() {
+            handle.runtime.peon_output_revision = handle.output_buffer.push(prefix);
+        }
         handle.runtime.identity()
     };
     crate::session_application::SessionApplication::new(state.clone())
@@ -1124,14 +1136,29 @@ pub(crate) async fn start_session_runtime(
                                             .runtime
                                             .schedule_output_recency_flush(output_persist_at);
                                     }
-                                    for raw in &raw_persist_lines {
-                                        let trimmed = raw.text().trim();
-                                        if !trimmed.is_empty() {
-                                            handle.runtime.peon_output_revision =
-                                                handle.output_buffer.push(trimmed.to_string());
-                                        }
+                                    // ADR 0065: reassemble hard-wrapped rows
+                                    // before they enter the shared buffer,
+                                    // so every consumer of
+                                    // `output_buffer` sees logical lines.
+                                    // Physical rows still reach the
+                                    // append-only terminal history below.
+                                    let rows: Vec<String> = raw_persist_lines
+                                        .iter()
+                                        .map(|raw| raw.text().trim().to_string())
+                                        .collect();
+                                    let reassembled = peon::rejoin_hard_wrapped_rows_streaming(
+                                        &mut handle.runtime.pending_wrap_prefix,
+                                        &rows,
+                                        handle.runtime.last_cols,
+                                    );
+                                    for line in reassembled {
+                                        handle.runtime.peon_output_revision =
+                                            handle.output_buffer.push(line);
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;
+                                    // Deliberately physical: `output_lines_seen` counts
+                                    // persisted rows, not the fewer logical lines pushed
+                                    // into `output_buffer` above (ADR 0065 Consequences).
                                     handle.scan_bytes_seen += text.len() as u64;
                                     handle.scan_buf.push_str(&text);
                                     const MAX_SCAN: usize = 8192;
@@ -2261,7 +2288,242 @@ mod tests {
         );
         drop(ws);
 
-        kill_tx.send(true).unwrap();
+        let _ = kill_tx.send(true);
+    }
+
+    /// Wires a workspace store onto `test_state_with_runtime_session`'s state
+    /// so the ingestion loop's write-back paths have somewhere to persist.
+    fn ingestion_test_workspace(state: &Arc<crate::AppState>, dir: &tempfile::TempDir) {
+        let metadata_root = dir.path().join(".orkworks-test");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().to_path_buf(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open workflow observation store"),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root.clone(),
+            )
+            .expect("open recommendation store"),
+            lease: None,
+        });
+        let ws = state.workspace.lock().unwrap();
+        let meta = crate::test_support::test_session_metadata(
+            "ingest-rejoin",
+            "Runtime Test",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        ws.as_ref().unwrap().metadata.write_session(&meta);
+    }
+
+    #[tokio::test]
+    async fn ingested_hard_wrapped_rows_enter_output_buffer_as_logical_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "ingest-rejoin-logical-lines";
+        let state = test_state_with_runtime_session(session_id);
+        ingestion_test_workspace(&state, &dir);
+
+        let cols = DEFAULT_TERMINAL_COLS as usize;
+        let row = "a".repeat(cols);
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec![
+                "-c".into(),
+                format!("printf '%s\\n' '{row}' 'tail' 'after'"),
+            ],
+            cwd: dir.path().display().to_string(),
+        };
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.runtime = runtime;
+        }
+
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        let joined = format!("{row}tail");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let done = {
+                    let sessions = state.sessions.lock().unwrap();
+                    sessions[session_id].output_buffer.snapshot()
+                        == vec![joined.clone(), "after".to_string()]
+                };
+                if done {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("rejoined logical lines should appear in the output buffer within 5s");
+
+        let snapshot = state.sessions.lock().unwrap()[session_id]
+            .output_buffer
+            .snapshot();
+        assert_eq!(snapshot, vec![joined, "after".to_string()]);
+        let _ = kill_tx.send(true);
+    }
+
+    #[tokio::test]
+    async fn a_hard_wrapped_line_straddling_read_chunks_stays_one_logical_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "ingest-rejoin-chunk-straddle";
+        let state = test_state_with_runtime_session(session_id);
+        ingestion_test_workspace(&state, &dir);
+
+        // Row + \n is exactly 512 bytes, so every 4096-byte reader chunk (and
+        // every per-line flush) ends on a full-width row whose continuation
+        // lands in the next chunk — the held-prefix path runs deterministically.
+        let cols: u16 = 511;
+        let row_count = 16;
+        let script = format!(
+            "awk 'BEGIN{{s=\"\";for(i=0;i<{cols};i++)s=s \"a\";for(i=0;i<{row_count};i++)print s;print \"tail\"}}'"
+        );
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script],
+            cwd: dir.path().display().to_string(),
+        };
+
+        let (runtime, control_rx) = SessionRuntime::live(24, cols);
+        let output_tx = runtime.output_tx.clone();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.runtime = runtime;
+        }
+
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: 24,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        let expected = format!("{}tail", "a".repeat(cols as usize * row_count));
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let done = {
+                    let sessions = state.sessions.lock().unwrap();
+                    sessions[session_id].output_buffer.snapshot() == vec![expected.clone()]
+                };
+                if done {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("the full logical line should appear as one buffer entry within 10s");
+
+        let snapshot = state.sessions.lock().unwrap()[session_id]
+            .output_buffer
+            .snapshot();
+        assert_eq!(snapshot, vec![expected]);
+        let _ = kill_tx.send(true);
+    }
+
+    #[tokio::test]
+    async fn runtime_exit_flushes_a_held_full_width_row_into_output_buffer() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "ingest-rejoin-exit-flush";
+        let state = test_state_with_runtime_session(session_id);
+        ingestion_test_workspace(&state, &dir);
+
+        let cols = DEFAULT_TERMINAL_COLS as usize;
+        let row = "a".repeat(cols);
+        let command = harness::CommandSpec {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), format!("printf '%s\\n' '{row}'")],
+            cwd: dir.path().display().to_string(),
+        };
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(session_id).unwrap();
+            handle.runtime = runtime;
+        }
+
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let done = {
+                    let sessions = state.sessions.lock().unwrap();
+                    !sessions[session_id].output_buffer.snapshot().is_empty()
+                };
+                if done {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("the held full-width row should be flushed into the buffer at runtime exit");
+
+        let snapshot = state.sessions.lock().unwrap()[session_id]
+            .output_buffer
+            .snapshot();
+        assert_eq!(snapshot, vec![row]);
+        let _ = kill_tx.send(true);
     }
 
     #[test]
@@ -2545,7 +2807,7 @@ mod tests {
         );
         drop(handle);
 
-        kill_tx.send(true).unwrap();
+        let _ = kill_tx.send(true);
     }
 
     #[tokio::test]
@@ -3560,7 +3822,7 @@ mod tests {
         .await
         .expect("flooding process should emit output quickly");
 
-        kill_tx.send(true).unwrap();
+        let _ = kill_tx.send(true);
 
         tokio::time::timeout(Duration::from_secs(3), runtime_task)
             .await
