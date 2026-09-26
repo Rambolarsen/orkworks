@@ -265,6 +265,19 @@ fn evaluation_identity_cache_changes_on_reapproval_with_identical_prompt_and_mod
 }
 
 #[test]
+fn manual_evaluation_discards_a_request_after_workspace_switch() {
+    let fixture = Fixture::new();
+    let requested_workspace = fixture.dir.path().join("different-workspace");
+
+    run_model_evaluation_with_context_and_workspace(
+        fixture.state.clone(),
+        fixture.dir.path().join("runtime"),
+        |_, _, _, _| panic!("repository context must not be collected for a stale workspace"),
+        Some(requested_workspace),
+    );
+}
+
+#[test]
 fn evaluation_identity_custom_capture_failure_never_becomes_native() {
     let mut fixture = Fixture::new();
     assert!(bind_evaluation_transport(

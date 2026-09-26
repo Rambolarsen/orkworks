@@ -209,6 +209,29 @@ impl TaskmasterRuntime {
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
     ) -> Result<bool, String> {
+        self.reserve_snapshot_with_interval(harnesses, workspace, now, cache_key, snapshot, false)
+    }
+
+    pub(crate) fn reserve_manual_snapshot(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        now: &str,
+        cache_key: &str,
+        snapshot: &EvaluationSnapshot,
+    ) -> Result<bool, String> {
+        self.reserve_snapshot_with_interval(harnesses, workspace, now, cache_key, snapshot, true)
+    }
+
+    fn reserve_snapshot_with_interval(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        now: &str,
+        cache_key: &str,
+        snapshot: &EvaluationSnapshot,
+        bypass_min_interval: bool,
+    ) -> Result<bool, String> {
         if let Some(captured) = &snapshot.custom_inference {
             if !captured.matches_snapshot(workspace, snapshot) {
                 return Ok(false);
@@ -221,12 +244,23 @@ impl TaskmasterRuntime {
                     now,
                     Some(cache_key),
                     Some(snapshot.generation),
+                    bypass_min_interval,
+                    bypass_min_interval,
                 );
             })?;
             reserved
         } else {
             self.with_native_revision(harnesses, snapshot, || {
-                self.reserve_current(workspace, now, Some(cache_key), Some(snapshot.generation))
+                if bypass_min_interval {
+                    self.reserve_current_manual(
+                        workspace,
+                        now,
+                        Some(cache_key),
+                        Some(snapshot.generation),
+                    )
+                } else {
+                    self.reserve_current(workspace, now, Some(cache_key), Some(snapshot.generation))
+                }
             })
             .map(|result| result.unwrap_or(false))
         }
@@ -277,6 +311,25 @@ impl TaskmasterRuntime {
         workspace: &Path,
         evaluation: &EvaluationSnapshot,
     ) -> Result<Option<CapturedInference>, String> {
+        self.capture_custom_inference_with_disabled(harnesses, workspace, evaluation, false)
+    }
+
+    pub(crate) fn capture_manual_custom_inference(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        evaluation: &EvaluationSnapshot,
+    ) -> Result<Option<CapturedInference>, String> {
+        self.capture_custom_inference_with_disabled(harnesses, workspace, evaluation, true)
+    }
+
+    fn capture_custom_inference_with_disabled(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        evaluation: &EvaluationSnapshot,
+        allow_disabled: bool,
+    ) -> Result<Option<CapturedInference>, String> {
         let Some(workspace) = canonical_workspace_key(workspace) else {
             return Ok(None);
         };
@@ -307,7 +360,7 @@ impl TaskmasterRuntime {
                 reload_durable(&self.root, &mut data);
                 if !data.ledger_readable
                     || data.ledger.generation != evaluation.generation
-                    || !evaluation.settings.enabled
+                    || (!allow_disabled && !evaluation.settings.enabled)
                     || effective_settings(&data.settings, &workspace) != evaluation.settings
                 {
                     return Ok(None);

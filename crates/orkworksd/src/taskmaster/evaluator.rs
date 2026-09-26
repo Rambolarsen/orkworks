@@ -217,12 +217,29 @@ struct ModelProposal {
 }
 
 fn schedule_model_evaluation(state: Arc<AppState>) {
+    let _ = schedule_model_evaluation_with_workspace(state, None);
+}
+
+pub(crate) fn schedule_manual_evaluation(
+    state: Arc<AppState>,
+    workspace_path: std::path::PathBuf,
+) -> bool {
+    schedule_model_evaluation_with_workspace(state, Some(workspace_path))
+}
+
+fn schedule_model_evaluation_with_workspace(
+    state: Arc<AppState>,
+    manual_workspace: Option<std::path::PathBuf>,
+) -> bool {
+    if tokio::runtime::Handle::try_current().is_err() {
+        return false;
+    }
     {
         let mut in_flight = ANALYSIS_IN_FLIGHT
             .lock()
             .expect("Taskmaster scheduler lock poisoned");
         if *in_flight {
-            return;
+            return false;
         }
         *in_flight = true;
     }
@@ -234,26 +251,41 @@ fn schedule_model_evaluation(state: Arc<AppState>) {
             }
         }
         let _flight = Flight;
-        run_model_evaluation(state);
+        run_model_evaluation_with_workspace(state, manual_workspace);
     });
+    true
 }
 
-fn run_model_evaluation(state: Arc<AppState>) {
+fn run_model_evaluation_with_workspace(
+    state: Arc<AppState>,
+    manual_workspace: Option<std::path::PathBuf>,
+) {
     let Some(root) = taskmaster_global_dir() else {
         return;
     };
-    run_model_evaluation_at(state, root);
+    run_model_evaluation_at_with_workspace(state, root, manual_workspace);
 }
 
+#[cfg(test)]
 fn run_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
-    run_model_evaluation_with_context(
+    run_model_evaluation_at_with_workspace(state, root, None);
+}
+
+fn run_model_evaluation_at_with_workspace(
+    state: Arc<AppState>,
+    root: std::path::PathBuf,
+    manual_workspace: Option<std::path::PathBuf>,
+) {
+    run_model_evaluation_with_context_and_workspace(
         state,
         root,
         crate::taskmaster::context::collect_repository_facts,
+        manual_workspace,
     );
 }
 
 /// The collector is invoked only after readiness and identity are established.
+#[cfg(test)]
 fn run_model_evaluation_with_context(
     state: Arc<AppState>,
     root: std::path::PathBuf,
@@ -264,27 +296,61 @@ fn run_model_evaluation_with_context(
         &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
 ) {
+    run_model_evaluation_with_context_and_workspace(state, root, collect_facts, None);
+}
+
+fn run_model_evaluation_with_context_and_workspace(
+    state: Arc<AppState>,
+    root: std::path::PathBuf,
+    collect_facts: impl FnOnce(
+        &std::path::Path,
+        crate::taskmaster::runtime::ContextLevel,
+        &[String],
+        &str,
+    ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
+    manual_workspace: Option<std::path::PathBuf>,
+) {
     let (workspace_path, workspace_instance, observations, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
             return;
         };
+        if manual_workspace
+            .as_ref()
+            .is_some_and(|expected| expected != &workspace.path)
+        {
+            return;
+        }
         let Ok(observations) = workspace.workflow_observations.workspace_observations() else {
             return;
+        };
+        let recommendations = match workspace.recommendation_store.list() {
+            Ok(recommendations) => recommendations,
+            Err(_) if manual_workspace.is_some() => return,
+            Err(_) => Vec::new(),
         };
         (
             workspace.path.clone(),
             workspace.workflow_observations.instance_id(),
             observations,
-            workspace.recommendation_store.list().unwrap_or_default(),
+            recommendations,
         )
     };
+    if manual_workspace.is_some()
+        && crate::taskmaster::active_workflow_recommendation(&recommendations).is_some()
+    {
+        return;
+    }
     let trust = super::inference_trust::InferenceTrustStore::new(root.clone());
     let runtime = TaskmasterRuntime::open(root);
     let Ok(Some(_lease)) = runtime.try_analysis_lease() else {
         return;
     };
-    let Some(mut snapshot) = runtime.evaluation_snapshot(&workspace_path) else {
+    let Some(mut snapshot) = (if manual_workspace.is_some() {
+        runtime.manual_evaluation_snapshot(&workspace_path)
+    } else {
+        runtime.evaluation_snapshot(&workspace_path)
+    }) else {
         return;
     };
     let Ok(providers) = super::provider_catalog::inspect(&state.harness_store, Some(&trust)) else {
@@ -360,13 +426,39 @@ fn run_model_evaluation_with_context(
     let Ok(cache_key) = provider_cache_key(&snapshot, &prompt, rollup_request.as_ref()) else {
         return;
     };
-    let Ok(true) = runtime.reserve_snapshot(
-        &state.harness_store,
-        &workspace_path,
-        &now,
-        &cache_key,
-        &snapshot,
-    ) else {
+    if manual_workspace.is_some() {
+        let workspace = state.workspace.lock().expect("workspace lock poisoned");
+        let Some(current) = workspace.as_ref() else {
+            return;
+        };
+        if current.path != workspace_path {
+            return;
+        }
+        let Ok(current_recommendations) = current.recommendation_store.list() else {
+            return;
+        };
+        if crate::taskmaster::active_workflow_recommendation(&current_recommendations).is_some() {
+            return;
+        }
+    }
+    let reservation = if manual_workspace.is_some() {
+        runtime.reserve_manual_snapshot(
+            &state.harness_store,
+            &workspace_path,
+            &now,
+            &cache_key,
+            &snapshot,
+        )
+    } else {
+        runtime.reserve_snapshot(
+            &state.harness_store,
+            &workspace_path,
+            &now,
+            &cache_key,
+            &snapshot,
+        )
+    };
+    let Ok(true) = reservation else {
         return;
     };
     let providers = state.providers.clone();
@@ -448,9 +540,12 @@ fn bind_evaluation_transport(
         }
         super::provider_catalog::Transport::Unsupported => false,
         super::provider_catalog::Transport::Custom => {
-            let Ok(Some(captured)) =
+            let capture = if snapshot.settings.enabled {
                 runtime.capture_custom_inference(harnesses, workspace, snapshot)
-            else {
+            } else {
+                runtime.capture_manual_custom_inference(harnesses, workspace, snapshot)
+            };
+            let Ok(Some(captured)) = capture else {
                 return false;
             };
             snapshot.custom_inference = Some(captured);

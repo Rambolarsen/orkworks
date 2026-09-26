@@ -14,6 +14,10 @@ their confidence is evidence to weigh, not a guarantee.
 - **Dismiss** declines the suggestion.
 - **Fix with AI** sends a scoped fix prompt into your currently active
   session. It requires an active session and your explicit action.
+- **Analyze now** asks the Brain to look for an improvement on demand. If one
+  is already proposed or being implemented, Taskmaster asks you to handle that
+  recommendation first. It works even when automatic Background discovery is
+  off, while still respecting the daily analysis limit.
 
 This action does not start a new session. The coding agent in your selected
 session carries out the work under your repository’s normal instructions.

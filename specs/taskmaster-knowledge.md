@@ -89,6 +89,26 @@ interval is one hour per workspace. Persist reservations before calling the
 provider; failed calls count, restarts cannot reset usage, and an unreadable
 ledger defers inference. These are usage limits, not dollar budgets.
 
+The Recommendations panel offers an explicit **Analyze now** action. A manual
+analysis uses the same Taskmaster provider, selected workspace, context limits,
+knowledge retrieval, evidence validation, and durable reservation ledger as
+background discovery. It remains available when automatic background discovery
+is disabled, provided a supported provider remains configured. It bypasses the
+per-workspace minimum interval because the user explicitly requested the run,
+but still consumes the installation-wide daily evaluation allowance. At most
+one analysis may run at a time, and the existing evidence cache still suppresses
+a provider call when the evidence and effective settings have not changed.
+
+Before accepting a manual analysis request, Taskmaster checks for an active
+`improve_workflow` recommendation in `proposed`, `accepted`, or `executing`
+status. If one exists, it does not start another analysis. The desktop surfaces
+that recommendation and asks the user to implement it through the existing
+explicit **Fix with AI** handoff. Dismissed, completed, and superseded
+recommendations do not block a later manual run; normal evidence identity,
+dismissal watermarks, and lifecycle rules still prevent duplicate or stale
+recommendations. This gate applies only to Brain-derived workflow-improvement
+recommendations, not deterministic session-transition recommendations.
+
 Cache by evidence, relevant knowledge page hashes, selected provider/model, and
 effective context settings. Workspace switches and configuration changes
 invalidate pending results. Narrowing access invalidates dependent caches.
@@ -153,6 +173,7 @@ Personal/team brain connections and exporting local lessons are deferred.
 - Ungrounded model citations are rejected; a knowledge-only change cannot
   bypass dismissal or rewrite accepted work.
 - Daily limits survive restarts; provider failures consume a reservation.
+- Manual analysis requests work with background discovery disabled, bypass only the workspace cooldown, still consume the durable daily allowance, and return any active Brain recommendation without invoking a provider.
 - Workspace/configuration switches discard stale results, and context exclusions
   apply to symlinks, ignored files, credentials, caches, and model requests.
 - Changing Taskmaster selection leaves Peon configuration and inference intact.

@@ -700,6 +700,17 @@ export interface RecommendationListResponse {
   diagnostics: ObservationDiagnostic[];
 }
 
+export interface ManualTaskmasterAnalysisResponse {
+  status:
+    | "scheduled"
+    | "active_recommendation"
+    | "already_running"
+    | "daily_limit_reached"
+    | "unavailable";
+  recommendation?: WorkflowRecommendation;
+  message?: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -729,6 +740,13 @@ export async function getTaskmasterRecommendation(
     baseUrl,
     `/taskmaster/recommendations/${encodeURIComponent(id)}`,
   );
+  return response.json();
+}
+
+export async function requestManualTaskmasterAnalysis(
+  baseUrl: string,
+): Promise<ManualTaskmasterAnalysisResponse> {
+  const response = await taskmasterRequest(baseUrl, "/taskmaster/analyze", { method: "POST" });
   return response.json();
 }
 

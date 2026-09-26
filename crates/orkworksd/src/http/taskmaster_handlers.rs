@@ -5,6 +5,7 @@ use crate::session_application::{
     RecommendationPacketError, RecommendationQueryError, SessionApplication,
 };
 use crate::taskmaster::completion::CompletionMutationRequest;
+use crate::taskmaster::provider_catalog;
 use crate::taskmaster::store::StoreError;
 use crate::taskmaster::Recommendation;
 use crate::AppState;
@@ -51,6 +52,29 @@ pub(crate) struct CompleteRequest {
 }
 
 const MAX_COMPLETION_SUMMARY_CHARS: usize = 2_000;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManualAnalysisResponse {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recommendation: Option<Recommendation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<&'static str>,
+}
+
+fn manual_analysis_response(
+    status: &'static str,
+    recommendation: Option<Recommendation>,
+    message: Option<&'static str>,
+) -> Response {
+    Json(ManualAnalysisResponse {
+        status,
+        recommendation,
+        message,
+    })
+    .into_response()
+}
 
 fn actionable_recommendations(recommendations: Vec<Recommendation>) -> Vec<Recommendation> {
     let active_member_ids = recommendations
@@ -134,6 +158,88 @@ pub(crate) async fn report_completion_packet(
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(RecommendationPacketError::Conflict) => StatusCode::CONFLICT.into_response(),
         Err(RecommendationPacketError::Store(error)) => store_error(error),
+    }
+}
+
+pub(crate) async fn analyze_taskmaster(State(state): State<Arc<AppState>>) -> Response {
+    let (workspace_path, recommendations) = {
+        let workspace = state.workspace.lock().expect("workspace lock poisoned");
+        let Some(workspace) = workspace.as_ref() else {
+            return manual_analysis_response(
+                "unavailable",
+                None,
+                Some("Open a workspace before requesting Brain analysis."),
+            );
+        };
+        let Ok(recommendations) = workspace.recommendation_store.list() else {
+            return manual_analysis_response(
+                "unavailable",
+                None,
+                Some("Taskmaster recommendations could not be read."),
+            );
+        };
+        (workspace.path.clone(), recommendations)
+    };
+
+    if let Some(recommendation) =
+        crate::taskmaster::active_workflow_recommendation(&recommendations)
+    {
+        return manual_analysis_response(
+            "active_recommendation",
+            Some(recommendation.clone()),
+            Some("Finish the active Brain recommendation before requesting another analysis."),
+        );
+    }
+
+    let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
+    let status = runtime.status(Some(&workspace_path));
+    if status.analysis_status == "ledger_unavailable" {
+        return manual_analysis_response(
+            "unavailable",
+            None,
+            Some("Taskmaster's usage ledger is unavailable; analysis was not started."),
+        );
+    }
+    let Some(selection) = status.effective_settings.selection.as_ref() else {
+        return manual_analysis_response(
+            "unavailable",
+            None,
+            Some("Configure an available Taskmaster model before requesting Brain analysis."),
+        );
+    };
+    let trust = super::inference_trust_handlers::trust_store(&state).ok();
+    let available = provider_catalog::inspect(&state.harness_store, trust.as_ref())
+        .ok()
+        .is_some_and(|providers| {
+            provider_catalog::evaluation_availability(&providers, selection)
+                == provider_catalog::Availability::Ready
+        });
+    if !available {
+        return manual_analysis_response(
+            "unavailable",
+            None,
+            Some("Configure an available Taskmaster model before requesting Brain analysis."),
+        );
+    }
+    if status.remaining_evaluations == 0 {
+        return manual_analysis_response(
+            "daily_limit_reached",
+            None,
+            Some("The daily Taskmaster analysis limit has been reached."),
+        );
+    }
+    if crate::taskmaster::evaluator::schedule_manual_evaluation(state, workspace_path) {
+        manual_analysis_response(
+            "scheduled",
+            None,
+            Some("Brain analysis requested. Recommendations will refresh automatically."),
+        )
+    } else {
+        manual_analysis_response(
+            "already_running",
+            None,
+            Some("A Taskmaster analysis is already running."),
+        )
     }
 }
 
