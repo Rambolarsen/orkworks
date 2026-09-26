@@ -8,7 +8,7 @@
 
 **Tech Stack:** macOS ARM64, C fixture, Seatbelt profiles, native process and filesystem observations.
 
-**Design reference:** [Taskmaster native child-launch boundary design](../specs/2026-09-25-taskmaster-native-child-launch-boundary-design.md). That accepted design specifies Linux. This investigation does not qualify macOS or alter the accepted design.
+**Research reference:** [Taskmaster native child-launch boundary design](../specs/2026-09-25-taskmaster-native-child-launch-boundary-design.md), retained as historical context. The current proposed direction is [Taskmaster orchestrated child sessions](../specs/2026-09-26-taskmaster-orchestrated-child-sessions-design.md), which uses ordinary OrkWorks sessions and does not require native child confinement.
 
 ## Execution gate
 
@@ -45,14 +45,43 @@ The following details were captured before the disposable fixture directory was 
 
 The fixture source, exact temporary paths, and full command transcript were deleted during cleanup, so this summary is the retained evidence rather than a byte-for-byte replay artifact. Do not treat errno 1 as proof of which Seatbelt rule caused the descendant's denial.
 
-## Decision gate
+## Follow-up spike — XPC access and launchd ownership
 
-Do not invest further in repairing this `sandbox-exec` profile. A production proposal needs both a supported enforcement mechanism and an owner that can prove complete descendant cleanup.
+The user approved a second disposable macOS fixture. A manually compiled,
+ad-hoc-signed App Sandbox app and embedded XPC service used a
+security-scoped folder bookmark for `/private/tmp/orkworks-xpc-spike/assigned`.
+The helper wrote within that folder; a direct `/bin/sh` child inherited the
+same access. Both helper and child were denied a read of the outside
+`orkworks/README.md` with `NSCocoaErrorDomain Code 257` / `Operation not
+permitted`. This proves only the tested helper/direct-child fixture, not an
+actual coding-tool CLI.
 
-The next design review should compare:
+The XPC helper then started a descendant that called `setsid()` and exited.
+The detached descendant remained alive after the XPC service exited. A
+separate temporary launchd job started a small C helper that forked a child,
+called `setsid()` in that child, and then exited normally. The child had a
+different process-group ID and remained alive after the launch job exited.
+The exact recorded fixture PIDs were terminated during cleanup, and follow-up
+process checks confirmed no probe jobs or descendants remained. These results
+show that the tested XPC and launchd mechanisms do not supply the strict
+complete-process-tree owner required by the former boundary proposal.
 
-1. **App Sandbox with a helper or XPC boundary and scoped worktree access.** Apple's model passes sandbox capabilities to directly spawned helpers; bookmarks can transfer access to a selected resource to another process ([helper inheritance](https://developer.apple.com/documentation/security/discovering-and-diagnosing-app-sandbox-violations?changes=_7), [file bookmarks](https://developer.apple.com/documentation/security/accessing-files-from-the-macos-app-sandbox?changes=_4)). The investigation must establish app-wide sandbox/signing impact; whether the actual helper and external coding CLI can run under the model; how exactly one selected worktree's access reaches each process; whether the CLI can resolve/use that access without OrkWorks changes; and whether previous workspace grants or inherited entitlements expose broader access. Apple's documented privilege separation uses a separate XPC service/helper when the child needs different capabilities from the app.
-2. **A per-child virtual machine.** This gives a clearer OS boundary but adds packaging, startup, resource, and worktree-sharing costs.
-3. **A Windows candidate.** Reconsider only as an explicit architecture choice; do not silently retarget the accepted Linux spec or assume existing Job Object use supplies filesystem/network isolation.
+All source, bundles, plists, and logs were created under `/private/tmp` and
+removed. No repository implementation code was changed. The fixture did not
+test an installed OpenCode CLI, credentials, resource ceilings, or any
+packaged OrkWorks build.
 
-The least intrusive next investigation is to verify whether App Sandbox can confine OrkWorks' actual helper/CLI process chain while granting a single selected worktree. If it cannot, compare the VM and Windows alternatives before writing a replacement child-launch spec. No production design is selected by this plan.
+## Decision
+
+The tested `sandbox-exec` profile remains a no-go for production confinement.
+The XPC fixture demonstrated scoped filesystem access for a basic helper and
+direct child, while the launchd fixture demonstrated that a detached
+`setsid()` descendant survives the job's normal exit. Together, these results
+do not satisfy the previous strict native-boundary contract.
+
+The selected product direction is ordinary OrkWorks child sessions launched
+by a user-approved orchestrator plan. Native filesystem/process confinement,
+virtual machines, and a separate durable process owner are outside that
+scope. See the proposed replacement design. Reopen native-boundary research
+only if a future product requirement explicitly calls for OS-enforced
+restriction beyond normal user-level session permissions.

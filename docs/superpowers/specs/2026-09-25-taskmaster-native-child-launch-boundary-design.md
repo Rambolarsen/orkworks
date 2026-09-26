@@ -1,14 +1,23 @@
 # Taskmaster native child-launch boundary
 
-- Status: accepted
+- Status: superseded by proposed replacement
 - Date: 2026-09-25
 - Tracking issue: [#617](https://github.com/Rambolarsen/orkworks/issues/617)
 - Parent gate: [#610](https://github.com/Rambolarsen/orkworks/issues/610)
 - Related design: [master-session parallel runner](2026-09-25-master-session-parallel-runner-design.md)
+- Proposed replacement: [Taskmaster orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md)
 - Related decision: [ADR 0060](../../adr/0060-independent-workspace-instances.md)
 - Related decision: [ADR 0064](../../adr/0064-bounded-taskmaster-coordinator.md)
 
 Implementation plan: `docs/superpowers/plans/2026-09-26-taskmaster-native-child-launch.md` (repository-only; plans are excluded from the published docs site).
+
+## Historical purpose
+
+This accepted proposal is retained as a record of the native confinement
+approach that preceded the revised child-session design. The replacement
+proposal uses ordinary OrkWorks session semantics and does not require this
+native-boundary qualification. Keep this document for the feasibility history;
+do not use it as the current launch design.
 
 ## Purpose
 
