@@ -12,8 +12,9 @@ Use this runbook when Peon reports a workflow observation about "Peon model
 detection", "Model detection is blocked", or "Model detection failed"; when a
 Taskmaster recommendation asks you to "remove or document the obstacle" for
 any of those phrasings (for example: "Peon model detection issues", "Model
-detection is blocked", or a capacity-related obstacle such as "Tracing signal
-capacity in Claude harness to OpenCode"). Before treating it as a product
+detection is blocked", a capacity-related obstacle such as "Tracing signal
+capacity in Claude harness to OpenCode", or a rate-limit obstacle such as
+"rate limit reached"). Before treating it as a product
 defect, check whether the observation is self-referential noise.
 
 ## Two different things called "model detection"
@@ -173,6 +174,108 @@ Signals that an observation is this noise, not a verified defect:
 Handling is the same as below: if it is confirmed noise, documentation is a
 valid resolution — do not act on the obstacle, and do not modify
 recommendation or observation files directly.
+
+## Rate-limit obstacle observations
+
+Another fingerprint family reports a "rate limit reached" obstacle that names
+no OrkWorks failure path. Verified example (September 2026): two peon-sourced
+observations across two OpenCode sessions working in this repository — one
+labeled "Invalid Peon inference JSON", one "Fixing peon model detection" —
+each recorded a high-impact obstacle described as "rate limit reached". Both
+predate the terminal grounding gate (#589, September 2026), so their
+acceptance does not assert grounded evidence.
+
+The persisted evidence supports the noise reading rather than a defect:
+
+- "Output indicates rate limit exceeded" is a paraphrase, not a quoted
+  excerpt: the phrase appears nowhere in the retained replay and the wording
+  describes output instead of quoting it.
+- " rate limit reached" is a bare fragment with no source, recovery step, or
+  session context attached.
+- Neither session's retained replay contains "rate limit" or "usage limit" in
+  any form. The windows Peon scanned have been evicted (the replay is bounded
+  to the newest 1,000 lines / 1 MiB), so the absence is inconclusive by the
+  grounding standard in the capacity section above — but it is consistent
+  with the paraphrase and the bare fragment. Both sessions' recorded activity
+  continued for hours after the observation; that is weak evidence only,
+  since a genuine limit that resets allows later output just the same, and
+  the evicted replay cannot date when output resumed.
+
+The vocabulary is ordinary OrkWorks work output. Peon's inference prompt asks
+for "cap/rate-limit related strings" (`capacityHints`), provider and Peon
+tests pin banner shapes such as "usage limit reached, resets in 2h", and the
+harness usage-limit design docs discuss rate limits. A session developing
+OrkWorks can put any of that into its own captured output, and an observing
+Peon model asked to find friction can lift the phrase as an obstacle.
+
+No OrkWorks detection path keys on the phrase "rate limit reached". Among the
+built-in harnesses only OpenCode ("usage limit reached"), Codex ("you've hit
+your usage limit"), and Claude Code ("you've hit your session limit") carry
+terminal capacity patterns; Copilot, Aider, Gemini, Antigravity, and the
+generic shell define no capacity capability, so their terminal output cannot
+set `at_usage_limit` or a reset hint at all. For the instrumented three, the
+deterministic cap signals live on the session view and the provider state.
+This observation kind is not one of them — though a genuine banner can also
+produce a grounded workflow observation, since the Peon recording path
+accepts any candidate whose evidence is grounded and does not filter
+capacity banners, so the observation may corroborate a real cap rather than
+refute it:
+
+- Session side: the harness capacity-pattern scan sets `at_usage_limit` on
+  the session view when the captured banner text contains the configured
+  literal and passes the banner-shape checks — a genuine limit in other
+  wording, such as "rate limit reached" against OpenCode's
+  "usage limit reached" pattern, leaves the session uncapped. For a live
+  session it becomes the "capped" attention status, and, when the banner
+  carries one, the reset hint renders as a "Capped · resets in 2h" badge
+  in the session detail panel; a cap without hint text shows just
+  "Capped", and a session that exits after the banner no longer shows the
+  badge even though the flag can persist. The capped flag and hint are
+  harness-wide state: `session_projection` aggregates by harness and
+  copies both onto every session of that harness, so a banner in one
+  session marks its peers too.
+- Provider side: for an enabled provider entry, the providers API and the
+  new-session dialog reflect a genuine terminal cap from that same scan
+  automatically — the response overlays a live session-capped map
+  populated from the harness capacity detection before the configured
+  state, and shows "checking capacity" while the scan is pending. A
+  disabled provider entry reports "disabled" as its state and dialog
+  option; the API response still carries a reset hint in its runtime
+  state, preferring a hint recorded by an earlier provider-invocation
+  failure and falling back to the harness scan's hint only when no
+  invocation hint exists. A "capped" effective state can come from either
+  the live scan or a capped configured state — the response does not
+  distinguish the two, so compare the persisted settings to tell them
+  apart. A provider whose configured capacity state — the default or
+  override state in the persisted provider settings — is capped is
+  skipped for session inference instead of retried, and a failed provider
+  invocation's stderr is parsed into an error summary, plus a reset hint
+  only when the stderr carries parseable trailing detail, on the same API
+  response. The configured default or override is not mutated by provider
+  stderr. Durable provider settings are written by the desktop app to its
+  settings store and pushed to the sidecar; the sidecar's provider
+  settings HTTP endpoint applies and synchronizes them in memory but does
+  not write them to disk, and no Settings UI renders or edits the
+  capacity state today.
+
+When a recommendation asks you to "remove or document the obstacle: rate
+limit reached", read the current signals for corroboration, not dismissal.
+The session's capped attention status, reset hint, and the provider state
+are present-tense, harness-wide checks: the latched cap clears once fresh
+banner-free output follows accepted input, the capped flag and hint are
+copied onto every session of the same harness, and the provider response
+overlays the same flag — so a peer session's banner can mark the observed
+session, and a limit that already reset shows none of them. A genuine
+banner can also yield a grounded workflow observation of this kind, so the
+existence of a current cap neither dismisses the observation nor proves
+it. Ground the judgment in evidence tied to the observation time: whether
+the evidence value is a paraphrase or a bare fragment, and whether the
+captured vocabulary matches the session's own work. If the fingerprints
+above hold — or the harness has no capacity patterns and no independently
+verified limit exists — treat it as this noise family: documentation is
+the valid resolution, and no code change can "remove" the obstacle. Do not
+act on the obstacle, and do not modify recommendation or observation files
+directly.
 
 ## Recommended handling
 
