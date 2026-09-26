@@ -29,10 +29,23 @@ launches. See the current [native confinement record](../../validation/master-se
 
 Start native implementation and proof for:
 
-- **OS:** Ubuntu 24.04 LTS, x86_64, native GitHub Actions runner.
+- **OS:** Ubuntu 24.04 LTS, x86_64, native GitHub Actions runner. At design
+  time the published `ubuntu-24.04` image version `20260920.314.1` reports
+  kernel `6.17.0-1022-azure` and systemd `255.4-1ubuntu8.17`; each CI run
+  must record its resolved image and runtime feature probes
+  ([runner image inventory](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md)).
+- **Host prerequisites:** cgroup v2 with delegated required controllers,
+  namespaces creatable without host privilege elevation, seccomp filter
+  support, and Landlock ABI 6 or newer. The runtime probes each prerequisite;
+  Ubuntu 24.04 hosts that do not expose the required features remain
+  unavailable even when their distribution label matches.
 - **Harness:** OpenCode CLI `v1.18.18`, with the OrkWorks integration API
   generation pinned separately to `@opencode-ai/plugin@1.18.18` and
   `@opencode-ai/sdk@1.18.18`.
+- **Harness definition:** the code-owned built-in `opencode` definition at an
+  exact generation and content digest captured by the native fixture. That
+  generation and digest must be pinned in the implementation and CI record
+  before this tuple may be marked `native_boundary_proven`.
 - **Production boundary:** a Rust child-launch adapter used by the runner
   launch path, with a generation-specific systemd user service as its durable
   owner and Linux kernel controls applied before the harness process executes.
@@ -56,7 +69,7 @@ Persist and present qualification as two independent facts:
 | Gate | Meaning | Required evidence |
 | --- | --- | --- |
 | `native_boundary_proven` | The exact adapter/OS/harness-definition tuple constrains files, resources, credentials, descendants, cancellation, and owner crash as specified below. | Native helper fixture results through the production adapter, exact runner image/kernel/systemd versions, adapter and fixture revisions, commands, and retained machine-readable output. |
-| `runner_eligible` | A user-approved #610 plan can safely execute with that tuple. | `native_boundary_proven`, plus the reviewed immutable-plan gate, server-owned tool and model broker, finite broker budgets, credential-free provider path, authenticated child runtime/report channel, harness clean-exit handshake, and all other #610 requirements. |
+| `runner_eligible` | A user-approved #610 plan can safely execute with that tuple. | `native_boundary_proven`, plus the reviewed immutable-plan gate, server-owned tool and model broker, finite broker budgets, provider credentials retained broker-side and never exposed to the child, authenticated child runtime/report channel, harness clean-exit handshake, and all other #610 requirements. |
 
 `runner_eligible` is false unless every prerequisite passes. A native boundary
 pass cannot set it true by itself. UI availability, API launch authorization,
@@ -127,6 +140,10 @@ policy in the owner before executing the child:
 - write access is limited to the assigned worktree and private scratch;
 - read/execute access is limited to the worktree plus explicitly required,
   immutable runtime locations and the OpenCode executable/runtime;
+- read-only access to the generation's fresh `/proc` mount is permitted for
+  process observation inside its private PID namespace; no host `/proc` mount
+  or host process view is exposed, and the mount provides no write or execute
+  access;
 - the primary checkout, sibling worktrees, home directories, credential
   stores, OrkWorks metadata, and unrelated files are denied;
 - Git administrative metadata, including the linked worktree's `.git` target
@@ -182,6 +199,93 @@ themselves, prove that every built-in tool path is brokered
 ([OpenCode plugin docs](https://opencode.ai/docs/plugins/),
 [repo harness contract](../../agents/harness-integration-contracts.md)).
 
+### Same-user process isolation
+
+The owner and the child run under the desktop user's account, so filesystem
+and environment isolation alone are insufficient. Before child `exec`, the
+launcher must place the child in a private PID and mount namespace and mount a
+fresh `/proc` instance for that PID namespace. It must establish these
+namespaces without host privilege elevation, using an unprivileged user
+namespace where required. If user-namespace creation is disabled or the
+required mount cannot be established, launch fails closed. It must also apply
+Landlock in the child process so Landlock's domain hierarchy restricts `ptrace` and
+related process-inspection operations, and enable `LANDLOCK_SCOPE_SIGNAL` so
+the child cannot signal the owner, sidecar, or unrelated same-user processes.
+The owner remains inside the generation's private PID/mount namespace but
+outside the child's Landlock domain; the sidecar remains outside the private
+PID namespace. The child and its descendants inherit the restriction.
+Namespace creation, private `/proc`, Landlock process scoping, and dropped
+capabilities are mandatory parts of the production adapter; if the host cannot
+establish them, launch fails closed. Namespaces provide additional process-view isolation;
+Landlock and cgroup enforcement remain mandatory controls rather than being
+replaced by namespaces.
+
+The Landlock feature probe must include `LANDLOCK_SCOPE_SIGNAL` (ABI 6 or
+newer), plus the filesystem rights required by the policy. The native target
+does not require ABI-9 `LANDLOCK_ACCESS_FS_RESOLVE_UNIX`: host pathname sockets
+are excluded from a private mount tree before Landlock is applied. The
+launcher enters a new private root assembled from declared runtime mounts,
+the assigned worktree, private scratch, a fresh `/proc` for the generation
+PID namespace, and a minimal private `/dev`; it contains no host `/run`,
+`/tmp`, home, keyring, agent, or sidecar socket paths. Existing pathname
+socket nodes in exposed runtime or worktree inputs are rejected, but this scan
+is defense in depth: the worktree remains host-backed and may change after
+the scan. No host directory or socket descriptor is inherited by the child.
+A seccomp filter installed after namespace and Landlock setup and before
+`exec` denies `socket`,
+`socketpair`, `connect`, `bind`, `listen`, `accept`, `accept4`, `sendto`,
+`recvfrom`, `sendmsg`, `recvmsg`, `sendmmsg`, and `recvmmsg` so a post-setup
+pathname socket cannot be reached and the child cannot create a socket server
+reachable from the host. The filter also denies `io_uring_setup`,
+`io_uring_enter`, and `io_uring_register` so socket operations cannot bypass
+syscall checks through io_uring. It is architecture-aware and rejects
+unsupported compat syscall entrypoints. The child receives only explicit
+pipe/PTY descriptors. Any future broker channel must use a separately scoped
+inherited pipe, not a socket exception. The seccomp filter is one kernel
+control within the layered boundary, and its restrictions must be inherited by
+every child and exec'd descendant ([seccomp filter documentation](https://docs.kernel.org/userspace-api/seccomp_filter.html)).
+If seccomp, the required ABI-6 controls, namespace setup, or mount-tree policy
+are unavailable, launch fails closed.
+
+The launcher uses this fail-closed bootstrap order: create the generation
+cgroup; establish the required user, PID, mount, and network namespaces; build
+and enter the private mount root; set up the fresh `/proc`; prepare the exact
+inherited-FD allowlist; drop every bounding, effective, permitted, inheritable,
+and ambient capability; set `PR_SET_NO_NEW_PRIVS=1`; enforce the required
+Landlock rules; open the executable and required runtime files under that
+policy; install the architecture-checked seccomp filter; verify the final
+security state; then `exec` the target. Namespace and mount setup must finish
+before capability dropping and `no_new_privs` so unprivileged namespace setup
+cannot depend on any later privilege gain. All setup occurs without host
+privilege elevation. Any failure or failed verification aborts the launch
+before `exec`. `no_new_privs` is inherited across fork, clone, and exec and
+prevents setuid/setgid bits and file capabilities from granting privilege at
+exec; it is also required to install
+seccomp filters without `CAP_SYS_ADMIN` in the process namespace
+([kernel no_new_privs documentation](https://docs.kernel.org/userspace-api/no_new_privs.html),
+[seccomp filter documentation](https://docs.kernel.org/userspace-api/seccomp_filter.html)).
+The capability check covers every capability set in the child user namespace;
+the child receives no capability exception for the adapter's setup needs.
+
+The runner-image inventory currently reports kernel 6.17, while ABI 9's
+pathname Unix-socket right maps to Linux 7.1 in the Landlock ABI reference;
+therefore that right cannot be a prerequisite for this candidate. Seccomp
+syscall denial plus an empty inherited socket-FD set closes the pathname
+socket race without relying on ABI 9. The kernel ABI is probed directly at
+runtime rather than inferred from the version string. Ptrace restrictions
+follow Landlock domain hierarchy; native tests must prove same-UID denial
+separately from PID-namespace hiding
+([Landlock process scoping](https://docs.kernel.org/userspace-api/landlock.html),
+[Landlock ABI/kernel mapping](https://man7.org/linux/man-pages/man7/landlock.7.html),
+[`/proc` PID namespace support](https://docs.kernel.org/filesystems/proc.html)).
+
+The adapter must not grant the child `CAP_SYS_PTRACE`, `CAP_KILL` in the host
+user namespace, or a `PR_SET_PTRACER` exception that weakens this boundary.
+The private `/proc` view must not expose the sidecar or processes outside the
+generation. Every required namespace, mount, Landlock, capability, and
+process-inspection control is checked before `exec`; an unavailable control
+rejects launch.
+
 ### Resource ceilings
 
 The native adapter enforces limits at the generation cgroup, not per PID:
@@ -209,8 +313,8 @@ future server-owned broker and are not proven by this native launch work.
 
 Fixtures invoke the same production adapter and policy builder as a future
 runner launch. They use a purpose-built native helper, never OpenCode or any
-real coding tool. The helper reports structured observations to the harness
-fixture controller through the explicitly allowed channel. CI retains exact
+real coding tool. The helper reports structured observations to the fixture
+controller over an explicitly allowed pipe descriptor; CI retains exact
 machine-readable results and the environment fingerprint.
 
 The required cases are:
@@ -234,22 +338,43 @@ The required cases are:
 5. **Credential isolation:** fake home files, fake API keys, fake keychain,
    SSH agent and cloud credential sockets, and inherited host descriptors are
    inaccessible; no fake credential use reaches the sentinel receiver.
-6. **Network denial:** external TCP/UDP, loopback service, Unix socket,
-   abstract Unix socket, and inherited connected socket attempts fail.
-7. **Cancellation:** cancellation at launch, during helper work, and during
+6. **Same-user process isolation:** use two distinct sentinels. A same-UID
+   owner sentinel runs inside the private PID namespace, outside the helper's
+   Landlock domain, and is visible in the helper's read-only private `/proc`;
+   `/proc` sensitive reads, `ptrace`, `process_vm_readv`/`process_vm_writev`,
+   `pidfd_getfd`, and signal attempts against it must be denied by the
+   process-access policy.
+   A second same-UID sidecar sentinel stays outside the private PID namespace;
+   it is absent from the helper's `/proc` and cannot be signaled or inspected
+   from the helper. Both sentinels remain alive and unchanged. Access to
+   processes within the helper's own generation remains contained to that
+   generation. The helper reports `NoNewPrivs: 1` from `/proc/self/status`,
+   empty effective, permitted, inheritable, ambient, and bounding capability
+   sets, and denial of privilege gain from a fixture-only setuid or
+   file-capability executable. The helper cannot weaken Landlock or gain
+   host-user-namespace capabilities.
+7. **Socket and network denial:** attempts to create/connect/listen/accept
+   AF_UNIX, AF_INET, or AF_INET6 sockets fail under the production seccomp
+   filter; io_uring setup/entry also fails. A same-UID host helper creates a
+   pathname Unix socket inside the worktree *after* policy setup, and the
+   child still cannot connect to it. Conversely, the child cannot create a
+   socket in the worktree for the host helper to connect to. The generation's
+   network namespace has no external route or host loopback access, and no
+   socket FD was inherited.
+8. **Cancellation:** cancellation at launch, during helper work, and during
    descendant work revokes the generation and proves an empty cgroup before
    releasing its reservation.
-8. **Forced termination is not success:** force-kill the helper after it has
+9. **Forced termination is not success:** force-kill the helper after it has
    reported apparent completion and during active work; both outcomes remain
    failed/termination states, never a clean-exit receipt, until the adapter
    observes the required exit and empty-cgroup conditions.
-9. **Owner/sidecar crash:** kill the sidecar and separately kill the owner
+10. **Owner/sidecar crash:** kill the sidecar and separately kill the owner
    while a descendant runs; systemd reaps the entire unit and reconciliation
    proves empty cgroup without duplicate launch.
-10. **Foreign sentinel survival:** processes and files outside the generation
+11. **Foreign sentinel survival:** processes and files outside the generation
    remain unchanged and alive after clean exit, every limit breach, cancel,
    and crash.
-11. **Fail-closed setup:** absent user manager, missing cgroup controller or
+12. **Fail-closed setup:** absent user manager, missing cgroup controller or
     Landlock right, insufficient delegation, malformed paths, stale
     generation, policy-install failure, and uncertain systemd responses all
     reject before helper execution or retain an orphaned reservation until
@@ -268,7 +393,8 @@ For each candidate tuple, record:
 - OS image, kernel release/configuration, architecture, systemd version, and
   detected cgroup/Landlock ABI/controllers;
 - OpenCode CLI version and executable digest; plugin and SDK package versions
-  separately; built-in harness definition generation and digest;
+  separately; exact code-owned built-in harness definition generation and
+  digest (missing or changed definition identity prevents qualification);
 - production adapter revision, helper/fixture revision, exact command and
   native CI job URL;
 - per-case pass/fail result, termination reason, cgroup-empty observation,
@@ -308,9 +434,8 @@ solved.
   delegated cgroup v2 controllers without privileged setup? If not, choose a
   different Linux owner primitive before implementation; do not add a weaker
   path.
-- What exact Landlock ABI rights and network namespace setup are required on
-  the minimum supported Ubuntu 24.04 kernel, including pathname Unix sockets,
-  signal scoping, and descendants?
+- Which exact Landlock ABI-6 filesystem/signal rights and network namespace
+  setup are required for the supported kernel floor and all descendants?
 - How will systemd's owner/unit result plus the cgroup population prove
   generation emptiness across owner, sidecar, and user-manager failure?
 - What CPU sampling/termination interval gives a defensible cumulative budget
