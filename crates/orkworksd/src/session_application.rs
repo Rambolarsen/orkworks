@@ -128,6 +128,19 @@ pub(crate) struct AttentionSignal {
     pub(crate) source: Option<String>,
     pub(crate) event: Option<String>,
     pub(crate) hook_fingerprint: Option<String>,
+    pub(crate) report_token: Option<String>,
+}
+
+fn opencode_event_allows_status(event: &str, status: &str) -> bool {
+    match event {
+        "session.created" | "session.idle" => status == "idle",
+        "session.status" => status == "working",
+        "permission.asked" | "question.asked" => status == "waiting_for_input",
+        "permission.replied" | "question.replied" | "question.rejected" => {
+            matches!(status, "waiting_for_input" | "working" | "idle")
+        }
+        _ => false,
+    }
 }
 
 pub(crate) struct DebugAttentionSignal {
@@ -157,7 +170,14 @@ pub(crate) struct AttentionMergeSignal {
     pub(crate) update_hook_timestamp: bool,
     pub(crate) clear_pending_work_signal: bool,
     pub(crate) require_alive: bool,
+    pub(crate) activate_work_hook: bool,
+    pub(crate) opencode_authority: Option<OpenCodeReportAuthority>,
     pub(crate) debug_hint_mutation: Option<DebugHintMutation>,
+}
+
+pub(crate) struct OpenCodeReportAuthority {
+    token: String,
+    runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
 }
 
 pub(crate) struct PlanSelection {
@@ -1095,7 +1115,7 @@ impl SessionApplication {
         // the rest of the application layer. Keep the validation guard while
         // persisting so a replacement cannot pass the check and then receive
         // the old runtime's durable inference.
-        let sessions_guard = self.state.sessions.lock().unwrap();
+        let mut sessions_guard = self.state.sessions.lock().unwrap();
         if let Some(attempt) = attempt {
             let current = sessions_guard.get(session_id).is_some_and(|handle| {
                 handle.runtime.matches_identity(&attempt.runtime_identity)
@@ -1116,27 +1136,52 @@ impl SessionApplication {
             }
         }
 
-        let hook_authority = sessions_guard
-            .get(session_id)
-            .filter(|handle| {
-                handle.active_work_hook
-                    && handle.info.lifecycle == "alive"
-                    && handle.info.lifecycle_phase == "active"
-                    && (handle.info.harness_id.as_deref() == Some("codex")
-                        || handle.info.harness.as_deref() == Some("codex"))
-                    && matches!(
-                        handle.info.metadata_source.as_deref(),
-                        Some("codex_hook") | Some("process")
-                    )
-            })
-            .and_then(|handle| {
-                handle.info.observed_status.as_deref().map(|status| {
-                    (
-                        status.to_string(),
-                        handle.info.metadata_confidence.unwrap_or(1.0),
-                    )
-                })
-            });
+        let attention_policy = match sessions_guard.get(session_id) {
+            Some(handle)
+                if matches!(
+                    handle
+                        .info
+                        .harness_id
+                        .as_deref()
+                        .or(handle.info.harness.as_deref()),
+                    Some("codex") | Some("opencode")
+                ) =>
+            {
+                let expected_source = if handle.info.harness_id.as_deref() == Some("opencode")
+                    || handle.info.harness.as_deref() == Some("opencode")
+                {
+                    "agent"
+                } else {
+                    "codex_hook"
+                };
+                match (
+                    handle.info.observed_status.as_deref(),
+                    handle.info.metadata_source.as_deref(),
+                ) {
+                    (Some(status), Some(source))
+                        if handle.active_work_hook
+                            && handle.info.lifecycle == "alive"
+                            && handle.info.lifecycle_phase == "active"
+                            && (source == expected_source || source == "process") =>
+                    {
+                        metadata::PeonAttentionPolicy::PreserveHook {
+                            status,
+                            confidence: handle.info.metadata_confidence.unwrap_or(1.0),
+                            source,
+                        }
+                    }
+                    _ => metadata::PeonAttentionPolicy::NonPrompt,
+                }
+            }
+            None if workspace
+                .metadata
+                .read_session(session_id)
+                .is_some_and(|meta| matches!(meta.harness.as_str(), "codex" | "opencode")) =>
+            {
+                metadata::PeonAttentionPolicy::NonPrompt
+            }
+            _ => metadata::PeonAttentionPolicy::Infer,
+        };
 
         if let Some(observation) = provider_observation {
             workspace
@@ -1155,36 +1200,39 @@ impl SessionApplication {
 
         // The merge enforces the source-priority ladder itself (issue #400);
         // its outcome is the only gate.
-        let merge_result = if let Some((hook_status, hook_confidence)) = hook_authority {
-            workspace
-                .metadata
-                .merge_peon_inference_with_history_preserving_hook_status(
-                    session_id,
-                    inference,
-                    timestamp,
-                    provider_observation,
-                    history_summary,
-                    &hook_status,
-                    hook_confidence,
-                )
-        } else {
-            workspace.metadata.merge_peon_inference_with_history(
-                session_id,
-                inference,
-                timestamp,
-                provider_observation,
-                history_summary,
-            )
-        };
+        let merge_result = workspace.metadata.merge_peon_inference_with_history_policy(
+            session_id,
+            inference,
+            timestamp,
+            provider_observation,
+            history_summary,
+            attention_policy,
+        );
 
         match merge_result {
-            Ok(metadata::PeonMergeOutcome::Applied) => PeonInferencePersistenceResult {
-                inference_persisted: true,
-                permanent_hold: false,
-                label_update: history_summary
-                    .map(|summary| (summary.chars().take(100).collect(), captured_label_epoch)),
-                workspace_path,
-            },
+            Ok(metadata::PeonMergeOutcome::Applied) => {
+                if matches!(attention_policy, metadata::PeonAttentionPolicy::NonPrompt) {
+                    if let (Some(handle), Some(stored)) = (
+                        sessions_guard.get_mut(session_id),
+                        workspace.metadata.read_session(session_id),
+                    ) {
+                        handle.info.observed_status = stored.observed_status;
+                        handle.info.attention = stored.attention;
+                        handle.info.needs_user_input = stored.needs_user_input;
+                        handle.info.detected_question = stored.detected_question;
+                        handle.info.suggested_options = stored.suggested_options;
+                        handle.info.metadata_source = Some(stored.metadata_source);
+                        handle.info.metadata_confidence = Some(stored.metadata_confidence);
+                    }
+                }
+                PeonInferencePersistenceResult {
+                    inference_persisted: true,
+                    permanent_hold: false,
+                    label_update: history_summary
+                        .map(|summary| (summary.chars().take(100).collect(), captured_label_epoch)),
+                    workspace_path,
+                }
+            }
             Ok(metadata::PeonMergeOutcome::SkippedHigherPriority { permanent_hold }) => {
                 tracing::debug!(session_id, "peon: skipping, higher-priority source exists");
                 PeonInferencePersistenceResult {
@@ -2586,6 +2634,30 @@ impl SessionApplication {
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions.get(&signal.session_id);
 
+        if signal.activate_work_hook
+            && signal.source == "agent"
+            && signal.opencode_authority.is_none()
+        {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        if let Some(authority) = &signal.opencode_authority {
+            let same_live_runtime = handle.is_some_and(|handle| {
+                handle.runtime.matches_identity(&authority.runtime_identity)
+                    && handle.info.lifecycle == "alive"
+                    && handle.info.lifecycle_phase == "active"
+                    && (handle.info.harness_id.as_deref() == Some("opencode")
+                        || handle.info.harness.as_deref() == Some("opencode"))
+            });
+            if !same_live_runtime
+                || !crate::runtime::terminal_runtime::verify_workflow_report_token(
+                    &signal.session_id,
+                    &authority.token,
+                )
+            {
+                return Err(SessionError::EmptyBadRequest);
+            }
+        }
+
         if signal.require_alive {
             match workspace.metadata.read_session(&signal.session_id) {
                 None => return Err(SessionError::NotFound),
@@ -2594,9 +2666,20 @@ impl SessionApplication {
                 }
                 Some(_) => {}
             }
-            if signal.source == "codex_hook" && handle.is_none() {
+            if signal.activate_work_hook && handle.is_none() {
                 return Err(SessionError::Conflict);
             }
+        }
+
+        if signal.source == "agent"
+            && !signal.activate_work_hook
+            && handle.is_some_and(|handle| {
+                handle.active_work_hook
+                    && (handle.info.harness_id.as_deref() == Some("opencode")
+                        || handle.info.harness.as_deref() == Some("opencode"))
+            })
+        {
+            return Ok(metadata::AttentionMergeResult::Ignored);
         }
 
         if signal.reject_stale_observed_at
@@ -2606,6 +2689,10 @@ impl SessionApplication {
                         .runtime
                         .last_hook_attention_at
                         .is_some_and(|previous| timestamp <= previous)
+                        || handle
+                            .runtime
+                            .accepted_input_at
+                            .is_some_and(|accepted_at| timestamp <= accepted_at)
                 })
             })
         {
@@ -2620,6 +2707,7 @@ impl SessionApplication {
             &signal.timestamp,
             &signal.source,
             signal.confidence,
+            signal.activate_work_hook,
         );
         if result == metadata::AttentionMergeResult::Accepted {
             if let Some(handle) = sessions.get_mut(&signal.session_id) {
@@ -2635,8 +2723,11 @@ impl SessionApplication {
                         handle.runtime.last_hook_attention_at = Some(observed_at);
                     }
                 }
-                if signal.source == "codex_hook" {
+                if signal.activate_work_hook {
                     handle.active_work_hook = true;
+                    handle.info.needs_user_input = None;
+                    handle.info.detected_question = None;
+                    handle.info.suggested_options = None;
                 }
                 if signal.clear_pending_work_signal {
                     handle.pending_work_signal = None;
@@ -2702,6 +2793,8 @@ impl SessionApplication {
                 update_hook_timestamp: false,
                 clear_pending_work_signal: false,
                 require_alive: true,
+                activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: Some(debug_hint_mutation),
             })?;
             Ok(result)
@@ -2896,6 +2989,43 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
+        let opencode_hook = signal.source.as_deref() == Some("opencode_hook");
+        let mut opencode_authority = None;
+        if opencode_hook {
+            let token = signal
+                .report_token
+                .as_deref()
+                .ok_or(SessionError::EmptyBadRequest)?;
+            if !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token) {
+                return Err(SessionError::EmptyBadRequest);
+            }
+            let runtime_identity = self
+                .state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .filter(|handle| {
+                    handle.info.lifecycle == "alive"
+                        && handle.info.lifecycle_phase == "active"
+                        && (handle.info.harness_id.as_deref() == Some("opencode")
+                            || handle.info.harness.as_deref() == Some("opencode"))
+                })
+                .map(|handle| handle.runtime.identity())
+                .ok_or(SessionError::EmptyBadRequest)?;
+            let event = signal
+                .event
+                .as_deref()
+                .ok_or(SessionError::EmptyBadRequest)?;
+            if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status)
+            {
+                return Err(SessionError::EmptyBadRequest);
+            }
+            opencode_authority = Some(OpenCodeReportAuthority {
+                token: token.to_owned(),
+                runtime_identity,
+            });
+        }
         let codex_hook = self.validate_codex_hook_signal(id, &signal)?;
         let observed_at = signal
             .observed_at
@@ -2914,7 +3044,8 @@ impl SessionApplication {
             .unwrap()
             .get(id)
             .is_some_and(|handle| handle.active_work_hook)
-            || codex_hook;
+            || codex_hook
+            || opencode_hook;
         let status = normalize_hook_attention_status(&signal.status, supports_active_work)
             .ok_or(SessionError::EmptyBadRequest)?;
         if observed_at.is_some_and(|timestamp| {
@@ -2931,14 +3062,7 @@ impl SessionApplication {
                 .then_some(())
                 .ok_or(SessionError::Conflict);
         }
-        if let Some(cwd) = signal.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
-            self.state
-                .peon
-                .reported_cwd
-                .write()
-                .unwrap()
-                .insert(id.to_string(), cwd.to_string());
-        }
+        let cwd = signal.cwd.filter(|cwd| !cwd.is_empty());
         let state = self.state.clone();
         let id = id.to_string();
         let merge_id = id.clone();
@@ -2951,17 +3075,6 @@ impl SessionApplication {
             "agent".to_string()
         };
         let result = tokio::task::spawn_blocking(move || {
-            if observed_at.is_some_and(|timestamp| {
-                state
-                    .sessions
-                    .lock()
-                    .unwrap()
-                    .get(&merge_id)
-                    .and_then(|handle| handle.runtime.accepted_input_at)
-                    .is_some_and(|accepted_at| timestamp <= accepted_at)
-            }) {
-                return Ok(metadata::AttentionMergeResult::Ignored);
-            }
             SessionApplication::new(state).apply_attention_signal(AttentionMergeSignal {
                 session_id: merge_id,
                 observed_status: merge_status,
@@ -2974,7 +3087,9 @@ impl SessionApplication {
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
-                require_alive: codex_hook,
+                require_alive: codex_hook || opencode_hook,
+                activate_work_hook: codex_hook || opencode_hook,
+                opencode_authority,
                 debug_hint_mutation: None,
             })
         })
@@ -2989,6 +3104,14 @@ impl SessionApplication {
             }
         }
         if result == metadata::AttentionMergeResult::Accepted {
+            if let Some(cwd) = cwd {
+                self.state
+                    .peon
+                    .reported_cwd
+                    .write()
+                    .unwrap()
+                    .insert(id.clone(), cwd);
+            }
             let mut bufs = self.state.peon.input_buf.write().unwrap();
             if bufs
                 .get(&id)
@@ -3016,6 +3139,9 @@ impl SessionApplication {
         let Some(source) = signal.source.as_deref() else {
             return Ok(false);
         };
+        if source == "opencode_hook" {
+            return Ok(false);
+        }
         if source != "codex_hook" {
             return Err(SessionError::EmptyBadRequest);
         }
@@ -4740,6 +4866,564 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn opencode_hook_valid_question_activates_after_durable_merge() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "opencode-valid-question";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "OpenCode",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.harness = "opencode".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        meta.needs_user_input = Some(true);
+        meta.detected_question = Some("old question".into());
+        meta.suggested_options = Some(vec!["old option".into()]);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness_id = Some("opencode".into());
+        handle.info.needs_user_input = Some(true);
+        handle.info.detected_question = Some("old question".into());
+        handle.info.suggested_options = Some(vec!["old option".into()]);
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(
+            id,
+            "opencode-test-token".into(),
+        );
+
+        let result = SessionApplication::new(state.clone())
+            .report_attention(
+                id,
+                AttentionSignal {
+                    status: "waiting_for_input".into(),
+                    event: Some("question.asked".into()),
+                    source: Some("opencode_hook".into()),
+                    observed_at: Some("2026-09-26T12:00:00.123456Z".into()),
+                    message: Some("OpenCode is asking for an answer".into()),
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    cwd: None,
+                    hook_fingerprint: None,
+                    report_token: Some("opencode-test-token".into()),
+                },
+            )
+            .await;
+
+        assert_eq!(result, Ok(()));
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
+        assert!(stored.needs_user_input.is_none());
+        assert!(stored.detected_question.is_none());
+        assert!(stored.suggested_options.is_none());
+        let sessions = state.sessions.lock().unwrap();
+        let live = &sessions[id];
+        assert!(live.active_work_hook);
+        assert!(live.info.needs_user_input.is_none());
+        assert!(live.info.detected_question.is_none());
+        assert!(live.info.suggested_options.is_none());
+    }
+
+    fn opencode_attention_state(root: &std::path::Path, id: &str) -> Arc<AppState> {
+        let state = crate::test_support::test_app_state_with_workspace(root);
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "OpenCode",
+            root.display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.harness = "opencode".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root);
+        handle.info.harness_id = Some("opencode".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(
+            id,
+            "opencode-test-token".into(),
+        );
+        state
+    }
+
+    fn opencode_attention_signal(event: &str, status: &str) -> AttentionSignal {
+        AttentionSignal {
+            status: status.into(),
+            event: Some(event.into()),
+            source: Some("opencode_hook".into()),
+            report_token: Some("opencode-test-token".into()),
+            observed_at: Some("2026-09-26T12:00:00.123456Z".into()),
+            message: Some("new hook report".into()),
+            plan_path: metadata::PlanPathUpdate::Unchanged,
+            cwd: None,
+            hook_fingerprint: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_rejects_unverified_or_invalid_reports_without_mutation() {
+        for case in [
+            "missing_token",
+            "wrong_token",
+            "other_session_token",
+            "wrong_harness",
+            "ended",
+            "missing_handle",
+            "missing_session",
+            "missing_observed_at",
+            "malformed_observed_at",
+            "invalid_status_for_event",
+            "unknown_event",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let id = "opencode-invalid-report";
+            let state = opencode_attention_state(root.path(), id);
+            let mut signal = opencode_attention_signal("question.asked", "waiting_for_input");
+            match case {
+                "missing_token" => signal.report_token = None,
+                "wrong_token" => signal.report_token = Some("wrong".into()),
+                "other_session_token" => {
+                    crate::runtime::terminal_runtime::set_workflow_report_token(
+                        "other-opencode-session",
+                        "other-token".into(),
+                    );
+                    signal.report_token = Some("other-token".into());
+                }
+                "wrong_harness" => {
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get_mut(id)
+                        .unwrap()
+                        .info
+                        .harness_id = Some("claude-code".into())
+                }
+                "ended" => {
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get_mut(id)
+                        .unwrap()
+                        .info
+                        .lifecycle = "ended".into();
+                }
+                "missing_handle" => {
+                    state.sessions.lock().unwrap().remove(id);
+                }
+                "missing_session" => {
+                    state.sessions.lock().unwrap().remove(id);
+                    signal.report_token = Some("opencode-test-token".into());
+                    crate::runtime::terminal_runtime::set_workflow_report_token(
+                        "missing",
+                        "opencode-test-token".into(),
+                    );
+                }
+                "missing_observed_at" => signal.observed_at = None,
+                "malformed_observed_at" => signal.observed_at = Some("invalid".into()),
+                "invalid_status_for_event" => signal.status = "working".into(),
+                "unknown_event" => signal.event = Some("session.deleted".into()),
+                _ => unreachable!(),
+            }
+            let target_id = if case == "missing_session" {
+                "missing"
+            } else {
+                id
+            };
+            let result = SessionApplication::new(state.clone())
+                .report_attention(target_id, signal)
+                .await;
+            assert_eq!(result, Err(SessionError::EmptyBadRequest), "{case}");
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored.observed_status, None, "{case}");
+            assert_eq!(stored.metadata_source, "process", "{case}");
+            if let Some(handle) = state.sessions.lock().unwrap().get(id) {
+                assert!(!handle.active_work_hook, "{case}");
+                assert_eq!(handle.info.observed_status, None, "{case}");
+            };
+        }
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_stale_reports_do_not_activate() {
+        for pre_input in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let id = "opencode-stale-report";
+            let state = opencode_attention_state(root.path(), id);
+            let timestamp = parse_hook_observed_at("2026-09-26T12:00:01.000000Z").unwrap();
+            if pre_input {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get_mut(id)
+                    .unwrap()
+                    .runtime
+                    .accepted_input_at = Some(timestamp);
+            } else {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get_mut(id)
+                    .unwrap()
+                    .runtime
+                    .last_hook_attention_at = Some(timestamp);
+            }
+            let result = SessionApplication::new(state.clone())
+                .report_attention(id, opencode_attention_signal("session.status", "working"))
+                .await;
+            assert_eq!(result, Ok(()));
+            assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+            assert!(state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .observed_status
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn opencode_hook_merge_rechecks_accepted_input_under_final_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "opencode-input-race";
+        let state = opencode_attention_state(root.path(), id);
+        let runtime_identity = state.sessions.lock().unwrap()[id].runtime.identity();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .unwrap()
+            .runtime
+            .accepted_input_at =
+            Some(parse_hook_observed_at("2026-09-26T12:00:01.000000Z").unwrap());
+
+        let result =
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "waiting_for_input".into(),
+                message: Some("stale question".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-09-26T12:00:02Z".into(),
+                source: "agent".into(),
+                confidence: 1.0,
+                observed_at: Some(parse_hook_observed_at("2026-09-26T12:00:00.123456Z").unwrap()),
+                reject_stale_observed_at: true,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: true,
+                require_alive: true,
+                activate_work_hook: true,
+                opencode_authority: Some(OpenCodeReportAuthority {
+                    token: "opencode-test-token".into(),
+                    runtime_identity,
+                }),
+                debug_hint_mutation: None,
+            });
+
+        assert_eq!(result, Ok(metadata::AttentionMergeResult::Ignored));
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "process");
+        assert!(stored.observed_status.is_none());
+    }
+
+    #[test]
+    fn opencode_hook_merge_rejects_rotated_token_or_replaced_runtime() {
+        for replace_runtime in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let id = "opencode-rotated-authority";
+            let state = opencode_attention_state(root.path(), id);
+            let original_identity = state.sessions.lock().unwrap()[id].runtime.identity();
+            if replace_runtime {
+                let mut replacement = attention_test_handle(id, root.path());
+                replacement.info.harness_id = Some("opencode".into());
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .insert(id.into(), replacement);
+            } else {
+                crate::runtime::terminal_runtime::set_workflow_report_token(id, "new-token".into());
+            }
+
+            let result = SessionApplication::new(state.clone()).apply_attention_signal(
+                AttentionMergeSignal {
+                    session_id: id.into(),
+                    observed_status: "waiting_for_input".into(),
+                    message: Some("old runtime question".into()),
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    timestamp: "2026-09-26T12:00:02Z".into(),
+                    source: "agent".into(),
+                    confidence: 1.0,
+                    observed_at: Some(
+                        parse_hook_observed_at("2026-09-26T12:00:00.123456Z").unwrap(),
+                    ),
+                    reject_stale_observed_at: true,
+                    update_hook_timestamp: true,
+                    clear_pending_work_signal: true,
+                    require_alive: true,
+                    activate_work_hook: true,
+                    opencode_authority: Some(OpenCodeReportAuthority {
+                        token: "opencode-test-token".into(),
+                        runtime_identity: original_identity,
+                    }),
+                    debug_hint_mutation: None,
+                },
+            );
+
+            assert_eq!(
+                result,
+                Err(SessionError::EmptyBadRequest),
+                "replace_runtime={replace_runtime}"
+            );
+            assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored.metadata_source, "process");
+            assert!(stored.observed_status.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_failed_persistence_does_not_activate() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "opencode-persist-failure";
+        let state = opencode_attention_state(root.path(), id);
+        std::fs::create_dir_all(
+            root.path()
+                .join(".orkworks-test/sessions/opencode-persist-failure.json.tmp"),
+        )
+        .unwrap();
+
+        let result = SessionApplication::new(state.clone())
+            .report_attention(id, opencode_attention_signal("session.status", "working"))
+            .await;
+
+        assert_eq!(
+            result,
+            Err(SessionError::Internal("application operation failed"))
+        );
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "process");
+        assert!(stored.observed_status.is_none());
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_checkpoint_failure_restores_durable_and_live_attention() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "opencode-checkpoint-failure";
+        let state = opencode_attention_state(root.path(), id);
+        let events_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .events_dir();
+        std::fs::write(events_dir, "not a directory").unwrap();
+
+        let result = SessionApplication::new(state.clone())
+            .report_attention(
+                id,
+                opencode_attention_signal("question.asked", "waiting_for_input"),
+            )
+            .await;
+
+        assert_eq!(
+            result,
+            Err(SessionError::Internal("application operation failed"))
+        );
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        assert!(state.sessions.lock().unwrap()[id]
+            .info
+            .observed_status
+            .is_none());
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "process");
+        assert!(stored.observed_status.is_none());
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_activation_blocks_later_untagged_agent_report() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "opencode-authority";
+        let state = opencode_attention_state(root.path(), id);
+        let application = SessionApplication::new(state.clone());
+        let mut generic = opencode_attention_signal("question.asked", "waiting_for_input");
+        generic.source = None;
+        generic.event = None;
+        generic.report_token = None;
+        generic.observed_at = None;
+        application.report_attention(id, generic).await.unwrap();
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        application
+            .report_attention(id, opencode_attention_signal("session.status", "working"))
+            .await
+            .unwrap();
+        assert!(state.sessions.lock().unwrap()[id].active_work_hook);
+        let mut late_generic = opencode_attention_signal("question.asked", "waiting_for_input");
+        late_generic.source = None;
+        late_generic.event = None;
+        late_generic.report_token = None;
+        late_generic.observed_at = None;
+        application
+            .report_attention(id, late_generic)
+            .await
+            .unwrap();
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("working"));
+        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("working")
+        );
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_session_created_idle_activates_and_event_matrix_is_exact() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "opencode-created";
+        let state = opencode_attention_state(root.path(), id);
+        let application = SessionApplication::new(state.clone());
+        application
+            .report_attention(id, opencode_attention_signal("session.created", "idle"))
+            .await
+            .unwrap();
+        assert!(state.sessions.lock().unwrap()[id].active_work_hook);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .observed_status
+                .as_deref(),
+            Some("idle")
+        );
+
+        for (event, allowed) in [
+            ("session.created", vec!["idle"]),
+            ("session.status", vec!["working"]),
+            ("session.idle", vec!["idle"]),
+            ("permission.asked", vec!["waiting_for_input"]),
+            ("question.asked", vec!["waiting_for_input"]),
+            (
+                "permission.replied",
+                vec!["waiting_for_input", "working", "idle"],
+            ),
+            (
+                "question.replied",
+                vec!["waiting_for_input", "working", "idle"],
+            ),
+            (
+                "question.rejected",
+                vec!["waiting_for_input", "working", "idle"],
+            ),
+        ] {
+            for status in ["idle", "working", "waiting_for_input", "blocked"] {
+                assert_eq!(
+                    opencode_event_allows_status(event, status),
+                    allowed.contains(&status),
+                    "{event}/{status}"
+                );
+            }
+        }
+        assert!(!opencode_event_allows_status("session.deleted", "idle"));
+    }
+
     fn usage_limit_test_state(id: &str) -> Arc<AppState> {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
@@ -5797,6 +6481,7 @@ mod tests {
                 "now",
                 "agent",
                 1.0,
+                false,
             );
         assert_eq!(result, metadata::AttentionMergeResult::Accepted);
         assert!(!application.persist_printed_plan_fallback(id, "specs/fallback.md"));
@@ -6503,6 +7188,7 @@ mod tests {
                     source: None,
                     event: None,
                     hook_fingerprint: None,
+                    report_token: None,
                 },
             )
             .await
@@ -6537,6 +7223,7 @@ mod tests {
                     source: None,
                     event: None,
                     hook_fingerprint: None,
+                    report_token: None,
                 },
             )
             .await;
@@ -6589,6 +7276,8 @@ mod tests {
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
                 require_alive: false,
+                activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: None,
             });
 
@@ -6655,6 +7344,8 @@ mod tests {
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
                 require_alive: true,
+                activate_work_hook: true,
+                opencode_authority: None,
                 debug_hint_mutation: None,
             });
 
@@ -6717,6 +7408,8 @@ mod tests {
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
                 require_alive: false,
+                activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: None,
             });
 
@@ -6789,6 +7482,8 @@ mod tests {
                 update_hook_timestamp: false,
                 clear_pending_work_signal: false,
                 require_alive: true,
+                activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: Some(DebugHintMutation::Preserve),
             });
 
@@ -6850,6 +7545,8 @@ mod tests {
                         update_hook_timestamp: false,
                         clear_pending_work_signal: true,
                         require_alive: false,
+                        activate_work_hook: false,
+                        opencode_authority: None,
                         debug_hint_mutation: None,
                     })
                 })
@@ -7142,6 +7839,7 @@ mod tests {
                     source: None,
                     event: None,
                     hook_fingerprint: None,
+                    report_token: None,
                 },
             )
             .await
@@ -7200,6 +7898,7 @@ mod tests {
                     source: None,
                     event: None,
                     hook_fingerprint: None,
+                    report_token: None,
                 },
             )
             .await;
@@ -9794,6 +10493,491 @@ mod tests {
         assert_eq!(stored.needs_user_input, None);
         assert_eq!(stored.detected_question, None);
         assert_eq!(stored.suggested_options, None);
+    }
+
+    #[test]
+    fn peon_nonprompt_before_hook_activation_ignores_waiting_for_codex_and_opencode() {
+        for harness in ["codex", "opencode"] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = "peon-nonprompt-before-hook";
+            let mut metadata = crate::test_support::test_session_metadata(
+                id,
+                harness,
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.harness = harness.into();
+            metadata.lifecycle = "alive".into();
+            metadata.lifecycle_phase = "active".into();
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let mut handle = attention_test_handle(id, root.path());
+            handle.info.harness_id = Some(harness.into());
+            handle.info.harness = Some(harness.into());
+            state.sessions.lock().unwrap().insert(id.into(), handle);
+            let other_id = "peon-other-active-hook";
+            let mut other = attention_test_handle(other_id, root.path());
+            other.active_work_hook = true;
+            other.info.harness_id = Some(harness.into());
+            other.info.harness = Some(harness.into());
+            other.info.observed_status = Some("waiting_for_input".into());
+            other.info.metadata_source = Some(
+                if harness == "opencode" {
+                    "agent"
+                } else {
+                    "codex_hook"
+                }
+                .into(),
+            );
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .insert(other_id.into(), other);
+            let inference = crate::peon::PeonInference {
+                observed_status: Some("waiting_for_input".into()),
+                phase: None,
+                summary: Some("A question-shaped passage".into()),
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: Some("Continue?".into()),
+                suggested_options: Some(vec!["Yes".into()]),
+                blocker_description: Some("Diagnostic survives".into()),
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            let result = SessionApplication::new(state.clone()).persist_peon_observation(
+                id,
+                Some(&inference),
+                None,
+                Some("A question-shaped passage"),
+                "later",
+            );
+            assert!(result.inference_persisted, "{harness}");
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored.observed_status, None, "{harness}");
+            assert_ne!(stored.attention.as_deref(), Some("needs_you"), "{harness}");
+            assert_eq!(stored.needs_user_input, None, "{harness}");
+            assert_eq!(stored.detected_question, None, "{harness}");
+            assert_eq!(stored.suggested_options, None, "{harness}");
+            assert_eq!(
+                stored.summary.as_deref(),
+                Some("A question-shaped passage"),
+                "{harness}"
+            );
+            assert_eq!(
+                stored.blocker_description.as_deref(),
+                Some("Diagnostic survives"),
+                "{harness}"
+            );
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_reconciles_old_wait_with_unknown_or_working() {
+        for harness in ["codex", "opencode"] {
+            for next_status in [None, Some("working")] {
+                let root = tempfile::tempdir().unwrap();
+                let state = crate::test_support::test_app_state_with_workspace(root.path());
+                let id = "peon-nonprompt-old-wait";
+                let mut metadata = crate::test_support::test_session_metadata(
+                    id,
+                    harness,
+                    &root.path().display().to_string(),
+                    "running",
+                    "now",
+                    "now",
+                );
+                metadata.harness = harness.into();
+                metadata.lifecycle = "alive".into();
+                metadata.lifecycle_phase = "active".into();
+                metadata.metadata_source = "peon".into();
+                metadata.observed_status = Some("waiting_for_input".into());
+                metadata.attention = Some("needs_you".into());
+                metadata.needs_user_input = Some(true);
+                metadata.detected_question = Some("Old question".into());
+                metadata.suggested_options = Some(vec!["Old option".into()]);
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .write_session(&metadata);
+                let mut handle = attention_test_handle(id, root.path());
+                handle.info.harness_id = Some(harness.into());
+                handle.info.harness = Some(harness.into());
+                handle.info.observed_status = Some("waiting_for_input".into());
+                handle.info.attention = Some("needs_you".into());
+                handle.info.needs_user_input = Some(true);
+                handle.info.detected_question = Some("Old question".into());
+                handle.info.suggested_options = Some(vec!["Old option".into()]);
+                handle.info.metadata_source = Some("peon".into());
+                state.sessions.lock().unwrap().insert(id.into(), handle);
+                let inference = crate::peon::PeonInference {
+                    observed_status: next_status.map(str::to_string),
+                    phase: None,
+                    summary: Some("New summary".into()),
+                    next_action: None,
+                    needs_user_input: None,
+                    detected_question: None,
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    confidence: 0.8,
+                    detected_harness: None,
+                    detected_model: None,
+                    harness_session_id: None,
+                    workflow_observations: Vec::new(),
+                };
+                let result = SessionApplication::new(state.clone()).persist_peon_observation(
+                    id,
+                    Some(&inference),
+                    None,
+                    Some("New summary"),
+                    "later",
+                );
+                assert!(result.inference_persisted, "{harness} {next_status:?}");
+                let stored = state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap();
+                assert_eq!(stored.observed_status.as_deref(), next_status, "{harness}");
+                assert_ne!(stored.attention.as_deref(), Some("needs_you"), "{harness}");
+                assert_eq!(stored.needs_user_input, None, "{harness}");
+                assert_eq!(stored.detected_question, None, "{harness}");
+                assert_eq!(stored.suggested_options, None, "{harness}");
+                assert_eq!(stored.summary.as_deref(), Some("New summary"), "{harness}");
+                let projected = crate::session_projection::SessionProjection::new(state.clone())
+                    .list()
+                    .into_iter()
+                    .find(|session| session.id == id)
+                    .unwrap();
+                assert_eq!(
+                    projected.observed_status.as_deref(),
+                    next_status,
+                    "{harness}"
+                );
+                assert_ne!(
+                    projected.attention.as_deref(),
+                    Some("needs_you"),
+                    "{harness}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_preserves_opencode_hook_attention_past_overwrite_window() {
+        for (status, attention) in [
+            ("waiting_for_input", "needs_you"),
+            ("working", "working"),
+            ("idle", "idle"),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = "peon-opencode-hook";
+            let mut metadata = crate::test_support::test_session_metadata(
+                id,
+                "OpenCode",
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.harness = "opencode".into();
+            metadata.lifecycle = "alive".into();
+            metadata.lifecycle_phase = "active".into();
+            metadata.observed_status = Some(status.into());
+            metadata.attention = Some(attention.into());
+            metadata.metadata_source = "agent".into();
+            metadata.metadata_confidence = 0.97;
+            let path = {
+                let workspace = state.workspace.lock().unwrap();
+                let store = &workspace.as_ref().unwrap().metadata;
+                store.write_session(&metadata);
+                store.sessions_dir().join(format!("{id}.json"))
+            };
+            let stale = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+            std::fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(
+                    std::fs::FileTimes::new()
+                        .set_accessed(stale)
+                        .set_modified(stale),
+                )
+                .unwrap();
+            let mut handle = attention_test_handle(id, root.path());
+            handle.active_work_hook = true;
+            handle.info.harness_id = Some("opencode".into());
+            handle.info.harness = Some("opencode".into());
+            handle.info.observed_status = Some(status.into());
+            handle.info.attention = Some(attention.into());
+            handle.info.metadata_source = Some("agent".into());
+            handle.info.metadata_confidence = Some(0.97);
+            state.sessions.lock().unwrap().insert(id.into(), handle);
+            let inference = crate::peon::PeonInference {
+                observed_status: Some(
+                    if status == "idle" {
+                        "working"
+                    } else {
+                        "waiting_for_input"
+                    }
+                    .into(),
+                ),
+                phase: None,
+                summary: Some("New summary".into()),
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: Some("Untrusted question?".into()),
+                suggested_options: Some(vec!["Sure".into()]),
+                blocker_description: Some("New diagnostic".into()),
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            assert!(
+                SessionApplication::new(state.clone())
+                    .persist_peon_observation(
+                        id,
+                        Some(&inference),
+                        None,
+                        Some("New summary"),
+                        "later",
+                    )
+                    .inference_persisted
+            );
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored.observed_status.as_deref(), Some(status));
+            assert_eq!(stored.attention.as_deref(), Some(attention));
+            assert_eq!(stored.metadata_source, "agent");
+            assert_eq!(stored.metadata_confidence, 0.97);
+            assert_eq!(stored.summary.as_deref(), Some("New summary"));
+            assert_eq!(
+                stored.blocker_description.as_deref(),
+                Some("New diagnostic")
+            );
+            assert_eq!(stored.needs_user_input, None);
+            assert_eq!(stored.detected_question, None);
+            assert_eq!(stored.suggested_options, None);
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_is_scoped_to_the_target_harness_and_live_authority() {
+        for (harness, active_hook, lifecycle, phase, has_handle, expected_wait) in [
+            ("opencode", false, "alive", "active", true, false),
+            ("opencode", false, "alive", "active", false, false),
+            ("codex", false, "alive", "active", false, false),
+            ("opencode", true, "ended", "ended", true, false),
+            ("codex", true, "alive", "inactive", true, false),
+            ("claude-code", false, "alive", "active", true, true),
+            ("aider", false, "alive", "active", true, true),
+            ("copilot", false, "alive", "active", true, true),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = "peon-policy-boundary";
+            let mut metadata = crate::test_support::test_session_metadata(
+                id,
+                harness,
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.harness = harness.into();
+            metadata.lifecycle = lifecycle.into();
+            metadata.lifecycle_phase = phase.into();
+            metadata.metadata_source = "peon".into();
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let mut handle = attention_test_handle(id, root.path());
+            handle.info.harness_id = Some(harness.into());
+            handle.info.harness = Some(harness.into());
+            handle.info.lifecycle = lifecycle.into();
+            handle.info.lifecycle_phase = phase.into();
+            handle.active_work_hook = active_hook;
+            if has_handle {
+                state.sessions.lock().unwrap().insert(id.into(), handle);
+            }
+            let inference = crate::peon::PeonInference {
+                observed_status: Some("waiting_for_input".into()),
+                phase: None,
+                summary: Some("Summary".into()),
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: Some("Question?".into()),
+                suggested_options: Some(vec!["Option".into()]),
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            assert!(
+                SessionApplication::new(state.clone())
+                    .persist_peon_observation(id, Some(&inference), None, Some("Summary"), "later",)
+                    .inference_persisted,
+                "{harness} {lifecycle} {phase}"
+            );
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(
+                stored.observed_status.as_deref() == Some("waiting_for_input"),
+                expected_wait,
+                "{harness} {lifecycle} {phase}"
+            );
+            assert_eq!(
+                stored.detected_question.is_some(),
+                expected_wait,
+                "{harness} {lifecycle} {phase}"
+            );
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_does_not_override_user_attention() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "peon-user-override";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "OpenCode",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "opencode".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.metadata_source = "user".into();
+        metadata.observed_status = Some("waiting_for_input".into());
+        metadata.attention = Some("needs_you".into());
+        metadata.needs_user_input = Some(true);
+        metadata.detected_question = Some("User-owned question".into());
+        metadata.suggested_options = Some(vec!["User option".into()]);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness_id = Some("opencode".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let inference = crate::peon::PeonInference {
+            observed_status: Some("working".into()),
+            phase: None,
+            summary: Some("Untrusted summary".into()),
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: None,
+            workflow_observations: Vec::new(),
+        };
+        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+            id,
+            Some(&inference),
+            None,
+            Some("Untrusted summary"),
+            "later",
+        );
+        assert!(!result.inference_persisted);
+        assert!(result.permanent_hold);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "user");
+        assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(stored.attention.as_deref(), Some("needs_you"));
+        assert_eq!(stored.needs_user_input, Some(true));
+        assert_eq!(
+            stored.detected_question.as_deref(),
+            Some("User-owned question")
+        );
+        assert_eq!(stored.suggested_options, Some(vec!["User option".into()]));
+        assert_eq!(stored.summary, None);
     }
 
     #[test]

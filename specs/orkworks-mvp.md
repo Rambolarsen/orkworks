@@ -246,7 +246,19 @@ Electron-main confirmation, install/reconcile or uninstall a supported
 integration. A contract without an exact primary-source payload fixture remains
 limited or unsupported rather than inferred.
 
-When no harness-specific signal source is registered or installed for a session, Peon's LLM-based inference remains the sole/fallback source, unchanged.
+When no harness-specific signal source is registered or installed for a session,
+Peon's LLM-based inference remains the fallback source. For Codex and OpenCode,
+an installed integration or declared capability alone does not make hooks
+authoritative: an accepted session-scoped attention event does. Once active,
+that hook stream owns attention while Peon continues descriptive inference.
+Before a hook executes, Peon may supply nonprompt status, but an LLM reading a
+conversational question must not set Needs You. A permission or explicit-input
+prompt requires a direct lifecycle event or a separately reviewed deterministic
+terminal prompt signal. This intentionally leaves an unsupported prompt
+unrecognized rather than displaying a speculative Needs You state. Other
+harnesses retain their current fallback rules until their event coverage is
+reviewed. See the [OpenCode prompt attention design](../docs/superpowers/specs/2026-09-26-opencode-prompt-attention-design.md)
+for the initial Codex/OpenCode authority boundary.
 
 ## Peon
 

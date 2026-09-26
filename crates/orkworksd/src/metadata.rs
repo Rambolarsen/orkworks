@@ -102,6 +102,17 @@ pub enum PeonMergeOutcome {
     SkippedHigherPriority { permanent_hold: bool },
 }
 
+#[derive(Clone, Copy)]
+pub enum PeonAttentionPolicy<'a> {
+    Infer,
+    NonPrompt,
+    PreserveHook {
+        status: &'a str,
+        confidence: f64,
+        source: &'a str,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub(crate) enum TerminalOutputRecord {
@@ -1632,6 +1643,7 @@ impl MetadataStore {
             timestamp,
             source,
             confidence,
+            false,
         )
     }
 
@@ -1644,6 +1656,7 @@ impl MetadataStore {
         timestamp: &str,
         source: &str,
         confidence: f64,
+        activate_work_hook: bool,
     ) -> AttentionMergeResult {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
@@ -1654,6 +1667,7 @@ impl MetadataStore {
         if !source_priority::can_overwrite(source, &meta.metadata_source, existing_age) {
             return AttentionMergeResult::Ignored;
         }
+        let previous_meta = meta.clone();
 
         meta.observed_status = Some(status.to_string());
         if meta.lifecycle == "alive" {
@@ -1682,6 +1696,11 @@ impl MetadataStore {
         meta.last_activity = timestamp.to_string();
         meta.metadata_source = source.into();
         meta.metadata_confidence = confidence;
+        if activate_work_hook {
+            meta.needs_user_input = None;
+            meta.detected_question = None;
+            meta.suggested_options = None;
+        }
         if let Err(e) = self.try_write_session(&meta) {
             warn!("failed to persist attention signal for {id}: {e}");
             return AttentionMergeResult::PersistFailed;
@@ -1708,6 +1727,12 @@ impl MetadataStore {
         if event.summary.is_some() {
             if let Err(error) = self.try_append_event(id, &event) {
                 warn!("failed to persist attention checkpoint for {id}: {error}");
+                if let Err(rollback_error) = self.try_write_session(&previous_meta) {
+                    warn!("failed to restore attention metadata for {id}: {rollback_error}");
+                    // The new metadata is durable. Keep its live projection in
+                    // sync even though its summary checkpoint is unavailable.
+                    return AttentionMergeResult::Accepted;
+                }
                 return AttentionMergeResult::PersistFailed;
             }
         } else {
@@ -1734,6 +1759,7 @@ impl MetadataStore {
     /// Returns `Err` when the merged metadata could not be persisted, so the
     /// caller does not treat the inference as landed (e.g. updating in-memory
     /// state to match a write that never happened).
+    #[cfg(test)]
     pub fn merge_peon_inference_with_history(
         &self,
         id: &str,
@@ -1742,32 +1768,27 @@ impl MetadataStore {
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, None)
+        self.merge_peon_inference_with_history_policy(
+            id,
+            inf,
+            timestamp,
+            provider,
+            history_summary,
+            PeonAttentionPolicy::Infer,
+        )
     }
 
-    /// Merges Peon's descriptive fields while retaining the live Codex hook's
-    /// status/attention authority. A hook-capable session can continue
-    /// producing ambiguous terminal output while Codex is working; that
-    /// output must not become a durable `needs_you` transition merely because
-    /// the hook signal has aged past the normal Peon overwrite window.
-    pub fn merge_peon_inference_with_history_preserving_hook_status(
+    /// Merges descriptive Peon fields with the caller's live harness attention policy.
+    pub fn merge_peon_inference_with_history_policy(
         &self,
         id: &str,
         inf: &crate::peon::PeonInference,
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
-        hook_status: &str,
-        hook_confidence: f64,
+        policy: PeonAttentionPolicy<'_>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(
-            id,
-            inf,
-            timestamp,
-            provider,
-            history_summary,
-            Some((hook_status, hook_confidence)),
-        )
+        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, policy)
     }
 
     #[cfg(test)]
@@ -1778,7 +1799,14 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(id, inf, timestamp, provider, inf.summary.as_deref(), None)
+        self.merge_peon_inference_inner(
+            id,
+            inf,
+            timestamp,
+            provider,
+            inf.summary.as_deref(),
+            PeonAttentionPolicy::Infer,
+        )
     }
 
     fn merge_peon_inference_inner(
@@ -1788,7 +1816,7 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
-        hook_status: Option<(&str, f64)>,
+        policy: PeonAttentionPolicy<'_>,
     ) -> std::io::Result<PeonMergeOutcome> {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
@@ -1798,11 +1826,12 @@ impl MetadataStore {
         };
 
         // The merge defends itself: no caller ordering can bypass the
-        // source-priority ladder (issue #400). An active Codex hook is the
+        // source-priority ladder (issue #400). An active work hook is the
         // explicit exception: its status remains authoritative while Peon
         // still contributes descriptive fields.
         let existing_age = self.session_modified_secs_ago(id);
-        if (hook_status.is_none() || meta.metadata_source == "user")
+        if (!matches!(policy, PeonAttentionPolicy::PreserveHook { .. })
+            || meta.metadata_source == "user")
             && !source_priority::can_overwrite("peon", &meta.metadata_source, existing_age)
         {
             return Ok(PeonMergeOutcome::SkippedHigherPriority {
@@ -1818,17 +1847,60 @@ impl MetadataStore {
                     confidence: inf.confidence.min(0.50),
                 });
 
+        let reconciled_peon_prompt = if matches!(policy, PeonAttentionPolicy::NonPrompt)
+            && !matches!(
+                meta.metadata_source.as_str(),
+                "user" | "agent" | "codex_hook"
+            ) {
+            let before = (
+                meta.observed_status.clone(),
+                meta.attention.clone(),
+                meta.needs_user_input,
+                meta.detected_question.clone(),
+                meta.suggested_options.clone(),
+            );
+            if meta.observed_status.as_deref() == Some("waiting_for_input") {
+                meta.observed_status = None;
+            }
+            if meta.lifecycle == "alive" {
+                meta.attention = canonical_attention(meta.observed_status.as_deref());
+            }
+            meta.needs_user_input = None;
+            meta.detected_question = None;
+            meta.suggested_options = None;
+            let changed = before
+                != (
+                    meta.observed_status.clone(),
+                    meta.attention.clone(),
+                    meta.needs_user_input,
+                    meta.detected_question.clone(),
+                    meta.suggested_options.clone(),
+                );
+            if changed {
+                meta.last_activity = timestamp.to_string();
+            }
+            changed
+        } else {
+            false
+        };
+
         // Observer-only inference cannot resume a finished/non-working session to
         // `working` on its own. Terminal input intentionally preserves the observed
         // status, so an explicit hook remains authoritative until it reports again.
-        // The whole inference is discarded in that case (not just observed_status):
+        // Without an active hook, the whole inference is discarded in that
+        // case (not just observed_status):
         // applying its summary/next_action/etc while keeping the old status would
         // leave an inconsistent record (e.g. a "blocked" badge with a "still
         // working" summary), and flipping metadata_source to "peon" would falsely
         // mark the untouched status field as freshly peon-confirmed.
-        if inf.observed_status.as_deref() == Some("working")
+        if !matches!(policy, PeonAttentionPolicy::PreserveHook { .. })
+            && inf.observed_status.as_deref() == Some("working")
             && crate::peon::is_terminal_observed_status(meta.observed_status.as_deref())
         {
+            if reconciled_peon_prompt {
+                meta.peon_last_inference = Some(timestamp.to_string());
+                self.try_write_session(&meta)?;
+            }
             if let Some(report) = peon_harness_session_report {
                 let _ = self.merge_harness_session_report(id, &report, timestamp);
             }
@@ -1853,24 +1925,31 @@ impl MetadataStore {
             meta.failed_test.clone(),
         );
 
-        if let Some((hook_status, hook_confidence)) = hook_status {
-            meta.observed_status = Some(hook_status.to_string());
-            if meta.lifecycle == "alive" {
-                meta.attention = canonical_attention(Some(hook_status));
+        match policy {
+            PeonAttentionPolicy::PreserveHook {
+                status,
+                confidence,
+                source,
+            } => {
+                meta.observed_status = Some(status.to_string());
+                if meta.lifecycle == "alive" {
+                    meta.attention = canonical_attention(Some(status));
+                }
+                // Accepted terminal input is newer than a hook report.
+                if meta.metadata_source != "process" {
+                    meta.metadata_source = source.into();
+                    meta.metadata_confidence = confidence;
+                }
             }
-            // A Codex hook remains authoritative after accepted input, but the
-            // input transition is a newer process-owned provenance. Preserve
-            // that provenance instead of making the next Peon pass look like
-            // another hook event; otherwise a later hook report could be
-            // confused with the transition that followed the approval.
-            if meta.metadata_source != "process" {
-                meta.metadata_source = "codex_hook".into();
-                meta.metadata_confidence = hook_confidence;
-            }
-        } else {
-            meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
-            if meta.lifecycle == "alive" {
-                meta.attention = canonical_attention(meta.observed_status.as_deref());
+            PeonAttentionPolicy::Infer | PeonAttentionPolicy::NonPrompt => {
+                if !matches!(policy, PeonAttentionPolicy::NonPrompt)
+                    || inf.observed_status.as_deref() != Some("waiting_for_input")
+                {
+                    meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
+                }
+                if meta.lifecycle == "alive" {
+                    meta.attention = canonical_attention(meta.observed_status.as_deref());
+                }
             }
         }
         if let Some(ref phase) = inf.phase {
@@ -1880,11 +1959,11 @@ impl MetadataStore {
         // it must not be clobbered here (ADR 0029).
         meta.summary = history_summary.map(str::to_string).or(meta.summary);
         meta.next_action = inf.next_action.clone().or(meta.next_action);
-        if hook_status.is_none() {
+        if matches!(policy, PeonAttentionPolicy::Infer) {
             meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         }
         // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
-        if hook_status.is_none() {
+        if matches!(policy, PeonAttentionPolicy::Infer) {
             let incoming_q = inf
                 .detected_question
                 .as_deref()
@@ -1900,7 +1979,7 @@ impl MetadataStore {
         }
         // Hook authority covers attention and prompt fields only. Peon still
         // contributes useful diagnostics about blockers and failed work while
-        // Codex is processing the turn.
+        // the coding tool is processing the turn.
         meta.blocker_description = inf.blocker_description.clone().or(meta.blocker_description);
         meta.failed_command = inf.failed_command.clone().or(meta.failed_command);
         meta.failed_test = inf.failed_test.clone().or(meta.failed_test);
@@ -1936,7 +2015,7 @@ impl MetadataStore {
             meta.last_activity = timestamp.to_string();
         }
         meta.peon_last_inference = Some(timestamp.to_string());
-        if hook_status.is_none() {
+        if !matches!(policy, PeonAttentionPolicy::PreserveHook { .. }) {
             meta.metadata_source = "peon".into();
             meta.metadata_confidence = inf.confidence;
         }
@@ -1957,9 +2036,7 @@ impl MetadataStore {
             event_type: "peon.inference".into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
-            observed_status: hook_status
-                .map(|(status, _)| status.to_string())
-                .or_else(|| inf.observed_status.clone()),
+            observed_status: meta.observed_status.clone(),
             confidence: Some(inf.confidence),
             summary: checkpoint,
             source: checkpoint_source,
@@ -2578,6 +2655,128 @@ mod tests {
             .unwrap();
         let after_third = store.read_session(id).unwrap();
         assert_eq!(after_third.last_activity, "t3");
+    }
+
+    #[test]
+    fn peon_nonprompt_clears_legacy_prompt_fields_with_nonwaiting_status() {
+        for (stored_status, incoming_status) in [
+            ("working", None),
+            ("blocked", None),
+            ("blocked", Some("working")),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = MetadataStore::new(dir.path());
+            let id = "legacy-peon-prompt-fields";
+            let mut meta = test_metadata(id);
+            meta.harness = "opencode".into();
+            meta.metadata_source = "peon".into();
+            meta.observed_status = Some(stored_status.into());
+            meta.attention = Some("needs_you".into());
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Old chat question?".into());
+            meta.suggested_options = Some(vec!["Old option".into()]);
+            store.write_session(&meta);
+            let mut inference = peon_inference_with_summary(Some("Fresh summary"), 0.8);
+            inference.observed_status = incoming_status.map(str::to_string);
+            let outcome = store
+                .merge_peon_inference_with_history_policy(
+                    id,
+                    &inference,
+                    "later",
+                    None,
+                    Some("Fresh summary"),
+                    PeonAttentionPolicy::NonPrompt,
+                )
+                .unwrap();
+            assert_eq!(outcome, PeonMergeOutcome::Applied);
+            let stored = store.read_session(id).unwrap();
+            assert_eq!(stored.observed_status.as_deref(), Some(stored_status));
+            assert_ne!(stored.attention.as_deref(), Some("needs_you"));
+            assert_eq!(stored.needs_user_input, None);
+            assert_eq!(stored.detected_question, None);
+            assert_eq!(stored.suggested_options, None);
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_clears_prompt_fields_inherited_by_process_idle_timeout() {
+        for (harness, source) in [
+            ("codex", "process"),
+            ("opencode", "process"),
+            ("opencode", "backend_inference"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = MetadataStore::new(dir.path());
+            let id = "legacy-process-prompt-fields";
+            let mut meta = test_metadata(id);
+            meta.harness = harness.into();
+            meta.metadata_source = source.into();
+            meta.observed_status = Some("idle".into());
+            meta.attention = Some("idle".into());
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Old chat question?".into());
+            meta.suggested_options = Some(vec!["Old option".into()]);
+            store.write_session(&meta);
+
+            let outcome = store
+                .merge_peon_inference_with_history_policy(
+                    id,
+                    &peon_inference_with_summary(Some("Fresh summary"), 0.8),
+                    "later",
+                    None,
+                    Some("Fresh summary"),
+                    PeonAttentionPolicy::NonPrompt,
+                )
+                .unwrap();
+            assert_eq!(outcome, PeonMergeOutcome::Applied, "{harness} {source}");
+            let stored = store.read_session(id).unwrap();
+            assert_eq!(stored.observed_status.as_deref(), Some("idle"));
+            assert_eq!(stored.attention.as_deref(), Some("idle"));
+            assert_eq!(stored.needs_user_input, None, "{harness} {source}");
+            assert_eq!(stored.detected_question, None, "{harness} {source}");
+            assert_eq!(stored.suggested_options, None, "{harness} {source}");
+            assert_eq!(stored.summary.as_deref(), Some("Fresh summary"));
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_does_not_clear_hook_owned_prompt_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let id = "hook-owned-prompt-fields";
+        let mut meta = test_metadata(id);
+        meta.harness = "opencode".into();
+        meta.metadata_source = "agent".into();
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+        meta.needs_user_input = Some(true);
+        meta.detected_question = Some("Hook-owned question".into());
+        meta.suggested_options = Some(vec!["Hook option".into()]);
+        store.write_session(&meta);
+        store
+            .merge_peon_inference_with_history_policy(
+                id,
+                &peon_inference_with_summary(Some("New diagnostic"), 0.8),
+                "later",
+                None,
+                Some("New diagnostic"),
+                PeonAttentionPolicy::PreserveHook {
+                    status: "waiting_for_input",
+                    confidence: 1.0,
+                    source: "agent",
+                },
+            )
+            .unwrap();
+        let stored = store.read_session(id).unwrap();
+        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(stored.needs_user_input, Some(true));
+        assert_eq!(
+            stored.detected_question.as_deref(),
+            Some("Hook-owned question")
+        );
+        assert_eq!(stored.suggested_options, Some(vec!["Hook option".into()]));
+        assert_eq!(stored.summary.as_deref(), Some("New diagnostic"));
     }
 
     #[test]
@@ -3764,6 +3963,7 @@ mod tests {
                 "2026-07-21T12:00:00Z",
                 "agent",
                 1.0,
+                false,
             ),
             AttentionMergeResult::Accepted,
         );
@@ -3795,6 +3995,7 @@ mod tests {
                 "2026-08-11T12:00:00Z",
                 "agent",
                 1.0,
+                false,
             ),
             AttentionMergeResult::Accepted,
         );
@@ -4909,6 +5110,10 @@ mod tests {
         );
 
         assert_eq!(result, AttentionMergeResult::PersistFailed);
+        let meta = store.read_session("att-event-fail").unwrap();
+        assert_eq!(meta.observed_status, None);
+        assert_eq!(meta.metadata_source, "process");
+        assert_eq!(meta.summary, None);
     }
 
     #[test]

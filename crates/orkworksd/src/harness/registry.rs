@@ -54,7 +54,10 @@ impl ResolvedHarness {
             .contains(&CapabilityName::Attention)
             && !matches!(
                 self.definition.session_signals,
-                Some(super::definition::SessionSignalBinding::Codex)
+                Some(
+                    super::definition::SessionSignalBinding::Codex
+                        | super::definition::SessionSignalBinding::OpenCode
+                )
             )
     }
 
@@ -1202,6 +1205,11 @@ mod tests {
         assert_eq!(launch.args, ["--model", "ollama/qwen3"]);
         assert_eq!(resume.program, "opencode");
         assert_eq!(resume.args, ["--session", "ses_1"]);
+        assert!(harness
+            .effective_capabilities
+            .contains(&CapabilityName::Attention));
+        assert!(!harness.initial_work_hook_active());
+        assert!(!registry.get("codex").unwrap().initial_work_hook_active());
     }
 
     #[test]
