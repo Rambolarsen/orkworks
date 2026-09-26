@@ -171,7 +171,13 @@ pub(crate) struct AttentionMergeSignal {
     pub(crate) clear_pending_work_signal: bool,
     pub(crate) require_alive: bool,
     pub(crate) activate_work_hook: bool,
+    pub(crate) opencode_authority: Option<OpenCodeReportAuthority>,
     pub(crate) debug_hint_mutation: Option<DebugHintMutation>,
+}
+
+pub(crate) struct OpenCodeReportAuthority {
+    token: String,
+    runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
 }
 
 pub(crate) struct PlanSelection {
@@ -2600,6 +2606,30 @@ impl SessionApplication {
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions.get(&signal.session_id);
 
+        if signal.activate_work_hook
+            && signal.source == "agent"
+            && signal.opencode_authority.is_none()
+        {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        if let Some(authority) = &signal.opencode_authority {
+            let same_live_runtime = handle.is_some_and(|handle| {
+                handle.runtime.matches_identity(&authority.runtime_identity)
+                    && handle.info.lifecycle == "alive"
+                    && handle.info.lifecycle_phase == "active"
+                    && (handle.info.harness_id.as_deref() == Some("opencode")
+                        || handle.info.harness.as_deref() == Some("opencode"))
+            });
+            if !same_live_runtime
+                || !crate::runtime::terminal_runtime::verify_workflow_report_token(
+                    &signal.session_id,
+                    &authority.token,
+                )
+            {
+                return Err(SessionError::EmptyBadRequest);
+            }
+        }
+
         if signal.require_alive {
             match workspace.metadata.read_session(&signal.session_id) {
                 None => return Err(SessionError::NotFound),
@@ -2631,6 +2661,10 @@ impl SessionApplication {
                         .runtime
                         .last_hook_attention_at
                         .is_some_and(|previous| timestamp <= previous)
+                        || handle
+                            .runtime
+                            .accepted_input_at
+                            .is_some_and(|accepted_at| timestamp <= accepted_at)
                 })
             })
         {
@@ -2732,6 +2766,7 @@ impl SessionApplication {
                 clear_pending_work_signal: false,
                 require_alive: true,
                 activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: Some(debug_hint_mutation),
             })?;
             Ok(result)
@@ -2927,6 +2962,7 @@ impl SessionApplication {
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
         let opencode_hook = signal.source.as_deref() == Some("opencode_hook");
+        let mut opencode_authority = None;
         if opencode_hook {
             let token = signal
                 .report_token
@@ -2935,28 +2971,32 @@ impl SessionApplication {
             if !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token) {
                 return Err(SessionError::EmptyBadRequest);
             }
-            let live_opencode = self
+            let runtime_identity = self
                 .state
                 .sessions
                 .lock()
                 .unwrap()
                 .get(id)
-                .is_some_and(|handle| {
+                .filter(|handle| {
                     handle.info.lifecycle == "alive"
                         && handle.info.lifecycle_phase == "active"
                         && (handle.info.harness_id.as_deref() == Some("opencode")
                             || handle.info.harness.as_deref() == Some("opencode"))
-                });
+                })
+                .map(|handle| handle.runtime.identity())
+                .ok_or(SessionError::EmptyBadRequest)?;
             let event = signal
                 .event
                 .as_deref()
                 .ok_or(SessionError::EmptyBadRequest)?;
-            if !live_opencode
-                || signal.observed_at.is_none()
-                || !opencode_event_allows_status(event, &signal.status)
+            if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status)
             {
                 return Err(SessionError::EmptyBadRequest);
             }
+            opencode_authority = Some(OpenCodeReportAuthority {
+                token: token.to_owned(),
+                runtime_identity,
+            });
         }
         let codex_hook = self.validate_codex_hook_signal(id, &signal)?;
         let observed_at = signal
@@ -2994,14 +3034,7 @@ impl SessionApplication {
                 .then_some(())
                 .ok_or(SessionError::Conflict);
         }
-        if let Some(cwd) = signal.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
-            self.state
-                .peon
-                .reported_cwd
-                .write()
-                .unwrap()
-                .insert(id.to_string(), cwd.to_string());
-        }
+        let cwd = signal.cwd.filter(|cwd| !cwd.is_empty());
         let state = self.state.clone();
         let id = id.to_string();
         let merge_id = id.clone();
@@ -3014,17 +3047,6 @@ impl SessionApplication {
             "agent".to_string()
         };
         let result = tokio::task::spawn_blocking(move || {
-            if observed_at.is_some_and(|timestamp| {
-                state
-                    .sessions
-                    .lock()
-                    .unwrap()
-                    .get(&merge_id)
-                    .and_then(|handle| handle.runtime.accepted_input_at)
-                    .is_some_and(|accepted_at| timestamp <= accepted_at)
-            }) {
-                return Ok(metadata::AttentionMergeResult::Ignored);
-            }
             SessionApplication::new(state).apply_attention_signal(AttentionMergeSignal {
                 session_id: merge_id,
                 observed_status: merge_status,
@@ -3039,6 +3061,7 @@ impl SessionApplication {
                 clear_pending_work_signal: true,
                 require_alive: codex_hook || opencode_hook,
                 activate_work_hook: codex_hook || opencode_hook,
+                opencode_authority,
                 debug_hint_mutation: None,
             })
         })
@@ -3053,6 +3076,14 @@ impl SessionApplication {
             }
         }
         if result == metadata::AttentionMergeResult::Accepted {
+            if let Some(cwd) = cwd {
+                self.state
+                    .peon
+                    .reported_cwd
+                    .write()
+                    .unwrap()
+                    .insert(id.clone(), cwd);
+            }
             let mut bufs = self.state.peon.input_buf.write().unwrap();
             if bufs
                 .get(&id)
@@ -5068,6 +5099,123 @@ mod tests {
         }
     }
 
+    #[test]
+    fn opencode_hook_merge_rechecks_accepted_input_under_final_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "opencode-input-race";
+        let state = opencode_attention_state(root.path(), id);
+        let runtime_identity = state.sessions.lock().unwrap()[id].runtime.identity();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .unwrap()
+            .runtime
+            .accepted_input_at =
+            Some(parse_hook_observed_at("2026-09-26T12:00:01.000000Z").unwrap());
+
+        let result =
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "waiting_for_input".into(),
+                message: Some("stale question".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-09-26T12:00:02Z".into(),
+                source: "agent".into(),
+                confidence: 1.0,
+                observed_at: Some(parse_hook_observed_at("2026-09-26T12:00:00.123456Z").unwrap()),
+                reject_stale_observed_at: true,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: true,
+                require_alive: true,
+                activate_work_hook: true,
+                opencode_authority: Some(OpenCodeReportAuthority {
+                    token: "opencode-test-token".into(),
+                    runtime_identity,
+                }),
+                debug_hint_mutation: None,
+            });
+
+        assert_eq!(result, Ok(metadata::AttentionMergeResult::Ignored));
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "process");
+        assert!(stored.observed_status.is_none());
+    }
+
+    #[test]
+    fn opencode_hook_merge_rejects_rotated_token_or_replaced_runtime() {
+        for replace_runtime in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let id = "opencode-rotated-authority";
+            let state = opencode_attention_state(root.path(), id);
+            let original_identity = state.sessions.lock().unwrap()[id].runtime.identity();
+            if replace_runtime {
+                let mut replacement = attention_test_handle(id, root.path());
+                replacement.info.harness_id = Some("opencode".into());
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .insert(id.into(), replacement);
+            } else {
+                crate::runtime::terminal_runtime::set_workflow_report_token(id, "new-token".into());
+            }
+
+            let result = SessionApplication::new(state.clone()).apply_attention_signal(
+                AttentionMergeSignal {
+                    session_id: id.into(),
+                    observed_status: "waiting_for_input".into(),
+                    message: Some("old runtime question".into()),
+                    plan_path: metadata::PlanPathUpdate::Unchanged,
+                    timestamp: "2026-09-26T12:00:02Z".into(),
+                    source: "agent".into(),
+                    confidence: 1.0,
+                    observed_at: Some(
+                        parse_hook_observed_at("2026-09-26T12:00:00.123456Z").unwrap(),
+                    ),
+                    reject_stale_observed_at: true,
+                    update_hook_timestamp: true,
+                    clear_pending_work_signal: true,
+                    require_alive: true,
+                    activate_work_hook: true,
+                    opencode_authority: Some(OpenCodeReportAuthority {
+                        token: "opencode-test-token".into(),
+                        runtime_identity: original_identity,
+                    }),
+                    debug_hint_mutation: None,
+                },
+            );
+
+            assert_eq!(
+                result,
+                Err(SessionError::EmptyBadRequest),
+                "replace_runtime={replace_runtime}"
+            );
+            assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored.metadata_source, "process");
+            assert!(stored.observed_status.is_none());
+        }
+    }
+
     #[tokio::test]
     async fn opencode_hook_failed_persistence_does_not_activate() {
         let root = tempfile::tempdir().unwrap();
@@ -5088,6 +5236,50 @@ mod tests {
             Err(SessionError::Internal("application operation failed"))
         );
         assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "process");
+        assert!(stored.observed_status.is_none());
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_checkpoint_failure_restores_durable_and_live_attention() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "opencode-checkpoint-failure";
+        let state = opencode_attention_state(root.path(), id);
+        let events_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .events_dir();
+        std::fs::write(events_dir, "not a directory").unwrap();
+
+        let result = SessionApplication::new(state.clone())
+            .report_attention(
+                id,
+                opencode_attention_signal("question.asked", "waiting_for_input"),
+            )
+            .await;
+
+        assert_eq!(
+            result,
+            Err(SessionError::Internal("application operation failed"))
+        );
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+        assert!(state.sessions.lock().unwrap()[id]
+            .info
+            .observed_status
+            .is_none());
         let stored = state
             .workspace
             .lock()
@@ -7057,6 +7249,7 @@ mod tests {
                 clear_pending_work_signal: true,
                 require_alive: false,
                 activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: None,
             });
 
@@ -7124,6 +7317,7 @@ mod tests {
                 clear_pending_work_signal: true,
                 require_alive: true,
                 activate_work_hook: true,
+                opencode_authority: None,
                 debug_hint_mutation: None,
             });
 
@@ -7187,6 +7381,7 @@ mod tests {
                 clear_pending_work_signal: true,
                 require_alive: false,
                 activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: None,
             });
 
@@ -7260,6 +7455,7 @@ mod tests {
                 clear_pending_work_signal: false,
                 require_alive: true,
                 activate_work_hook: false,
+                opencode_authority: None,
                 debug_hint_mutation: Some(DebugHintMutation::Preserve),
             });
 
@@ -7322,6 +7518,7 @@ mod tests {
                         clear_pending_work_signal: true,
                         require_alive: false,
                         activate_work_hook: false,
+                        opencode_authority: None,
                         debug_hint_mutation: None,
                     })
                 })

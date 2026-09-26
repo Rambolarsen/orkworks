@@ -1656,6 +1656,7 @@ impl MetadataStore {
         if !source_priority::can_overwrite(source, &meta.metadata_source, existing_age) {
             return AttentionMergeResult::Ignored;
         }
+        let previous_meta = meta.clone();
 
         meta.observed_status = Some(status.to_string());
         if meta.lifecycle == "alive" {
@@ -1715,6 +1716,12 @@ impl MetadataStore {
         if event.summary.is_some() {
             if let Err(error) = self.try_append_event(id, &event) {
                 warn!("failed to persist attention checkpoint for {id}: {error}");
+                if let Err(rollback_error) = self.try_write_session(&previous_meta) {
+                    warn!("failed to restore attention metadata for {id}: {rollback_error}");
+                    // The new metadata is durable. Keep its live projection in
+                    // sync even though its summary checkpoint is unavailable.
+                    return AttentionMergeResult::Accepted;
+                }
                 return AttentionMergeResult::PersistFailed;
             }
         } else {
@@ -4918,6 +4925,10 @@ mod tests {
         );
 
         assert_eq!(result, AttentionMergeResult::PersistFailed);
+        let meta = store.read_session("att-event-fail").unwrap();
+        assert_eq!(meta.observed_status, None);
+        assert_eq!(meta.metadata_source, "process");
+        assert_eq!(meta.summary, None);
     }
 
     #[test]
