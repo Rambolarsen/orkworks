@@ -779,15 +779,47 @@ mod tests {
             "orkworks:harness-integration:v2:codex",
             r#"{"session_id":"thr_123","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"startup"}"#,
             &[
+                "--event",
+                "SessionStart",
                 "--hook-fingerprint",
                 "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
             ],
         );
         assert!(
-            trace.contains(
-                r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98,"hookFingerprint":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"}"#
-            ),
+            trace.contains(r#""harnessSessionId":"thr_123""#)
+                && trace.contains(r#""sessionStartSource":"startup""#)
+                && trace.contains(r#""sessionStartEvent":"SessionStart""#)
+                && trace.contains(r#""hookFingerprint":""#),
             "expected codex session_id and hook fingerprint to be forwarded together in one payload; trace:\n{trace}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_does_not_capture_identity_from_a_codex_subagent_event() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_parent","agent_id":"agent_child","hook_event_name":"SubagentStart"}"#,
+            &["--event", "SubagentStart"],
+        );
+        assert!(
+            !trace.contains("harnessSessionId"),
+            "Codex subagent events belong to the parent session and must not submit their identity; trace:\n{trace}"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_forwards_codex_clear_source() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_new","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"clear"}"#,
+            &["--event", "SessionStart"],
+        );
+        assert!(
+            trace.contains(r#""harnessSessionId":"thr_new""#)
+                && trace.contains(r#""sessionStartSource":"clear""#)
+                && trace.contains(r#""sessionStartEvent":"SessionStart""#),
+            "explicit Codex reset source must reach the authenticated identity merge; trace:\n{trace}"
         );
     }
 
@@ -815,6 +847,11 @@ mod tests {
         assert!(script.contains(":codex"));
         assert!(script.contains("/sessions/$sessionId/harness-session"));
         assert!(script.contains("codex_hook"));
+        assert!(script.contains("sessionStartSource"));
+        assert!(script.contains("sessionStartEvent"));
+        assert!(!script.contains("codexProcessId"));
+        assert!(!script.contains("Find-CodexProcessId"));
+        assert!(script.contains("$Event -eq \"SessionStart\" -and $data"));
     }
 
     #[test]

@@ -7,8 +7,13 @@ static LABEL_REFRESH_GENERATIONS: LazyLock<Mutex<std::collections::HashMap<Strin
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 static LABEL_REFRESH_GATES: LazyLock<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-static BLOCKED_NATIVE_LABEL_IDS: LazyLock<Mutex<std::collections::HashMap<String, String>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+#[derive(Clone)]
+struct BlockedNativeLabelRefresh {
+    native_session_id: String,
+}
+static BLOCKED_NATIVE_LABEL_IDS: LazyLock<
+    Mutex<std::collections::HashMap<String, BlockedNativeLabelRefresh>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 pub(crate) fn reserve_label_refresh_generation(session_id: &str) -> u64 {
     let gate = label_refresh_gate(session_id);
@@ -30,10 +35,12 @@ pub(crate) fn clear_label_refresh_generation(session_id: &str) {
 }
 
 pub(crate) fn block_native_label_refresh(session_id: &str, native_session_id: &str) {
-    BLOCKED_NATIVE_LABEL_IDS
-        .lock()
-        .unwrap()
-        .insert(session_id.to_owned(), native_session_id.to_owned());
+    BLOCKED_NATIVE_LABEL_IDS.lock().unwrap().insert(
+        session_id.to_owned(),
+        BlockedNativeLabelRefresh {
+            native_session_id: native_session_id.to_owned(),
+        },
+    );
 }
 
 pub(crate) fn clear_native_label_refresh_block(session_id: &str) {
@@ -45,13 +52,24 @@ pub(crate) fn native_label_refresh_is_blocked(session_id: &str, native_session_i
         .lock()
         .unwrap()
         .get(session_id)
-        .is_some_and(|blocked| blocked == native_session_id)
+        .is_some_and(|blocked| blocked.native_session_id == native_session_id)
+}
+
+pub(crate) fn native_identity_reset_is_authorized(
+    session_id: &str,
+    native_session_id: &str,
+) -> bool {
+    let blocked = BLOCKED_NATIVE_LABEL_IDS.lock().unwrap();
+    let Some(blocked) = blocked.get(session_id) else {
+        return false;
+    };
+    blocked.native_session_id == native_session_id
 }
 
 pub(crate) fn accept_native_label_identity(session_id: &str, native_session_id: &str) -> bool {
     let mut blocked = BLOCKED_NATIVE_LABEL_IDS.lock().unwrap();
     match blocked.get(session_id) {
-        Some(previous) if previous == native_session_id => false,
+        Some(previous) if previous.native_session_id == native_session_id => false,
         Some(_) => {
             blocked.remove(session_id);
             true
@@ -108,6 +126,86 @@ pub(crate) fn lookup_label_candidate(
 ) -> Result<Option<CodexLabelCandidate>, CodexStoreError> {
     let path = codex_store_path().ok_or(CodexStoreError::Unavailable)?;
     lookup_label_candidate_at(&path, native_session_id)
+}
+
+pub(crate) fn has_saved_session(native_session_id: &str) -> bool {
+    let Some(path) = codex_store_path() else {
+        return false;
+    };
+    is_saved_thread_at(&path, native_session_id)
+}
+
+pub(crate) fn saved_sessions(native_session_ids: &[String]) -> std::collections::HashSet<String> {
+    let Some(path) = codex_store_path() else {
+        return std::collections::HashSet::new();
+    };
+    saved_sessions_at(&path, native_session_ids)
+}
+
+fn saved_sessions_at(
+    path: &Path,
+    native_session_ids: &[String],
+) -> std::collections::HashSet<String> {
+    if native_session_ids.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    let Ok(connection) =
+        Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return std::collections::HashSet::new();
+    };
+    if connection.busy_timeout(Duration::from_millis(100)).is_err() {
+        return std::collections::HashSet::new();
+    }
+    let mut saved = std::collections::HashSet::new();
+    for chunk in native_session_ids.chunks(500) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("SELECT id, rollout_path FROM threads WHERE id IN ({placeholders})");
+        let Ok(mut statement) = connection.prepare(&sql) else {
+            return std::collections::HashSet::new();
+        };
+        let Ok(rows) = statement.query_map(rusqlite::params_from_iter(chunk), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        }) else {
+            return std::collections::HashSet::new();
+        };
+        for row in rows {
+            let Ok((native_session_id, rollout_path)) = row else {
+                return std::collections::HashSet::new();
+            };
+            if rollout_path.is_some_and(|path| Path::new(&path).is_file()) {
+                saved.insert(native_session_id);
+            }
+        }
+    }
+    saved
+}
+
+fn is_saved_thread_at(path: &Path, native_session_id: &str) -> bool {
+    if native_session_id.is_empty() {
+        return false;
+    }
+    let Ok(connection) =
+        Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return false;
+    };
+    if connection.busy_timeout(Duration::from_millis(100)).is_err() {
+        return false;
+    }
+    let rollout_path = connection
+        .query_row(
+            "SELECT rollout_path FROM threads WHERE id = ?1 LIMIT 1",
+            [native_session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .flatten();
+    rollout_path.is_some_and(|rollout_path| Path::new(&rollout_path).is_file())
 }
 
 fn lookup_label_candidate_at(
@@ -273,6 +371,73 @@ mod tests {
     }
 
     #[test]
+    fn saved_thread_requires_a_matching_row_and_existing_rollout_file() {
+        let file = fixture();
+        let rollout = tempfile::NamedTempFile::new().unwrap();
+        let connection = Connection::open(file.path()).unwrap();
+        connection
+            .execute_batch("ALTER TABLE threads ADD COLUMN rollout_path TEXT;")
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO threads (id, rollout_path) VALUES (?1, ?2)",
+                ("native-saved", rollout.path().to_string_lossy().as_ref()),
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO threads (id, rollout_path) VALUES (?1, ?2)",
+                ("native-no-rollout", "/missing/rollout.jsonl"),
+            )
+            .unwrap();
+        drop(connection);
+
+        assert!(is_saved_thread_at(file.path(), "native-saved"));
+        assert!(!is_saved_thread_at(file.path(), "native-missing"));
+        assert!(!is_saved_thread_at(file.path(), "native-no-rollout"));
+
+        std::fs::remove_file(rollout.path()).unwrap();
+        assert!(!is_saved_thread_at(file.path(), "native-saved"));
+    }
+
+    #[test]
+    fn saved_sessions_batches_ids_on_one_read_connection() {
+        let file = fixture();
+        let rollout = tempfile::NamedTempFile::new().unwrap();
+        let connection = Connection::open(file.path()).unwrap();
+        connection
+            .execute_batch("ALTER TABLE threads ADD COLUMN rollout_path TEXT;")
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO threads (id, rollout_path) VALUES (?1, ?2)",
+                ("native-saved", rollout.path().to_string_lossy().as_ref()),
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO threads (id, rollout_path) VALUES (?1, ?2)",
+                ("native-no-rollout", "/missing/rollout.jsonl"),
+            )
+            .unwrap();
+        drop(connection);
+
+        let saved = saved_sessions_at(
+            file.path(),
+            &[
+                "native-saved".into(),
+                "native-missing".into(),
+                "native-no-rollout".into(),
+            ],
+        );
+
+        assert_eq!(
+            saved,
+            std::collections::HashSet::from(["native-saved".into()])
+        );
+    }
+
+    #[test]
     fn rejects_control_text_and_bounds_display_text() {
         let file = fixture();
         let connection = Connection::open(file.path()).unwrap();
@@ -352,6 +517,28 @@ mod tests {
         assert!(!accept_native_label_identity(session_id, old_native_id));
         assert!(accept_native_label_identity(session_id, new_native_id));
         assert!(!native_label_refresh_is_blocked(session_id, old_native_id));
+        clear_native_label_refresh_block(session_id);
+    }
+
+    #[test]
+    fn reset_authorization_requires_the_recorded_native_identity() {
+        let session_id = "native-label-reset-process-test";
+        clear_native_label_refresh_block(session_id);
+        block_native_label_refresh(session_id, "old-native-id");
+
+        assert!(native_identity_reset_is_authorized(
+            session_id,
+            "old-native-id"
+        ));
+        assert!(!native_identity_reset_is_authorized(
+            session_id,
+            "different-old-id"
+        ));
+        assert!(!native_identity_reset_is_authorized(
+            "other-session",
+            "old-native-id"
+        ));
+
         clear_native_label_refresh_block(session_id);
     }
 }

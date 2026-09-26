@@ -193,6 +193,12 @@ impl ResolvedHarness {
         repo_root: Option<&str>,
         model: Option<&str>,
     ) -> Option<crate::harness::CommandSpec> {
+        if self.definition.id == "codex"
+            && (strategy != crate::harness::ResumeStrategy::Exact
+                || !self.codex_exact_resume_uses_native_id())
+        {
+            return None;
+        }
         let resume = self.definition.resume.as_ref()?;
         let template = match strategy {
             crate::harness::ResumeStrategy::Exact => resume.exact.as_ref()?,
@@ -223,6 +229,15 @@ impl ResolvedHarness {
         if memory.state != crate::harness::ResumeState::Available {
             return crate::harness::ResumeStrategy::None;
         }
+        if self.definition.id == "codex" {
+            return if memory.harness_session_id.is_some()
+                && self.codex_exact_resume_uses_native_id()
+            {
+                crate::harness::ResumeStrategy::Exact
+            } else {
+                crate::harness::ResumeStrategy::None
+            };
+        }
         let Some(resume) = self.definition.resume.as_ref() else {
             return crate::harness::ResumeStrategy::None;
         };
@@ -238,6 +253,9 @@ impl ResolvedHarness {
     }
 
     pub(crate) fn resume_flags(&self) -> (bool, bool, bool) {
+        if self.definition.id == "codex" {
+            return (self.codex_exact_resume_uses_native_id(), false, false);
+        }
         let Some(resume) = self.definition.resume.as_ref() else {
             return (false, false, false);
         };
@@ -246,6 +264,30 @@ impl ResolvedHarness {
             resume.latest_cwd.is_some(),
             resume.latest_repo.is_some(),
         )
+    }
+
+    fn codex_exact_resume_uses_native_id(&self) -> bool {
+        self.definition
+            .resume
+            .as_ref()
+            .and_then(|resume| resume.exact.as_ref())
+            .is_some_and(|template| {
+                let executable = template
+                    .command
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(&template.command);
+                matches!(executable, "codex" | "codex.exe")
+                    && template.args.first().is_some_and(|arg| arg == "resume")
+                    && template
+                        .args
+                        .get(1)
+                        .is_some_and(|arg| arg == "{harnessSessionId}")
+                    && !template
+                        .args
+                        .iter()
+                        .any(|argument| argument.starts_with("--last"))
+            })
     }
 }
 
@@ -1083,7 +1125,7 @@ mod tests {
     // sessions in unrelated, non-git directories on different days) to
     // recover the single most recently touched session machine-wide,
     // ignoring cwd entirely — unlike Claude's cwd-scoped `--continue` or
-    // Codex's `resume --last`. Neither `latestCwd` nor `latestRepo` models
+    // Codex's former `resume --last` behavior. Neither `latestCwd` nor `latestRepo` models
     // that "ignores location" behavior, and mapping to either would risk
     // silently resuming an unrelated project's session, so Copilot
     // declares no latest-fallback strategy at all: resume is exact-only.
@@ -1233,23 +1275,103 @@ mod tests {
     }
 
     #[test]
-    fn codex_latest_repo_resume_builds_resume_last_subcommand() {
+    fn codex_resume_has_no_latest_fallback_without_an_exact_session_id() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
         let harness = registry.get("codex").unwrap();
 
-        let resume = harness
+        assert!(harness
+            .definition
+            .resume
+            .as_ref()
+            .unwrap()
+            .latest_repo
+            .is_none());
+        assert_eq!(
+            harness.select_resume_strategy(&crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::None,
+                harness_session_id: None,
+                latest_fallback: true,
+                last_seen_at: None,
+            }),
+            crate::harness::ResumeStrategy::None,
+        );
+    }
+
+    #[test]
+    fn codex_resume_never_selects_custom_latest_fallback_for_a_captured_id() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let mut harness = registry.get("codex").unwrap().clone();
+        let resume = harness.definition.resume.as_mut().unwrap();
+        resume.exact = None;
+        resume.latest_repo = Some(crate::harness::CommandTemplate {
+            command: "codex".into(),
+            args: vec!["resume".into(), "--last".into()],
+        });
+        let memory = crate::harness::ResumeMemory {
+            state: crate::harness::ResumeState::Available,
+            preferred_strategy: crate::harness::ResumeStrategy::Exact,
+            harness_session_id: Some("saved-thread".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        };
+
+        assert_eq!(
+            harness.select_resume_strategy(&memory),
+            crate::harness::ResumeStrategy::None,
+        );
+        assert_eq!(harness.resume_flags(), (false, false, false));
+        assert!(harness
             .build_resume(
                 crate::harness::ResumeStrategy::LatestRepo,
                 "/repo",
-                None,
+                Some("saved-thread"),
                 None,
                 None,
             )
-            .unwrap();
+            .is_none());
 
-        assert_eq!(resume.program, "codex");
-        assert_eq!(resume.args, ["resume", "--last"]);
+        harness.definition.resume.as_mut().unwrap().exact = Some(crate::harness::CommandTemplate {
+            command: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "codex resume --last # {harnessSessionId}".into(),
+            ],
+        });
+        assert!(harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("saved-thread"),
+                None,
+                None,
+            )
+            .is_none());
+
+        harness.definition.resume.as_mut().unwrap().exact = Some(crate::harness::CommandTemplate {
+            command: "codex".into(),
+            args: vec![
+                "resume".into(),
+                "{harnessSessionId}".into(),
+                "--last=true".into(),
+            ],
+        });
+        assert_eq!(
+            harness.select_resume_strategy(&memory),
+            crate::harness::ResumeStrategy::None,
+        );
+        assert_eq!(harness.resume_flags(), (false, false, false));
+        assert!(harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("saved-thread"),
+                None,
+                None,
+            )
+            .is_none());
     }
 
     #[test]

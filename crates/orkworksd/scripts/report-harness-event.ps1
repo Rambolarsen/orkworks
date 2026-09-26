@@ -56,8 +56,8 @@ if ($ReportPlanPath) {
 # directory) on every event, alongside "session_id" below. Forwarding it
 # lets the sidecar track where the agent is actually working, not just
 # where its process was launched (issue #241). Codex's SessionStart payload
-# carries other fields too (cwd, hook_event_name, source, ...) but we only
-# extract "session_id" from it. Copilot's notification payload uses camelCase
+# carries other fields too (cwd, hook_event_name, source, ...); only that root
+# lifecycle event reports native identity. Copilot's notification payload uses camelCase
 # "sessionId" (not "session_id") per
 # https://docs.github.com/en/copilot/reference/hooks-reference, alongside its
 # own "cwd". $sessionSource doubles as the harness-session
@@ -66,8 +66,11 @@ if ($ReportPlanPath) {
 # second and third time.
 $reportedCwd = ""
 $harnessSessionId = ""
+$sessionStartSource = ""
+$sessionStartEvent = ""
 $sessionSource = ""
 $codexAttention = $false
+
 if ($Marker -clike "*:claude-code") {
     try {
         $data = $payload | ConvertFrom-Json
@@ -89,8 +92,12 @@ if ($Marker -clike "*:claude-code") {
 } elseif ($Marker -clike "*:codex") {
     try {
         $data = $payload | ConvertFrom-Json
-        if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id) {
+        if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.session_id) {
             $harnessSessionId = ([string]$data.session_id).Trim()
+        }
+        if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.source -in @("startup", "resume", "clear", "compact")) {
+            $sessionStartSource = [string]$data.source
+            $sessionStartEvent = "SessionStart"
         }
     } catch {}
     $sessionSource = "codex_hook"
@@ -156,6 +163,10 @@ if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
         $sessionReport = @{ harnessSessionId = $harnessSessionId; source = $sessionSource; confidence = 0.98 }
         if ($sessionSource -eq "codex_hook" -and $HookFingerprint) {
             $sessionReport["hookFingerprint"] = $HookFingerprint
+        }
+        if ($sessionSource -eq "codex_hook" -and $sessionStartSource) {
+            $sessionReport["sessionStartSource"] = $sessionStartSource
+            $sessionReport["sessionStartEvent"] = $sessionStartEvent
         }
         $sessionBody = $sessionReport | ConvertTo-Json -Compress
         $sessionHeaders = @{}

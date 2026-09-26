@@ -106,7 +106,8 @@ fi
 # directory — issue #241) and "session_id" on every event; extract both from
 # one parse of the same payload rather than spawning python3 twice. Codex's
 # SessionStart payload carries other fields too (cwd, hook_event_name,
-# source, ...) but we only extract "session_id" from it. Copilot's
+# source, ...). Only that root lifecycle event reports native identity;
+# subagent events remain within the owning Codex session. Copilot's
 # notification payload uses camelCase "sessionId" (not "session_id") per
 # https://docs.github.com/en/copilot/reference/hooks-reference, alongside its
 # own "cwd". `session_source` doubles as
@@ -115,8 +116,11 @@ fi
 # matching "$marker" a second and third time.
 reported_cwd=""
 harness_session_id=""
+session_start_source=""
+session_start_event=""
 session_source=""
 codex_attention="no"
+
 case "$marker" in
   *:claude-code)
     # Single line delimited by the ASCII unit separator (0x1F), not two
@@ -133,10 +137,14 @@ case "$marker" in
     session_source="claude_hook"
     ;;
   *:codex)
-    harness_session_id="$(
+    codex_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id") or "")' 2>/dev/null
+      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; source=(data.get("source") or "") if is_start else ""; session_id=(data.get("session_id") or "") if is_start else ""; print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
     )" || true
+    IFS=$'\x1f' read -r harness_session_id session_start_source <<< "$codex_fields"
+    if [ -n "$session_start_source" ]; then
+      session_start_event="SessionStart"
+    fi
     session_source="codex_hook"
     case "$event" in
       UserPromptSubmit)
@@ -196,6 +204,9 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
     session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98,"hookFingerprint":"%s"}' "$escaped_session_id" "$session_source" "$escaped_fingerprint")
   else
     session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98}' "$escaped_session_id" "$session_source")
+  fi
+  if [ "$session_source" = "codex_hook" ] && [ -n "$session_start_source" ] && [ "$session_start_event" = "SessionStart" ]; then
+    session_payload="${session_payload%?},\"sessionStartSource\":\"$session_start_source\",\"sessionStartEvent\":\"$session_start_event\"}"
   fi
   session_curl_config=""
   if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then

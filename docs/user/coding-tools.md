@@ -38,6 +38,13 @@ supported. They can give OrkWorks more direct session signals. Check the
 reported detection, registration, and activation state; an installed
 integration is not necessarily active in an already-running session.
 
+Codex resume uses the exact conversation ID captured by its hook. OrkWorks
+checks that Codex still has the thread and its local rollout saved before
+resuming; it will not switch to Codex's latest conversation. A newly started
+Codex thread may not be resumable until Codex has saved its rollout.
+Codex CLI subagents remain part of their parent OrkWorks session and do not
+appear as separate OrkWorks sessions.
+
 Use the arrow beside a tool to show or hide its details; collapsing keeps
 unsaved custom-path edits. If an enabled tool needs installation or repair,
 toggle it off and on, then confirm the integration update. Installation

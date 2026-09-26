@@ -380,14 +380,44 @@ fn snapshot_input_context(state: &Arc<AppState>, id: &str) -> (bool, u64) {
 fn record_input_after_delivery(
     state: &Arc<AppState>,
     id: &str,
-    pending: Option<&(String, bool, u64)>,
+    pending: Option<&(String, bool, u64, bool)>,
     result: &Result<(), ()>,
 ) {
-    if result.is_ok() {
-        if let Some((input, is_sensitive, output_boundary)) = pending {
+    if let Some((input, is_sensitive, output_boundary, identity_reset_prepared)) = pending {
+        if result.is_ok() {
             record_peon_input_side_effects(state, id, input, *is_sensitive, *output_boundary);
+        } else if *identity_reset_prepared {
+            crate::session_application::SessionApplication::new(state.clone())
+                .cancel_codex_identity_reset(id);
         }
     }
+}
+
+fn capture_pending_terminal_input(
+    state: &Arc<AppState>,
+    id: &str,
+    data: String,
+) -> (String, bool, u64, bool) {
+    let (is_sensitive, output_boundary) = snapshot_input_context(state, id);
+    let identity_reset_prepared = if is_sensitive {
+        false
+    } else {
+        let mut buffer = state
+            .peon
+            .input_buf
+            .read()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .unwrap_or_default();
+        let (line, _) = collect_input_line(&mut buffer, &data);
+        line.is_some_and(|line| {
+            let application = crate::session_application::SessionApplication::new(state.clone());
+            application.is_persisted_harness_label_reset(id, &line)
+                && application.prepare_codex_identity_reset(id)
+        })
+    };
+    (data, is_sensitive, output_boundary, identity_reset_prepared)
 }
 
 /// Scans one raw PTY input frame for both the label-worthy completed line (if
@@ -559,14 +589,9 @@ pub(crate) async fn submit_approved_input(
     id: &str,
     data: String,
 ) -> Result<(), ()> {
-    let (is_sensitive, output_boundary) = snapshot_input_context(state, id);
+    let pending = capture_pending_terminal_input(state, id, data.clone());
     let result = crate::runtime::session_runtime::send_runtime_input(state, id, data.clone()).await;
-    record_input_after_delivery(
-        state,
-        id,
-        Some(&(data, is_sensitive, output_boundary)),
-        &result,
-    );
+    record_input_after_delivery(state, id, Some(&pending), &result);
     result
 }
 
@@ -1135,7 +1160,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     let generation = attachment.generation;
     let mut events = attachment.events;
     let mut pending_command: Option<PendingCommandFuture> = None;
-    let mut pending_input: Option<(String, bool, u64)> = None;
+    let mut pending_input: Option<(String, bool, u64, bool)> = None;
     let mut queue = PendingActionQueue::default();
 
     loop {
@@ -1151,6 +1176,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     // clear it before breaking so the post-loop drain below
                     // doesn't re-poll an already-resolved future (a panic
                     // for a compiler-generated async-block state machine).
+                    record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
                     pending_command = None;
                     pending_input = None;
                     break;
@@ -1165,10 +1191,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     // password prompt scrolling out of view during the PTY
                     // round-trip can't misclassify a submitted secret.
                     pending_input = terminal_input_data(&action)
-                        .map(|data| {
-                            let (is_sensitive, output_boundary) = snapshot_input_context(&state, &id);
-                            (data, is_sensitive, output_boundary)
-                        });
+                        .map(|data| capture_pending_terminal_input(&state, &id, data));
                     pending_command = spawn_command_future(state.clone(), id.clone(), action);
                 }
             }
@@ -1231,10 +1254,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                             // Sensitivity captured before dispatch — see the
                             // comment at the queued-dispatch site above.
                             pending_input = terminal_input_data(&action)
-                                .map(|data| {
-                                    let (is_sensitive, output_boundary) = snapshot_input_context(&state, &id);
-                                    (data, is_sensitive, output_boundary)
-                                });
+                                .map(|data| capture_pending_terminal_input(&state, &id, data));
                             pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
@@ -1858,7 +1878,7 @@ mod tests {
         record_input_after_delivery(
             &state,
             session_id,
-            Some(&("y".to_string(), false, 0)),
+            Some(&("y".to_string(), false, 0, false)),
             &Err(()),
         );
 
@@ -2175,6 +2195,43 @@ mod tests {
 
         *state.workspace.lock().unwrap() = None;
         assert!(!application.is_persisted_harness_label_reset(id, "/new"));
+    }
+
+    #[test]
+    fn codex_clear_grant_precedes_delivery_and_is_rolled_back_on_rejection() {
+        let id = "codex-reset-preflight";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "codex");
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut metadata = store.read_session(id).unwrap();
+            metadata.resume = Some(crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::Exact,
+                harness_session_id: Some("native-before-clear".into()),
+                latest_fallback: false,
+                last_seen_at: Some("before".into()),
+            });
+            store.write_session(&metadata);
+        }
+
+        let pending = capture_pending_terminal_input(&state, id, "/clear\r".into());
+        assert!(pending.3);
+        assert!(
+            crate::codex_session_store::native_identity_reset_is_authorized(
+                id,
+                "native-before-clear"
+            )
+        );
+
+        record_input_after_delivery(&state, id, Some(&pending), &Err(()));
+        assert!(
+            !crate::codex_session_store::native_identity_reset_is_authorized(
+                id,
+                "native-before-clear"
+            )
+        );
     }
 
     fn live_label(state: &Arc<crate::AppState>, session_id: &str) -> String {
