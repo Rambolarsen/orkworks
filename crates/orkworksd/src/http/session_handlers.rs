@@ -57,6 +57,8 @@ pub(crate) struct HarnessSessionReportRequest {
     pub(crate) hook_fingerprint: Option<String>,
     #[serde(rename = "sessionStartSource", default)]
     pub(crate) session_start_source: Option<String>,
+    #[serde(rename = "sessionStartEvent", default)]
+    pub(crate) session_start_event: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -520,6 +522,7 @@ async fn report_harness_session_inner(
             &id,
             report,
             req.session_start_source.as_deref(),
+            req.session_start_event.as_deref(),
             private_lookup_authorized,
         ) {
         Ok(result) => result,
@@ -1631,6 +1634,7 @@ mod tests {
                 confidence: 0.9,
                 hook_fingerprint: None,
                 session_start_source: None,
+                session_start_event: None,
             }),
         )
         .await
@@ -1652,6 +1656,7 @@ mod tests {
                 confidence: 0.9,
                 hook_fingerprint: None,
                 session_start_source: None,
+                session_start_event: None,
             }),
         )
         .await
@@ -1722,6 +1727,7 @@ mod tests {
                 confidence: 0.98,
                 hook_fingerprint: Some("a".repeat(64)),
                 session_start_source: None,
+                session_start_event: None,
             }),
         )
         .await
@@ -1810,6 +1816,7 @@ mod tests {
                 confidence: 0.98,
                 hook_fingerprint: Some("a".repeat(64)),
                 session_start_source: None,
+                session_start_event: None,
             }),
         )
         .await
@@ -1958,6 +1965,7 @@ mod tests {
                 confidence: 0.98,
                 hook_fingerprint: None,
                 session_start_source: None,
+                session_start_event: None,
             }),
         )
         .await

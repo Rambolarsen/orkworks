@@ -2510,7 +2510,7 @@ impl SessionApplication {
         id: &str,
         report: metadata::HarnessSessionReport,
     ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
-        self.report_harness_session_with_codex_context(id, report, None, false)
+        self.report_harness_session_with_codex_context(id, report, None, None, false)
     }
 
     pub(crate) fn report_harness_session_with_codex_context(
@@ -2518,15 +2518,19 @@ impl SessionApplication {
         id: &str,
         report: metadata::HarnessSessionReport,
         session_start_source: Option<&str>,
+        session_start_event: Option<&str>,
         report_authenticated: bool,
     ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
         if !metadata::valid_harness_session_report(&report) {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
         }
-        if session_start_source.is_some_and(|source| {
-            report.source != "codex_hook"
-                || !matches!(source, "startup" | "resume" | "clear" | "compact")
-        }) {
+        if session_start_source.is_some() != session_start_event.is_some()
+            || session_start_source.is_some_and(|source| {
+                report.source != "codex_hook"
+                    || session_start_event != Some("SessionStart")
+                    || !matches!(source, "startup" | "resume" | "clear" | "compact")
+            })
+        {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
         }
 
@@ -2538,6 +2542,7 @@ impl SessionApplication {
             };
             let allow_codex_identity_replacement = report_authenticated
                 && session_start_source == Some("clear")
+                && session_start_event == Some("SessionStart")
                 && workspace
                     .metadata
                     .read_session(id)
@@ -5495,19 +5500,43 @@ mod tests {
                 id,
                 report.clone(),
                 Some("startup"),
+                Some("SessionStart"),
                 true
             )
             .unwrap(),
             metadata::HarnessSessionMergeResult::IgnoredIdentityChange
         );
         assert_eq!(
-            app.report_harness_session_with_codex_context(id, report.clone(), Some("clear"), false)
-                .unwrap(),
+            app.report_harness_session_with_codex_context(
+                id,
+                report.clone(),
+                Some("clear"),
+                Some("SessionStart"),
+                false,
+            )
+            .unwrap(),
             metadata::HarnessSessionMergeResult::IgnoredIdentityChange
         );
         assert_eq!(
-            app.report_harness_session_with_codex_context(id, report, Some("clear"), true)
-                .unwrap(),
+            app.report_harness_session_with_codex_context(
+                id,
+                report.clone(),
+                Some("clear"),
+                Some("UserPromptSubmit"),
+                true,
+            )
+            .unwrap(),
+            metadata::HarnessSessionMergeResult::Invalid
+        );
+        assert_eq!(
+            app.report_harness_session_with_codex_context(
+                id,
+                report,
+                Some("clear"),
+                Some("SessionStart"),
+                true,
+            )
+            .unwrap(),
             metadata::HarnessSessionMergeResult::Accepted
         );
 

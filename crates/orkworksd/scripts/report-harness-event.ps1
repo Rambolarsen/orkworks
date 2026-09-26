@@ -67,6 +67,7 @@ if ($ReportPlanPath) {
 $reportedCwd = ""
 $harnessSessionId = ""
 $sessionStartSource = ""
+$sessionStartEvent = ""
 $sessionSource = ""
 $codexAttention = $false
 if ($Marker -clike "*:claude-code") {
@@ -95,6 +96,7 @@ if ($Marker -clike "*:claude-code") {
         }
         if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.source -in @("startup", "resume", "clear", "compact")) {
             $sessionStartSource = [string]$data.source
+            $sessionStartEvent = "SessionStart"
         }
     } catch {}
     $sessionSource = "codex_hook"
@@ -163,6 +165,7 @@ if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
         }
         if ($sessionSource -eq "codex_hook" -and $sessionStartSource) {
             $sessionReport["sessionStartSource"] = $sessionStartSource
+            $sessionReport["sessionStartEvent"] = $sessionStartEvent
         }
         $sessionBody = $sessionReport | ConvertTo-Json -Compress
         $sessionHeaders = @{}

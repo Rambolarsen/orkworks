@@ -269,11 +269,18 @@ impl ResolvedHarness {
             .as_ref()
             .and_then(|resume| resume.exact.as_ref())
             .is_some_and(|template| {
-                template.command.contains("{harnessSessionId}")
-                    || template
+                let executable = template
+                    .command
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(&template.command);
+                matches!(executable, "codex" | "codex.exe")
+                    && template.args.first().is_some_and(|arg| arg == "resume")
+                    && template
                         .args
-                        .iter()
-                        .any(|argument| argument.contains("{harnessSessionId}"))
+                        .get(1)
+                        .is_some_and(|arg| arg == "{harnessSessionId}")
+                    && !template.args.iter().any(|argument| argument == "--last")
             })
     }
 }
@@ -1316,8 +1323,11 @@ mod tests {
             .is_none());
 
         harness.definition.resume.as_mut().unwrap().exact = Some(crate::harness::CommandTemplate {
-            command: "codex".into(),
-            args: vec!["resume".into(), "--last".into()],
+            command: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "codex resume --last # {harnessSessionId}".into(),
+            ],
         });
         assert!(harness
             .build_resume(

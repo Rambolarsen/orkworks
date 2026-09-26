@@ -788,6 +788,7 @@ mod tests {
         assert!(
             trace.contains(r#""harnessSessionId":"thr_123""#)
                 && trace.contains(r#""sessionStartSource":"startup""#)
+                && trace.contains(r#""sessionStartEvent":"SessionStart""#)
                 && trace.contains(r#""hookFingerprint":""#),
             "expected codex session_id and hook fingerprint to be forwarded together in one payload; trace:\n{trace}"
         );
@@ -802,7 +803,8 @@ mod tests {
         );
         assert!(
             trace.contains(r#""harnessSessionId":"thr_new""#)
-                && trace.contains(r#""sessionStartSource":"clear""#),
+                && trace.contains(r#""sessionStartSource":"clear""#)
+                && trace.contains(r#""sessionStartEvent":"SessionStart""#),
             "explicit Codex reset source must reach the authenticated identity merge; trace:\n{trace}"
         );
     }
@@ -831,6 +833,8 @@ mod tests {
         assert!(script.contains(":codex"));
         assert!(script.contains("/sessions/$sessionId/harness-session"));
         assert!(script.contains("codex_hook"));
+        assert!(script.contains("sessionStartSource"));
+        assert!(script.contains("sessionStartEvent"));
     }
 
     #[test]
