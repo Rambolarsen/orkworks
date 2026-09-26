@@ -320,6 +320,20 @@ When Peon reports a provider timeout, use the read-only repository helper
 the applied provider/model in Settings instead. Retry the current session once
 after verification and do not resume or reopen another session as a workaround.
 
+## Peon model detection observations
+
+When Peon reports a workflow observation or a Taskmaster recommendation about
+"Peon model detection", verify whether it is self-referential noise before
+treating it as a product defect: sessions working on OrkWorks itself put Peon's
+own prompt-example vocabulary into terminal output, and generic evidence such
+as "Terminal output" is low-specificity: it grounds only when those words
+literally appear in the captured output, which says nothing about cause.
+Follow
+[`docs/agents/peon-model-detection-troubleshooting.md`](docs/agents/peon-model-detection-troubleshooting.md).
+The applied provider/model in Settings is authoritative for inference; the
+Peon-detected session model is best-effort, first-detection-wins, and has no
+manual override. Do not resume or reopen another session as a workaround.
+
 ## MCP configuration
 
 Project-scoped MCP servers are declared in `apm.yml` under `dependencies.mcp`.
