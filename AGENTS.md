@@ -324,13 +324,16 @@ after verification and do not resume or reopen another session as a workaround.
 ## Peon model detection observations
 
 When Peon reports a workflow observation or a Taskmaster recommendation about
-"Peon model detection", or a recommendation asks you to remove or document a
-capacity-related obstacle such as "Tracing signal capacity in Claude harness
+"Peon model detection" or a bare phrasing such as "Model detection is blocked"
+/ "Model detection failed", or a recommendation asks you to remove or document
+a capacity-related obstacle such as "Tracing signal capacity in Claude harness
 to OpenCode", verify whether it is self-referential noise before
 treating it as a product defect: sessions working on OrkWorks itself put Peon's
-own prompt-example vocabulary into terminal output, and generic evidence such
-as "Terminal output" is low-specificity: it grounds only when those words
-literally appear in the captured output, which says nothing about cause.
+own prompt-example vocabulary into terminal output, generic evidence such
+as "Terminal output" is low-specificity — it grounds only when those words
+literally appear in the captured output, which says nothing about cause — and
+specific-looking error excerpts such as "Error message: Model detection
+failed" ground the same way while matching no OrkWorks code path.
 Follow
 [`docs/agents/peon-model-detection-troubleshooting.md`](docs/agents/peon-model-detection-troubleshooting.md).
 The applied provider/model in Settings is authoritative for inference; the

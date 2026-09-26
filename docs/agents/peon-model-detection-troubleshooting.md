@@ -9,10 +9,11 @@ status: stable
 # Peon model detection troubleshooting
 
 Use this runbook when Peon reports a workflow observation about "Peon model
-detection", when a Taskmaster recommendation asks you to "remove or document
-the obstacle: Peon model detection issues", or when a recommendation asks you
-to remove or document a capacity-related obstacle such as "Tracing signal
-capacity in Claude harness to OpenCode". Before treating it as a product
+detection", "Model detection is blocked", or "Model detection failed"; when a
+Taskmaster recommendation asks you to "remove or document the obstacle" for
+any of those phrasings (for example: "Peon model detection issues", "Model
+detection is blocked", or a capacity-related obstacle such as "Tracing signal
+capacity in Claude harness to OpenCode"). Before treating it as a product
 defect, check whether the observation is self-referential noise.
 
 ## Two different things called "model detection"
@@ -49,21 +50,37 @@ Peon's inference prompt contains worked examples, and sessions that work on
 OrkWorks itself make that vocabulary appear in terminal output (source code,
 test fixtures, prompt-example labels such as "Fixing peon model detection").
 An observing Peon can then report the session's own work topic as an
-obstacle — descriptions like "Peon model detection", "model detection issue",
-or "fixing peon model detection" with generic evidence such as "Terminal
-output". The label side of this contamination is guarded (#558); the
-workflow-observation side relies on the model obeying the prompt, and the
-rollup design names this exact fingerprint cluster as motivating noise.
+obstacle. The descriptions vary in how much of the "Peon" qualifier they
+keep — from "Peon model detection", "model detection issue", or "fixing peon
+model detection" down to bare statements such as "Model detection is blocked"
+that name no observer at all — and the evidence can be a generic string
+("Terminal output") or a plausible-looking error excerpt ("Error message:
+Model detection failed") that no current OrkWorks code path emits. The label
+side of this contamination is guarded (#558); the workflow-observation side
+relies on the model obeying the prompt, and the rollup design names this
+exact fingerprint cluster as motivating noise.
 
 Signals that an observation is this noise, not a verified defect:
 
 - The description names Peon's prompt-example vocabulary rather than a
-  concrete failure in the session.
+  concrete failure in the session — including phrasings that drop the
+  "Peon" qualifier entirely, such as "Model detection is blocked".
 - The evidence field is a generic string ("Terminal output", "Code changes")
   rather than a specific excerpt. Evidence must appear verbatim in the
   captured terminal output, so such a match only proves those words appeared
   somewhere in the capture — UI chrome, quoted text, or the session's own
   work — which is low-specificity and a strong noise signal.
+- The evidence is a specific-looking error excerpt such as "Error message:
+  Model detection failed" that matches no error path in the current
+  `apps/desktop/` or `crates/orkworksd/` code. Test the persisted `evidence`
+  value by searching the current code for the excerpt: Peon grounding is
+  checked server-side against the output captured at record time, but the
+  retained `events/<id>.terminal` file is bounded and long ago may have
+  trimmed the excerpt's rows, so absence from the capture today proves
+  nothing on its own; absence from the codebase, history, and config is the
+  strong current signal. Check the applied provider/model too: an
+  observation from a small local inference model alongside garbled-evidence
+  siblings from the same scan burst fits this noise pattern.
 - Several near-identical observations were recorded in one burst from a
   single final scan.
 - Rechecking the current code finds no detection defect: the
