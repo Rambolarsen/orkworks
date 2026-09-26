@@ -85,20 +85,29 @@ only terminal grounding was the OpenCode banner lines
 `Session   Claude cap affecting opencode usage` and
 `Continue  opencode -s <id>` — a human-written label about Claude usage-cap
 limits plus a resume hint. The phrases "signal capacity" and "Search results
-show" appeared zero times in the ANSI-stripped terminal capture. The
-description was ungrounded; it paraphrased a label, not the session's work.
+show" appeared zero times in the ANSI-stripped terminal capture, so the
+required verbatim evidence excerpt was ungrounded; the description
+paraphrased a label, not the session's work.
 
 Signals that an observation is this noise, not a verified defect:
 
 - The obstacle description names "signal capacity" or describes capacity
   being "traced" from one harness to another. OrkWorks has no cross-harness
-  capacity tracing: capacity is per-session, per-harness usage-limit
-  detection (`capacity/<id>.json`, `at_usage_limit`, harness
-  `capacity_patterns()`), and Peon `capacityHints` are strings attached to
-  the session that produced them — no signal flows between harnesses.
-- The obstacle's description or evidence phrase does not appear verbatim in
-  the ANSI-stripped terminal capture (strip `\x1b[` escape sequences before
-  searching).
+  capacity propagation: capacity is per-session, per-harness usage-limit
+  detection via harness `capacity_patterns()` scans held in session and
+  provider state, and Peon `capacityHints` are strings attached to the
+  session that produced them — they never propagate to another session as
+  capacity state. (Terminal text can still be sent to whatever model
+  provider Peon inference has applied, including a provider backed by a
+  different coding tool; that is inference traffic, not capacity state
+  moving between sessions. The `capacity/<id>.json` metadata path is
+  protocol design, not an implemented detection mechanism.)
+- The observation's `evidence` field does not appear verbatim in the
+  ANSI-stripped terminal capture (strip `\x1b[` escape sequences before
+  searching). Peon's prompt and `evidence_is_grounded` pin only the
+  evidence field as a contiguous verbatim excerpt; the `description` may
+  legitimately paraphrase, so a paraphrased description alone is not a
+  noise signal.
 - The only verbatim match is UI chrome: session labels, banners, resume
   hints, or session lists. Those strings are other sessions' titles and
   launch commands, not this session's work.
