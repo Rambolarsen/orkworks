@@ -363,6 +363,22 @@ test("Fix with AI is gated on the active session actually being alive, not merel
   assert.match(dockview, /\.lifecycle === "alive"/);
 });
 
+test("Analyze now asks the backend to revalidate a cached active recommendation", () => {
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = panel.indexOf("async function analyzeNow()");
+  const end = panel.indexOf("\n  const visibleRecommendations", start);
+  assert.ok(start >= 0 && end > start);
+  const handler = panel.slice(start, end);
+  const backendRequest = handler.indexOf("await window.orkworks.requestTaskmasterAnalysis()");
+  assert.ok(backendRequest >= 0);
+  assert.doesNotMatch(handler, /blockedRecommendation\s*\?\?[\s\S]*?return;/);
+  assert.doesNotMatch(handler, /recommendations\.find\(isActiveBrainRecommendation\)[\s\S]*?return;/);
+  assert.match(handler.slice(backendRequest), /setBlockedRecommendation\(undefined\)/);
+});
+
 test("Fix with AI rechecks the renderer admission generation around the async handoff", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const start = app.indexOf("const handleConfirmFixWithAi");

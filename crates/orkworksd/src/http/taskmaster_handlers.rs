@@ -179,8 +179,9 @@ pub(crate) async fn analyze_taskmaster(
         .sessions
         .lock()
         .expect("session map lock poisoned")
-        .keys()
-        .cloned()
+        .iter()
+        .filter(|(_, handle)| handle.info.has_live_runtime())
+        .map(|(id, _)| id.clone())
         .collect::<std::collections::HashSet<_>>();
     let (workspace_path, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
@@ -191,10 +192,15 @@ pub(crate) async fn analyze_taskmaster(
                 Some("Open a workspace before requesting Brain analysis."),
             );
         };
-        if let Err(error) = workspace
-            .recommendation_store
-            .recover_orphaned_executions(&live_session_ids, chrono::Utc::now().to_rfc3339())
-        {
+        let protected_deliveries =
+            crate::session_application::recommendation_deliveries_in_flight_for_workspace(
+                &workspace.path,
+            );
+        if let Err(error) = workspace.recommendation_store.recover_orphaned_executions(
+            &live_session_ids,
+            &protected_deliveries,
+            chrono::Utc::now().to_rfc3339(),
+        ) {
             return store_error(error);
         }
         let Ok(recommendations) = workspace.recommendation_store.list() else {

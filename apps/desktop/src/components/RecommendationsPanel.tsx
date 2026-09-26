@@ -267,16 +267,6 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
 
   async function analyzeNow() {
     if (!hasWorkspace || !taskmasterReady || analysisBusy) return;
-    const active = blockedRecommendation
-      ?? recommendations.find(isActiveBrainRecommendation);
-    if (active) {
-      setBlockedRecommendation(active);
-      setBlockedRecommendationId(active.id);
-      setBlockedRecommendationRecoveryAllowed(false);
-      setAnalysisError(undefined);
-      setAnalysisMessage(activeRecommendationMessage(active));
-      return;
-    }
 
     setAnalysisBusy(true);
     setAnalysisError(undefined);
@@ -291,6 +281,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         setBlockedRecommendationRecoveryAllowed(result.recoveryAllowed);
         setAnalysisMessage(activeRecommendationMessage(result.recommendation));
       } else {
+        setBlockedRecommendation(undefined);
+        setBlockedRecommendationId(undefined);
+        setBlockedRecommendationRecoveryAllowed(false);
         setAnalysisMessage(result.message);
       }
       if (result.status === "scheduled" || result.status === "active_recommendation") void refresh();

@@ -67,6 +67,17 @@ pub(crate) fn recommendation_delivery_in_flight_id(recommendation_id: &str) -> b
         .any(|(_, pending_id)| pending_id == recommendation_id)
 }
 
+pub(crate) fn recommendation_deliveries_in_flight_for_workspace(
+    workspace_path: &Path,
+) -> HashSet<String> {
+    pending_recommendation_deliveries()
+        .lock()
+        .expect("pending recommendation lock poisoned")
+        .iter()
+        .filter_map(|(path, id)| (path == workspace_path).then(|| id.clone()))
+        .collect()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionError {
     BadRequest(&'static str),
@@ -2511,8 +2522,9 @@ impl SessionApplication {
                 .sessions
                 .lock()
                 .unwrap()
-                .keys()
-                .cloned()
+                .iter()
+                .filter(|(_, handle)| handle.info.has_live_runtime())
+                .map(|(id, _)| id.clone())
                 .collect();
             for session in workspace.metadata.read_all_sessions() {
                 if (session.status == "running" || session.status == "creating")
@@ -2523,10 +2535,13 @@ impl SessionApplication {
                         .write_session(&metadata::reconcile_orphaned_session(session, &now));
                 }
             }
-            if let Err(error) = workspace
-                .recommendation_store
-                .recover_orphaned_executions(&live_ids, now)
-            {
+            let protected_deliveries =
+                recommendation_deliveries_in_flight_for_workspace(&workspace.path);
+            if let Err(error) = workspace.recommendation_store.recover_orphaned_executions(
+                &live_ids,
+                &protected_deliveries,
+                now,
+            ) {
                 tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned recommendation executions");
                 return Err(SessionError::Internal(
                     "failed to recover orphaned recommendation executions",
@@ -9191,6 +9206,17 @@ mod tests {
                 .as_path(),
             &recommendation_id,
         );
+        assert!(recommendation_deliveries_in_flight_for_workspace(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path
+                .as_path()
+        )
+        .contains(&recommendation_id));
         assert!(matches!(
             SessionApplication::new(state.clone()).dismiss_recommendation(&recommendation_id),
             Err(RecommendationDismissError::Conflict)

@@ -579,6 +579,7 @@ impl RecommendationStore {
     pub(crate) fn recover_orphaned_executions(
         &self,
         live_session_ids: &HashSet<String>,
+        protected_recommendation_ids: &HashSet<String>,
         recovered_at: String,
     ) -> Result<Vec<String>, StoreError> {
         self.recover_transactions()?;
@@ -600,6 +601,7 @@ impl RecommendationStore {
                 recommendation.status,
                 RecommendationStatus::Executing | RecommendationStatus::Accepted
             ) || live_session_ids.contains(target_session_id)
+                || protected_recommendation_ids.contains(id)
             {
                 continue;
             }
@@ -1942,6 +1944,7 @@ mod tests {
         let recovered = store
             .recover_orphaned_executions(
                 &HashSet::from(["session-source".to_string()]),
+                &HashSet::new(),
                 "2026-09-24T10:07:00Z".into(),
             )
             .unwrap();
@@ -1964,6 +1967,7 @@ mod tests {
         let recovered = store
             .recover_orphaned_executions(
                 &HashSet::from(["source-session".to_string()]),
+                &HashSet::new(),
                 "2026-09-24T10:07:00Z".into(),
             )
             .unwrap();
@@ -1986,6 +1990,7 @@ mod tests {
         let recovered = store
             .recover_orphaned_executions(
                 &HashSet::from(["unrelated-live-session".to_string()]),
+                &HashSet::new(),
                 "2026-09-24T10:08:00Z".into(),
             )
             .unwrap();
@@ -1994,6 +1999,29 @@ mod tests {
         let recommendation = store.get("orphaned-accepted").unwrap().unwrap();
         assert_eq!(recommendation.status, RecommendationStatus::Proposed);
         assert!(recommendation.target_session_id.is_none());
+    }
+
+    #[test]
+    fn orphan_recovery_preserves_recommendations_with_delivery_in_flight() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let mut recommendation = recommendation("delivery-in-flight", "source-session");
+        recommendation.status = RecommendationStatus::Executing;
+        recommendation.target_session_id = Some("ended-target".into());
+        store.put(&recommendation).unwrap();
+
+        let recovered = store
+            .recover_orphaned_executions(
+                &HashSet::from(["source-session".to_string()]),
+                &HashSet::from(["delivery-in-flight".to_string()]),
+                "2026-09-26T08:00:00Z".into(),
+            )
+            .unwrap();
+
+        assert!(recovered.is_empty());
+        let persisted = store.get("delivery-in-flight").unwrap().unwrap();
+        assert_eq!(persisted.status, RecommendationStatus::Executing);
+        assert_eq!(persisted.target_session_id.as_deref(), Some("ended-target"));
     }
 
     #[test]
