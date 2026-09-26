@@ -108,14 +108,19 @@ user status override, accepted terminal input transition, or session lifecycle
 transition can change attention through its existing rules. Hook authority is
 per session, not inherited from another session or from an integration setting.
 It is retained across a later `process` transition caused by accepted user
-input, as Codex already does. User-sourced status retains its higher priority.
+input, as Codex already does. The first accepted hook report also clears any
+Peon-sourced `needsUserInput`, `detectedQuestion`, and `suggestedOptions` left
+from an earlier inference. Later hook reports do not repopulate those fields
+from chat text. User-sourced status retains its higher priority.
 
 Codex already promotes a live session only after validating an owned hook
 event's bundle fingerprint, harness, and event type. OpenCode currently starts
 with `active_work_hook` from its registry capability and accepts ordinary
-`agent` attention POSTs; neither proves that its plugin ran. Add a distinct
-per-session observed-hook state for OpenCode. Its reporter marks attention
-reports as OpenCode hook reports and carries the session's existing
+`agent` attention POSTs; neither proves that its plugin ran. Keep the registry
+capability, but initialize OpenCode's per-session `active_work_hook` to false
+and promote it only after an accepted, validated attention report, as Codex
+does. Its reporter marks attention reports as OpenCode hook reports and carries
+the session's existing
 `ORKWORKS_REPORT_TOKEN`. The sidecar accepts that hook provenance and activates
 its authority only when the token, live session, harness, and event/status
 contract match; a generic `agent` POST, debug injection, installed plugin file,
@@ -134,8 +139,11 @@ ask may report `waiting_for_input`; and a reply/rejection may report the
 remaining effective state (`waiting_for_input`, `working`, or `idle`). The
 sidecar rejects a claimed OpenCode hook report whose event/status pair is
 outside that contract. It stores the report at the existing agent-priority
-tier while retaining the validated hook provenance needed for later Peon
-merges. The reporter posts no attention for a duplicate `session.created`.
+tier with the existing `agent` metadata source; the per-session
+`active_work_hook` flag records that the report was validated. After
+activation, an untagged generic `agent` POST for that OpenCode session cannot
+replace hook-owned attention or inherit that activation. The reporter posts
+no attention for a duplicate `session.created`.
 
 OpenCode prompt authority depends on delivery of the matching reply/reject
 report. If that report is lost while its process remains alive, Needs You can

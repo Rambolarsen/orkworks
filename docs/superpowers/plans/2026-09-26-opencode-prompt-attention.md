@@ -1,210 +1,246 @@
 # OpenCode Prompt Attention Implementation Plan
 
-> **Superseded draft (2026-09-26):** The design now requires session-scoped
-> OpenCode hook activation and a Codex/OpenCode Peon attention rule. This plan
-> describes the earlier narrow rule and must be rewritten after review of the
-> revised spec. Do not execute its tasks as written.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Goal:** Show Needs You only for unresolved OpenCode permission or question requests, and keep Peon chat inference from creating or replacing attention for Codex and OpenCode.
 
-**Goal:** Show Needs You for unresolved OpenCode questions and permissions, preserve it through unrelated turn events and Peon observations, and avoid dropping rapid prompt reports.
+**Architecture:** The OpenCode plugin tracks request IDs and reports its effective state through the existing attention route with a session token and event provenance. The sidecar promotes OpenCode's per-session hook authority only after an accepted validated report. A single metadata merge policy lets Peon retain descriptions, use nonprompt fallback before hook activation, and preserve hook-owned attention afterward.
 
-**Architecture:** The project-local OpenCode reporter owns request-ID sets and projects them to the existing attention route. A narrow sidecar Peon merge rule protects only an active OpenCode `agent`-sourced waiting status; Codex retains its current authority rule. The route and shared input/hook timestamp guards remain intact.
+**Tech Stack:** OpenCode plugin JavaScript, Node built-in test runner, Rust sidecar/Axum, repository Markdown.
 
-**Tech Stack:** OpenCode plugin JavaScript, Node's built-in test runner, Rust sidecar, Axum attention route, repository Markdown.
-
-**Spec:** `docs/superpowers/specs/2026-09-26-opencode-prompt-attention-design.md`
+**Spec:** docs/superpowers/specs/2026-09-26-opencode-prompt-attention-design.md
 
 ## Global Constraints
 
-- Needs You means an unresolved `permission.asked` or `question.asked` request; ordinary `session.idle` means Idle.
-- Events affect only the OpenCode session ID captured from `session.created`; malformed or foreign request IDs do not change pending state.
-- Status and generic prompt message are both part of the reporter's emitted projection.
-- Use `performance.timeOrigin + performance.now()` and strictly increasing integer microseconds formatted with six UTC fractional digits.
-- Preserve OpenCode waiting through Peon merges only for live, active, attention-capable OpenCode sessions with current `agent` status; retain Codex and user priority behavior.
-- OpenCode integration coverage remains limited until attention events are observed end to end in a live OpenCode process.
-- The reporter cannot reconstruct an already pending prompt after plugin reload and cannot guarantee recovery if a resolution report is lost.
-- Use `rtk` for shell commands and `pnpm` for any Node package-management operation. Work in the existing `opencode-prompt-attention` sibling worktree.
+- Needs You requires an unresolved permission or explicit question. Ordinary turn completion is Idle.
+- Only events for the OpenCode ID captured from session.created affect the reporter; request IDs are qualified by type.
+- OpenCode hook reports carry source opencode_hook, event name, observedAt, and Authorization: Bearer using ORKWORKS_REPORT_TOKEN. The token is never logged or persisted.
+- OpenCode's registry capability does not activate active_work_hook. Only an accepted validated report for that live session does.
+- An active hook owns all its reported attention states. Peon can still supply summaries, phase, diagnostics, and workflow evidence.
+- Before hook activation, Peon may supply nonprompt observed status but cannot create Needs You or prompt fields for Codex/OpenCode from LLM inference. Existing Peon-sourced waiting is cleared to unknown on the next attention reconciliation.
+- User overrides, accepted terminal input, and lifecycle transitions retain their existing authority. Claude, Copilot, Aider, and hookless tools retain their present Peon rules.
+- The OpenCode integration coverage label remains limited until a live OpenCode process proves end-to-end attention delivery. Lost resolution events and plugin reload with pending requests remain limitations.
+- Use rtk for every shell command and pnpm for any Node package-management operation. Work only in the owned opencode-prompt-attention worktree.
+
+---
 
 ## Evidence and blind-spot checkpoint
 
-**Least confidence:** exact ordering of live OpenCode event callbacks relative to terminal input has not been observed inside an OrkWorks-launched process. The 1.18.18 and 1.18.32 schemas/publisher establish event names and payloads; behavioral tests will establish our projection, while integration coverage stays limited. The current reporter quantizes `observedAt` to milliseconds; the sidecar independently rejects hook time at or before `accepted_input_at`.
+**Least confidence:** A live OpenCode plugin's event/input ordering has not been observed in an OrkWorks-launched process. Versioned schemas and publisher code establish event names and fields, while this plan's sequence tests establish our projection. Keep the integration coverage label limited. The existing input timestamp and hook timestamp guards must reject stale reports without activating hook authority.
 
-**Project blind spot:** `active_work_hook` is a resolved capability, not proof that the installed reporter sent a particular POST. The narrow OpenCode rule deliberately shares the current local attention-route trust boundary. A later authenticated reporter protocol would require a separate design. The existing preserving merge writes `codex_hook` provenance internally; the implementation must parameterize it rather than calling it unchanged for OpenCode.
+**Project blind spot:** The source-priority ladder has one record-wide source and Peon's merge has an early return when an inferred Working would resume a terminal status. Merely dropping a new Peon waiting inference would leave an old Peon-sourced Needs You latched; reconciliation must happen before that early return and must clear durable prompt fields. The attention route currently accepts generic agent reports; after OpenCode activation, an untagged report must not inherit hook authority or replace it.
+
+**Resolved assumptions:** Main owns ADR 0065; this plan uses ADR 0066. The existing in-memory ORKWORKS_REPORT_TOKEN registry can authenticate an OpenCode report for its exact OrkWorks session. active_work_hook is already per-session, so initializing it false for OpenCode avoids a new field and restores pre-hook nonprompt fallback. The validated request tag stays transport-only; persisted metadata retains source agent, avoiding a new UI source value. Check ADR numbering again immediately before Task 1 in case another branch lands first.
 
 ## File map
 
 | File | Responsibility |
 | --- | --- |
-| `docs/adr/0065-opencode-prompt-attention-authority.md`, `docs/adr/README.md` | Record and index the narrow Peon authority exception before code. |
-| `crates/orkworksd/scripts/opencode-session-reporter.js` | Track the captured session's turn and prompt state; post effective attention with ordered high-resolution time. |
-| `crates/orkworksd/scripts/opencode-session-reporter.test.mjs` | Run the actual reporter against controlled event sequences and an HTTP receiver. |
-| `crates/orkworksd/src/harness/integrations/opencode.rs` | Replace obsolete source-text assertions with the relevant packaging/source identity check. |
-| `crates/orkworksd/src/session_application.rs` | Select OpenCode pending-wait authority for Peon merges without changing Codex's selection. |
-| `crates/orkworksd/src/metadata.rs` | Preserve the selected hook source instead of always writing `codex_hook`. |
-| `docs/agents/harness-integration-contracts.md` | Document question-event coverage, source evidence, and limits. |
+| docs/adr/0066-hook-owned-prompt-attention.md, docs/adr/README.md | Record and index the approved attention authority boundary before code. |
+| crates/orkworksd/scripts/opencode-session-reporter.js | Maintain request sets, effective attention, token/event provenance, and ordered microsecond timestamps. |
+| crates/orkworksd/scripts/opencode-session-reporter.test.mjs | Exercise the real plugin export against captured HTTP requests and event sequences. |
+| crates/orkworksd/src/harness/integrations/opencode.rs | Keep packaged reporter identity coverage while removing obsolete timestamp assertions. |
+| crates/orkworksd/src/harness/registry.rs | Initialize OpenCode's per-session work-hook flag as inactive without removing its declared capability. |
+| crates/orkworksd/src/http/session_handlers.rs | Forward the attention bearer token while retaining legacy report behavior. |
+| crates/orkworksd/src/main.rs | Bind the header-aware attention handler if its exported name changes. |
+| crates/orkworksd/src/session_application.rs | Validate OpenCode provenance, promote only accepted reports, select Peon attention policy. |
+| crates/orkworksd/src/metadata.rs | Clear old prompt fields and merge Peon under a single attention policy while retaining agent provenance for OpenCode. |
+| docs/agents/harness-integration-contracts.md | State verified events, activation rule, limitations, and limited coverage. |
 
-### Task 1: Record the prompt-authority decision
-
-**Files:**
-- Create: `docs/adr/0065-opencode-prompt-attention-authority.md`
-- Modify: `docs/adr/README.md`
-
-**Interfaces:** This task defines the invariant for Task 3: Peon preserves only an active OpenCode `agent`-sourced `waiting_for_input`, while ordinary OpenCode Working/Idle and every other harness retain their existing rules.
-
-- [ ] **Step 1: Write the ADR before code.** Use the repository ADR template and state the context (15-second Peon overwrite), decision (OpenCode waiting-only exception), and consequences (a lost resolution may leave Needs You stale; no cross-session authority). Keep ADR 0027's single owner for status writes and ADR 0005's source ladder intact.
-- [ ] **Step 2: Add ADR 0065 to the index.** Give it `accepted` status, since this is the approved written design. Do not add a root `AGENTS.md` inline ADR bullet because the design and harness contract contain independent prose.
-- [ ] **Step 3: Review the doc diff.** Run `rtk git diff --check` and inspect `rtk git diff -- docs/adr/0065-opencode-prompt-attention-authority.md docs/adr/README.md`; confirm the ADR neither grants authority to OpenCode Working/Idle nor changes Codex.
-- [ ] **Step 4: Commit.** Run `rtk git add docs/adr/0065-opencode-prompt-attention-authority.md docs/adr/README.md` then `rtk git commit -m 'docs: record OpenCode prompt attention authority'`.
-
-### Task 2: Make the reporter project prompt request state
+### Task 1: Record the authority decision
 
 **Files:**
-- Create: `crates/orkworksd/scripts/opencode-session-reporter.test.mjs`
-- Modify: `crates/orkworksd/scripts/opencode-session-reporter.js`
-- Modify: `crates/orkworksd/src/harness/integrations/opencode.rs`
+- Create: docs/adr/0066-hook-owned-prompt-attention.md
+- Modify: docs/adr/README.md
 
-**Interfaces:** Consumes OpenCode plugin events `{ type, properties }`. Produces existing `POST /sessions/:id/attention` JSON `{ status, observedAt, message? }`; no route-schema change.
+**Interfaces:** The ADR defines the invariant used by Tasks 3-4: Codex/OpenCode Peon inference cannot establish a prompt, and a validated per-session hook owns attention after acceptance.
 
-- [ ] **Step 1: Write the first failing reporter test.** Import the actual reporter source as an ESM data URL from the `.mjs` test file. Start a local `node:http` server and record its real POST bodies. Set `ORKWORKS_PORT` and `ORKWORKS_SESSION_ID`, send `session.created` for `ses_1`, `session.status: busy`, then `question.asked` with `{ id: 'que_1', sessionID: 'ses_1', questions: [] }`. Assert attention statuses are `['working', 'waiting_for_input']`, with an answer-request message. The old reporter already reports Working but fails to report the question.
+- [ ] **Step 1: Check the ADR slot.** Run rtk proxy git ls-tree -r --name-only main docs/adr and confirm 0066 is unused. If another change claimed it, update this plan's ADR filename and index entry before writing.
+- [ ] **Step 2: Write the decision.** Use docs/adr/template.md. State the stale Peon question incident, why installation/capability is not activation, the Codex/OpenCode prompt evidence rule, the OpenCode token/event validation, per-session hook authority, and limits for lost events and other harnesses. State that metadata.rs remains the status merge owner; the validated OpenCode request tag persists as agent metadata source while runtime activation records its authority.
+- [ ] **Step 3: Index and inspect.** Add one accepted row to docs/adr/README.md. Run rtk git diff --check and inspect both files. The existing prose in the approved design is the root guide's ADR pointer, so add no duplicate inline root AGENTS.md bullet.
+- [ ] **Step 4: Commit.** Stage only the ADR and index; commit with message "docs: record hook-owned prompt attention".
 
-  ```js
-  import assert from 'node:assert/strict';
-  import { once } from 'node:events';
-  import { readFile } from 'node:fs/promises';
-  import { createServer } from 'node:http';
-  import test from 'node:test';
+### Task 2: Make the reporter project explicit prompt lifecycles
 
-  const source = await readFile(new URL('./opencode-session-reporter.js', import.meta.url), 'utf8');
-  const { OrkWorksSessionReporter } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+**Files:**
+- Create: crates/orkworksd/scripts/opencode-session-reporter.test.mjs
+- Modify: crates/orkworksd/scripts/opencode-session-reporter.js
+- Modify: crates/orkworksd/src/harness/integrations/opencode.rs
 
-  test('question ask makes the captured session need an answer', async (t) => {
-    const posts = [];
-    const server = createServer(async (req, res) => {
-      const body = JSON.parse(Buffer.concat(await Array.fromAsync(req)).toString());
-      if (req.url.endsWith('/attention')) posts.push(body);
-      res.writeHead(200).end();
+**Interfaces:** Consume OpenCode events with event.type and event.properties. Produce POST /sessions/:id/attention with JSON fields status, observedAt, source, event, optional message, plus the bearer token. The first captured session.created reports idle.
+
+- [ ] **Step 1: Write a failing end-to-end reporter test.** Import the actual reporter file as an ESM data URL. Start a node:http receiver on 127.0.0.1 with a random port; collect request path, Authorization header, and parsed body. Set ORKWORKS_PORT, ORKWORKS_SESSION_ID, and a fake ORKWORKS_REPORT_TOKEN for the test, restoring their prior values afterward. Send session.created for ses_1, session.status busy, then question.asked with id que_1 and sessionID ses_1. Assert statuses idle, working, waiting_for_input, matching event names, source opencode_hook, and the fake bearer token. The old reporter lacks the initial idle and question report.
+
+~~~js
+const events = [
+  { type: 'session.created', properties: { info: { id: 'ses_1' } } },
+  { type: 'session.status', properties: { sessionID: 'ses_1', status: { type: 'busy' } } },
+  { type: 'question.asked', properties: { id: 'que_1', sessionID: 'ses_1', questions: [] } },
+];
+for (const event of events) await reporter.event({ event });
+assert.deepEqual(attentionPosts.map((post) => post.body.status),
+  ['idle', 'working', 'waiting_for_input']);
+assert.ok(attentionPosts.every((post) => post.authorization === 'Bearer test-token'));
+~~~
+
+- [ ] **Step 2: Run the red test.** Run rtk proxy node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs. Confirm the failure is a missing lifecycle/provenance assertion, not server setup.
+- [ ] **Step 3: Implement effective state.** Track turnStatus, separate permissionIds/questionIds sets, captured session ID, and last reported status/message. Ask events require a nonempty string id; reply/reject events require a matching nonempty requestID. Busy/idle change turnStatus but cannot clear a pending set. A new captured ID resets state and emits idle; a duplicate creation does nothing. A status or message change emits one POST. Only matching sessionID events participate. If ORKWORKS_REPORT_TOKEN is absent, skip the authenticated attention POST rather than sending an unauthenticated claimed hook report.
+
+~~~js
+const effective = () => {
+  if (permissionIds.size && questionIds.size)
+    return { status: 'waiting_for_input', message: 'OpenCode needs an answer or permission decision' };
+  if (permissionIds.size)
+    return { status: 'waiting_for_input', message: 'OpenCode is asking for a permission decision' };
+  if (questionIds.size)
+    return { status: 'waiting_for_input', message: 'OpenCode is asking for an answer' };
+  return { status: turnStatus };
+};
+~~~
+
+- [ ] **Step 4: Expand red-green sequences one case at a time.** Cover permission ask/reply, question reply/reject, two requests of one type, overlapping types and message change, busy/idle while pending, duplicate/unknown resolution, malformed IDs, foreign session events, and captured-session replacement. Assert POST bodies and count, not source-text substrings. Run the Node test after each minimal reporter change.
+- [ ] **Step 5: Pin event time and ordering.** Add controlled Performance fixtures for distinct events in one millisecond, a nonzero microsecond part after accepted terminal input time, a backward clock step, a failed POST followed by a later event, and overlapping async fetches. Implement a monotonic integer-microsecond sequence from performance.timeOrigin + performance.now(); format exactly six UTC fractional digits. The sidecar's existing observedAt guard, not HTTP completion order, chooses the newer event.
+
+~~~js
+const micros = Math.max(
+  Math.floor((performance.timeOrigin + performance.now()) * 1000),
+  lastMicros + 1,
+);
+lastMicros = micros;
+const fraction = String(micros % 1_000_000).padStart(6, '0');
+const observedAt = new Date(Math.floor(micros / 1000))
+  .toISOString().replace(/\.\d{3}Z$/, '.' + fraction + 'Z');
+~~~
+
+- [ ] **Step 6: Preserve packaging evidence.** In opencode.rs, remove the assertion for millisecond padding; keep the assertion that the installed plugin bytes derive from the source script. Run the Node test and rtk cargo test --manifest-path crates/orkworksd/Cargo.toml plugin_source_.
+- [ ] **Step 7: Commit.** Run rtk git diff --check, stage the three Task 2 files, and commit "fix: track OpenCode prompt request lifecycles".
+
+### Task 3: Validate and activate OpenCode hook reports
+
+**Files:**
+- Modify: crates/orkworksd/src/harness/registry.rs
+- Modify: crates/orkworksd/src/http/session_handlers.rs
+- Modify: crates/orkworksd/src/session_application.rs
+- Modify: crates/orkworksd/src/metadata.rs
+
+**Interfaces:** AttentionSignal gains report_token: Option<String>. The handler extracts the bearer token for the application layer; only request source opencode_hook requires it. The application returns a bad request for mismatched token, harness, absent observedAt, or event/status pair. An accepted validated request writes metadata_source agent and sets active_work_hook true through an explicit activation flag. Legacy untagged reports retain their pre-activation behavior.
+
+- [ ] **Step 1: Write failing route/application cases.** Add tests near existing report_attention tests using the session test helpers and set_workflow_report_token. Cover missing/wrong token, wrong harness, ended/missing session, malformed observedAt, invalid event/status combinations, valid session.created idle, and a valid question. Assert rejection leaves durable metadata and active_work_hook unchanged. Assert a valid accepted report stores agent provenance and activates the flag; an out-of-order or pre-input stale report does not activate.
+
+~~~rust
+let token = "opencode-test-token";
+crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
+let report = AttentionSignal {
+    status: "waiting_for_input".into(),
+    event: Some("question.asked".into()),
+    source: Some("opencode_hook".into()),
+    report_token: Some(token.into()),
+    observed_at: Some("2026-09-26T12:00:00.123456Z".into()),
+    message: Some("OpenCode is asking for an answer".into()),
+    plan_path: metadata::PlanPathUpdate::Unchanged,
+    cwd: None,
+    hook_fingerprint: None,
+};
+~~~
+
+- [ ] **Step 2: Run the focused red tests.** Use rtk cargo test --manifest-path crates/orkworksd/Cargo.toml opencode_hook_. Confirm failures are validation/activation behavior.
+- [ ] **Step 3: Implement route forwarding without changing legacy callers.** Add a report_attention_with_headers handler for the Axum route and retain the existing no-header wrapper under cfg(test). Both call a shared inner function. Extract bearer_token from HeaderMap into AttentionSignal.report_token; never log the token. Update the router import and route binding in main.rs if its symbol changes, and add main.rs to this task's staged files.
+- [ ] **Step 4: Validate before mutation.** In SessionApplication::report_attention, validate request source opencode_hook against verify_workflow_report_token, the live session's OpenCode harness, a present observedAt, and this exact event/status matrix: session.created -> idle; session.status -> working; session.idle -> idle; permission.asked/question.asked -> waiting_for_input; permission.replied/question.replied/question.rejected -> waiting_for_input, working, or idle. Reject other pairs. Make validate_codex_hook_signal return false for opencode_hook while still rejecting any other unknown source. Include validated OpenCode reports in supports_active_work so the first working report can pass normalization while active_work_hook is still false. Map validated OpenCode reports to persisted source agent, set activate_work_hook, and require a live handle.
+
+~~~rust
+let opencode_hook = signal.source.as_deref() == Some("opencode_hook");
+if opencode_hook {
+    let token = signal.report_token.as_deref().ok_or(SessionError::EmptyBadRequest)?;
+    if !verify_workflow_report_token(id, token) {
+        return Err(SessionError::EmptyBadRequest);
+    }
+    let live_opencode = self.state.sessions.lock().unwrap().get(id).is_some_and(|handle| {
+        handle.info.lifecycle == "alive"
+            && handle.info.lifecycle_phase == "active"
+            && handle.info.harness_id.as_deref() == Some("opencode")
     });
-    server.listen(0, '127.0.0.1');
-    await once(server, 'listening');
-    t.after(() => server.close());
-    const previousPort = process.env.ORKWORKS_PORT;
-    const previousSession = process.env.ORKWORKS_SESSION_ID;
-    process.env.ORKWORKS_PORT = String(server.address().port);
-    process.env.ORKWORKS_SESSION_ID = 'ork_1';
-    t.after(() => {
-      if (previousPort === undefined) delete process.env.ORKWORKS_PORT;
-      else process.env.ORKWORKS_PORT = previousPort;
-      if (previousSession === undefined) delete process.env.ORKWORKS_SESSION_ID;
-      else process.env.ORKWORKS_SESSION_ID = previousSession;
-    });
-    const reporter = await OrkWorksSessionReporter();
-    await reporter.event({ event: { type: 'session.created', properties: { info: { id: 'ses_1' } } } });
-    posts.length = 0;
-    await reporter.event({ event: { type: 'session.status', properties: { sessionID: 'ses_1', status: { type: 'busy' } } } });
-    await reporter.event({ event: { type: 'question.asked', properties: { id: 'que_1', sessionID: 'ses_1', questions: [] } } });
-    assert.deepEqual(posts.map((post) => post.status), ['working', 'waiting_for_input']);
-    assert.match(posts[1].message, /answer/);
-  });
-  ```
-- [ ] **Step 2: Run the red test.** Run `rtk proxy node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs`; confirm the failure is the missing question transition, not an import or server setup error.
-- [ ] **Step 3: Implement the smallest prompt state projection.** Maintain separate `Set`s for permission and question IDs, `turnStatus = 'idle'`, and the last emitted `{status,message}`. Map asks by `properties.id` and replies/rejections by matching `properties.requestID`; reject empty or foreign IDs. Derive `waiting_for_input` whenever either set is nonempty, use distinct generic permission/question/mixed messages, and post when status or message changes. `session.status` busy and `session.idle` update `turnStatus` without clearing pending sets. New `session.created` resets state and posts idle; duplicate same-ID creation preserves state.
+    let event = signal.event.as_deref().ok_or(SessionError::EmptyBadRequest)?;
+    if !live_opencode || signal.observed_at.is_none()
+        || !opencode_event_allows_status(event, &signal.status)
+    {
+        return Err(SessionError::EmptyBadRequest);
+    }
+}
 
-  ```js
-  const permissions = new Set();
-  const questions = new Set();
-  let turnStatus = 'idle';
-  let lastReport = null;
-  const effective = () => {
-    if (permissions.size && questions.size) return { status: 'waiting_for_input', message: 'OpenCode needs an answer or permission decision' };
-    if (permissions.size) return { status: 'waiting_for_input', message: 'OpenCode is asking for a permission decision' };
-    if (questions.size) return { status: 'waiting_for_input', message: 'OpenCode is asking for an answer' };
-    return { status: turnStatus, message: undefined };
-  };
-  const reportIfChanged = async () => {
-    const next = effective();
-    if (next.status === lastReport?.status && next.message === lastReport?.message) return;
-    lastReport = next;
-    await postAttention(next);
-  };
-  ```
-- [ ] **Step 4: Run green and expand one behavior at a time.** Add a failing event-sequence case before each corresponding change for new-session idle reset, question reply/reject, permission reply, overlapping types, same-type multiple IDs, duplicate/unknown resolution, foreign/malformed events, and busy/idle while pending. Assert the HTTP payloads, including message changes, rather than checking source text.
-- [ ] **Step 5: Pin microsecond ordering.** With a controlled `globalThis.performance`, make one event occur at a hand-checked time within the same millisecond as an input-boundary fixture; assert the payload retains its nonzero microsecond part and successive updates strictly increase. Add cases for several events in one millisecond, a backward wall-clock step, and a failed POST followed by a later report. Then replace the millisecond-padding formatter with `Math.max(Math.floor((performance.timeOrigin + performance.now()) * 1000), lastMicros + 1)` and format exactly six fractional UTC digits.
+fn opencode_event_allows_status(event: &str, status: &str) -> bool {
+    match event {
+        "session.created" | "session.idle" => status == "idle",
+        "session.status" => status == "working",
+        "permission.asked" | "question.asked" => status == "waiting_for_input",
+        "permission.replied" | "question.replied" | "question.rejected" => {
+            matches!(status, "waiting_for_input" | "working" | "idle")
+        }
+        _ => false,
+    }
+}
+~~~
 
-  ```js
-  let lastMicros = 0;
-  const nextObservedAt = () => {
-    const micros = Math.max(Math.floor((performance.timeOrigin + performance.now()) * 1000), lastMicros + 1);
-    lastMicros = micros;
-    const fraction = String(micros % 1_000_000).padStart(6, '0');
-    return new Date(Math.floor(micros / 1000)).toISOString().replace(/\.\d{3}Z$/, `.${fraction}Z`);
-  };
-  ```
+- [ ] **Step 5: Promote only after durable acceptance.** Change ResolvedHarness::initial_work_hook_active so Codex and OpenCode begin false while retaining CapabilityName::Attention. Add activate_work_hook: bool to AttentionMergeSignal; set it for validated Codex/OpenCode requests and only update the handle after an accepted durable merge. Use that flag for the live-handle requirement, replacing the Codex-only source check. Persist OpenCode at source agent, Codex at codex_hook. Pass the same flag into MetadataStore::merge_agent_attention_signal_with_plan and clear stored Peon prompt fields in that durable merge, then clear them in the live projection. Existing nonhook callers pass false. Once OpenCode has activated, ignore an untagged generic agent report for that same session; user/process/lifecycle transitions remain possible.
 
-  For the reordering case, invoke `reporter.event({ event: first })` and
-  `reporter.event({ event: second })` without awaiting the first, delay the
-  first HTTP response in the test server, then assert the two payload
-  timestamps are strictly ordered in event-call order. The existing sidecar
-  stale-hook guard decides the winner if network delivery reverses them.
-- [ ] **Step 6: Update the Rust integration source checks.** Remove the assertion requiring the old `.$1000Z` padding. Keep the installed-source identity assertion, and prefer the behavioral Node test over new string-containment checks for event semantics. Run `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml plugin_source_` and the Node test.
-- [ ] **Step 7: Commit.** Run `rtk git diff --check`, stage only the three Task 2 files, and commit with `rtk git commit -m 'fix: track OpenCode prompt attention lifecycle'`.
+~~~rust
+if result == metadata::AttentionMergeResult::Accepted {
+    if let Some(handle) = sessions.get_mut(&signal.session_id) {
+        if signal.activate_work_hook {
+            handle.active_work_hook = true;
+            handle.info.needs_user_input = None;
+            handle.info.detected_question = None;
+            handle.info.suggested_options = None;
+        }
+    }
+}
+~~~
+- [ ] **Step 6: Run green and negative boundaries.** Run focused auth, stale-event, activation, source-priority, and registry tests. Include a test that a different session's valid token cannot activate this one; a generic agent report before activation does not activate and after activation cannot replace hook attention.
+- [ ] **Step 7: Commit.** Format touched Rust files from the crate directory, run rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check and rtk git diff --check, stage only Task 3 files, and commit "fix: activate OpenCode attention from validated reports".
 
-### Task 3: Preserve live OpenCode prompt status during Peon merges
+### Task 4: Restrict Peon prompt authority and reconcile old waits
 
 **Files:**
-- Modify: `crates/orkworksd/src/session_application.rs`
-- Modify: `crates/orkworksd/src/metadata.rs`
-- Modify: `docs/agents/harness-integration-contracts.md`
+- Modify: crates/orkworksd/src/session_application.rs
+- Modify: crates/orkworksd/src/metadata.rs
+- Modify: docs/agents/harness-integration-contracts.md
 
-**Interfaces:** `merge_peon_inference_with_history_preserving_hook_status` gains a preserved source argument (`&str`) alongside status and confidence. The OpenCode caller passes `agent`; the Codex caller passes `codex_hook` and retains its existing after-input `process` provenance behavior.
+**Interfaces:** MetadataStore's Peon merge receives one explicit policy: Infer for other harnesses, NonPrompt for Codex/OpenCode before activation, or PreserveHook with status/confidence/source after activation. Selection happens under the existing workspace -> sessions lock order. OpenCode's preserved source is agent; Codex's is codex_hook. A preserved process transition retains process provenance.
 
-- [ ] **Step 1: Write a failing sidecar test.** Beside `active_codex_hook_keeps_peon_waiting_inference_from_becoming_needs_you` in `session_application.rs`, create a live active OpenCode handle with `active_work_hook = true`, `observed_status = waiting_for_input`, `attention = needs_you`, `metadata_source = agent`, and a 60-second-old metadata file. Feed a Peon `working` inference with a new summary. Assert durable and live status remain `waiting_for_input`/`needs_you`, source remains `agent`, and the summary updates. The old code fails because Peon may overwrite the stale agent status.
+- [ ] **Step 1: Write failing Peon policy cases.** Near active_codex_hook_keeps_peon_waiting_inference_from_becoming_needs_you, cover Codex and OpenCode before activation: a Peon waiting inference may update summary/diagnostics but leaves attention nonprompt and prompt fields empty. Start another record with Peon-sourced waiting, feed an inference with no status or with Working, and assert durable observed status/prompt fields become unknown or Working respectively; this must happen despite the existing terminal-status early return. Confirm live/API projection follows the durable record.
+- [ ] **Step 2: Run the red tests.** Run rtk cargo test --manifest-path crates/orkworksd/Cargo.toml peon_nonprompt_ and confirm the old code produces Needs You or leaves it latched.
+- [ ] **Step 3: Add one metadata merge policy.** Define PeonAttentionPolicy with Infer, NonPrompt, and PreserveHook { status, confidence, source }. Select it in persist_peon_observation_inner from the live handle: Codex/OpenCode with active_work_hook and current hook/process provenance use PreserveHook; other Codex/OpenCode use NonPrompt; all other harnesses use Infer. In the metadata merge, clear prior Peon-sourced waiting and prompt fields before the terminal-status Working guard. Under NonPrompt, ignore incoming waiting status and all incoming prompt fields but keep summary/phase/diagnostics. Under PreserveHook, retain status and actual source unless the newer current source is process. Do not bypass user priority.
 
-  ```rust
-  let result = SessionApplication::new(state.clone()).persist_peon_observation(
-      id,
-      Some(&inference),
-      None,
-      Some("Still waiting for an OpenCode answer"),
-      "later",
-  );
-  assert!(result.inference_persisted);
-  let stored = state.workspace.lock().unwrap().as_ref().unwrap().metadata.read_session(id).unwrap();
-  assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
-  assert_eq!(stored.attention.as_deref(), Some("needs_you"));
-  assert_eq!(stored.metadata_source, "agent");
-  assert_eq!(stored.summary.as_deref(), Some("Still waiting for an OpenCode answer"));
-  ```
-- [ ] **Step 2: Run the red test.** Run `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml active_opencode_prompt_`; confirm the status/source assertion fails for the expected reason.
-- [ ] **Step 3: Generalize the preserving merge seam.** Change the existing preserved tuple from `(status, confidence)` to `(status, confidence, source)` in `metadata.rs`; use the supplied source where it currently hardcodes `codex_hook`, while preserving the existing `process` exception for Codex. In `session_application.rs`, retain the Codex predicate and add a separate OpenCode predicate requiring live + active + `active_work_hook` + OpenCode harness ID + `agent` source + `waiting_for_input`. Pass `agent` only for that case. Keep all status writes under the existing metadata/runtime merge owner and lock order.
+~~~rust
+pub enum PeonAttentionPolicy<'a> {
+    Infer,
+    NonPrompt,
+    PreserveHook { status: &'a str, confidence: f64, source: &'a str },
+}
 
-  ```rust
-  // metadata.rs: the preserved tuple carries its accepted provenance.
-  hook_status: Option<(&str, f64, &str)>,
-  if let Some((status, confidence, source)) = hook_status {
-      meta.observed_status = Some(status.to_string());
-      if meta.lifecycle == "alive" {
-          meta.attention = canonical_attention(Some(status));
-      }
-      if meta.metadata_source != "process" {
-          meta.metadata_source = source.to_string();
-          meta.metadata_confidence = confidence;
-      }
-  }
-  ```
+// In the metadata merge, before the terminal-status early return:
+if matches!(policy, PeonAttentionPolicy::NonPrompt)
+    && meta.metadata_source == "peon"
+    && meta.observed_status.as_deref() == Some("waiting_for_input")
+{
+    meta.observed_status = None;
+    meta.attention = None;
+    meta.needs_user_input = None;
+    meta.detected_question = None;
+    meta.suggested_options = None;
+}
+~~~
 
-  The selection returns `(status, confidence, preserved_source)`; use `"codex_hook"` for the existing Codex branch and `"agent"` only for the OpenCode pending-wait branch.
-- [ ] **Step 4: Prove the negative boundaries.** Add failing-then-green cases showing OpenCode `working` and `idle` remain Peon-overwritable after 15 seconds; an inactive, terminal, or non-attention-capable OpenCode session gets no exception; a user source remains higher priority; and the existing Codex authority tests still retain `codex_hook`/`process` provenance. Run the focused Rust tests after each case.
-- [ ] **Step 5: Update the harness contract.** Name the verified 1.18.18/1.18.32 question events and request-ID fields, describe pending-prompt precedence and the narrow Peon exception, and retain `Limited` coverage until live OpenCode attention delivery is observed. State that a missed resolution or plugin reload cannot be reconstructed reliably.
-- [ ] **Step 6: Commit.** Format the touched Rust files with `rtk proxy rustfmt --edition 2021 crates/orkworksd/src/session_application.rs crates/orkworksd/src/metadata.rs`, then run `rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check` and `rtk git diff --check`; stage only Task 3 files and commit with `rtk git commit -m 'fix: preserve pending OpenCode prompt authority'`.
+- [ ] **Step 4: Prove hook ownership and negative boundaries.** Add cases for OpenCode hook-owned waiting, working, and idle after the 15-second window; Codex hook-owned Working and after-input process provenance; user override; dead/inactive sessions; a second session; and Claude/Aider/Copilot unchanged. Assert Peon still supplies a new summary or diagnostic when attention is preserved. Run each focused test after its implementation change.
+- [ ] **Step 5: Update the integration contract.** Describe OpenCode question and permission request IDs, reply/reject events, per-session token and activation, Peon nonprompt fallback, limited live coverage, and lost-event/plugin-reload limits. State that an existing installation must be reconciled through Settings to receive the new reporter bytes. Describe Codex's no-chat-question rule and the remaining queued-question direct-signal gap in #632; leave other harness entries unchanged except a pointer to #643.
+- [ ] **Step 6: Commit.** Format touched Rust files from the crate directory; run rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check and rtk git diff --check. Stage only Task 4 files and commit "fix: keep inferred chat prompts out of attention".
 
-### Task 4: Verify and prepare the PR
+### Task 5: Verify and deliver issue #631
 
-**Files:** No new source files. Update issue #631 and the PR description with evidence and limitations.
+**Files:** No new source file. Update the issue and PR with actual verification and limitations.
 
-**Interfaces:** The combined implementation must preserve the existing `/attention` payload and all other harness rules.
+**Interfaces:** The combined change keeps the existing attention endpoint for legacy harnesses and the existing priority of user, process, and lifecycle transitions.
 
-- [ ] **Step 1: Run focused behavioral verification.** Run `rtk proxy node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs`, `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml active_opencode_prompt_`, and the existing Codex authority tests; record counts and failures.
-- [ ] **Step 2: Run required sidecar validation.** Run `rtk cargo build --manifest-path crates/orkworksd/Cargo.toml`, `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml`, and `rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check`. Run `rtk git diff --check` and inspect `rtk git status --short`.
-- [ ] **Step 3: Review the complete diff.** Use the `requesting-code-review` skill and the repo's explicit `/code-review medium` gate: this change crosses reporter and sidecar authority boundaries. Address findings or record evidence for intentional choices.
-- [ ] **Step 4: Open one PR for issue #631.** Push the owned branch, open the PR against `main`, include the spec/ADR, verification commands, limited live-coverage and restart/lost-event limitations, and link #631. Follow `babysitting-pull-requests` for CI and review feedback. Keep #632 separate.
+- [ ] **Step 1: Run focused behavior checks.** Run rtk proxy node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs and the focused Rust filters from Tasks 2-4. Record exact counts and failures; fix any failure before proceeding.
+- [ ] **Step 2: Run required sidecar validation.** From the repository root run rtk cargo build --manifest-path crates/orkworksd/Cargo.toml, rtk cargo test --manifest-path crates/orkworksd/Cargo.toml, and rtk cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check. Run rtk git diff --check and inspect rtk git status --short. Do not claim live OpenCode delivery from synthetic tests.
+- [ ] **Step 3: Review the diff.** Apply requesting-code-review and the repository's explicit /code-review medium gate because attention lifecycle, authentication, and metadata precedence change together. Address findings or document why an intentional behavior remains.
+- [ ] **Step 4: Open one PR for #631.** Push the owned branch and open a PR against main with the spec and ADR, actual verification results, limited live-coverage and lost-event limitations, and issue links #631/#632/#643. Follow babysitting-pull-requests through CI and review, then use the documented merge/cleanup path when eligible.
