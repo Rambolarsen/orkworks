@@ -324,7 +324,9 @@ after verification and do not resume or reopen another session as a workaround.
 ## Peon model detection observations
 
 When Peon reports a workflow observation or a Taskmaster recommendation about
-"Peon model detection", verify whether it is self-referential noise before
+"Peon model detection", or a recommendation asks you to remove or document a
+capacity-related obstacle such as "Tracing signal capacity in Claude harness
+to OpenCode", verify whether it is self-referential noise before
 treating it as a product defect: sessions working on OrkWorks itself put Peon's
 own prompt-example vocabulary into terminal output, and generic evidence such
 as "Terminal output" is low-specificity: it grounds only when those words

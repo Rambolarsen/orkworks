@@ -9,8 +9,10 @@ status: stable
 # Peon model detection troubleshooting
 
 Use this runbook when Peon reports a workflow observation about "Peon model
-detection" or when a Taskmaster recommendation asks you to "remove or document
-the obstacle: Peon model detection issues". Before treating it as a product
+detection", when a Taskmaster recommendation asks you to "remove or document
+the obstacle: Peon model detection issues", or when a recommendation asks you
+to remove or document a capacity-related obstacle such as "Tracing signal
+capacity in Claude harness to OpenCode". Before treating it as a product
 defect, check whether the observation is self-referential noise.
 
 ## Two different things called "model detection"
@@ -66,6 +68,90 @@ Signals that an observation is this noise, not a verified defect:
   single final scan.
 - Rechecking the current code finds no detection defect: the
   `detectedModel` merge rules above are intentional behavior.
+
+## Capacity/cap obstacle noise
+
+A related fingerprint family turns harness UI chrome about usage caps into a
+false "capacity" obstacle. Peon's inference prompt itself asks for
+`capacityHints` (cap/rate-limit strings), so "capacity" is Peon prompt
+vocabulary; when a session's terminal capture shows another session's title
+or a resume banner (OpenCode session lists and resume output in particular),
+Peon can conflate the two and report an obstacle like
+"Tracing signal capacity in Claude harness to OpenCode" that names a
+subsystem which does not exist.
+
+Verified example (September 2026, one observation, one OpenCode session): the
+only terminal grounding was the OpenCode banner lines
+`Session   Claude cap affecting opencode usage` and
+`Continue  opencode -s <id>` — a human-written label about Claude usage-cap
+limits plus a resume hint. The observed session's captured harness session ID
+came from the OpenCode hook (`harnessSessionIdSource: opencode_hook`), and the
+banner's resumable session ID differed from it — a non-circular comparison, so
+the banner named another session. The persisted evidence value — "Search
+results show signal capacity in Claude harness to OpenCode" — contains the
+words "signal" and "capacity", and reproducing Peon's reassembly on the
+retained replay (column width from `<id>.terminal-size`, escape sequences
+intact) leaves zero occurrences of either word. The session kept running long
+after the observation, so the retained replay may have evicted the window
+Peon scanned and the reconstruction is not conclusive on its own — but it is
+consistent with the other signals: the description paraphrases UI chrome, the
+evidence phrase pairs Peon's own prompt vocabulary with that chrome, and no
+verbatim excerpt from the observation's own work appears anywhere. Taken
+together, the observation was noise; the description paraphrased a label,
+not the session's work.
+
+Signals that an observation is this noise, not a verified defect:
+
+- The observation's `source` is `peon`. The terminal grounding checks below
+  gate only Peon-origin observations; agent-reported observations are
+  recorded through a separate path with no terminal grounding gate, so an
+  agent observation legitimately cites evidence from repository inspection
+  or another non-terminal source. Do not apply the grounding test to it.
+- The obstacle description names "signal capacity" or describes capacity
+  being "traced" from one harness to another. OrkWorks has no cross-harness
+  capacity propagation: capacity is per-session, per-harness usage-limit
+  detection via harness `capacity_patterns()` scans held in session and
+  provider state, and Peon `capacityHints` are strings attached to the
+  session that produced them — they never propagate to another session as
+  capacity state. (Terminal text can still be sent to whatever model
+  provider Peon inference has applied, including a provider backed by a
+  different coding tool; that is inference traffic, not capacity state
+  moving between sessions. The `capacity/<id>.json` metadata path is
+  protocol design, not an implemented detection mechanism.)
+- The observation's `evidence` field fails the implemented grounding gate.
+  `evidence_is_grounded` performs a literal substring match against the
+  hard-wrap-rejoined snapshot — reassembly runs before the provider call
+  and observation recording — with ANSI escape sequences intact, so an
+  excerpt split by an escape sequence is rejected even though it reads as
+  contiguous after stripping. Searching an ANSI-stripped copy is a
+  readability aid only: absence there proves absence only when no wrap
+  reassembly could join rows into the phrase, so reproduce the reassembly —
+  on the raw capture, with the recorded column width — before concluding an
+  accepted observation was ungrounded; and a stripped hit does not prove
+  Peon accepted it. Peon's prompt pins only the evidence field as a
+  contiguous verbatim excerpt; the `description` may legitimately
+  paraphrase, so a paraphrased description alone is not a noise signal.
+  Test the persisted `evidence` value, not the description's wording. Treat
+  reconstructed absence as inconclusive, not proof: the retained replay is
+  bounded to the newest 1,000 lines / 1 MiB, so the window Peon scanned may
+  have been evicted, and `<id>.terminal-size` records the last-known width,
+  not necessarily the inference-time one — absence in the reconstruction is
+  consistent with ungrounded, while presence in the retained capture is
+  strong evidence the gate could have passed.
+- The only verbatim match is UI chrome — session labels, banners, resume
+  hints, or session lists — and the displayed session ID or title does not
+  correlate with the observed session. A session's own resume banner names
+  itself, so chrome can describe this session's work. Correlate only
+  against a captured harness session ID with non-Peon provenance (hook or
+  agent source): Peon-inferred IDs are persisted from visible resume
+  output, so comparing a banner ID against a peon-sourced captured ID is
+  circular — the banner itself may have created the match. Without an
+  independently sourced ID, UI-chrome-only evidence is low-specificity,
+  not proof either way.
+
+Handling is the same as below: if it is confirmed noise, documentation is a
+valid resolution — do not act on the obstacle, and do not modify
+recommendation or observation files directly.
 
 ## Recommended handling
 
