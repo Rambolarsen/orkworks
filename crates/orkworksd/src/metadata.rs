@@ -1570,13 +1570,11 @@ impl MetadataStore {
             .resume
             .as_ref()
             .and_then(|resume| resume.harness_session_id.as_deref());
-        let existing_source = meta.harness_session_id_source.as_deref();
 
         if existing_id.is_some() && report.confidence < existing_confidence {
             return HarnessSessionMergeResult::IgnoredLowerConfidence;
         }
-        if existing_source == Some("codex_hook")
-            && report.source == "codex_hook"
+        if meta.harness == "codex"
             && existing_id.is_some_and(|existing| existing != report.harness_session_id)
             && !allow_codex_identity_replacement
         {
@@ -3600,6 +3598,47 @@ mod tests {
         assert_eq!(
             updated.resume.unwrap().harness_session_id.as_deref(),
             Some("owning-thread")
+        );
+    }
+
+    #[test]
+    fn codex_native_id_cannot_be_replaced_after_a_lower_trust_capture() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("codex-id-lower-trust");
+        meta.harness = "codex".into();
+        meta.resume = Some(ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::Exact,
+            harness_session_id: Some("peon-thread".into()),
+            latest_fallback: false,
+            last_seen_at: None,
+        });
+        meta.harness_session_id_source = Some("peon".into());
+        meta.harness_session_id_confidence = Some(0.4);
+        store.write_session(&meta);
+
+        let result = store.merge_harness_session_report_with_identity_replacement(
+            "codex-id-lower-trust",
+            &HarnessSessionReport {
+                harness_session_id: "nested-codex-thread".into(),
+                source: "codex_hook".into(),
+                confidence: 0.98,
+            },
+            "2026-06-26T12:00:00Z",
+            false,
+        );
+
+        assert_eq!(result, HarnessSessionMergeResult::IgnoredIdentityChange);
+        assert_eq!(
+            store
+                .read_session("codex-id-lower-trust")
+                .unwrap()
+                .resume
+                .unwrap()
+                .harness_session_id
+                .as_deref(),
+            Some("peon-thread")
         );
     }
 

@@ -617,9 +617,24 @@ fn remembered_session_info(
         .or_else(|| registry.get("generic-shell"));
     let (memory_state, resume_strategy) =
         derive_memory_state(false, meta.resume.as_ref(), resolved_harness);
+    let mut resume = meta.resume.clone();
+    if memory_state == crate::session_types::MemoryState::Unsupported
+        && resolved_harness.is_some_and(|harness| harness.definition.id == "codex")
+    {
+        if let Some(resume) = resume.as_mut() {
+            resume.state = crate::harness::ResumeState::Unavailable;
+        }
+    }
     let (resume_exact, resume_latest_cwd, resume_latest_repo) = resolved_harness
         .map(ResolvedHarness::resume_flags)
         .unwrap_or_default();
+    let resume_options = metadata::derive_resume_options(
+        &resume_strategy,
+        resume.as_ref(),
+        resume_exact,
+        resume_latest_cwd,
+        resume_latest_repo,
+    );
     SessionInfo {
         id: meta.id.clone(),
         label: meta.label.clone(),
@@ -669,14 +684,8 @@ fn remembered_session_info(
         peon_diagnostics: None,
         memory_state,
         resume_strategy: resume_strategy.clone(),
-        resume: meta.resume.clone(),
-        resume_options: metadata::derive_resume_options(
-            &resume_strategy,
-            meta.resume.as_ref(),
-            resume_exact,
-            resume_latest_cwd,
-            resume_latest_repo,
-        ),
+        resume,
+        resume_options,
         resumed_from: meta.resumed_from.clone(),
         has_openable_plan: meta.plan_path.as_ref().and_then(|reference| {
             workspace.map(|snapshot| {

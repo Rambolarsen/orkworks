@@ -155,7 +155,15 @@ pub(crate) fn merge_live_session_info(
             .or(info.resume.as_ref()),
         harness,
     );
-    let resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
+    let mut resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
+    if !is_live
+        && memory_state == MemoryState::Unsupported
+        && harness.is_some_and(|harness| harness.definition.id == "codex")
+    {
+        if let Some(resume) = resume.as_mut() {
+            resume.state = harness::ResumeState::Unavailable;
+        }
+    }
     let lifecycle = meta.map(|m| m.lifecycle.clone()).unwrap_or(info.lifecycle);
     let attention = if lifecycle == "alive" && info.at_usage_limit == Some(true) {
         Some("capped".into())
@@ -306,6 +314,16 @@ pub(crate) fn derive_memory_state(
     };
     if harness.is_some_and(|harness| harness.definition.id == "codex")
         && resume.harness_session_id.is_none()
+    {
+        return (MemoryState::Unsupported, harness::ResumeStrategy::None);
+    }
+    if harness.is_some_and(|harness| harness.definition.id == "codex")
+        && resume
+            .harness_session_id
+            .as_deref()
+            .is_some_and(|native_session_id| {
+                !crate::codex_session_store::has_saved_session(native_session_id)
+            })
     {
         return (MemoryState::Unsupported, harness::ResumeStrategy::None);
     }
@@ -876,20 +894,20 @@ mod tests {
     }
 
     #[test]
-    fn memory_state_marks_codex_session_as_resumable_when_exact_id_captured() {
+    fn memory_state_marks_codex_session_unsupported_when_saved_rollout_is_missing() {
         let harness = harness("codex");
         let resume = harness::ResumeMemory {
             state: harness::ResumeState::Available,
             preferred_strategy: harness::ResumeStrategy::Exact,
-            harness_session_id: Some("sess-1".into()),
+            harness_session_id: Some("orkworks-test-session-without-rollout".into()),
             latest_fallback: true,
             last_seen_at: None,
         };
 
         let (memory_state, strategy) = derive_memory_state(false, Some(&resume), Some(&harness));
 
-        assert_eq!(memory_state, MemoryState::Resumable);
-        assert_eq!(strategy, harness::ResumeStrategy::Exact);
+        assert_eq!(memory_state, MemoryState::Unsupported);
+        assert_eq!(strategy, harness::ResumeStrategy::None);
     }
 
     #[test]
@@ -907,6 +925,44 @@ mod tests {
 
         assert_eq!(memory_state, MemoryState::Unsupported);
         assert_eq!(strategy, harness::ResumeStrategy::None);
+    }
+
+    #[test]
+    fn unsaved_codex_rollout_disables_the_projected_resume_option() {
+        let root = tempfile::tempdir().unwrap();
+        let harness = harness("codex");
+        let mut meta = crate::test_support::test_session_metadata(
+            "codex-unsaved-rollout",
+            "Codex session",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        meta.harness = "codex".into();
+        meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("orkworks-projection-thread-without-rollout".into()),
+            latest_fallback: false,
+            last_seen_at: Some("before".into()),
+        });
+        let info = crate::test_support::test_session_info(
+            "codex-unsaved-rollout",
+            "Codex session",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+        );
+
+        let projected = merge_live_session_info(info, Some(&meta), None, Some(&harness));
+
+        assert_eq!(projected.memory_state, MemoryState::Unsupported);
+        assert_eq!(
+            projected.resume.as_ref().unwrap().state,
+            harness::ResumeState::Unavailable
+        );
+        assert!(!projected.resume_options[0].available);
     }
 
     #[test]

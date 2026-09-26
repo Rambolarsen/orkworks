@@ -3512,6 +3512,44 @@ async fn resume_session_workflow(
         .read()
         .expect("harness catalog lock poisoned")
         .clone();
+    let codex_preflight = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            return Err(crate::session_application::SessionError::Conflict);
+        };
+        let Some(meta) = ws.metadata.read_session(&id) else {
+            return Err(crate::session_application::SessionError::NotFound);
+        };
+        if meta.harness == "codex" {
+            let Some(native_session_id) = meta
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.clone())
+            else {
+                return Err(crate::session_application::SessionError::BadRequest(
+                    "Codex session has no captured native ID",
+                ));
+            };
+            Some((ws.metadata.root_path(), native_session_id))
+        } else {
+            None
+        }
+    };
+    if let Some((_, native_session_id)) = codex_preflight.as_ref() {
+        let native_session_id = native_session_id.clone();
+        let has_saved_session = tokio::task::spawn_blocking(move || {
+            crate::codex_session_store::has_saved_session(&native_session_id)
+        })
+        .await
+        .map_err(|_| {
+            crate::session_application::SessionError::Internal("application operation failed")
+        })?;
+        if !has_saved_session {
+            return Err(crate::session_application::SessionError::BadRequest(
+                "Codex has no saved local session for this ID",
+            ));
+        }
+    }
     let (meta, command, strategy, resume_flags, capacity_check_pending, active_work_hook) = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ref ws) = *ws_guard else {
@@ -3523,6 +3561,14 @@ async fn resume_session_workflow(
         let Some(resume) = meta.resume.as_ref() else {
             return Err(crate::session_application::SessionError::EmptyBadRequest);
         };
+        if let Some((preflight_root, preflight_session_id)) = codex_preflight.as_ref() {
+            if ws.metadata.root_path() != *preflight_root
+                || meta.harness != "codex"
+                || resume.harness_session_id.as_deref() != Some(preflight_session_id)
+            {
+                return Err(crate::session_application::SessionError::Conflict);
+            }
+        }
         let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
         let harness = session_harness_id
             .and_then(|id| registry.get(id))
@@ -3531,15 +3577,6 @@ async fn resume_session_workflow(
         if meta.harness == "codex" && resume.harness_session_id.is_none() {
             return Err(crate::session_application::SessionError::BadRequest(
                 "Codex session has no captured native ID",
-            ));
-        }
-        if meta.harness == "codex"
-            && !crate::codex_session_store::has_saved_session(
-                resume.harness_session_id.as_deref().expect("checked above"),
-            )
-        {
-            return Err(crate::session_application::SessionError::BadRequest(
-                "Codex has no saved local session for this ID",
             ));
         }
         let active_work_hook = harness.initial_work_hook_active();
