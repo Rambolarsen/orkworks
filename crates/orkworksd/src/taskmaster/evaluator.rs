@@ -190,6 +190,39 @@ fn manual_workspace_dispatch_gate(
     still_current.then(|| start_dispatch())
 }
 
+fn native_workspace_dispatch_gate(
+    state: &AppState,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    expected_path: &std::path::Path,
+    expected_instance: u64,
+    require_no_active_recommendation: bool,
+    start_dispatch: &mut dyn FnMut() -> std::io::Result<()>,
+) -> Option<std::io::Result<()>> {
+    let mut dispatch_result = None;
+    let snapshot_is_current = runtime
+        .with_current_native_evaluation(&state.harness_store, expected_path, snapshot, || {
+            let workspace = state.workspace.lock().expect("workspace lock poisoned");
+            let Some(current) = workspace.as_ref().filter(|current| {
+                current.path == expected_path
+                    && current.workflow_observations.instance_id() == expected_instance
+            }) else {
+                return;
+            };
+            if require_no_active_recommendation {
+                let Ok(recommendations) = current.recommendation_store.list() else {
+                    return;
+                };
+                if crate::taskmaster::active_workflow_recommendation(&recommendations).is_some() {
+                    return;
+                }
+            }
+            dispatch_result = Some(start_dispatch());
+        })
+        .unwrap_or(false);
+    snapshot_is_current.then_some(dispatch_result).flatten()
+}
+
 fn parse_provider_response(
     output: &str,
     snapshots: Option<&[RollupFamilySnapshot]>,
@@ -511,7 +544,17 @@ fn run_model_evaluation_with_context_and_workspace(
         return;
     };
     let mut dispatch_gate = |start_dispatch: &mut dyn FnMut() -> std::io::Result<()>| {
-        if manual_workspace.is_some() {
+        if snapshot.custom_inference.is_none() {
+            native_workspace_dispatch_gate(
+                &state,
+                &runtime,
+                &snapshot,
+                &workspace_path,
+                workspace_instance,
+                manual_workspace.is_some(),
+                start_dispatch,
+            )
+        } else if manual_workspace.is_some() {
             manual_workspace_dispatch_gate(
                 &state,
                 &workspace_path,

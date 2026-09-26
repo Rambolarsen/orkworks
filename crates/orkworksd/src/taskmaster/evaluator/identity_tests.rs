@@ -324,6 +324,115 @@ fn manual_dispatch_runs_its_start_action_while_workspace_is_locked() {
     assert!(fixture.state.workspace.try_lock().is_ok());
 }
 
+fn codex_snapshot(fixture: &Fixture) -> EvaluationSnapshot {
+    let mut settings = fixture.runtime.status(None).settings;
+    settings.selection.as_mut().unwrap().provider = "codex".into();
+    fixture.runtime.replace_settings(settings).unwrap();
+    let mut snapshot = fixture
+        .runtime
+        .evaluation_snapshot(fixture.dir.path())
+        .unwrap();
+    let transport =
+        super::super::provider_catalog::inspect(&fixture.state.harness_store, Some(&fixture.trust))
+            .unwrap()
+            .into_iter()
+            .find(|provider| provider.id == "codex")
+            .unwrap()
+            .transport;
+    assert!(bind_evaluation_transport(
+        &fixture.runtime,
+        &fixture.state.harness_store,
+        fixture.dir.path(),
+        &mut snapshot,
+        transport,
+    ));
+    snapshot
+}
+
+#[test]
+fn native_manual_dispatch_rejects_changed_settings_knowledge_and_harness() {
+    for change in ["selection", "disabled", "knowledge", "harness"] {
+        let fixture = Fixture::new();
+        let snapshot = codex_snapshot(&fixture);
+        match change {
+            "selection" => {
+                let mut settings = fixture.runtime.status(None).settings;
+                settings.selection.as_mut().unwrap().provider = "claude-code".into();
+                fixture.runtime.replace_settings(settings).unwrap();
+            }
+            "disabled" => {
+                let mut settings = fixture.runtime.status(None).settings;
+                settings.enabled = false;
+                fixture.runtime.replace_settings(settings).unwrap();
+            }
+            "knowledge" => fixture
+                .runtime
+                .activate_knowledge(crate::taskmaster::runtime::KnowledgeBundle {
+                    format_version: 1,
+                    version: "changed".into(),
+                    sequence: 1,
+                    published_at: "2026-09-26T00:00:00Z".into(),
+                    pages: Vec::new(),
+                })
+                .unwrap(),
+            "harness" => {
+                let path = fixture.dir.path().join("harnesses.json");
+                let mut document: serde_json::Value =
+                    serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                document["overrides"]["codex"] = serde_json::json!({"inference":{
+                    "kind":"command","command":"codex","args":["{model}"],
+                    "input":"stdin","output":"result-json-v1"}});
+                fs::write(path, serde_json::to_vec(&document).unwrap()).unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        let mut dispatched = false;
+        let mut start = || {
+            dispatched = true;
+            Ok(())
+        };
+        assert!(
+            native_workspace_dispatch_gate(
+                &fixture.state,
+                &fixture.runtime,
+                &snapshot,
+                fixture.dir.path(),
+                fixture.instance,
+                true,
+                &mut start,
+            )
+            .is_none(),
+            "stale native {change} must reject provider dispatch"
+        );
+        assert!(!dispatched, "stale native {change} reached the provider");
+    }
+}
+
+#[test]
+fn native_manual_dispatch_keeps_snapshot_and_workspace_guards_through_start() {
+    let fixture = Fixture::new();
+    let snapshot = codex_snapshot(&fixture);
+    let mut ran_under_workspace_lock = false;
+    let mut start = || {
+        ran_under_workspace_lock = fixture.state.workspace.try_lock().is_err();
+        Ok(())
+    };
+    assert!(native_workspace_dispatch_gate(
+        &fixture.state,
+        &fixture.runtime,
+        &snapshot,
+        fixture.dir.path(),
+        fixture.instance,
+        true,
+        &mut start,
+    )
+    .unwrap()
+    .is_ok());
+    assert!(ran_under_workspace_lock);
+    assert!(fixture.state.workspace.try_lock().is_ok());
+}
+
 #[test]
 fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
     let fixture = Fixture::new();

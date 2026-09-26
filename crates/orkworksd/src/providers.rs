@@ -1344,6 +1344,28 @@ enum HttpReadError {
     DispatchFailed(std::io::Error),
 }
 
+fn poll_http_send_with_dispatch_gate<F>(
+    mut send_fut: std::pin::Pin<&mut F>,
+    cx: &mut std::task::Context<'_>,
+    gate: &mut ProviderDispatchGate<'_>,
+) -> std::task::Poll<Result<reqwest::Response, HttpReadError>>
+where
+    F: Future<Output = Result<reqwest::Response, reqwest::Error>> + ?Sized,
+{
+    let mut polled = None;
+    let mut start = || {
+        polled = Some(send_fut.as_mut().poll(cx));
+        Ok(())
+    };
+    match gate(&mut start) {
+        None => std::task::Poll::Ready(Err(HttpReadError::DispatchRejected)),
+        Some(Err(error)) => std::task::Poll::Ready(Err(HttpReadError::DispatchFailed(error))),
+        Some(Ok(())) => polled
+            .expect("dispatch gate polled the HTTP request")
+            .map_err(HttpReadError::Request),
+    }
+}
+
 async fn read_http_body_limited(mut response: reqwest::Response) -> Result<Vec<u8>, HttpReadError> {
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(HttpReadError::Request)? {
@@ -1460,21 +1482,8 @@ impl HttpRunner {
 
         let mut send_fut = Box::pin(client.post(&url).json(&body).send());
         let request_fut = std::future::poll_fn(|cx| {
-            if let Some(gate) = dispatch_gate.take() {
-                let mut polled = None;
-                let mut start = || {
-                    polled = Some(send_fut.as_mut().poll(cx));
-                    Ok(())
-                };
-                match gate(&mut start) {
-                    None => std::task::Poll::Ready(Err(HttpReadError::DispatchRejected)),
-                    Some(Err(error)) => {
-                        std::task::Poll::Ready(Err(HttpReadError::DispatchFailed(error)))
-                    }
-                    Some(Ok(())) => polled
-                        .expect("dispatch gate polled the HTTP request")
-                        .map_err(HttpReadError::Request),
-                }
+            if let Some(gate) = dispatch_gate.as_deref_mut() {
+                poll_http_send_with_dispatch_gate(send_fut.as_mut(), cx, gate)
             } else {
                 send_fut.as_mut().poll(cx).map_err(HttpReadError::Request)
             }
@@ -4603,6 +4612,40 @@ mod tests {
             result.stderr,
             "HttpRunner does not support provider unsupported"
         );
+    }
+
+    #[test]
+    fn ollama_send_rechecks_dispatch_gate_after_a_pending_poll() {
+        struct NoopWake;
+        impl std::task::Wake for NoopWake {
+            fn wake(self: Arc<Self>) {}
+        }
+
+        let mut polls = 0;
+        let mut send = Box::pin(std::future::poll_fn(|_| {
+            polls += 1;
+            std::task::Poll::<Result<reqwest::Response, reqwest::Error>>::Pending
+        }));
+        let waker = std::task::Waker::from(Arc::new(NoopWake));
+        let mut context = std::task::Context::from_waker(&waker);
+        let allowed = std::cell::Cell::new(true);
+        let mut gate_calls = 0;
+        let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+            gate_calls += 1;
+            allowed.get().then(|| start())
+        };
+
+        assert!(matches!(
+            poll_http_send_with_dispatch_gate(send.as_mut(), &mut context, &mut gate),
+            std::task::Poll::Pending
+        ));
+        allowed.set(false);
+        assert!(matches!(
+            poll_http_send_with_dispatch_gate(send.as_mut(), &mut context, &mut gate),
+            std::task::Poll::Ready(Err(HttpReadError::DispatchRejected))
+        ));
+        assert_eq!(gate_calls, 2);
+        assert_eq!(polls, 1, "stale send future must not be polled again");
     }
 
     #[test]

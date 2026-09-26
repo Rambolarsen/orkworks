@@ -73,3 +73,19 @@
 - [x] Compute recovery eligibility from executing status, target-session liveness, and the in-flight delivery guard; test live-target rejection and orphan recovery eligibility.
 - [x] Run focused Rust and renderer tests, the complete Rust suite (1,421 passed, 3 ignored), desktop test suite, TypeScript check, formatting, diff, and documentation checks.
 - [ ] Push one fix commit, request one fresh Copilot/Codex review on its exact head, and stop this authorized review cycle after the resulting inventory.
+
+### Task 5: Revalidate every pending native HTTP dispatch
+
+**Blind-spot checkpoint:** The least certain dependency was whether `reqwest::RequestBuilder::send()` dispatches bytes on its first poll. The implementation's pinned send future can return `Pending` while connecting, so a one-time first-poll gate does not prove the request was sent. Keep the short gate around every poll until the future returns its response; this does not hold the workspace lock while awaiting network readiness. The broader project blind spot was treating the native profile/document revision as sufficient after reservation even though mutable Taskmaster settings and knowledge also advance the evaluation generation. Revalidate the captured native snapshot at the dispatch boundary, using the existing harness → Taskmaster runtime → workspace lock order used by final application. The authoritative manual-analysis spec requires the current selected provider and active-recommendation gate; no spec gap or ADR change is needed.
+
+**Files:**
+- Modify: `crates/orkworksd/src/providers.rs`
+- Modify: `crates/orkworksd/src/taskmaster/evaluator.rs`
+- Modify: `crates/orkworksd/src/taskmaster/evaluator/identity_tests.rs`
+- Modify: `crates/orkworksd/src/taskmaster/runtime/inference.rs`
+
+- [x] Add a deterministic poll test where send returns `Pending`, admission changes, and a later poll is rejected before the future can dispatch.
+- [x] Add dispatch tests proving stale native settings/knowledge generation and native harness-document revision reject invocation, while current snapshots still dispatch under the workspace guard.
+- [x] Implement per-poll Ollama admission and native snapshot revalidation (generation, effective settings, knowledge bundle, native document revision) through the actual dispatch boundary.
+- [x] Run focused tests red/green, the Rust suite (1,424 passed, 3 ignored), formatting, diff, and documentation checks; desktop tests/typecheck are not relevant to this Rust/docs-only fix.
+- [ ] Push one fix commit, request one fresh Copilot/Codex review on its exact head, and stop this authorized review cycle after the resulting inventory.

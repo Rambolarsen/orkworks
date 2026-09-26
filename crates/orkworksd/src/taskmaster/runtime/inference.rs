@@ -59,6 +59,49 @@ fn resolve(snapshot: &HarnessSnapshot, id: &str) -> Option<(AdapterIdentity, Inf
 }
 
 impl TaskmasterRuntime {
+    /// Hold the native harness revision and Taskmaster snapshot identity
+    /// through a provider side effect such as process spawn or HTTP send.
+    pub(crate) fn with_current_native_evaluation(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        apply: impl FnOnce(),
+    ) -> Result<bool, String> {
+        let Some(revision) = &snapshot.native_revision else {
+            return Ok(false);
+        };
+        let Some(selection) = snapshot.settings.selection.as_ref() else {
+            return Ok(false);
+        };
+        if revision.profile.id() != selection.provider {
+            return Ok(false);
+        }
+        let Some(workspace_key) = canonical_workspace_key(workspace) else {
+            return Ok(false);
+        };
+
+        harnesses
+            .with_locked_snapshot(|current| {
+                if current.document_revision != revision.document_revision {
+                    return Ok(false);
+                }
+                let _guard = PersistenceGuard::acquire(&self.root)?;
+                let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+                reload_durable(&self.root, &mut data);
+                if !data.ledger_readable
+                    || data.ledger.generation != snapshot.generation
+                    || effective_settings(&data.settings, &workspace_key) != snapshot.settings
+                    || data.knowledge != snapshot.knowledge
+                {
+                    return Ok(false);
+                }
+                apply();
+                Ok(true)
+            })
+            .map_err(|_| "native inference configuration unavailable".to_string())?
+    }
+
     pub(super) fn with_current_native_rollup_evaluation(
         &self,
         harnesses: &HarnessStore,

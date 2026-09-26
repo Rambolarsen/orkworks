@@ -185,7 +185,15 @@ existing CLI policy, login handling, version probes and response decoders remain
 unchanged. Native profiles are not deserializable from user JSON. Binding,
 reservation, diagnostics and final commit reject changed revisions while holding
 the harness lease. This deliberately invalidates native evaluations even for
-unrelated document edits. A snapshot with neither identity fails closed.
+unrelated document edits. Immediately before native dispatch, the sidecar also
+holds the harness lease and Taskmaster persistence/runtime locks while it checks
+the captured evaluation generation, effective settings, knowledge bundle, and
+native document revision; for a manual run it nests the current workspace and
+active-recommendation check before starting the provider. Process dispatch keeps
+that admission through child setup and spawn. Ollama revalidates on every
+synchronous poll of the HTTP send future until response headers arrive, releasing
+the locks between pending polls and before reading the response body. A snapshot
+with neither identity fails closed.
 An explicitly defined custom `ollama` harness shadows the native HTTP catalog
 entry; it follows custom readiness/trust rules and never falls back to HTTP.
 `reserve_snapshot` checks
