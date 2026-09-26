@@ -148,9 +148,11 @@ no attention for a duplicate `session.created`.
 OpenCode prompt authority depends on delivery of the matching reply/reject
 report. If that report is lost while its process remains alive, Needs You can
 remain stale; Peon cannot resolve a request ID reliably. The reporter sends
-the latest effective state on later recognized events, accepted terminal input
-can advance attention, and session death clears live attention through the
-existing lifecycle. A plugin reload while a request remains open cannot
+the latest effective state on a later recognized event only if its status or
+message changes; a failed report is not retried solely because another event
+arrives. Accepted terminal input can advance attention, and session death
+clears live attention through the existing lifecycle. A plugin reload while a
+request remains open cannot
 reconstruct the request from `session.created` alone. The supported plugin
 client does not expose the pending-question and pending-permission list methods
 in its [legacy SDK surface](https://github.com/anomalyco/opencode/blob/v1.18.32/packages/sdk/js/src/gen/sdk.gen.ts),
