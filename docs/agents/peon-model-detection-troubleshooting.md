@@ -225,22 +225,28 @@ refute it:
   the session view when the captured banner text contains the configured
   literal and passes the banner-shape checks — a genuine limit in other
   wording, such as "rate limit reached" against OpenCode's
-  "usage limit reached" pattern, leaves the session uncapped — which
-  becomes the "capped" attention status, and, when the banner carries one,
-  the reset hint renders as a "Capped · resets in 2h" badge in the
-  session detail panel; a cap without hint text shows just "Capped". The
-  capped flag and hint are harness-wide state: `session_projection`
-  aggregates by harness and copies both onto every session of that
-  harness, so a banner in one session marks its peers too.
+  "usage limit reached" pattern, leaves the session uncapped. For a live
+  session it becomes the "capped" attention status, and, when the banner
+  carries one, the reset hint renders as a "Capped · resets in 2h" badge
+  in the session detail panel; a cap without hint text shows just
+  "Capped", and a session that exits after the banner no longer shows the
+  badge even though the flag can persist. The capped flag and hint are
+  harness-wide state: `session_projection` aggregates by harness and
+  copies both onto every session of that harness, so a banner in one
+  session marks its peers too.
 - Provider side: for an enabled provider entry, the providers API and the
   new-session dialog reflect a genuine terminal cap from that same scan
   automatically — the response overlays a live session-capped map
   populated from the harness capacity detection before the configured
   state, and shows "checking capacity" while the scan is pending. A
   disabled provider entry reports "disabled" as its state and dialog
-  option; the API response still carries the harness scan's reset hint in
-  its runtime state, so the two surfaces are not identical for disabled
-  entries. A provider whose configured capacity state — the default or
+  option; the API response still carries a reset hint in its runtime
+  state, preferring a hint recorded by an earlier provider-invocation
+  failure and falling back to the harness scan's hint only when no
+  invocation hint exists. A "capped" effective state can come from either
+  the live scan or a capped configured state — the response does not
+  distinguish the two, so compare the persisted settings to tell them
+  apart. A provider whose configured capacity state — the default or
   override state in the persisted provider settings — is capped is
   skipped for session inference instead of retried, and a failed provider
   invocation's stderr is parsed into an error summary, plus a reset hint
