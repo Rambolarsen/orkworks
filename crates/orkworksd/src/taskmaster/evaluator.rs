@@ -446,12 +446,18 @@ fn run_model_evaluation_with_context_and_workspace(
     let Ok(cache_key) = provider_cache_key(&snapshot, &prompt, rollup_request.as_ref()) else {
         return;
     };
-    if manual_workspace.is_some() {
+    let reservation = if manual_workspace.is_some() {
+        // Accept/fix-with-AI also takes the workspace lock before transitioning
+        // a recommendation to executing. Validate and reserve under that same
+        // lock so the manual run has one clear admission point: either the
+        // active recommendation wins, or this analysis reserves first.
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(current) = workspace.as_ref() else {
             return;
         };
-        if current.path != workspace_path {
+        if current.path != workspace_path
+            || current.workflow_observations.instance_id() != workspace_instance
+        {
             return;
         }
         let Ok(current_recommendations) = current.recommendation_store.list() else {
@@ -460,8 +466,6 @@ fn run_model_evaluation_with_context_and_workspace(
         if crate::taskmaster::active_workflow_recommendation(&current_recommendations).is_some() {
             return;
         }
-    }
-    let reservation = if manual_workspace.is_some() {
         runtime.reserve_manual_snapshot(
             &state.harness_store,
             &workspace_path,
@@ -483,24 +487,6 @@ fn run_model_evaluation_with_context_and_workspace(
     };
     let providers = state.providers.clone();
     {
-        if manual_workspace.is_some() {
-            let workspace = state.workspace.lock().expect("workspace lock poisoned");
-            let Some(current) = workspace.as_ref() else {
-                return;
-            };
-            if current.path != workspace_path
-                || current.workflow_observations.instance_id() != workspace_instance
-            {
-                return;
-            }
-            let Ok(current_recommendations) = current.recommendation_store.list() else {
-                return;
-            };
-            if crate::taskmaster::active_workflow_recommendation(&current_recommendations).is_some()
-            {
-                return;
-            }
-        }
         let selection = snapshot
             .settings
             .selection

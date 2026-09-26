@@ -279,6 +279,55 @@ fn manual_evaluation_discards_a_request_after_workspace_switch() {
 }
 
 #[test]
+fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
+    let fixture = Fixture::new();
+    let remaining_before = fixture
+        .runtime
+        .status(Some(fixture.dir.path()))
+        .remaining_evaluations;
+    let facts = fixture.facts.clone();
+    let evidence_state = fixture.state.clone();
+    let evidence_runtime = &fixture.runtime;
+    let evidence_dir = fixture.dir.path().to_path_buf();
+    let evidence_instance = fixture.instance;
+    let evidence_snapshot = fixture.snapshot.clone();
+    run_model_evaluation_with_context_and_workspace(
+        fixture.state.clone(),
+        fixture.dir.path().join("runtime"),
+        move |_, _, _, _| {
+            let fact = facts.iter().find(|fact| fact.path == "README.md").unwrap();
+            let output = serde_json::json!({"enrichments":[],"proposals":[{
+                "targetSurface":"documentation","title":"Document verification",
+                "summary":"Experimental improvement","repositoryFactHashes":[fact.sha256],
+                "knowledgePageIds":[]}]})
+            .to_string();
+            apply_model_output(
+                &evidence_state,
+                &evidence_runtime,
+                &evidence_snapshot,
+                &evidence_dir,
+                evidence_instance,
+                &facts,
+                &[],
+                &output,
+            );
+            Ok(facts)
+        },
+        Some(fixture.dir.path().to_path_buf()),
+        None,
+    );
+
+    assert_eq!(
+        fixture
+            .runtime
+            .status(Some(fixture.dir.path()))
+            .remaining_evaluations,
+        remaining_before,
+        "the manual evaluator must not reserve after a recommendation becomes active"
+    );
+}
+
+#[test]
 fn evaluation_identity_custom_capture_failure_never_becomes_native() {
     let mut fixture = Fixture::new();
     assert!(bind_evaluation_transport(
