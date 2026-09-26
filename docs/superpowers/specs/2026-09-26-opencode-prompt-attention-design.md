@@ -206,4 +206,6 @@ change Codex's hook event contract. It does not make OrkWorks answer prompts
 or approve permissions. It does not guarantee recovery from lost OpenCode
 lifecycle events or a plugin reload with an already pending prompt. Claude
 Code, Copilot CLI, Aider, and hookless tools keep their current Peon policy;
-their event coverage must be reviewed separately before applying this rule.
+their event coverage must be reviewed separately in
+[#643](https://github.com/Rambolarsen/orkworks/issues/643) before applying
+this rule.
