@@ -89,11 +89,16 @@ came from the OpenCode hook (`harnessSessionIdSource: opencode_hook`), and the
 banner's resumable session ID differed from it — a non-circular comparison, so
 the banner named another session. The persisted evidence value — "Search
 results show signal capacity in Claude harness to OpenCode" — contains the
-words "signal" and "capacity"; reproducing Peon's reassembly on the raw
-capture (column width from `<id>.terminal-size`, escape sequences intact)
-leaves zero occurrences of either word, so the evidence excerpt could not
-have been copied character-for-character from the capture and the observation
-was ungrounded; the description paraphrased a label, not the session's work.
+words "signal" and "capacity", and reproducing Peon's reassembly on the
+retained replay (column width from `<id>.terminal-size`, escape sequences
+intact) leaves zero occurrences of either word. The session kept running long
+after the observation, so the retained replay may have evicted the window
+Peon scanned and the reconstruction is not conclusive on its own — but it is
+consistent with the other signals: the description paraphrases UI chrome, the
+evidence phrase pairs Peon's own prompt vocabulary with that chrome, and no
+verbatim excerpt from the observation's own work appears anywhere. Taken
+together, the observation was noise; the description paraphrased a label,
+not the session's work.
 
 Signals that an observation is this noise, not a verified defect:
 
@@ -126,7 +131,13 @@ Signals that an observation is this noise, not a verified defect:
   Peon accepted it. Peon's prompt pins only the evidence field as a
   contiguous verbatim excerpt; the `description` may legitimately
   paraphrase, so a paraphrased description alone is not a noise signal.
-  Test the persisted `evidence` value, not the description's wording.
+  Test the persisted `evidence` value, not the description's wording. Treat
+  reconstructed absence as inconclusive, not proof: the retained replay is
+  bounded to the newest 1,000 lines / 1 MiB, so the window Peon scanned may
+  have been evicted, and `<id>.terminal-size` records the last-known width,
+  not necessarily the inference-time one — absence in the reconstruction is
+  consistent with ungrounded, while presence in the retained capture is
+  strong evidence the gate could have passed.
 - The only verbatim match is UI chrome — session labels, banners, resume
   hints, or session lists — and the displayed session ID or title does not
   correlate with the observed session. A session's own resume banner names
