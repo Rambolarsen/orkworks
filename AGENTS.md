@@ -326,7 +326,9 @@ When Peon reports a workflow observation or a Taskmaster recommendation about
 "Peon model detection", verify whether it is self-referential noise before
 treating it as a product defect: sessions working on OrkWorks itself put Peon's
 own prompt-example vocabulary into terminal output, and generic evidence such
-as "Terminal output" passes the verbatim grounding check. Follow
+as "Terminal output" is low-specificity: it grounds only when those words
+literally appear in the captured output, which says nothing about cause.
+Follow
 [`docs/agents/peon-model-detection-troubleshooting.md`](docs/agents/peon-model-detection-troubleshooting.md).
 The applied provider/model in Settings is authoritative for inference; the
 Peon-detected session model is best-effort, first-detection-wins, and has no

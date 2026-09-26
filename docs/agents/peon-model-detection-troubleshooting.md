@@ -21,13 +21,21 @@ defect, check whether the observation is self-referential noise.
   inference problem there first.
 - **The session's displayed model.** Peon may infer a `detectedModel` from
   terminal output (a model identifier the coding tool shows on screen). It is
-  best-effort, display-only metadata:
+  best-effort metadata that fills the session's model field:
   - It fills the session model only while that field is empty — the first
     detection wins and nothing overwrites it for the session's lifetime.
-  - Peon never attributes its own provider model to the session; that pair is
-    excluded by design.
-  - When no model was detected, the session view falls back to whatever the
-    harness reported.
+  - When Peon's applied provider model is explicitly known, Peon does not
+    attribute that exact model to the session. With a default or unknown
+    provider model the exclusion cannot match, so Peon's own actual model can
+    be attributed.
+  - When no model was detected, the session view falls back to the model
+    requested at launch or the harness definition's default; if neither
+    exists the UI shows `Unknown`. That fallback is launch configuration, not
+    a runtime harness report.
+  - It is not purely display metadata: a custom harness whose resume
+    template contains `{model}` substitutes the persisted session model into
+    the resume command, so a stale detection changes what that command
+    targets.
   - There is no manual override route for a wrong session model today. The
     user-override gap tracked for Peon-derived status/label (#473) does not
     cover model. Do not attempt to "fix" a stale detection by reopening or
@@ -51,8 +59,9 @@ Signals that an observation is this noise, not a verified defect:
   concrete failure in the session.
 - The evidence field is a generic string ("Terminal output", "Code changes")
   rather than a specific excerpt. Evidence must appear verbatim in the
-  captured terminal output, so generic strings pass grounding trivially and
-  are a strong noise signal.
+  captured terminal output, so such a match only proves those words appeared
+  somewhere in the capture — UI chrome, quoted text, or the session's own
+  work — which is low-specificity and a strong noise signal.
 - Several near-identical observations were recorded in one burst from a
   single final scan.
 - Rechecking the current code finds no detection defect: the
@@ -63,10 +72,12 @@ Signals that an observation is this noise, not a verified defect:
 1. Recheck the current files. Peon observations are hypotheses, not proof of
    recurrence or of absent policies; a single high-impact observation from one
    session does not establish a real defect.
-2. If a recommendation about this topic lands in your session, keep the change
-   scoped to repository tooling or documentation. Documenting the known
-   limitation is a valid resolution; do not modify recommendation or
-   observation files directly.
+2. Determine first whether the report is noise. If it is, documenting the
+   known limitation in repository tooling or documentation is a valid
+   resolution; do not modify recommendation or observation files directly.
+   If investigation instead finds a real, reproducible defect, follow the
+   normal issue and implementation workflow — the documentation-only path
+   applies to confirmed noise, not to a genuine regression.
 3. If you are genuinely debugging inference output, verify the applied
    provider/model in Settings → Model providers, and use
    [Peon timeout troubleshooting](peon-timeout-troubleshooting.md) for
