@@ -28,7 +28,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
-    "dockview": "^6.6.1",
+    "dockview": "^8.3.1",
     "dockview-react": "^6.6.1",
     "electron-updater": "6.8.9",
     "fs-ext": "^2.1.1",
