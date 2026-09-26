@@ -222,25 +222,31 @@ capacity banners, so the observation may corroborate a real cap rather than
 refute it:
 
 - Session side: the harness capacity-pattern scan sets `at_usage_limit` on
-  the session view, which becomes the "capped" attention status, and, when
-  the banner carries one, the reset hint renders as a "Capped · resets in
-  2h" badge in the session detail panel; a cap without hint text shows just
-  "Capped". The capped flag and hint are harness-wide state:
-  `session_projection` aggregates by harness and copies both onto every
-  session of that harness, so a banner in one session marks its peers too.
-- Provider side: the providers API and the new-session dialog reflect a
-  genuine terminal cap automatically for an enabled provider entry — the
-  response overlays a live session-capped map populated from the same
-  harness capacity detection before the configured state, and shows
-  "checking capacity" while that scan is pending. A disabled provider entry
-  reports "disabled" before any of that, so neither surface shows its cap.
-  A provider whose configured capacity state — the default or override
-  state in the persisted provider settings — is capped is skipped for
-  session inference instead of retried, and a failed provider invocation's
-  stderr is parsed into an error summary, plus a reset hint only when the
-  stderr carries parseable trailing detail, on the same API response. The
-  configured default or override is not mutated by provider stderr.
-  Durable provider settings are written by the desktop app to its
+  the session view when the captured banner text contains the configured
+  literal and passes the banner-shape checks — a genuine limit in other
+  wording, such as "rate limit reached" against OpenCode's
+  "usage limit reached" pattern, leaves the session uncapped — which
+  becomes the "capped" attention status, and, when the banner carries one,
+  the reset hint renders as a "Capped · resets in 2h" badge in the
+  session detail panel; a cap without hint text shows just "Capped". The
+  capped flag and hint are harness-wide state: `session_projection`
+  aggregates by harness and copies both onto every session of that
+  harness, so a banner in one session marks its peers too.
+- Provider side: for an enabled provider entry, the providers API and the
+  new-session dialog reflect a genuine terminal cap from that same scan
+  automatically — the response overlays a live session-capped map
+  populated from the harness capacity detection before the configured
+  state, and shows "checking capacity" while the scan is pending. A
+  disabled provider entry reports "disabled" as its state and dialog
+  option; the API response still carries the harness scan's reset hint in
+  its runtime state, so the two surfaces are not identical for disabled
+  entries. A provider whose configured capacity state — the default or
+  override state in the persisted provider settings — is capped is
+  skipped for session inference instead of retried, and a failed provider
+  invocation's stderr is parsed into an error summary, plus a reset hint
+  only when the stderr carries parseable trailing detail, on the same API
+  response. The configured default or override is not mutated by provider
+  stderr. Durable provider settings are written by the desktop app to its
   settings store and pushed to the sidecar; the sidecar's provider
   settings HTTP endpoint applies and synchronizes them in memory but does
   not write them to disk, and no Settings UI renders or edits the
