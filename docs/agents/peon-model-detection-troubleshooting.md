@@ -229,15 +229,18 @@ refute it:
   `session_projection` aggregates by harness and copies both onto every
   session of that harness, so a banner in one session marks its peers too.
 - Provider side: the providers API and the new-session dialog reflect a
-  genuine terminal cap automatically — the response overlays a live
-  session-capped map populated from the same harness capacity detection
-  before the configured state, and shows "checking capacity" while that
-  scan is pending. Separately, a provider whose configured capacity state
-  is capped in Settings → Model providers is skipped for session inference
-  instead of retried, and a failed provider invocation's stderr is parsed
-  into an error summary plus a reset hint on the same API response. The
-  configured default or override is not mutated by provider stderr, and
-  Settings itself does not render that runtime state today.
+  genuine terminal cap automatically for an enabled provider entry — the
+  response overlays a live session-capped map populated from the same
+  harness capacity detection before the configured state, and shows
+  "checking capacity" while that scan is pending. A disabled provider entry
+  reports "disabled" before any of that, so neither surface shows its cap.
+  A provider whose configured capacity state — the default or override
+  state persisted in the provider settings, settable through the provider
+  settings API rather than any Settings UI — is capped is skipped for
+  session inference instead of retried, and a failed provider invocation's
+  stderr is parsed into an error summary plus a reset hint on the same API
+  response. The configured default or override is not mutated by provider
+  stderr, and no Settings UI renders or edits that state today.
 
 When a recommendation asks you to "remove or document the obstacle: rate
 limit reached", read the current signals for corroboration, not dismissal.
