@@ -196,8 +196,10 @@ The persisted evidence supports the noise reading rather than a defect:
   any form. The windows Peon scanned have been evicted (the replay is bounded
   to the newest 1,000 lines / 1 MiB), so the absence is inconclusive by the
   grounding standard in the capacity section above — but it is consistent
-  with the paraphrase and with both sessions' recorded activity continuing
-  for hours after the observation (roughly 8 and 13 more hours of output).
+  with the paraphrase and the bare fragment. Both sessions' recorded activity
+  continued for hours after the observation; that is weak evidence only,
+  since a genuine limit that resets allows later output just the same, and
+  the evicted replay cannot date when output resumed.
 
 The vocabulary is ordinary OrkWorks work output. Peon's inference prompt asks
 for "cap/rate-limit related strings" (`capacityHints`), provider and Peon
@@ -211,37 +213,50 @@ built-in harnesses only OpenCode ("usage limit reached"), Codex ("you've hit
 your usage limit"), and Claude Code ("you've hit your session limit") carry
 terminal capacity patterns; Copilot, Aider, Gemini, Antigravity, and the
 generic shell define no capacity capability, so their terminal output cannot
-set `at_usage_limit` or a reset hint at all. For the instrumented three, a
-genuine session cap surfaces through the session view, not through this
-observation kind:
+set `at_usage_limit` or a reset hint at all. For the instrumented three, the
+deterministic cap signals live on the session view and the provider state.
+This observation kind is not one of them — though a genuine banner can also
+produce a grounded workflow observation, since the Peon recording path
+accepts any candidate whose evidence is grounded and does not filter
+capacity banners, so the observation may corroborate a real cap rather than
+refute it:
 
 - Session side: the harness capacity-pattern scan sets `at_usage_limit` on
-  the session view, which becomes the "capped" attention status, and the
-  detected reset hint renders as a "Capped · resets in 2h" badge in the
-  session detail panel.
-- Provider side: a provider whose capacity state is capped in Settings →
-  Model providers is skipped for session inference instead of retried, and a
-  failed provider invocation's stderr is parsed into an error summary plus a
-  reset hint exposed through the providers API and Settings. That state is a
-  configured default or override, not an auto-detected rate limit, so a
-  provider's own usage-limit error does not flip it by itself.
+  the session view, which becomes the "capped" attention status, and, when
+  the banner carries one, the reset hint renders as a "Capped · resets in
+  2h" badge in the session detail panel; a cap without hint text shows just
+  "Capped". The capped flag and hint are harness-wide state:
+  `session_projection` aggregates by harness and copies both onto every
+  session of that harness, so a banner in one session marks its peers too.
+- Provider side: the providers API and the new-session dialog reflect a
+  genuine terminal cap automatically — the response overlays a live
+  session-capped map populated from the same harness capacity detection
+  before the configured state, and shows "checking capacity" while that
+  scan is pending. Separately, a provider whose configured capacity state
+  is capped in Settings → Model providers is skipped for session inference
+  instead of retried, and a failed provider invocation's stderr is parsed
+  into an error summary plus a reset hint on the same API response. The
+  configured default or override is not mutated by provider stderr, and
+  Settings itself does not render that runtime state today.
 
 When a recommendation asks you to "remove or document the obstacle: rate
-limit reached", weigh the current signal honestly. The session's capped
-attention status, reset hint, and the provider state in Settings are
-present-tense checks: the latched cap clears once fresh banner-free output
-follows accepted input, so a limit that has already reset shows none of them,
-while the observation and its recommendation remain persisted. Absence of a
-current cap therefore never dismisses a historical observation on its own —
-and for a non-instrumented harness there is no terminal signal to check at
-all. Ground the judgment in evidence tied to the observation time: whether
-the session kept producing output after the observation, whether the evidence
-value is a paraphrase or a bare fragment, and whether the captured vocabulary
-matches the session's own work. If the fingerprints above hold — or the
-harness has no capacity patterns and no independently verified limit exists —
-treat it as this noise family: documentation is the valid resolution, and no
-code change can "remove" the obstacle. Do not act on the obstacle, and do not
-modify recommendation or observation files directly.
+limit reached", read the current signals for corroboration, not dismissal.
+The session's capped attention status, reset hint, and the provider state
+are present-tense, harness-wide checks: the latched cap clears once fresh
+banner-free output follows accepted input, the capped flag and hint are
+copied onto every session of the same harness, and the provider response
+overlays the same flag — so a peer session's banner can mark the observed
+session, and a limit that already reset shows none of them. A genuine
+banner can also yield a grounded workflow observation of this kind, so the
+existence of a current cap neither dismisses the observation nor proves
+it. Ground the judgment in evidence tied to the observation time: whether
+the evidence value is a paraphrase or a bare fragment, and whether the
+captured vocabulary matches the session's own work. If the fingerprints
+above hold — or the harness has no capacity patterns and no independently
+verified limit exists — treat it as this noise family: documentation is
+the valid resolution, and no code change can "remove" the obstacle. Do not
+act on the obstacle, and do not modify recommendation or observation files
+directly.
 
 ## Recommended handling
 
