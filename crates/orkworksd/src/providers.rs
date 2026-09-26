@@ -1,10 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::io::Write as IoWrite;
 use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, RwLock};
 
 use std::time::{Duration, Instant};
+
+pub(crate) type ProviderDispatchGate<'a> =
+    dyn FnMut(&mut dyn FnMut() -> std::io::Result<()>) -> Option<std::io::Result<()>> + 'a;
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -719,6 +723,29 @@ trait ProviderRunner: Send + Sync {
             stderr: "runner does not support isolated inference".into(),
         }
     }
+    fn run_prepared_with_dispatch_gate(
+        &self,
+        id: &str,
+        command: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+    ) -> InvocationResult {
+        let mut entered = false;
+        let mut start = || {
+            entered = true;
+            Ok(())
+        };
+        if gate(&mut start).is_none() || !entered {
+            return InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "workspace changed before provider dispatch".into(),
+            };
+        }
+        self.run_prepared(id, command, prompt, timeout_secs, model)
+    }
     fn run(
         &self,
         id: &str,
@@ -741,6 +768,32 @@ trait ProviderRunner: Send + Sync {
     ) -> InvocationResult {
         self.run(id, command, args, prompt, timeout_secs, model)
     }
+
+    fn run_with_connection_and_dispatch_gate(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        connection: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+    ) -> InvocationResult {
+        let mut entered = false;
+        let mut start = || {
+            entered = true;
+            Ok(())
+        };
+        if gate(&mut start).is_none() || !entered {
+            return InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "workspace changed before provider dispatch".into(),
+            };
+        }
+        self.run_with_connection(id, command, args, prompt, timeout_secs, model, connection)
+    }
 }
 
 struct CompositeRunner {
@@ -759,6 +812,25 @@ impl ProviderRunner for CompositeRunner {
     ) -> InvocationResult {
         self.process
             .run_prepared(id, command, prompt, timeout_secs, model)
+    }
+    fn run_prepared_with_dispatch_gate(
+        &self,
+        id: &str,
+        command: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+    ) -> InvocationResult {
+        ProviderRunner::run_prepared_with_dispatch_gate(
+            &self.process,
+            id,
+            command,
+            prompt,
+            timeout_secs,
+            model,
+            gate,
+        )
     }
     fn run(
         &self,
@@ -797,6 +869,40 @@ impl ProviderRunner for CompositeRunner {
             _ => self
                 .process
                 .run(id, command, args, prompt, timeout_secs, model),
+        }
+    }
+
+    fn run_with_connection_and_dispatch_gate(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        connection: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+    ) -> InvocationResult {
+        match id {
+            "ollama" => self.http.run_at_with_dispatch_gate(
+                id,
+                command,
+                args,
+                prompt,
+                timeout_secs,
+                model,
+                connection,
+                Some(gate),
+            ),
+            _ => ProviderRunner::run_prepared_with_dispatch_gate(
+                &self.process,
+                id,
+                &mut Command::new(command),
+                prompt,
+                timeout_secs,
+                model,
+                gate,
+            ),
         }
     }
 }
@@ -863,9 +969,88 @@ impl ProviderRunner for ProcessRunner {
             },
         }
     }
+
+    fn run_prepared_with_dispatch_gate(
+        &self,
+        id: &str,
+        command: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        _model: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+    ) -> InvocationResult {
+        ProcessRunner::run_prepared_with_dispatch_gate(
+            self,
+            id,
+            command,
+            prompt,
+            timeout_secs,
+            false,
+            gate,
+        )
+    }
 }
 
 impl ProcessRunner {
+    fn run_prepared_with_dispatch_gate(
+        &self,
+        id: &str,
+        cmd: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        strict_stdout: bool,
+        gate: &mut ProviderDispatchGate<'_>,
+    ) -> InvocationResult {
+        let outcome = self.run_prepared_with_spawn(
+            id,
+            cmd,
+            prompt,
+            timeout_secs,
+            strict_stdout,
+            |command, prepare_child| {
+                let mut child = None;
+                let mut spawn = || {
+                    child = Some(command.spawn().and_then(|mut child| {
+                        prepare_child(&mut child)?;
+                        Ok(child)
+                    }));
+                    child
+                        .as_ref()
+                        .expect("spawn result was recorded")
+                        .as_ref()
+                        .map(|_| ())
+                        .map_err(|error| std::io::Error::new(error.kind(), error.to_string()))
+                };
+                match gate(&mut spawn) {
+                    None => Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "workspace changed before provider dispatch",
+                    )),
+                    Some(Err(error)) => Err(error),
+                    Some(Ok(())) => child.ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "dispatch gate accepted without spawning provider",
+                        )
+                    }),
+                }
+            },
+        );
+        match outcome {
+            Ok(ProcessOutcome::Finished(result)) => result,
+            Ok(ProcessOutcome::TimedOut) => InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "timed out".into(),
+            },
+            Err(error) => InvocationResult {
+                success: false,
+                stdout: String::new(),
+                stderr: error.to_string(),
+            },
+        }
+    }
+
     fn run_prepared_with_encoding(
         &self,
         id: &str,
@@ -874,14 +1059,25 @@ impl ProcessRunner {
         timeout_secs: u64,
         strict_stdout: bool,
     ) -> ProcessOutcome {
-        self.run_prepared_with_spawn(id, cmd, prompt, timeout_secs, strict_stdout, |cmd| {
-            Ok::<_, std::convert::Infallible>(cmd.spawn())
-        })
+        self.run_prepared_with_spawn(
+            id,
+            cmd,
+            prompt,
+            timeout_secs,
+            strict_stdout,
+            |cmd, prepare_child| {
+                let child = cmd.spawn().and_then(|mut child| {
+                    prepare_child(&mut child)?;
+                    Ok(child)
+                });
+                Ok::<_, std::convert::Infallible>(child)
+            },
+        )
         .unwrap_or_else(|never| match never {})
     }
 
-    /// The callback must perform spawn synchronously and release its guard before
-    /// returning. Waiting and pipe I/O happen only after this boundary returns.
+    /// The callback keeps its dispatch guard through spawn and child setup.
+    /// Waiting and pipe I/O happen only after this boundary returns.
     fn run_prepared_with_spawn<E>(
         &self,
         id: &str,
@@ -889,7 +1085,10 @@ impl ProcessRunner {
         prompt: &str,
         timeout_secs: u64,
         strict_stdout: bool,
-        spawn: impl FnOnce(&mut Command) -> Result<std::io::Result<std::process::Child>, E>,
+        spawn: impl FnOnce(
+            &mut Command,
+            &mut dyn FnMut(&mut std::process::Child) -> std::io::Result<()>,
+        ) -> Result<std::io::Result<std::process::Child>, E>,
     ) -> Result<ProcessOutcome, E> {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -914,7 +1113,24 @@ impl ProcessRunner {
             }
         };
 
-        let child = match spawn(cmd)? {
+        #[cfg(windows)]
+        let mut prepare_child = |child: &mut std::process::Child| {
+            if let Err(error) = job.attach_and_resume(child) {
+                let _ = job.terminate();
+                let _ = child.kill();
+                let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(1);
+                while matches!(child.try_wait(), Ok(None))
+                    && !remaining_until(cleanup_deadline).is_zero()
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                return Err(error);
+            }
+            Ok(())
+        };
+        #[cfg(not(windows))]
+        let mut prepare_child = |_child: &mut std::process::Child| Ok(());
+        let child = match spawn(cmd, &mut prepare_child)? {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!(provider = %id, error = %e, "peon: failed to spawn");
@@ -926,16 +1142,6 @@ impl ProcessRunner {
             }
         };
 
-        #[cfg(windows)]
-        if let Err(error) = job.attach_and_resume(&child) {
-            let mut child = child;
-            let _ = child.kill();
-            return Ok(ProcessOutcome::Finished(InvocationResult {
-                success: false,
-                stdout: String::new(),
-                stderr: error.to_string(),
-            }));
-        }
         Ok(self.finish_child(
             id,
             child,
@@ -1134,6 +1340,8 @@ struct HttpRunner {
 enum HttpReadError {
     Request(reqwest::Error),
     OutputExceeded,
+    DispatchRejected,
+    DispatchFailed(std::io::Error),
 }
 
 async fn read_http_body_limited(mut response: reqwest::Response) -> Result<Vec<u8>, HttpReadError> {
@@ -1194,6 +1402,29 @@ impl HttpRunner {
         model: Option<&str>,
         connection: Option<&str>,
     ) -> InvocationResult {
+        self.run_at_with_dispatch_gate(
+            id,
+            _command,
+            _args,
+            prompt,
+            timeout_secs,
+            model,
+            connection,
+            None,
+        )
+    }
+
+    fn run_at_with_dispatch_gate(
+        &self,
+        id: &str,
+        _command: &str,
+        _args: &[String],
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        connection: Option<&str>,
+        mut dispatch_gate: Option<&mut ProviderDispatchGate<'_>>,
+    ) -> InvocationResult {
         let base_url = match id {
             "ollama" => connection
                 .map(str::to_owned)
@@ -1227,10 +1458,30 @@ impl HttpRunner {
 
         let client = HttpClient::new();
 
-        let request_fut = client.post(&url).json(&body).send();
+        let mut send_fut = Box::pin(client.post(&url).json(&body).send());
+        let request_fut = std::future::poll_fn(|cx| {
+            if let Some(gate) = dispatch_gate.take() {
+                let mut polled = None;
+                let mut start = || {
+                    polled = Some(send_fut.as_mut().poll(cx));
+                    Ok(())
+                };
+                match gate(&mut start) {
+                    None => std::task::Poll::Ready(Err(HttpReadError::DispatchRejected)),
+                    Some(Err(error)) => {
+                        std::task::Poll::Ready(Err(HttpReadError::DispatchFailed(error)))
+                    }
+                    Some(Ok(())) => polled
+                        .expect("dispatch gate polled the HTTP request")
+                        .map_err(HttpReadError::Request),
+                }
+            } else {
+                send_fut.as_mut().poll(cx).map_err(HttpReadError::Request)
+            }
+        });
         let (status, response_body) = match block_on_http(async {
             tokio::time::timeout(Duration::from_secs(timeout_secs), async {
-                let response = request_fut.await.map_err(HttpReadError::Request)?;
+                let response = request_fut.await?;
                 let status = response.status();
                 let body = read_http_body_limited(response).await?;
                 Ok::<_, HttpReadError>((status, body))
@@ -1246,6 +1497,20 @@ impl HttpRunner {
                         "provider output exceeded {} bytes",
                         MAX_PROVIDER_OUTPUT_BYTES
                     ),
+                };
+            }
+            Ok(Err(HttpReadError::DispatchRejected)) => {
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: "workspace changed before provider dispatch".into(),
+                };
+            }
+            Ok(Err(HttpReadError::DispatchFailed(error))) => {
+                return InvocationResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: error.to_string(),
                 };
             }
             Ok(Err(HttpReadError::Request(e))) => {
@@ -1798,11 +2063,13 @@ impl ProviderManager {
             reasoning_effort,
             ollama_base_url,
             prompt,
+            None,
         )
     }
 
     /// Production native inference consumes the captured code-owned profile,
     /// never re-resolves a mutable Peon definition by provider ID.
+    #[cfg(test)]
     pub(crate) fn invoke_native_taskmaster_prompt(
         &self,
         profile: native_inference::NativeProfile,
@@ -1811,12 +2078,35 @@ impl ProviderManager {
         ollama_base_url: Option<&str>,
         prompt: String,
     ) -> Result<String, ProviderOperationError> {
+        let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+        self.invoke_native_taskmaster_prompt_with_dispatch_gate(
+            profile,
+            model,
+            reasoning_effort,
+            ollama_base_url,
+            prompt,
+            &mut gate,
+        )
+    }
+
+    /// Keep workspace admission locked through the native transport's actual
+    /// process or HTTP dispatch boundary, then release it while inference runs.
+    pub(crate) fn invoke_native_taskmaster_prompt_with_dispatch_gate(
+        &self,
+        profile: native_inference::NativeProfile,
+        model: &str,
+        reasoning_effort: Option<&str>,
+        ollama_base_url: Option<&str>,
+        prompt: String,
+        dispatch_gate: &mut ProviderDispatchGate<'_>,
+    ) -> Result<String, ProviderOperationError> {
         self.invoke_taskmaster_definition(
             &profile.definition(),
             model,
             reasoning_effort,
             ollama_base_url,
             prompt,
+            Some(dispatch_gate),
         )
     }
 
@@ -1827,6 +2117,7 @@ impl ProviderManager {
         reasoning_effort: Option<&str>,
         ollama_base_url: Option<&str>,
         prompt: String,
+        mut dispatch_gate: Option<&mut ProviderDispatchGate<'_>>,
     ) -> Result<String, ProviderOperationError> {
         let provider = definition.id.as_str();
         if model.trim().is_empty() || model.len() > 256 {
@@ -1838,13 +2129,24 @@ impl ProviderManager {
         if provider != "ollama" {
             let mut invocation = inference::prepare(&definition, model, reasoning_effort, prompt)?;
             invocation.check_version(self.runner.as_ref(), provider)?;
-            let result = self.runner.run_prepared(
-                provider,
-                &mut invocation.command,
-                &invocation.stdin,
-                definition.timeout_secs,
-                Some(model),
-            );
+            let result = if let Some(gate) = dispatch_gate.as_deref_mut() {
+                self.runner.run_prepared_with_dispatch_gate(
+                    provider,
+                    &mut invocation.command,
+                    &invocation.stdin,
+                    definition.timeout_secs,
+                    Some(model),
+                    gate,
+                )
+            } else {
+                self.runner.run_prepared(
+                    provider,
+                    &mut invocation.command,
+                    &invocation.stdin,
+                    definition.timeout_secs,
+                    Some(model),
+                )
+            };
             if !result.success {
                 return Err(ProviderOperationError { code: classify_invocation_error(&result.stderr), message: "inference-only CLI invocation failed; check the installed CLI and its existing login".into() });
             }
@@ -1858,13 +2160,26 @@ impl ProviderManager {
                 message,
             })?
             .unwrap_or_else(|| "http://127.0.0.1:11434".into());
-        let result = self.invoke_prompt(
-            &definition,
-            Some(model),
-            reasoning_effort,
-            Some(&base_url),
-            prompt,
-        );
+        let result = if let Some(gate) = dispatch_gate.as_deref_mut() {
+            self.runner.run_with_connection_and_dispatch_gate(
+                provider,
+                "",
+                &[],
+                &prompt,
+                definition.timeout_secs,
+                Some(model),
+                Some(&base_url),
+                gate,
+            )
+        } else {
+            self.invoke_prompt(
+                &definition,
+                Some(model),
+                reasoning_effort,
+                Some(&base_url),
+                prompt,
+            )
+        };
         if result.success {
             Ok(result.stdout)
         } else {
@@ -2412,6 +2727,30 @@ impl ProviderManager {
                         "Ollama response exceeded {} bytes",
                         MAX_PROVIDER_OUTPUT_BYTES
                     )),
+                };
+            }
+            Ok(Err(HttpReadError::DispatchRejected)) => {
+                return OllamaVerificationResponse {
+                    ok: false,
+                    normalized_base_url: normalized,
+                    status: OllamaVerificationStatus::Failed,
+                    reason_code: OllamaVerificationReasonCode::HttpError,
+                    http_status: None,
+                    models: vec![],
+                    excluded_models: vec![],
+                    diagnostic: Some("Ollama request dispatch was rejected".to_string()),
+                };
+            }
+            Ok(Err(HttpReadError::DispatchFailed(error))) => {
+                return OllamaVerificationResponse {
+                    ok: false,
+                    normalized_base_url: normalized,
+                    status: OllamaVerificationStatus::Failed,
+                    reason_code: OllamaVerificationReasonCode::HttpError,
+                    http_status: None,
+                    models: vec![],
+                    excluded_models: vec![],
+                    diagnostic: Some(error.to_string()),
                 };
             }
             Ok(Err(HttpReadError::Request(error))) => {

@@ -56,3 +56,20 @@
 - [ ] Review the final diff and push one commit to PR #642.
 - [ ] Trigger exactly one fresh Codex review and request one Copilot re-review for the new head.
 - [ ] Refresh the full PR inventory and report CI, review, and merge state without merging past the required `/code-review low` gate.
+
+### Task 4: Address the next review's dispatch, stale-refresh, and recovery findings
+
+**Files:**
+- Modify: `crates/orkworksd/src/taskmaster/evaluator.rs`
+- Modify: `crates/orkworksd/src/taskmaster/evaluator/identity_tests.rs`
+- Modify: `crates/orkworksd/src/taskmaster/runtime/inference.rs`
+- Modify: `crates/orkworksd/src/providers.rs`
+- Modify: `crates/orkworksd/src/http/taskmaster_handlers.rs`
+- Modify: `apps/desktop/src/components/RecommendationsPanel.tsx`
+- Modify: `apps/desktop/tests/taskmaster.test.ts`
+
+- [x] Keep the final manual workspace identity and active-recommendation check locked through actual provider dispatch (native/custom child spawn plus Windows job assignment/resume; Ollama's first request poll), then release it before slow inference; test stale rejection and guard release.
+- [x] Add a renderer regression test requiring stale-generation validation inside the blocked-detail 404 branch, then add the guard before clearing blocked state.
+- [x] Compute recovery eligibility from executing status, target-session liveness, and the in-flight delivery guard; test live-target rejection and orphan recovery eligibility.
+- [x] Run focused Rust and renderer tests, the complete Rust suite (1,421 passed, 3 ignored), desktop test suite, TypeScript check, formatting, diff, and documentation checks.
+- [ ] Push one fix commit, request one fresh Copilot/Codex review on its exact head, and stop this authorized review cycle after the resulting inventory.

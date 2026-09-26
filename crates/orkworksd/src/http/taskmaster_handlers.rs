@@ -69,15 +69,37 @@ fn manual_analysis_response(
     recommendation: Option<Recommendation>,
     message: Option<&'static str>,
 ) -> Response {
-    let recovery_allowed = recommendation.as_ref().is_some_and(|recommendation| {
-        recommendation.status == crate::taskmaster::RecommendationStatus::Executing
-            && !crate::session_application::recommendation_delivery_in_flight_id(&recommendation.id)
-    });
     Json(ManualAnalysisResponse {
         status,
         recommendation,
-        recovery_allowed,
+        recovery_allowed: false,
         message,
+    })
+    .into_response()
+}
+
+fn manual_analysis_recovery_allowed(
+    recommendation: &Recommendation,
+    live_session_ids: &std::collections::HashSet<String>,
+) -> bool {
+    recommendation.status == crate::taskmaster::RecommendationStatus::Executing
+        && !recommendation
+            .target_session_id
+            .as_ref()
+            .is_some_and(|id| live_session_ids.contains(id))
+        && !crate::session_application::recommendation_delivery_in_flight_id(&recommendation.id)
+}
+
+fn active_recommendation_response(
+    recommendation: Recommendation,
+    live_session_ids: &std::collections::HashSet<String>,
+) -> Response {
+    let recovery_allowed = manual_analysis_recovery_allowed(&recommendation, live_session_ids);
+    Json(ManualAnalysisResponse {
+        status: "active_recommendation",
+        recommendation: Some(recommendation),
+        recovery_allowed,
+        message: Some("Finish the active Brain recommendation before requesting another analysis."),
     })
     .into_response()
 }
@@ -216,11 +238,7 @@ pub(crate) async fn analyze_taskmaster(
     if let Some(recommendation) =
         crate::taskmaster::active_workflow_recommendation(&recommendations)
     {
-        return manual_analysis_response(
-            "active_recommendation",
-            Some(recommendation.clone()),
-            Some("Finish the active Brain recommendation before requesting another analysis."),
-        );
+        return active_recommendation_response(recommendation.clone(), &live_session_ids);
     }
 
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
@@ -895,6 +913,24 @@ mod tests {
         let projected = actionable_recommendations(vec![member, parent]);
         assert_eq!(projected.len(), 1);
         assert_eq!(projected[0].id, "executing-parent");
+    }
+
+    #[test]
+    fn live_executing_recommendations_are_not_recoverable() {
+        let mut recommendation = recommendation_fixture(
+            "executing-live-target",
+            RecommendationStatus::Executing,
+            "session-live",
+        );
+        recommendation.target_session_id = Some("session-live".into());
+        let live = std::collections::HashSet::from(["session-live".to_string()]);
+        let no_live_target = std::collections::HashSet::new();
+
+        assert!(!manual_analysis_recovery_allowed(&recommendation, &live));
+        assert!(manual_analysis_recovery_allowed(
+            &recommendation,
+            &no_live_target
+        ));
     }
 
     #[tokio::test]

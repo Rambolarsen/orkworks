@@ -188,6 +188,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
           }
         } catch (cause) {
           if (cause instanceof ApiError && cause.status === 404) {
+            if (generation !== refreshGeneration.current) return;
             setBlockedRecommendation(undefined);
             setBlockedRecommendationId(undefined);
             setBlockedRecommendationRecoveryAllowed(false);

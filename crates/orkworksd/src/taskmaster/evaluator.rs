@@ -165,6 +165,31 @@ fn provider_cache_key(
     Ok(hex::encode(sha2::Sha256::digest(identity)))
 }
 
+fn manual_workspace_dispatch_gate(
+    state: &AppState,
+    expected_path: &std::path::Path,
+    expected_instance: u64,
+    start_dispatch: &mut dyn FnMut() -> std::io::Result<()>,
+) -> Option<std::io::Result<()>> {
+    let workspace = state.workspace.lock().expect("workspace lock poisoned");
+    let Some(current) = workspace.as_ref() else {
+        return None;
+    };
+    if current.path != expected_path
+        || current.workflow_observations.instance_id() != expected_instance
+    {
+        return None;
+    }
+    let still_current = current
+        .recommendation_store
+        .list()
+        .ok()
+        .is_some_and(|recommendations| {
+            crate::taskmaster::active_workflow_recommendation(&recommendations).is_none()
+        });
+    still_current.then(|| start_dispatch())
+}
+
 fn parse_provider_response(
     output: &str,
     snapshots: Option<&[RollupFamilySnapshot]>,
@@ -485,6 +510,18 @@ fn run_model_evaluation_with_context_and_workspace(
     let Ok(true) = reservation else {
         return;
     };
+    let mut dispatch_gate = |start_dispatch: &mut dyn FnMut() -> std::io::Result<()>| {
+        if manual_workspace.is_some() {
+            manual_workspace_dispatch_gate(
+                &state,
+                &workspace_path,
+                workspace_instance,
+                start_dispatch,
+            )
+        } else {
+            Some(start_dispatch())
+        }
+    };
     let providers = state.providers.clone();
     {
         let selection = snapshot
@@ -493,14 +530,20 @@ fn run_model_evaluation_with_context_and_workspace(
             .as_ref()
             .expect("snapshot requires selection");
         let result = if let Some(captured) = &snapshot.custom_inference {
-            runtime.invoke_custom_inference(&state.harness_store, captured, prompt)
+            runtime.invoke_custom_inference_with_dispatch_gate(
+                &state.harness_store,
+                captured,
+                prompt,
+                &mut dispatch_gate,
+            )
         } else if let Some(native) = &snapshot.native_revision {
-            providers.invoke_native_taskmaster_prompt(
+            providers.invoke_native_taskmaster_prompt_with_dispatch_gate(
                 native.profile,
                 &selection.model,
                 selection.reasoning_effort.as_deref(),
                 selection.ollama_base_url.as_deref(),
                 prompt,
+                &mut dispatch_gate,
             )
         } else {
             return;

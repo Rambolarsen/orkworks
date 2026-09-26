@@ -269,11 +269,25 @@ impl TaskmasterRuntime {
     /// Invoke only the captured custom transport, revalidating through actual
     /// spawn. This does not reserve usage or accept output into recommendations;
     /// the scheduler must do both separately before this path can be activated.
+    #[cfg(test)]
     pub(crate) fn invoke_custom_inference(
         &self,
         harnesses: &HarnessStore,
         captured: &CapturedInference,
         prompt: String,
+    ) -> Result<String, ProviderOperationError> {
+        let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+        self.invoke_custom_inference_with_dispatch_gate(harnesses, captured, prompt, &mut gate)
+    }
+
+    /// Run workspace admission and process spawn together at the provider's
+    /// side-effect boundary. The gate is released before waiting for output.
+    pub(crate) fn invoke_custom_inference_with_dispatch_gate(
+        &self,
+        harnesses: &HarnessStore,
+        captured: &CapturedInference,
+        prompt: String,
+        dispatch_gate: &mut crate::providers::ProviderDispatchGate<'_>,
     ) -> Result<String, ProviderOperationError> {
         let stale = || ProviderOperationError {
             code: ProviderOperationErrorCode::StaleGeneration,
@@ -287,11 +301,24 @@ impl TaskmasterRuntime {
             selection.reasoning_effort.as_deref(),
             prompt,
         )?;
-        prepared.run_with_spawn(|command| {
+        prepared.run_with_spawn_and_prepare(|command, prepare_child| {
             let mut child = None;
+            let mut dispatched = false;
             let current = self
                 .with_current_custom_inference(harnesses, captured, || {
-                    child = Some(command.spawn());
+                    let mut spawn = || {
+                        child = Some(command.spawn().and_then(|mut child| {
+                            prepare_child(&mut child)?;
+                            Ok(child)
+                        }));
+                        child
+                            .as_ref()
+                            .expect("spawn result was recorded")
+                            .as_ref()
+                            .map(|_| ())
+                            .map_err(|error| std::io::Error::new(error.kind(), error.to_string()))
+                    };
+                    dispatched = dispatch_gate(&mut spawn).is_some();
                 })
                 .map_err(|_| ProviderOperationError {
                     code: ProviderOperationErrorCode::VerificationRequired,
@@ -299,6 +326,12 @@ impl TaskmasterRuntime {
                 })?;
             if !current {
                 return Err(stale());
+            }
+            if !dispatched {
+                return Err(ProviderOperationError {
+                    code: ProviderOperationErrorCode::StaleGeneration,
+                    message: "workspace changed before custom inference was dispatched".into(),
+                });
             }
             child.ok_or_else(stale)
         })

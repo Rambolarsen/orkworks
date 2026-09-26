@@ -279,6 +279,52 @@ fn manual_evaluation_discards_a_request_after_workspace_switch() {
 }
 
 #[test]
+fn manual_dispatch_revalidation_rejects_a_workspace_replaced_after_admission() {
+    let fixture = Fixture::new();
+    let expected_path = fixture.dir.path().to_path_buf();
+    let expected_instance = fixture.instance;
+    let replacement = tempfile::tempdir().unwrap();
+    SessionApplication::new(fixture.state.clone())
+        .open_workspace(replacement.path().to_path_buf())
+        .unwrap();
+
+    let mut dispatched = false;
+    let mut start = || {
+        dispatched = true;
+        Ok(())
+    };
+    assert!(manual_workspace_dispatch_gate(
+        &fixture.state,
+        &expected_path,
+        expected_instance,
+        &mut start,
+    )
+    .is_none());
+    assert!(!dispatched);
+}
+
+#[test]
+fn manual_dispatch_runs_its_start_action_while_workspace_is_locked() {
+    let fixture = Fixture::new();
+    let mut ran_under_lock = false;
+    let mut start = || {
+        ran_under_lock = fixture.state.workspace.try_lock().is_err();
+        Ok(())
+    };
+    assert!(manual_workspace_dispatch_gate(
+        &fixture.state,
+        fixture.dir.path(),
+        fixture.instance,
+        &mut start,
+    )
+    .unwrap()
+    .is_ok());
+
+    assert!(ran_under_lock);
+    assert!(fixture.state.workspace.try_lock().is_ok());
+}
+
+#[test]
 fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
     let fixture = Fixture::new();
     let remaining_before = fixture

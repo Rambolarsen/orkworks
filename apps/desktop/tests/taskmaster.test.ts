@@ -632,6 +632,22 @@ test("Recommendations panel ignores out-of-order focused detail refresh response
   assert.ok(recommendationsUpdateIndex > staleGuardIndex, "expected stale responses to be ignored before state update");
 });
 
+test("Recommendations panel ignores a stale 404 while refreshing the blocked recommendation", () => {
+  const source = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  const blockedFetchIndex = source.indexOf("await getTaskmasterRecommendation(baseUrl, blockedRecommendationId)");
+  const notFoundIndex = source.indexOf("cause.status === 404", blockedFetchIndex);
+  const staleGuardIndex = source.indexOf("generation !== refreshGeneration.current", notFoundIndex);
+  const clearStateIndex = source.indexOf("setBlockedRecommendation(undefined)", notFoundIndex);
+  assert.ok(blockedFetchIndex >= 0, "expected blocked recommendation detail fetch");
+  assert.ok(notFoundIndex > blockedFetchIndex, "expected a 404 recovery branch");
+  assert.ok(staleGuardIndex > notFoundIndex && staleGuardIndex < clearStateIndex,
+    "expected stale 404 responses to be ignored before clearing the current workspace blocker");
+});
+
 test("Recommendations panel treats readiness as explicit Taskmaster admission", () => {
   const source = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
