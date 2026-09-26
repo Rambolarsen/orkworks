@@ -71,16 +71,20 @@ Signals that an observation is this noise, not a verified defect:
   somewhere in the capture — UI chrome, quoted text, or the session's own
   work — which is low-specificity and a strong noise signal.
 - The evidence is a specific-looking error excerpt such as "Error message:
-  Model detection failed" that matches no error path in the current
-  `apps/desktop/` or `crates/orkworksd/` code. Test the persisted `evidence`
-  value by searching the current code for the excerpt: Peon grounding is
-  checked server-side against the output captured at record time, but the
-  retained `events/<id>.terminal` file is bounded and long ago may have
-  trimmed the excerpt's rows, so absence from the capture today proves
-  nothing on its own; absence from the codebase, history, and config is the
-  strong current signal. Check the applied provider/model too: an
-  observation from a small local inference model alongside garbled-evidence
-  siblings from the same scan burst fits this noise pattern.
+  Model detection failed" that no application code path emits. Search for
+  the persisted `evidence` value bounded to application sources and
+  configuration — `apps/desktop/src/`, `apps/desktop/electron/`,
+  `crates/orkworksd/src/`, plus the workspace's committed configuration —
+  not the full tree or all history: once this runbook documents the
+  phrasing, the runbook, the AGENTS.md pointer, and their commits are
+  deliberately assumed hits, so a search that includes documentation can
+  never confirm noise. Peon grounding is checked server-side against the
+  output captured at record time, but the retained `events/<id>.terminal`
+  file is bounded and long ago may have trimmed the excerpt's rows, so
+  absence from the capture today proves nothing on its own. Check the
+  applied provider/model too: an observation from a small local inference
+  model alongside garbled-evidence siblings from the same scan burst fits
+  this noise pattern.
 - Several near-identical observations were recorded in one burst from a
   single final scan.
 - Rechecking the current code finds no detection defect: the
