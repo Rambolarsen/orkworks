@@ -85,8 +85,9 @@ only terminal grounding was the OpenCode banner lines
 `Session   Claude cap affecting opencode usage` and
 `Continue  opencode -s <id>` — a human-written label about Claude usage-cap
 limits plus a resume hint. The phrases "signal capacity" and "Search results
-show" appeared zero times in the ANSI-stripped terminal capture, so the
-required verbatim evidence excerpt was ungrounded; the description
+show" appeared zero times in the ANSI-stripped terminal capture — so they
+cannot appear in the raw text the grounding gate checks either — and the
+required verbatim evidence excerpt was therefore ungrounded; the description
 paraphrased a label, not the session's work.
 
 Signals that an observation is this noise, not a verified defect:
@@ -102,12 +103,16 @@ Signals that an observation is this noise, not a verified defect:
   different coding tool; that is inference traffic, not capacity state
   moving between sessions. The `capacity/<id>.json` metadata path is
   protocol design, not an implemented detection mechanism.)
-- The observation's `evidence` field does not appear verbatim in the
-  ANSI-stripped terminal capture (strip `\x1b[` escape sequences before
-  searching). Peon's prompt and `evidence_is_grounded` pin only the
-  evidence field as a contiguous verbatim excerpt; the `description` may
-  legitimately paraphrase, so a paraphrased description alone is not a
-  noise signal.
+- The observation's `evidence` field fails the implemented grounding gate.
+  `evidence_is_grounded` performs a literal substring match against the raw
+  captured snapshot with ANSI escape sequences intact, so an excerpt split
+  by an escape sequence is rejected even though it reads as contiguous
+  after stripping. Searching an ANSI-stripped copy is a readability aid
+  only — absence there proves absence in the raw text the gate checks
+  (stripping removes characters, never adds them), but a hit there does
+  not prove Peon accepted it. Peon's prompt pins only the evidence field
+  as a contiguous verbatim excerpt; the `description` may legitimately
+  paraphrase, so a paraphrased description alone is not a noise signal.
 - The only verbatim match is UI chrome: session labels, banners, resume
   hints, or session lists. Those strings are other sessions' titles and
   launch commands, not this session's work.
