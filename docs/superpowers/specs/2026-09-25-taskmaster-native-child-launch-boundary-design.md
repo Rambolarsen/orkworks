@@ -8,7 +8,7 @@
 - Related decision: [ADR 0060](../../adr/0060-independent-workspace-instances.md)
 - Related decision: [ADR 0064](../../adr/0064-bounded-taskmaster-coordinator.md)
 
-Implementation plan: [Taskmaster native child-launch boundary](../plans/2026-09-26-taskmaster-native-child-launch.md).
+Implementation plan: `docs/superpowers/plans/2026-09-26-taskmaster-native-child-launch.md` (repository-only; plans are excluded from the published docs site).
 
 ## Purpose
 
