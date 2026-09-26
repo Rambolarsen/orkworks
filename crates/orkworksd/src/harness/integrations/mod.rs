@@ -809,6 +809,63 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_binds_codex_session_start_to_parent_process() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let fake_bin = tempfile::tempdir().unwrap();
+        let fake_ps = fake_bin.path().join("ps");
+        std::fs::write(
+            &fake_ps,
+            "#!/bin/sh\ncase \" $* \" in *' -o comm= '*) echo codex ;; *' -o ppid= '*) echo 1 ;; esac\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_ps, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let inherited_path = std::env::var_os("PATH").unwrap_or_default();
+        let path = std::env::join_paths(
+            std::iter::once(fake_bin.path().to_owned())
+                .chain(std::env::split_paths(&inherited_path)),
+        )
+        .unwrap();
+        let script_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/scripts/report-harness-event.sh"
+        );
+        let mut child = Command::new("bash")
+            .arg("-x")
+            .arg(script_path)
+            .args([
+                "--marker",
+                "orkworks:harness-integration:v2:codex",
+                "--event",
+                "SessionStart",
+            ])
+            .env("PATH", path)
+            .env("ORKWORKS_SESSION_ID", "test-session")
+            .env("ORKWORKS_PORT", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn report-harness-event.sh");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"session_id":"thr_clear","source":"clear"}"#)
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let trace = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            trace.contains("codexProcessId"),
+            "expected process ancestry to be forwarded in the session report; trace:\n{trace}"
+        );
+    }
+
     #[test]
     fn report_harness_event_ps1_always_posts_generic_attention() {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
@@ -835,6 +892,8 @@ mod tests {
         assert!(script.contains("codex_hook"));
         assert!(script.contains("sessionStartSource"));
         assert!(script.contains("sessionStartEvent"));
+        assert!(script.contains("Find-CodexProcessId"));
+        assert!(script.contains("codexProcessId"));
     }
 
     #[test]

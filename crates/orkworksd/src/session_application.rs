@@ -1965,7 +1965,11 @@ impl SessionApplication {
             .and_then(|workspace| workspace.metadata.read_session(id))
             .and_then(|metadata| metadata.resume.and_then(|resume| resume.harness_session_id));
         if let Some(native_session_id) = previous_native_session_id.as_deref() {
-            crate::codex_session_store::block_native_label_refresh(id, native_session_id);
+            crate::codex_session_store::block_native_label_refresh(
+                id,
+                native_session_id,
+                crate::codex_session_store::codex_owner_process_id(id),
+            );
         } else {
             crate::codex_session_store::clear_native_label_refresh_block(id);
         }
@@ -2034,6 +2038,7 @@ impl SessionApplication {
     pub(crate) fn clear_forgotten_session_tracking(&self, id: &str) {
         crate::codex_session_store::clear_label_refresh_generation(id);
         crate::codex_session_store::clear_native_label_refresh_block(id);
+        crate::codex_session_store::clear_codex_owner_process_id(id);
         self.state.peon.label_epochs.write().unwrap().remove(id);
         self.state.peon.label_hint.write().unwrap().remove(id);
         self.state.peon.label_pending.write().unwrap().remove(id);
@@ -2070,6 +2075,7 @@ impl SessionApplication {
         }
         crate::codex_session_store::clear_label_refresh_generation(id);
         crate::codex_session_store::clear_native_label_refresh_block(id);
+        crate::codex_session_store::clear_codex_owner_process_id(id);
         self.state.peon.last_output.write().unwrap().remove(id);
         self.state.peon.last_inference.write().unwrap().remove(id);
         self.state.peon.input_buf.write().unwrap().remove(id);
@@ -2510,7 +2516,7 @@ impl SessionApplication {
         id: &str,
         report: metadata::HarnessSessionReport,
     ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
-        self.report_harness_session_with_codex_context(id, report, None, None, false)
+        self.report_harness_session_with_codex_context(id, report, None, None, false, None)
     }
 
     pub(crate) fn report_harness_session_with_codex_context(
@@ -2520,6 +2526,7 @@ impl SessionApplication {
         session_start_source: Option<&str>,
         session_start_event: Option<&str>,
         report_authenticated: bool,
+        codex_process_id: Option<u32>,
     ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
         if !metadata::valid_harness_session_report(&report) {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
@@ -2530,6 +2537,12 @@ impl SessionApplication {
                     || session_start_event != Some("SessionStart")
                     || !matches!(source, "startup" | "resume" | "clear" | "compact")
             })
+        {
+            return Ok(metadata::HarnessSessionMergeResult::Invalid);
+        }
+        if codex_process_id.is_some_and(|process_id| process_id == 0)
+            || (codex_process_id.is_some()
+                && (report.source != "codex_hook" || session_start_event != Some("SessionStart")))
         {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
         }
@@ -2551,9 +2564,10 @@ impl SessionApplication {
                         metadata.resume.and_then(|resume| resume.harness_session_id)
                     })
                     .is_some_and(|previous_id| {
-                        crate::codex_session_store::native_label_refresh_is_blocked(
+                        crate::codex_session_store::native_identity_reset_is_authorized_for_process(
                             id,
                             &previous_id,
+                            codex_process_id,
                         )
                     });
             workspace
@@ -2565,6 +2579,22 @@ impl SessionApplication {
                     allow_codex_identity_replacement,
                 )
         };
+
+        if report_authenticated
+            && report.source == "codex_hook"
+            && session_start_event == Some("SessionStart")
+            && result == metadata::HarnessSessionMergeResult::Accepted
+        {
+            if let (Some(process_id), Some(source)) = (codex_process_id, session_start_source) {
+                let current_owner = crate::codex_session_store::codex_owner_process_id(id);
+                if source == "resume"
+                    || current_owner.is_none()
+                    || current_owner == Some(process_id)
+                {
+                    crate::codex_session_store::set_codex_owner_process_id(id, process_id);
+                }
+            }
+        }
 
         if result == metadata::HarnessSessionMergeResult::Accepted {
             let updated_resume = {
@@ -5487,7 +5517,8 @@ mod tests {
             .metadata
             .write_session(&metadata);
 
-        crate::codex_session_store::block_native_label_refresh(id, "native-parent");
+        crate::codex_session_store::set_codex_owner_process_id(id, 41_000);
+        crate::codex_session_store::block_native_label_refresh(id, "native-parent", Some(41_000));
         let app = SessionApplication::new(state.clone());
         let report = metadata::HarnessSessionReport {
             harness_session_id: "native-child".into(),
@@ -5501,7 +5532,8 @@ mod tests {
                 report.clone(),
                 Some("startup"),
                 Some("SessionStart"),
-                true
+                true,
+                Some(41_000),
             )
             .unwrap(),
             metadata::HarnessSessionMergeResult::IgnoredIdentityChange
@@ -5513,6 +5545,7 @@ mod tests {
                 Some("clear"),
                 Some("SessionStart"),
                 false,
+                Some(41_000),
             )
             .unwrap(),
             metadata::HarnessSessionMergeResult::IgnoredIdentityChange
@@ -5524,6 +5557,7 @@ mod tests {
                 Some("clear"),
                 Some("UserPromptSubmit"),
                 true,
+                Some(41_000),
             )
             .unwrap(),
             metadata::HarnessSessionMergeResult::Invalid
@@ -5535,6 +5569,7 @@ mod tests {
                 Some("clear"),
                 Some("SessionStart"),
                 true,
+                Some(41_000),
             )
             .unwrap(),
             metadata::HarnessSessionMergeResult::Accepted
@@ -5553,6 +5588,114 @@ mod tests {
             .and_then(|resume| resume.harness_session_id);
         assert_eq!(stored_id.as_deref(), Some("native-child"));
         crate::codex_session_store::clear_native_label_refresh_block(id);
+        crate::codex_session_store::clear_codex_owner_process_id(id);
+    }
+
+    #[test]
+    fn codex_clear_reset_grant_is_bound_to_the_owning_process() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "codex-process-bound-clear";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Codex session",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.harness = "codex".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("native-parent".into()),
+            latest_fallback: false,
+            last_seen_at: Some("before".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let app = SessionApplication::new(state.clone());
+        let parent_start = metadata::HarnessSessionReport {
+            harness_session_id: "native-parent".into(),
+            source: "codex_hook".into(),
+            confidence: 0.98,
+        };
+        assert_eq!(
+            app.report_harness_session_with_codex_context(
+                id,
+                parent_start,
+                Some("startup"),
+                Some("SessionStart"),
+                true,
+                Some(41_000),
+            )
+            .unwrap(),
+            metadata::HarnessSessionMergeResult::Accepted
+        );
+        assert!(app.reset_session_topic(id));
+
+        let child_clear = metadata::HarnessSessionReport {
+            harness_session_id: "native-child".into(),
+            source: "codex_hook".into(),
+            confidence: 0.98,
+        };
+        assert_eq!(
+            app.report_harness_session_with_codex_context(
+                id,
+                child_clear.clone(),
+                Some("clear"),
+                Some("SessionStart"),
+                true,
+                None,
+            )
+            .unwrap(),
+            metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+        );
+        assert_eq!(
+            app.report_harness_session_with_codex_context(
+                id,
+                child_clear.clone(),
+                Some("clear"),
+                Some("SessionStart"),
+                true,
+                Some(42_000),
+            )
+            .unwrap(),
+            metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+        );
+        assert_eq!(
+            app.report_harness_session_with_codex_context(
+                id,
+                child_clear,
+                Some("clear"),
+                Some("SessionStart"),
+                true,
+                Some(41_000),
+            )
+            .unwrap(),
+            metadata::HarnessSessionMergeResult::Accepted
+        );
+
+        let stored_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume
+            .and_then(|resume| resume.harness_session_id);
+        assert_eq!(stored_id.as_deref(), Some("native-child"));
+        app.clear_forgotten_session_tracking(id);
     }
 
     #[test]

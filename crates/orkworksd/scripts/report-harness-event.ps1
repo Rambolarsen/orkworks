@@ -70,6 +70,24 @@ $sessionStartSource = ""
 $sessionStartEvent = ""
 $sessionSource = ""
 $codexAttention = $false
+$codexProcessId = $null
+
+# Follow a bounded parent chain so PowerShell wrappers do not hide the Codex
+# process that owns the SessionStart event. Failure to inspect ancestry leaves
+# the process ID absent; the sidecar then rejects a clear identity change.
+function Find-CodexProcessId {
+    $candidateId = $PID
+    for ($depth = 0; $depth -lt 16 -and $candidateId -gt 1; $depth++) {
+        try {
+            $process = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $candidateId" -ErrorAction Stop
+            if (-not $process) { return $null }
+            if ([string]$process.Name -match '^(?i:codex)(\.exe)?$') { return [int]$process.ProcessId }
+            $candidateId = [int]$process.ParentProcessId
+        } catch { return $null }
+    }
+    return $null
+}
+
 if ($Marker -clike "*:claude-code") {
     try {
         $data = $payload | ConvertFrom-Json
@@ -97,6 +115,7 @@ if ($Marker -clike "*:claude-code") {
         if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.source -in @("startup", "resume", "clear", "compact")) {
             $sessionStartSource = [string]$data.source
             $sessionStartEvent = "SessionStart"
+            $codexProcessId = Find-CodexProcessId
         }
     } catch {}
     $sessionSource = "codex_hook"
@@ -166,6 +185,9 @@ if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
         if ($sessionSource -eq "codex_hook" -and $sessionStartSource) {
             $sessionReport["sessionStartSource"] = $sessionStartSource
             $sessionReport["sessionStartEvent"] = $sessionStartEvent
+            if ($codexProcessId) {
+                $sessionReport["codexProcessId"] = $codexProcessId
+            }
         }
         $sessionBody = $sessionReport | ConvertTo-Json -Compress
         $sessionHeaders = @{}

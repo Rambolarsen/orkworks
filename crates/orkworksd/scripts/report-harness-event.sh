@@ -119,6 +119,35 @@ session_start_source=""
 session_start_event=""
 session_source=""
 codex_attention="no"
+codex_process_id=""
+
+# Hook commands may be launched through one or more shell wrappers. Walk a
+# bounded ancestor chain to find the Codex process whose SessionStart invoked
+# this hook. The sidecar uses this only as an in-memory ownership binding; if
+# process inspection is unavailable, omit it so an explicit reset fails closed.
+find_codex_process_id() {
+  local candidate_pid="$PPID"
+  local parent_pid=""
+  local process_name=""
+  local depth=0
+  while [ "$depth" -lt 16 ] && [ -n "$candidate_pid" ] && [ "$candidate_pid" -gt 1 ] 2>/dev/null; do
+    process_name="$(ps -p "$candidate_pid" -o comm= 2>/dev/null | sed 's#.*/##' | tr '[:upper:]' '[:lower:]')"
+    case "$process_name" in
+      codex|codex.exe)
+        printf '%s' "$candidate_pid"
+        return 0
+        ;;
+    esac
+    parent_pid="$(ps -p "$candidate_pid" -o ppid= 2>/dev/null | tr -d '[:space:]')"
+    case "$parent_pid" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    candidate_pid="$parent_pid"
+    depth=$((depth + 1))
+  done
+  return 1
+}
+
 case "$marker" in
   *:claude-code)
     # Single line delimited by the ASCII unit separator (0x1F), not two
@@ -142,6 +171,7 @@ case "$marker" in
     IFS=$'\x1f' read -r harness_session_id session_start_source <<< "$codex_fields"
     if [ -n "$session_start_source" ]; then
       session_start_event="SessionStart"
+      codex_process_id="$(find_codex_process_id 2>/dev/null || true)"
     fi
     session_source="codex_hook"
     case "$event" in
@@ -205,6 +235,9 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
   fi
   if [ "$session_source" = "codex_hook" ] && [ -n "$session_start_source" ] && [ "$session_start_event" = "SessionStart" ]; then
     session_payload="${session_payload%?},\"sessionStartSource\":\"$session_start_source\",\"sessionStartEvent\":\"$session_start_event\"}"
+    if [ -n "$codex_process_id" ]; then
+      session_payload="$(python3 -c 'import json,sys; payload=json.loads(sys.argv[1]); payload["codexProcessId"]=int(sys.argv[2]); print(json.dumps(payload,separators=(",",":")))' "$session_payload" "$codex_process_id" 2>/dev/null)" || true
+    fi
   fi
   session_curl_config=""
   if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then

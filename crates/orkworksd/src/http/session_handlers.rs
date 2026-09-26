@@ -59,6 +59,8 @@ pub(crate) struct HarnessSessionReportRequest {
     pub(crate) session_start_source: Option<String>,
     #[serde(rename = "sessionStartEvent", default)]
     pub(crate) session_start_event: Option<String>,
+    #[serde(rename = "codexProcessId", default)]
+    pub(crate) codex_process_id: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -524,6 +526,7 @@ async fn report_harness_session_inner(
             req.session_start_source.as_deref(),
             req.session_start_event.as_deref(),
             private_lookup_authorized,
+            req.codex_process_id,
         ) {
         Ok(result) => result,
         Err(crate::session_application::SessionError::Conflict) => {
@@ -1636,6 +1639,7 @@ mod tests {
                 hook_fingerprint: None,
                 session_start_source: None,
                 session_start_event: None,
+                codex_process_id: None,
             }),
         )
         .await
@@ -1658,6 +1662,7 @@ mod tests {
                 hook_fingerprint: None,
                 session_start_source: None,
                 session_start_event: None,
+                codex_process_id: None,
             }),
         )
         .await
@@ -1729,6 +1734,7 @@ mod tests {
                 hook_fingerprint: Some("a".repeat(64)),
                 session_start_source: None,
                 session_start_event: None,
+                codex_process_id: None,
             }),
         )
         .await
@@ -1818,6 +1824,7 @@ mod tests {
                 hook_fingerprint: Some("a".repeat(64)),
                 session_start_source: None,
                 session_start_event: None,
+                codex_process_id: None,
             }),
         )
         .await
@@ -1884,6 +1891,7 @@ mod tests {
                 hook_fingerprint: Some(fingerprint.clone()),
                 session_start_source: None,
                 session_start_event: None,
+                codex_process_id: None,
             }),
         )
         .await
@@ -2033,6 +2041,7 @@ mod tests {
                 hook_fingerprint: None,
                 session_start_source: None,
                 session_start_event: None,
+                codex_process_id: None,
             }),
         )
         .await

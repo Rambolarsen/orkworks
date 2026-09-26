@@ -17,6 +17,30 @@
 - Do not log or expose native session IDs as diagnostics.
 - Keep workspace hook mutation opt-in and ownership-aware.
 
+### Follow-up: bind clear authorization to the owning Codex process
+
+The authenticated report token is inherited by nested processes, so it does
+not identify which Codex process owns the OrkWorks session. Codex `SessionStart`
+reports therefore include the nearest `codex` ancestor PID. The sidecar records
+that PID only after an authenticated, accepted SessionStart and captures it in
+the reset grant. A `source=clear` identity change is accepted only when its
+reported PID matches the reset grant's owner PID. Missing PID evidence preserves
+the old identity. Runtime end/forget cleanup removes the in-memory PID binding;
+a resumed Codex process can bind again through its authenticated SessionStart.
+
+- [x] Test that a nested process PID cannot consume a parent `/clear` grant.
+- [x] Test that the owning process PID can replace the ID after authenticated
+  `SessionStart(source=clear)` and that missing PID fails closed.
+- [x] Report the nearest Codex ancestor PID from both POSIX and PowerShell
+  SessionStart reporters; omit it when no Codex ancestor can be identified.
+- [x] Clear owner PID state on runtime end and session forget; refresh it on an
+  authenticated accepted startup/resume/clear/compact SessionStart.
+- [x] Update ADR 0066, the MVP spec, and the harness integration contract with
+  the process-binding requirement and fail-closed behavior.
+- [x] Run reporter, session identity, lifecycle, full sidecar, formatting, and
+  documentation checks.
+- [ ] Push and request the single approved fresh review.
+
 ---
 
 ### Task 1: Protect Codex identity and exact resume

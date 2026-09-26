@@ -22,8 +22,14 @@ Resuming the latest thread instead would risk switching conversations.
 For sessions owned by the Codex harness, retain the first accepted Codex native
 session ID. Ignore later differing Codex IDs unless an authenticated Codex
 `SessionStart` report identifies `source: clear` and OrkWorks has recorded the
-explicit session reset for that prior ID. Pass the `SessionStart.source` value
-through the existing reporter; other events cannot authorize replacement.
+explicit session reset for that prior ID, and the report's process ID matches
+the live Codex process bound to that OrkWorks session. The reporter finds the
+nearest Codex ancestor through a bounded process-parent walk. Missing process
+identity, a different process, or a nested Codex process cannot authorize the
+replacement. This ownership binding is in-memory and is cleared when the
+OrkWorks session ends or is forgotten; an authenticated resume binds the newly
+launched Codex process. Pass the `SessionStart.source` and process ID through
+the existing reporter; other events cannot authorize replacement.
 
 Codex resume is exact-ID-only. Before launching `codex resume <id>`, verify in
 read-only mode that the exact ID exists in the supported local
@@ -34,7 +40,9 @@ Never use `codex resume --last` as a fallback.
 ## Consequences
 
 Nested Codex sessions cannot silently displace the parent conversation's
-identity. Explicit Codex `/clear` or `/new` may establish the replacement ID.
+identity. Explicit Codex `/clear` or `/new` may establish the replacement ID
+only when the owning process can be verified; unsupported or unavailable
+process inspection keeps the old ID and exact-resume target intact.
 An ID whose rollout has not yet been saved, or whose local state is missing,
 cannot be resumed through OrkWorks until Codex saves it again. A missing ID
 never resumes another conversation.
