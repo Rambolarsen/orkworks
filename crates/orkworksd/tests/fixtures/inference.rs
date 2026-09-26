@@ -45,9 +45,9 @@ fn main() {
         Some("hold-pipes") => {
             let root = PathBuf::from(env::var_os("CUSTOM_TEST_ROOT").unwrap());
             fs::write(root.join("descendant-started"), "started").unwrap();
-            // Longer than the transport timeout, so a working tree cleanup
-            // always removes this descendant before it can record survival;
-            // the parent test's bounded poll outlives this marker.
+            // Longer than the transport timeout, so a working process-tree
+            // cleanup always removes this descendant before it can record
+            // survival; the parent test's bounded poll outlives this marker.
             std::thread::sleep(Duration::from_secs(8));
             fs::write(root.join("descendant-survived"), "survived").unwrap();
         }
