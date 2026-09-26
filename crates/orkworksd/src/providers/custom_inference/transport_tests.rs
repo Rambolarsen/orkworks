@@ -65,18 +65,26 @@ fn exercise(mode: &str, file: bool) {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        started.elapsed() < Duration::from_secs(20),
+        started.elapsed() < Duration::from_secs(30),
         "fixture did not finish within cleanup allowance"
     );
     // Timeout may happen before the child can record anything. The helper
     // asserts timeout classification and ownership cleanup directly below.
     if mode == "timeout" {
         assert!(root.path().join("descendant-started").exists());
-        std::thread::sleep(Duration::from_secs(3));
-        assert!(
-            !root.path().join("descendant-survived").exists(),
-            "provider descendant escaped cleanup"
-        );
+        // Bounded evidence window: an escaped descendant writes
+        // `descendant-survived` roughly 8s after the transport started, so
+        // polling past that point (instead of a single instant check) makes
+        // the cleanup assertion deterministic under load without widening
+        // what the test would catch.
+        let deadline = Instant::now() + Duration::from_secs(12);
+        while Instant::now() < deadline {
+            assert!(
+                !root.path().join("descendant-survived").exists(),
+                "provider descendant escaped cleanup"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
         return;
     }
     let record = fs::read_to_string(root.path().join("record"))
@@ -166,7 +174,7 @@ fn custom_inference_child_fixture() {
     }
     let capability = serde_json::from_value(json!({"kind":"command","command":executable,
         "args":args,"input":if file {"file"} else {"stdin"},"output":"result-json-v1",
-        "timeoutSecs":if mode == "timeout" {1} else {10},"reasoningEffortArgs":["--effort={effort}"]})).unwrap();
+        "timeoutSecs":if mode == "timeout" {5} else {10},"reasoningEffortArgs":["--effort={effort}"]})).unwrap();
     let prepared = prepare(
         &capability,
         &executable,

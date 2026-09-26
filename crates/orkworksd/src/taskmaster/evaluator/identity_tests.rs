@@ -265,6 +265,224 @@ fn evaluation_identity_cache_changes_on_reapproval_with_identical_prompt_and_mod
 }
 
 #[test]
+fn manual_evaluation_discards_a_request_after_workspace_switch() {
+    let fixture = Fixture::new();
+    let requested_workspace = fixture.dir.path().join("different-workspace");
+
+    run_model_evaluation_with_context_and_workspace(
+        fixture.state.clone(),
+        fixture.dir.path().join("runtime"),
+        |_, _, _, _| panic!("repository context must not be collected for a stale workspace"),
+        Some(requested_workspace),
+        None,
+    );
+}
+
+#[test]
+fn manual_dispatch_revalidation_rejects_a_workspace_replaced_after_admission() {
+    let fixture = Fixture::new();
+    let expected_path = fixture.dir.path().to_path_buf();
+    let expected_instance = fixture.instance;
+    let replacement = tempfile::tempdir().unwrap();
+    SessionApplication::new(fixture.state.clone())
+        .open_workspace(replacement.path().to_path_buf())
+        .unwrap();
+
+    let mut dispatched = false;
+    let mut start = || {
+        dispatched = true;
+        Ok(())
+    };
+    assert!(manual_workspace_dispatch_gate(
+        &fixture.state,
+        &expected_path,
+        expected_instance,
+        &mut start,
+    )
+    .is_none());
+    assert!(!dispatched);
+}
+
+#[test]
+fn manual_dispatch_runs_its_start_action_while_workspace_is_locked() {
+    let fixture = Fixture::new();
+    let mut ran_under_lock = false;
+    let mut start = || {
+        ran_under_lock = fixture.state.workspace.try_lock().is_err();
+        Ok(())
+    };
+    assert!(manual_workspace_dispatch_gate(
+        &fixture.state,
+        fixture.dir.path(),
+        fixture.instance,
+        &mut start,
+    )
+    .unwrap()
+    .is_ok());
+
+    assert!(ran_under_lock);
+    assert!(fixture.state.workspace.try_lock().is_ok());
+}
+
+fn codex_snapshot(fixture: &Fixture) -> EvaluationSnapshot {
+    let mut settings = fixture.runtime.status(None).settings;
+    settings.selection.as_mut().unwrap().provider = "codex".into();
+    fixture.runtime.replace_settings(settings).unwrap();
+    let mut snapshot = fixture
+        .runtime
+        .evaluation_snapshot(fixture.dir.path())
+        .unwrap();
+    let transport =
+        super::super::provider_catalog::inspect(&fixture.state.harness_store, Some(&fixture.trust))
+            .unwrap()
+            .into_iter()
+            .find(|provider| provider.id == "codex")
+            .unwrap()
+            .transport;
+    assert!(bind_evaluation_transport(
+        &fixture.runtime,
+        &fixture.state.harness_store,
+        fixture.dir.path(),
+        &mut snapshot,
+        transport,
+    ));
+    snapshot
+}
+
+#[test]
+fn native_manual_dispatch_rejects_changed_settings_knowledge_and_harness() {
+    for change in ["selection", "disabled", "knowledge", "harness"] {
+        let fixture = Fixture::new();
+        let snapshot = codex_snapshot(&fixture);
+        match change {
+            "selection" => {
+                let mut settings = fixture.runtime.status(None).settings;
+                settings.selection.as_mut().unwrap().provider = "claude-code".into();
+                fixture.runtime.replace_settings(settings).unwrap();
+            }
+            "disabled" => {
+                let mut settings = fixture.runtime.status(None).settings;
+                settings.enabled = false;
+                fixture.runtime.replace_settings(settings).unwrap();
+            }
+            "knowledge" => fixture
+                .runtime
+                .activate_knowledge(crate::taskmaster::runtime::KnowledgeBundle {
+                    format_version: 1,
+                    version: "changed".into(),
+                    sequence: 1,
+                    published_at: "2026-09-26T00:00:00Z".into(),
+                    pages: Vec::new(),
+                })
+                .unwrap(),
+            "harness" => {
+                let path = fixture.dir.path().join("harnesses.json");
+                let mut document: serde_json::Value =
+                    serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                document["overrides"]["codex"] = serde_json::json!({"inference":{
+                    "kind":"command","command":"codex","args":["{model}"],
+                    "input":"stdin","output":"result-json-v1"}});
+                fs::write(path, serde_json::to_vec(&document).unwrap()).unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        let mut dispatched = false;
+        let mut start = || {
+            dispatched = true;
+            Ok(())
+        };
+        assert!(
+            native_workspace_dispatch_gate(
+                &fixture.state,
+                &fixture.runtime,
+                &snapshot,
+                fixture.dir.path(),
+                fixture.instance,
+                true,
+                &mut start,
+            )
+            .is_none(),
+            "stale native {change} must reject provider dispatch"
+        );
+        assert!(!dispatched, "stale native {change} reached the provider");
+    }
+}
+
+#[test]
+fn native_manual_dispatch_keeps_snapshot_and_workspace_guards_through_start() {
+    let fixture = Fixture::new();
+    let snapshot = codex_snapshot(&fixture);
+    let mut ran_under_workspace_lock = false;
+    let mut start = || {
+        ran_under_workspace_lock = fixture.state.workspace.try_lock().is_err();
+        Ok(())
+    };
+    assert!(native_workspace_dispatch_gate(
+        &fixture.state,
+        &fixture.runtime,
+        &snapshot,
+        fixture.dir.path(),
+        fixture.instance,
+        true,
+        &mut start,
+    )
+    .unwrap()
+    .is_ok());
+    assert!(ran_under_workspace_lock);
+    assert!(fixture.state.workspace.try_lock().is_ok());
+}
+
+#[test]
+fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
+    let fixture = Fixture::new();
+    let remaining_before = fixture
+        .runtime
+        .status(Some(fixture.dir.path()))
+        .remaining_evaluations;
+    let facts = fixture.facts.clone();
+    let evidence_state = fixture.state.clone();
+    let evidence_runtime = &fixture.runtime;
+    let evidence_dir = fixture.dir.path().to_path_buf();
+    let evidence_instance = fixture.instance;
+    let evidence_snapshot = fixture.snapshot.clone();
+    run_model_evaluation_with_context_and_workspace(
+        fixture.state.clone(),
+        fixture.dir.path().join("runtime"),
+        move |_, _, _, _| {
+            let fact = facts.iter().find(|fact| fact.path == "README.md").unwrap();
+            let output = serde_json::json!({"enrichments":[],"proposals":[{
+                "targetSurface":"documentation","title":"Document verification",
+                "summary":"Experimental improvement","repositoryFactHashes":[fact.sha256],
+                "knowledgePageIds":[]}]})
+            .to_string();
+            apply_model_output(
+                &evidence_state,
+                &evidence_runtime,
+                &evidence_snapshot,
+                &evidence_dir,
+                evidence_instance,
+                &facts,
+                &[],
+                &output,
+            );
+            Ok(facts)
+        },
+        Some(fixture.dir.path().to_path_buf()),
+        None,
+    );
+
+    assert_eq!(
+        fixture
+            .runtime
+            .status(Some(fixture.dir.path()))
+            .remaining_evaluations,
+        remaining_before,
+        "the manual evaluator must not reserve after a recommendation becomes active"
+    );
+}
+
+#[test]
 fn evaluation_identity_custom_capture_failure_never_becomes_native() {
     let mut fixture = Fixture::new();
     assert!(bind_evaluation_transport(

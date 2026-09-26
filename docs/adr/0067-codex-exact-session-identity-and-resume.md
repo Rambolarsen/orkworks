@@ -1,6 +1,6 @@
 # Codex exact session identity and resume
 
-- Status: superseded by [ADR 0067](./0067-codex-subagents-share-owning-session-identity.md)
+- Status: superseded by [ADR 0068](./0068-codex-subagents-share-owning-session-identity.md)
 - Deciders: OrkWorks maintainers
 - Date: 2026-09-26
 

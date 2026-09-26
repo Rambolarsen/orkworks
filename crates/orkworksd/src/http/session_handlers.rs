@@ -390,9 +390,10 @@ pub(crate) async fn resume_session(
         .unwrap_or_else(application_error_response)
 }
 
-pub(crate) async fn report_attention(
+pub(crate) async fn report_attention_with_headers(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     Json(req): Json<AttentionReportRequest>,
 ) -> axum::response::Response {
     SessionApplication::new(state)
@@ -407,11 +408,21 @@ pub(crate) async fn report_attention(
                 source: req.source,
                 event: req.event,
                 hook_fingerprint: req.hook_fingerprint,
+                report_token: bearer_token(&headers).map(str::to_owned),
             },
         )
         .await
         .map(|_| axum::http::StatusCode::OK.into_response())
         .unwrap_or_else(application_error_response)
+}
+
+#[cfg(test)]
+pub(crate) async fn report_attention(
+    state: State<Arc<AppState>>,
+    id: Path<String>,
+    request: Json<AttentionReportRequest>,
+) -> axum::response::Response {
+    report_attention_with_headers(state, id, HeaderMap::new(), request).await
 }
 
 pub(crate) async fn select_terminal_plan(
@@ -3773,6 +3784,75 @@ mod tests {
                 .as_deref(),
             Some("waiting_for_input")
         );
+    }
+
+    #[tokio::test]
+    async fn opencode_hook_route_forwards_bearer_token() {
+        let root = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(root.path());
+        let id = "opencode-route-token";
+        let mut meta = test_session_metadata(
+            id,
+            "OpenCode",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.harness = "opencode".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness_id = Some("opencode".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(
+            id,
+            "opencode-route-secret".into(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer opencode-route-secret".parse().unwrap(),
+        );
+
+        let response = report_attention_with_headers(
+            State(state.clone()),
+            Path(id.into()),
+            headers,
+            Json(AttentionReportRequest {
+                status: "idle".into(),
+                message: None,
+                plan_path: Default::default(),
+                observed_at: Some("2026-09-26T12:00:00.123456Z".into()),
+                cwd: None,
+                source: Some("opencode_hook".into()),
+                event: Some("session.created".into()),
+                hook_fingerprint: None,
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(state.sessions.lock().unwrap()[id].active_work_hook);
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.metadata_source, "agent");
+        assert_eq!(stored.observed_status.as_deref(), Some("idle"));
     }
 
     #[tokio::test]

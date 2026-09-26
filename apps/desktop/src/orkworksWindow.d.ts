@@ -156,6 +156,7 @@ declare global {
       saveLayout: (json: string) => Promise<void>;
       getSettings: () => Promise<AppSettings>;
       getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
+      requestTaskmasterAnalysis: () => Promise<import("./api").ManualTaskmasterAnalysisResponse>;
       dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;
       acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<WorkflowRecommendation>;
       applyDebugAttention: (id: string, attention: SessionAttention, message?: string) => Promise<void>;

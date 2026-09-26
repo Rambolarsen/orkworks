@@ -45,12 +45,20 @@ additional terminal replay is not collected.
 
 Use **All workspaces** for defaults or **This workspace** for overrides. The
 default limit is eight AI evaluations per UTC day across the app and at least
-one hour between evaluations of a workspace. Failed calls count. This limits
-usage, not the amount a provider may bill. Saving a narrower context invalidates
-pending results that used the previous context.
+one hour between automatic evaluations of a workspace. A manual **Analyze now**
+request remains available when automatic Background discovery is off. It bypasses
+the hourly interval but still uses one daily evaluation. Failed calls count. This
+limits usage, not the amount a provider may bill. Saving a narrower context
+invalidates pending results that used the previous context.
 Failed or discarded evaluations can retry after the minimum interval, within
 the remaining budget. Only successfully accepted results suppress identical
 future evaluations.
+
+Taskmaster will not start another manual analysis while a Brain improvement is
+proposed, accepted, or executing. The Recommendations panel shows the active
+improvement and asks you to implement it through **Fix with AI** first. After
+you complete or dismiss it, you can request another analysis. Unchanged evidence
+still does not create a duplicate recommendation.
 
 Shared reference knowledge ships with the application and updates automatically
 every six hours while the app is running. Updates are verified before use; an

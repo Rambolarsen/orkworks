@@ -156,10 +156,31 @@ impl PreparedCustomInference {
     /// The caller must keep its authorization guard through `Command::spawn`,
     /// then release it before returning the child. This does not accept results
     /// into Taskmaster; final acceptance requires a fresh identity check.
+    #[cfg(test)]
     pub(crate) fn run_with_spawn(
+        self,
+        spawn: impl FnOnce(
+            &mut Command,
+        )
+            -> Result<std::io::Result<std::process::Child>, ProviderOperationError>,
+    ) -> Result<String, ProviderOperationError> {
+        self.run_with_spawn_and_prepare(|command, prepare_child| {
+            let child = spawn(command)?;
+            let child = child.and_then(|mut child| {
+                prepare_child(&mut child)?;
+                Ok(child)
+            });
+            Ok(child)
+        })
+    }
+
+    /// The caller keeps its dispatch guard through spawn and child setup, then
+    /// releases it before the runner waits for process output.
+    pub(crate) fn run_with_spawn_and_prepare(
         mut self,
         spawn: impl FnOnce(
             &mut Command,
+            &mut dyn FnMut(&mut std::process::Child) -> std::io::Result<()>,
         )
             -> Result<std::io::Result<std::process::Child>, ProviderOperationError>,
     ) -> Result<String, ProviderOperationError> {

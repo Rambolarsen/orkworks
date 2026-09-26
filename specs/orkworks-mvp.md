@@ -239,7 +239,7 @@ Alongside Peon's LLM-based inference, some harnesses expose deterministic, highe
 - **Attention state** (`waiting_for_input` and related statuses): a harness's own notification mechanism — e.g. Claude Code's `Notification` hook — can call `POST /sessions/:id/attention` on the sidecar. Writes use `metadataSource: "agent"` with `metadataConfidence: 1.0` and respect the same priority/staleness rule Peon already respects: they cannot overwrite fresh `user` or fresh `agent` metadata, but always outrank `peon`/`backend_inference`/`process`/`unknown`.
 - **Session plan/spec association**: a harness may report an optional workspace-relative Markdown `planPath` independently of attention state; JSON `null` clears it and omission preserves it. When no harness path exists, OrkWorks may conservatively associate a valid printed path below `docs/superpowers/plans/` or `specs/`. The renderer receives availability and validated document content, never a filesystem path, and displays it in the reusable Review tab. Electron main may request the one user-approved fixed review prompt through its per-sidecar secret; the sidecar revalidates the artifact before PTY input. See [ADR 0025](../docs/adr/0025-authenticated-session-plan-handoff.md) and [ADR 0034](../docs/adr/0034-user-approved-session-review-prompt.md).
 - **Harness-native session ID and Codex label enrichment**: a harness-specific mechanism (env var, hook JSON, structured JSONL event) reports the session's native ID via `POST /sessions/:id/harness-session`, tagged with a source string and confidence. This is the same generic capture endpoint used for OpenCode's `OPENCODE_SESSION_ID`, Claude Code's hook `session_id`, and Codex's hook `session_id`; when a Codex report also authenticates with `ORKWORKS_REPORT_TOKEN`, the sidecar may read the exact native thread from the supported local `state_5.sqlite` store and use `threads.name`, then `threads.title`, as the automatic session label. Unsupported or unavailable data preserves the existing label; prompt and rollout JSONL parsing is out of scope. See `skills/adding-harness/`.
-- **Codex identity and resume integrity**: Codex CLI subagents are internal to their owning CLI session; they do not create OrkWorks sessions or receive independent OrkWorks session IDs. Retain the first accepted native Codex session ID; a different ID may replace it only on an authenticated root `SessionStart` with `source=clear` after OrkWorks recorded the explicit reset. Resume only with that exact ID and only when the corresponding thread row and rollout file exist in the supported local Codex store. Missing or unsaved IDs never fall back to another Codex conversation. See [ADR 0067](../docs/adr/0067-codex-subagents-share-owning-session-identity.md).
+- **Codex identity and resume integrity**: Codex CLI subagents are internal to their owning CLI session; they do not create OrkWorks sessions or receive independent OrkWorks session IDs. Retain the first accepted native Codex session ID; a different ID may replace it only on an authenticated root `SessionStart` with `source=clear` after OrkWorks recorded the explicit reset. Resume only with that exact ID and only when the corresponding thread row and rollout file exist in the supported local Codex store. Missing or unsaved IDs never fall back to another Codex conversation. See [ADR 0068](../docs/adr/0068-codex-subagents-share-owning-session-identity.md).
 
 These are opt-in per harness and never installed automatically. Generic
 workspace integration routes report status and, only after explicit
@@ -247,7 +247,19 @@ Electron-main confirmation, install/reconcile or uninstall a supported
 integration. A contract without an exact primary-source payload fixture remains
 limited or unsupported rather than inferred.
 
-When no harness-specific signal source is registered or installed for a session, Peon's LLM-based inference remains the sole/fallback source, unchanged.
+When no harness-specific signal source is registered or installed for a session,
+Peon's LLM-based inference remains the fallback source. For Codex and OpenCode,
+an installed integration or declared capability alone does not make hooks
+authoritative: an accepted session-scoped attention event does. Once active,
+that hook stream owns attention while Peon continues descriptive inference.
+Before a hook executes, Peon may supply nonprompt status, but an LLM reading a
+conversational question must not set Needs You. A permission or explicit-input
+prompt requires a direct lifecycle event or a separately reviewed deterministic
+terminal prompt signal. This intentionally leaves an unsupported prompt
+unrecognized rather than displaying a speculative Needs You state. Other
+harnesses retain their current fallback rules until their event coverage is
+reviewed. See the [OpenCode prompt attention design](../docs/superpowers/specs/2026-09-26-opencode-prompt-attention-design.md)
+for the initial Codex/OpenCode authority boundary.
 
 ## Peon
 

@@ -700,6 +700,18 @@ export interface RecommendationListResponse {
   diagnostics: ObservationDiagnostic[];
 }
 
+export interface ManualTaskmasterAnalysisResponse {
+  status:
+    | "scheduled"
+    | "active_recommendation"
+    | "already_running"
+    | "daily_limit_reached"
+    | "unavailable";
+  recommendation?: WorkflowRecommendation;
+  recoveryAllowed: boolean;
+  message?: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
 

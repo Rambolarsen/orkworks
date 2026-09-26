@@ -245,7 +245,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - ADR 0052: one `orkworksd` process owns a workspace's metadata at a time through an OS advisory lease; workspace open/switch returns conflict before orphan reconciliation when another sidecar holds it.
 - ADR 0060: independent OrkWorks instances each own at most one workspace and sidecar; installation-scoped history is path-only, with no peer registry or cross-instance attention/focus authority. Crash-surviving cleanup and replacement adoption remain blocked on native ownership proof in #545.
 - ADR 0065: hard-wrapped terminal rows are reassembled into logical lines at PTY ingestion, before the shared `output_buffer` (row-local chaining on `SessionRuntime::last_cols`, one held pending row flushed at `handle_runtime_exit`); raw physical rows stay authoritative in terminal history, `scan_buf`, and evidence grounding on `raw_persist_lines`, and read-time snapshot rejoins share the same row-local rule.
-- ADR 0067: Codex CLI subagents remain within the owning OrkWorks session; identity replacement requires an authenticated root `SessionStart(source=clear)` after a recorded reset, and resume remains exact-ID-only.
+- ADR 0068: Codex CLI subagents remain within the owning OrkWorks session; identity replacement requires an authenticated root `SessionStart(source=clear)` after a recorded reset, and resume remains exact-ID-only.
 
 ## Metadata protocol
 
@@ -325,16 +325,29 @@ after verification and do not resume or reopen another session as a workaround.
 ## Peon model detection observations
 
 When Peon reports a workflow observation or a Taskmaster recommendation about
-"Peon model detection", verify whether it is self-referential noise before
+"Peon model detection" or a bare phrasing such as "Model detection is blocked"
+/ "Model detection failed", a rate-limit obstacle such as "rate limit
+reached", or a recommendation asks you to remove or document a
+capacity-related obstacle such as "Tracing signal capacity in Claude harness
+to OpenCode", verify whether it is self-referential noise before
 treating it as a product defect: sessions working on OrkWorks itself put Peon's
-own prompt-example vocabulary into terminal output, and generic evidence such
-as "Terminal output" is low-specificity: it grounds only when those words
-literally appear in the captured output, which says nothing about cause.
+own prompt-example vocabulary into terminal output, generic evidence such
+as "Terminal output" is low-specificity — it grounds only when those words
+literally appear in the captured output, which says nothing about cause — and
+specific-looking error excerpts such as "Error message: Model detection
+failed" ground the same way while matching no OrkWorks code path.
 Follow
 [`docs/agents/peon-model-detection-troubleshooting.md`](docs/agents/peon-model-detection-troubleshooting.md).
 The applied provider/model in Settings is authoritative for inference; the
 Peon-detected session model is best-effort, first-detection-wins, and has no
-manual override. Do not resume or reopen another session as a workaround.
+manual override. For harnesses with configured capacity patterns, a genuine
+limit whose banner text matches those patterns surfaces, for a live
+session, through the capped attention status (reset hint only when the
+banner carries one) and, for an enabled provider entry, the provider state
+on the providers API and new-session dialog — which can also reflect a
+capped configured state rather than the live scan; a grounded workflow
+observation of this kind can still corroborate a real cap. Do not resume
+or reopen another session as a workaround.
 
 ## MCP configuration
 

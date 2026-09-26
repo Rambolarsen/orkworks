@@ -110,6 +110,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -121,6 +125,9 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --manifest-path crates/orkworksd/Cargo.toml
+
+      - name: Test OpenCode session reporter
+        run: node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs
 
   windows-inference:
     name: Windows custom inference

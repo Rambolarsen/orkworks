@@ -59,6 +59,8 @@ run_step 'Rust build' \
   cargo build --manifest-path "$repo_root/crates/orkworksd/Cargo.toml"
 run_step 'Rust tests' \
   cargo test --manifest-path "$repo_root/crates/orkworksd/Cargo.toml"
+run_step 'OpenCode reporter tests' \
+  run_in_directory "$repo_root" node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs
 run_step 'Desktop type-check' \
   run_in_directory "$repo_root/apps/desktop" pnpm exec tsc --noEmit
 run_step 'Desktop tests' run_desktop_tests

@@ -44,5 +44,5 @@ needed.
 - [Peon timeout troubleshooting](peon-timeout-troubleshooting.md) — Recovery
   and diagnostics for Peon provider timeouts.
 - [Peon model detection troubleshooting](peon-model-detection-troubleshooting.md) —
-  Interpreting Peon model-detection observations and separating
-  self-referential noise from real defects.
+  Interpreting Peon model-detection and capacity/cap observations and
+  separating self-referential noise from real defects.

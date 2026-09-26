@@ -73,5 +73,6 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0063](./0063-codex-native-session-labels.md) | Codex native session names enrich automatic session labels | accepted |
 | [0064](./0064-bounded-taskmaster-coordinator.md) | Bounded Taskmaster coordinator uses approved root plans | proposed — [Coordinator design gate](../../specs/taskmaster.md#coordinator-design-gate); design approval permits only a separate implementation plan and review |
 | [0065](./0065-ingestion-time-hard-wrap-reassembly.md) | Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer | accepted |
-| [0066](./0066-codex-exact-session-identity-and-resume.md) | Codex exact session identity and resume | superseded by [0067](./0067-codex-subagents-share-owning-session-identity.md) |
-| [0067](./0067-codex-subagents-share-owning-session-identity.md) | Codex subagents share the owning OrkWorks session identity | accepted |
+| [0066](./0066-hook-owned-prompt-attention.md) | Hook-owned prompt attention for Codex and OpenCode | accepted |
+| [0067](./0067-codex-exact-session-identity-and-resume.md) | Codex exact session identity and resume | superseded by [0068](./0068-codex-subagents-share-owning-session-identity.md) |
+| [0068](./0068-codex-subagents-share-owning-session-identity.md) | Codex subagents share the owning OrkWorks session identity | accepted |

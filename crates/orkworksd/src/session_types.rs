@@ -156,6 +156,18 @@ pub(crate) struct SessionInfo {
     pub(crate) has_openable_plan: Option<bool>,
 }
 
+impl SessionInfo {
+    pub(crate) fn has_live_runtime(&self) -> bool {
+        matches!(
+            self.lifecycle.as_str(),
+            "creating" | "alive" | "stopping" | "ending"
+        ) && matches!(
+            self.lifecycle_phase.as_str(),
+            "creating" | "active" | "ending"
+        )
+    }
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MemoryState {
@@ -231,6 +243,27 @@ mod tests {
             resumed_from: None,
             has_openable_plan: None,
         }
+    }
+
+    #[test]
+    fn live_runtime_excludes_terminal_lifecycle_states() {
+        let mut info = test_session_info("target", "Target", "/tmp", "running", "now");
+        assert!(info.has_live_runtime());
+
+        info.lifecycle = "creating".into();
+        info.lifecycle_phase = "creating".into();
+        assert!(info.has_live_runtime());
+
+        info.lifecycle = "dead".into();
+        assert!(!info.has_live_runtime());
+
+        info.lifecycle = "stopping".into();
+        info.lifecycle_phase = "ending".into();
+        assert!(info.has_live_runtime());
+
+        info.lifecycle = "dead".into();
+        info.lifecycle_phase = "ended".into();
+        assert!(!info.has_live_runtime());
     }
 
     #[test]

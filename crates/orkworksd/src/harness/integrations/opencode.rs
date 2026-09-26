@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn install_writes_the_plugin_and_is_idempotent() {
+    fn plugin_source_install_is_verbatim_and_idempotent() {
         let workspace = gitignored_workspace();
         let resolver = resolver(workspace.path());
         let ctx = context(workspace.path(), &resolver);
@@ -377,48 +377,5 @@ mod tests {
 
         assert_eq!(error.code(), "not_ignored_target");
         assert!(!workspace.path().join(RELATIVE_PATH).exists());
-    }
-
-    #[test]
-    fn plugin_source_reports_the_session_created_hook_to_the_harness_session_endpoint() {
-        assert!(PLUGIN_SOURCE.contains("session.created"));
-        assert!(PLUGIN_SOURCE.contains("ORKWORKS_PORT"));
-        assert!(PLUGIN_SOURCE.contains("ORKWORKS_SESSION_ID"));
-        assert!(PLUGIN_SOURCE.contains("/sessions/${orkworksSessionId}/harness-session"));
-        assert!(PLUGIN_SOURCE.contains("source: \"opencode_hook\""));
-        assert!(PLUGIN_SOURCE.starts_with(MARKER_LINE));
-    }
-
-    #[test]
-    fn plugin_source_reports_attention_events_to_the_attention_endpoint() {
-        // Turn boundary: the agent finished and is waiting on the user's
-        // next prompt — mapped to plain "idle" (unread state carries the
-        // attention display), not waiting_for_input (issue #104 decision).
-        assert!(PLUGIN_SOURCE.contains("session.idle"));
-        assert!(PLUGIN_SOURCE.contains("status: \"idle\""));
-        // Permission prompt: the genuine "needs you" signal.
-        assert!(PLUGIN_SOURCE.contains("permission.asked"));
-        assert!(PLUGIN_SOURCE.contains("status: \"waiting_for_input\""));
-        // Replying to the permission resumes the active turn, and a busy
-        // session.status clears a stale waiting/idle state.
-        assert!(PLUGIN_SOURCE.contains("permission.replied"));
-        assert!(PLUGIN_SOURCE.contains("\"busy\""));
-        assert!(PLUGIN_SOURCE.contains("status: \"working\""));
-        assert!(PLUGIN_SOURCE.contains("/sessions/${orkworksSessionId}/attention"));
-        // Attention events must only apply to the captured session.
-        assert!(PLUGIN_SOURCE.contains("sessionID !== openCodeSessionId"));
-    }
-
-    #[test]
-    fn plugin_source_pads_observed_at_to_microsecond_precision() {
-        // The attention route parses `observedAt` with
-        // `parse_hook_observed_at`, which requires exactly six fractional
-        // digits (microseconds) — but `new Date().toISOString()` emits
-        // three (milliseconds). The plugin swallows its own fetch
-        // failures, so a 3-digit timestamp made every attention report
-        // fail with a 400 and drop silently. Pin the millisecond-to-
-        // microsecond padding.
-        assert!(PLUGIN_SOURCE.contains(r#".replace(/\.(\d{3})Z$/, ".$1000Z")"#));
-        assert!(!PLUGIN_SOURCE.contains("observedAt: new Date().toISOString()"));
     }
 }

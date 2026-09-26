@@ -3,7 +3,7 @@
 - Status: accepted
 - Deciders: OrkWorks maintainers
 - Date: 2026-09-26
-- Supersedes: process-ownership requirements in [ADR 0066](./0066-codex-exact-session-identity-and-resume.md)
+- Supersedes: process-ownership requirements in [ADR 0067](./0067-codex-exact-session-identity-and-resume.md)
 
 ## Context
 

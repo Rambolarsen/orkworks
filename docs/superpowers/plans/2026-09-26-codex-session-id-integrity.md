@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust, Axum, rusqlite, POSIX/PowerShell hook reporters, embedded JSON harness definitions, Cargo tests.
 
-**Spec:** `specs/orkworks-mvp.md` (harness-native session ID capture); clarified by ADR 0067, which supersedes ADR 0066's process-binding requirement.
+**Spec:** `specs/orkworks-mvp.md` (harness-native session ID capture); clarified by ADR 0068, which supersedes ADR 0067's process-binding requirement.
 
 ## Global Constraints
 
@@ -37,7 +37,7 @@ treated as process authentication.
   not report an independent ID.
 - [x] Remove caller-supplied process IDs and process-owner state from the
   reporter, HTTP request, reset grant, and session lifecycle cleanup.
-- [x] Update ADR 0067, the MVP spec, and harness integration docs with the
+- [x] Update ADR 0068, the MVP spec, and harness integration docs with the
   subagent ownership and reset authorization rules.
 - [x] Run reporter, session identity, lifecycle, full sidecar, formatting, and
   documentation checks.
@@ -59,9 +59,9 @@ treated as process authentication.
 - Modify: `crates/orkworksd/src/session_view.rs`
 - Modify: `docs/agents/harness-integration-contracts.md`
 - Modify: `docs/agents/architecture.md`
-- Create: `docs/adr/0066-codex-exact-session-identity-and-resume.md`
-- Create: `docs/adr/0067-codex-subagents-share-owning-session-identity.md`
-- Modify: `docs/adr/0066-codex-exact-session-identity-and-resume.md` to mark its process-binding decision superseded
+- Create: `docs/adr/0067-codex-exact-session-identity-and-resume.md`
+- Create: `docs/adr/0068-codex-subagents-share-owning-session-identity.md`
+- Modify: `docs/adr/0067-codex-exact-session-identity-and-resume.md` to mark its process-binding decision superseded
 - Modify: `docs/adr/README.md`
 - Test: focused module tests in the Rust files above and reporter-script integration tests.
 
@@ -75,5 +75,5 @@ treated as process authentication.
 - [x] **Step 3: Implement identity-source validation and exact-ID-only Codex configuration.** The reporter forwards the SessionStart source; the request handler passes it only for the identity report; the metadata merge rejects unapproved identity changes.
 - [x] **Step 4: Implement exact saved-thread preflight.** Read only `state_5.sqlite` in read-only mode, resolve the matching `rollout_path`, and check the file before spawning `codex resume <id>`.
 - [x] **Step 5: Run focused Rust tests** for metadata merge, Codex store, harness registry, and resume workflow; run reporter integration tests for POSIX and PowerShell payload handling.
-- [x] **Step 6: Update ADR 0066/0067 and harness/architecture docs** to state the exact ID ownership, explicit-clear replacement, saved-rollout requirement, and no `--last` fallback.
+- [x] **Step 6: Update ADR 0067/0068 and harness/architecture docs** to state the exact ID ownership, explicit-clear replacement, saved-rollout requirement, and no `--last` fallback.
 - [x] **Step 7: Run `cargo fmt --check`, relevant `cargo test`, `git diff --check`, `bash scripts/doc-check.sh`, and `bash .claude/hooks/worktree-check.sh`.**

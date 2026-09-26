@@ -100,8 +100,30 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn sleep_command() -> &'static str {
-        "sleep"
+    fn sleep_command() -> std::path::PathBuf {
+        // Resolve the sleeper once, validating existence, and spawn it by
+        // absolute path: a bare `sleep` would make the child exec search
+        // PATH in the parent environ, which concurrently-running
+        // env-mutating tests (FakePath/FakeHome/PEON_* helpers) can tear
+        // into a spurious ENOENT. Resolution-time existence checks also
+        // keep hosts without an FHS /bin (e.g. NixOS) working.
+        let mut candidates: Vec<std::path::PathBuf> = std::env::var_os("PATH")
+            .map(|path| {
+                std::env::split_paths(&path)
+                    .map(|directory| directory.join("sleep"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        candidates.push("/bin/sleep".into());
+        candidates.push("/usr/bin/sleep".into());
+        let resolved = candidates.iter().find(|candidate| candidate.is_file());
+        match resolved {
+            Some(resolved) => resolved.clone(),
+            None => panic!(
+                "no sleep binary found for procfs tests, searched: {:?}",
+                candidates
+            ),
+        }
     }
 
     #[cfg(unix)]
