@@ -9,8 +9,10 @@ status: stable
 # Peon model detection troubleshooting
 
 Use this runbook when Peon reports a workflow observation about "Peon model
-detection" or when a Taskmaster recommendation asks you to "remove or document
-the obstacle: Peon model detection issues". Before treating it as a product
+detection", when a Taskmaster recommendation asks you to "remove or document
+the obstacle: Peon model detection issues", or when a recommendation asks you
+to remove or document a capacity-related obstacle such as "Tracing signal
+capacity in Claude harness to OpenCode". Before treating it as a product
 defect, check whether the observation is self-referential noise.
 
 ## Two different things called "model detection"
@@ -66,6 +68,44 @@ Signals that an observation is this noise, not a verified defect:
   single final scan.
 - Rechecking the current code finds no detection defect: the
   `detectedModel` merge rules above are intentional behavior.
+
+## Capacity/cap obstacle noise
+
+A related fingerprint family turns harness UI chrome about usage caps into a
+false "capacity" obstacle. Peon's inference prompt itself asks for
+`capacityHints` (cap/rate-limit strings), so "capacity" is Peon prompt
+vocabulary; when a session's terminal capture shows another session's title
+or a resume banner (OpenCode session lists and resume output in particular),
+Peon can conflate the two and report an obstacle like
+"Tracing signal capacity in Claude harness to OpenCode" that names a
+subsystem which does not exist.
+
+Verified example (September 2026, one observation, one OpenCode session): the
+only terminal grounding was the OpenCode banner lines
+`Session   Claude cap affecting opencode usage` and
+`Continue  opencode -s <id>` — a human-written label about Claude usage-cap
+limits plus a resume hint. The phrases "signal capacity" and "Search results
+show" appeared zero times in the ANSI-stripped terminal capture. The
+description was ungrounded; it paraphrased a label, not the session's work.
+
+Signals that an observation is this noise, not a verified defect:
+
+- The obstacle description names "signal capacity" or describes capacity
+  being "traced" from one harness to another. OrkWorks has no cross-harness
+  capacity tracing: capacity is per-session, per-harness usage-limit
+  detection (`capacity/<id>.json`, `at_usage_limit`, harness
+  `capacity_patterns()`), and Peon `capacityHints` are strings attached to
+  the session that produced them — no signal flows between harnesses.
+- The obstacle's description or evidence phrase does not appear verbatim in
+  the ANSI-stripped terminal capture (strip `\x1b[` escape sequences before
+  searching).
+- The only verbatim match is UI chrome: session labels, banners, resume
+  hints, or session lists. Those strings are other sessions' titles and
+  launch commands, not this session's work.
+
+Handling is the same as below: if it is confirmed noise, documentation is a
+valid resolution — do not act on the obstacle, and do not modify
+recommendation or observation files directly.
 
 ## Recommended handling
 
