@@ -38,14 +38,17 @@ GitHub Actions has seven distinct workflow classes:
   SHA at 03:23 UTC or by manual dispatch. Its privileged jobs use the protected
   `release` environment; nightly GitHub writes use a separate CI-only token.
 - `.github/workflows/pr-ci.yml` validates pull requests targeting `main`.
+  Its path-routed Rust job also runs the OpenCode session reporter's Node tests
+  using the Node version pinned in `.nvmrc`.
   Its focused Windows custom-inference job runs native fixture transport,
   approval-gated activation, and trust tests when Rust files, `rust-toolchain.toml`
   or the PR workflow change. It requires the targeted tests to be discoverable
   before running them, preventing a platform gate from producing an empty pass.
   Existing Linux job names and branch-protection requirements are unchanged.
 - `.github/workflows/main-ci.yml` unconditionally reruns the full desktop and
-  Rust test suites against `main`, without path filters, on every push to
-  `main`, daily by schedule, and by manual dispatch. This exists because
+  Rust test suites plus the OpenCode session reporter's Node tests against
+  `main`, without path filters, on every push to `main`, daily by schedule,
+  and by manual dispatch. This exists because
   `pr-ci.yml` only triggers on `pull_request` and never re-validates `main`
   after a merge, so a bad merge — including one that bypasses branch
   protection as an administrator — could sit undetected until the next pull
@@ -80,8 +83,9 @@ pull requests targeting `main`. It is not a workflow file, is not a required
 check, and does not replace the manual `/code-review` gate.
 
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run
-a blocking `cargo fmt --check` gate plus Rust tests, and non-code pull
-requests receive a lightweight passing no-op code check. Every PR also builds
+a blocking `cargo fmt --check` gate, Rust tests, and the OpenCode reporter Node
+tests; non-code pull requests receive a lightweight passing no-op code check.
+Every PR also builds
 the documentation site and tests generated-fact filtering. `pr-ci.yml` runs a
 `doc-drift` job on every pull request using the same checks as
 `scripts/doc-check.sh`; this job is informational and cannot block a merge.

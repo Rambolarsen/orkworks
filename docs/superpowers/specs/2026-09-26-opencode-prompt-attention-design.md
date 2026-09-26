@@ -1,6 +1,6 @@
 # OpenCode prompt attention lifecycle
 
-Status: proposed; written-spec review required before implementation
+Status: approved for implementation; owner reviewed the revised design on 2026-09-26
 Date: 2026-09-26
 Tracking: [#631](https://github.com/Rambolarsen/orkworks/issues/631)
 

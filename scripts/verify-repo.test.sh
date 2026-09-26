@@ -15,6 +15,7 @@ expected_steps=(
   'Rust formatting'
   'Rust build'
   'Rust tests'
+  'OpenCode reporter tests'
   'Desktop type-check'
   'Desktop tests'
   'Desktop build'
@@ -31,6 +32,8 @@ for step in "${expected_steps[@]}"; do
   test "$line" -gt "$previous_line"
   previous_line="$line"
 done
+
+grep -Fq 'node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs' <<<"$output"
 
 if VERIFY_REPO_TEST_FAIL_STEP='Desktop build' bash "$helper" --dry-run \
     >"$fixture/output" 2>&1; then

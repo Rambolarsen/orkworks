@@ -1847,39 +1847,42 @@ impl MetadataStore {
                     confidence: inf.confidence.min(0.50),
                 });
 
-        let reconciled_peon_prompt =
-            if matches!(policy, PeonAttentionPolicy::NonPrompt) && meta.metadata_source == "peon" {
-                let before = (
+        let reconciled_peon_prompt = if matches!(policy, PeonAttentionPolicy::NonPrompt)
+            && !matches!(
+                meta.metadata_source.as_str(),
+                "user" | "agent" | "codex_hook"
+            ) {
+            let before = (
+                meta.observed_status.clone(),
+                meta.attention.clone(),
+                meta.needs_user_input,
+                meta.detected_question.clone(),
+                meta.suggested_options.clone(),
+            );
+            if meta.observed_status.as_deref() == Some("waiting_for_input") {
+                meta.observed_status = None;
+            }
+            if meta.lifecycle == "alive" {
+                meta.attention = canonical_attention(meta.observed_status.as_deref());
+            }
+            meta.needs_user_input = None;
+            meta.detected_question = None;
+            meta.suggested_options = None;
+            let changed = before
+                != (
                     meta.observed_status.clone(),
                     meta.attention.clone(),
                     meta.needs_user_input,
                     meta.detected_question.clone(),
                     meta.suggested_options.clone(),
                 );
-                if meta.observed_status.as_deref() == Some("waiting_for_input") {
-                    meta.observed_status = None;
-                }
-                if meta.lifecycle == "alive" {
-                    meta.attention = canonical_attention(meta.observed_status.as_deref());
-                }
-                meta.needs_user_input = None;
-                meta.detected_question = None;
-                meta.suggested_options = None;
-                let changed = before
-                    != (
-                        meta.observed_status.clone(),
-                        meta.attention.clone(),
-                        meta.needs_user_input,
-                        meta.detected_question.clone(),
-                        meta.suggested_options.clone(),
-                    );
-                if changed {
-                    meta.last_activity = timestamp.to_string();
-                }
-                changed
-            } else {
-                false
-            };
+            if changed {
+                meta.last_activity = timestamp.to_string();
+            }
+            changed
+        } else {
+            false
+        };
 
         // Observer-only inference cannot resume a finished/non-working session to
         // `working` on its own. Terminal input intentionally preserves the observed
@@ -2692,6 +2695,47 @@ mod tests {
             assert_eq!(stored.needs_user_input, None);
             assert_eq!(stored.detected_question, None);
             assert_eq!(stored.suggested_options, None);
+        }
+    }
+
+    #[test]
+    fn peon_nonprompt_clears_prompt_fields_inherited_by_process_idle_timeout() {
+        for (harness, source) in [
+            ("codex", "process"),
+            ("opencode", "process"),
+            ("opencode", "backend_inference"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = MetadataStore::new(dir.path());
+            let id = "legacy-process-prompt-fields";
+            let mut meta = test_metadata(id);
+            meta.harness = harness.into();
+            meta.metadata_source = source.into();
+            meta.observed_status = Some("idle".into());
+            meta.attention = Some("idle".into());
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Old chat question?".into());
+            meta.suggested_options = Some(vec!["Old option".into()]);
+            store.write_session(&meta);
+
+            let outcome = store
+                .merge_peon_inference_with_history_policy(
+                    id,
+                    &peon_inference_with_summary(Some("Fresh summary"), 0.8),
+                    "later",
+                    None,
+                    Some("Fresh summary"),
+                    PeonAttentionPolicy::NonPrompt,
+                )
+                .unwrap();
+            assert_eq!(outcome, PeonMergeOutcome::Applied, "{harness} {source}");
+            let stored = store.read_session(id).unwrap();
+            assert_eq!(stored.observed_status.as_deref(), Some("idle"));
+            assert_eq!(stored.attention.as_deref(), Some("idle"));
+            assert_eq!(stored.needs_user_input, None, "{harness} {source}");
+            assert_eq!(stored.detected_question, None, "{harness} {source}");
+            assert_eq!(stored.suggested_options, None, "{harness} {source}");
+            assert_eq!(stored.summary.as_deref(), Some("Fresh summary"));
         }
     }
 
