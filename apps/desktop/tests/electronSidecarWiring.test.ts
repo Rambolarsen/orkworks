@@ -381,10 +381,23 @@ test("in-flight plan IPC requests are cancelled when their backend generation cl
 test("preload and renderer contracts expose only generation-bound mutation bridges", () => {
   assert.match(preloadSource, /dismissTaskmasterRecommendation: \(id: string, reason\?: string\)/);
   assert.match(preloadSource, /acceptTaskmasterRecommendation: \(id: string, options: TaskmasterAcceptOptions\)/);
+  assert.match(preloadSource, /requestTaskmasterAnalysis: \(\): Promise<unknown> => ipcRenderer\.invoke\("analyze-taskmaster"\)/);
   assert.match(preloadSource, /applyDebugAttention: \(id: string, attention: string, message\?: string\)/);
   assert.match(rendererTypes, /dismissTaskmasterRecommendation: \(id: string, reason\?: string\) => Promise<void>/);
   assert.match(rendererTypes, /acceptTaskmasterRecommendation: \(id: string, options: AcceptRecommendationOptions\)/);
+  assert.match(rendererTypes, /requestTaskmasterAnalysis: \(\) => Promise<import\("\.\/api"\)\.ManualTaskmasterAnalysisResponse>/);
   assert.match(rendererTypes, /applyDebugAttention: \(id: string, attention: SessionAttention, message\?: string\) => Promise<void>/);
+});
+
+test("manual Taskmaster analysis uses the generation-bound authenticated Electron bridge", () => {
+  assert.match(mainSource, /ipcMain\.handle\("analyze-taskmaster"[\s\S]*?withReadyBackendGeneration/);
+  assert.match(mainSource, /"taskmaster\/analyze",\s*\{\},\s*signal/);
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(panel, /window\.orkworks\.requestTaskmasterAnalysis\(\)/);
+  assert.match(panel, /generation !== workspaceGeneration\.current/);
 });
 
 test("Electron main replays the latest lifecycle state to late subscribers", () => {

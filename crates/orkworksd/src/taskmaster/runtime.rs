@@ -363,13 +363,42 @@ impl TaskmasterRuntime {
         cache_key: Option<&str>,
         generation: Option<u64>,
     ) -> Result<bool, String> {
+        self.reserve_current_with_policy(workspace, now, cache_key, generation, false)
+    }
+
+    pub(crate) fn reserve_current_manual(
+        &self,
+        workspace: &Path,
+        now: &str,
+        cache_key: Option<&str>,
+        generation: Option<u64>,
+    ) -> Result<bool, String> {
+        self.reserve_current_with_policy(workspace, now, cache_key, generation, true)
+    }
+
+    fn reserve_current_with_policy(
+        &self,
+        workspace: &Path,
+        now: &str,
+        cache_key: Option<&str>,
+        generation: Option<u64>,
+        bypass_min_interval: bool,
+    ) -> Result<bool, String> {
         let _persistence = PERSISTENCE_LOCK
             .lock()
             .expect("taskmaster persistence lock poisoned");
         let _file_lock = persistence_file_lock(&self.root)?;
         let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
         reload_durable(&self.root, &mut data);
-        self.reserve_loaded(&mut data, workspace, now, cache_key, generation)
+        self.reserve_loaded(
+            &mut data,
+            workspace,
+            now,
+            cache_key,
+            generation,
+            bypass_min_interval,
+            bypass_min_interval,
+        )
     }
 
     /// Caller owns the persistence lease and runtime-data mutex through the write.
@@ -380,6 +409,8 @@ impl TaskmasterRuntime {
         now: &str,
         cache_key: Option<&str>,
         generation: Option<u64>,
+        bypass_min_interval: bool,
+        allow_disabled: bool,
     ) -> Result<bool, String> {
         let Some(workspace) = canonical_workspace_key(workspace) else {
             return Ok(false);
@@ -391,7 +422,7 @@ impl TaskmasterRuntime {
             return Ok(false);
         }
         let effective = effective_settings(&data.settings, &workspace);
-        if !effective.enabled || effective.selection.is_none() {
+        if (!allow_disabled && !effective.enabled) || effective.selection.is_none() {
             return Ok(false);
         }
         let day = now
@@ -414,14 +445,16 @@ impl TaskmasterRuntime {
         }) {
             return Ok(false);
         }
-        if let Some(last) = data.ledger.workspace_last_evaluated.get(&workspace) {
-            let last = chrono::DateTime::parse_from_rfc3339(last).ok();
-            let current = chrono::DateTime::parse_from_rfc3339(now).ok();
-            if last.zip(current).is_some_and(|(last, current)| {
-                current.signed_duration_since(last).num_minutes()
-                    < i64::from(effective.min_interval_minutes)
-            }) {
-                return Ok(false);
+        if !bypass_min_interval {
+            if let Some(last) = data.ledger.workspace_last_evaluated.get(&workspace) {
+                let last = chrono::DateTime::parse_from_rfc3339(last).ok();
+                let current = chrono::DateTime::parse_from_rfc3339(now).ok();
+                if last.zip(current).is_some_and(|(last, current)| {
+                    current.signed_duration_since(last).num_minutes()
+                        < i64::from(effective.min_interval_minutes)
+                }) {
+                    return Ok(false);
+                }
             }
         }
         data.ledger.reservations = data.ledger.reservations.saturating_add(1);
@@ -433,18 +466,35 @@ impl TaskmasterRuntime {
     }
 
     pub(crate) fn evaluation_snapshot(&self, workspace: &Path) -> Option<EvaluationSnapshot> {
+        self.evaluation_snapshot_with_disabled(workspace, false)
+    }
+
+    pub(crate) fn manual_evaluation_snapshot(
+        &self,
+        workspace: &Path,
+    ) -> Option<EvaluationSnapshot> {
+        self.evaluation_snapshot_with_disabled(workspace, true)
+    }
+
+    fn evaluation_snapshot_with_disabled(
+        &self,
+        workspace: &Path,
+        allow_disabled: bool,
+    ) -> Option<EvaluationSnapshot> {
         let workspace = canonical_workspace_key(workspace)?;
         let data = self.data.lock().expect("taskmaster runtime lock poisoned");
         if !data.ledger_readable {
             return None;
         }
         let settings = effective_settings(&data.settings, &workspace);
-        (settings.enabled && settings.selection.is_some()).then(|| EvaluationSnapshot {
-            settings,
-            knowledge: data.knowledge.clone(),
-            generation: data.ledger.generation,
-            custom_inference: None,
-            native_revision: None,
+        ((allow_disabled || settings.enabled) && settings.selection.is_some()).then(|| {
+            EvaluationSnapshot {
+                settings,
+                knowledge: data.knowledge.clone(),
+                generation: data.ledger.generation,
+                custom_inference: None,
+                native_revision: None,
+            }
         })
     }
 
@@ -997,6 +1047,94 @@ mod tests {
         let ledger: EvaluationLedger =
             read_json(directory.path().join("evaluations.json")).unwrap();
         assert_eq!(ledger.reservations, 3);
+    }
+
+    #[test]
+    fn manual_snapshot_allows_disabled_background_discovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let mut settings = configured();
+        settings.enabled = false;
+        runtime.replace_settings(settings).unwrap();
+
+        assert!(runtime.evaluation_snapshot(directory.path()).is_none());
+        let snapshot = runtime
+            .manual_evaluation_snapshot(directory.path())
+            .expect("manual analysis should work while background discovery is disabled");
+        assert!(runtime
+            .reserve_current_manual(
+                directory.path(),
+                "2026-09-09T00:00:00Z",
+                Some("manual"),
+                Some(snapshot.generation),
+            )
+            .unwrap());
+    }
+
+    #[test]
+    fn manual_reservation_bypasses_cooldown_but_keeps_cache_and_daily_limits() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let mut settings = configured();
+        settings.daily_evaluation_limit = 2;
+        runtime.replace_settings(settings).unwrap();
+        let generation = runtime
+            .evaluation_snapshot(directory.path())
+            .unwrap()
+            .generation;
+
+        assert!(runtime
+            .reserve_current(
+                directory.path(),
+                "2026-09-09T00:00:00Z",
+                Some("first"),
+                Some(generation)
+            )
+            .unwrap());
+        let workspace_key = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
+        let mut ledger: EvaluationLedger =
+            read_json(directory.path().join("evaluations.json")).unwrap();
+        ledger
+            .workspace_cache_keys
+            .insert(workspace_key, "accepted".into());
+        write_json(&directory.path().join("evaluations.json"), &ledger).unwrap();
+        assert!(!runtime
+            .reserve_current(
+                directory.path(),
+                "2026-09-09T00:00:30Z",
+                Some("second"),
+                Some(generation)
+            )
+            .unwrap());
+        assert!(!runtime
+            .reserve_current_manual(
+                directory.path(),
+                "2026-09-09T00:00:30Z",
+                Some("accepted"),
+                Some(generation)
+            )
+            .unwrap());
+        assert!(runtime
+            .reserve_current_manual(
+                directory.path(),
+                "2026-09-09T00:00:30Z",
+                Some("second"),
+                Some(generation)
+            )
+            .unwrap());
+        assert!(!runtime
+            .reserve_current_manual(
+                directory.path(),
+                "2026-09-09T00:02:00Z",
+                Some("third"),
+                Some(generation)
+            )
+            .unwrap());
     }
 
     #[test]

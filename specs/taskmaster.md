@@ -928,6 +928,7 @@ Proposed HTTP endpoints:
 - `POST /taskmaster/recommendations/:id/complete` — authenticated target-agent completion report
 - `POST /taskmaster/recommendations/:id/dismiss` — dismiss with an optional reason
 - `POST /taskmaster/recommendations/:id/refresh` — reevaluate against current state
+- `POST /taskmaster/analyze` — request an immediate Brain-backed evaluation for the selected workspace, subject to the daily allowance and the active-improvement gate
 
 Proposed WebSocket event:
 
@@ -1087,6 +1088,7 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - recommendation cards
 - evidence details
 - dismiss and refresh
+- **Analyze now** for Brain-backed recommendations; bypass the workspace cooldown while consuming the daily allowance, and direct the user to an outstanding Brain recommendation before another analysis can run
 
 ### Phase 4 — Approved session launch
 
@@ -1128,6 +1130,7 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly, except through the user-confirmed `improve_workflow` `accept` action, which submits a generated prompt into the user's own active session (never a session Taskmaster chose or started) and never edits files itself.
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
 - [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, `accepted`, or `completed` status.
+- [ ] A manual Brain analysis bypasses only the per-workspace cooldown, consumes the daily allowance, and is refused while a Brain-derived `improve_workflow` recommendation is proposed, accepted, or executing; deterministic observation-only recommendations do not block it, and the user is directed to the existing Fix with AI handoff for a Brain recommendation.
 - [ ] A Fix with AI prompt contains the stable recommendation ID and directs the target agent to use the `working-on-recommendation` skill to read the recommendation and its source-session evidence.
 - [ ] An authenticated target agent can transition an accepted `improve_workflow` recommendation to `completed`; the callback cannot name a different target session or lifecycle state, and retries are idempotent.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.

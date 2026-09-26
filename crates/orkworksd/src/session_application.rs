@@ -16,9 +16,67 @@ use crate::{git, metadata, migration, AppState, WorkspaceState};
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+
+static PENDING_RECOMMENDATION_DELIVERIES: OnceLock<Mutex<HashSet<(PathBuf, String)>>> =
+    OnceLock::new();
+
+fn pending_recommendation_deliveries() -> &'static Mutex<HashSet<(PathBuf, String)>> {
+    PENDING_RECOMMENDATION_DELIVERIES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+struct RecommendationDeliveryGuard((PathBuf, String));
+
+impl RecommendationDeliveryGuard {
+    fn new(workspace_path: &Path, recommendation_id: &str) -> Self {
+        let key = (workspace_path.to_path_buf(), recommendation_id.to_string());
+        pending_recommendation_deliveries()
+            .lock()
+            .expect("pending recommendation lock poisoned")
+            .insert(key.clone());
+        Self(key)
+    }
+}
+
+impl Drop for RecommendationDeliveryGuard {
+    fn drop(&mut self) {
+        pending_recommendation_deliveries()
+            .lock()
+            .expect("pending recommendation lock poisoned")
+            .remove(&self.0);
+    }
+}
+
+pub(crate) fn recommendation_delivery_in_flight(
+    workspace_path: &Path,
+    recommendation_id: &str,
+) -> bool {
+    pending_recommendation_deliveries()
+        .lock()
+        .expect("pending recommendation lock poisoned")
+        .contains(&(workspace_path.to_path_buf(), recommendation_id.to_string()))
+}
+
+pub(crate) fn recommendation_delivery_in_flight_id(recommendation_id: &str) -> bool {
+    pending_recommendation_deliveries()
+        .lock()
+        .expect("pending recommendation lock poisoned")
+        .iter()
+        .any(|(_, pending_id)| pending_id == recommendation_id)
+}
+
+pub(crate) fn recommendation_deliveries_in_flight_for_workspace(
+    workspace_path: &Path,
+) -> HashSet<String> {
+    pending_recommendation_deliveries()
+        .lock()
+        .expect("pending recommendation lock poisoned")
+        .iter()
+        .filter_map(|(path, id)| (path == workspace_path).then(|| id.clone()))
+        .collect()
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionError {
@@ -741,6 +799,9 @@ impl SessionApplication {
         let workspace = workspace_guard
             .as_ref()
             .ok_or(RecommendationDismissError::Conflict)?;
+        if recommendation_delivery_in_flight(&workspace.path, id) {
+            return Err(RecommendationDismissError::Conflict);
+        }
         let Some(existing) = workspace
             .recommendation_store
             .get(id)
@@ -749,7 +810,10 @@ impl SessionApplication {
             return Ok(None);
         };
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
-            || existing.status != RecommendationStatus::Proposed
+            || !matches!(
+                existing.status,
+                RecommendationStatus::Proposed | RecommendationStatus::Executing
+            )
         {
             return Err(RecommendationDismissError::Conflict);
         }
@@ -835,7 +899,7 @@ impl SessionApplication {
         prompt_override: Option<String>,
         packet_mutation: Option<CompletionMutationRequest>,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
-        let (prompt, title) = {
+        let (prompt, title, _delivery_guard) = {
             let workspace_guard = self.state.workspace.lock().unwrap();
             let workspace = workspace_guard
                 .as_ref()
@@ -889,7 +953,9 @@ impl SessionApplication {
                     .ok_or(RecommendationAcceptError::Conflict)?;
                 prompt
             };
-            (prompt, recommendation.title.clone())
+            let delivery_guard =
+                RecommendationDeliveryGuard::new(&workspace.path, &recommendation.id);
+            (prompt, recommendation.title.clone(), delivery_guard)
         };
 
         let delivery = crate::runtime::terminal_runtime::submit_approved_input(
@@ -2482,14 +2548,6 @@ impl SessionApplication {
             .into_iter()
             .map(|session| session.id)
             .collect::<std::collections::HashSet<_>>();
-        if let Err(error) = recommendation_store
-            .recover_orphaned_packet_executions(&retained_session_ids, iso_now())
-        {
-            tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned completion packets");
-            return Err(SessionError::Internal(
-                "failed to recover orphaned completion packets",
-            ));
-        }
         if let Err(error) = recommendation_store.scrub_orphans(&retained_session_ids) {
             tracing::warn!(path = %global_dir.display(), %error, "failed to scrub orphaned recommendations");
             return Err(SessionError::Internal(
@@ -2512,8 +2570,9 @@ impl SessionApplication {
                 .sessions
                 .lock()
                 .unwrap()
-                .keys()
-                .cloned()
+                .iter()
+                .filter(|(_, handle)| handle.info.has_live_runtime())
+                .map(|(id, _)| id.clone())
                 .collect();
             for session in workspace.metadata.read_all_sessions() {
                 if (session.status == "running" || session.status == "creating")
@@ -2523,6 +2582,18 @@ impl SessionApplication {
                         .metadata
                         .write_session(&metadata::reconcile_orphaned_session(session, &now));
                 }
+            }
+            let protected_deliveries =
+                recommendation_deliveries_in_flight_for_workspace(&workspace.path);
+            if let Err(error) = workspace.recommendation_store.recover_orphaned_executions(
+                &live_ids,
+                &protected_deliveries,
+                now,
+            ) {
+                tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned recommendation executions");
+                return Err(SessionError::Internal(
+                    "failed to recover orphaned recommendation executions",
+                ));
             }
         }
 
@@ -9803,6 +9874,60 @@ mod tests {
             crate::taskmaster::RecommendationStatus::Dismissed
         );
         assert!(reloaded.workflow_improvement.dismissal_watermark.is_some());
+    }
+
+    #[test]
+    fn dismiss_recommendation_can_recover_a_stuck_execution() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "stuck-execution");
+        let workspace = state.workspace.lock().unwrap();
+        workspace
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .begin_execution(
+                &recommendation_id,
+                "active-session".into(),
+                "2026-09-24T10:07:00Z".into(),
+            )
+            .unwrap();
+        drop(workspace);
+
+        let delivery_guard = RecommendationDeliveryGuard::new(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path
+                .as_path(),
+            &recommendation_id,
+        );
+        assert!(recommendation_deliveries_in_flight_for_workspace(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path
+                .as_path()
+        )
+        .contains(&recommendation_id));
+        assert!(matches!(
+            SessionApplication::new(state.clone()).dismiss_recommendation(&recommendation_id),
+            Err(RecommendationDismissError::Conflict)
+        ));
+        drop(delivery_guard);
+
+        let dismissed = SessionApplication::new(state)
+            .dismiss_recommendation(&recommendation_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(dismissed.status, RecommendationStatus::Dismissed);
     }
 
     fn proposed_recommendation_id(state: &Arc<AppState>, key_prefix: &str) -> String {

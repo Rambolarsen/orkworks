@@ -165,6 +165,64 @@ fn provider_cache_key(
     Ok(hex::encode(sha2::Sha256::digest(identity)))
 }
 
+fn manual_workspace_dispatch_gate(
+    state: &AppState,
+    expected_path: &std::path::Path,
+    expected_instance: u64,
+    start_dispatch: &mut dyn FnMut() -> std::io::Result<()>,
+) -> Option<std::io::Result<()>> {
+    let workspace = state.workspace.lock().expect("workspace lock poisoned");
+    let Some(current) = workspace.as_ref() else {
+        return None;
+    };
+    if current.path != expected_path
+        || current.workflow_observations.instance_id() != expected_instance
+    {
+        return None;
+    }
+    let still_current = current
+        .recommendation_store
+        .list()
+        .ok()
+        .is_some_and(|recommendations| {
+            crate::taskmaster::active_workflow_recommendation(&recommendations).is_none()
+        });
+    still_current.then(|| start_dispatch())
+}
+
+fn native_workspace_dispatch_gate(
+    state: &AppState,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    expected_path: &std::path::Path,
+    expected_instance: u64,
+    require_no_active_recommendation: bool,
+    start_dispatch: &mut dyn FnMut() -> std::io::Result<()>,
+) -> Option<std::io::Result<()>> {
+    let mut dispatch_result = None;
+    let snapshot_is_current = runtime
+        .with_current_native_evaluation(&state.harness_store, expected_path, snapshot, || {
+            let workspace = state.workspace.lock().expect("workspace lock poisoned");
+            let Some(current) = workspace.as_ref().filter(|current| {
+                current.path == expected_path
+                    && current.workflow_observations.instance_id() == expected_instance
+            }) else {
+                return;
+            };
+            if require_no_active_recommendation {
+                let Ok(recommendations) = current.recommendation_store.list() else {
+                    return;
+                };
+                if crate::taskmaster::active_workflow_recommendation(&recommendations).is_some() {
+                    return;
+                }
+            }
+            dispatch_result = Some(start_dispatch());
+        })
+        .unwrap_or(false);
+    snapshot_is_current.then_some(dispatch_result).flatten()
+}
+
 fn parse_provider_response(
     output: &str,
     snapshots: Option<&[RollupFamilySnapshot]>,
@@ -217,43 +275,90 @@ struct ModelProposal {
 }
 
 fn schedule_model_evaluation(state: Arc<AppState>) {
+    let _ = schedule_model_evaluation_with_workspace(state, None, None);
+}
+
+pub(crate) fn schedule_manual_evaluation(
+    state: Arc<AppState>,
+    workspace_path: std::path::PathBuf,
+) -> bool {
+    let Some(root) = taskmaster_global_dir() else {
+        return false;
+    };
+    schedule_model_evaluation_with_workspace(state, Some(workspace_path), Some(root))
+}
+
+fn schedule_model_evaluation_with_workspace(
+    state: Arc<AppState>,
+    manual_workspace: Option<std::path::PathBuf>,
+    lease_root: Option<std::path::PathBuf>,
+) -> bool {
+    if tokio::runtime::Handle::try_current().is_err() {
+        return false;
+    }
     {
         let mut in_flight = ANALYSIS_IN_FLIGHT
             .lock()
             .expect("Taskmaster scheduler lock poisoned");
         if *in_flight {
-            return;
+            return false;
         }
-        *in_flight = true;
-    }
-    tokio::task::spawn_blocking(move || {
-        struct Flight;
-        impl Drop for Flight {
-            fn drop(&mut self) {
-                clear_in_flight();
+        let lease = if let Some(root) = lease_root {
+            match TaskmasterRuntime::open(root).try_analysis_lease() {
+                Ok(Some(lease)) => Some(lease),
+                Ok(None) | Err(_) => return false,
             }
-        }
-        let _flight = Flight;
-        run_model_evaluation(state);
-    });
+        } else {
+            None
+        };
+        *in_flight = true;
+        tokio::task::spawn_blocking(move || {
+            struct Flight;
+            impl Drop for Flight {
+                fn drop(&mut self) {
+                    clear_in_flight();
+                }
+            }
+            let _flight = Flight;
+            run_model_evaluation_with_workspace(state, manual_workspace, lease);
+        });
+    }
+    true
 }
 
-fn run_model_evaluation(state: Arc<AppState>) {
+fn run_model_evaluation_with_workspace(
+    state: Arc<AppState>,
+    manual_workspace: Option<std::path::PathBuf>,
+    analysis_lease: Option<std::fs::File>,
+) {
     let Some(root) = taskmaster_global_dir() else {
         return;
     };
-    run_model_evaluation_at(state, root);
+    run_model_evaluation_at_with_workspace(state, root, manual_workspace, analysis_lease);
 }
 
+#[cfg(test)]
 fn run_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
-    run_model_evaluation_with_context(
+    run_model_evaluation_at_with_workspace(state, root, None, None);
+}
+
+fn run_model_evaluation_at_with_workspace(
+    state: Arc<AppState>,
+    root: std::path::PathBuf,
+    manual_workspace: Option<std::path::PathBuf>,
+    analysis_lease: Option<std::fs::File>,
+) {
+    run_model_evaluation_with_context_and_workspace(
         state,
         root,
         crate::taskmaster::context::collect_repository_facts,
+        manual_workspace,
+        analysis_lease,
     );
 }
 
 /// The collector is invoked only after readiness and identity are established.
+#[cfg(test)]
 fn run_model_evaluation_with_context(
     state: Arc<AppState>,
     root: std::path::PathBuf,
@@ -264,27 +369,66 @@ fn run_model_evaluation_with_context(
         &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
 ) {
+    run_model_evaluation_with_context_and_workspace(state, root, collect_facts, None, None);
+}
+
+fn run_model_evaluation_with_context_and_workspace(
+    state: Arc<AppState>,
+    root: std::path::PathBuf,
+    collect_facts: impl FnOnce(
+        &std::path::Path,
+        crate::taskmaster::runtime::ContextLevel,
+        &[String],
+        &str,
+    ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
+    manual_workspace: Option<std::path::PathBuf>,
+    analysis_lease: Option<std::fs::File>,
+) {
     let (workspace_path, workspace_instance, observations, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
             return;
         };
+        if manual_workspace
+            .as_ref()
+            .is_some_and(|expected| expected != &workspace.path)
+        {
+            return;
+        }
         let Ok(observations) = workspace.workflow_observations.workspace_observations() else {
             return;
+        };
+        let recommendations = match workspace.recommendation_store.list() {
+            Ok(recommendations) => recommendations,
+            Err(_) if manual_workspace.is_some() => return,
+            Err(_) => Vec::new(),
         };
         (
             workspace.path.clone(),
             workspace.workflow_observations.instance_id(),
             observations,
-            workspace.recommendation_store.list().unwrap_or_default(),
+            recommendations,
         )
     };
+    if manual_workspace.is_some()
+        && crate::taskmaster::active_workflow_recommendation(&recommendations).is_some()
+    {
+        return;
+    }
     let trust = super::inference_trust::InferenceTrustStore::new(root.clone());
     let runtime = TaskmasterRuntime::open(root);
-    let Ok(Some(_lease)) = runtime.try_analysis_lease() else {
-        return;
+    let _lease = match analysis_lease {
+        Some(lease) => lease,
+        None => match runtime.try_analysis_lease() {
+            Ok(Some(lease)) => lease,
+            Ok(None) | Err(_) => return,
+        },
     };
-    let Some(mut snapshot) = runtime.evaluation_snapshot(&workspace_path) else {
+    let Some(mut snapshot) = (if manual_workspace.is_some() {
+        runtime.manual_evaluation_snapshot(&workspace_path)
+    } else {
+        runtime.evaluation_snapshot(&workspace_path)
+    }) else {
         return;
     };
     let Ok(providers) = super::provider_catalog::inspect(&state.harness_store, Some(&trust)) else {
@@ -360,14 +504,66 @@ fn run_model_evaluation_with_context(
     let Ok(cache_key) = provider_cache_key(&snapshot, &prompt, rollup_request.as_ref()) else {
         return;
     };
-    let Ok(true) = runtime.reserve_snapshot(
-        &state.harness_store,
-        &workspace_path,
-        &now,
-        &cache_key,
-        &snapshot,
-    ) else {
+    let reservation = if manual_workspace.is_some() {
+        // Accept/fix-with-AI also takes the workspace lock before transitioning
+        // a recommendation to executing. Validate and reserve under that same
+        // lock so the manual run has one clear admission point: either the
+        // active recommendation wins, or this analysis reserves first.
+        let workspace = state.workspace.lock().expect("workspace lock poisoned");
+        let Some(current) = workspace.as_ref() else {
+            return;
+        };
+        if current.path != workspace_path
+            || current.workflow_observations.instance_id() != workspace_instance
+        {
+            return;
+        }
+        let Ok(current_recommendations) = current.recommendation_store.list() else {
+            return;
+        };
+        if crate::taskmaster::active_workflow_recommendation(&current_recommendations).is_some() {
+            return;
+        }
+        runtime.reserve_manual_snapshot(
+            &state.harness_store,
+            &workspace_path,
+            &now,
+            &cache_key,
+            &snapshot,
+        )
+    } else {
+        runtime.reserve_snapshot(
+            &state.harness_store,
+            &workspace_path,
+            &now,
+            &cache_key,
+            &snapshot,
+        )
+    };
+    let Ok(true) = reservation else {
         return;
+    };
+    let mut dispatch_gate = |start_dispatch: &mut dyn FnMut() -> std::io::Result<()>| {
+        if snapshot.custom_inference.is_none() {
+            native_workspace_dispatch_gate(
+                &state,
+                &runtime,
+                &snapshot,
+                &workspace_path,
+                workspace_instance,
+                manual_workspace.is_some(),
+                start_dispatch,
+            )
+        } else if manual_workspace.is_some() {
+            manual_workspace_dispatch_gate(
+                &state,
+                &workspace_path,
+                workspace_instance,
+                start_dispatch,
+            )
+        } else {
+            Some(start_dispatch())
+        }
     };
     let providers = state.providers.clone();
     {
@@ -377,14 +573,20 @@ fn run_model_evaluation_with_context(
             .as_ref()
             .expect("snapshot requires selection");
         let result = if let Some(captured) = &snapshot.custom_inference {
-            runtime.invoke_custom_inference(&state.harness_store, captured, prompt)
+            runtime.invoke_custom_inference_with_dispatch_gate(
+                &state.harness_store,
+                captured,
+                prompt,
+                &mut dispatch_gate,
+            )
         } else if let Some(native) = &snapshot.native_revision {
-            providers.invoke_native_taskmaster_prompt(
+            providers.invoke_native_taskmaster_prompt_with_dispatch_gate(
                 native.profile,
                 &selection.model,
                 selection.reasoning_effort.as_deref(),
                 selection.ollama_base_url.as_deref(),
                 prompt,
+                &mut dispatch_gate,
             )
         } else {
             return;
@@ -448,9 +650,12 @@ fn bind_evaluation_transport(
         }
         super::provider_catalog::Transport::Unsupported => false,
         super::provider_catalog::Transport::Custom => {
-            let Ok(Some(captured)) =
+            let capture = if snapshot.settings.enabled {
                 runtime.capture_custom_inference(harnesses, workspace, snapshot)
-            else {
+            } else {
+                runtime.capture_manual_custom_inference(harnesses, workspace, snapshot)
+            };
+            let Ok(Some(captured)) = capture else {
                 return false;
             };
             snapshot.custom_inference = Some(captured);

@@ -75,6 +75,40 @@ impl Fixture {
 }
 
 #[test]
+fn manual_capture_allows_approved_custom_provider_when_background_is_disabled() {
+    let fixture = Fixture::new();
+    fixture.approve();
+    let mut settings = fixture.runtime.status(Some(fixture.dir.path())).settings;
+    settings.enabled = false;
+    fixture.runtime.replace_settings(settings).unwrap();
+    let adapters =
+        inference_approval::inspect_adapters(&fixture.harnesses, &fixture.trust).unwrap();
+    assert!(adapters.iter().any(|adapter| adapter.state == "approved"));
+    let snapshot = fixture
+        .runtime
+        .manual_evaluation_snapshot(fixture.dir.path())
+        .unwrap();
+    assert_eq!(
+        fixture.runtime.data.lock().unwrap().ledger.generation,
+        snapshot.generation
+    );
+    assert!(!snapshot.settings.enabled);
+    assert_eq!(
+        fixture
+            .runtime
+            .status(Some(fixture.dir.path()))
+            .effective_settings,
+        snapshot.settings
+    );
+
+    assert!(fixture
+        .runtime
+        .capture_manual_custom_inference(&fixture.harnesses, fixture.dir.path(), &snapshot)
+        .unwrap()
+        .is_some());
+}
+
+#[test]
 fn custom_action_rejects_revocation_and_reapproval_even_with_identical_definition() {
     let fixture = Fixture::new();
     let snapshot = fixture

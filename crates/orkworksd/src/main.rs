@@ -56,8 +56,8 @@ use crate::http::session_handlers::{
     resume_session, select_terminal_plan, set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::http::taskmaster_handlers::{
-    accept_recommendation, complete_recommendation, dismiss_recommendation, get_recommendation,
-    list_recommendations, report_completion_packet,
+    accept_recommendation, analyze_taskmaster, complete_recommendation, dismiss_recommendation,
+    get_recommendation, list_recommendations, report_completion_packet,
 };
 use crate::http::taskmaster_settings_handlers::{
     get_taskmaster_settings, post_taskmaster_knowledge, set_taskmaster_settings,
@@ -404,6 +404,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             post(request_session_plan_review),
         )
         .route("/settings/retention", post(set_retention))
+        .route("/taskmaster/analyze", post(analyze_taskmaster))
         .route("/taskmaster/recommendations", get(list_recommendations))
         .route("/taskmaster/recommendations/:id", get(get_recommendation))
         .route(

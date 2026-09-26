@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   dismissTaskmasterRecommendation,
   getTaskmasterRecommendation,
   getTaskmasterRecommendations,
@@ -23,6 +24,22 @@ interface RecommendationsPanelProps {
   onSelectSession?: (id: string) => void;
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
   focusedRecommendationId?: string | null;
+}
+
+function isActiveBrainRecommendation(recommendation: WorkflowRecommendation): boolean {
+  const brainDerived = recommendation.dedupeKey.startsWith("proactive:v1:")
+    || recommendation.dedupeKey.startsWith("rollup:v1:");
+  return brainDerived
+    && recommendation.type === "improve_workflow"
+    && (recommendation.status === "proposed"
+      || recommendation.status === "accepted"
+      || recommendation.status === "executing");
+}
+
+function activeRecommendationMessage(recommendation: WorkflowRecommendation): string {
+  return recommendation.status === "proposed"
+    ? "A Brain recommendation is already waiting. Implement it with Fix with AI before requesting another analysis."
+    : "A Brain recommendation is already being handled. Complete it before requesting another analysis.";
 }
 
 function DiagnosticList({ diagnostics }: { diagnostics: ObservationDiagnostic[] }) {
@@ -140,7 +157,14 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
   const [error, setError] = useState<string>();
   const [dismissing, setDismissing] = useState<string>();
   const [dismissErrors, setDismissErrors] = useState<Record<string, string>>({});
+  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisMessage, setAnalysisMessage] = useState<string>();
+  const [analysisError, setAnalysisError] = useState<string>();
+  const [blockedRecommendation, setBlockedRecommendation] = useState<WorkflowRecommendation>();
+  const [blockedRecommendationId, setBlockedRecommendationId] = useState<string>();
+  const [blockedRecommendationRecoveryAllowed, setBlockedRecommendationRecoveryAllowed] = useState(false);
   const refreshGeneration = useRef(0);
+  const workspaceGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!hasWorkspace || !taskmasterReady) return;
@@ -150,6 +174,28 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
       const response = await getTaskmasterRecommendations(baseUrl);
       let nextRecommendations = response.recommendations;
+      if (blockedRecommendationId) {
+        try {
+          const blocked = await getTaskmasterRecommendation(baseUrl, blockedRecommendationId);
+          if (generation !== refreshGeneration.current) return;
+          if (isActiveBrainRecommendation(blocked)) {
+            setBlockedRecommendation(blocked);
+          } else {
+            setBlockedRecommendation(undefined);
+            setBlockedRecommendationId(undefined);
+            setBlockedRecommendationRecoveryAllowed(false);
+            setAnalysisMessage(undefined);
+          }
+        } catch (cause) {
+          if (cause instanceof ApiError && cause.status === 404) {
+            if (generation !== refreshGeneration.current) return;
+            setBlockedRecommendation(undefined);
+            setBlockedRecommendationId(undefined);
+            setBlockedRecommendationRecoveryAllowed(false);
+            setAnalysisMessage(undefined);
+          }
+        }
+      }
       if (
         focusedRecommendationId
         && !nextRecommendations.some((item) => item.id === focusedRecommendationId)
@@ -170,7 +216,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       if (generation !== refreshGeneration.current) return;
       setError(cause instanceof Error ? cause.message : "Couldn't load recommendations.");
     }
-  }, [focusedRecommendationId, hasWorkspace, taskmasterReady]);
+  }, [blockedRecommendationId, focusedRecommendationId, hasWorkspace, taskmasterReady]);
 
   useEffect(() => {
     // The panel mounts as part of the default layout, before the sidecar's
@@ -183,15 +229,29 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     // it visible until the next successful poll.
     if (!hasWorkspace) {
       ++refreshGeneration.current;
+      ++workspaceGeneration.current;
       setRecommendations([]);
       setDiagnostics([]);
+      setBlockedRecommendation(undefined);
+      setBlockedRecommendationId(undefined);
+      setBlockedRecommendationRecoveryAllowed(false);
+      setAnalysisBusy(false);
+      setAnalysisMessage(undefined);
+      setAnalysisError(undefined);
       setError(undefined);
       return;
     }
     if (!taskmasterReady) {
       ++refreshGeneration.current;
+      ++workspaceGeneration.current;
       setRecommendations([]);
       setDiagnostics([]);
+      setBlockedRecommendation(undefined);
+      setBlockedRecommendationId(undefined);
+      setBlockedRecommendationRecoveryAllowed(false);
+      setAnalysisBusy(false);
+      setAnalysisMessage(undefined);
+      setAnalysisError(undefined);
       setError(undefined);
       return;
     }
@@ -205,6 +265,36 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       window.clearInterval(timer);
     };
   }, [refresh, hasWorkspace, taskmasterReady]);
+
+  async function analyzeNow() {
+    if (!hasWorkspace || !taskmasterReady || analysisBusy) return;
+
+    setAnalysisBusy(true);
+    setAnalysisError(undefined);
+    setAnalysisMessage(undefined);
+    const generation = workspaceGeneration.current;
+    try {
+      const result = await window.orkworks.requestTaskmasterAnalysis();
+      if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
+      if (result.status === "active_recommendation" && result.recommendation) {
+        setBlockedRecommendation(result.recommendation);
+        setBlockedRecommendationId(result.recommendation.id);
+        setBlockedRecommendationRecoveryAllowed(result.recoveryAllowed);
+        setAnalysisMessage(activeRecommendationMessage(result.recommendation));
+      } else {
+        setBlockedRecommendation(undefined);
+        setBlockedRecommendationId(undefined);
+        setBlockedRecommendationRecoveryAllowed(false);
+        setAnalysisMessage(result.message);
+      }
+      if (result.status === "scheduled" || result.status === "active_recommendation") void refresh();
+    } catch (cause) {
+      if (generation !== workspaceGeneration.current) return;
+      setAnalysisError(cause instanceof Error ? cause.message : "Couldn't start Brain analysis.");
+    } finally {
+      if (generation === workspaceGeneration.current) setAnalysisBusy(false);
+    }
+  }
 
   async function dismiss(id: string) {
     if (!hasWorkspace || !taskmasterReady) return;
@@ -236,8 +326,23 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     <section className="recommendations-panel">
       <div className="recommendations-panel-header">
         <div><h2>Recommendations</h2><p>Evidence-backed workflow improvements.</p></div>
-        <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
+        <div className="recommendations-panel-actions">
+          <button type="button" disabled={!hasWorkspace || !taskmasterReady || analysisBusy} onClick={() => void analyzeNow()}>
+            {analysisBusy ? "Requesting…" : "Analyze now"}
+          </button>
+          <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
+        </div>
       </div>
+      {analysisMessage && <div className="recommendation-analysis-status" role="status">
+        {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
+        <p>{analysisMessage}</p>
+        {blockedRecommendation?.status === "executing" && blockedRecommendationRecoveryAllowed && <button
+          type="button"
+          disabled={dismissing === blockedRecommendation.id}
+          onClick={() => void dismiss(blockedRecommendation.id)}
+        >{dismissing === blockedRecommendation.id ? "Recovering…" : "Recover stuck recommendation"}</button>}
+      </div>}
+      {analysisError && <p className="recommendation-error" role="alert">{analysisError}</p>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />
       {visibleRecommendations.length === 0 && diagnostics.length === 0 && !error ? (

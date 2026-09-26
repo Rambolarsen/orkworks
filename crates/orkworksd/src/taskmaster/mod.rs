@@ -38,6 +38,26 @@ pub(crate) enum RecommendationStatus {
     Failed,
 }
 
+pub(crate) fn active_workflow_recommendation(
+    recommendations: &[Recommendation],
+) -> Option<&Recommendation> {
+    recommendations.iter().find(|recommendation| {
+        is_brain_workflow_recommendation(recommendation)
+            && matches!(
+                recommendation.status,
+                RecommendationStatus::Proposed
+                    | RecommendationStatus::Accepted
+                    | RecommendationStatus::Executing
+            )
+    })
+}
+
+pub(crate) fn is_brain_workflow_recommendation(recommendation: &Recommendation) -> bool {
+    recommendation.recommendation_type == RecommendationType::ImproveWorkflow
+        && (recommendation.dedupe_key.starts_with("proactive:v1:")
+            || recommendation.dedupe_key.starts_with("rollup:v1:"))
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RecommendationConfidence {
@@ -820,6 +840,55 @@ mod tests {
         assert_eq!(proposals[0].confidence, RecommendationConfidence::Medium);
         assert!(!proposals[0].requires_approval);
         assert_eq!(proposals[0].target_session_id, None);
+    }
+
+    #[test]
+    fn only_active_brain_improvements_block_another_analysis() {
+        let mut recommendation = evaluate_workflow_improvements(
+            &[
+                observation("one", 1, "session-a", 0.8, Impact::Low),
+                observation("two", 2, "session-b", 0.8, Impact::Low),
+            ],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        )
+        .pop()
+        .unwrap();
+
+        for status in [
+            RecommendationStatus::Proposed,
+            RecommendationStatus::Accepted,
+            RecommendationStatus::Executing,
+        ] {
+            recommendation.status = status;
+            assert!(
+                active_workflow_recommendation(std::slice::from_ref(&recommendation)).is_none()
+            );
+        }
+        recommendation.dedupe_key = "proactive:v1:documentation:fact-hash".into();
+        for status in [
+            RecommendationStatus::Proposed,
+            RecommendationStatus::Accepted,
+            RecommendationStatus::Executing,
+        ] {
+            recommendation.status = status;
+            assert!(
+                active_workflow_recommendation(std::slice::from_ref(&recommendation)).is_some()
+            );
+        }
+        recommendation.dedupe_key = "rollup:v1:brain-derived".into();
+        assert!(active_workflow_recommendation(std::slice::from_ref(&recommendation)).is_some());
+        for status in [
+            RecommendationStatus::Completed,
+            RecommendationStatus::Dismissed,
+            RecommendationStatus::Failed,
+        ] {
+            recommendation.status = status;
+            assert!(
+                active_workflow_recommendation(std::slice::from_ref(&recommendation)).is_none()
+            );
+        }
     }
 
     #[test]

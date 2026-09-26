@@ -59,6 +59,49 @@ fn resolve(snapshot: &HarnessSnapshot, id: &str) -> Option<(AdapterIdentity, Inf
 }
 
 impl TaskmasterRuntime {
+    /// Hold the native harness revision and Taskmaster snapshot identity
+    /// through a provider side effect such as process spawn or HTTP send.
+    pub(crate) fn with_current_native_evaluation(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        apply: impl FnOnce(),
+    ) -> Result<bool, String> {
+        let Some(revision) = &snapshot.native_revision else {
+            return Ok(false);
+        };
+        let Some(selection) = snapshot.settings.selection.as_ref() else {
+            return Ok(false);
+        };
+        if revision.profile.id() != selection.provider {
+            return Ok(false);
+        }
+        let Some(workspace_key) = canonical_workspace_key(workspace) else {
+            return Ok(false);
+        };
+
+        harnesses
+            .with_locked_snapshot(|current| {
+                if current.document_revision != revision.document_revision {
+                    return Ok(false);
+                }
+                let _guard = PersistenceGuard::acquire(&self.root)?;
+                let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+                reload_durable(&self.root, &mut data);
+                if !data.ledger_readable
+                    || data.ledger.generation != snapshot.generation
+                    || effective_settings(&data.settings, &workspace_key) != snapshot.settings
+                    || data.knowledge != snapshot.knowledge
+                {
+                    return Ok(false);
+                }
+                apply();
+                Ok(true)
+            })
+            .map_err(|_| "native inference configuration unavailable".to_string())?
+    }
+
     pub(super) fn with_current_native_rollup_evaluation(
         &self,
         harnesses: &HarnessStore,
@@ -209,6 +252,29 @@ impl TaskmasterRuntime {
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
     ) -> Result<bool, String> {
+        self.reserve_snapshot_with_interval(harnesses, workspace, now, cache_key, snapshot, false)
+    }
+
+    pub(crate) fn reserve_manual_snapshot(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        now: &str,
+        cache_key: &str,
+        snapshot: &EvaluationSnapshot,
+    ) -> Result<bool, String> {
+        self.reserve_snapshot_with_interval(harnesses, workspace, now, cache_key, snapshot, true)
+    }
+
+    fn reserve_snapshot_with_interval(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        now: &str,
+        cache_key: &str,
+        snapshot: &EvaluationSnapshot,
+        bypass_min_interval: bool,
+    ) -> Result<bool, String> {
         if let Some(captured) = &snapshot.custom_inference {
             if !captured.matches_snapshot(workspace, snapshot) {
                 return Ok(false);
@@ -221,12 +287,23 @@ impl TaskmasterRuntime {
                     now,
                     Some(cache_key),
                     Some(snapshot.generation),
+                    bypass_min_interval,
+                    bypass_min_interval,
                 );
             })?;
             reserved
         } else {
             self.with_native_revision(harnesses, snapshot, || {
-                self.reserve_current(workspace, now, Some(cache_key), Some(snapshot.generation))
+                if bypass_min_interval {
+                    self.reserve_current_manual(
+                        workspace,
+                        now,
+                        Some(cache_key),
+                        Some(snapshot.generation),
+                    )
+                } else {
+                    self.reserve_current(workspace, now, Some(cache_key), Some(snapshot.generation))
+                }
             })
             .map(|result| result.unwrap_or(false))
         }
@@ -235,11 +312,25 @@ impl TaskmasterRuntime {
     /// Invoke only the captured custom transport, revalidating through actual
     /// spawn. This does not reserve usage or accept output into recommendations;
     /// the scheduler must do both separately before this path can be activated.
+    #[cfg(test)]
     pub(crate) fn invoke_custom_inference(
         &self,
         harnesses: &HarnessStore,
         captured: &CapturedInference,
         prompt: String,
+    ) -> Result<String, ProviderOperationError> {
+        let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+        self.invoke_custom_inference_with_dispatch_gate(harnesses, captured, prompt, &mut gate)
+    }
+
+    /// Run workspace admission and process spawn together at the provider's
+    /// side-effect boundary. The gate is released before waiting for output.
+    pub(crate) fn invoke_custom_inference_with_dispatch_gate(
+        &self,
+        harnesses: &HarnessStore,
+        captured: &CapturedInference,
+        prompt: String,
+        dispatch_gate: &mut crate::providers::ProviderDispatchGate<'_>,
     ) -> Result<String, ProviderOperationError> {
         let stale = || ProviderOperationError {
             code: ProviderOperationErrorCode::StaleGeneration,
@@ -253,11 +344,24 @@ impl TaskmasterRuntime {
             selection.reasoning_effort.as_deref(),
             prompt,
         )?;
-        prepared.run_with_spawn(|command| {
+        prepared.run_with_spawn_and_prepare(|command, prepare_child| {
             let mut child = None;
+            let mut dispatched = false;
             let current = self
                 .with_current_custom_inference(harnesses, captured, || {
-                    child = Some(command.spawn());
+                    let mut spawn = || {
+                        child = Some(command.spawn().and_then(|mut child| {
+                            prepare_child(&mut child)?;
+                            Ok(child)
+                        }));
+                        child
+                            .as_ref()
+                            .expect("spawn result was recorded")
+                            .as_ref()
+                            .map(|_| ())
+                            .map_err(|error| std::io::Error::new(error.kind(), error.to_string()))
+                    };
+                    dispatched = dispatch_gate(&mut spawn).is_some();
                 })
                 .map_err(|_| ProviderOperationError {
                     code: ProviderOperationErrorCode::VerificationRequired,
@@ -265,6 +369,12 @@ impl TaskmasterRuntime {
                 })?;
             if !current {
                 return Err(stale());
+            }
+            if !dispatched {
+                return Err(ProviderOperationError {
+                    code: ProviderOperationErrorCode::StaleGeneration,
+                    message: "workspace changed before custom inference was dispatched".into(),
+                });
             }
             child.ok_or_else(stale)
         })
@@ -276,6 +386,25 @@ impl TaskmasterRuntime {
         harnesses: &HarnessStore,
         workspace: &Path,
         evaluation: &EvaluationSnapshot,
+    ) -> Result<Option<CapturedInference>, String> {
+        self.capture_custom_inference_with_disabled(harnesses, workspace, evaluation, false)
+    }
+
+    pub(crate) fn capture_manual_custom_inference(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        evaluation: &EvaluationSnapshot,
+    ) -> Result<Option<CapturedInference>, String> {
+        self.capture_custom_inference_with_disabled(harnesses, workspace, evaluation, true)
+    }
+
+    fn capture_custom_inference_with_disabled(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        evaluation: &EvaluationSnapshot,
+        allow_disabled: bool,
     ) -> Result<Option<CapturedInference>, String> {
         let Some(workspace) = canonical_workspace_key(workspace) else {
             return Ok(None);
@@ -307,7 +436,7 @@ impl TaskmasterRuntime {
                 reload_durable(&self.root, &mut data);
                 if !data.ledger_readable
                     || data.ledger.generation != evaluation.generation
-                    || !evaluation.settings.enabled
+                    || (!allow_disabled && !evaluation.settings.enabled)
                     || effective_settings(&data.settings, &workspace) != evaluation.settings
                 {
                     return Ok(None);

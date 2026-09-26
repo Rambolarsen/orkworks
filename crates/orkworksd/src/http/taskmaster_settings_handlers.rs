@@ -35,7 +35,7 @@ fn workspace_path(state: &AppState) -> Option<std::path::PathBuf> {
         .map(|workspace| workspace.path.clone())
 }
 
-fn runtime_for(state: &AppState) -> TaskmasterRuntime {
+pub(super) fn runtime_for(state: &AppState) -> TaskmasterRuntime {
     #[cfg(not(test))]
     let _ = state;
     #[cfg(test)]
