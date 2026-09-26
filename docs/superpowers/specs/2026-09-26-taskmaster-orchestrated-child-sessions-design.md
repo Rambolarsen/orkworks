@@ -58,7 +58,8 @@ A plan is immutable after approval and contains:
 - bounded child task IDs, task descriptions, and initial prompts;
 - one assigned plan-owned worktree group per independent task chain; dependent
   tasks in a chain reuse that worktree sequentially, while independent chains
-  receive separate worktrees and may run in parallel;
+  receive separate worktrees and may run in parallel. Each group's exact
+  absolute worktree path is proposed and shown before approval;
 - the allowed harness/model choices for each child;
 - ordered task batches and a maximum number of concurrent children;
 - the user-approved repository/base revision and the plan's stated scope.
@@ -75,6 +76,13 @@ tasks, broaden the orchestration scope, change the approved harness/model
 choices, increase concurrency, or recursively launch grandchildren without a
 new approved plan revision. Failures do not trigger automatic retries; a retry
 requires a new plan revision and approval.
+
+The sidecar derives each worktree path from the active workspace metadata
+root, plan ID, and worktree-group ID, then includes that exact path in the
+proposed revision for user review. It creates no worktree before approval. If
+an approved path becomes occupied by something not recorded as that plan's
+worktree, OrkWorks pauses and proposes a revised path for renewed approval; it
+does not silently choose another location.
 
 The plan and child launch capability govern what the OrkWorks orchestration
 interface permits. This is a workflow boundary, not a security boundary
@@ -124,6 +132,15 @@ store and PTY lifecycle. This replaces the 2026-09-25 master-runner amendment
 to ADR 0060 that proposed a dedicated sidecar for each child worktree; it does
 not add a peer-sidecar registry or allow one instance to own multiple selected
 workspaces.
+
+Plan mutations for one plan are serialized. Before spawning a child, the
+sidecar durably records a unique launch reservation and the task's `launching`
+state. Duplicate launch requests observe that reservation and never spawn a
+second child. Child session metadata records the plan, task, and reservation
+IDs before PTY launch. After a restart, OrkWorks attaches a recorded child to
+its reservation; if no child record exists, the task becomes
+`launch_interrupted` and cannot retry until a new approved plan revision. No
+launch is automatically repeated after a crash.
 
 The parent may report a child task result only after the child session reaches
 a terminal lifecycle state. That report is a parent assertion used to

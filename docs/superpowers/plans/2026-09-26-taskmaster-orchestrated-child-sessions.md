@@ -32,9 +32,9 @@
 | --- | --- |
 | `specs/taskmaster.md` | Make the orchestrated child-session scope authoritative, preserve existing user escalations, and retire conflicting v1/master-runner wording. |
 | `docs/adr/README.md` and new `docs/adr/0066-taskmaster-orchestrated-child-sessions.md` | Record the session-runtime, approval, and worktree architecture decision. |
-| `crates/orkworksd/src/metadata.rs` | Persist parent mode (`ordinary`/`orchestrator`) plus optional parent session, plan, and task identifiers on child records. |
-| `crates/orkworksd/src/taskmaster/orchestration.rs` | Validate bounded plans, immutable revisions, dependencies, launch idempotency, and parent/child authorization. |
-| `crates/orkworksd/src/taskmaster/orchestration_store.rs` | Persist plan proposals, approvals, task launch records, and scope-change revisions under the active workspace metadata root. |
+| `crates/orkworksd/src/metadata.rs` | Persist parent mode (`ordinary`/`orchestrator`) plus optional parent session, plan, task, and launch-reservation identifiers on parent and child records. |
+| `crates/orkworksd/src/taskmaster/orchestration.rs` | Validate bounded plans, immutable revisions, dependencies, proposed worktree paths, launch idempotency, and parent/child authorization. |
+| `crates/orkworksd/src/taskmaster/orchestration_store.rs` | Serialize per-plan mutations and persist proposals, approvals, launch reservations, task results, and scope-change revisions under the active workspace metadata root. |
 | `crates/orkworksd/src/session_application.rs` | Route approved child creation through the existing session creation/runtime path and create assigned worktrees after approval. |
 | `crates/orkworksd/src/http/session_handlers.rs` and `CreateSessionCommand` | Accept the explicit Orchestrator mode for user-created parents and an internal validated cwd override for approved child launches. |
 | `crates/orkworksd/src/git.rs` | Verify the approved clean base revision and provision unique plan-owned worktree paths/branches. |
@@ -79,18 +79,21 @@
 
 **Interfaces:**
 - `OrchestrationPlan` contains `id`, `parent_session_id`, `revision`, `workspace_identity`, canonical `repository_root`, clean `base_commit_sha`, ordered `tasks`, `max_parallel_children`, `status`, `approved_at`, and a digest of the approved serialized revision.
-- `OrchestrationTask` contains `id`, `description`, `initial_prompt`, `depends_on`, `worktree_group_id`, `harness_id`, `model`, closed `status`, `task_version`, and optional `child_session_id`.
-- Task status is `planned | ready | running | needs_parent_result | reported_complete | reported_failed | reported_blocked`; `reported_complete` is a parent assertion used only to unlock declared dependencies, not acceptance.
-- A worktree group has one canonical working directory. Independent groups may run in parallel; tasks in one group run sequentially and reuse its working directory. Dependency edges may not cross worktree groups.
+- `OrchestrationTask` contains `id`, `description`, `initial_prompt`, `depends_on`, `worktree_group_id`, `harness_id`, `model`, closed `status`, `task_version`, and optional `launch_reservation_id` and `child_session_id`.
+- Task status is `planned | ready | launching | running | needs_parent_result | reported_complete | reported_failed | reported_blocked | launch_interrupted`; `reported_complete` is a parent assertion used only to unlock declared dependencies, not acceptance.
+- Each worktree group has one canonical proposed absolute path under `<workspace_metadata_root>/taskmaster/worktrees/<plan_id>/<group_id>`. The path and IDs are part of the plan revision and displayed before approval; no directory or Git worktree exists yet.
+- Independent groups may run in parallel; tasks in one group run sequentially and reuse its working directory. Dependency edges may not cross worktree groups.
 - Plan status is the closed enum `proposed | approved | paused | cancelled | complete`.
 - A plan-control capability is an OS-random secret bound in memory to one parent session and sidecar generation. It expires when the parent ends, the workspace/sidecar generation changes, or the plan is paused, cancelled, revoked, or complete; neither the secret nor a reusable bearer copy is persisted or logged.
 - Resuming the parent creates a fresh capability but leaves the plan paused. The UI must approve the exact current plan revision again before the parent can launch more children.
-- `OrchestrationStore` loads and atomically replaces one bounded JSON document per plan beneath the active workspace metadata root; malformed or over-limit records fail closed without overwriting the source.
+- `OrchestrationStore` serializes each plan's read/validate/write transition under a per-plan mutex and atomically replaces one bounded JSON document; malformed or over-limit records fail closed without overwriting the source.
 - Existing sessions gain optional `parentSessionId`, `planId`, and `planTaskId`; old session files deserialize with all three absent.
 - Parent sessions persist `sessionMode: ordinary | orchestrator`; absent mode deserializes as ordinary. This marker lets the sidecar create a fresh parent capability when the user resumes an orchestrator after restart.
+- Child session metadata is written with `parentSessionId`, `planId`, `planTaskId`, and `launchReservationId` before PTY spawn, so restart recovery can match an existing child to its durable task reservation.
 
 - [ ] Write tests for accepting a valid plan, rejecting duplicate task IDs, unknown/self dependencies, dependency cycles, cross-worktree dependencies, invalid parallelism, oversized prompts/task counts, and noncanonical worktree paths.
 - [ ] Write tests proving approval binds to an exact revision digest and edits require a strictly incremented revision.
+- [ ] Test that proposal-time worktree path generation is stable and the exact absolute paths appear in the approved plan digest without creating filesystem paths.
 - [ ] Write migration/deserialization tests for old session records and round-trip tests for new lineage fields.
 - [ ] Test old session metadata defaults `sessionMode` to ordinary and orchestrator parent metadata retains its mode through terminal exit, sidecar restart, and resume.
 - [ ] Implement plan validation and deterministic serialization/digest generation.
@@ -147,19 +150,27 @@
 - `POST /sessions/{parent_id}/orchestration/tasks/{task_id}/launch` requires the parent's plan-control capability and takes the approved revision.
 - A successful response returns the existing or new child `SessionInfo` including parent, plan, and task identifiers.
 - A launch is rejected unless the plan is approved, the task is declared and not already assigned to another child, every dependency has status `reported_complete`, its harness/model match the approved task, no task in the same worktree group is still alive, and the concurrency ceiling has capacity.
-- Repeating a launch for the same task returns the prior child session; it never starts a duplicate.
+- Repeating a launch for the same task returns its existing launch reservation/session; it never starts a duplicate. While creation is in progress, return HTTP 202 with the reservation ID and `launching` status.
 - `POST /sessions/{parent_id}/orchestration/tasks/{task_id}/result` requires the parent capability and accepts `{ "expectedTaskVersion": 3, "result": "completed" | "failed" | "blocked", "summary": "..." }` only after that task's child session is terminal and its status is `needs_parent_result`. The sidecar atomically records the result and increments `task_version`; identical retries return the stored result, while conflicting duplicates or stale versions return conflict. `completed` advances dependencies but is not user acceptance.
 
 - [ ] Test unauthorized, wrong-parent, stale-revision, unapproved, unknown-task, unmet-dependency, same-group concurrency, exhausted-concurrency, duplicate-launch, and premature-result behavior without spawning a PTY.
 - [ ] Test a successful launch with the existing session runtime and verify child lineage persists across session listing and sidecar restart.
 - [ ] Before approval, capture and display canonical repository root, `HEAD` SHA, and clean `git status`; reject approval if the repository head or clean state changed.
+- [ ] At proposal time, assign each group the deterministic absolute path `<workspace_metadata_root>/taskmaster/worktrees/<plan_id>/<group_id>` and include it in the immutable revision. Do not create the directory or worktree before approval.
 - [ ] After approval, create one branch/worktree per worktree group from the pinned base commit; subsequent dependent tasks reuse that group's worktree only after its prior child is terminal.
+- [ ] If an approved path becomes occupied by a location not recorded as plan-owned, pause and propose a new revision with the replacement path; do not silently change the approved path.
 - [ ] Add an internal validated `working_directory` to `CreateSessionCommand`; ordinary `POST /sessions` cannot select arbitrary cwd, while approved child launch supplies only the canonical plan-owned path.
 - [ ] Preserve the active-workspace cwd default for every ordinary session; test that the approved child path reaches harness launch resolution and ordinary `POST /sessions` cannot choose an arbitrary cwd.
+- [ ] Under a per-plan mutation lock, atomically persist a unique launch reservation and set the task to `launching` before spawning a child. A concurrent duplicate request sees the reservation and returns HTTP 202 instead of spawning again.
+- [ ] Pass the reservation ID and plan/task lineage into child creation and persist them in child session metadata before PTY spawn. After successful creation, atomically attach the child session ID and set the task to `running`.
+- [ ] On startup, reconcile every `launching` task against session metadata: attach a matching child without relaunching; if no child exists, set `launch_interrupted` and require a newly approved plan revision before retry.
 - [ ] Persist the worktree path before child spawn and retain it if session creation fails so recovery is explicit; do not automatically remove branches or worktrees.
 - [ ] Reuse `SessionApplication::create_session` for harness resolution, PTY startup, tokens, and ordinary lifecycle; do not introduce a second runtime or sidecar.
 - [ ] On child exit, atomically move the task to `needs_parent_result`. Only a parent-authenticated result with the exact current task version, after the child is terminal, may set `reported_complete`, `reported_failed`, or `reported_blocked`; identical retries return the stored result and conflicting/stale results are rejected.
 - [ ] Persist each task result and incremented task version in the same atomic plan-store replacement that advances its state, so a crash cannot record the result without its dependency transition.
+- [ ] Test simultaneous launch requests for one task produce one reservation and at most one child.
+- [ ] Test concurrent results for separate tasks in the same plan preserve both results and task versions.
+- [ ] Test crash recovery both after reservation but before spawn (mark `launch_interrupted`) and after spawn but before task attachment (reconcile the child by its metadata reservation ID without a duplicate launch).
 - [ ] Add tests for parent shutdown not implicitly killing children and for ordinary child kill/forget behavior remaining unchanged.
 
 ## Task 6: Expose lineage and plan progress to the desktop
@@ -194,10 +205,10 @@
 
 - [ ] Add an explicit mode choice to `NewSessionDialog`; ordinary session stays the default, while Orchestrator creation sends `mode: "orchestrator"` and retains the user's goal, harness, and model. Carry the mode through `CreateSessionOptions`, `api.ts`, `workspaceSessionController.ts`, `App.tsx`, `CreateSessionRequest`, and `CreateSessionCommand`.
 - [ ] Render parent rows with expandable child rows, child count, ordinary lifecycle status, and selection to each child's existing terminal.
-- [ ] Render the complete proposed plan with task descriptions, dependencies, worktree paths, harness/model choices, and parallelism before enabling Approve.
+- [ ] Render the complete proposed plan with task descriptions, dependencies, exact precomputed absolute worktree paths, harness/model choices, and parallelism before enabling Approve. Clarify that paths are reserved in the plan but not created until approval.
 - [ ] Make approval and rejection call narrow Electron-main-owned preload methods; main reuses `ORKWORKS_OPEN_PLAN_TOKEN` and sends the exact displayed revision/digest. Display a stale-revision error and refresh instead of silently approving a newer plan.
 - [ ] Route resuming an orchestrator parent through a narrow Electron-main-owned preload method using `ORKWORKS_OPEN_PLAN_TOKEN`; after resume, show the paused plan and require approval of the exact current revision before enabling child launch.
-- [ ] Show which declared tasks are planned, ready, running, waiting for a parent result, parent-reported complete/failed/blocked, or awaiting user scope approval. Never label a parent-reported result as user-accepted work.
+- [ ] Show which declared tasks are planned, ready, launching, running, interrupted during launch, waiting for a parent result, parent-reported complete/failed/blocked, or awaiting user scope approval. Never label a parent-reported result as user-accepted work.
 - [ ] Test ordinary session creation remains unchanged, Orchestrator mode reaches the sidecar, keyboard navigation, nested row selection, approval payload revision, rejected/stale proposals, and ordinary session list accessibility.
 
 ## Task 8: Add bounded orchestration instructions and end-to-end coverage
@@ -223,7 +234,7 @@
 
 - [ ] Run focused Rust tests for orchestration, session creation, metadata migration, and HTTP handlers.
 - [ ] Run `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check` and `cargo test --manifest-path crates/orkworksd/Cargo.toml`.
-- [ ] From `apps/desktop/`, run `npx tsc --noEmit` and `node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs`.
+- [ ] From `apps/desktop/`, run `pnpm exec tsc --noEmit` and `node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs`.
 - [ ] Run the desktop API suite separately with `node --experimental-strip-types --test tests/api.test.ts`.
 - [ ] Run the docs build/link check after updating authoritative docs.
 - [ ] Run `/code-review medium` because this change crosses session lifecycle, authorization, and UI authority boundaries; resolve or document each finding.
