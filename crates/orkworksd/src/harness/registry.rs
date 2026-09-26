@@ -190,6 +190,12 @@ impl ResolvedHarness {
         repo_root: Option<&str>,
         model: Option<&str>,
     ) -> Option<crate::harness::CommandSpec> {
+        if self.definition.id == "codex"
+            && (strategy != crate::harness::ResumeStrategy::Exact
+                || !self.codex_exact_resume_uses_native_id())
+        {
+            return None;
+        }
         let resume = self.definition.resume.as_ref()?;
         let template = match strategy {
             crate::harness::ResumeStrategy::Exact => resume.exact.as_ref()?,
@@ -220,6 +226,15 @@ impl ResolvedHarness {
         if memory.state != crate::harness::ResumeState::Available {
             return crate::harness::ResumeStrategy::None;
         }
+        if self.definition.id == "codex" {
+            return if memory.harness_session_id.is_some()
+                && self.codex_exact_resume_uses_native_id()
+            {
+                crate::harness::ResumeStrategy::Exact
+            } else {
+                crate::harness::ResumeStrategy::None
+            };
+        }
         let Some(resume) = self.definition.resume.as_ref() else {
             return crate::harness::ResumeStrategy::None;
         };
@@ -235,6 +250,9 @@ impl ResolvedHarness {
     }
 
     pub(crate) fn resume_flags(&self) -> (bool, bool, bool) {
+        if self.definition.id == "codex" {
+            return (self.codex_exact_resume_uses_native_id(), false, false);
+        }
         let Some(resume) = self.definition.resume.as_ref() else {
             return (false, false, false);
         };
@@ -243,6 +261,20 @@ impl ResolvedHarness {
             resume.latest_cwd.is_some(),
             resume.latest_repo.is_some(),
         )
+    }
+
+    fn codex_exact_resume_uses_native_id(&self) -> bool {
+        self.definition
+            .resume
+            .as_ref()
+            .and_then(|resume| resume.exact.as_ref())
+            .is_some_and(|template| {
+                template.command.contains("{harnessSessionId}")
+                    || template
+                        .args
+                        .iter()
+                        .any(|argument| argument.contains("{harnessSessionId}"))
+            })
     }
 }
 
@@ -1247,6 +1279,55 @@ mod tests {
             }),
             crate::harness::ResumeStrategy::None,
         );
+    }
+
+    #[test]
+    fn codex_resume_never_selects_custom_latest_fallback_for_a_captured_id() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let mut harness = registry.get("codex").unwrap().clone();
+        let resume = harness.definition.resume.as_mut().unwrap();
+        resume.exact = None;
+        resume.latest_repo = Some(crate::harness::CommandTemplate {
+            command: "codex".into(),
+            args: vec!["resume".into(), "--last".into()],
+        });
+        let memory = crate::harness::ResumeMemory {
+            state: crate::harness::ResumeState::Available,
+            preferred_strategy: crate::harness::ResumeStrategy::Exact,
+            harness_session_id: Some("saved-thread".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        };
+
+        assert_eq!(
+            harness.select_resume_strategy(&memory),
+            crate::harness::ResumeStrategy::None,
+        );
+        assert_eq!(harness.resume_flags(), (false, false, false));
+        assert!(harness
+            .build_resume(
+                crate::harness::ResumeStrategy::LatestRepo,
+                "/repo",
+                Some("saved-thread"),
+                None,
+                None,
+            )
+            .is_none());
+
+        harness.definition.resume.as_mut().unwrap().exact = Some(crate::harness::CommandTemplate {
+            command: "codex".into(),
+            args: vec!["resume".into(), "--last".into()],
+        });
+        assert!(harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("saved-thread"),
+                None,
+                None,
+            )
+            .is_none());
     }
 
     #[test]
