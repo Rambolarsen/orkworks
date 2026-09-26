@@ -1632,6 +1632,7 @@ impl MetadataStore {
             timestamp,
             source,
             confidence,
+            false,
         )
     }
 
@@ -1644,6 +1645,7 @@ impl MetadataStore {
         timestamp: &str,
         source: &str,
         confidence: f64,
+        activate_work_hook: bool,
     ) -> AttentionMergeResult {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
@@ -1682,6 +1684,11 @@ impl MetadataStore {
         meta.last_activity = timestamp.to_string();
         meta.metadata_source = source.into();
         meta.metadata_confidence = confidence;
+        if activate_work_hook {
+            meta.needs_user_input = None;
+            meta.detected_question = None;
+            meta.suggested_options = None;
+        }
         if let Err(e) = self.try_write_session(&meta) {
             warn!("failed to persist attention signal for {id}: {e}");
             return AttentionMergeResult::PersistFailed;
@@ -3764,6 +3771,7 @@ mod tests {
                 "2026-07-21T12:00:00Z",
                 "agent",
                 1.0,
+                false,
             ),
             AttentionMergeResult::Accepted,
         );
@@ -3795,6 +3803,7 @@ mod tests {
                 "2026-08-11T12:00:00Z",
                 "agent",
                 1.0,
+                false,
             ),
             AttentionMergeResult::Accepted,
         );

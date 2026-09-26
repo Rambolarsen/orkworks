@@ -51,9 +51,9 @@ use crate::http::provider_handlers::{
 use crate::http::retention_handlers::set_retention;
 use crate::http::session_handlers::{
     apply_debug_attention, create_session, delete_session, forget_session,
-    get_session_plan_content, list_sessions, report_attention, report_harness_session_with_headers,
-    report_session_plan_path, request_session_plan_review, resume_session, select_terminal_plan,
-    set_active_harnesses, set_active_session, set_workspace,
+    get_session_plan_content, list_sessions, report_attention_with_headers,
+    report_harness_session_with_headers, report_session_plan_path, request_session_plan_review,
+    resume_session, select_terminal_plan, set_active_harnesses, set_active_session, set_workspace,
 };
 use crate::http::taskmaster_handlers::{
     accept_recommendation, complete_recommendation, dismiss_recommendation, get_recommendation,
@@ -388,7 +388,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             "/sessions/:id/harness-session",
             post(report_harness_session_with_headers),
         )
-        .route("/sessions/:id/attention", post(report_attention))
+        .route(
+            "/sessions/:id/attention",
+            post(report_attention_with_headers),
+        )
         .route("/sessions/:id/plan-path", post(report_session_plan_path))
         .route(
             "/sessions/:id/select-terminal-plan",
