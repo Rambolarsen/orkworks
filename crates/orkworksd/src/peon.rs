@@ -2732,6 +2732,18 @@ mod tests {
     }
 
     #[test]
+    fn streaming_rejoin_leaves_an_incoming_held_row_untouched_for_zero_cols() {
+        let mut pending: Option<String> = Some("held".to_string());
+        let rows = vec!["a".to_string()];
+
+        assert_eq!(
+            rejoin_hard_wrapped_rows_streaming(&mut pending, &rows, 0),
+            rows
+        );
+        assert_eq!(pending, Some("held".to_string()));
+    }
+
+    #[test]
     fn streaming_rejoin_skips_empty_rows_without_dropping_the_held_prefix() {
         // The caller passes already-trimmed rows, so whitespace-only rows
         // arrive as empty strings.

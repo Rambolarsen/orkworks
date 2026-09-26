@@ -1156,6 +1156,9 @@ pub(crate) async fn start_session_runtime(
                                             handle.output_buffer.push(line);
                                     }
                                     handle.output_lines_seen += raw_persist_lines.len() as u64;
+                                    // Deliberately physical: `output_lines_seen` counts
+                                    // persisted rows, not the fewer logical lines pushed
+                                    // into `output_buffer` above (ADR 0065 Consequences).
                                     handle.scan_bytes_seen += text.len() as u64;
                                     handle.scan_buf.push_str(&text);
                                     const MAX_SCAN: usize = 8192;

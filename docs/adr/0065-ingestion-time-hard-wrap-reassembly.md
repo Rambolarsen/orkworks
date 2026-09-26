@@ -57,18 +57,22 @@ the shared `output_buffer`:
    `scan_buf` used by usage-limit scanning keep physical rows. Only the
    logical view consumed through `output_buffer` changes.
 4. The read-time snapshot rejoins (Peon inference cycle, final scan) remain
-   in place for rows that predate this change — e.g. buffers rebuilt from
-   persisted physical-row history — and for rows straddling in ways ingestion
-   cannot see. They adopt the same row-local chaining rule as ingestion (via
-   the same helper), so rejoining already-reassembled content is a no-op and
-   no post-wrap content is glued at read time.
+   in place for content that reaches them without passing through ingestion
+   reassembly. They cannot distinguish a reassembled logical line from a
+   genuine full-width physical row: on a reassembled buffer they still glue
+   the successor whenever a line is at or beyond the terminal width, exactly
+   as they did before this change. The ingestion path is where reassembly is
+   guaranteed; read-time rejoin is a fallback, not a second guarantee, and
+   the buffers it mostly no longer helps are those built before this change.
 
 ## Consequences
 
 Every `output_buffer` consumer now sees logical lines for harness wraps: line
-counts in the buffer no longer match physical terminal rows, and two adjacent
-buffer lines never join at read time from ingestion-joined content (the
-snapshot rejoin's `>= cols` check simply does not fire). Consumers that
+counts in the buffer no longer match physical terminal rows. Read-time
+snapshot rejoin cannot distinguish a reassembled logical line from a genuine
+full-width physical row (see Decision point 4), so its gluing behavior over
+reassembled content is unchanged from before this change — ingestion, not
+read time, is where reassembly is guaranteed. Consumers that
 pattern-match within a line (`looks_like_password_prompt`'s `contains`-based
 check) are unaffected; consumers that count lines must treat a logical line as
 one entry. The brief window where the newest full-width row is held in
@@ -76,3 +80,18 @@ one entry. The brief window where the newest full-width row is held in
 output chunk or runtime exit, whichever comes first. Evidence-grounding and
 plan-path fallback operating on `raw_persist_lines` keep their raw-text
 semantics.
+
+Resize-with-held-row is an accepted one-join-per-resize trade: a row held
+under the old column width has its continuation judged under the new width
+(the held row itself is treated as full width regardless of the resize), so a
+resize between the wrap and its continuation can glue one non-continuation
+row. Raw history is unaffected; the heuristic-error bound is one wrong join
+per resize, consistent with the best-effort signal this decision keeps.
+
+Line-count bookkeeping deliberately stays physical: `output_lines_seen`
+counts persisted rows, not the (fewer) logical lines pushed into
+`output_buffer`, and the exit flush's held row is not counted there either.
+Fresh-window arithmetic in `session_projection` that mixes the two counters
+therefore over-estimates by the number of joins and skipped empty rows within
+a window — a drift class that pre-existed via empty-row skips, backstopped by
+the raw-text usage-limit scan path.
