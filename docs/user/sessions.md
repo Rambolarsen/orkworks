@@ -16,9 +16,10 @@ different; live processes do not survive a backend restart.
 Peon is OrkWorks’ AI observer. With a provider configured, it reads recent
 terminal output and produces summaries and attention signals. Some coding
 tools can also report events through an explicitly installed integration.
-For Codex and OpenCode, **Needs You** requires an explicit prompt signal from
-an active coding-tool integration; Peon still supplies summaries but does not
-infer **Needs You** from chat text for those tools.
+For Codex and OpenCode, an active integration reports prompt-driven **Needs
+You**; a status you set yourself can also show **Needs You**. Peon still
+supplies summaries but does not infer **Needs You** from chat text for those
+tools.
 
 Use a signal such as waiting for input as a reason to inspect the session.
 An inferred summary can be wrong; it is not proof that tests passed or work
