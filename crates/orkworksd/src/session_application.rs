@@ -1956,18 +1956,29 @@ impl SessionApplication {
     /// older refinement cannot restore the previous conversation's label.
     pub(crate) fn reset_session_topic(&self, id: &str) -> bool {
         let placeholder = crate::session_types::placeholder_label(id);
-        let previous_native_session_id = self
+        let harness_identity = self
             .state
             .workspace
             .lock()
             .unwrap()
             .as_ref()
             .and_then(|workspace| workspace.metadata.read_session(id))
-            .and_then(|metadata| metadata.resume.and_then(|resume| resume.harness_session_id));
-        if let Some(native_session_id) = previous_native_session_id.as_deref() {
-            crate::codex_session_store::block_native_label_refresh(id, native_session_id);
-        } else {
-            crate::codex_session_store::clear_native_label_refresh_block(id);
+            .map(|metadata| {
+                (
+                    metadata.harness,
+                    metadata.resume.and_then(|resume| resume.harness_session_id),
+                )
+            });
+        // Codex's identity grant is prepared before PTY delivery. Other
+        // harnesses retain the existing post-delivery label-refresh block.
+        if let Some((harness, native_session_id)) = harness_identity {
+            if harness != "codex" {
+                if let Some(native_session_id) = native_session_id.as_deref() {
+                    crate::codex_session_store::block_native_label_refresh(id, native_session_id);
+                } else {
+                    crate::codex_session_store::clear_native_label_refresh_block(id);
+                }
+            }
         }
         crate::codex_session_store::invalidate_label_refresh_generation(id);
         let mut epochs = self.state.peon.label_epochs.write().unwrap();
@@ -1992,6 +2003,34 @@ impl SessionApplication {
         }
 
         true
+    }
+
+    /// Opens the narrow Codex identity-replacement window before a confirmed
+    /// reset command is written to the PTY. Codex can report its one
+    /// `SessionStart(source=clear)` hook before the PTY write acknowledgement
+    /// returns, so this must run before dispatch. Returns false when there is
+    /// no current Codex native identity to replace.
+    pub(crate) fn prepare_codex_identity_reset(&self, id: &str) -> bool {
+        let previous_native_session_id = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .filter(|metadata| metadata.harness == "codex")
+            .and_then(|metadata| metadata.resume.and_then(|resume| resume.harness_session_id));
+        let Some(native_session_id) = previous_native_session_id else {
+            return false;
+        };
+        crate::codex_session_store::block_native_label_refresh(id, &native_session_id);
+        true
+    }
+
+    /// Closes a pre-dispatch Codex identity-replacement window when the PTY
+    /// rejected the reset input.
+    pub(crate) fn cancel_codex_identity_reset(&self, id: &str) {
+        crate::codex_session_store::clear_native_label_refresh_block(id);
     }
 
     /// Returns whether `line` exactly names a label-reset command declared by
@@ -5601,7 +5640,9 @@ mod tests {
             .unwrap(),
             metadata::HarnessSessionMergeResult::Accepted
         );
-        assert!(app.reset_session_topic(id));
+        // Grant before input delivery acknowledgement: Codex may emit this
+        // one clear event while the PTY write is still resolving.
+        assert!(app.prepare_codex_identity_reset(id));
 
         let child_clear = metadata::HarnessSessionReport {
             harness_session_id: "native-child".into(),
@@ -5630,6 +5671,7 @@ mod tests {
             .unwrap(),
             metadata::HarnessSessionMergeResult::Accepted
         );
+        assert!(app.reset_session_topic(id));
 
         let stored_id = state
             .workspace
