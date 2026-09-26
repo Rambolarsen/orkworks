@@ -1,12 +1,14 @@
 # Taskmaster native child-launch boundary
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-09-25
 - Tracking issue: [#617](https://github.com/Rambolarsen/orkworks/issues/617)
 - Parent gate: [#610](https://github.com/Rambolarsen/orkworks/issues/610)
 - Related design: [master-session parallel runner](2026-09-25-master-session-parallel-runner-design.md)
 - Related decision: [ADR 0060](../../adr/0060-independent-workspace-instances.md)
 - Related decision: [ADR 0064](../../adr/0064-bounded-taskmaster-coordinator.md)
+
+Implementation plan: [Taskmaster native child-launch boundary](../plans/2026-09-26-taskmaster-native-child-launch.md).
 
 ## Purpose
 
