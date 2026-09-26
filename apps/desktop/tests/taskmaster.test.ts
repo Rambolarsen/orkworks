@@ -466,7 +466,10 @@ test("the lineage note distinguishes a resurfaced dismissal from a rollup replac
 
   assert.match(lineage, /status === "dismissed"/);
   assert.match(lineage, /Resurfaced after you dismissed/);
-  assert.match(lineage, /Replaces superseded recommendation/);
+  // Non-dismissed predecessors can be terminal for reasons other than
+  // supersession (accepted, completed, expired, failed), so the note shows
+  // the predecessor's actual status instead of hardcoding "superseded".
+  assert.match(lineage, /predecessor\.status/);
   // The predecessor's own identity is shown, and a failed lookup still
   // surfaces the lineage rather than hiding it.
   assert.match(lineage, /predecessor\.title/);

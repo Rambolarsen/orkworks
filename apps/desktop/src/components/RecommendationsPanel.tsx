@@ -267,11 +267,9 @@ function ResurfacedLineage({ recommendation }: { recommendation: WorkflowRecomme
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!supersedesRecommendationId) {
-      setPredecessor(null);
-      setFailed(false);
-      return;
-    }
+    setPredecessor(null);
+    setFailed(false);
+    if (!supersedesRecommendationId) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -299,9 +297,12 @@ function ResurfacedLineage({ recommendation }: { recommendation: WorkflowRecomme
     );
   }
   if (predecessor) {
+    // The predecessor can be terminal for reasons other than supersession
+    // (accepted, completed, expired, failed), so the status is shown as-is
+    // rather than hardcoded to "superseded".
     return (
       <p className="recommendation-lineage" role="status">
-        Replaces superseded recommendation “{predecessor.title}” ({supersedesRecommendationId.slice(0, 8)}).
+        Replaces “{predecessor.title}” ({predecessor.status}, {supersedesRecommendationId.slice(0, 8)}).
       </p>
     );
   }
