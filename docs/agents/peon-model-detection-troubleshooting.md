@@ -84,14 +84,21 @@ Verified example (September 2026, one observation, one OpenCode session): the
 only terminal grounding was the OpenCode banner lines
 `Session   Claude cap affecting opencode usage` and
 `Continue  opencode -s <id>` — a human-written label about Claude usage-cap
-limits plus a resume hint. The phrases "signal capacity" and "Search results
-show" appeared zero times in the ANSI-stripped terminal capture — so they
-cannot appear in the raw text the grounding gate checks either — and the
-required verbatim evidence excerpt was therefore ungrounded; the description
-paraphrased a label, not the session's work.
+limits plus a resume hint (the banner's resumable session ID differed from
+the observed session's captured harness session ID, so the banner named
+another session). The words "signal" and "capacity" appeared zero times
+individually in the ANSI-stripped terminal capture, so no wrap reassembly
+could ever join them into "signal capacity" and the required verbatim
+evidence excerpt was ungrounded; the description paraphrased a label, not
+the session's work.
 
 Signals that an observation is this noise, not a verified defect:
 
+- The observation's `source` is `peon`. The terminal grounding checks below
+  gate only Peon-origin observations; agent-reported observations are
+  recorded through a separate path with no terminal grounding gate, so an
+  agent observation legitimately cites evidence from repository inspection
+  or another non-terminal source. Do not apply the grounding test to it.
 - The obstacle description names "signal capacity" or describes capacity
   being "traced" from one harness to another. OrkWorks has no cross-harness
   capacity propagation: capacity is per-session, per-harness usage-limit
@@ -104,18 +111,23 @@ Signals that an observation is this noise, not a verified defect:
   moving between sessions. The `capacity/<id>.json` metadata path is
   protocol design, not an implemented detection mechanism.)
 - The observation's `evidence` field fails the implemented grounding gate.
-  `evidence_is_grounded` performs a literal substring match against the raw
-  captured snapshot with ANSI escape sequences intact, so an excerpt split
-  by an escape sequence is rejected even though it reads as contiguous
-  after stripping. Searching an ANSI-stripped copy is a readability aid
-  only — absence there proves absence in the raw text the gate checks
-  (stripping removes characters, never adds them), but a hit there does
-  not prove Peon accepted it. Peon's prompt pins only the evidence field
-  as a contiguous verbatim excerpt; the `description` may legitimately
+  `evidence_is_grounded` performs a literal substring match against the
+  hard-wrap-rejoined snapshot — reassembly runs before the provider call
+  and observation recording — with ANSI escape sequences intact, so an
+  excerpt split by an escape sequence is rejected even though it reads as
+  contiguous after stripping. Searching an ANSI-stripped copy is a
+  readability aid only: absence there proves absence only when no wrap
+  reassembly could join rows into the phrase, so reproduce the reassembly
+  before concluding an accepted observation was ungrounded; and a stripped
+  hit does not prove Peon accepted it. Peon's prompt pins only the evidence
+  field as a contiguous verbatim excerpt; the `description` may legitimately
   paraphrase, so a paraphrased description alone is not a noise signal.
-- The only verbatim match is UI chrome: session labels, banners, resume
-  hints, or session lists. Those strings are other sessions' titles and
-  launch commands, not this session's work.
+- The only verbatim match is UI chrome — session labels, banners, resume
+  hints, or session lists — and the displayed session ID or title does not
+  correlate with the observed session. A session's own resume banner names
+  itself, so chrome can describe this session's work; correlate the banner's
+  resumable session ID with the observed session's captured harness session
+  ID before treating a match as noise.
 
 Handling is the same as below: if it is confirmed noise, documentation is a
 valid resolution — do not act on the obstacle, and do not modify
