@@ -76,6 +76,7 @@ function RecommendationCard({
       </div>
       <p className="recommendation-proposal">{improvement.proposedImprovement}</p>
       <p className="recommendation-reason">{recommendation.reason.join(" ")}</p>
+      <ResurfacedLineage recommendation={recommendation} />
       {recommendation.rollupMemberIds.length > 0 && (
         <p className="recommendation-rollup-meta">
           Rollup of {recommendation.rollupMemberIds.length} exact families · {formatRecurrence(recommendation)}
@@ -257,6 +258,58 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         ))
       )}
     </section>
+  );
+}
+
+function ResurfacedLineage({ recommendation }: { recommendation: WorkflowRecommendation }) {
+  const supersedesRecommendationId = recommendation.workflowImprovement.supersedesRecommendationId;
+  const [predecessor, setPredecessor] = useState<WorkflowRecommendation | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setPredecessor(null);
+    setFailed(false);
+    if (!supersedesRecommendationId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const baseUrl = await window.orkworks.getBackendUrl();
+        if (cancelled) return;
+        const detail = await getTaskmasterRecommendation(baseUrl, supersedesRecommendationId);
+        if (cancelled) return;
+        if (detail.id !== supersedesRecommendationId) throw new Error("Invalid lineage detail");
+        setPredecessor(detail);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [supersedesRecommendationId]);
+
+  if (!supersedesRecommendationId) return null;
+  if (!predecessor && !failed) return null;
+  if (predecessor?.status === "dismissed") {
+    return (
+      <p className="recommendation-lineage" role="status">
+        Resurfaced after you dismissed “{predecessor.title}” on {predecessor.updatedAt} — newer
+        evidence qualified again. Replaces {supersedesRecommendationId.slice(0, 8)}.
+      </p>
+    );
+  }
+  if (predecessor) {
+    // The predecessor can be terminal for reasons other than supersession
+    // (accepted, completed, expired, failed), so the status is shown as-is
+    // rather than hardcoded to "superseded".
+    return (
+      <p className="recommendation-lineage" role="status">
+        Replaces “{predecessor.title}” ({predecessor.status}, {supersedesRecommendationId.slice(0, 8)}).
+      </p>
+    );
+  }
+  return (
+    <p className="recommendation-lineage" role="status">
+      Replaces an earlier recommendation ({supersedesRecommendationId.slice(0, 8)}).
+    </p>
   );
 }
 

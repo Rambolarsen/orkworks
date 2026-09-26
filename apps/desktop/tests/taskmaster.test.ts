@@ -431,6 +431,56 @@ test("App runs accepted Fix with AI feedback only after the handoff generation g
   assert.match(selection, /panel\.api\.setActive\(\)/);
 });
 
+test("a resurfaced recommendation is visibly marked instead of reading as a first-time finding", () => {
+  // Regression (#587): when Taskmaster re-proposes a dismissed finding with
+  // new evidence, the successor card carried `supersedesRecommendationId`
+  // but rendered exactly like a brand-new recommendation — the user who had
+  // already dismissed the judgment call could not recognize it.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(panel, /function ResurfacedLineage/);
+  assert.match(
+    panel,
+    /recommendation\.workflowImprovement\.supersedesRecommendationId/,
+  );
+  // A first-time finding must render no lineage note at all.
+  const lineage = panel.slice(panel.indexOf("function ResurfacedLineage"));
+  assert.match(lineage, /if \(!supersedesRecommendationId\)/);
+  assert.match(lineage, /return null;/);
+  // The card actually renders the note.
+  assert.match(panel, /<ResurfacedLineage recommendation=\{recommendation\} \/>/);
+});
+
+test("the lineage note distinguishes a resurfaced dismissal from a rollup replacement", () => {
+  // specs/taskmaster.md:531 requires the surface to show "why Taskmaster is
+  // suggesting it now": a dismissed predecessor resurfacing on new evidence
+  // and a replaced rollup parent are different judgments for the user.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const lineage = panel.slice(panel.indexOf("function ResurfacedLineage"));
+
+  assert.match(lineage, /status === "dismissed"/);
+  assert.match(lineage, /Resurfaced after you dismissed/);
+  // Non-dismissed predecessors can be terminal for reasons other than
+  // supersession (accepted, completed, expired, failed), so the note shows
+  // the predecessor's actual status instead of hardcoding "superseded".
+  assert.match(lineage, /predecessor\.status/);
+  // The predecessor's own identity is shown, and a failed lookup still
+  // surfaces the lineage rather than hiding it.
+  assert.match(lineage, /predecessor\.title/);
+  assert.match(lineage, /supersedesRecommendationId\.slice\(0, 8\)/);
+});
+
+test("the resurfaced lineage note is styled as a distinct card line", () => {
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+  assert.match(css, /\.recommendation-lineage\s*\{/);
+});
+
 test("Recommendations dismissal uses the main generation-bound bridge", () => {
   const panel = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
