@@ -13,7 +13,7 @@ Implementation plan: `docs/superpowers/plans/2026-09-26-taskmaster-native-child-
 
 ## Historical purpose
 
-This accepted proposal is retained as a record of the native confinement
+This superseded proposal is retained as a record of the native confinement
 approach that preceded the revised child-session design. The replacement
 proposal uses ordinary OrkWorks session semantics and does not require this
 native-boundary qualification. Keep this document for the feasibility history;

@@ -34,8 +34,12 @@ runtime, a child-specific process supervisor, or an OS sandbox.
    the exact revision or reject it.
 4. The approved parent launches ready tasks from the declared plan. OrkWorks
    checks that each request matches the approved plan and starts it through
-   the normal session creation path. The parent starts later dependent tasks
-   when prerequisite children finish, without changing the approved plan.
+   the normal session creation path. A harness turn-completion/idle event
+   moves the assigned task to parent-result review; the PTY session may remain
+   open at its prompt. The parent reports the result to advance declared
+   dependencies without changing the approved plan. Before a dependent child
+   reuses the worktree, the prior session must end and the user must confirm
+   that the worktree is quiescent.
 5. The Sessions panel shows the children under their parent, with ordinary
    session status and terminal selection. The parent tracks child progress,
    collects summaries, and coordinates the next declared tasks through the
@@ -57,9 +61,10 @@ A plan is immutable after approval and contains:
   commit SHA from which approved worktrees will be created;
 - bounded child task IDs, task descriptions, and initial prompts;
 - one assigned plan-owned worktree group per independent task chain; dependent
-  tasks in a chain reuse that worktree sequentially, while independent chains
-  receive separate worktrees and may run in parallel. Each group's exact
-  absolute worktree path is proposed and shown before approval;
+  tasks in a chain reuse that worktree sequentially only after the child
+  session is ended and the user confirms the worktree is quiescent; independent
+  chains receive separate worktrees and may run in parallel. Each group's
+  exact absolute worktree path is proposed and shown before approval;
 - the allowed harness/model choices for each child;
 - ordered task batches and a maximum number of concurrent children;
 - the user-approved repository/base revision and the plan's stated scope.
@@ -67,11 +72,20 @@ A plan is immutable after approval and contains:
 The parent may launch only declared task IDs whose dependencies are
 parent-reported complete, once each. A duplicate request is idempotent and
 returns the existing child session. Tasks sharing a worktree group may not
-run concurrently. A child session ending is not task completion: after the
-child ends, the parent must report `completed`, `failed`, or `blocked` with a
-summary. A `completed` result makes dependent tasks ready but does not mean the
-user accepted the work. OrkWorks does not infer task success from process exit,
-terminal text, or a child-authored completion claim. The parent cannot add
+run concurrently, and a dependent task cannot reuse its predecessor's
+worktree until the predecessor session is terminal and the user confirms that
+no remaining process is using the worktree. This is a user acknowledgement,
+not OS proof. A child session ending is not the task-turn boundary.
+Supported harness completion/idle integrations send an authenticated,
+one-shot turn receipt that moves the task to `needs_parent_result` without
+requiring the interactive PTY process to exit; unsupported integrations expose
+an explicit UI action to mark the turn ready for review. The task outcome and
+dependency gate is the parent's explicit coordination report after reviewing
+the child result; it can advance only declared dependencies and does not mean
+quality approval or user acceptance. This amends the current coordinator
+proposal's stronger machine-attested receipt gate for this proposed
+orchestrator mode. Neither process exit nor terminal text alone proves task
+success. The parent cannot add
 tasks, broaden the orchestration scope, change the approved harness/model
 choices, increase concurrency, or recursively launch grandchildren without a
 new approved plan revision. Failures do not trigger automatic retries; a retry
@@ -108,7 +122,8 @@ the workspace or sidecar generation changes, or the plan is paused, cancelled,
 revoked, or complete. Before plan approval, the capability may submit a
 bounded plan proposal but cannot launch children. After approval, it
 authorizes only the declared child-plan operations (launch a declared task,
-report a terminal child's result, and read that plan's child status); it
+report a result after that child's authenticated turn receipt, and read that
+plan's child status); it
 cannot create ordinary sessions, change the plan, control unrelated sessions,
 or grant a child its own launch capability. It is distinct from the existing
 workflow-report token, is never persisted or logged. Resuming an ended
@@ -142,13 +157,14 @@ its reservation; if no child record exists, the task becomes
 `launch_interrupted` and cannot retry until a new approved plan revision. No
 launch is automatically repeated after a crash.
 
-The parent may report a child task result only after the child session reaches
-a terminal lifecycle state. That report is a parent assertion used to
-coordinate declared dependencies, not proof of quality or user acceptance.
-The result request includes the task's expected state version. The sidecar
-accepts it only when the task is `needs_parent_result`, then atomically stores
-the result and next version. An identical retry returns the stored result; a
-conflicting duplicate or stale version is rejected.
+The parent may report a child task result after the authenticated turn receipt
+puts that task in `needs_parent_result`; the child PTY can remain open and
+manageable as an ordinary session. The result request includes the task's
+expected state version. The sidecar atomically stores the parent's
+coordination report and next version; a `completed` report unlocks only
+declared dependencies and does not mean user acceptance. An identical retry
+returns the stored result; a conflicting duplicate or stale version is
+rejected.
 Product and architecture decisions, ambiguous requirements, credentials or
 permissions, destructive actions, Git mutation or merge approval, conflicting
 high-confidence results, and acceptance of high-risk work remain user-owned

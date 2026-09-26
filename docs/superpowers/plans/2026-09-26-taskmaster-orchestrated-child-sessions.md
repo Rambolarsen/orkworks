@@ -18,9 +18,9 @@
 - A scope change, retry, harness/model change, or concurrency increase requires a new plan revision and explicit approval.
 - Plan approval must use the existing Electron-main-owned `ORKWORKS_OPEN_PLAN_TOKEN`, which is filtered from parent and child coding-tool environments.
 - Child sessions use the existing workspace sidecar, session metadata store, PTY runtime, and ordinary session lifecycle.
-- Parallel independent task chains use separate plan-owned worktrees; dependent tasks in a chain reuse that worktree sequentially. OrkWorks does not integrate, commit, merge, rebase, push, or automatically clean up child work.
+- Parallel independent task chains use separate plan-owned worktrees. A dependent child may reuse its chain's worktree only after its predecessor session is terminal and the user confirms that no remaining process is using the worktree; this is a user acknowledgement, not OS proof. OrkWorks does not integrate, commit, merge, rebase, push, or automatically clean up child work.
 - Workflow scope is not OS security confinement. Child processes retain the normal user permissions and harness login behavior.
-- Task completion is a parent-reported coordination state after child termination, not proof of quality or user acceptance. Existing user escalation and merge/acceptance gates remain in force.
+- The parent reports child results to coordinate only the approved dependency graph. This report is not proof of quality or user acceptance. The scope-alignment task must amend the existing Taskmaster receipt requirement for this proposed orchestrator mode; user escalation and merge/acceptance gates remain in force.
 - Do not add XPC, a VM, a child-specific sidecar, a process broker, credential proxy, resource budget system, or cross-instance registry.
 - Before runtime changes, update the authoritative Taskmaster spec and the relevant ADR/issue records to approve this proposed product direction.
 
@@ -52,13 +52,18 @@
 
 **Files:**
 - Modify: `specs/taskmaster.md`
+- Modify: `AGENTS.md`
+- Modify: `docs/agents/product-boundaries.md`
+- Modify: `specs/orkworks-mvp.md`
+- Modify: `specs/multi-workspace.md`
 - Create: `docs/adr/0066-taskmaster-orchestrated-child-sessions.md`
-- Modify: `docs/adr/0060-independent-orkworks-instances.md`
+- Modify: `docs/adr/0060-independent-workspace-instances.md`
 - Modify: `docs/adr/0064-bounded-taskmaster-coordinator.md`
 - Modify: `docs/adr/README.md`
 - Update: GitHub issues `#610` and `#617`
 
-- [ ] Replace Taskmaster's v1 and coordinator-gate wording that excludes task decomposition, child launches, and plan-owned worktrees with the approved bounded orchestrator behavior.
+- [ ] Replace Taskmaster's v1 and coordinator-gate wording that excludes task decomposition, child launches, and plan-owned worktrees with the approved bounded orchestrator behavior; update `AGENTS.md`, `docs/agents/product-boundaries.md`, and `specs/orkworks-mvp.md` in the same scope-alignment task so repository guidance agrees.
+- [ ] Align `specs/multi-workspace.md` with ordinary child sessions launched through the parent's existing sidecar; remove the conflicting dedicated-child-sidecar/native-proof prerequisite while preserving the single-workspace-per-instance invariant and manual integration boundary.
 - [ ] Preserve the core ADR 0060 decision that each OrkWorks instance owns at most one workspace and sidecar; supersede only the proposed dedicated child-sidecar amendment.
 - [ ] Amend or supersede proposed ADR 0064 where its broker, lease, hard confinement, and durable process-owner requirements conflict with ordinary session children.
 - [ ] Preserve the existing requirement that product/architecture decisions, ambiguous requirements, credentials/permissions, destructive actions, Git mutation or merge approval, conflicting high-confidence results, and high-risk acceptance escalate to the user.
@@ -79,11 +84,13 @@
 
 **Interfaces:**
 - `OrchestrationPlan` contains `id`, `parent_session_id`, `revision`, `workspace_identity`, canonical `repository_root`, clean `base_commit_sha`, ordered `tasks`, `max_parallel_children`, `status`, `approved_at`, and a digest of the approved serialized revision.
-- `OrchestrationTask` contains `id`, `description`, `initial_prompt`, `depends_on`, `worktree_group_id`, `harness_id`, `model`, closed `status`, `task_version`, and optional `launch_reservation_id` and `child_session_id`.
-- Task status is `planned | ready | launching | running | needs_parent_result | reported_complete | reported_failed | reported_blocked | launch_interrupted`; `reported_complete` is a parent assertion used only to unlock declared dependencies, not acceptance.
+- Each worktree allocation records the exact plan revision, canonical repository root, base commit, deterministic branch, and approved path in a durable `preparing | ready | interrupted` allocation record before any Git mutation. Startup reconciliation adopts only a worktree whose repository, branch, path, and HEAD exactly match that record; otherwise it leaves the allocation interrupted for explicit recovery.
+- Allocation recovery is user-visible: adopt only an exact repository/branch/path/base match; retry only after verifying no branch or worktree was created; otherwise leave all artifacts untouched, cancel the allocation, and require a newly approved path/revision. OrkWorks never deletes an ambiguous partial allocation.
+- `OrchestrationTask` contains `id`, `description`, `initial_prompt`, `depends_on`, `worktree_group_id`, `harness_id`, the exact harness-document revision/digest and resolved provider/model identity, closed `status`, `task_version`, and optional `launch_reservation_id` and `child_session_id`. Before dispatch, the sidecar revalidates that the approved binding still resolves to the same harness definition and provider/model identity; mutable defaults cannot silently change an approved task.
+- Task status is `planned | ready | launching | running | needs_parent_result | awaiting_worktree_reuse_approval | reported_complete | reported_failed | reported_blocked | launch_interrupted`; after an authenticated turn receipt, the parent reports the task outcome to coordinate its declared dependencies. `reported_complete` does not mean user acceptance. Before a dependent child reuses the chain worktree, the predecessor session must be terminal and the UI must collect the user's explicit quiescence acknowledgement. A failed/blocked task pauses new launches and requires an explicitly approved recovery/retry revision; already-running children retain their ordinary lifecycle and are not implicitly killed.
 - Each worktree group has one canonical proposed absolute path under `<workspace_metadata_root>/taskmaster/worktrees/<plan_id>/<group_id>`. The path and IDs are part of the plan revision and displayed before approval; no directory or Git worktree exists yet.
-- Independent groups may run in parallel; tasks in one group run sequentially and reuse its working directory. Dependency edges may not cross worktree groups.
-- Plan status is the closed enum `proposed | approved | paused | cancelled | complete`.
+- Independent groups may run in parallel; tasks in one group run sequentially and reuse its working directory only after the terminal-session and user quiescence gate. Dependency edges may not cross worktree groups.
+- Plan status is the closed enum `proposed | approved | paused | cancelled | complete`; a failed/blocked task moves the plan to `paused`, records the reason, and requires a newly approved recovery/retry revision before another launch.
 - A plan-control capability is an OS-random secret bound in memory to one parent session and sidecar generation. It expires when the parent ends, the workspace/sidecar generation changes, or the plan is paused, cancelled, revoked, or complete; neither the secret nor a reusable bearer copy is persisted or logged.
 - Resuming the parent creates a fresh capability but leaves the plan paused. The UI must approve the exact current plan revision again before the parent can launch more children.
 - `OrchestrationStore` serializes each plan's read/validate/write transition under a per-plan mutex and atomically replaces one bounded JSON document; malformed or over-limit records fail closed without overwriting the source.
@@ -130,10 +137,13 @@
 - `POST /sessions/{parent_id}/orchestration/plans` accepts a plan proposal with `expectedRevision` and requires the parent's plan-control bearer capability.
 - `GET /sessions/{parent_id}/orchestration/plan` returns the current revision and child task states to the parent capability or the Electron UI authority.
 - `POST /sessions/{parent_id}/orchestration/plans/{revision}/approval` accepts `{ "decision": "approve" | "reject" }`, requires the existing Electron-main-only `ORKWORKS_OPEN_PLAN_TOKEN`, and rejects if the displayed revision/digest is stale.
+- `POST /sessions/{parent_id}/orchestration/cancel` requires `ORKWORKS_OPEN_PLAN_TOKEN`, durably fences future launches, revokes the parent plan capability, and marks the plan cancelled. Already-running child sessions remain ordinary manageable sessions and are not implicitly killed; the UI continues to show them under the cancelled plan.
 - `POST /sessions/{parent_id}/orchestration/plans` with an approved plan creates a new proposed revision; it cannot mutate the approved revision in place.
 
 - [ ] Test that a terminal-authored string or parent capability cannot approve/reject a proposal; verify the UI token is never present in a child session environment.
 - [ ] Test exact-revision approval, stale approval rejection, immutable approved revisions, and scope expansion requiring a new approval.
+- [ ] Test cancellation/revocation rejects later parent launches and leaves already-running children visible and manageable through ordinary session controls.
+- [ ] Test allocation recovery adopts only an exact repository/branch/path/base match, permits retry only when no Git branch/worktree artifacts exist, and leaves partial or ambiguous artifacts untouched.
 - [ ] Test that no plan-owned worktree is created while a proposal is pending or rejected.
 - [ ] Implement proposal/read/approval handlers and map application errors to stable HTTP statuses.
 
@@ -149,15 +159,19 @@
 **HTTP contract:**
 - `POST /sessions/{parent_id}/orchestration/tasks/{task_id}/launch` requires the parent's plan-control capability and takes the approved revision.
 - A successful response returns the existing or new child `SessionInfo` including parent, plan, and task identifiers.
-- A launch is rejected unless the plan is approved, the task is declared and not already assigned to another child, every dependency has status `reported_complete`, its harness/model match the approved task, no task in the same worktree group is still alive, and the concurrency ceiling has capacity.
+- A child-scoped authenticated turn-completion receipt moves the task to `needs_parent_result` when the harness reports its turn complete/idle; the interactive child session remains open and manageable. If the harness has no reliable completion integration, the UI exposes an explicit parent action to mark the turn ready for review.
+- A launch is rejected unless the plan is approved, the task is declared and not already assigned to another child, every dependency is parent-reported `reported_complete`, its pinned harness-document revision and resolved provider/model identity still match, any predecessor in the same worktree group is terminal and has a recorded user quiescence acknowledgement, and the concurrency ceiling has capacity.
 - Repeating a launch for the same task returns its existing launch reservation/session; it never starts a duplicate. While creation is in progress, return HTTP 202 with the reservation ID and `launching` status.
-- `POST /sessions/{parent_id}/orchestration/tasks/{task_id}/result` requires the parent capability and accepts `{ "expectedTaskVersion": 3, "result": "completed" | "failed" | "blocked", "summary": "..." }` only after that task's child session is terminal and its status is `needs_parent_result`. The sidecar atomically records the result and increments `task_version`; identical retries return the stored result, while conflicting duplicates or stale versions return conflict. `completed` advances dependencies but is not user acceptance.
+- `POST /sessions/{parent_id}/orchestration/tasks/{task_id}/result` requires the parent capability and accepts `{ "expectedTaskVersion": 3, "result": "completed" | "failed" | "blocked", "summary": "..." }` only after the task is `needs_parent_result`. The sidecar records the parent-authenticated coordination report and increments `task_version`; `completed` unlocks only declared dependents and is not user acceptance. Identical retries return the stored result; conflicting duplicates or stale versions return conflict.
+- `POST /sessions/{parent_id}/orchestration/tasks/{task_id}/worktree-reuse-approval` requires `ORKWORKS_OPEN_PLAN_TOKEN` and an exact task/worktree-group revision. It succeeds only after the predecessor session is terminal, records the user's explicit quiescence acknowledgement, and does not claim the sidecar proved detached descendants exited.
 
 - [ ] Test unauthorized, wrong-parent, stale-revision, unapproved, unknown-task, unmet-dependency, same-group concurrency, exhausted-concurrency, duplicate-launch, and premature-result behavior without spawning a PTY.
 - [ ] Test a successful launch with the existing session runtime and verify child lineage persists across session listing and sidecar restart.
 - [ ] Before approval, capture and display canonical repository root, `HEAD` SHA, and clean `git status`; reject approval if the repository head or clean state changed.
+- [ ] Capture the exact harness-document revision and resolved harness/provider/model identity in the approved plan; before dispatch, compare the active harness snapshot against that binding and pause for a new approved revision on any mismatch.
 - [ ] At proposal time, assign each group the deterministic absolute path `<workspace_metadata_root>/taskmaster/worktrees/<plan_id>/<group_id>` and include it in the immutable revision. Do not create the directory or worktree before approval.
-- [ ] After approval, create one branch/worktree per worktree group from the pinned base commit; subsequent dependent tasks reuse that group's worktree only after its prior child is terminal.
+- [ ] Before `git worktree add`, atomically persist a `preparing` allocation with the approved plan revision, repository root, base SHA, branch, and exact path. On restart, verify and adopt an exact matching allocation; mark partial or mismatched allocations `interrupted` and require explicit recovery rather than guessing ownership.
+- [ ] After approval, create one worktree per independent chain from the pinned base commit. Before any dependent child reuses it, require a terminal predecessor session and a separate UI confirmation that the user checked the worktree is quiescent; persist this acknowledgement against the exact task/group revision and do not describe it as OS proof.
 - [ ] If an approved path becomes occupied by a location not recorded as plan-owned, pause and propose a new revision with the replacement path; do not silently change the approved path.
 - [ ] Add an internal validated `working_directory` to `CreateSessionCommand`; ordinary `POST /sessions` cannot select arbitrary cwd, while approved child launch supplies only the canonical plan-owned path.
 - [ ] Preserve the active-workspace cwd default for every ordinary session; test that the approved child path reaches harness launch resolution and ordinary `POST /sessions` cannot choose an arbitrary cwd.
@@ -166,7 +180,8 @@
 - [ ] On startup, reconcile every `launching` task against session metadata: attach a matching child without relaunching; if no child exists, set `launch_interrupted` and require a newly approved plan revision before retry.
 - [ ] Persist the worktree path before child spawn and retain it if session creation fails so recovery is explicit; do not automatically remove branches or worktrees.
 - [ ] Reuse `SessionApplication::create_session` for harness resolution, PTY startup, tokens, and ordinary lifecycle; do not introduce a second runtime or sidecar.
-- [ ] On child exit, atomically move the task to `needs_parent_result`. Only a parent-authenticated result with the exact current task version, after the child is terminal, may set `reported_complete`, `reported_failed`, or `reported_blocked`; identical retries return the stored result and conflicting/stale results are rejected.
+- [ ] Before child launch, materialize the approved harness's existing workspace-local reporter integration into the allocated worktree using the current ownership/revision checks; never overwrite a conflicting user-owned configuration. Bind the integration generation to approval and pause for a new revision if it changed.
+- [ ] On an authenticated child turn-completion receipt (or explicit UI action where no reliable harness integration exists), atomically move the task to `needs_parent_result` without requiring the PTY to exit. The parent may report `completed`, `failed`, or `blocked` with the exact current task version; `completed` unlocks only declared dependencies and never indicates user acceptance. Identical retries return the stored result and conflicting/stale results are rejected. Failed/blocked results pause new launches; no automatic retry occurs.
 - [ ] Persist each task result and incremented task version in the same atomic plan-store replacement that advances its state, so a crash cannot record the result without its dependency transition.
 - [ ] Test simultaneous launch requests for one task produce one reservation and at most one child.
 - [ ] Test concurrent results for separate tasks in the same plan preserve both results and task versions.
@@ -207,9 +222,12 @@
 - [ ] Render parent rows with expandable child rows, child count, ordinary lifecycle status, and selection to each child's existing terminal.
 - [ ] Render the complete proposed plan with task descriptions, dependencies, exact precomputed absolute worktree paths, harness/model choices, and parallelism before enabling Approve. Clarify that paths are reserved in the plan but not created until approval.
 - [ ] Make approval and rejection call narrow Electron-main-owned preload methods; main reuses `ORKWORKS_OPEN_PLAN_TOKEN` and sends the exact displayed revision/digest. Display a stale-revision error and refresh instead of silently approving a newer plan.
+- [ ] Add an Electron-authorized Cancel Orchestration action that fences future launches and revokes the parent capability; show that already-running children remain visible and can be managed through ordinary session controls.
+- [ ] Before launching a dependent task into a reused worktree, require a separate Electron-authorized user acknowledgement after the predecessor session is terminal. Explain that OrkWorks cannot detect detached processes and that this acknowledgement is the user's quiescence check.
+- [ ] Render interrupted allocation recovery choices: adopt only an exact verified allocation, retry only after verifying no Git artifacts exist, or abandon/cancel and propose a new approved path. Never silently delete partial or ambiguous artifacts.
 - [ ] Route resuming an orchestrator parent through a narrow Electron-main-owned preload method using `ORKWORKS_OPEN_PLAN_TOKEN`; after resume, show the paused plan and require approval of the exact current revision before enabling child launch.
 - [ ] Show which declared tasks are planned, ready, launching, running, interrupted during launch, waiting for a parent result, parent-reported complete/failed/blocked, or awaiting user scope approval. Never label a parent-reported result as user-accepted work.
-- [ ] Test ordinary session creation remains unchanged, Orchestrator mode reaches the sidecar, keyboard navigation, nested row selection, approval payload revision, rejected/stale proposals, and ordinary session list accessibility.
+- [ ] Test ordinary session creation remains unchanged, Orchestrator mode reaches the sidecar, keyboard navigation, nested row selection, approval payload revision, cancellation authorization, interrupted allocation recovery choices, rejected/stale proposals, and ordinary session list accessibility.
 
 ## Task 8: Add bounded orchestration instructions and end-to-end coverage
 
@@ -222,7 +240,7 @@
 
 - [ ] Append the orchestrator operating instructions at session creation: plan the complete workflow, delegate every execution task to children, launch only approved ready tasks, report progress, and pause for user approval when adding/retrying/broadening work.
 - [ ] Include the stable plan API paths and the parent capability usage in the prompt without including the UI-approval secret.
-- [ ] Test a complete flow: start orchestrator in the New Session dialog → propose plan → approve exact revision through Electron main → launch independent task chains in separate worktrees → observe child exit as `needs_parent_result` → report a terminal child result → launch its dependent task in the same worktree → request wider scope → observe no launch until reapproval.
+- [ ] Test a complete flow: start orchestrator in the New Session dialog → propose plan → approve exact revision through Electron main → launch independent task chains in separate worktrees → receive an authenticated child turn-completion receipt (or exercise the UI fallback) while the child session remains manageable → parent reports the child result → end the predecessor session → acknowledge worktree quiescence in the UI → launch its dependent task → request wider scope → observe no launch until reapproval.
 - [ ] Test identical task-result retry idempotency, conflicting/stale task-result rejection, and atomic task result/version persistence.
 - [ ] Test parent end and sidecar restart pausing the plan, persisted orchestrator-mode recognition, capability revocation, UI-authorized parent resume with a fresh capability, exact-revision UI reapproval before more launches, no automatic child relaunch, and no detached child process-tree guarantees implied by UI status.
 - [ ] Update architecture and domain references to document the plan store, token ownership, API flow, and workflow-vs-security boundary.
@@ -243,9 +261,10 @@
 ## Reviewed design risks to resolve before implementation
 
 - The current Taskmaster v1 spec and ADRs conflict with this proposal. Task 1 is a mandatory scope-alignment gate, not optional cleanup.
+- The existing coordinator contract requires server-attested success receipts. Task 1 must amend that contract for this Orchestrator mode: a version-checked parent result advances only the user-approved dependency graph, and never means user acceptance. This is an intentional trust change that relies on the approved plan and parent coordination rather than a process broker.
 - UI approval must use Electron main's existing `ORKWORKS_OPEN_PLAN_TOKEN`, unavailable in coding-tool session environments. A renderer-only button or unauthenticated localhost route does not prove that approval came from the user.
 - Plan approval limits OrkWorks child-launch requests. Without OS confinement, it cannot guarantee that a coding tool obeys its assigned prompt or avoids unrelated direct filesystem/process actions.
 - A child session ending is not task success. Only an explicit, version-checked parent result can unlock declared dependencies, and even `reported_complete` is not proof of quality or user acceptance.
-- Parallel worktrees must start from the exact clean base commit shown in the proposal. Dependency tasks in one chain reuse a worktree sequentially; independent task chains have separate worktrees.
+- Parallel worktrees must start from the exact clean base commit shown in the proposal. Dependency tasks in one chain reuse a worktree sequentially only after a user quiescence acknowledgement; independent task chains have separate worktrees.
 - Preserve user decisions for product/architecture questions, ambiguous requirements, credentials/permissions, destructive actions, Git mutation or merge approval, conflicting high-confidence results, and high-risk acceptance.
 - Worktree creation and restart failure handling must preserve recoverable metadata and must not silently delete branches or dirty worktrees.
