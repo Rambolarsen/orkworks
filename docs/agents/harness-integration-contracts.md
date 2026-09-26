@@ -31,6 +31,44 @@ fixture and version/feature evidence are added beside the binding.
 | Aider | [Notifications](https://aider.chat/docs/usage/notifications.html) | `--notifications-command` runs a configured command when Aider is waiting for input; it provides no native session ID or lifecycle schema. | Limited. The workspace-owned enablement flag may augment launch with the stable reporter; no repository Aider config is edited. |
 | Generic shell | No deterministic extension point | None. | Unsupported; all integration mutation requests are no-ops with a conflict response. |
 
+### Prompt attention authority
+
+Codex's `PermissionRequest` is a direct prompt signal. `Stop` marks an idle
+turn, and conversational questions in terminal output do not establish a
+prompt. Peon can provide a nonprompt status, summary, phase, and diagnostics
+before a validated hook executes; after activation, its descriptive fields
+cannot replace hook-owned attention. The current Codex bundle has no direct
+event for a queued question opening or resolving, so such prompts can be
+missed; [#632](https://github.com/Rambolarsen/orkworks/issues/632) tracks
+that signal gap.
+
+OpenCode's supported question and permission events carry `id` and
+`sessionID` when asked, then `requestID` and `sessionID` when replied to or
+rejected. The reporter tracks pending question and permission IDs separately
+for the captured session. `question.asked` and `permission.asked` report
+`waiting_for_input`; matching `question.replied`, `question.rejected`, and
+`permission.replied` report the remaining effective state. Busy and idle
+events update turn state without clearing an outstanding request. The
+reporter includes its event name, `source: "opencode_hook"`, and the
+per-session `ORKWORKS_REPORT_TOKEN`; the sidecar validates the bearer token,
+live session, harness, and event/status pair before activating that session's
+hook authority. An installed plugin alone does not activate it. Existing
+installations must reconcile the OpenCode integration through Settings to
+receive the new reporter bytes.
+
+Before OpenCode activation, Peon may supply nonprompt status and descriptive
+fields. For Codex and OpenCode, a Peon-inferred chat question cannot create
+**Needs You** or prompt fields; the next Peon reconciliation also clears an
+older Peon-sourced wait to unknown or a newer nonprompt status. After
+activation, Peon still supplies summary and diagnostics while direct reports
+own attention. OpenCode attention coverage remains **limited**: versioned
+schemas and reporter sequence tests establish the mapping, but live OpenCode
+attention delivery has not been confirmed end to end. A lost reply or reject
+may leave **Needs You** until a later recognized event, accepted input, or
+session death; plugin reload cannot reconstruct requests already pending.
+Other coding tools retain their current Peon policy pending the separate
+event-coverage review in [#643](https://github.com/Rambolarsen/orkworks/issues/643).
+
 Decision rule: primary schema + reproducible fixture + version/tag evidence is
 verified; primary schema + fixture without version evidence is feature-probed;
 a documented event without stable payload schema is limited with unknown

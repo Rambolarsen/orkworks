@@ -102,6 +102,17 @@ pub enum PeonMergeOutcome {
     SkippedHigherPriority { permanent_hold: bool },
 }
 
+#[derive(Clone, Copy)]
+pub enum PeonAttentionPolicy<'a> {
+    Infer,
+    NonPrompt,
+    PreserveHook {
+        status: &'a str,
+        confidence: f64,
+        source: &'a str,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub(crate) enum TerminalOutputRecord {
@@ -1748,6 +1759,7 @@ impl MetadataStore {
     /// Returns `Err` when the merged metadata could not be persisted, so the
     /// caller does not treat the inference as landed (e.g. updating in-memory
     /// state to match a write that never happened).
+    #[cfg(test)]
     pub fn merge_peon_inference_with_history(
         &self,
         id: &str,
@@ -1756,32 +1768,27 @@ impl MetadataStore {
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, None)
+        self.merge_peon_inference_with_history_policy(
+            id,
+            inf,
+            timestamp,
+            provider,
+            history_summary,
+            PeonAttentionPolicy::Infer,
+        )
     }
 
-    /// Merges Peon's descriptive fields while retaining the live Codex hook's
-    /// status/attention authority. A hook-capable session can continue
-    /// producing ambiguous terminal output while Codex is working; that
-    /// output must not become a durable `needs_you` transition merely because
-    /// the hook signal has aged past the normal Peon overwrite window.
-    pub fn merge_peon_inference_with_history_preserving_hook_status(
+    /// Merges descriptive Peon fields with the caller's live harness attention policy.
+    pub fn merge_peon_inference_with_history_policy(
         &self,
         id: &str,
         inf: &crate::peon::PeonInference,
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
-        hook_status: &str,
-        hook_confidence: f64,
+        policy: PeonAttentionPolicy<'_>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(
-            id,
-            inf,
-            timestamp,
-            provider,
-            history_summary,
-            Some((hook_status, hook_confidence)),
-        )
+        self.merge_peon_inference_inner(id, inf, timestamp, provider, history_summary, policy)
     }
 
     #[cfg(test)]
@@ -1792,7 +1799,14 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
     ) -> std::io::Result<PeonMergeOutcome> {
-        self.merge_peon_inference_inner(id, inf, timestamp, provider, inf.summary.as_deref(), None)
+        self.merge_peon_inference_inner(
+            id,
+            inf,
+            timestamp,
+            provider,
+            inf.summary.as_deref(),
+            PeonAttentionPolicy::Infer,
+        )
     }
 
     fn merge_peon_inference_inner(
@@ -1802,7 +1816,7 @@ impl MetadataStore {
         timestamp: &str,
         provider: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
-        hook_status: Option<(&str, f64)>,
+        policy: PeonAttentionPolicy<'_>,
     ) -> std::io::Result<PeonMergeOutcome> {
         let mut meta = match self.read_session(id) {
             Some(m) => m,
@@ -1812,11 +1826,12 @@ impl MetadataStore {
         };
 
         // The merge defends itself: no caller ordering can bypass the
-        // source-priority ladder (issue #400). An active Codex hook is the
+        // source-priority ladder (issue #400). An active work hook is the
         // explicit exception: its status remains authoritative while Peon
         // still contributes descriptive fields.
         let existing_age = self.session_modified_secs_ago(id);
-        if (hook_status.is_none() || meta.metadata_source == "user")
+        if (!matches!(policy, PeonAttentionPolicy::PreserveHook { .. })
+            || meta.metadata_source == "user")
             && !source_priority::can_overwrite("peon", &meta.metadata_source, existing_age)
         {
             return Ok(PeonMergeOutcome::SkippedHigherPriority {
@@ -1832,15 +1847,28 @@ impl MetadataStore {
                     confidence: inf.confidence.min(0.50),
                 });
 
+        if matches!(policy, PeonAttentionPolicy::NonPrompt)
+            && meta.metadata_source == "peon"
+            && meta.observed_status.as_deref() == Some("waiting_for_input")
+        {
+            meta.observed_status = None;
+            meta.attention = None;
+            meta.needs_user_input = None;
+            meta.detected_question = None;
+            meta.suggested_options = None;
+        }
+
         // Observer-only inference cannot resume a finished/non-working session to
         // `working` on its own. Terminal input intentionally preserves the observed
         // status, so an explicit hook remains authoritative until it reports again.
-        // The whole inference is discarded in that case (not just observed_status):
+        // Without an active hook, the whole inference is discarded in that
+        // case (not just observed_status):
         // applying its summary/next_action/etc while keeping the old status would
         // leave an inconsistent record (e.g. a "blocked" badge with a "still
         // working" summary), and flipping metadata_source to "peon" would falsely
         // mark the untouched status field as freshly peon-confirmed.
-        if inf.observed_status.as_deref() == Some("working")
+        if !matches!(policy, PeonAttentionPolicy::PreserveHook { .. })
+            && inf.observed_status.as_deref() == Some("working")
             && crate::peon::is_terminal_observed_status(meta.observed_status.as_deref())
         {
             if let Some(report) = peon_harness_session_report {
@@ -1867,24 +1895,31 @@ impl MetadataStore {
             meta.failed_test.clone(),
         );
 
-        if let Some((hook_status, hook_confidence)) = hook_status {
-            meta.observed_status = Some(hook_status.to_string());
-            if meta.lifecycle == "alive" {
-                meta.attention = canonical_attention(Some(hook_status));
+        match policy {
+            PeonAttentionPolicy::PreserveHook {
+                status,
+                confidence,
+                source,
+            } => {
+                meta.observed_status = Some(status.to_string());
+                if meta.lifecycle == "alive" {
+                    meta.attention = canonical_attention(Some(status));
+                }
+                // Accepted terminal input is newer than a hook report.
+                if meta.metadata_source != "process" {
+                    meta.metadata_source = source.into();
+                    meta.metadata_confidence = confidence;
+                }
             }
-            // A Codex hook remains authoritative after accepted input, but the
-            // input transition is a newer process-owned provenance. Preserve
-            // that provenance instead of making the next Peon pass look like
-            // another hook event; otherwise a later hook report could be
-            // confused with the transition that followed the approval.
-            if meta.metadata_source != "process" {
-                meta.metadata_source = "codex_hook".into();
-                meta.metadata_confidence = hook_confidence;
-            }
-        } else {
-            meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
-            if meta.lifecycle == "alive" {
-                meta.attention = canonical_attention(meta.observed_status.as_deref());
+            PeonAttentionPolicy::Infer | PeonAttentionPolicy::NonPrompt => {
+                if !matches!(policy, PeonAttentionPolicy::NonPrompt)
+                    || inf.observed_status.as_deref() != Some("waiting_for_input")
+                {
+                    meta.observed_status = inf.observed_status.clone().or(meta.observed_status);
+                }
+                if meta.lifecycle == "alive" {
+                    meta.attention = canonical_attention(meta.observed_status.as_deref());
+                }
             }
         }
         if let Some(ref phase) = inf.phase {
@@ -1894,11 +1929,11 @@ impl MetadataStore {
         // it must not be clobbered here (ADR 0029).
         meta.summary = history_summary.map(str::to_string).or(meta.summary);
         meta.next_action = inf.next_action.clone().or(meta.next_action);
-        if hook_status.is_none() {
+        if matches!(policy, PeonAttentionPolicy::Infer) {
             meta.needs_user_input = inf.needs_user_input.or(meta.needs_user_input);
         }
         // Normalize: treat empty-string question as absent (LLM may emit "" instead of null).
-        if hook_status.is_none() {
+        if matches!(policy, PeonAttentionPolicy::Infer) {
             let incoming_q = inf
                 .detected_question
                 .as_deref()
@@ -1914,7 +1949,7 @@ impl MetadataStore {
         }
         // Hook authority covers attention and prompt fields only. Peon still
         // contributes useful diagnostics about blockers and failed work while
-        // Codex is processing the turn.
+        // the coding tool is processing the turn.
         meta.blocker_description = inf.blocker_description.clone().or(meta.blocker_description);
         meta.failed_command = inf.failed_command.clone().or(meta.failed_command);
         meta.failed_test = inf.failed_test.clone().or(meta.failed_test);
@@ -1950,7 +1985,7 @@ impl MetadataStore {
             meta.last_activity = timestamp.to_string();
         }
         meta.peon_last_inference = Some(timestamp.to_string());
-        if hook_status.is_none() {
+        if !matches!(policy, PeonAttentionPolicy::PreserveHook { .. }) {
             meta.metadata_source = "peon".into();
             meta.metadata_confidence = inf.confidence;
         }
@@ -1971,9 +2006,7 @@ impl MetadataStore {
             event_type: "peon.inference".into(),
             timestamp: timestamp.to_string(),
             status: meta.status.clone(),
-            observed_status: hook_status
-                .map(|(status, _)| status.to_string())
-                .or_else(|| inf.observed_status.clone()),
+            observed_status: meta.observed_status.clone(),
             confidence: Some(inf.confidence),
             summary: checkpoint,
             source: checkpoint_source,
