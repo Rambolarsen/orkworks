@@ -280,7 +280,10 @@ impl ResolvedHarness {
                         .args
                         .get(1)
                         .is_some_and(|arg| arg == "{harnessSessionId}")
-                    && !template.args.iter().any(|argument| argument == "--last")
+                    && !template
+                        .args
+                        .iter()
+                        .any(|argument| argument.starts_with("--last"))
             })
     }
 }
@@ -1329,6 +1332,29 @@ mod tests {
                 "codex resume --last # {harnessSessionId}".into(),
             ],
         });
+        assert!(harness
+            .build_resume(
+                crate::harness::ResumeStrategy::Exact,
+                "/repo",
+                Some("saved-thread"),
+                None,
+                None,
+            )
+            .is_none());
+
+        harness.definition.resume.as_mut().unwrap().exact = Some(crate::harness::CommandTemplate {
+            command: "codex".into(),
+            args: vec![
+                "resume".into(),
+                "{harnessSessionId}".into(),
+                "--last=true".into(),
+            ],
+        });
+        assert_eq!(
+            harness.select_resume_strategy(&memory),
+            crate::harness::ResumeStrategy::None,
+        );
+        assert_eq!(harness.resume_flags(), (false, false, false));
         assert!(harness
             .build_resume(
                 crate::harness::ResumeStrategy::Exact,
