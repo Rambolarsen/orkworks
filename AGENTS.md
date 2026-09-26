@@ -325,8 +325,9 @@ after verification and do not resume or reopen another session as a workaround.
 
 When Peon reports a workflow observation or a Taskmaster recommendation about
 "Peon model detection" or a bare phrasing such as "Model detection is blocked"
-/ "Model detection failed", or a recommendation asks you to remove or document
-a capacity-related obstacle such as "Tracing signal capacity in Claude harness
+/ "Model detection failed", a rate-limit obstacle such as "rate limit
+reached", or a recommendation asks you to remove or document a
+capacity-related obstacle such as "Tracing signal capacity in Claude harness
 to OpenCode", verify whether it is self-referential noise before
 treating it as a product defect: sessions working on OrkWorks itself put Peon's
 own prompt-example vocabulary into terminal output, generic evidence such
@@ -338,7 +339,11 @@ Follow
 [`docs/agents/peon-model-detection-troubleshooting.md`](docs/agents/peon-model-detection-troubleshooting.md).
 The applied provider/model in Settings is authoritative for inference; the
 Peon-detected session model is best-effort, first-detection-wins, and has no
-manual override. Do not resume or reopen another session as a workaround.
+manual override. For harnesses with configured capacity patterns a genuine
+rate limit surfaces through the session's capped attention status and reset
+hint, and through provider capacity state in Settings — not through this
+observation kind. Do not resume or reopen
+another session as a workaround.
 
 ## MCP configuration
 
