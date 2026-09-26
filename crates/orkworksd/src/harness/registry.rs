@@ -1080,7 +1080,7 @@ mod tests {
     // sessions in unrelated, non-git directories on different days) to
     // recover the single most recently touched session machine-wide,
     // ignoring cwd entirely — unlike Claude's cwd-scoped `--continue` or
-    // Codex's `resume --last`. Neither `latestCwd` nor `latestRepo` models
+    // Codex's former `resume --last` behavior. Neither `latestCwd` nor `latestRepo` models
     // that "ignores location" behavior, and mapping to either would risk
     // silently resuming an unrelated project's session, so Copilot
     // declares no latest-fallback strategy at all: resume is exact-only.
@@ -1225,23 +1225,28 @@ mod tests {
     }
 
     #[test]
-    fn codex_latest_repo_resume_builds_resume_last_subcommand() {
+    fn codex_resume_has_no_latest_fallback_without_an_exact_session_id() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
         let harness = registry.get("codex").unwrap();
 
-        let resume = harness
-            .build_resume(
-                crate::harness::ResumeStrategy::LatestRepo,
-                "/repo",
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-
-        assert_eq!(resume.program, "codex");
-        assert_eq!(resume.args, ["resume", "--last"]);
+        assert!(harness
+            .definition
+            .resume
+            .as_ref()
+            .unwrap()
+            .latest_repo
+            .is_none());
+        assert_eq!(
+            harness.select_resume_strategy(&crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::None,
+                harness_session_id: None,
+                latest_fallback: true,
+                last_seen_at: None,
+            }),
+            crate::harness::ResumeStrategy::None,
+        );
     }
 
     #[test]

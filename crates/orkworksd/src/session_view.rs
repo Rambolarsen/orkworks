@@ -304,6 +304,11 @@ pub(crate) fn derive_memory_state(
     let Some(resume) = resume else {
         return (MemoryState::Remembered, harness::ResumeStrategy::None);
     };
+    if harness.is_some_and(|harness| harness.definition.id == "codex")
+        && resume.harness_session_id.is_none()
+    {
+        return (MemoryState::Unsupported, harness::ResumeStrategy::None);
+    }
     let strategy = harness
         .map(|harness| harness.select_resume_strategy(resume))
         .unwrap_or(harness::ResumeStrategy::None);
@@ -888,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_state_marks_codex_session_as_resumable_via_latest_repo_without_captured_id() {
+    fn memory_state_marks_codex_session_unsupported_without_captured_id() {
         let harness = harness("codex");
         let resume = harness::ResumeMemory {
             state: harness::ResumeState::Available,
@@ -900,8 +905,8 @@ mod tests {
 
         let (memory_state, strategy) = derive_memory_state(false, Some(&resume), Some(&harness));
 
-        assert_eq!(memory_state, MemoryState::Resumable);
-        assert_eq!(strategy, harness::ResumeStrategy::LatestRepo);
+        assert_eq!(memory_state, MemoryState::Unsupported);
+        assert_eq!(strategy, harness::ResumeStrategy::None);
     }
 
     #[test]

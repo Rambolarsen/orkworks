@@ -1068,6 +1068,7 @@ pub struct HarnessSessionReport {
 pub enum HarnessSessionMergeResult {
     Accepted,
     IgnoredLowerConfidence,
+    IgnoredIdentityChange,
     NotFound,
     Invalid,
 }
@@ -1545,6 +1546,16 @@ impl MetadataStore {
         report: &HarnessSessionReport,
         timestamp: &str,
     ) -> HarnessSessionMergeResult {
+        self.merge_harness_session_report_with_identity_replacement(id, report, timestamp, false)
+    }
+
+    pub fn merge_harness_session_report_with_identity_replacement(
+        &self,
+        id: &str,
+        report: &HarnessSessionReport,
+        timestamp: &str,
+        allow_codex_identity_replacement: bool,
+    ) -> HarnessSessionMergeResult {
         if !valid_harness_session_report(report) {
             return HarnessSessionMergeResult::Invalid;
         }
@@ -1559,9 +1570,17 @@ impl MetadataStore {
             .resume
             .as_ref()
             .and_then(|resume| resume.harness_session_id.as_deref());
+        let existing_source = meta.harness_session_id_source.as_deref();
 
         if existing_id.is_some() && report.confidence < existing_confidence {
             return HarnessSessionMergeResult::IgnoredLowerConfidence;
+        }
+        if existing_source == Some("codex_hook")
+            && report.source == "codex_hook"
+            && existing_id.is_some_and(|existing| existing != report.harness_session_id)
+            && !allow_codex_identity_replacement
+        {
+            return HarnessSessionMergeResult::IgnoredIdentityChange;
         }
 
         let mut resume = meta.resume.take().unwrap_or_else(|| ResumeMemory {
@@ -3546,6 +3565,83 @@ mod tests {
             Some("opencode_env")
         );
         assert_eq!(updated.harness_session_id_confidence, Some(0.98));
+    }
+
+    #[test]
+    fn codex_native_id_cannot_change_without_an_authorized_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("codex-id-stability");
+        meta.harness = "codex".into();
+        meta.resume = Some(ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::Exact,
+            harness_session_id: Some("owning-thread".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        });
+        meta.harness_session_id_source = Some("codex_hook".into());
+        meta.harness_session_id_confidence = Some(0.98);
+        store.write_session(&meta);
+
+        let result = store.merge_harness_session_report_with_identity_replacement(
+            "codex-id-stability",
+            &HarnessSessionReport {
+                harness_session_id: "nested-thread".into(),
+                source: "codex_hook".into(),
+                confidence: 0.98,
+            },
+            "2026-06-26T12:00:00Z",
+            false,
+        );
+
+        assert_eq!(result, HarnessSessionMergeResult::IgnoredIdentityChange);
+        let updated = store.read_session("codex-id-stability").unwrap();
+        assert_eq!(
+            updated.resume.unwrap().harness_session_id.as_deref(),
+            Some("owning-thread")
+        );
+    }
+
+    #[test]
+    fn codex_native_id_changes_after_explicit_session_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("codex-id-reset");
+        meta.harness = "codex".into();
+        meta.resume = Some(ResumeMemory {
+            state: ResumeState::Available,
+            preferred_strategy: ResumeStrategy::Exact,
+            harness_session_id: Some("before-clear".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        });
+        meta.harness_session_id_source = Some("codex_hook".into());
+        meta.harness_session_id_confidence = Some(0.98);
+        store.write_session(&meta);
+
+        let result = store.merge_harness_session_report_with_identity_replacement(
+            "codex-id-reset",
+            &HarnessSessionReport {
+                harness_session_id: "after-clear".into(),
+                source: "codex_hook".into(),
+                confidence: 0.98,
+            },
+            "2026-06-26T12:00:00Z",
+            true,
+        );
+
+        assert_eq!(result, HarnessSessionMergeResult::Accepted);
+        assert_eq!(
+            store
+                .read_session("codex-id-reset")
+                .unwrap()
+                .resume
+                .unwrap()
+                .harness_session_id
+                .as_deref(),
+            Some("after-clear")
+        );
     }
 
     #[test]

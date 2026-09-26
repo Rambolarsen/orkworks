@@ -55,6 +55,8 @@ pub(crate) struct HarnessSessionReportRequest {
     pub(crate) confidence: f64,
     #[serde(rename = "hookFingerprint", default)]
     pub(crate) hook_fingerprint: Option<String>,
+    #[serde(rename = "sessionStartSource", default)]
+    pub(crate) session_start_source: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -513,7 +515,13 @@ async fn report_harness_session_inner(
         confidence: req.confidence,
     };
 
-    let result = match SessionApplication::new(state.clone()).report_harness_session(&id, report) {
+    let result = match SessionApplication::new(state.clone())
+        .report_harness_session_with_codex_context(
+            &id,
+            report,
+            req.session_start_source.as_deref(),
+            private_lookup_authorized,
+        ) {
         Ok(result) => result,
         Err(crate::session_application::SessionError::Conflict) => {
             return axum::http::StatusCode::CONFLICT.into_response();
@@ -564,7 +572,8 @@ async fn report_harness_session_inner(
 
     match result {
         metadata::HarnessSessionMergeResult::Accepted
-        | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence => {
+        | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
+        | metadata::HarnessSessionMergeResult::IgnoredIdentityChange => {
             axum::http::StatusCode::OK.into_response()
         }
         metadata::HarnessSessionMergeResult::NotFound => {
@@ -1621,6 +1630,7 @@ mod tests {
                 source: "test".into(),
                 confidence: 0.9,
                 hook_fingerprint: None,
+                session_start_source: None,
             }),
         )
         .await
@@ -1641,6 +1651,7 @@ mod tests {
                 source: "test".into(),
                 confidence: 0.9,
                 hook_fingerprint: None,
+                session_start_source: None,
             }),
         )
         .await
@@ -1710,6 +1721,7 @@ mod tests {
                 source: "codex_hook".into(),
                 confidence: 0.98,
                 hook_fingerprint: Some("a".repeat(64)),
+                session_start_source: None,
             }),
         )
         .await
@@ -1797,6 +1809,7 @@ mod tests {
                 source: "codex_hook".into(),
                 confidence: 0.98,
                 hook_fingerprint: Some("a".repeat(64)),
+                session_start_source: None,
             }),
         )
         .await
@@ -1944,6 +1957,7 @@ mod tests {
                 source: "opencode_env".into(),
                 confidence: 0.98,
                 hook_fingerprint: None,
+                session_start_source: None,
             }),
         )
         .await

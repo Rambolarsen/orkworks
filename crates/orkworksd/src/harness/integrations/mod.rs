@@ -779,15 +779,31 @@ mod tests {
             "orkworks:harness-integration:v2:codex",
             r#"{"session_id":"thr_123","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"startup"}"#,
             &[
+                "--event",
+                "SessionStart",
                 "--hook-fingerprint",
                 "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
             ],
         );
         assert!(
-            trace.contains(
-                r#"{"harnessSessionId":"thr_123","source":"codex_hook","confidence":0.98,"hookFingerprint":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"}"#
-            ),
+            trace.contains(r#""harnessSessionId":"thr_123""#)
+                && trace.contains(r#""sessionStartSource":"startup""#)
+                && trace.contains(r#""hookFingerprint":""#),
             "expected codex session_id and hook fingerprint to be forwarded together in one payload; trace:\n{trace}"
+        );
+    }
+
+    #[test]
+    fn report_harness_event_forwards_codex_clear_source() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:codex",
+            r#"{"session_id":"thr_new","cwd":"/tmp/some/worktree","hook_event_name":"SessionStart","source":"clear"}"#,
+            &["--event", "SessionStart"],
+        );
+        assert!(
+            trace.contains(r#""harnessSessionId":"thr_new""#)
+                && trace.contains(r#""sessionStartSource":"clear""#),
+            "explicit Codex reset source must reach the authenticated identity merge; trace:\n{trace}"
         );
     }
 

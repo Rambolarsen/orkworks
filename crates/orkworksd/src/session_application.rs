@@ -2510,7 +2510,23 @@ impl SessionApplication {
         id: &str,
         report: metadata::HarnessSessionReport,
     ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
+        self.report_harness_session_with_codex_context(id, report, None, false)
+    }
+
+    pub(crate) fn report_harness_session_with_codex_context(
+        &self,
+        id: &str,
+        report: metadata::HarnessSessionReport,
+        session_start_source: Option<&str>,
+        report_authenticated: bool,
+    ) -> Result<metadata::HarnessSessionMergeResult, SessionError> {
         if !metadata::valid_harness_session_report(&report) {
+            return Ok(metadata::HarnessSessionMergeResult::Invalid);
+        }
+        if session_start_source.is_some_and(|source| {
+            report.source != "codex_hook"
+                || !matches!(source, "startup" | "resume" | "clear" | "compact")
+        }) {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
         }
 
@@ -2520,9 +2536,29 @@ impl SessionApplication {
             let Some(workspace) = workspace.as_ref() else {
                 return Err(SessionError::Conflict);
             };
+            let allow_codex_identity_replacement = report_authenticated
+                && session_start_source == Some("clear")
+                && workspace
+                    .metadata
+                    .read_session(id)
+                    .filter(|metadata| metadata.harness == "codex")
+                    .and_then(|metadata| {
+                        metadata.resume.and_then(|resume| resume.harness_session_id)
+                    })
+                    .is_some_and(|previous_id| {
+                        crate::codex_session_store::native_label_refresh_is_blocked(
+                            id,
+                            &previous_id,
+                        )
+                    });
             workspace
                 .metadata
-                .merge_harness_session_report(id, &report, &now)
+                .merge_harness_session_report_with_identity_replacement(
+                    id,
+                    &report,
+                    &now,
+                    allow_codex_identity_replacement,
+                )
         };
 
         if result == metadata::HarnessSessionMergeResult::Accepted {
@@ -3492,6 +3528,20 @@ async fn resume_session_workflow(
             .and_then(|id| registry.get(id))
             .or_else(|| registry.get("generic-shell"))
             .expect("generic-shell builtin exists");
+        if meta.harness == "codex" && resume.harness_session_id.is_none() {
+            return Err(crate::session_application::SessionError::BadRequest(
+                "Codex session has no captured native ID",
+            ));
+        }
+        if meta.harness == "codex"
+            && !crate::codex_session_store::has_saved_session(
+                resume.harness_session_id.as_deref().expect("checked above"),
+            )
+        {
+            return Err(crate::session_application::SessionError::BadRequest(
+                "Codex has no saved local session for this ID",
+            ));
+        }
         let active_work_hook = harness.initial_work_hook_active();
         let strategy = harness.select_resume_strategy(resume);
         if strategy == harness::ResumeStrategy::None {
@@ -5364,6 +5414,82 @@ mod tests {
     }
 
     #[test]
+    fn codex_session_report_replaces_identity_only_for_authenticated_recorded_clear() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "codex-identity-clear";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Codex session",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.harness = "codex".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("native-parent".into()),
+            latest_fallback: false,
+            last_seen_at: Some("before".into()),
+        });
+        metadata.harness_session_id_source = Some("codex_hook".into());
+        metadata.harness_session_id_confidence = Some(0.98);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        crate::codex_session_store::block_native_label_refresh(id, "native-parent");
+        let app = SessionApplication::new(state.clone());
+        let report = metadata::HarnessSessionReport {
+            harness_session_id: "native-child".into(),
+            source: "codex_hook".into(),
+            confidence: 0.98,
+        };
+
+        assert_eq!(
+            app.report_harness_session_with_codex_context(
+                id,
+                report.clone(),
+                Some("startup"),
+                true
+            )
+            .unwrap(),
+            metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+        );
+        assert_eq!(
+            app.report_harness_session_with_codex_context(id, report.clone(), Some("clear"), false)
+                .unwrap(),
+            metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+        );
+        assert_eq!(
+            app.report_harness_session_with_codex_context(id, report, Some("clear"), true)
+                .unwrap(),
+            metadata::HarnessSessionMergeResult::Accepted
+        );
+
+        let stored_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume
+            .and_then(|resume| resume.harness_session_id);
+        assert_eq!(stored_id.as_deref(), Some("native-child"));
+        crate::codex_session_store::clear_native_label_refresh_block(id);
+    }
+
+    #[test]
     fn harness_session_report_application_distinguishes_invalid_and_missing() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
@@ -6316,6 +6442,99 @@ mod tests {
         assert!(matches!(
             application.resume_session("missing").await,
             Err(SessionError::Conflict)
+        ));
+    }
+
+    #[tokio::test]
+    async fn codex_resume_refuses_an_id_without_a_saved_local_rollout() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "codex-resume-unsaved";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Codex resume",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.cwd = root.path().display().to_string();
+        metadata.harness = "codex".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("orkworks-test-thread-without-rollout".into()),
+            latest_fallback: false,
+            last_seen_at: Some("before".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        assert!(matches!(
+            SessionApplication::new(state).resume_session(id).await,
+            Err(SessionError::BadRequest(
+                "Codex has no saved local session for this ID"
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn codex_resume_refuses_missing_id_even_when_custom_latest_fallback_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let override_patch = document.overrides.entry("codex".into()).or_default();
+                override_patch.resume = Some(Some(harness::definition::ResumePatch {
+                    latest_repo: Some(Some(harness::CommandTemplate {
+                        command: "codex".into(),
+                        args: vec!["resume".into(), "--last".into()],
+                    })),
+                    ..Default::default()
+                }));
+                Ok(())
+            })
+            .unwrap();
+
+        let id = "codex-resume-no-id";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Codex resume",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        metadata.cwd = root.path().display().to_string();
+        metadata.harness = "codex".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::LatestRepo,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        assert!(matches!(
+            SessionApplication::new(state).resume_session(id).await,
+            Err(SessionError::BadRequest(
+                "Codex session has no captured native ID"
+            ))
         ));
     }
 

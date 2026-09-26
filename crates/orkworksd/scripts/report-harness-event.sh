@@ -115,6 +115,7 @@ fi
 # matching "$marker" a second and third time.
 reported_cwd=""
 harness_session_id=""
+session_start_source=""
 session_source=""
 codex_attention="no"
 case "$marker" in
@@ -133,10 +134,11 @@ case "$marker" in
     session_source="claude_hook"
     ;;
   *:codex)
-    harness_session_id="$(
+    codex_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id") or "")' 2>/dev/null
+        python3 -c 'import json,sys; data=json.load(sys.stdin); source=(data.get("source") or "") if sys.argv[1] == "SessionStart" else ""; print("%s\x1f%s" % (data.get("session_id") or "", source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
     )" || true
+    IFS=$'\x1f' read -r harness_session_id session_start_source <<< "$codex_fields"
     session_source="codex_hook"
     case "$event" in
       UserPromptSubmit)
@@ -196,6 +198,9 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
     session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98,"hookFingerprint":"%s"}' "$escaped_session_id" "$session_source" "$escaped_fingerprint")
   else
     session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98}' "$escaped_session_id" "$session_source")
+  fi
+  if [ "$session_source" = "codex_hook" ] && [ -n "$session_start_source" ]; then
+    session_payload="${session_payload%?},\"sessionStartSource\":\"$session_start_source\"}"
   fi
   session_curl_config=""
   if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
