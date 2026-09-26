@@ -68,6 +68,8 @@ pub(crate) enum RecommendationPacketError {
     Store(crate::taskmaster::store::StoreError),
 }
 
+const MAX_ACTIVE_HARNESS_IDS: usize = 64;
+
 pub(crate) struct WorkspaceSnapshot {
     pub(crate) canonical_path: String,
     pub(crate) repo_root: Option<String>,
@@ -3147,6 +3149,11 @@ impl SessionApplication {
         active_harness_ids: Vec<String>,
         expected_active_harness_revision: u64,
     ) -> Result<metadata::WorkspaceMemory, SessionError> {
+        if active_harness_ids.len() > MAX_ACTIVE_HARNESS_IDS {
+            return Err(SessionError::BadRequest(
+                "Too many coding tools were selected.",
+            ));
+        }
         let _projection = self
             .state
             .projection_lock
@@ -7700,6 +7707,33 @@ mod tests {
             .unwrap();
         assert_eq!(memory.active_harness_ids, vec!["copilot"]);
         assert_eq!(memory.active_harness_revision, 2);
+    }
+
+    #[test]
+    fn set_active_harnesses_rejects_selections_above_the_cap() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+
+        let oversized = vec!["codex".to_string(); MAX_ACTIVE_HARNESS_IDS + 1];
+        assert_eq!(
+            application.set_active_harnesses_at(oversized, 0),
+            Err(SessionError::BadRequest(
+                "Too many coding tools were selected."
+            ))
+        );
+
+        let memory = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_workspace_memory()
+            .unwrap_or_default();
+        assert_eq!(memory.active_harness_ids, Vec::<String>::new());
+        assert_eq!(memory.active_harness_revision, 0);
     }
 
     #[test]
