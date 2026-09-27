@@ -254,16 +254,15 @@ accepts a session-correlated, event-validated report. Before that report,
 Claude Code and GitHub Copilot sessions retain Peon and terminal fallback for
 prompt inference until the sidecar accepts a recognized report from the
 session's prompt-notification hook (`Notification` for Claude Code;
-`notification` for GitHub Copilot). Accepted turn events such as
-`UserPromptSubmit` may update the turn status and clear an
-existing wait as specified, but do not prove the separate prompt-notification
-hook is running, set prompt-authority state, or block Peon from updating prompt
-fields. Only a recognized prompt notification activates that channel's
-authority. Before activation, recognized nonprompt notifications and turn
-events do not write attention or a readiness-only state. After activation,
-only the allowlisted turn and prompt-clear events mapped for that harness may
-update or clear attention; they do not activate authority. Unknown or malformed
-notifications do not change state. Each Claude/Copilot report must include
+`notification` for GitHub Copilot). Before activation, all turn events are
+attention no-ops: they do not write turn status, clear an existing wait, set
+prompt-authority state, or block Peon from updating prompt fields. Only a
+recognized prompt notification activates that channel's authority. Before
+activation, recognized nonprompt notifications also do not write attention or
+a readiness-only state. After activation, only the allowlisted turn and
+prompt-clear events mapped for that harness may update or clear attention;
+they do not activate authority. Unknown or malformed notifications do not
+change state. Each Claude/Copilot report must include
 the native ID carried by that event (`session_id` for Claude, `sessionId` for
 Copilot), the OrkWorks session's valid report token, and the immutable
 generation inherited from that session's launch environment. Before
@@ -297,9 +296,14 @@ tools retain their existing Peon and terminal fallback.
 For Codex and OpenCode, an accepted direct signal owns that session's attention
 fields (`observed_status`/`attention`, `needsUserInput`, `detectedQuestion`,
 and `suggestedOptions`). For Claude Code and GitHub Copilot, an accepted
-prompt-notification report activates ownership of those fields; activation
-clears older Peon-sourced values while normal source priority protects
-user-authored values and newer accepted direct reports. Peon continues
+prompt-notification report activates authority over those fields. Metadata
+source is record-wide, so the sidecar cannot identify provenance for each
+prompt field separately; treat the four fields as one tuple. On activation or
+demotion, clear the whole tuple when the record-wide source is not `user`, and
+preserve the whole tuple when it is `user`. Do not selectively retain
+individual fields based on assumed per-field ownership. Normal source priority
+continues to protect user-authored records and newer accepted direct reports.
+Peon continues
 summaries, phase, diagnostics, and workflow evidence but cannot create or
 replace attention or prompt fields from conversational text after the
 applicable authority activates. A prompt can be missed when a hook is absent,
@@ -307,8 +311,8 @@ disabled, delayed, or unable to report. After activation, a lost prompt-clear
 event can leave stale attention until a later recognized turn event, accepted
 terminal input, or session lifecycle transition. Explicit disable/uninstall, or
 integration reconciliation that detects the owned prompt-notification hook is
-missing or drifted, ends Claude/Copilot authority, clears hook-owned fields
-subject to normal user-source priority, and returns future inference to
+missing or drifted, ends Claude/Copilot authority, clears the prompt tuple as a
+unit under the record-wide source rule above, and returns future inference to
 Peon/terminal fallback. Silence alone cannot prove hook loss. The UI must
 preserve that uncertainty rather than treat an installed configuration as
 proof that hooks are running. Before activation, Claude/Copilot turn-event
@@ -323,8 +327,9 @@ absent and reports are rejected. The sidecar passes it as
 `ORKWORKS_PROMPT_HOOK_GENERATION`; reporters inherit it and forward it
 unchanged, capturing it at invocation start rather than fetching the current
 generation at POST time. Disable, uninstall, or detected drift revokes that
-generation before clearing hook-owned fields, and reports from a revoked
-generation cannot restore authority. Re-enabling does not change the
+generation before clearing the prompt tuple under the record-wide source rule
+above, and reports from a revoked generation cannot restore authority.
+Re-enabling does not change the
 environment of an already-running harness; that session remains on
 Peon/terminal fallback until it is relaunched under a new OrkWorks live session
 with a fresh generation. Reports without a generation are rejected. This fences

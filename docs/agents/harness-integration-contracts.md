@@ -91,13 +91,18 @@ unrevoked launch generation; attention must then match the registered native
 ID, token, and generation. Missing, invalid, stale, unregistered, or mismatched
 values are rejected. A recognized prompt report makes
 the live session hook-authoritative for `observed_status`/`attention`,
-`needsUserInput`, `detectedQuestion`, and `suggestedOptions`; activation clears
-older Peon-sourced values while normal source priority protects user-authored
-values. Peon continues summaries, phase, diagnostics, and workflow evidence.
+`needsUserInput`, `detectedQuestion`, and `suggestedOptions`. Metadata source
+is record-wide, so the sidecar cannot identify provenance for each prompt
+field separately; treat the four fields as one tuple. On activation or
+demotion, clear the whole tuple when the record-wide source is not `user`, and
+preserve the whole tuple when it is `user`. Do not selectively retain
+individual fields based on assumed per-field ownership. Normal source priority
+continues to protect user-authored records and newer accepted direct reports.
+Peon continues summaries, phase, diagnostics, and workflow evidence.
 When integration reconciliation detects that an owned notification hook is
-missing or drifted, it ends prompt authority, clears hook-owned fields subject
-to user-source priority, and restores Peon/terminal fallback. Silence alone
-does not prove hook loss. For Claude, the recognized prompt notifications are
+missing or drifted, it ends prompt authority, clears the prompt tuple as a unit
+under the record-wide source rule above, and restores Peon/terminal fallback.
+Silence alone does not prove hook loss. For Claude, the recognized prompt notifications are
 `permission_prompt`, `elicitation_dialog`, and `elicitation_url_dialog`. After
 authority activates, `UserPromptSubmit` marks work and clears older waits, and
 `PostToolUse` after success may clear a permission wait. Claude `Stop` is not a
@@ -145,9 +150,9 @@ it and forward that exact value for native-ID registration and each
 attention report; they capture it at invocation start and never fetch the
 session's current generation while submitting. Explicit disable, uninstall,
 or reconciliation-detected notification-hook drift revokes that generation
-before clearing hook-owned attention and prompt fields subject to normal
-user-source priority. Reports from the revoked generation are rejected and
-cannot reactivate authority. Re-enabling does not change the environment of an
+before clearing the prompt tuple under the record-wide source rule above.
+Reports from the revoked generation are rejected and cannot reactivate
+authority. Re-enabling does not change the environment of an
 already-running harness: that session stays on Peon/terminal fallback until it
 is relaunched under a new OrkWorks live session with a fresh generation. Reports
 without a generation are rejected. The generation fences lifecycle races; it

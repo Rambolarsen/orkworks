@@ -401,12 +401,12 @@ tool, subject to the local-only/ignored-file policy above:
 
 | Harness | Workspace mechanism | Coverage |
 | --- | --- | --- |
-| Claude Code | Owned entries in `.claude/settings.local.json` calling the stable reporter | Full for the verified selected signal contract |
+| Claude Code | Owned entries in `.claude/settings.local.json` calling the stable reporter | Limited until version-pinned fixtures verify the selected events and payloads; prompt-authority rules are proposed in the 2026-09-27 design |
 | Codex | Owned project lifecycle hooks beside the trusted `.codex` config layer, only in a proven local-only or already ignored dedicated file | Full for verified documented hook events; activation may require trust |
 | OpenCode | One owned workspace plugin in `.opencode/plugins/`, only when the dedicated file is already ignored and untracked | Limited until the required event payload schema is pinned to a primary type definition |
 | Gemini CLI | Owned entries in workspace `.gemini/settings.json` only when the selected file is documented local-only or is already ignored and untracked | Full only when the supported-version and verified-payload gates pass; otherwise limited/unknown |
-| GitHub Copilot CLI | Owned entries in `.github/copilot/settings.local.json` | Full for the verified selected lifecycle/attention/session-ID contract |
-| Aider | OrkWorks-managed `--notifications-command` launch augmentation | Limited to ready-for-input notification |
+| GitHub Copilot CLI | Owned entries in `.github/copilot/settings.local.json` | Limited until version-pinned fixtures verify the selected events and payloads; prompt-authority rules are proposed in the 2026-09-27 design |
+| Aider | OrkWorks-managed `--notifications-command` launch augmentation | Limited to response-completion notification; it does not establish prompt or attention state, so Peon remains the fallback |
 | Generic shell | No integration handler | None / unsupported |
 
 The Codex hook system supports user and project layers; this design considers
