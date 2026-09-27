@@ -42,7 +42,23 @@ recommendation and rediscover work that is already merged. When your change
 implements an existing Taskmaster recommendation (one whose
 `proposedImprovement` your diff addresses, whether or not the task started
 from it), complete that recommendation through the sidecar API before the PR
-reaches a terminal state:
+reaches a terminal state — not after the merge.
+
+The completion endpoint is session-bound: it accepts a recommendation only
+when `targetSessionId` equals the session derived from
+`ORKWORKS_REPORT_TOKEN` and the recommendation is `Accepted`. For work that
+did not start from the recommendation, the sequence is:
+
+1. Find the matching active record: `GET /taskmaster/recommendations` (propose
+   only the one whose `proposedImprovement` your verified diff demonstrably
+   addresses; if no active recommendation matches, there is nothing to tie
+   off).
+2. Accept it from this session: `POST
+   /taskmaster/recommendations/${RECOMMENDATION_ID}/accept` with
+   `{"session_id":"${ORKWORKS_SESSION_ID}"}`.
+3. Complete it: `POST /taskmaster/recommendations/${RECOMMENDATION_ID}/complete`
+   with `Authorization: Bearer ${ORKWORKS_REPORT_TOKEN}` and
+   `{"summary":"Verified disposition and checks run."}`.
 
 ```bash
 curl --fail-with-body -X POST \
@@ -55,8 +71,13 @@ curl --fail-with-body -X POST \
 - Only post completion after the change is verified; the summary must state
   the verified disposition (implemented change, or noise/not-a-defect with
   evidence).
+- If the recommendation carries a `completionPacket`, the accept and complete
+  requests must also include a `packetMutation` with the packet's current
+  `revision`, `evidenceFingerprint`, and the `approval.idempotencyKey` from
+  the same `GET /taskmaster/recommendations/${RECOMMENDATION_ID}` payload —
+  the sidecar rejects the request otherwise.
 - Reference the recommendation ID in the PR body as well, so the linkage is
-  visible in review even if completion happens after the merge.
+  visible in review.
 - Never edit recommendation files under `~/.orkworks/` directly; the API is
   the only write path.
 - When work starts *from* a recommendation, the
