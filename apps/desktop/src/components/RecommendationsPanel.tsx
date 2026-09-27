@@ -370,23 +370,27 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       {analysisError && <p className="recommendation-error" role="alert">{analysisError}</p>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />
-      {visibleRecommendations.length === 0 && diagnostics.length === 0 && !error ? (
-        <EmptyState message={panelEmptyMessage(originFilter)} />
-      ) : (
-        visibleRecommendations.map((recommendation) => (
-          <RecommendationCard
-            key={recommendation.id}
-            recommendation={recommendation}
-            onDismiss={dismiss}
-            onSelectSession={onSelectSession}
-            onFixWithAi={onFixWithAi}
-            canFixWithAi={canFixWithAi}
-            dismissing={dismissing === recommendation.id}
-            error={dismissErrors[recommendation.id] || undefined}
-            focused={recommendation.id === focusedRecommendationId}
-          />
-        ))
+      {visibleRecommendations.length === 0 && !error && originFilter !== "all" && (
+        <p className="recommendations-filter-empty" role="status">{panelEmptyMessage(originFilter)}</p>
       )}
+      {visibleRecommendations.length === 0 && !error
+        && originFilter === "all" && diagnostics.length === 0
+        && !analysisMessage && !blockedRecommendation && (
+        <EmptyState message={panelEmptyMessage("all")} />
+      )}
+      {visibleRecommendations.length > 0 && visibleRecommendations.map((recommendation) => (
+        <RecommendationCard
+          key={recommendation.id}
+          recommendation={recommendation}
+          onDismiss={dismiss}
+          onSelectSession={onSelectSession}
+          onFixWithAi={onFixWithAi}
+          canFixWithAi={canFixWithAi}
+          dismissing={dismissing === recommendation.id}
+          error={dismissErrors[recommendation.id] || undefined}
+          focused={recommendation.id === focusedRecommendationId}
+        />
+      ))}
     </section>
   );
 }

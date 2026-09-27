@@ -861,6 +861,24 @@ test("Recommendations panel exposes an All/Analysis/Observations origin filter",
   assert.match(panel, /"analysis"/);
 });
 
+test("Filtered empty state renders even when observation diagnostics exist", () => {
+  // A diagnostic must not mask the "hidden by filter" message: with a
+  // non-matching origin filter and zero visible recommendations, the panel
+  // must indicate that recommendations exist but are filtered out,
+  // independently of the aggregate diagnostics list.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const filteredEmpty = panel.match(
+    /\{visibleRecommendations\.length === 0 && !error && originFilter !== "all" && \(\s*\n\s*<p className="recommendations-filter-empty" role="status">\{panelEmptyMessage\(originFilter\)\}<\/p>/,
+  );
+  assert.ok(
+    filteredEmpty,
+    "filtered empty message must render on the origin filter alone (diagnostics must not gate it)",
+  );
+});
+
 test("Recommendations panel links affected sessions through the shared selection callback", () => {
   const panel = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
