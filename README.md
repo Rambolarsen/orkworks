@@ -302,6 +302,7 @@ The `skills/` directory contains repo-level agent skills that are committed with
 | [auditing-signal-vs-noise](skills/auditing-signal-vs-noise/SKILL.md) | Audits UI truthfulness of situational-awareness surfaces against their metadata sources |
 | [consulting-the-brain](skills/consulting-the-brain/SKILL.md) | Routes agent-readiness analysis/improvement work through the owner's external "brain" knowledge repo |
 | [orchestrating-task-graphs](skills/orchestrating-task-graphs/SKILL.md) | Multi-agent task-graph orchestration: fake-edge test before fan-out, separate diverse verifiers, one owned merge |
+| [troubleshooting-github-connectivity](skills/troubleshooting-github-connectivity/SKILL.md) | Separates stale CLI output, network reachability, authentication, and permission failures |
 
 ## Issue board
 
