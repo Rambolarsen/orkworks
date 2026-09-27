@@ -68,9 +68,13 @@ may leave **Needs You** until a later recognized event, accepted input, or
 session death; plugin reload cannot reconstruct requests already pending.
 Claude Code and GitHub Copilot CLI turn events may update the status they
 describe, but do not establish prompt authority. Peon prompt inference remains
-available until an accepted, session-correlated report from Claude's
-`Notification` hook or Copilot's `notification` hook proves that the
-prompt-capable notification path ran. A recognized report from that path makes
+available until an accepted, session-correlated prompt notification from
+Claude's `Notification` hook or Copilot's `notification` hook arrives. Only
+recognized prompt types activate authority; nonprompt notifications do not
+write a readiness-only state. Each Claude/Copilot report must carry the event's
+native ID (`session_id` or `sessionId`) and match the exact ID already accepted
+for that live session through `POST /sessions/:id/harness-session`; missing,
+unregistered, or mismatched IDs are rejected. A recognized prompt report makes
 the live session hook-authoritative for `observed_status`/`attention`,
 `needsUserInput`, `detectedQuestion`, and `suggestedOptions`; activation clears
 older Peon-sourced values while normal source priority protects user-authored
@@ -96,7 +100,7 @@ Background `agent_idle`, `agent_completed`, and shell-completion notifications
 do not mean the root session needs the user. Copilot event timestamps order
 hook reports against one another and committed terminal input; older reports
 must be rejected. In both harnesses, a missing or inactive integration before
-the first notification-channel report preserves Peon prompt fallback; explicit
+the first prompt-notification report preserves Peon prompt fallback; explicit
 disable, uninstall, or reconciliation-detected notification-hook drift after
 activation returns future inference to fallback. Accepted terminal input means
 sidecar-committed work, not raw typing or unsent input.
@@ -104,7 +108,8 @@ sidecar-committed work, not raw typing or unsent input.
 For the proposed authority, validating an attention report token authenticates
 the OrkWorks session, not the harness process, because child processes inherit
 it. Event acceptance also requires the allowlisted harness/event/status mapping
-and matching native session identity where available. Explicit disable,
+and exact equality between the event's native session ID and the ID already
+accepted through the harness-session route. Explicit disable,
 uninstall, or reconciliation-detected notification-hook drift clears
 hook-owned attention and prompt fields subject to normal user-source priority
 before fallback resumes.

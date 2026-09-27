@@ -84,19 +84,16 @@ coding harness from this session.
 ## Authority and fallback rule
 
 For Claude and Copilot, an installed hook file or declared capability does not
-establish prompt authority. Keep prompt-channel readiness separate from
-ordinary turn-state reports; a `UserPromptSubmit`, `PostToolUse`, `Stop`, or
+establish prompt authority. A `UserPromptSubmit`, `PostToolUse`, `Stop`, or
 `agentStop` event may update the status it describes and clear a wait on
 accepted new input, but cannot enable prompt authority. Peon and terminal
 fallback remain available for prompt inference until the sidecar accepts a
-recognized, session-correlated report from Claude's `Notification` hook or
-Copilot's `notification` hook. That report is evidence that the
-prompt-capable notification path ran; turn events alone are not. The report
-may describe a recognized nonprompt notification and still establish channel
-readiness without changing attention. Unknown or malformed notification types
-do not establish readiness.
+recognized, session-correlated prompt notification: `permission_prompt`,
+`elicitation_dialog`, or Claude's `elicitation_url_dialog`. Recognized
+nonprompt notifications, unknown types, and malformed reports do not activate
+authority or write a readiness-only state.
 
-After that notification report, direct events own the attention fields:
+After that prompt-notification report, direct events own the attention fields:
 `observed_status`/`attention`, `needsUserInput`, `detectedQuestion`, and
 `suggestedOptions`. Promotion clears older Peon-sourced values in those fields;
 normal source priority still protects user-authored values and newer accepted
@@ -106,7 +103,7 @@ conversational text. This mirrors the existing `NonPrompt` boundary for
 Codex/OpenCode while retaining descriptive Peon inference.
 
 Authority lasts for the matching live session. A missing, disabled, or inactive
-integration before the first notification report leaves prompt fallback active.
+integration before the first prompt-notification report leaves prompt fallback active.
 After promotion, explicit disable/uninstall or an integration reconciliation
 that detects the owned notification hook is missing or drifted ends authority,
 clears hook-owned attention/prompt fields subject to normal user-source
@@ -116,11 +113,15 @@ attention can go stale until a recognized event or session lifecycle transition.
 
 The report token authenticates a report to its OrkWorks session; because child
 processes inherit it, it does not prove that the harness itself emitted the
-event. Event provenance must therefore also be checked by an allowlisted
-harness/event/status mapping and matching session identity (native identity for
-Claude/Copilot where reported, OrkWorks launch identity for Aider). The
-implementation must not treat a caller-provided source label or token alone as
-proof of event origin.
+event. Every Claude/Copilot attention report must carry the native session ID
+from that event (`session_id` for Claude, `sessionId` for Copilot). Accept it
+only when it exactly matches the native ID already accepted for that live
+OrkWorks session through `POST /sessions/:id/harness-session`; a missing,
+unregistered, or mismatched ID is rejected without changing attention or
+authority. Aider remains bound by its OrkWorks launch identity because its
+callback supplies no native ID. Event provenance must also be checked by an
+allowlisted harness/event/status mapping; a caller-provided source label or
+report token alone is not proof of event origin.
 
 Although the Aider completion callback is correlated to its owning OrkWorks
 session by launch environment, it never activates prompt authority or writes
@@ -173,9 +174,11 @@ absent; keep #643 open for the uncompleted real-prompt checks that can be run
 with Claude/Copilot and for any later Aider evidence that becomes available.
 
 For each integration, assert that an absent or inactive integration retains
-Peon and terminal fallback; a same-session notification-channel report, not a
-turn event alone, activates prompt authority; unknown and malformed reports do
-not change state; completion does not become Needs You; accepted input and
+Peon and terminal fallback; only an accepted same-session prompt notification
+activates prompt authority; turn events and nonprompt notifications do not;
+unknown and malformed reports do not change state; missing, unregistered, or
+mismatched native session IDs are rejected; completion does not become Needs
+You; accepted input and
 specified turn events clear prompts; reconciliation of a missing or drifted
 owned notification hook demotes authority; Peon cannot write attention or
 prompt fields after activation; and summary, phase, diagnostics, and workflow
@@ -198,10 +201,12 @@ coverage remains limited until fixtures and live behavior verify the mappings.
 1. Add per-session, event-validated Claude/Copilot prompt-channel promotion
    without using integration configuration or declared capability as proof
    that a hook executed. Keep turn-state reporting separate from prompt
-   authority; only an accepted notification-channel report promotes it. Define
-   route authentication as session-level only, validate the allowlisted
-   event/status and session identity, reconcile missing or drifted notification
-   entries, and clear only hook-owned fields on demotion.
+   authority; only an accepted prompt notification promotes it. Define route
+   authentication as session-level only, require each event's native session ID
+   to match the ID already accepted through the harness-session route, validate
+   the allowlisted event/status, reconcile missing or drifted notification
+   entries, and clear only hook-owned fields on demotion. Nonprompt notifications
+   do not write a readiness-only state.
 2. Implement the Claude prompt, elicitation-clear, and turn event mapping with
    receipt-order behavior, permission clear signals, and stale-state coverage;
    remove or disable its current `PreToolUse` attention write because it is
