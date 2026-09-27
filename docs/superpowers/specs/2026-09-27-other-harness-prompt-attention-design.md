@@ -84,10 +84,19 @@ coding harness from this session.
 ## Authority and fallback rule
 
 For Claude and Copilot, an installed hook file or declared capability does not
-establish authority. The sidecar promotes only the matching live session after
-accepting a recognized, session-correlated direct event with the expected
-harness and status. Before then, Peon and terminal fallback remain available
-for work and attention. Once promoted, direct events own the attention fields:
+establish prompt authority. Keep prompt-channel readiness separate from
+ordinary turn-state reports; a `UserPromptSubmit`, `PostToolUse`, `Stop`, or
+`agentStop` event may update the status it describes and clear a wait on
+accepted new input, but cannot enable prompt authority. Peon and terminal
+fallback remain available for prompt inference until the sidecar accepts a
+recognized, session-correlated report from Claude's `Notification` hook or
+Copilot's `notification` hook. That report is evidence that the
+prompt-capable notification path ran; turn events alone are not. The report
+may describe a recognized nonprompt notification and still establish channel
+readiness without changing attention. Unknown or malformed notification types
+do not establish readiness.
+
+After that notification report, direct events own the attention fields:
 `observed_status`/`attention`, `needsUserInput`, `detectedQuestion`, and
 `suggestedOptions`. Promotion clears older Peon-sourced values in those fields;
 normal source priority still protects user-authored values and newer accepted
@@ -97,12 +106,13 @@ conversational text. This mirrors the existing `NonPrompt` boundary for
 Codex/OpenCode while retaining descriptive Peon inference.
 
 Authority lasts for the matching live session. A missing, disabled, or inactive
-integration before the first recognized report leaves fallback active. An
-explicit disable or uninstall after promotion ends authority, clears
-hook-owned attention/prompt fields subject to normal user-source priority, and
-returns future attention inference to Peon/terminal fallback. Silence alone
-cannot prove that a hook stopped, so authority remains active and attention can
-go stale until a recognized event or session lifecycle transition.
+integration before the first notification report leaves prompt fallback active.
+After promotion, explicit disable/uninstall or an integration reconciliation
+that detects the owned notification hook is missing or drifted ends authority,
+clears hook-owned attention/prompt fields subject to normal user-source
+priority, and returns future attention inference to Peon/terminal fallback.
+Silence alone cannot prove that a hook stopped, so authority remains active and
+attention can go stale until a recognized event or session lifecycle transition.
 
 The report token authenticates a report to its OrkWorks session; because child
 processes inherit it, it does not prove that the harness itself emitted the
@@ -138,7 +148,9 @@ not suppress working fallback.
   uncertainty rather than claim stale-event rejection.
 - Keeping Peon active before a direct hook event handles missing, disabled, or
   broken integrations, but text inference can still create false positives
-  until the first accepted event.
+  until the first accepted prompt-notification report, even if turn events are
+  already arriving. This avoids treating a working turn hook as proof that the
+  separate prompt hook is operational.
 - After Claude/Copilot activation, refusing LLM-created prompt state prevents
   speculative Needs You but can miss conversational questions that have no
   direct harness event.
@@ -161,11 +173,13 @@ absent; keep #643 open for the uncompleted real-prompt checks that can be run
 with Claude/Copilot and for any later Aider evidence that becomes available.
 
 For each integration, assert that an absent or inactive integration retains
-Peon and terminal fallback; only a recognized same-session event activates
-authority; unknown and malformed reports do not change state; completion does
-not become Needs You; accepted input and specified turn events clear prompts;
-Peon cannot write attention or prompt fields after activation; and summary,
-phase, diagnostics, and workflow evidence continue independently. For
+Peon and terminal fallback; a same-session notification-channel report, not a
+turn event alone, activates prompt authority; unknown and malformed reports do
+not change state; completion does not become Needs You; accepted input and
+specified turn events clear prompts; reconciliation of a missing or drifted
+owned notification hook demotes authority; Peon cannot write attention or
+prompt fields after activation; and summary, phase, diagnostics, and workflow
+evidence continue independently. For
 Copilot, timestamped out-of-order reports must not change state. For Claude,
 verify receipt-order handling and record the known late-notification case; do
 not assert source-time stale-event rejection because the documented payload
@@ -181,11 +195,13 @@ coverage remains limited until fixtures and live behavior verify the mappings.
 
 ## Follow-up issue split after approval
 
-1. Add per-session, event-validated Claude/Copilot authority promotion without
-   using integration configuration or declared capability as proof that a
-   hook executed. Define route authentication as session-level only, validate
-   the allowlisted event/status and session identity, handle promotion and
-   explicit disable/uninstall, and clear only hook-owned fields on demotion.
+1. Add per-session, event-validated Claude/Copilot prompt-channel promotion
+   without using integration configuration or declared capability as proof
+   that a hook executed. Keep turn-state reporting separate from prompt
+   authority; only an accepted notification-channel report promotes it. Define
+   route authentication as session-level only, validate the allowlisted
+   event/status and session identity, reconcile missing or drifted notification
+   entries, and clear only hook-owned fields on demotion.
 2. Implement the Claude prompt, elicitation-clear, and turn event mapping with
    receipt-order behavior, permission clear signals, and stale-state coverage;
    remove or disable its current `PreToolUse` attention write because it is

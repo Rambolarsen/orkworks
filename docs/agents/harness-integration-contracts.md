@@ -66,12 +66,19 @@ schemas and reporter sequence tests establish the mapping, but live OpenCode
 attention delivery has not been confirmed end to end. A lost reply or reject
 may leave **Needs You** until a later recognized event, accepted input, or
 session death; plugin reload cannot reconstruct requests already pending.
-Claude Code and GitHub Copilot CLI become hook-authoritative only after an
-accepted, session-correlated report from a recognized event. Their direct
-authority covers `observed_status`/`attention`, `needsUserInput`,
-`detectedQuestion`, and `suggestedOptions`; activation clears older Peon-sourced
-values while normal source priority protects user-authored values. Peon
-continues summaries, phase, diagnostics, and workflow evidence. For Claude, the
+Claude Code and GitHub Copilot CLI turn events may update the status they
+describe, but do not establish prompt authority. Peon prompt inference remains
+available until an accepted, session-correlated report from Claude's
+`Notification` hook or Copilot's `notification` hook proves that the
+prompt-capable notification path ran. A recognized report from that path makes
+the live session hook-authoritative for `observed_status`/`attention`,
+`needsUserInput`, `detectedQuestion`, and `suggestedOptions`; activation clears
+older Peon-sourced values while normal source priority protects user-authored
+values. Peon continues summaries, phase, diagnostics, and workflow evidence.
+When integration reconciliation detects that an owned notification hook is
+missing or drifted, it ends prompt authority, clears hook-owned fields subject
+to user-source priority, and restores Peon/terminal fallback. Silence alone
+does not prove hook loss. For Claude, the
 recognized prompt notifications are `permission_prompt`, `elicitation_dialog`,
 and `elicitation_url_dialog`; `UserPromptSubmit` marks work and clears older
 waits, `PostToolUse` after success may clear a permission wait, and `Stop`
@@ -89,17 +96,18 @@ Background `agent_idle`, `agent_completed`, and shell-completion notifications
 do not mean the root session needs the user. Copilot event timestamps order
 hook reports against one another and committed terminal input; older reports
 must be rejected. In both harnesses, a missing or inactive integration before
-the first accepted event preserves Peon fallback; explicit disable or uninstall
-after activation returns future inference to fallback. Silence alone cannot
-prove hook loss. Accepted terminal input means sidecar-committed work, not raw
-typing or unsent input.
+the first notification-channel report preserves Peon prompt fallback; explicit
+disable, uninstall, or reconciliation-detected notification-hook drift after
+activation returns future inference to fallback. Accepted terminal input means
+sidecar-committed work, not raw typing or unsent input.
 
 For the proposed authority, validating an attention report token authenticates
 the OrkWorks session, not the harness process, because child processes inherit
 it. Event acceptance also requires the allowlisted harness/event/status mapping
-and matching native session identity where available. Explicit disable or
-uninstall clears hook-owned attention and prompt fields subject to normal
-user-source priority before fallback resumes.
+and matching native session identity where available. Explicit disable,
+uninstall, or reconciliation-detected notification-hook drift clears
+hook-owned attention and prompt fields subject to normal user-source priority
+before fallback resumes.
 
 Aider's notification means that a response ended and the tool is ready for
 another input. The launch reporter can correlate that callback to the owning
