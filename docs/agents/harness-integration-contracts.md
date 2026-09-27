@@ -73,10 +73,13 @@ record-wide source-priority rule. The sidecar's existing committed-terminal-
 input transition continues to clear waits independently. Peon prompt inference
 remains available until an accepted, session-correlated prompt notification from
 Claude's `Notification` hook or Copilot's `notification` hook arrives. Only
-recognized prompt types activate authority; nonprompt notifications do not
-write a readiness-only state. Each Claude/Copilot report must carry the event's
-native ID (`session_id` or `sessionId`), the live session's report token, and
-the immutable generation inherited from that session's launch environment.
+recognized prompt types activate authority. Before activation, recognized
+nonprompt notifications do not write attention or readiness-only state. After
+activation, mapped lifecycle notifications below may update or clear attention
+without activating authority again. Each Claude/Copilot report must carry the
+event's native ID (`session_id` or `sessionId`), the live session's report
+token, and the immutable generation inherited from that session's launch
+environment.
 Before sending attention, the reporter
 must register that ID through `POST /sessions/:id/harness-session` using the
 same token and generation, with `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>`
@@ -117,9 +120,11 @@ continuation, so it does not write idle or clear a wait. Before activation,
 Background `agent_idle`, `agent_completed`, and shell-completion notifications
 do not mean the root session needs the user. Copilot event timestamps order
 hook reports against one another and committed terminal input; older reports
-must be rejected. In both harnesses, a missing or inactive integration before
-the first prompt-notification report preserves Peon prompt fallback; explicit
-disable, uninstall, or reconciliation-detected notification-hook drift after
+must be rejected, but raw uncommitted typing must not advance the input time
+used by this stale-report check. In both harnesses, a missing or inactive
+integration before the first prompt-notification report preserves Peon prompt
+fallback; explicit disable, uninstall, or reconciliation-detected
+notification-hook drift after
 activation returns future inference to fallback. Accepted terminal input means
 sidecar-committed work, not raw typing or unsent input.
 

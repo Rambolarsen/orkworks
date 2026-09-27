@@ -522,6 +522,13 @@ flow.
 
 ## Signal contract and version gate
 
+**Attention mapping supersession (2026-09-27):** The Claude Code, GitHub
+Copilot CLI, and Aider attention mappings in this design are historical and
+superseded by [the other-harness prompt attention design](2026-09-27-other-harness-prompt-attention-design.md)
+and the authoritative [MVP signal contract](../../../specs/orkworks-mvp.md#deterministic-harness-supplied-signals).
+Do not use the older rows to implement prompt or turn attention. The rest of
+this approved capability-system design remains in effect.
+
 Every compiled signal binding carries a code-owned contract manifest. For each
 supported event it pins the exact upstream event name, configuration fragment,
 payload selector and type, normalized metadata write, source, confidence,

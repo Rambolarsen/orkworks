@@ -208,28 +208,34 @@ absent; keep #643 open for the uncompleted real-prompt checks that can be run
 with Claude/Copilot and for any later Aider evidence that becomes available.
 
 For each integration, assert that an absent or inactive integration retains
-Peon and terminal fallback; pre-activation turn events do not write attention;
-only an accepted same-session prompt notification activates prompt authority;
-turn events and nonprompt notifications do not;
-unknown and malformed reports do not change state; missing, unregistered, or
-mismatched native session IDs are rejected; missing or invalid tokens and
-revoked generations reject both identity registration and attention without
-state changes; registering an identity alone does not activate authority; and
-the first prompt reporter registers its ID before sending attention, aborting
-attention if registration fails. Verify that token and generation binding
-identify the OrkWorks session and active integration only, with same-session
-process spoofing recorded as outside this protocol's protection. Completion
-does not become Needs You; accepted input and
-specified turn events clear prompts; reconciliation of a missing or drifted
-owned notification hook demotes authority; Peon cannot write attention or
-prompt fields after activation; and summary, phase, diagnostics, and workflow
-evidence continue independently. For
-Copilot, timestamped out-of-order reports must not change state, and an
-`agentStop` report must remain a no-op even when another configured hook blocks
-completion and forces continuation. For Claude,
-verify receipt-order handling and record the known late-notification case; do
-not assert source-time stale-event rejection because the documented payload
-has no event timestamp or turn ID. For both harnesses, verify that reports
+Peon and terminal fallback; pre-activation turn events and nonprompt
+notifications do not write attention; only an accepted same-session prompt
+notification activates prompt authority. After activation, only allowlisted,
+harness-mapped lifecycle events may update or clear attention, and they do not
+activate authority. Unknown and malformed reports do not change state; missing,
+unregistered, or mismatched native session IDs are rejected; missing or
+invalid tokens and revoked generations reject both identity registration and
+attention without state changes; registering an identity alone does not
+activate authority; and the first prompt reporter registers its ID before
+sending attention, aborting attention if registration fails. Verify that token
+and generation binding identify the OrkWorks session and active integration
+only, with same-session process spoofing recorded as outside this protocol's
+protection. Completion does not become Needs You; accepted input and specified
+turn events clear prompts; reconciliation of a missing or drifted owned
+notification hook demotes authority; Peon cannot write attention or prompt
+fields after activation; and summary, phase, diagnostics, and workflow evidence
+continue independently. For Copilot, timestamped out-of-order reports must not
+change state; verify that an
+older report is rejected after committed input, remains eligible after raw
+uncommitted typing, and that only a committed-work transition advances the
+input boundary. An active permission wait must clear on deterministic
+single-key `CommittedWorking`; raw typing and single-key input must not clear
+free-form elicitation before accepted submitted input, a mapped clear event, or
+session end. An `agentStop` report must remain a no-op even when another
+configured hook blocks completion and forces continuation. For Claude, verify
+receipt-order handling and record the known late-notification case; do not
+assert source-time stale-event rejection because the documented payload has no
+event timestamp or turn ID. For both harnesses, verify that reports
 from a revoked prompt-hook generation cannot restore authority after disable,
 uninstall, or detected drift. Verify that existing harness processes retain
 their revoked generation after re-enable, while a harness relaunched under a
@@ -268,12 +274,17 @@ coverage remains limited until fixtures and live behavior verify the mappings.
    readiness-only state.
 2. Implement the Claude prompt, elicitation-clear, and turn event mapping with
    receipt-order behavior, permission clear signals, safe non-final `Stop`
-   handling, and stale-state coverage;
-   remove or disable its current `PreToolUse` attention write because it is
-   neither an approval nor a prompt-resolution event.
+   handling, and stale-state coverage. Preserve prompt kind so deterministic
+   single-key `CommittedWorking` clears permission waits but not free-form
+   elicitation; elicitation clears on accepted submitted input, a mapped clear
+   event, or session end. Remove or disable its current `PreToolUse` attention
+   write because it is neither an approval nor a prompt-resolution event.
 3. Implement Copilot notification type filtering plus prompt and tool-resume
-   mapping with async delivery and stale-state coverage; do not use `agentStop`
-   to mark idle because another configured hook can force continuation.
+   mapping with async delivery and stale-state coverage. Order reports against
+   committed input only, not raw terminal frames; preserve prompt kind so a
+   deterministic single-key commit clears permission waits but not free-form
+   elicitation. Do not use `agentStop` to mark idle because another configured
+   hook can force continuation.
 4. Correct Aider completion reporting so it never asserts Needs You and does
    not activate a static hook authority; preserve Peon fallback.
 

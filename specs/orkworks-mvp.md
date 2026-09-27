@@ -259,12 +259,14 @@ session's prompt-notification hook (`Notification` for Claude Code;
 existing wait as specified, but do not prove the separate prompt-notification
 hook is running, set prompt-authority state, or block Peon from updating prompt
 fields. Only a recognized prompt notification activates that channel's
-authority; recognized nonprompt notifications do not activate authority or
-write a readiness-only state, and unknown or malformed notifications do not
-change state. Each Claude/Copilot report must include the native ID carried by
-that event (`session_id` for Claude, `sessionId` for Copilot), the OrkWorks
-session's valid report token, and the immutable generation inherited from that
-session's launch environment. Before
+authority. Before activation, recognized nonprompt notifications and turn
+events do not write attention or a readiness-only state. After activation,
+only the allowlisted turn and prompt-clear events mapped for that harness may
+update or clear attention; they do not activate authority. Unknown or malformed
+notifications do not change state. Each Claude/Copilot report must include
+the native ID carried by that event (`session_id` for Claude, `sessionId` for
+Copilot), the OrkWorks session's valid report token, and the immutable
+generation inherited from that session's launch environment. Before
 the reporter sends an attention report, it must register that event's native
 ID through `POST /sessions/:id/harness-session` with the same token and
 generation, using `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>` on both
@@ -365,6 +367,15 @@ rejection.
 “Accepted terminal input” means input committed by the sidecar as work through
 the existing Enter-terminated or deterministic single-key `CommittedWorking`
 transition. Raw character typing and queued, unsent input do not clear a wait.
+For Copilot timestamp ordering, only a committed-work transition advances the
+input boundary that can reject an older report. Raw input frames must not
+advance that boundary; keep a separate committed-input timestamp if the
+existing input timestamp records every nonempty frame. Once Claude/Copilot
+authority has recorded a permission prompt, its deterministic single-key
+`CommittedWorking` response clears that permission wait. Preserve enough
+runtime prompt-kind state to avoid clearing a free-form elicitation wait on raw
+typing or a single key; elicitation clears on accepted submitted input, its
+mapped clear event, or session end.
 
 The detailed evidence, current implementation gaps, and validation bar are
 recorded in the [other-harness attention review](../docs/superpowers/specs/2026-09-27-other-harness-prompt-attention-design.md).
