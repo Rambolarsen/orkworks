@@ -382,7 +382,7 @@ impl TaskmasterRuntime {
         now: &str,
         cache_key: Option<&str>,
         generation: Option<u64>,
-        bypass_min_interval: bool,
+        manual: bool,
     ) -> Result<bool, String> {
         let _persistence = PERSISTENCE_LOCK
             .lock()
@@ -391,13 +391,7 @@ impl TaskmasterRuntime {
         let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
         reload_durable(&self.root, &mut data);
         self.reserve_loaded(
-            &mut data,
-            workspace,
-            now,
-            cache_key,
-            generation,
-            bypass_min_interval,
-            bypass_min_interval,
+            &mut data, workspace, now, cache_key, generation, manual, manual, manual,
         )
     }
 
@@ -411,6 +405,7 @@ impl TaskmasterRuntime {
         generation: Option<u64>,
         bypass_min_interval: bool,
         allow_disabled: bool,
+        manual: bool,
     ) -> Result<bool, String> {
         let Some(workspace) = canonical_workspace_key(workspace) else {
             return Ok(false);
@@ -434,7 +429,7 @@ impl TaskmasterRuntime {
             data.ledger.day = day;
             data.ledger.reservations = 0;
         }
-        if data.ledger.reservations >= effective.daily_evaluation_limit {
+        if !manual && data.ledger.reservations >= effective.daily_evaluation_limit {
             return Ok(false);
         }
         if cache_key.is_some_and(|cache_key| {
@@ -457,7 +452,9 @@ impl TaskmasterRuntime {
                 }
             }
         }
-        data.ledger.reservations = data.ledger.reservations.saturating_add(1);
+        if !manual {
+            data.ledger.reservations = data.ledger.reservations.saturating_add(1);
+        }
         data.ledger
             .workspace_last_evaluated
             .insert(workspace.clone(), now.to_string());
@@ -1072,11 +1069,11 @@ mod tests {
     }
 
     #[test]
-    fn manual_reservation_bypasses_cooldown_but_keeps_cache_and_daily_limits() {
+    fn manual_reservation_bypasses_cooldown_and_daily_limits_but_keeps_cache() {
         let directory = tempfile::tempdir().unwrap();
         let runtime = TaskmasterRuntime::open(directory.path().into());
         let mut settings = configured();
-        settings.daily_evaluation_limit = 2;
+        settings.daily_evaluation_limit = 1;
         runtime.replace_settings(settings).unwrap();
         let generation = runtime
             .evaluation_snapshot(directory.path())
@@ -1127,7 +1124,7 @@ mod tests {
                 Some(generation)
             )
             .unwrap());
-        assert!(!runtime
+        assert!(runtime
             .reserve_current_manual(
                 directory.path(),
                 "2026-09-09T00:02:00Z",
@@ -1135,6 +1132,12 @@ mod tests {
                 Some(generation)
             )
             .unwrap());
+        let ledger: EvaluationLedger =
+            read_json(directory.path().join("evaluations.json")).unwrap();
+        assert_eq!(
+            ledger.reservations, 1,
+            "manual runs must not consume the background discovery allowance"
+        );
     }
 
     #[test]

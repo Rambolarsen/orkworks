@@ -47,7 +47,8 @@ Use **All workspaces** for defaults or **This workspace** for overrides. The
 default limit is eight AI evaluations per UTC day across the app and at least
 one hour between automatic evaluations of a workspace. A manual **Analyze now**
 request remains available when automatic Background discovery is off. It bypasses
-the hourly interval but still uses one daily evaluation. Failed calls count. This
+the hourly interval and the daily limit, which governs automatic Background
+discovery only. Failed automatic calls count. This
 limits usage, not the amount a provider may bill. Saving a narrower context
 invalidates pending results that used the previous context.
 Failed or discarded evaluations can retry after the minimum interval, within

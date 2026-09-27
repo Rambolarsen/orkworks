@@ -1088,7 +1088,7 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - recommendation cards
 - evidence details
 - dismiss and refresh
-- **Analyze now** for Brain-backed recommendations; bypass the workspace cooldown while consuming the daily allowance, and direct the user to an outstanding Brain recommendation before another analysis can run
+- **Analyze now** for Brain-backed recommendations; bypass the workspace cooldown and the daily analysis allowance, and direct the user to an outstanding Brain recommendation before another analysis can run
 
 ### Phase 4 — Approved session launch
 

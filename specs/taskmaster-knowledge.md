@@ -95,7 +95,8 @@ knowledge retrieval, evidence validation, and durable reservation ledger as
 background discovery. It remains available when automatic background discovery
 is disabled, provided a supported provider remains configured. It bypasses the
 per-workspace minimum interval because the user explicitly requested the run,
-but still consumes the installation-wide daily evaluation allowance. At most
+and it does not consume or count against the installation-wide daily evaluation
+allowance, which governs background discovery only. At most
 one analysis may run at a time, and the existing evidence cache still suppresses
 a provider call when the evidence and effective settings have not changed.
 

@@ -271,13 +271,6 @@ pub(crate) async fn analyze_taskmaster(
             Some("Configure an available Taskmaster model before requesting Brain analysis."),
         );
     }
-    if status.remaining_evaluations == 0 {
-        return manual_analysis_response(
-            "daily_limit_reached",
-            None,
-            Some("The daily Taskmaster analysis limit has been reached."),
-        );
-    }
     if crate::taskmaster::evaluator::schedule_manual_evaluation(state, workspace_path) {
         manual_analysis_response(
             "scheduled",

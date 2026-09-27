@@ -436,10 +436,6 @@ fn native_manual_dispatch_keeps_snapshot_and_workspace_guards_through_start() {
 #[test]
 fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
     let fixture = Fixture::new();
-    let remaining_before = fixture
-        .runtime
-        .status(Some(fixture.dir.path()))
-        .remaining_evaluations;
     let facts = fixture.facts.clone();
     let evidence_state = fixture.state.clone();
     let evidence_runtime = &fixture.runtime;
@@ -472,12 +468,14 @@ fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
         None,
     );
 
-    assert_eq!(
-        fixture
-            .runtime
-            .status(Some(fixture.dir.path()))
-            .remaining_evaluations,
-        remaining_before,
+    let ledger: serde_json::Value = serde_json::from_slice(
+        &fs::read(fixture.dir.path().join("runtime/evaluations.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        ledger["workspaceLastEvaluated"]
+            .as_object()
+            .is_none_or(|entries| entries.is_empty()),
         "the manual evaluator must not reserve after a recommendation becomes active"
     );
 }
