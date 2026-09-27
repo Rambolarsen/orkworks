@@ -24,8 +24,9 @@ runtime, a child-specific process supervisor, or an OS sandbox.
 ## User flow
 
 1. In the New Session dialog, the user selects **Orchestrator** mode, chooses
-   the coding tool/model, and gives the parent its goal. Electron main invokes
-   the token-protected Orchestrator route for creation. The parent's role is
+   a coding tool with a usable resume recipe, and gives the parent its goal.
+   The sidecar independently verifies resumability. Electron main invokes the
+   token-protected Orchestrator route for creation. The parent's role is
    planning, delegation, and tracking; it does not carry out the workflow's
    implementation or review tasks itself. Ordinary session creation remains
    the default and is unchanged.
@@ -36,12 +37,17 @@ runtime, a child-specific process supervisor, or an OS sandbox.
    the exact revision or reject it.
 4. The approved parent requests ready tasks through the orchestration API.
    OrkWorks checks that each request matches the approved plan and starts it
-   through the normal session creation path. A harness turn-completion/idle event
-   moves the assigned task to parent-result review; the PTY session may remain
-   open at its prompt. The parent reports the result to advance declared
-   dependencies without changing the approved plan. Before a dependent child
-   reuses the worktree, the prior session must end and the user must confirm
-   that the worktree is quiescent.
+   through the normal session creation path. A Codex `Stop` hook sends an
+   authenticated turn-completion receipt and moves the assigned task to
+   parent-result review; the PTY session may remain open at its prompt. The
+   explicit UI action is available for any live child whose task is still
+   `running` with no recorded receipt, including Codex if its verified hook
+   misses or delays the event. If a child becomes terminal before its receipt arrives,
+   OrkWorks moves the task to parent-result review with missing-receipt
+   evidence and does not infer an outcome. The parent reports the result to
+   advance declared dependencies without changing the approved plan. Before a
+   dependent child reuses the worktree, the prior session must end and the
+   user must confirm that the worktree is quiescent.
 5. The Sessions panel shows the children under their parent, with ordinary
    session status and terminal selection. The parent tracks child progress,
    collects summaries, and coordinates the next declared tasks through the
@@ -60,7 +66,7 @@ processes.
 
 ## Approved plan
 
-A plan is immutable after approval and contains:
+A plan is immutable after approval and contains one or more tasks:
 
 - parent session and workspace identity;
 - canonical Git repository root, clean working-tree evidence, and exact base
@@ -83,15 +89,27 @@ request is idempotent and returns the existing child session. Tasks sharing a
 worktree group may not run concurrently, and a dependent task cannot reuse its predecessor's
 worktree until the predecessor session is terminal and the user confirms that
 no remaining process is using the worktree. This is a user acknowledgement,
-not OS proof. A child session ending is not the task-turn boundary.
-Supported harness completion/idle integrations send an authenticated,
-one-shot turn receipt that moves the task to `needs_parent_result` without
-requiring the interactive PTY process to exit. If a harness has no reliable
-turn receipt, the user can use an Electron-authorized UI action to mark the
-turn ready for review. This action sends a version-checked transition bound to
+not OS proof. A child session ending is not the task-turn boundary. Initially,
+the existing Codex `Stop` reporter sends the one-shot receipt to
+`POST /sessions/{child_id}/orchestration/turn-completion`, authenticated with
+that child's `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>`. The sidecar
+derives parent, plan, task, and reservation identity from child metadata and
+accepts only the Codex `Stop` event for a live child whose task is `running`.
+Store turn-completion evidence as `codex_stop_receipt`, `ui_action`, or
+`child_terminal_without_receipt`. If the child becomes terminal while still
+`running`, terminal handling moves
+the task to `needs_parent_result` with
+`completion_evidence: child_terminal_without_receipt`, including during
+startup reconciliation. This lets the parent report an explicit outcome
+without treating process exit as success. The explicit Electron-authorized UI
+action is available for any live task still `running` with no recorded receipt,
+even when an active integration is verified. That action marks the turn ready for review through a
+version-checked transition bound to
 the exact approved plan revision, launch reservation, child session ID, and
 task version; it is accepted only while that exact child is live and its task
-is `running`, then idempotently moves it to `needs_parent_result`. The task outcome and
+is `running`, then idempotently moves it to `needs_parent_result`. If a receipt
+arrives after the UI transition, it returns idempotent success without applying
+the transition twice. The task outcome and
 dependency gate is the parent's explicit coordination report after reviewing
 the child result; it can advance only declared dependencies and does not mean
 quality approval or user acceptance. This amends the current coordinator
@@ -112,6 +130,19 @@ session becomes terminal. Ordered batches are explicit in the approved
 definition. A task is launchable only after every required task in all
 earlier batches has a parent-reported complete result; task dependencies also
 remain explicit within the graph.
+
+When the final parent result changes every task to `reported_complete`, the
+sidecar atomically marks the plan `complete` only if all launch reservations
+are attached and settled and there is no interrupted allocation or pending
+proposed scope revision. Incomplete tasks, failed/blocked results, unsettled
+reservations, interrupted allocations, or a pending scope revision prevent
+completion. Any transition that clears a blocker, including rejecting a
+pending scope revision or resolving an interrupted allocation, reruns this
+completion check atomically. Live child PTYs do not delay it: completion revokes the parent
+capability and fences future launches, while child sessions remain visible and
+manageable through ordinary session controls and worktree records remain
+available for manual integration. A child PTY remaining open does not reopen
+or extend the completed plan.
 
 The sidecar derives each worktree path from the installation-level
 `~/.orkworks/taskmaster/worktrees/<workspace-hash>/<plan-id>/<group-id>` root,
@@ -154,6 +185,18 @@ tasks are not OS-enforced. A future requirement for OS-enforced access
 restrictions would need a separate design.
 
 ## Session creation and ownership
+
+Orchestrator creation is limited to harness definitions with a usable resume
+recipe; the sidecar validates this independently of the New Session UI. Plan
+approval and child launch remain disabled until the parent has reported a
+usable resume strategy and harness session identity. If a selected resumable
+harness fails to provide that identity, the plan stays unapproved and the UI
+explains how to enable or repair identity reporting, and allows refresh/retry
+if the identity arrives later. If it cannot be recovered, the user must cancel
+and recreate the parent with a supported harness whose identity reporting
+works. No replacement-parent recovery path is introduced. In particular,
+harnesses such as Aider and Generic Shell whose definitions have no resume
+strategy cannot be Orchestrator parents.
 
 Only a session created through the token-protected Orchestrator route invoked
 by Electron main for the UI flow receives a plan-control bearer in its launch
