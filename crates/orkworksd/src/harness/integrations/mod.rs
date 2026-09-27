@@ -850,7 +850,7 @@ mod tests {
         assert!(script.contains("sessionStartSource"));
         assert!(script.contains("sessionStartEvent"));
         assert!(script.contains(
-            "if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id)"
+            "if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id)"
         ));
         assert!(!script.contains("codexProcessId"));
         assert!(!script.contains("Find-CodexProcessId"));

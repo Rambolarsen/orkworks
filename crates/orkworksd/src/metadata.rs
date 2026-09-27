@@ -1080,6 +1080,7 @@ pub enum HarnessSessionMergeResult {
     Accepted,
     IgnoredLowerConfidence,
     IgnoredIdentityChange,
+    IgnoredUnchanged,
     NotFound,
     Invalid,
 }
@@ -1590,6 +1591,12 @@ impl MetadataStore {
             && !allow_codex_identity_replacement
         {
             return HarnessSessionMergeResult::IgnoredIdentityChange;
+        }
+        if existing_id == Some(report.harness_session_id.as_str())
+            && meta.harness_session_id_source.as_deref() == Some(report.source.as_str())
+            && meta.harness_session_id_confidence == Some(report.confidence)
+        {
+            return HarnessSessionMergeResult::IgnoredUnchanged;
         }
 
         let mut resume = meta.resume.take().unwrap_or_else(|| ResumeMemory {
@@ -3918,6 +3925,45 @@ mod tests {
         assert_eq!(
             updated.harness_session_id_captured_at.as_deref(),
             Some("2026-06-26T12:00:00Z")
+        );
+    }
+
+    #[test]
+    fn repeated_codex_session_report_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("codex-same-id");
+        meta.harness = "codex".into();
+        store.write_session(&meta);
+
+        let report = HarnessSessionReport {
+            harness_session_id: "thread-123".into(),
+            source: "codex_hook".into(),
+            confidence: 0.98,
+        };
+        let first_result =
+            store.merge_harness_session_report("codex-same-id", &report, "2026-06-26T11:00:00Z");
+        assert_eq!(first_result, HarnessSessionMergeResult::Accepted);
+        let result =
+            store.merge_harness_session_report("codex-same-id", &report, "2026-06-26T12:00:00Z");
+
+        assert_eq!(result, HarnessSessionMergeResult::IgnoredUnchanged);
+        let updated = store.read_session("codex-same-id").unwrap();
+        assert_eq!(
+            updated.harness_session_id_captured_at.as_deref(),
+            Some("2026-06-26T11:00:00Z")
+        );
+        assert_eq!(
+            updated.resume.unwrap().last_seen_at.as_deref(),
+            Some("2026-06-26T11:00:00Z")
+        );
+        assert_eq!(
+            store
+                .read_events("codex-same-id")
+                .iter()
+                .filter(|event| event.event_type == "session.harness_session_captured")
+                .count(),
+            1
         );
     }
 

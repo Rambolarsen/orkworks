@@ -140,7 +140,7 @@ case "$marker" in
   *:codex)
     codex_fields="$(
       printf '%s' "$payload" |
-      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; source=(data.get("source") or "") if is_start else ""; session_id=data.get("session_id") or ""; print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
+      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; source=(data.get("source") or "") if is_start else ""; raw_session_id=data.get("session_id"); session_id=raw_session_id if isinstance(raw_session_id, str) else ""; print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
     )" || true
     IFS=$'\x1f' read -r harness_session_id session_start_source <<< "$codex_fields"
     if [ -n "$session_start_source" ]; then

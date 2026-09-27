@@ -551,6 +551,7 @@ async fn report_harness_session_inner(
                 metadata::HarnessSessionMergeResult::Accepted
                     | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
                     | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+                    | metadata::HarnessSessionMergeResult::IgnoredUnchanged
             )
         {
             if let Err(error) = SessionApplication::new(observation_state)
@@ -588,7 +589,8 @@ async fn report_harness_session_inner(
     match result {
         metadata::HarnessSessionMergeResult::Accepted
         | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
-        | metadata::HarnessSessionMergeResult::IgnoredIdentityChange => {
+        | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+        | metadata::HarnessSessionMergeResult::IgnoredUnchanged => {
             axum::http::StatusCode::OK.into_response()
         }
         metadata::HarnessSessionMergeResult::NotFound => {

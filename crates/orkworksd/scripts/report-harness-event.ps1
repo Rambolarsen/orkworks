@@ -93,7 +93,7 @@ if ($Marker -clike "*:claude-code") {
 } elseif ($Marker -clike "*:codex") {
     try {
         $data = $payload | ConvertFrom-Json
-        if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id) {
+        if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id) {
             $harnessSessionId = ([string]$data.session_id).Trim()
         }
         if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.source -in @("startup", "resume", "clear", "compact")) {

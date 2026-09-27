@@ -21,10 +21,15 @@ fn run_reporter(hook_fingerprint: &str, harness_session_id: &str) -> serde_json:
         &format!(r#"{{"session_id":"{harness_session_id}","source":"startup"}}"#),
         hook_fingerprint,
     )
+    .expect("expected a harness-session report")
 }
 
 #[cfg(unix)]
-fn run_reporter_for_event(event: &str, payload: &str, hook_fingerprint: &str) -> serde_json::Value {
+fn run_reporter_for_event(
+    event: &str,
+    payload: &str,
+    hook_fingerprint: &str,
+) -> Option<serde_json::Value> {
     let script = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/scripts/report-harness-event.sh"
@@ -74,12 +79,10 @@ fn run_reporter_for_event(event: &str, payload: &str, hook_fingerprint: &str) ->
     let status = child.wait().unwrap();
     assert!(status.success(), "reporter script exited non-zero");
 
-    let captured = fs::read_to_string(&capture).unwrap_or_else(|_| {
-        panic!("expected {capture:?} to exist \u{2014} curl was never invoked with -d")
-    });
-    serde_json::from_str(&captured).unwrap_or_else(|e| {
+    let captured = fs::read_to_string(&capture).ok()?;
+    Some(serde_json::from_str(&captured).unwrap_or_else(|e| {
         panic!("harness-session POST body was not valid JSON: {e}\nbody: {captured}")
-    })
+    }))
 }
 
 #[cfg(unix)]
@@ -108,11 +111,24 @@ fn codex_later_hook_captures_initial_id_without_session_start_authority() {
         "UserPromptSubmit",
         r#"{"session_id":"thr_late","hook_event_name":"UserPromptSubmit"}"#,
         "abc123fingerprint",
-    );
+    )
+    .unwrap();
 
     assert_eq!(payload["harnessSessionId"], "thr_late");
     assert_eq!(payload["source"], "codex_hook");
     assert_eq!(payload["hookFingerprint"], "abc123fingerprint");
     assert!(payload.get("sessionStartSource").is_none());
     assert!(payload.get("sessionStartEvent").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_non_string_session_id_is_not_reported() {
+    let report = run_reporter_for_event(
+        "UserPromptSubmit",
+        r#"{"session_id":123,"hook_event_name":"UserPromptSubmit"}"#,
+        "abc123fingerprint",
+    );
+
+    assert!(report.is_none());
 }
