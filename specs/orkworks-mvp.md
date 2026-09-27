@@ -247,19 +247,40 @@ Electron-main confirmation, install/reconcile or uninstall a supported
 integration. A contract without an exact primary-source payload fixture remains
 limited or unsupported rather than inferred.
 
-When no harness-specific signal source is registered or installed for a session,
-Peon's LLM-based inference remains the fallback source. For Codex and OpenCode,
-an installed integration or declared capability alone does not make hooks
-authoritative: an accepted session-scoped attention event does. Once active,
-that hook stream owns attention while Peon continues descriptive inference.
-Before a hook executes, Peon may supply nonprompt status, but an LLM reading a
-conversational question must not set Needs You. A permission or explicit-input
-prompt requires a direct lifecycle event or a separately reviewed deterministic
-terminal prompt signal. This intentionally leaves an unsupported prompt
-unrecognized rather than displaying a speculative Needs You state. Other
-harnesses retain their current fallback rules until their event coverage is
-reviewed. See the [OpenCode prompt attention design](../docs/superpowers/specs/2026-09-26-opencode-prompt-attention-design.md)
-for the initial Codex/OpenCode authority boundary.
+An installed integration or declared harness capability does not by itself
+make a signal authoritative or suppress Peon and terminal fallback. Hook
+authority is scoped to one live session and begins only after the sidecar
+accepts a session-correlated, event-validated report. Before that report, Peon
+and terminal fallback remain available for both work and attention state. For
+Codex, OpenCode, Claude Code, and GitHub Copilot CLI, an accepted direct signal
+owns that session's attention; Peon continues summaries, phase, diagnostics,
+and workflow evidence but cannot create or replace **Needs You** from
+conversational text. A prompt can be missed when a hook is absent, disabled,
+delayed, or unable to report. After activation, a lost prompt-clear event can
+leave stale attention until a later recognized turn event, accepted terminal
+input, or session lifecycle transition. The UI must preserve that uncertainty
+rather than treat an installed configuration as proof that hooks are running.
+
+The proposed signal contract is harness-specific:
+
+| Harness | Direct prompt signal | Turn and prompt-clear signals | Authority and tradeoff |
+| --- | --- | --- | --- |
+| Claude Code | `Notification` with `notification_type` `permission_prompt`, `elicitation_dialog`, or `elicitation_url_dialog` means an explicit prompt is awaiting the user. Do not treat `PermissionRequest` alone as proof that a user-facing prompt appeared; it runs before the permission flow and may end without a visible prompt. | `UserPromptSubmit` and `PreToolUse` report `working`; `Stop` reports `idle`. These events clear an earlier wait. `elicitation_response` and `elicitation_complete` clear an elicitation wait; `idle_prompt` and `auth_success` do not establish Needs You. A permission decision has no paired resolution event. | Accept only recognized events for the captured native session. Permission notifications may be delayed about six seconds, so a prompt can be missed if resolved before its notification. Hook loss after a prompt may leave stale Needs You until a recognized clear or lifecycle event. |
+| GitHub Copilot CLI | `notification` with `notification_type` `permission_prompt` or `elicitation_dialog` means an explicit user prompt. `agent_idle`, `agent_completed`, and shell-completion notifications describe background work, not a prompt for the owning OrkWorks session. | `userPromptSubmitted` reports `working`; `postToolUse` reports resumed work after an approved tool runs; `agentStop` reports `idle`. These clear an earlier wait. The documented contract has no matching notification for a rejected permission decision. | Accept only recognized events for the matching `sessionId`. The CLI dispatches notifications asynchronously and hook delivery can fail open, so a missing event preserves Peon fallback before activation and may leave stale Needs You after activation until a later recognized event or lifecycle transition. |
+| Aider | No supported event identifies an explicit user question or permission request. Its notification command runs when a response finishes and Aider is ready for another input; that is ordinary turn completion, not proof of Needs You. | No notification status is accepted for attention: it provides no native session ID or corresponding working/resolution lifecycle. | Aider notifications never activate prompt authority and never write attention state. Peon remains the attention fallback, including when the notification integration is enabled. This can miss an explicit question that Peon does not recognize, but avoids turning every completed response into Needs You. |
+
+The hook-capable integrations report `waiting_for_input` only for the explicit
+prompt events above. Unknown events, malformed payloads, reports for another
+native session, and reports that fail session or harness validation do not
+change authority or attention. A future deterministic signal may extend a
+harness's mapping only after its source contract, clear behavior, missing-hook
+fallback, and false-positive/false-negative tradeoffs are reviewed. Summary and
+diagnostic inference stays independent of attention authority.
+
+The detailed evidence, current implementation gaps, and validation bar are
+recorded in the [other-harness attention review](../docs/superpowers/specs/2026-09-27-other-harness-prompt-attention-design.md).
+Codex and OpenCode's existing session-scoped authority boundary is described in
+the [OpenCode prompt attention design](../docs/superpowers/specs/2026-09-26-opencode-prompt-attention-design.md).
 
 ## Peon
 
