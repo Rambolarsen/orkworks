@@ -143,16 +143,6 @@ the attention request. Registration alone does not activate prompt authority.
 Missing, invalid, stale, unregistered, or mismatched values are rejected
 without changing attention or authority.
 
-The sidecar issues an immutable prompt-hook generation at launch only when the
-integration is enabled and its owned prompt-notification hook is available;
-otherwise the environment variable is absent and reports are rejected. It
-passes the value as `ORKWORKS_PROMPT_HOOK_GENERATION`. Hook reporters capture and forward that exact
-value for native-ID registration and attention; they do not fetch a replacement
-generation while submitting. Disable, uninstall, or detected drift revokes
-the value. Re-enabling does not update an already-running harness, which stays
-on fallback until it is relaunched under a new OrkWorks live session with a
-fresh generation.
-
 The report token authenticates a report to its OrkWorks session, and the
 generation fences disabled or stale integrations. Because child processes
 inherit the token and may access the same session environment, these values do
