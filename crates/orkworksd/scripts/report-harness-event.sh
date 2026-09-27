@@ -121,8 +121,12 @@ session_start_source=""
 session_start_event=""
 session_source=""
 codex_attention="no"
-attention_post_result='{"result":"not_applicable"}'
-harness_session_post_result='{"result":"skipped_no_harness_session_id"}'
+attention_post_kind="not_applicable"
+attention_curl_exit=""
+attention_http_status=""
+harness_session_post_kind="skipped_no_harness_session_id"
+session_curl_exit=""
+session_http_status=""
 
 case "$marker" in
   *:claude-code)
@@ -195,13 +199,13 @@ if source == "codex_hook":
         payload["hookFingerprint"] = fingerprint
 print(json.dumps(payload))
 ' "$status" "$observed_at" "$reported_cwd" "$session_source" "$event" "$hook_fingerprint")"
+  attention_post_kind="posted"
   attention_curl_exit=0
   attention_http_status=$(curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
     -d "$attention_payload" --output /dev/null --write-out '%{http_code}' 2>/dev/null) || attention_curl_exit=$?
-  attention_post_result=$(python3 -c 'import json,sys; print(json.dumps({"curlExit":int(sys.argv[1]), "httpStatus":sys.argv[2]}))' "$attention_curl_exit" "$attention_http_status")
 elif [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; then
-  attention_post_result='{"result":"skipped_missing_environment"}'
+  attention_post_kind="skipped_missing_environment"
 fi
 
 if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ]; then
@@ -219,17 +223,17 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
   if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
     session_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\n"
   fi
+  harness_session_post_kind="posted"
   session_curl_exit=0
   session_http_status=$(printf '%b' "$session_curl_config" |
     curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
       -H "Content-Type: application/json" \
       -d "$session_payload" --output /dev/null --write-out '%{http_code}' 2>/dev/null) || session_curl_exit=$?
-  harness_session_post_result=$(python3 -c 'import json,sys; print(json.dumps({"curlExit":int(sys.argv[1]), "httpStatus":sys.argv[2]}))' "$session_curl_exit" "$session_http_status")
 elif [ "$session_source" = "codex_hook" ]; then
   if [ -z "$harness_session_id" ]; then
-    harness_session_post_result='{"result":"skipped_no_harness_session_id"}'
+    harness_session_post_kind="skipped_no_harness_session_id"
   else
-    harness_session_post_result='{"result":"skipped_missing_environment"}'
+    harness_session_post_kind="skipped_missing_environment"
   fi
 fi
 
@@ -243,14 +247,19 @@ if [ "$session_source" = "codex_hook" ]; then
       python3 -c '
 import json, os, pathlib, sys, tempfile
 path = pathlib.Path(sys.argv[1])
+def post_result(kind, curl_exit, http_status):
+    if kind == "posted":
+        return {"curlExit": int(curl_exit), "httpStatus": http_status}
+    return {"result": kind}
+
 record = {
     "event": sys.argv[2],
     "harnessSessionIdParsed": sys.argv[3] == "yes",
     "orkworksSessionIdPresent": sys.argv[4] == "yes",
     "portPresent": sys.argv[5] == "yes",
     "reportTokenPresent": sys.argv[6] == "yes",
-    "attentionPost": json.loads(sys.argv[7]),
-    "harnessSessionPost": json.loads(sys.argv[8]),
+    "attentionPost": post_result(sys.argv[7], sys.argv[8], sys.argv[9]),
+    "harnessSessionPost": post_result(sys.argv[10], sys.argv[11], sys.argv[12]),
 }
 fd, temporary = tempfile.mkstemp(prefix=".report-harness-event-", dir=path.parent)
 try:
@@ -269,6 +278,7 @@ except Exception:
         "$([ -n "${ORKWORKS_SESSION_ID:-}" ] && printf yes || printf no)" \
         "$([ -n "${ORKWORKS_PORT:-}" ] && printf yes || printf no)" \
         "$([ -n "${ORKWORKS_REPORT_TOKEN:-}" ] && printf yes || printf no)" \
-        "$attention_post_result" "$harness_session_post_result" ) >/dev/null 2>&1 || true
+        "$attention_post_kind" "$attention_curl_exit" "$attention_http_status" \
+        "$harness_session_post_kind" "$session_curl_exit" "$session_http_status" ) >/dev/null 2>&1 || true
   fi
 fi

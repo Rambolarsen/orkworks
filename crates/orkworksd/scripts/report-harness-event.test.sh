@@ -4,6 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 reporter="$script_dir/report-harness-event.sh"
 temp_dir="$(mktemp -d)"
+real_python3="$(command -v python3)"
 trap 'rm -rf "$temp_dir"' EXIT
 
 mkdir -p "$temp_dir/bin" "$temp_dir/home"
@@ -26,6 +27,15 @@ printf '%s' "${TEST_HTTP_STATUS:-204}"
 exit "${TEST_CURL_EXIT:-0}"
 CURL
 chmod +x "$temp_dir/bin/curl"
+cat > "$temp_dir/bin/python3" <<'PYTHON'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${PYTHON3_CALLS_FILE:-}" ]; then
+  printf 'call\n' >> "$PYTHON3_CALLS_FILE"
+fi
+exec "$REAL_PYTHON3" "$@"
+PYTHON
+chmod +x "$temp_dir/bin/python3"
 
 run_reporter() {
   env PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
@@ -34,6 +44,8 @@ run_reporter() {
     ORKWORKS_REPORT_TOKEN='report-token-secret' \
     attention_curl_exit=73 \
     session_curl_exit=74 \
+    PYTHON3_CALLS_FILE="$temp_dir/python3-calls" \
+    REAL_PYTHON3="$real_python3" \
     TEST_RESPONSE_BODY='response-body-secret' \
     TEST_HTTP_STATUS="${TEST_HTTP_STATUS:-204}" \
     TEST_CURL_EXIT="${TEST_CURL_EXIT:-0}" \
@@ -65,8 +77,14 @@ for secret in ("codex-session-secret", "orkworks-session-secret", "report-token-
     assert secret not in serialized
 PY
 
+: > "$temp_dir/python3-calls"
 printf '%s' '{"session_id":"codex-session-secret"}' |
   run_reporter UserPromptSubmit
+python_calls="$(wc -l < "$temp_dir/python3-calls")"
+if [ "$python_calls" -ne 4 ]; then
+  printf 'Expected 4 Python startups for a Codex turn hook, got %s\n' "$python_calls" >&2
+  exit 1
+fi
 
 python3 - "$diagnostic_file" <<'PY'
 import json
@@ -125,7 +143,7 @@ PY
 
 printf '%s' '{"session_id":"codex-session-secret"}' |
   env -u ORKWORKS_SESSION_ID -u ORKWORKS_PORT -u ORKWORKS_REPORT_TOKEN \
-    PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
+    PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" REAL_PYTHON3="$real_python3" \
     bash "$reporter" --marker 'orkworks:harness-integration:codex' --event Stop
 
 python3 - "$diagnostic_file" <<'PY'
