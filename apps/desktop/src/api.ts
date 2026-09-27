@@ -703,7 +703,6 @@ export interface ManualTaskmasterAnalysisResponse {
     | "scheduled"
     | "active_recommendation"
     | "already_running"
-    | "daily_limit_reached"
     | "unavailable";
   recommendation?: WorkflowRecommendation;
   recoveryAllowed: boolean;

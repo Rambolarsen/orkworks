@@ -44,10 +44,11 @@ Ignored files, credential files, and files outside the workspace are excluded;
 additional terminal replay is not collected.
 
 Use **All workspaces** for defaults or **This workspace** for overrides. The
-default limit is eight AI evaluations per UTC day across the app and at least
+default limit is eight background AI evaluations per UTC day across the app and at least
 one hour between automatic evaluations of a workspace. A manual **Analyze now**
 request remains available when automatic Background discovery is off. It bypasses
-the hourly interval but still uses one daily evaluation. Failed calls count. This
+the hourly interval and the daily limit, which governs automatic Background
+discovery only. Failed automatic calls count. This
 limits usage, not the amount a provider may bill. Saving a narrower context
 invalidates pending results that used the previous context.
 Failed or discarded evaluations can retry after the minimum interval, within
@@ -64,7 +65,7 @@ Shared reference knowledge ships with the application and updates automatically
 every six hours while the app is running. Updates are verified before use; an
 offline or failed update keeps the cached version. You can disable knowledge
 updates independently of AI analysis. Settings shows version, last successful
-check, and remaining daily evaluations.
+check, and remaining background evaluations.
 Knowledge page IDs preserve relative Markdown names, including spaces, dots,
 and Unicode, within 256 UTF-8 bytes. Absolute paths, traversal components, and
 control characters are rejected.

@@ -273,7 +273,7 @@ impl TaskmasterRuntime {
         now: &str,
         cache_key: &str,
         snapshot: &EvaluationSnapshot,
-        bypass_min_interval: bool,
+        manual: bool,
     ) -> Result<bool, String> {
         if let Some(captured) = &snapshot.custom_inference {
             if !captured.matches_snapshot(workspace, snapshot) {
@@ -287,14 +287,15 @@ impl TaskmasterRuntime {
                     now,
                     Some(cache_key),
                     Some(snapshot.generation),
-                    bypass_min_interval,
-                    bypass_min_interval,
+                    manual,
+                    manual,
+                    manual,
                 );
             })?;
             reserved
         } else {
             self.with_native_revision(harnesses, snapshot, || {
-                if bypass_min_interval {
+                if manual {
                     self.reserve_current_manual(
                         workspace,
                         now,
