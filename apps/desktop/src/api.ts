@@ -25,7 +25,6 @@ export interface PeonDiagnostics {
   lastSuccessfulInferenceAt: string | null;
   providerId: string | null;
   providerModel: string | null;
-  fallbackStep: number | null;
   attemptCount: number | null;
   errorSummary: string | null;
   observationCount: number | null;
@@ -505,7 +504,6 @@ export interface ProviderRuntimeEntry {
   fallbackOrder: number;
   effectiveState: ProviderEffectiveState;
   runtime: {
-    fallbackStep: number | null;
     lastErrorSummary: string | null;
     resetHint: string | null;
   };

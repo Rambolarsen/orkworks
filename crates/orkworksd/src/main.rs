@@ -155,7 +155,6 @@ impl PeonDiagnosticEntry {
                 last_successful_inference_at: None,
                 provider_id: None,
                 provider_model: None,
-                fallback_step: None,
                 attempt_count: None,
                 error_summary: None,
                 observation_count: None,

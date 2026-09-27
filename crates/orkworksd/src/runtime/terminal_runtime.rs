@@ -1,6 +1,6 @@
 use crate::runtime::session_runtime::STARTUP_PENDING_INPUT_BYTES as QUEUED_INPUT_CAP_BYTES;
 use crate::workspace_runtime::iso_now;
-use crate::{metadata, peon, providers, AppState};
+use crate::{metadata, peon, AppState};
 use axum::extract::ws::{Message, WebSocket};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -1032,11 +1032,9 @@ pub(crate) async fn finalize_session_ending(
         let state_clone = state.clone();
         let output_clone = output_snapshot.clone();
         match tokio::task::spawn_blocking(move || {
-            state_clone.providers.run_inference_with_timeout(
-                providers::PeonScope::Session,
-                &output_clone,
-                Some(timeout_secs),
-            )
+            state_clone
+                .providers
+                .run_inference_with_timeout(&output_clone, Some(timeout_secs))
         })
         .await
         {
