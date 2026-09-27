@@ -152,7 +152,7 @@ limit is installation-wide; a workspace cannot enlarge it.
 | Background discovery | Enabled once Taskmaster is configured |
 | Taskmaster provider/model | Unconfigured, independent of Peon |
 | Analysis context | Workflow context |
-| Daily evaluation limit | 8 |
+| Daily background evaluation limit | 8 |
 | Minimum workspace interval | 60 minutes |
 | Automatic knowledge updates | Enabled |
 
@@ -162,7 +162,7 @@ selected source files). Support excluded paths. Ignored files, credential files,
 and files resolving outside the workspace are excluded. Symlinks cannot bypass
 these limits. Explain that allowed context may be sent to the chosen provider.
 
-Show knowledge version, last successful update, remaining daily evaluations,
+Show knowledge version, last successful update, remaining background evaluations,
 model/configuration availability, and expandable recommendation provenance.
 Errors appear unobtrusively in Settings; no background popups or focus changes.
 Personal/team brain connections and exporting local lessons are deferred.
@@ -176,8 +176,8 @@ Personal/team brain connections and exporting local lessons are deferred.
   changes session recurrence counts.
 - Ungrounded model citations are rejected; a knowledge-only change cannot
   bypass dismissal or rewrite accepted work.
-- Daily limits survive restarts; provider failures consume a reservation.
-- Manual analysis requests work with background discovery disabled, bypass only the workspace cooldown, still consume the durable daily allowance, and return any active Brain recommendation without invoking a provider.
+- Daily limits survive restarts; background provider failures consume a reservation.
+- Manual analysis requests work with background discovery disabled, bypass the workspace cooldown and the daily allowance, and return any active Brain recommendation without invoking a provider.
 - Workspace/configuration switches discard stale results, and context exclusions
   apply to symlinks, ignored files, credentials, caches, and model requests.
 - Changing Taskmaster selection leaves Peon configuration and inference intact.

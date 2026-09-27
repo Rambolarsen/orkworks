@@ -99,7 +99,7 @@ export default function TaskmasterSettings() {
     <label>Minimum interval per workspace (minutes)
       <input type="number" min={1} max={1440} value={effective.minIntervalMinutes} onChange={(event) => edit({ minIntervalMinutes: Number(event.target.value) })} />
     </label>
-    <label>Daily AI evaluations across the app
+    <label>Daily background AI evaluations across the app
       <input type="number" min={1} max={64} disabled={scope === "workspace"} value={draft.dailyEvaluationLimit} onChange={(event) => edit({ dailyEvaluationLimit: Number(event.target.value) })} />
     </label>
     <p className="settings-section-copy">Automatic background-discovery calls, including failed calls, count toward this limit. Manual Analyze now requests are unlimited. Cost depends on the selected model. The daily limit resets at midnight UTC.</p>
