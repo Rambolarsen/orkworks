@@ -340,6 +340,7 @@ Every spawned PTY session receives `ORKWORKS_SESSION_ID` and `ORKWORKS_PORT` in 
 - `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
 - `~/.orkworks/harnesses.json` — global harness definitions
 - `~/.orkworks/hook-scripts/` — stable copies of harness reporter scripts (e.g. the Claude Code Notification hook), installed hook commands always point here rather than at the packaged/dev source, so they keep working across app updates and packaging schemes whose own paths aren't stable at runtime (Linux AppImage's per-launch mount point, in particular). The workspace-local harness hook configuration that invokes these reporters is gitignored and must not be committed.
+- `~/.orkworks/hook-scripts/report-harness-event-diagnostic.json` — the latest redacted Codex reporter trace, atomically replaced per hook event and written with owner-only permissions. It records the event, presence of required environment values, whether a harness session ID parsed, and POST curl/HTTP results; it never stores IDs, tokens, payloads, or response bodies.
 
 Metadata source priority is `user > agent > peon > backend_inference > process > unknown > debug`. Peon reads terminal output and writes inferred metadata; it never types into terminals. Detached runtimes continue draining terminal output, persisting history, and feeding Peon while `orkworksd` stays alive, so losing a renderer terminal attachment alone must not end a session.
 
