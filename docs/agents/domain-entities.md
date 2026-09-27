@@ -134,9 +134,36 @@ WorkflowObservation
 Observations are immutable while retained, workspace-scoped but
 session-segmented on disk, and never participate in the `SessionMetadata`
 source-priority overwrite rules above — an agent report and a Peon
-observation coexist rather than competing. See the "Workflow observations and the current-summary snapshot (design)"
+observation coexist rather than competing. See the "Workflow observations and the current-summary snapshot (partially implemented)"
 section of [architecture.md](architecture.md) for storage
 paths, routes, and the recording module's interface.
+
+### Recommendation origins: analysis vs observations
+
+Taskmaster produces `ImproveWorkflow` recommendations through two distinct
+pipelines with distinct dedupe-key prefixes (the renderer classifies origins
+with `recommendationOrigin` in `apps/desktop/src/taskmaster.ts`, mirroring
+`is_brain_workflow_recommendation` in `crates/orkworksd/src/taskmaster/mod.rs`):
+
+- **Analysis** (`Proactive`/`rollup` recommendations; `proactive:v1:` and
+  `rollup:v1:` dedupe keys) — proposals from the model-analysis pipeline
+  (`taskmaster/evaluator.rs`), which compare the workspace's agentic setup
+  against signed reference knowledge and repository facts to find missing
+  workflow capabilities. The background discovery poll and the
+  user-requested `POST /taskmaster/analyze` run the same pipeline; on the
+  current data model there is no recorded trigger provenance, so all of
+  these recommendations surface as one "Analysis" category (origin badge
+  and panel filter in `RecommendationsPanel`). Provenance caveat:
+  `rollup:v1:` parents are model-assisted groupings of exact recommendation
+  families, which may themselves derive from recorded workflow
+  observations — an Analysis rollup reflects observed friction as much as
+  knowledge-derived best practices, and the sidecar clears the parent's
+  repository/knowledge evidence in favor of member evidence.
+- **Observations** (deterministic `ImproveWorkflow` recommendations with
+  `improve_workflow:v1:` dedupe keys) — proposals the deterministic
+  evaluator (`evaluate_workflow_improvements`) builds by grouping accepted
+  `WorkflowObservation` records by fingerprint, requiring recurrence (or a
+  single high-impact report) before proposing.
 
 ## Related files
 

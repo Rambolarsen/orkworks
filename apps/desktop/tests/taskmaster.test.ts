@@ -12,7 +12,11 @@ import {
   formatPacketReadiness,
   formatPacketEvidence,
   formatTargetSurface,
+  recommendationOrigin,
+  filterPanelRecommendations,
+  panelEmptyMessage,
   sortedEvidence,
+  type PanelOriginFilter,
 } from "../src/taskmaster.ts";
 
 const completionPacket: CompletionPacket = {
@@ -134,6 +138,171 @@ test("Taskmaster presentation helpers format labels and recurrence", () => {
   assert.equal(formatImpact("high"), "High");
   assert.equal(formatTargetSurface("instructions"), "Instructions");
   assert.equal(formatRecurrence(recommendation), "2 occurrences across 2 sessions");
+});
+
+function recommendationWithDedupeKey(
+  dedupeKey: string,
+  overrides: Partial<WorkflowRecommendation> = {},
+): WorkflowRecommendation {
+  return {
+    ...recommendation,
+    id: `rec-${dedupeKey}-${overrides.status ?? "proposed"}`,
+    dedupeKey,
+    status: overrides.status ?? "proposed",
+    ...overrides,
+  };
+}
+
+test("Recommendation origin is derived from the dedupe key prefix", () => {
+  assert.equal(
+    recommendationOrigin("proactive:v1:documentation:fact-hash"),
+    "analysis",
+  );
+  assert.equal(recommendationOrigin("rollup:v1:analysis-family"), "analysis");
+  assert.equal(
+    recommendationOrigin("improve_workflow:v1:instructions:fingerprint"),
+    "observations",
+  );
+  assert.equal(recommendationOrigin("handoff"), null);
+  assert.equal(recommendationOrigin("proactive:v2:x"), null);
+});
+
+test("Panel filter shows every origin on All and only matching origins otherwise", () => {
+  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc");
+  const observations = recommendationWithDedupeKey(
+    "improve_workflow:v1:instructions:abc",
+  );
+  const unknown = recommendationWithDedupeKey("handoff");
+  const executingRollup = recommendationWithDedupeKey(
+    "proactive:v1:tooling:def",
+    { status: "executing", rollupMemberIds: ["member-1"] },
+  );
+  const executingExact = recommendationWithDedupeKey(
+    "improve_workflow:v1:test:abc",
+    { status: "executing" },
+  );
+  const all = [analysis, observations, unknown, executingRollup, executingExact];
+
+  const visible = (filter: PanelOriginFilter, focused?: string | null) =>
+    filterPanelRecommendations(all, filter, focused).map((item) => item.id);
+
+  assert.deepEqual(visible("all"), [
+    analysis.id,
+    observations.id,
+    unknown.id,
+    executingRollup.id,
+  ]);
+  assert.deepEqual(visible("analysis"), [
+    analysis.id,
+    executingRollup.id,
+  ]);
+  assert.deepEqual(visible("observations"), [observations.id]);
+});
+
+test("Empty state names the active origin filter, not just 'no recommendations yet'", () => {
+  assert.equal(panelEmptyMessage("all"), "No workflow recommendations yet.");
+  assert.equal(
+    panelEmptyMessage("analysis"),
+    "No Analysis recommendations match this filter.",
+  );
+  assert.equal(
+    panelEmptyMessage("observations"),
+    "No Observations recommendations match this filter.",
+  );
+});
+
+test("Recommendations header wraps its actions in narrow panels", () => {
+  const css = readFileSync(
+    new URL("../src/App.css", import.meta.url),
+    "utf8",
+  );
+  const headerRule = css.match(
+    /\.recommendations-panel-header, \.recommendation-card-header \{[^}]*\}/,
+  );
+  assert.ok(headerRule, "expected the shared panel/card header rule");
+  assert.match(headerRule[0], /flex-wrap: wrap/);
+  const actionsRule = css.match(/\.recommendations-panel-actions \{[^}]*\}/);
+  assert.ok(actionsRule, "expected the panel actions rule");
+  assert.match(actionsRule[0], /flex-wrap: wrap/);
+});
+
+test("Analysis origin docs disclose rollup provenance and repository-fact basis", () => {
+  const userDoc = readFileSync(
+    new URL("../../../docs/user/taskmaster.md", import.meta.url),
+    "utf8",
+  );
+  const analysisStart = userDoc.indexOf("- **Analysis**");
+  const observationsStart = userDoc.indexOf("- **Observations**");
+  assert.ok(analysisStart >= 0, "expected the Analysis origin bullet");
+  assert.ok(observationsStart > analysisStart, "expected the Observations origin bullet after Analysis");
+  assert.match(
+    userDoc.slice(analysisStart, observationsStart),
+    /rollups?[^.]*observed\s+friction/,
+    "Analysis bullet must disclose that rollups can draw on observed friction",
+  );
+  assert.match(
+    userDoc.slice(analysisStart, observationsStart),
+    /repository facts/,
+    "Analysis bullet must disclose its repository-fact basis",
+  );
+});
+
+test("Blocking analysis recommendation stays visible under a non-matching origin filter", () => {
+  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc");
+  const observations = recommendationWithDedupeKey(
+    "improve_workflow:v1:instructions:abc",
+  );
+
+  const blockingId = "rec-proactive:v1:documentation:abc-proposed";
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "all", null, [blockingId]).map((item) => item.id),
+    [blockingId, observations.id],
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "analysis", null, [blockingId]).map((item) => item.id),
+    [blockingId],
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "observations", null, [blockingId]).map((item) => item.id),
+    [blockingId, observations.id],
+  );
+});
+
+test("Without the exemption the blocking card is hidden by a non-matching filter", () => {
+  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc");
+  const observations = recommendationWithDedupeKey(
+    "improve_workflow:v1:instructions:abc",
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "observations", null).map((item) => item.id),
+    [observations.id],
+  );
+});
+
+test("Panel filter keeps a focused deep-linked card visible in every origin", () => {
+  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc", {
+    status: "completed" as WorkflowRecommendation["status"],
+  });
+  const observations = recommendationWithDedupeKey(
+    "improve_workflow:v1:instructions:abc",
+  );
+  const lineage = recommendationWithDedupeKey("handoff", {
+    status: "completed" as WorkflowRecommendation["status"],
+  });
+
+  const lineageId = lineage.id;
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations, lineage], "all", lineageId).map((item) => item.id),
+    [observations.id, lineage.id],
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations, lineage], "analysis", lineageId).map((item) => item.id),
+    [lineage.id],
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations, lineage], "observations", lineageId).map((item) => item.id),
+    [observations.id, lineage.id],
+  );
 });
 
 test("Taskmaster evidence is displayed in observation order without mutating the response", () => {
@@ -596,13 +765,21 @@ test("Recommendations panel presents rollup family metadata with combined eviden
 });
 
 test("Recommendations panel keeps active executing rollup parents visible without member actions", () => {
-  const source = readFileSync(
+  const panel = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
   );
+  const taskmaster = readFileSync(
+    new URL("../src/taskmaster.ts", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(source, /item\.status === "executing" && item\.rollupMemberIds\.length > 0/);
-  assert.match(source, /recommendation\.status === "proposed"/);
+  assert.match(panel, /filterPanelRecommendations\(/);
+  assert.match(
+    taskmaster,
+    /recommendation\.status === "executing" && recommendation\.rollupMemberIds\.length > 0/,
+  );
+  assert.match(taskmaster, /recommendation\.status === "proposed"/);
 });
 
 test("Recommendations panel fetches a focused hidden detail record", () => {
@@ -658,9 +835,80 @@ test("Recommendations panel treats readiness as explicit Taskmaster admission", 
   assert.match(source, /disabled=\{!hasWorkspace \|\| !taskmasterReady\}/);
   assert.match(source, /refreshGeneration\.current/);
   assert.match(source, /dismissTaskmasterRecommendation/);
-  assert.match(source, /dedupeKey\.startsWith\("proactive:v1:"\)/);
-  assert.match(source, /dedupeKey\.startsWith\("rollup:v1:"\)/);
   assert.match(source, /cause instanceof ApiError && cause\.status === 404/);
+});
+
+test("Recommendation cards show an origin badge from the shared helper", () => {
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(panel, /recommendationOrigin\(/);
+  assert.match(panel, /recommendation-origin recommendation-origin--/);
+  assert.doesNotMatch(panel, /isActiveBrainRecommendation[\s\S]*startsWith\("proactive:v1:"\)/,
+    "panel should derive origin through the shared helper, not inline prefix checks");
+});
+
+test("Recommendations panel exposes an All/Analysis/Observations origin filter", () => {
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(panel, /PanelOriginFilter/);
+  assert.match(panel, /filterPanelRecommendations\(/);
+  assert.match(panel, /originFilter/);
+  assert.match(panel, /"observations"/);
+  assert.match(panel, /"analysis"/);
+});
+
+test("Filtered empty state renders even when observation diagnostics exist", () => {
+  // A diagnostic must not mask the "hidden by filter" message: with a
+  // non-matching origin filter and zero visible recommendations, the panel
+  // must indicate that recommendations exist but are filtered out,
+  // independently of the aggregate diagnostics list.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const filteredEmpty = panel.match(
+    /\{visibleRecommendations\.length === 0 && !error\s*\n\s*&& hasWorkspace && taskmasterReady && originFilter !== "all" && \(\s*\n\s*<p className="recommendations-filter-empty" role="status">\{panelEmptyMessage\(originFilter\)\}<\/p>/,
+  );
+  assert.ok(
+    filteredEmpty,
+    "filtered empty state must be gated on workspace/taskmaster readiness and render independent of diagnostics",
+  );
+
+  const emptyStateBlock = panel.match(
+    /\{visibleRecommendations\.length === 0 && !error\s*\n\s*&& hasWorkspace && taskmasterReady && originFilter === "all"[\s\S]*?<EmptyState message=\{panelEmptyMessage\("all"\)\} \/>/,
+  );
+  assert.ok(
+    emptyStateBlock,
+    "all-filter empty state must be gated on workspace/taskmaster readiness",
+  );
+});
+
+test("A scheduled analysis lands the user on the Analysis filter view", () => {
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const analyzeNow = panel.slice(panel.indexOf("async function analyzeNow"));
+  const scheduledCheck = analyzeNow.indexOf('result.status === "scheduled"');
+  assert.ok(scheduledCheck >= 0, "expected the scheduled-result branch in analyzeNow");
+  const scheduledBlock = analyzeNow.slice(
+    scheduledCheck,
+    analyzeNow.indexOf("void refresh()", scheduledCheck),
+  );
+  assert.match(
+    scheduledBlock,
+    /setOriginFilter\("analysis"\)/,
+    "scheduled analysis must switch the panel to the Analysis origin so the arriving recommendation is visible",
+  );
+  assert.match(
+    panel,
+    /result\.status === "scheduled"\) \{\s*\n\s*\/\/ A scheduled analysis[\s\S]*?setOriginFilter\("analysis"\);/,
+    "the filter switch must trigger on scheduled only — already_running can belong to another workspace's analysis",
+  );
 });
 
 test("Recommendations panel links affected sessions through the shared selection callback", () => {

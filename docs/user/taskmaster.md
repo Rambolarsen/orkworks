@@ -4,6 +4,32 @@ Taskmaster looks across recorded workflow observations and suggests
 improvements to the way you work. For example, repeated missing context may
 lead to a suggestion to improve repository instructions.
 
+## Two kinds of recommendations
+
+Recommendations from either pipeline carry an origin badge (anything with an
+unrecognized history shows none), and the Recommendations panel header has an
+All · Analysis · Observations filter so you can focus on one kind at a
+time.
+
+- **Analysis** — recommendations produced by the Brain's model analysis,
+  which looks for missing agentic-workflow capabilities by comparing your
+  setup against signed reference knowledge, repository facts, and current
+  best practices — sometimes grounded in repository facts alone, without
+  any recorded session observation. The Analysis badge also covers
+  model-assisted rollups that group several similar recommendations into
+  one card; such a rollup draws on observed friction rather than purely on
+  best practices. These appear from the Background discovery poll or when
+  you press **Analyze now** — either way they are the same kind of
+  recommendation.
+- **Observations** — recommendations built deterministically from problems
+  actually observed in your sessions: friction that coding agents or Peon
+  recorded while work was happening, such as repeated obstacles or
+  workarounds.
+
+Analysis recommendations judge what your workflow is missing; Observations
+recommendations target what already went wrong (and an Analysis rollup may
+bundle both angles). Both are suggestions you review and act on yourself.
+
 ## Inspect before acting
 
 A workflow-improvement card includes the proposed change, its target, and
