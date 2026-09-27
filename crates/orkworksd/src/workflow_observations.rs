@@ -796,15 +796,13 @@ impl WorkflowObservationStore {
                 .filter(|(index, _)| !drop_indices.contains(index))
                 .map(|(_, stored)| stored.clone())
                 .collect();
-            for stored in cache
+            let dropped: Vec<String> = cache
                 .observations
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| drop_indices.contains(index))
-                .map(|(_, stored)| stored)
-            {
-                removed.push(stored.observation.id.clone());
-            }
+                .map(|(_, stored)| stored.observation.id.clone())
+                .collect();
 
             let mut buf: Vec<u8> = Vec::new();
             for t in &tombs {
@@ -817,9 +815,21 @@ impl WorkflowObservationStore {
                 buf.extend_from_slice(json.as_bytes());
                 buf.push(b'\n');
             }
-            durable_write(&self.segment_path(session_id), &buf)?;
+            if let Err(error) = durable_write(&self.segment_path(session_id), &buf) {
+                // One unusable segment must not strand the rest of the
+                // workspace: this session's in-memory cache stays
+                // consistent with its unchanged on-disk segment, and the
+                // remaining sessions are still processed.
+                tracing::warn!(
+                    session_id = %session_id,
+                    %error,
+                    "observation spam trim: segment rewrite failed; continuing with other sessions"
+                );
+                continue;
+            }
             cache.observations = kept;
             cache.tombstones = tombs;
+            removed.extend(dropped);
         }
 
         // Idempotency entries for removed occurrences are deliberately
