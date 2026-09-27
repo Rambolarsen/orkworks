@@ -5,7 +5,7 @@ description: Use when GitHub CLI (`gh`) commands fail due to connectivity or tra
 
 # Troubleshooting GitHub CLI API Connectivity
 
-Separate cached output, network reachability, authentication, and permissions before changing credentials. Cached results or `gh auth status` alone do not prove current reachability or token validity.
+Distinguish cached output, reachability, authentication, and permissions before changing credentials; cached results and `gh auth status` alone prove neither reachability nor token validity.
 
 Use the wrapper required by the current repo/runtime. Here that may be `rtk proxy`, which bypasses RTK output handling but not network restrictions. If required RTK is missing, report the tooling issue; otherwise use direct `gh` and `curl`.
 
@@ -13,7 +13,7 @@ Use the wrapper required by the current repo/runtime. Here that may be `rtk prox
 
 1. **Check freshness.** RTK may show cached output beside a failed live request. Rerun via the required raw-command path and read its exit status and error.
 2. **Identify the target host.** Follow the failing command's selectors: `--hostname`, `-R`/`--repo`, `GH_REPO`, `GH_HOST`, and local remote. A repo selector may include `[HOST/]OWNER/REPO`; honor overrides instead of assuming the local remote or `api.github.com`. `gh help environment` documents selectors. API bases: GitHub.com `https://api.github.com`; Enterprise Cloud data residency `https://api.SUBDOMAIN.ghe.com` ([GitHub docs](https://docs.github.com/en/enterprise-cloud@latest/admin/data-residency/about-github-enterprise-cloud-with-data-residency)); Enterprise Server `https://HOSTNAME/api/v3` ([REST API guidance](https://docs.github.com/en/enterprise-server@3.22/rest/using-the-rest-api/getting-started-with-the-rest-api)).
-3. **Check the failing transport.** REST probes do not test Git transport for `gh repo clone` or `gh pr checkout`. Inspect `gh config get git_protocol --host <host>` or the explicit URL scheme, then test the exact target with `git ls-remote <credential-free-URL>` using the configured credential helper. Never put an embedded token in command arguments, shell history, logs, or output. Diagnose SSH and HTTPS separately.
+3. **Check the failing transport.** REST probes do not test Git transport for `gh repo clone` or `gh pr checkout`. Inspect `gh config get git_protocol --host <host>` or the URL scheme, then test the credential-free target with `git ls-remote` and the configured credential helper. For HTTPS, inspect the helper; for SSH, inspect agent/key and host/port config. Never put embedded tokens in command text, history, logs, or output.
 
    For API requests, probe the selected host's `/meta` endpoint without credentials. Replace the sample URL and prefix the wrapper required by the runtime.
 
