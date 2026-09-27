@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, RwLock as StdRwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod capacity_state;
 mod codex_session_store;
 mod git;
 mod harness;
@@ -87,14 +88,7 @@ struct SessionHandle {
     // Runtime-only ownership claim installed atomically before a resumed PTY starts.
     // It remains set for the live runtime and is cleared by terminal finalization.
     resume_in_progress: bool,
-    // Sticky: once usage limit is detected it stays true until the session is killed/resumed.
-    at_usage_limit_latched: bool,
-    capacity_check_pending: bool,
-    output_lines_seen: u64,
-    scan_bytes_seen: u64,
-    // Snapshot origin used for one-shot post-resume / post-input fresh-output checks.
-    resume_scan_origin: Option<(u64, u64)>,
-    pending_capacity_visible_once: bool,
+    capacity: capacity_state::CapacityState,
 }
 
 struct WorkspaceState {
@@ -1071,12 +1065,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
