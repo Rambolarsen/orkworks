@@ -1,16 +1,30 @@
 use crate::git;
-use crate::harness::registry::ResolvedHarness;
 use crate::metadata;
 use crate::plan_handoff::resolve_openable_plan_reference;
 use crate::session_types::SessionInfo;
 use crate::session_view::{
-    connectivity_for_status, derive_memory_state, detect_conflicts, merge_live_session_info,
-    resolve_effective_cwds, session_recommendation, terminal_outcome_for_status,
+    detect_conflicts, merge_live_session_info, resolve_effective_cwds,
+    resolve_harness_or_generic_shell, session_recommendation,
 };
 use crate::AppState;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Shared by the live and remembered session-info paths (issue #399): both
+/// resolve the same openable-plan reference from `meta.plan_path` against
+/// the current workspace, and previously reimplemented this expression
+/// independently.
+fn resolve_has_openable_plan(
+    plan_path: Option<&metadata::PlanReference>,
+    workspace: Option<&WorkspaceSnapshot>,
+) -> Option<bool> {
+    plan_path.and_then(|reference| {
+        workspace.map(|snapshot| {
+            resolve_openable_plan_reference(&snapshot.workspace_path, reference).is_ok()
+        })
+    })
+}
 
 /// Stateful coordinator for the session-listing projection.
 ///
@@ -123,11 +137,10 @@ impl SessionProjection {
             .map(|info| {
                 let id = info.id.clone();
                 let meta = metadata_map.get(&id);
-                let resolved_harness = meta
+                let harness_id = meta
                     .and_then(|meta| (!meta.harness.is_empty()).then_some(meta.harness.as_str()))
-                    .or(info.harness_id.as_deref())
-                    .and_then(|id| registry.get(id))
-                    .or_else(|| registry.get("generic-shell"));
+                    .or(info.harness_id.as_deref());
+                let resolved_harness = resolve_harness_or_generic_shell(&registry, harness_id);
                 let mut info = merge_live_session_info(
                     info,
                     meta,
@@ -135,14 +148,10 @@ impl SessionProjection {
                     resolved_harness,
                     &saved_codex_session_ids,
                 );
-                info.has_openable_plan =
-                    meta.and_then(|meta| meta.plan_path.as_ref())
-                        .and_then(|reference| {
-                            workspace.as_ref().map(|snapshot| {
-                                resolve_openable_plan_reference(&snapshot.workspace_path, reference)
-                                    .is_ok()
-                            })
-                        });
+                info.has_openable_plan = resolve_has_openable_plan(
+                    meta.and_then(|meta| meta.plan_path.as_ref()),
+                    workspace.as_ref(),
+                );
                 info
             })
             .collect::<Vec<_>>();
@@ -265,12 +274,11 @@ impl SessionProjection {
                     .find(|candidate| candidate.id == id)
                     .cloned()
                     .unwrap_or(info);
-                let resolved_harness = durable_harnesses
+                let harness_id = durable_harnesses
                     .get(&id)
                     .map(String::as_str)
-                    .or(live_harness_id.as_deref())
-                    .and_then(|id| registry.get(id))
-                    .or_else(|| registry.get("generic-shell"));
+                    .or(live_harness_id.as_deref());
+                let resolved_harness = resolve_harness_or_generic_shell(&registry, harness_id);
 
                 let observation = resolved_harness.map(|harness| {
                     capacity.observe(harness.capacity_patterns(), &snapshot, &scan_buf)
@@ -471,111 +479,120 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
     }
 }
 
+/// Projects a remembered (no live handle) session's persisted metadata into
+/// a `SessionInfo`. Delegates all field precedence to
+/// `session_view::project_session_info` — the same function the live path
+/// uses — via a baseline built purely from `meta`
+/// ([`SessionInfo::baseline_from_metadata`]) and `is_live: false` (a
+/// remembered session's live handle is gone, regardless of what its stale
+/// persisted `lifecycle`/`status` claim; issue #399).
 fn remembered_session_info(
     meta: &metadata::SessionMetadata,
     registry: &crate::harness::registry::ResolvedHarnessRegistry,
     workspace: Option<&WorkspaceSnapshot>,
     saved_codex_session_ids: &std::collections::HashSet<String>,
 ) -> SessionInfo {
-    let resolved_harness = (!meta.harness.is_empty())
-        .then_some(meta.harness.as_str())
-        .and_then(|id| registry.get(id))
-        .or_else(|| registry.get("generic-shell"));
-    let (memory_state, resume_strategy) = derive_memory_state(
+    let harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
+    let resolved_harness = resolve_harness_or_generic_shell(registry, harness_id);
+    let baseline = SessionInfo::baseline_from_metadata(meta);
+    let mut info = crate::session_view::project_session_info(
+        baseline,
+        Some(meta),
         false,
-        meta.resume.as_ref(),
+        None,
         resolved_harness,
         saved_codex_session_ids,
     );
-    let mut resume = meta.resume.clone();
-    if memory_state == crate::session_types::MemoryState::Unsupported
-        && resolved_harness.is_some_and(|harness| harness.definition.id == "codex")
-    {
-        if let Some(resume) = resume.as_mut() {
-            resume.state = crate::harness::ResumeState::Unavailable;
-        }
-    }
-    let (resume_exact, resume_latest_cwd, resume_latest_repo) = resolved_harness
-        .map(ResolvedHarness::resume_flags)
-        .unwrap_or_default();
-    let resume_options = metadata::derive_resume_options(
-        &resume_strategy,
-        resume.as_ref(),
-        resume_exact,
-        resume_latest_cwd,
-        resume_latest_repo,
-    );
-    SessionInfo {
-        id: meta.id.clone(),
-        label: meta.label.clone(),
-        harness_id: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
-        model_provider_id: meta.provider_id.clone(),
-        model_id: (!meta.model.is_empty()).then(|| meta.model.clone()),
-        harness: (!meta.harness.is_empty()).then(|| meta.harness.clone()),
-        model: (!meta.model.is_empty()).then(|| meta.model.clone()),
-        work_phase: meta.work_phase.clone(),
-        lifecycle_phase: meta.lifecycle_phase.clone(),
-        lifecycle: meta.lifecycle.clone(),
-        attention: meta.attention.clone(),
-        status: meta.status.clone(),
-        connectivity: Some(connectivity_for_status(&meta.status).into()),
-        terminal_outcome: terminal_outcome_for_status(&meta.status),
-        cwd: meta.cwd.clone(),
-        created_at: meta.created_at.clone(),
-        last_activity_at: Some(meta.last_activity.clone()),
-        last_output_at: meta.last_output_at.clone(),
-        final_observed_status: meta
-            .final_observed_status_snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.value.clone()),
-        observed_status: meta.observed_status.clone(),
-        summary: meta.summary.clone(),
-        next_action: meta.next_action.clone(),
-        needs_user_input: meta.needs_user_input,
-        detected_question: meta.detected_question.clone(),
-        suggested_options: meta.suggested_options.clone(),
-        blocker_description: meta.blocker_description.clone(),
-        failed_command: meta.failed_command.clone(),
-        failed_test: meta.failed_test.clone(),
-        capacity_hints: meta.capacity_hints.clone(),
-        at_usage_limit: None,
-        capacity_check_pending: None,
-        usage_limit_reset_hint: None,
-        metadata_source: Some(meta.metadata_source.clone()),
-        metadata_confidence: Some(meta.metadata_confidence),
-        peon_last_inference: meta.peon_last_inference.clone(),
-        repo_root: meta.repo_root.clone(),
-        branch: meta.branch.clone(),
-        dirty: meta.dirty,
-        changed_files: meta.changed_files,
-        is_worktree: meta.is_worktree,
-        conflict_warning: None,
-        recommendation: None,
-        peon_diagnostics: None,
-        memory_state,
-        resume_strategy: resume_strategy.clone(),
-        resume,
-        resume_options,
-        resumed_from: meta.resumed_from.clone(),
-        has_openable_plan: meta.plan_path.as_ref().and_then(|reference| {
-            workspace.map(|snapshot| {
-                resolve_openable_plan_reference(&snapshot.workspace_path, reference).is_ok()
-            })
-        }),
-        provider: meta.provider_label.clone(),
-        provider_model: meta.provider_model.clone(),
-        provider_state: meta.provider_state.clone(),
-    }
+    info.has_openable_plan = resolve_has_openable_plan(meta.plan_path.as_ref(), workspace);
+    info
 }
 
 #[cfg(test)]
 mod tests {
-    use super::SessionProjection;
+    use super::{remembered_session_info, SessionProjection};
+    use crate::harness::definition::{BuiltinDocument, HarnessUserDocument, EMBEDDED_BUILTINS};
+    use crate::harness::registry::resolve_document;
+    use crate::session_types::MemoryState;
+    use crate::test_support::test_session_metadata;
     use crate::AppState;
     use std::sync::Arc;
 
     #[test]
     fn exposes_a_constructor_for_shared_app_state() {
         let _constructor: fn(Arc<AppState>) -> SessionProjection = SessionProjection::new;
+    }
+
+    fn registry() -> crate::harness::registry::ResolvedHarnessRegistry {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        resolve_document(&builtins, &HarnessUserDocument::default()).unwrap()
+    }
+
+    /// A remembered session's `meta.last_activity` is a required, always-set
+    /// field, so `remembered_session_info` must surface it directly rather
+    /// than falling back to `created_at` — pins the deliberate decision
+    /// documented on `session_view::project_session_info` (issue #399).
+    #[test]
+    fn remembered_session_info_uses_metas_last_activity_without_falling_back_to_created_at() {
+        let meta = test_session_metadata(
+            "remembered-1",
+            "Remembered",
+            "/tmp/project",
+            "ended",
+            "2026-06-28T09:00:00Z",
+            "2026-06-28T09:05:00Z",
+        );
+
+        let info = remembered_session_info(&meta, &registry(), None, &Default::default());
+
+        assert_eq!(info.created_at, "2026-06-28T09:00:00Z");
+        assert_eq!(
+            info.last_activity_at.as_deref(),
+            Some("2026-06-28T09:05:00Z")
+        );
+    }
+
+    /// A remembered session has no live handle to fall back to; a field
+    /// `meta` doesn't carry must come out `None`, not silently substituted
+    /// from a stray baseline value (issue #399).
+    #[test]
+    fn remembered_session_info_leaves_unset_meta_fields_absent() {
+        let meta = test_session_metadata(
+            "remembered-2",
+            "Remembered",
+            "/tmp/project",
+            "ended",
+            "2026-06-28T09:00:00Z",
+            "2026-06-28T09:05:00Z",
+        );
+        assert!(meta.summary.is_none());
+        assert!(meta.repo_root.is_none());
+
+        let info = remembered_session_info(&meta, &registry(), None, &Default::default());
+
+        assert_eq!(info.summary, None);
+        assert_eq!(info.repo_root, None);
+        assert_eq!(info.memory_state, MemoryState::Remembered);
+    }
+
+    /// `meta.attention` is normalized to `None` whenever `lifecycle != "alive"`
+    /// (`metadata::reconcile`), which every remembered session satisfies —
+    /// so routing through the shared alive-only attention rule in
+    /// `project_session_info` is a no-op for this path, not a behavior
+    /// change (issue #399).
+    #[test]
+    fn remembered_session_info_never_reports_attention_for_a_dead_session() {
+        let mut meta = test_session_metadata(
+            "remembered-3",
+            "Remembered",
+            "/tmp/project",
+            "ended",
+            "2026-06-28T09:00:00Z",
+            "2026-06-28T09:05:00Z",
+        );
+        meta.lifecycle = "dead".into();
+
+        let info = remembered_session_info(&meta, &registry(), None, &Default::default());
+
+        assert_eq!(info.attention, None);
     }
 }
