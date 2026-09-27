@@ -871,11 +871,30 @@ test("Filtered empty state renders even when observation diagnostics exist", () 
     "utf8",
   );
   const filteredEmpty = panel.match(
-    /\{visibleRecommendations\.length === 0 && !error && originFilter !== "all" && \(\s*\n\s*<p className="recommendations-filter-empty" role="status">\{panelEmptyMessage\(originFilter\)\}<\/p>/,
+    /\{visibleRecommendations\.length === 0 && !error\s*\n\s*&& hasWorkspace && taskmasterReady && originFilter !== "all" && \(\s*\n\s*<p className="recommendations-filter-empty" role="status">\{panelEmptyMessage\(originFilter\)\}<\/p>/,
   );
   assert.ok(
     filteredEmpty,
-    "filtered empty message must render on the origin filter alone (diagnostics must not gate it)",
+    "filtered empty state must be gated on workspace/taskmaster readiness and render independent of diagnostics",
+  );
+});
+
+test("A scheduled analysis lands the user on the Analysis filter view", () => {
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const analyzeNow = panel.slice(panel.indexOf("async function analyzeNow"));
+  const scheduledCheck = analyzeNow.indexOf('result.status === "scheduled"');
+  assert.ok(scheduledCheck >= 0, "expected the scheduled-result branch in analyzeNow");
+  const scheduledBlock = analyzeNow.slice(
+    scheduledCheck,
+    analyzeNow.indexOf("void refresh()", scheduledCheck),
+  );
+  assert.match(
+    scheduledBlock,
+    /setOriginFilter\("analysis"\)/,
+    "scheduled analysis must switch the panel to the Analysis origin so the arriving recommendation is visible",
   );
 });
 

@@ -296,6 +296,12 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         setBlockedRecommendationRecoveryAllowed(false);
         setAnalysisMessage(result.message);
       }
+      if (result.status === "scheduled") {
+        // A scheduled analysis will surface a Brain recommendation on a later
+        // poll; land the user on the Analysis view so the result (and its
+        // Fix with AI action) is actually visible when it arrives.
+        setOriginFilter("analysis");
+      }
       if (result.status === "scheduled" || result.status === "active_recommendation") void refresh();
     } catch (cause) {
       if (generation !== workspaceGeneration.current) return;
@@ -370,7 +376,8 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       {analysisError && <p className="recommendation-error" role="alert">{analysisError}</p>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />
-      {visibleRecommendations.length === 0 && !error && originFilter !== "all" && (
+      {visibleRecommendations.length === 0 && !error
+        && hasWorkspace && taskmasterReady && originFilter !== "all" && (
         <p className="recommendations-filter-empty" role="status">{panelEmptyMessage(originFilter)}</p>
       )}
       {visibleRecommendations.length === 0 && !error
