@@ -195,10 +195,10 @@ if source == "codex_hook":
         payload["hookFingerprint"] = fingerprint
 print(json.dumps(payload))
 ' "$status" "$observed_at" "$reported_cwd" "$session_source" "$event" "$hook_fingerprint")"
+  attention_curl_exit=0
   attention_http_status=$(curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
     -d "$attention_payload" --output /dev/null --write-out '%{http_code}' 2>/dev/null) || attention_curl_exit=$?
-  attention_curl_exit=${attention_curl_exit:-0}
   attention_post_result=$(python3 -c 'import json,sys; print(json.dumps({"curlExit":int(sys.argv[1]), "httpStatus":sys.argv[2]}))' "$attention_curl_exit" "$attention_http_status")
 elif [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; then
   attention_post_result='{"result":"skipped_missing_environment"}'
@@ -219,11 +219,11 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
   if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
     session_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\n"
   fi
+  session_curl_exit=0
   session_http_status=$(printf '%b' "$session_curl_config" |
     curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
       -H "Content-Type: application/json" \
       -d "$session_payload" --output /dev/null --write-out '%{http_code}' 2>/dev/null) || session_curl_exit=$?
-  session_curl_exit=${session_curl_exit:-0}
   harness_session_post_result=$(python3 -c 'import json,sys; print(json.dumps({"curlExit":int(sys.argv[1]), "httpStatus":sys.argv[2]}))' "$session_curl_exit" "$session_http_status")
 elif [ "$session_source" = "codex_hook" ]; then
   if [ -z "$harness_session_id" ]; then

@@ -10,6 +10,18 @@ mkdir -p "$temp_dir/bin" "$temp_dir/home"
 cat > "$temp_dir/bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
+output_path=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--output" ] && [ $# -ge 2 ]; then
+    output_path="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+if [ -n "${TEST_RESPONSE_BODY:-}" ] && [ "$output_path" != "/dev/null" ]; then
+  printf '%s' "$TEST_RESPONSE_BODY"
+fi
 printf '%s' "${TEST_HTTP_STATUS:-204}"
 exit "${TEST_CURL_EXIT:-0}"
 CURL
@@ -20,6 +32,9 @@ run_reporter() {
     ORKWORKS_SESSION_ID='orkworks-session-secret' \
     ORKWORKS_PORT='4567' \
     ORKWORKS_REPORT_TOKEN='report-token-secret' \
+    attention_curl_exit=73 \
+    session_curl_exit=74 \
+    TEST_RESPONSE_BODY='response-body-secret' \
     TEST_HTTP_STATUS="${TEST_HTTP_STATUS:-204}" \
     TEST_CURL_EXIT="${TEST_CURL_EXIT:-0}" \
     bash "$reporter" --marker 'orkworks:harness-integration:codex' --event "$1"
@@ -46,8 +61,21 @@ assert record == {
     "harnessSessionPost": {"curlExit": 0, "httpStatus": "204"},
 }, record
 serialized = json.dumps(record)
-for secret in ("codex-session-secret", "orkworks-session-secret", "report-token-secret"):
+for secret in ("codex-session-secret", "orkworks-session-secret", "report-token-secret", "response-body-secret"):
     assert secret not in serialized
+PY
+
+printf '%s' '{"session_id":"codex-session-secret"}' |
+  run_reporter UserPromptSubmit
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record["attentionPost"] == {"curlExit": 0, "httpStatus": "204"}, record
+assert record["harnessSessionPost"] == {"curlExit": 0, "httpStatus": "204"}, record
 PY
 
 TEST_HTTP_STATUS=403 TEST_CURL_EXIT=0 \
