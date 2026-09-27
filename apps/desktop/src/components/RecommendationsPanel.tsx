@@ -15,6 +15,7 @@ import {
   formatTargetSurface,
   recommendationOrigin,
   filterPanelRecommendations,
+  panelEmptyMessage,
   type PanelOriginFilter,
 } from "../taskmaster.ts";
 import EmptyState from "./EmptyState";
@@ -365,7 +366,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />
       {visibleRecommendations.length === 0 && diagnostics.length === 0 && !error ? (
-        <EmptyState message="No workflow recommendations yet." />
+        <EmptyState message={panelEmptyMessage(originFilter)} />
       ) : (
         visibleRecommendations.map((recommendation) => (
           <RecommendationCard

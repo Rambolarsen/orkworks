@@ -153,7 +153,12 @@ with `recommendationOrigin` in `apps/desktop/src/taskmaster.ts`, mirroring
   user-requested `POST /taskmaster/analyze` run the same pipeline; on the
   current data model there is no recorded trigger provenance, so all of
   these recommendations surface as one "Analysis" category (origin badge
-  and panel filter in `RecommendationsPanel`).
+  and panel filter in `RecommendationsPanel`). Provenance caveat:
+  `rollup:v1:` parents are model-assisted groupings of exact recommendation
+  families, which may themselves derive from recorded workflow
+  observations — an Analysis rollup reflects observed friction as much as
+  knowledge-derived best practices, and the sidecar clears the parent's
+  repository/knowledge evidence in favor of member evidence.
 - **Observations** (deterministic `ImproveWorkflow` recommendations with
   `improve_workflow:v1:` dedupe keys) — proposals the deterministic
   evaluator (`evaluate_workflow_improvements`) builds by grouping accepted

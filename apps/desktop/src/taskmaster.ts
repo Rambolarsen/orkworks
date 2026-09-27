@@ -41,6 +41,13 @@ export function filterPanelRecommendations(
   });
 }
 
+export function panelEmptyMessage(originFilter: PanelOriginFilter): string {
+  if (originFilter === "all") return "No workflow recommendations yet.";
+  return originFilter === "analysis"
+    ? "No Analysis recommendations match this filter."
+    : "No Observations recommendations match this filter.";
+}
+
 export function formatTargetSurface(surface: TargetSurface): string {
   return surface[0].toUpperCase() + surface.slice(1);
 }

@@ -14,6 +14,7 @@ import {
   formatTargetSurface,
   recommendationOrigin,
   filterPanelRecommendations,
+  panelEmptyMessage,
   sortedEvidence,
   type PanelOriginFilter,
 } from "../src/taskmaster.ts";
@@ -198,8 +199,36 @@ test("Panel filter shows every origin on All and only matching origins otherwise
   assert.deepEqual(visible("observations"), [observations.id]);
 });
 
-test("Panel filter keeps a focused deep-linked card visible in every origin", () => {
-  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc", {
+test("Empty state names the active origin filter, not just 'no recommendations yet'", () => {
+  assert.equal(panelEmptyMessage("all"), "No workflow recommendations yet.");
+  assert.equal(
+    panelEmptyMessage("analysis"),
+    "No Analysis recommendations match this filter.",
+  );
+  assert.equal(
+    panelEmptyMessage("observations"),
+    "No Observations recommendations match this filter.",
+  );
+});
+
+test("Recommendations header wraps its actions in narrow panels", () => {
+  const css = readFileSync(
+    new URL("../src/App.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /\.recommendations-panel-header, \.recommendation-card-header \{\s*\n\s*display: flex; align-items: flex-start; justify-content: space-between; gap: var\(--space-3\); flex-wrap: wrap;/);
+  assert.match(css, /\.recommendations-panel-actions \{ display: flex; gap: var\(--space-2\); flex-wrap: wrap; align-items: center; \}/);
+});
+
+test("Codex origin-filter feedback is reflected in docs and panel copy", () => {
+  const userDoc = readFileSync(
+    new URL("../../../docs/user/taskmaster.md", import.meta.url),
+    "utf8",
+  );
+  assert.match(userDoc, /rollup/);
+});
+
+test("Panel filter keeps a focused deep-linked card visible in every origin", () => {  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc", {
     status: "completed" as WorkflowRecommendation["status"],
   });
   const observations = recommendationWithDedupeKey(
