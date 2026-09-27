@@ -2,6 +2,75 @@ use crate::{metadata::SessionMetadata, AppState};
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Computes the observation IDs that a background anti-spam trim must never
+/// remove: IDs cited in evidence snapshots of recommendations that are not
+/// in a terminal state. Terminal records embed self-contained evidence
+/// snapshots, so trimming the underlying stored observation cannot corrupt
+/// them; a live Proposed/Accepted/Executing/RolledUp record does not embed a
+/// snapshot and must keep citing retained evidence.
+fn protected_observation_ids(workspace: &crate::WorkspaceState) -> Result<HashSet<String>, String> {
+    let mut protected = HashSet::new();
+    for recommendation in workspace
+        .recommendation_store
+        .list()
+        .map_err(|error| error.to_string())?
+    {
+        let live = matches!(
+            recommendation.status,
+            crate::taskmaster::RecommendationStatus::Proposed
+                | crate::taskmaster::RecommendationStatus::Accepted
+                | crate::taskmaster::RecommendationStatus::Executing
+                | crate::taskmaster::RecommendationStatus::RolledUp
+        );
+        if live {
+            for evidence in &recommendation.evidence {
+                protected.insert(evidence.observation_id.clone());
+            }
+        }
+    }
+    Ok(protected)
+}
+
+/// Runs one pass of the observation anti-spam trim over the active
+/// workspace. Returns the removed observation IDs. Called from the retention
+/// cleanup loop so scan spam re-detected by Peon is trimmed on the same
+/// 5-minute cadence as session retention.
+pub(crate) fn observation_spam_cleanup_once(
+    state: Arc<AppState>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ws) = ws_guard.as_ref() else {
+        return Vec::new();
+    };
+    let protected = match protected_observation_ids(ws) {
+        Ok(protected) => protected,
+        Err(error) => {
+            tracing::warn!(%error, "observation spam cleanup: could not list recommendations; skipping pass");
+            return Vec::new();
+        }
+    };
+    let protected: Vec<String> = protected.into_iter().collect();
+    match ws
+        .workflow_observations
+        .trim_redundant_occurrences(now, &protected)
+    {
+        Ok(removed) => {
+            if !removed.is_empty() {
+                tracing::info!(
+                    removed = removed.len(),
+                    "observation spam cleanup: trimmed redundant occurrences"
+                );
+            }
+            removed
+        }
+        Err(error) => {
+            tracing::warn!(%error, "observation spam cleanup: trim pass failed");
+            Vec::new()
+        }
+    }
+}
+
 pub(crate) fn delete_session_evidence(
     workspace: &crate::WorkspaceState,
     session_id: &str,
@@ -77,6 +146,7 @@ pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(300)).await;
         retention_cleanup_once(&state, chrono::Utc::now()).await;
+        observation_spam_cleanup_once(state.clone(), chrono::Utc::now());
     }
 }
 
@@ -226,6 +296,75 @@ mod tests {
             last_activity,
             last_activity,
         )
+    }
+
+    fn spam_observation_key(index: usize) -> String {
+        format!("spam-{index}")
+    }
+
+    fn record_spam_hits(
+        store: &crate::workflow_observations::WorkflowObservationStore,
+        session_id: &str,
+        count: usize,
+    ) {
+        let base = chrono::Utc::now();
+        for index in 0..count {
+            store.test_set_clock(base + chrono::Duration::minutes(index as i64 * 10));
+            store
+                .record_observation(
+                    session_id,
+                    ObservationOrigin::Peon,
+                    &spam_observation_key(index),
+                    ObservationCandidate {
+                        kind: ObservationKind::Obstacle,
+                        description: "model detection".into(),
+                        evidence: format!("evidence {index}"),
+                        problem_area: None,
+                        reported_impact: Impact::Medium,
+                        confidence: Some(0.8),
+                    },
+                )
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn observation_spam_cleanup_protects_cited_ids_and_trims_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let cited_id = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+
+            record_spam_hits(&ws.workflow_observations, "session-a", 4);
+            let observations = ws.workflow_observations.workspace_observations().unwrap();
+            let middle = observations[1].id.clone();
+
+            // A proposed recommendation cites the second hit: its ID must
+            // survive the cleanup pass, while the uncited hit after it
+            // (within the spam window of a kept predecessor) is trimmed.
+            let recommendation = test_recommendation_with_evidence_ids(
+                "rec-1",
+                vec![middle.clone()],
+                crate::taskmaster::RecommendationStatus::Proposed,
+            );
+            ws.recommendation_store.put(&recommendation).unwrap();
+            middle
+        };
+
+        let removed = observation_spam_cleanup_once(state.clone(), chrono::Utc::now());
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let remaining = ws.workflow_observations.workspace_observations().unwrap();
+        // First, the protected second hit, and the latest survive; only the
+        // uncited third hit is trimmed.
+        assert_eq!(remaining.len(), 3);
+        assert_eq!(removed.len(), 1);
+        assert!(remaining.iter().any(|o| o.id == cited_id));
+        assert!(removed
+            .iter()
+            .all(|id| !remaining.iter().any(|o| o.id == *id)));
     }
 
     #[test]

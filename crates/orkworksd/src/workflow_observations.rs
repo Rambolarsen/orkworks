@@ -30,7 +30,7 @@
 // Mirrors the same staged-module rationale as harness::integration.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -59,6 +59,13 @@ const MAX_ACCEPTED_PER_SESSION_MINUTE: usize = 60;
 /// live in `record_observation`. Distinct from `IDEMPOTENCY_WINDOW_SECS`,
 /// which governs duplicate-key replay, not acceptance rate.
 const RATE_LIMIT_WINDOW_SECS: i64 = 60;
+/// Gap below which a same-fingerprint re-occurrence is treated as scan spam
+/// rather than a genuine re-occurrence. The background anti-spam trim
+/// (`trim_redundant_occurrences`) removes non-latest occurrences that arrived
+/// within this window of the previous kept hit for the same fingerprint in
+/// the same session, while always retaining each fingerprint's first and
+/// latest occurrence.
+const SPAM_WINDOW_SECS: i64 = 30 * 60;
 
 /// Confidence assigned to every authenticated agent-origin report. The
 /// caller cannot override this; see `ObservationSource::Agent` policy in the
@@ -662,6 +669,150 @@ impl WorkflowObservationStore {
         Ok(())
     }
 
+    /// Anti-spam trim: per session, per fingerprint, removes stored
+    /// occurrences that arrived within [`SPAM_WINDOW_SECS`] of a kept
+    /// predecessor while always retaining each fingerprint's earliest and
+    /// latest occurrence. Observations whose IDs appear in `protected_ids`
+    /// (for example, IDs cited in evidence snapshots of live recommendations)
+    /// are never removed. Returns the removed observation IDs.
+    ///
+    /// This is the background counterpart to tombstone eviction: same risk
+    /// class (bounded-storage removal of already-accepted history), applied
+    /// to the scan-spam pattern where the Peon inference loop re-detects one
+    /// fingerprint every scan cycle with fresh generation-scoped idempotency
+    /// keys.
+    pub(crate) fn trim_redundant_occurrences(
+        &self,
+        now: DateTime<Utc>,
+        protected_ids: &[String],
+    ) -> Result<Vec<String>, StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.degraded {
+            return Ok(Vec::new());
+        }
+        let spam_cutoff = chrono::Duration::seconds(SPAM_WINDOW_SECS);
+        let mut removed: Vec<String> = Vec::new();
+
+        for (session_id, cache) in inner.session_cache.iter_mut() {
+            if cache.observations.len() < 2 {
+                continue;
+            }
+            // Fingerprint -> list of indices into `cache.observations`, in
+            // sequence order. Sequence order is the append order, so
+            // "previous kept hit" below is well-defined.
+            let mut by_fingerprint: HashMap<&str, Vec<usize>> = HashMap::new();
+            for (index, stored) in cache.observations.iter().enumerate() {
+                by_fingerprint
+                    .entry(stored.observation.fingerprint.as_str())
+                    .or_default()
+                    .push(index);
+            }
+
+            let mut drop_indices: HashSet<usize> = HashSet::new();
+            for indices in by_fingerprint.values() {
+                if indices.len() < 2 {
+                    continue;
+                }
+                for position in 0..indices.len() {
+                    let stored = &cache.observations[indices[position]];
+                    let observation = &stored.observation;
+                    if protected_ids.contains(&observation.id) {
+                        continue;
+                    }
+                    let is_latest = position == indices.len() - 1;
+                    if is_latest {
+                        continue;
+                    }
+                    let prev_kept_at = indices[..position].iter().rev().find_map(|prev_index| {
+                        let prev = &cache.observations[*prev_index].observation;
+                        if drop_indices.contains(prev_index) {
+                            return None;
+                        }
+                        // The most recent non-dropped predecessor is a kept
+                        // hit whether or not the caller protected it: gap
+                        // computation counts protected survivors.
+                        parse_time(prev.observed_at.as_str())
+                    });
+                    // The first occurrence of a fingerprint always survives.
+                    let Some(prev_at) = prev_kept_at else {
+                        continue;
+                    };
+                    let Some(observed_at) = parse_time(observation.observed_at.as_str()) else {
+                        // Unparseable timestamps are never trimmed.
+                        continue;
+                    };
+                    if observed_at.signed_duration_since(prev_at) <= spam_cutoff {
+                        drop_indices.insert(indices[position]);
+                    }
+                }
+            }
+
+            if drop_indices.is_empty() {
+                continue;
+            }
+
+            let mut tombs: Vec<Tombstone> = cache
+                .tombstones
+                .iter()
+                .cloned()
+                .filter(|t| within_window(now, &t.accepted_at))
+                .collect();
+            for index in &drop_indices {
+                let evicted = &cache.observations[*index];
+                maybe_tombstone(&mut tombs, evicted.clone(), now);
+            }
+            if tombs.len() > MAX_TOMBSTONES {
+                tombs.sort_by_key(|t| t.sequence);
+                let excess = tombs.len() - MAX_TOMBSTONES;
+                tombs.drain(0..excess);
+            }
+            tombs.sort_by_key(|t| t.sequence);
+
+            let kept: Vec<StoredObservation> = cache
+                .observations
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !drop_indices.contains(index))
+                .map(|(_, stored)| stored.clone())
+                .collect();
+            for stored in cache
+                .observations
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| drop_indices.contains(index))
+                .map(|(_, stored)| stored)
+            {
+                removed.push(stored.observation.id.clone());
+            }
+
+            let mut buf: Vec<u8> = Vec::new();
+            for t in &tombs {
+                let json = serialize_tombstone_line(t).map_err(std::io::Error::other)?;
+                buf.extend_from_slice(json.as_bytes());
+                buf.push(b'\n');
+            }
+            for o in &kept {
+                let json = serialize_observation_line(o).map_err(std::io::Error::other)?;
+                buf.extend_from_slice(json.as_bytes());
+                buf.push(b'\n');
+            }
+            durable_write(&self.segment_path(session_id), &buf)?;
+            cache.observations = kept;
+            cache.tombstones = tombs;
+        }
+
+        // Removed occurrences lose their idempotency entries so a future
+        // report with the same key and payload is not told it duplicated a
+        // record that no longer exists.
+        for id in &removed {
+            inner
+                .idempotency
+                .retain(|_, entry| entry.observation_id != *id);
+        }
+
+        Ok(removed)
+    }
+
     pub(crate) fn next_evaluation_generation(&self) -> u64 {
         self.evaluation_generation.fetch_add(1, Ordering::SeqCst) + 1
     }
@@ -787,6 +938,12 @@ fn within_window(now: DateTime<Utc>, iso: &str) -> bool {
         }
         Err(_) => false,
     }
+}
+
+fn parse_time(iso: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(iso)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 /// Like `within_window` but over the shorter `RATE_LIMIT_WINDOW_SECS` used to
@@ -2455,6 +2612,150 @@ mod tests {
             }
             other => panic!("expected Duplicate, got {other:?}"),
         }
+    }
+
+    // -- Anti-spam trim ---------------------------------------------------
+
+    /// Records a same-fingerprint candidate at the given offset from `t0`,
+    /// using a unique idempotency key per call so nothing else dedupes.
+    fn record_fingerprint_hit(
+        store: &WorkflowObservationStore,
+        session_id: &str,
+        t0: DateTime<Utc>,
+        offset_mins: i64,
+    ) -> String {
+        store.test_set_clock(t0 + chrono::Duration::minutes(offset_mins));
+        let outcome = store
+            .record_observation(
+                session_id,
+                ObservationOrigin::Peon,
+                &format!("key-{offset_mins}"),
+                ObservationCandidate {
+                    kind: ObservationKind::Obstacle,
+                    description: "model detection".into(),
+                    evidence: format!("evidence {offset_mins}"),
+                    problem_area: None,
+                    reported_impact: Impact::Medium,
+                    confidence: Some(0.8),
+                },
+            )
+            .unwrap();
+        match outcome {
+            RecordOutcome::Accepted(obs) => obs.id,
+            other => panic!("expected Accepted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn trim_keeps_first_and_latest_and_drops_close_gap_rehashes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let first = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let middle = record_fingerprint_hit(&store, "session-1", t0, 10);
+        let middle2 = record_fingerprint_hit(&store, "session-1", t0, 20);
+        let latest = record_fingerprint_hit(&store, "session-1", t0, 25);
+
+        // First+latest survive; the two middle hits within the 30-minute spam
+        // window of a kept predecessor are trimmed.
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .unwrap();
+        assert_eq!(removed.len(), 2);
+        assert!(removed.contains(&middle));
+        assert!(removed.contains(&middle2));
+
+        let remaining = store.workspace_observations().unwrap();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.iter().any(|o| o.id == first));
+        assert!(remaining.iter().any(|o| o.id == latest));
+    }
+
+    #[test]
+    fn trim_only_groups_within_the_same_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let _a = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let _b = record_fingerprint_hit(&store, "session-1", t0, 5);
+        let _c = record_fingerprint_hit(&store, "session-2", t0, 7);
+
+        // Cross-session hits with the same fingerprint never trim each other:
+        // recurrence across sessions is the core signal for improvement
+        // proposals.
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .unwrap();
+        assert!(removed.is_empty());
+        assert_eq!(store.workspace_observations().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn trim_keeps_spaced_reoccurrences_beyond_the_spam_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let _first = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let late = record_fingerprint_hit(&store, "session-1", t0, 45);
+
+        // A gap of more than 30 minutes from the previous hit is a genuine
+        // re-occurrence (signal), not scan spam.
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(50), &[])
+            .unwrap();
+        assert!(removed.is_empty());
+        let remaining = store.workspace_observations().unwrap();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.iter().any(|o| o.id == late));
+    }
+
+    #[test]
+    fn trim_treats_a_protected_hit_as_a_kept_predecessor_for_gap_computation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let _first = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let protected = record_fingerprint_hit(&store, "session-1", t0, 10);
+        let after_protected = record_fingerprint_hit(&store, "session-1", t0, 35);
+        let latest = record_fingerprint_hit(&store, "session-1", t0, 40);
+
+        // The hit at +35 arrived 25 minutes after the kept protected hit at
+        // +10: within the spam window, so it is trimmed even though the
+        // nearest unprotected kept hit is +0 (a 35-minute gap).
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(45), &[protected.clone()])
+            .unwrap();
+        assert_eq!(removed.len(), 1);
+        assert!(removed.contains(&after_protected));
+
+        let remaining = store.workspace_observations().unwrap();
+        assert_eq!(remaining.len(), 3);
+        assert!(remaining.iter().any(|o| o.id == protected));
+        assert!(remaining.iter().any(|o| o.id == latest));
+    }
+
+    #[test]
+    fn trim_never_removes_a_protected_observation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let first = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let middle = record_fingerprint_hit(&store, "session-1", t0, 10);
+        let latest = record_fingerprint_hit(&store, "session-1", t0, 20);
+
+        // The middle hit would normally be trimmed, but a caller protecting
+        // it (because a live recommendation cites its ID) must win.
+        let protected = [middle.clone()];
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &protected)
+            .unwrap();
+        assert!(removed.is_empty());
+
+        let remaining = store.workspace_observations().unwrap();
+        assert_eq!(remaining.len(), 3);
+        assert!(remaining.iter().any(|o| o.id == first));
+        assert!(remaining.iter().any(|o| o.id == middle));
+        assert!(remaining.iter().any(|o| o.id == latest));
     }
 
     // -- Deletion ---------------------------------------------------------
