@@ -2885,6 +2885,7 @@ impl ProviderManager {
                     provider_id: entry.id.clone(),
                     outcome: AttemptOutcome::SkippedDisabled,
                 });
+                *self.runtime.write().unwrap() = runtime.clone();
                 return ProviderRunResult {
                     inference: None,
                     observation: None,
@@ -2898,6 +2899,7 @@ impl ProviderManager {
                     provider_id: entry.id.clone(),
                     outcome: AttemptOutcome::SkippedCapped,
                 });
+                *self.runtime.write().unwrap() = runtime.clone();
                 return ProviderRunResult {
                     inference: None,
                     observation: None,
@@ -2913,6 +2915,7 @@ impl ProviderManager {
                     provider_id: entry.id.clone(),
                     outcome: AttemptOutcome::Failed,
                 });
+                *self.runtime.write().unwrap() = runtime.clone();
                 return ProviderRunResult {
                     inference: None,
                     observation: None,
@@ -4864,6 +4867,32 @@ mod tests {
             Some("resets in 2h")
         );
         assert!(!result.runtime.contains_key("claude-code"));
+    }
+
+    #[test]
+    fn disabling_the_applied_provider_clears_its_stale_runtime_state() {
+        let manager = ProviderManager::for_tests(
+            sample_settings(vec![entry("opencode")]),
+            registry_with(vec![fake_provider("opencode")
+                .stderr("usage limit reached, resets in 2h")
+                .exit_code(1)]),
+        );
+        mark_applied(&manager, "opencode", None);
+
+        let failed = manager.run_inference(&["terminal line".to_string()]);
+        assert_eq!(
+            failed.runtime["opencode"].last_error_summary.as_deref(),
+            Some("usage limit reached")
+        );
+
+        manager.apply_settings(sample_settings(vec![entry("opencode").enabled(false)]));
+
+        let after_disable = manager.run_inference(&["terminal line".to_string()]);
+        assert!(
+            after_disable.runtime.is_empty(),
+            "disabling the applied provider must clear its stale runtime entry, not leave it \
+             stuck for get_providers_response()"
+        );
     }
 
     #[test]
