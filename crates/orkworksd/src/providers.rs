@@ -63,12 +63,6 @@ pub enum ProviderEffectiveState {
     Disabled,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum PeonScope {
-    Session,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AttemptOutcome {
     SkippedDisabled,
@@ -580,8 +574,6 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ProviderRuntimeEntry {
-    #[serde(rename = "fallbackStep")]
-    pub fallback_step: Option<usize>,
     #[serde(skip)]
     pub provider_model: Option<String>,
     #[serde(rename = "lastErrorSummary")]
@@ -605,8 +597,6 @@ pub struct ProviderObservation {
 pub struct AttemptRecord {
     #[allow(dead_code)]
     pub provider_id: String,
-    #[allow(dead_code)]
-    pub step: usize,
     #[allow(dead_code)]
     pub outcome: AttemptOutcome,
 }
@@ -2834,36 +2824,28 @@ impl ProviderManager {
     }
 
     #[cfg(test)]
-    pub fn run_inference(&self, _scope: PeonScope, output: &[String]) -> ProviderRunResult {
-        self.run_inference_with_applied(_scope, output, self.get_applied())
+    pub fn run_inference(&self, output: &[String]) -> ProviderRunResult {
+        self.run_inference_with_applied(output, self.get_applied())
     }
 
     pub fn run_inference_with_timeout(
         &self,
-        _scope: PeonScope,
         output: &[String],
         timeout_secs_override: Option<u64>,
     ) -> ProviderRunResult {
-        self.run_inference_with_applied_timeout(
-            _scope,
-            output,
-            timeout_secs_override,
-            self.get_applied(),
-        )
+        self.run_inference_with_applied_timeout(output, timeout_secs_override, self.get_applied())
     }
 
     pub(crate) fn run_inference_with_applied(
         &self,
-        _scope: PeonScope,
         output: &[String],
         applied: PeonAppliedState,
     ) -> ProviderRunResult {
-        self.run_inference_with_applied_timeout(_scope, output, None, applied)
+        self.run_inference_with_applied_timeout(output, None, applied)
     }
 
     fn run_inference_with_applied_timeout(
         &self,
-        _scope: PeonScope,
         output: &[String],
         timeout_secs_override: Option<u64>,
         applied: PeonAppliedState,
@@ -2895,39 +2877,48 @@ impl ProviderManager {
             };
         };
 
-        for (step_idx, entry) in [applied_entry].iter().enumerate() {
-            let step = step_idx + 1;
+        {
+            let entry = applied_entry;
 
             if !entry.enabled {
                 attempts.push(AttemptRecord {
                     provider_id: entry.id.clone(),
-                    step,
                     outcome: AttemptOutcome::SkippedDisabled,
                 });
-                continue;
+                return ProviderRunResult {
+                    inference: None,
+                    observation: None,
+                    attempts,
+                    runtime,
+                };
             }
 
             if entry.effective_state() == ProviderEffectiveState::Capped {
                 attempts.push(AttemptRecord {
                     provider_id: entry.id.clone(),
-                    step,
                     outcome: AttemptOutcome::SkippedCapped,
                 });
-                continue;
+                return ProviderRunResult {
+                    inference: None,
+                    observation: None,
+                    attempts,
+                    runtime,
+                };
             }
 
             let definitions = self.definitions();
-            let definition = match definitions.iter().find(|d| d.id == entry.id.as_str()) {
-                Some(d) => d,
-                None => {
-                    tracing::warn!(provider = %entry.id, "peon: no registry entry for provider");
-                    attempts.push(AttemptRecord {
-                        provider_id: entry.id.clone(),
-                        step,
-                        outcome: AttemptOutcome::Failed,
-                    });
-                    continue;
-                }
+            let Some(definition) = definitions.iter().find(|d| d.id == entry.id.as_str()) else {
+                tracing::warn!(provider = %entry.id, "peon: no registry entry for provider");
+                attempts.push(AttemptRecord {
+                    provider_id: entry.id.clone(),
+                    outcome: AttemptOutcome::Failed,
+                });
+                return ProviderRunResult {
+                    inference: None,
+                    observation: None,
+                    attempts,
+                    runtime,
+                };
             };
 
             let resolved_model = if definition.supports_model || entry.id == "ollama" {
@@ -3016,13 +3007,11 @@ impl ProviderManager {
                         None
                     };
                     let rt_entry = ProviderRuntimeEntry {
-                        fallback_step: Some(step),
                         provider_model: provider_model.clone(),
                         ..Default::default()
                     };
                     attempts.push(AttemptRecord {
                         provider_id: entry.id.clone(),
-                        step,
                         outcome: AttemptOutcome::Succeeded,
                     });
                     runtime.insert(entry.id.clone(), rt_entry);
@@ -3054,14 +3043,12 @@ impl ProviderManager {
             let rt_entry = if !stderr.is_empty() {
                 let (summary, hint) = parse_error_hint(&stderr);
                 ProviderRuntimeEntry {
-                    fallback_step: Some(step),
                     provider_model: resolved_model.clone(),
                     last_error_summary: Some(summary),
                     reset_hint: hint,
                 }
             } else {
                 ProviderRuntimeEntry {
-                    fallback_step: Some(step),
                     provider_model: resolved_model.clone(),
                     last_error_summary: Some(format!("provider {} failed", entry.id)),
                     ..Default::default()
@@ -3070,7 +3057,6 @@ impl ProviderManager {
 
             attempts.push(AttemptRecord {
                 provider_id: entry.id.clone(),
-                step,
                 outcome: AttemptOutcome::Failed,
             });
             runtime.insert(entry.id.clone(), rt_entry);
@@ -4267,7 +4253,7 @@ mod tests {
         );
         mark_applied(&manager, "custom-ai", Some("entry-model"));
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        let result = manager.run_inference(&["terminal line".to_owned()]);
 
         assert_eq!(
             result
@@ -4304,7 +4290,7 @@ mod tests {
         );
         mark_applied(&manager, "custom-ai", Some("timeout-model"));
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
+        let result = manager.run_inference(&["terminal line".to_string()]);
 
         assert!(result.inference.is_none());
         assert_eq!(
@@ -4342,7 +4328,7 @@ mod tests {
         );
         mark_applied(&manager, "custom-ai", Some("global-model"));
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        let result = manager.run_inference(&["terminal line".to_owned()]);
 
         assert_eq!(
             result
@@ -4390,7 +4376,7 @@ mod tests {
         );
         mark_applied(&manager, "aider", None);
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        let result = manager.run_inference(&["terminal line".to_owned()]);
 
         assert!(result.inference.is_some());
         assert_eq!(result.observation.unwrap().provider_model.as_deref(), None);
@@ -4578,7 +4564,7 @@ mod tests {
         });
         mark_applied(&manager, "ollama", Some("ollama-entry-model"));
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        let result = manager.run_inference(&["terminal line".to_owned()]);
         match server.join().expect("Ollama test server thread panicked") {
             Ok(()) => {}
             Err(OllamaTestServerError::LoopbackUnavailable(diagnostic)) => {
@@ -4676,7 +4662,7 @@ mod tests {
         );
         mark_applied(&manager, "claude-code", None);
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
+        let result = manager.run_inference(&["terminal line".to_string()]);
 
         assert!(result.inference.is_none());
         assert_eq!(result.attempts.len(), 1);
@@ -4706,7 +4692,7 @@ mod tests {
         assert!(!provider_ids.contains(&"gemini"));
         assert!(!provider_ids.contains(&"antigravity"));
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        let result = manager.run_inference(&["terminal line".to_owned()]);
         assert_eq!(result.attempts.len(), 1);
         assert_eq!(result.attempts[0].provider_id, "copilot");
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
@@ -4725,7 +4711,7 @@ mod tests {
         manager.apply_settings(payload);
         mark_applied(&manager, "copilot", None);
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        let result = manager.run_inference(&["terminal line".to_owned()]);
         assert_eq!(result.attempts.len(), 1);
         assert_eq!(result.attempts[0].provider_id, "copilot");
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::Succeeded);
@@ -4781,7 +4767,7 @@ mod tests {
         );
         mark_applied(&manager, "copilot", None);
 
-        manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        manager.run_inference(&["terminal line".to_owned()]);
 
         let captured = invocations.lock().unwrap();
         assert_eq!(captured.len(), 1);
@@ -4835,7 +4821,7 @@ mod tests {
             .applied
             .reasoning_effort = Some("high".into());
 
-        manager.run_inference(PeonScope::Session, &["terminal line".to_owned()]);
+        manager.run_inference(&["terminal line".to_owned()]);
 
         let captured = invocations.lock().unwrap();
         assert_eq!(captured.len(), 1);
@@ -4866,7 +4852,7 @@ mod tests {
         );
         mark_applied(&manager, "opencode", None);
 
-        let result = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
+        let result = manager.run_inference(&["terminal line".to_string()]);
 
         assert!(result.inference.is_none());
         assert_eq!(
@@ -4894,7 +4880,7 @@ mod tests {
         );
         mark_applied(&manager, "opencode", None);
 
-        let _ = manager.run_inference(PeonScope::Session, &["terminal line".to_string()]);
+        let _ = manager.run_inference(&["terminal line".to_string()]);
         let response = manager.get_providers_response();
 
         let opencode = response
@@ -4913,7 +4899,7 @@ mod tests {
             .iter()
             .find(|provider| provider.id == "claude-code")
             .unwrap();
-        assert_eq!(claude.runtime.fallback_step, None);
+        assert_eq!(claude.runtime.provider_model, None);
     }
 
     #[test]
@@ -5225,7 +5211,7 @@ done
             vec![],
         );
         mark_applied(&manager, "ollama", Some("llama3"));
-        let result = manager.run_inference(PeonScope::Session, &["test".to_string()]);
+        let result = manager.run_inference(&["test".to_string()]);
         assert!(result.inference.is_none());
         assert_eq!(result.attempts.len(), 1);
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::Failed);
@@ -5252,7 +5238,7 @@ done
             vec![],
         );
         mark_applied(&manager, "ollama", Some("llama3"));
-        let result = manager.run_inference(PeonScope::Session, &["test".to_string()]);
+        let result = manager.run_inference(&["test".to_string()]);
         assert!(result.inference.is_none());
         assert_eq!(result.attempts[0].outcome, AttemptOutcome::SkippedDisabled);
     }

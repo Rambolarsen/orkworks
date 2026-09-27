@@ -695,7 +695,6 @@ test("SessionDetailPanel gates Peon diagnostics behind debug metadata", () => {
   assert.match(debugBlock, /lastSuccessfulInferenceAt/);
   assert.match(debugBlock, /providerId/);
   assert.match(debugBlock, /providerModel/);
-  assert.match(debugBlock, /fallbackStep/);
   assert.match(debugBlock, /attemptCount/);
   assert.match(debugBlock, /errorSummary/);
   assert.match(debugBlock, /observationCount/);

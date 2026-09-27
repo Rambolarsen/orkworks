@@ -44,7 +44,6 @@ fn provider_error_summary(result: &providers::ProviderRunResult) -> String {
 struct ProviderFailureContext {
     provider_id: Option<String>,
     provider_model: Option<String>,
-    fallback_step: Option<usize>,
 }
 
 fn provider_failure_context(result: &providers::ProviderRunResult) -> ProviderFailureContext {
@@ -59,7 +58,6 @@ fn provider_failure_context(result: &providers::ProviderRunResult) -> ProviderFa
                 .runtime
                 .get(&attempt.provider_id)
                 .and_then(|runtime| runtime.provider_model.clone()),
-            fallback_step: Some(attempt.step),
         })
         .unwrap_or_default()
 }
@@ -122,7 +120,6 @@ fn fail_attempt_if_active(
         error,
         provider_failure.and_then(|failure| failure.provider_id.as_deref()),
         provider_failure.and_then(|failure| failure.provider_model.as_deref()),
-        provider_failure.and_then(|failure| failure.fallback_step),
     )
 }
 
@@ -231,7 +228,6 @@ impl crate::PeonState {
         );
         entry.snapshot.provider_id = None;
         entry.snapshot.provider_model = None;
-        entry.snapshot.fallback_step = None;
         entry.snapshot.error_summary = None;
         let attempt = PeonDiagnosticAttempt {
             generation: entry.attempt_generation,
@@ -337,7 +333,6 @@ impl crate::PeonState {
                 .as_deref()
                 .map(bounded_diagnostic_text)
         });
-        entry.snapshot.fallback_step = successful_attempt.map(|attempt| attempt.step);
         entry.snapshot.error_summary = None;
         true
     }
@@ -350,7 +345,6 @@ impl crate::PeonState {
         error: &str,
         provider_id: Option<&str>,
         provider_model: Option<&str>,
-        fallback_step: Option<usize>,
     ) -> bool {
         let leases = diagnostic_leases().lock().unwrap();
         if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
@@ -370,7 +364,6 @@ impl crate::PeonState {
         entry.snapshot.error_summary = Some(bounded_error_summary(error));
         entry.snapshot.provider_id = provider_id.map(bounded_diagnostic_text);
         entry.snapshot.provider_model = provider_model.map(bounded_diagnostic_text);
-        entry.snapshot.fallback_step = fallback_step;
         true
     }
 
@@ -407,7 +400,6 @@ impl crate::PeonState {
         entry.snapshot.provider_model = provider_failure
             .and_then(|failure| failure.provider_model.as_deref())
             .map(bounded_diagnostic_text);
-        entry.snapshot.fallback_step = provider_failure.and_then(|failure| failure.fallback_step);
         self.in_flight.write().unwrap().remove(session_id);
     }
 
@@ -757,14 +749,11 @@ where
                 let provider_failure = ProviderFailureContext {
                     provider_id: applied_provider.provider.clone(),
                     provider_model: applied_provider.model.clone(),
-                    fallback_step: Some(1),
                 };
                 let mut provider_task = tokio::task::spawn_blocking(move || {
-                    provider_state.providers.run_inference_with_applied(
-                        providers::PeonScope::Session,
-                        &provider_output,
-                        applied_provider,
-                    )
+                    provider_state
+                        .providers
+                        .run_inference_with_applied(&provider_output, applied_provider)
                 });
                 let provider_result = match tokio::time::timeout(
                     std::time::Duration::from_secs(120),
@@ -2045,7 +2034,6 @@ mod tests {
             "all providers failed",
             Some("ollama"),
             Some("gemma4:latest"),
-            Some(1),
         );
 
         assert!(state.peon.in_flight.read().unwrap().contains(session_id));
@@ -2064,7 +2052,6 @@ mod tests {
             .clone();
         assert_eq!(snapshot.provider_id.as_deref(), Some("ollama"));
         assert_eq!(snapshot.provider_model.as_deref(), Some("gemma4:latest"));
-        assert_eq!(snapshot.fallback_step, Some(1));
 
         state.peon.finish_attempt(session_id, &attempt);
         assert!(!state.peon.in_flight.read().unwrap().contains(session_id));
@@ -2099,7 +2086,6 @@ mod tests {
             }),
             attempts: vec![providers::AttemptRecord {
                 provider_id: oversized.clone(),
-                step: 1,
                 outcome: providers::AttemptOutcome::Succeeded,
             }],
             runtime: HashMap::new(),
@@ -2138,7 +2124,6 @@ mod tests {
             &oversized,
             None,
             None,
-            None,
         );
         let error_summary = state.peon.diagnostics.read().unwrap()[session_id]
             .snapshot
@@ -2151,7 +2136,6 @@ mod tests {
             .clone();
         assert_eq!(snapshot.provider_id, None);
         assert_eq!(snapshot.provider_model, None);
-        assert_eq!(snapshot.fallback_step, None);
         state.peon.finish_attempt(session_id, &next_attempt);
     }
 
@@ -2176,7 +2160,6 @@ mod tests {
         let provider_failure = ProviderFailureContext {
             provider_id: Some("aider".into()),
             provider_model: Some("sonnet".into()),
-            fallback_step: Some(1),
         };
 
         state
@@ -2188,7 +2171,6 @@ mod tests {
             .clone();
         assert_eq!(snapshot.provider_id.as_deref(), Some("aider"));
         assert_eq!(snapshot.provider_model.as_deref(), Some("sonnet"));
-        assert_eq!(snapshot.fallback_step, Some(1));
     }
 
     #[test]
@@ -2250,7 +2232,6 @@ mod tests {
             "all providers failed",
             Some("ollama"),
             Some("gemma4:latest"),
-            Some(1),
         );
         state.peon.finish_attempt(session_id, &attempt);
 
@@ -2267,7 +2248,6 @@ mod tests {
         assert_eq!(snapshot.error_summary, None);
         assert_eq!(snapshot.provider_id, None);
         assert_eq!(snapshot.provider_model, None);
-        assert_eq!(snapshot.fallback_step, None);
     }
 
     #[test]
@@ -2295,7 +2275,6 @@ mod tests {
             "all providers failed",
             Some("ollama"),
             Some("gemma4:latest"),
-            Some(1),
         );
         state.peon.finish_attempt(session_id, &attempt);
 
@@ -2311,7 +2290,6 @@ mod tests {
         assert_eq!(snapshot.error_summary, None);
         assert_eq!(snapshot.provider_id, None);
         assert_eq!(snapshot.provider_model, None);
-        assert_eq!(snapshot.fallback_step, None);
     }
 
     #[test]
@@ -2342,7 +2320,6 @@ mod tests {
             }),
             attempts: vec![providers::AttemptRecord {
                 provider_id: "ollama".into(),
-                step: 1,
                 outcome: providers::AttemptOutcome::Succeeded,
             }],
             runtime: HashMap::new(),
@@ -2361,7 +2338,6 @@ mod tests {
         );
         assert_eq!(snapshot.provider_id.as_deref(), Some("ollama"));
         assert_eq!(snapshot.provider_model.as_deref(), Some("gemma4:latest"));
-        assert_eq!(snapshot.fallback_step, Some(1));
     }
 
     #[tokio::test]

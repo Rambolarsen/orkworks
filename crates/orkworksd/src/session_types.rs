@@ -29,7 +29,6 @@ pub(crate) struct PeonDiagnostics {
     pub(crate) last_successful_inference_at: Option<String>,
     pub(crate) provider_id: Option<String>,
     pub(crate) provider_model: Option<String>,
-    pub(crate) fallback_step: Option<usize>,
     pub(crate) attempt_count: Option<usize>,
     pub(crate) error_summary: Option<String>,
     pub(crate) observation_count: Option<usize>,
@@ -44,7 +43,6 @@ impl PeonDiagnostics {
         self.error_summary = None;
         self.provider_id = None;
         self.provider_model = None;
-        self.fallback_step = None;
     }
 }
 
@@ -305,7 +303,6 @@ mod tests {
                 last_successful_inference_at: Some("2026-08-27T10:00:01Z".into()),
                 provider_id: Some("ollama".into()),
                 provider_model: Some("llama3.2".into()),
-                fallback_step: Some(1),
                 attempt_count: Some(2),
                 error_summary: Some("previous provider timed out".into()),
                 observation_count: Some(3),
@@ -323,7 +320,6 @@ mod tests {
                 "lastSuccessfulInferenceAt": "2026-08-27T10:00:01Z",
                 "providerId": "ollama",
                 "providerModel": "llama3.2",
-                "fallbackStep": 1,
                 "attemptCount": 2,
                 "errorSummary": "previous provider timed out",
                 "observationCount": 3,

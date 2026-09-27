@@ -365,10 +365,6 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
                     <dd>{active.peonDiagnostics?.providerModel ?? "Unavailable"}</dd>
                   </div>
                   <div>
-                    <dt>Fallback step</dt>
-                    <dd>{active.peonDiagnostics?.fallbackStep ?? "Unavailable"}</dd>
-                  </div>
-                  <div>
                     <dt>Attempt count</dt>
                     <dd>{active.peonDiagnostics?.attemptCount ?? "Unavailable"}</dd>
                   </div>

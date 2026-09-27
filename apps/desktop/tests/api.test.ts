@@ -163,7 +163,6 @@ test("SessionInfo accepts the optional Peon diagnostics contract", () => {
     lastSuccessfulInferenceAt: "2026-08-27T10:00:01Z",
     providerId: "ollama",
     providerModel: "llama3.2",
-    fallbackStep: 1,
     attemptCount: 2,
     errorSummary: null,
     observationCount: 3,
@@ -192,7 +191,6 @@ test("api.ts declares the camelCase Peon diagnostics fields", () => {
   assert.match(source, /lastSuccessfulInferenceAt: string \| null/);
   assert.match(source, /providerId: string \| null/);
   assert.match(source, /providerModel: string \| null/);
-  assert.match(source, /fallbackStep: number \| null/);
   assert.match(source, /attemptCount: number \| null/);
   assert.match(source, /errorSummary: string \| null/);
   assert.match(source, /observationCount: number \| null/);
