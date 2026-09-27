@@ -78,7 +78,7 @@ coding harness from this session.
 
 | Harness | Opens Needs You | Resolves or clears it | Normal turn | Evidence limits |
 | --- | --- | --- | --- | --- |
-| Claude Code | `Notification` with `permission_prompt`, `elicitation_dialog`, or `elicitation_url_dialog`. Do not use `PermissionRequest` alone: it runs before the permission flow, including cases where no user-facing prompt appears. | After prompt authority activates, `UserPromptSubmit` clears an earlier wait and marks work. Do not clear a permission wait from generic successful `PostToolUse`: its `tool_use_id` cannot be matched to `PermissionRequest`, which has no such ID. `Stop` is not a completion signal: another configured Stop hook can block stopping, so it must not report `idle` or clear a wait. `idle_prompt` may report `idle` after its documented delay; it does not clear an elicitation. `elicitation_response` and `elicitation_complete` clear an elicitation. `PreToolUse` must not write attention or clear a prompt. Accepted terminal input and session end also clear waits. Before authority activates, turn events do not write attention. | After activation, `UserPromptSubmit` means `working`; `Stop` is a no-op for attention; `idle_prompt` is a delayed idle hint. `PreToolUse` is not an attention or prompt-resolution event. | Permission notification is delayed about six seconds and may be omitted if the user resolves it first. `idle_prompt` fires about 60 seconds after a response, only if no typing occurred. Notification payloads have no event timestamp or turn ID; a delayed report may be stale and cannot be reliably rejected from documented fields alone. |
+| Claude Code | `Notification` with `permission_prompt`, `elicitation_dialog`, or `elicitation_url_dialog`. Do not use `PermissionRequest` alone: it runs before the permission flow, including cases where no user-facing prompt appears. | After prompt authority activates, `UserPromptSubmit` clears an earlier wait and marks work. Do not clear a permission wait from generic successful `PostToolUse`: its `tool_use_id` cannot be matched to `PermissionRequest`, which has no such ID. `Stop` is not a completion signal: another configured Stop hook can block stopping, so it must not report `idle` or clear a wait. `idle_prompt` may report `idle` after its documented delay; it does not clear an elicitation. `elicitation_response` and `elicitation_complete` clear only an unambiguous active elicitation; with no request ID, they must not clear a permission wait or an ambiguous parallel elicitation. `PreToolUse` must not write attention or clear a prompt. Accepted terminal input and session end also clear waits. Before authority activates, turn events do not write attention. | After activation, `UserPromptSubmit` means `working`; `Stop` is a no-op for attention; `idle_prompt` is a delayed idle hint. `PreToolUse` is not an attention or prompt-resolution event. | Permission notification is delayed about six seconds and may be omitted if the user resolves it first. `idle_prompt` fires about 60 seconds after a response, only if no typing occurred. Notification payloads have no event timestamp, turn ID, or elicitation request ID; delayed reports can be stale and cannot be reliably rejected from documented fields alone. |
 | GitHub Copilot CLI | `notification` with `permission_prompt` or `elicitation_dialog`. Ignore `agent_idle`, `agent_completed`, and shell-completion notifications for root-session Needs You. | After prompt authority activates, `userPromptSubmitted` clears any earlier wait and marks work. Do not clear a permission wait from generic successful `postToolUse`, whose payload has no invocation ID to correlate with the prompt. `agentStop` can be blocked by another configured hook and force continuation, so it does not report `idle` or clear a wait. Elicitation remains until accepted input or session end. A denied permission may remain waiting until another recognized event arrives. Before authority activates, turn events do not write attention. | After activation, `userPromptSubmitted` means `working`; `agentStop` is a no-op for attention. | `agent_idle` and `agent_completed` describe background subagents. Since `agentStop` may force continuation, no documented hook safely proves root-turn idle; `working` can persist until another authorized status event or session exit. Notifications are asynchronous and fire-and-forget. Order timestamped Copilot reports by event timestamp, reject older reports than the latest accepted event or committed terminal input, and use a stable receive sequence for ties. Missing or invalid timestamps cannot establish authority. Missing delivery can miss or stale a prompt. |
 | Aider | No supported event proves an explicit prompt. Do not map its completion notification to `waiting_for_input`. | No prompt-resolution lifecycle exists. Do not write `idle` either: an agent-priority idle report could prevent Peon from recognizing a concrete conversational question. | The completion callback is associated with the owning OrkWorks session by launch environment, but only says the response ended; it does not distinguish a plain completion from an explicit question or carry a matching start/resolution event. | Keep attention writes disabled for this callback and remove Aider's launch-time static hook flag so Peon and terminal fallback remain available. This may miss questions Peon does not recognize, but avoids false waits and avoids suppressing Peon with an idle report. |
 
@@ -139,17 +139,33 @@ the live OrkWorks session's valid report token and the immutable generation
 inherited from that session's launch environment. The identity route accepts
 the event's native ID (`session_id` for Claude, `sessionId` for Copilot) only
 when both values match the live session and its unrevoked launch generation.
-For each event the reporter intends to
-send as attention, it must register that native ID through
-`POST /sessions/:id/harness-session` first, then submit attention with the same
-ID, token, and generation only after registration succeeds. Both requests use
+The owned hook set includes lifecycle-only Claude `SessionStart` and Copilot
+`sessionStart` reporters for reset-boundary registration; these never write
+attention or activate prompt authority. Their registration request carries the
+actual lifecycle event name and `source` in `sessionStartEvent` and
+`sessionStartSource`; the sidecar accepts only the harness-specific event and
+source pair matching the recorded reset. For each attention event, the reporter
+must register that native ID through `POST /sessions/:id/harness-session`
+first, then submit attention with the same ID, token, and launch generation
+only after registration succeeds. Both requests use
 `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>`. This ordering also applies to
 the first prompt notification; registration failure or rejection must stop
 the attention request. Registration alone does not activate prompt authority.
-The first successful registration binds that generation to one native ID;
-later registrations with a different ID are rejected and cannot replace or
-reset the binding. A different native ID requires a new OrkWorks live session
-with a fresh generation. Missing, invalid, stale, unregistered, or mismatched
+The first successful registration binds the current conversation epoch to one
+native ID. A different ID is accepted only after OrkWorks records the exact
+successfully committed harness reset and receives the matching authenticated
+root lifecycle event: Claude `SessionStart(source=clear)` or Copilot
+`sessionStart(source=new)`. This transition advances the conversation epoch,
+replaces the binding once, clears the previous prompt tuple under the
+record-wide source rule, and preserves the launch generation. Ordinary
+identity registrations and attention reports cannot rebind; other lifecycle
+sources or unrecorded resets cannot rebind either. Copilot's lifecycle event
+timestamp must be later than the committed reset boundary. Claude has no
+documented event timestamp; process its reset lifecycle report in receipt
+order and retain that ordering limit. Reports from the old native ID are
+rejected after rebinding. The sidecar maintains the conversation epoch
+internally; reports must match its current native-ID binding and cannot choose
+an epoch. Missing, invalid, stale, unregistered, or mismatched
 values are rejected without changing attention or authority.
 
 The report token authenticates a report to its OrkWorks session, and the
@@ -226,10 +242,16 @@ notifications do not write attention; only an accepted same-session prompt
 notification activates prompt authority. After activation, only allowlisted,
 harness-mapped lifecycle events may update or clear attention, and they do not
 activate authority. Unknown and malformed reports do not change state; missing,
-unregistered, or mismatched native session IDs are rejected; the first ID
-registered for a live generation remains immutable and attempts to rebind it
-are rejected; a new live session/generation permits a new native ID; missing or
-invalid tokens and revoked generations reject both identity registration and
+unregistered, or mismatched native session IDs are rejected; ordinary
+registrations cannot rebind an ID; Claude/Copilot accept a different ID only
+after the exact committed reset and matching authenticated root lifecycle event
+(`SessionStart(source=clear)` for Claude, `sessionStart(source=new)` for
+Copilot). Copilot's timestamp must be later than the committed reset boundary.
+Rebinding advances the conversation epoch once, clears the old prompt tuple
+under the record-wide source rule, preserves the launch generation, and makes
+reports from the previous ID stale. Startup, resume, fork, unrecorded reset,
+out-of-order event, missing token, or revoked generation cannot rebind. Missing
+or invalid tokens and revoked generations reject both identity registration and
 attention without state changes; registering an identity alone does not
 activate authority; and the first prompt reporter registers its ID before
 sending attention, aborting attention if registration fails. Verify that token
@@ -240,7 +262,11 @@ turn events clear prompts; unrelated or uncorrelated successful tool-completion
 reports do not clear permission waits; reconciliation of a missing or drifted owned
 notification hook demotes authority; Peon cannot write attention or prompt
 fields after activation; and summary, phase, diagnostics, and workflow evidence
-continue independently. For Copilot, timestamped out-of-order reports must not
+continue independently. For Claude, `elicitation_response` and
+`elicitation_complete` clear only an unambiguous active elicitation after
+authority activates; neither event establishes authority or clears a permission
+wait. An ambiguous parallel elicitation remains waiting until accepted input or
+session end. For Copilot, timestamped out-of-order reports must not
 change state; verify that an
 older report is rejected after committed input, remains eligible after raw
 uncommitted typing, and that only a committed-work transition advances the

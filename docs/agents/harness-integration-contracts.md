@@ -86,14 +86,29 @@ same token and generation, with `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>`
 on both requests, and must stop if registration fails.
 This includes the first prompt notification, so it is registered before
 attention validation runs. Identity registration alone does not activate prompt
-authority. The sidecar accepts the binding only for the live session and its
-unrevoked launch generation. The first successful registration binds that
-generation to one native ID; later registrations with a different ID are
-rejected and cannot replace or reset the binding. A different native ID
-requires a new OrkWorks live session with a fresh generation. Attention must
-then match the registered native ID, token, and generation. Missing, invalid,
-stale, unregistered, or mismatched values are rejected. A recognized prompt
-report makes
+authority. The owned hook set also reports Claude `SessionStart` and Copilot
+`sessionStart` solely to bind a replacement native ID after an explicit
+recorded reset; those lifecycle events never write attention or activate
+prompt authority by themselves. Their registration request carries the event
+name and `source` in `sessionStartEvent` and `sessionStartSource`, and the
+sidecar accepts only the harness-specific pair matching the recorded reset.
+The first successful registration binds the
+current conversation epoch to one native ID. A different ID is accepted only
+after OrkWorks records
+the exact successfully committed reset command and accepts the matching
+authenticated root lifecycle event: Claude `SessionStart(source=clear)` or
+Copilot `sessionStart(source=new)`. The reset advances the epoch, replaces the
+binding once, clears the prior prompt tuple under the record-wide source rule,
+and preserves the OrkWorks launch generation. Ordinary registration and
+attention reports cannot rebind; startup, resume, fork, and unrecorded reset
+events cannot rebind either. Copilot's event timestamp must be later than the
+committed reset boundary. Claude's lifecycle event has no documented timestamp
+and is processed in receipt order. Reports from the old native ID are rejected
+after rebinding. Attention must match the registered native ID, token, and
+launch generation against the sidecar's current conversation-epoch binding.
+Missing, invalid, stale,
+unregistered, or mismatched values are rejected. A recognized prompt report
+makes
 the live session hook-authoritative for `observed_status`/`attention`,
 `needsUserInput`, `detectedQuestion`, and `suggestedOptions`. Metadata source
 is record-wide, so the sidecar cannot identify provenance for each prompt
@@ -117,9 +132,14 @@ Claude `Stop` is not a completion signal: a different configured Stop hook can
 block stopping, so OrkWorks must not report `idle` or clear a wait from that
 event. `idle_prompt`
 may report `idle` after its documented delay but does not resolve an
-outstanding elicitation. Before authority activates, these turn events do not
-write attention. `PreToolUse` fires before the tool executes and before the
-permission decision, so it must not write attention or clear a pending prompt.
+outstanding elicitation. After activation, `elicitation_response` and
+`elicitation_complete` clear only an unambiguous outstanding elicitation; the
+notification carries no elicitation request ID, so it must not clear a
+permission wait or an ambiguous parallel elicitation. These events do not
+establish authority by themselves. Before authority activates, these turn
+events do not write attention. `PreToolUse` fires before the tool executes and
+before the permission decision, so it must not write attention or clear a
+pending prompt.
 Claude's `PermissionRequest` runs before
 the permission flow and does not prove that a visible prompt was shown. Its
 permission notification may be delayed about six seconds and has no event
