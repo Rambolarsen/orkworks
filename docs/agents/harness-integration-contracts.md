@@ -27,7 +27,7 @@ fixture and version/feature evidence are added beside the binding.
 | OpenCode | [Plugins](https://dev.opencode.ai/docs/plugins/) + `@opencode-ai/plugin@1.18.18` and `@opencode-ai/sdk@1.18.18` type declarations (npm tarballs, re-verified 2026-08-18; the docs page's own examples omit the exact `session.created` payload shape, so the published `.d.ts` was the deciding source). Attention events re-verified 2026-09-02 against the published plugin event list and community event-reference docs: `session.idle` (turn boundary, `{ sessionID }`), `session.status` (`{ sessionID, status: Info }` with `Info.type` of `busy`/`idle`/...), and `permission.asked`/`permission.replied` (the real permission events; `permission.updated` is typed in the SDK union but never emitted at runtime). The 1.18.18 and 1.18.32 schemas also define `question.asked`, `question.replied`, and `question.rejected` with request IDs, as recorded in the [prompt attention design](../superpowers/specs/2026-09-26-opencode-prompt-attention-design.md). | `.opencode/plugins/orkworks-session-reporter.js` is a project-local, gitignore-eligible target (issue #110). A plugin file exports a named async factory (`export const Name = async (input) => Hooks`, not `export default {...}`); `Hooks.event?: (input: { event: Event }) => Promise<void>` is the only entry point for session lifecycle events — there is no individual `"session.created"` hook key. `EventSessionCreated = { type: "session.created", properties: { info: Session } }` and `Session.id: string` carries the native OpenCode session ID (confirmed by extracting the real npm packages, not the docs prose, which does not state the payload shape). `ORKWORKS_PORT`/`ORKWORKS_SESSION_ID` reach the plugin via `process.env`, standard Node/Bun runtime behavior rather than an OpenCode-specific grant. Attention mapping (issue #104): `session.created` establishes initial `idle`; `session.status` type `busy` and `session.idle` update the underlying turn state to `working` and `idle`. `permission.asked` and `question.asked` track type-qualified `id` values and report `waiting_for_input`. `permission.replied`, `question.replied`, and `question.rejected` remove a matching `requestID` and report the effective state: still waiting while another request is pending, otherwise the current working or idle turn state. Attention POSTs are filtered to the captured session ID so extra sessions in one TUI cannot steer attention. | Feature-probed. The installed plugin's `event` hook is verified against the real `EventSessionCreated` type and exercised end-to-end (real ESM import, synthetic event, real HTTP POST to `/sessions/:id/harness-session`) before landing; the attention events are verified against the published event list and reference docs only — not yet exercised end-to-end inside a live OpenCode process — so coverage stays **limited** until those fixtures exist. Activation still reads `unknown` until the coding tool is detected as compatible. Install only writes the OrkWorks-owned file; a foreign, un-marked file at the same path is left untouched (`ownership_ambiguous`). |
 | Antigravity CLI | No compiled signal or integration binding | OrkWorks launches `agy`, resumes an exact conversation with `agy --conversation={harnessSessionId}`, and resumes the latest conversation in the current folder with `agy --continue`. | Unsupported for integration installation and deterministic session signals until a stable, documented contract is added. |
 | Gemini CLI (retired) | [Hooks reference](https://geminicli.com/docs/hooks/reference/) | Legacy `gemini` settings and historical sessions remain readable; new sessions never select or launch this retired client. | Existing owned settings are preserved rather than migrated. |
-| GitHub Copilot CLI 1.0.83 (installed) | [Hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) | `.github/copilot/settings.local.json` supports inline `hooks`; command hooks use version 1 JSON configuration. Payloads include `sessionId`, `cwd`, and numeric `timestamp`. The `notification` event distinguishes `permission_prompt`, `elicitation_dialog`, background `agent_idle`/`agent_completed`, and shell-completion events. Separate `userPromptSubmitted` and `agentStop` events report prompt submission and turn completion. Current OrkWorks installation reports every `notification` as `waiting_for_input` without reading its type, and installs neither turn event. `sessionId` is captured via the shared reporter and feeds `ResumeStrategy::Exact` (`copilot --resume {harnessSessionId}`); `--continue` was verified empirically (not documented) to recover the most recent session machine-wide regardless of cwd, so no `latestCwd`/`latestRepo` fallback is declared for it. | Limited: the upstream reference is not version-pinned and no live event fixture has been captured for 1.0.83. Install only owned local entries; unsupported event/payload variants are a no-op until exact fixtures and version evidence pass. |
+| GitHub Copilot CLI 1.0.83 (installed) | [Hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference) | `.github/copilot/settings.local.json` supports inline `hooks`; command hooks use version 1 JSON configuration. Payloads include `sessionId`, `cwd`, and numeric `timestamp`. The `notification` event distinguishes `permission_prompt`, `elicitation_dialog`, background `agent_idle`/`agent_completed`, and shell-completion events. Separate `userPromptSubmitted` and `agentStop` events fire on prompt submission and when the agent is about to finish a turn; `agentStop` can block completion and force continuation, so it does not prove the turn ended. Current OrkWorks installation reports every `notification` as `waiting_for_input` without reading its type, and installs neither turn event. `sessionId` is captured via the shared reporter and feeds `ResumeStrategy::Exact` (`copilot --resume {harnessSessionId}`); `--continue` was verified empirically (not documented) to recover the most recent session machine-wide regardless of cwd, so no `latestCwd`/`latestRepo` fallback is declared for it. | Limited: the upstream reference is not version-pinned and no live event fixture has been captured for 1.0.83. Install only owned local entries; unsupported event/payload variants are a no-op until exact fixtures and version evidence pass. |
 | Aider (not installed) | [Notifications](https://aider.chat/docs/usage/notifications.html) | `--notifications-command` runs when the LLM finishes a response and Aider is waiting for the next input. The callback has no native Aider session ID or structured event payload and does not distinguish an ordinary completed response from a response containing a question. OrkWorks correlates its reporter to the launched session through its inherited session environment. Current OrkWorks launch augmentation reports it as `waiting_for_input`. | Limited: the official contract is unversioned and no live fixture is available in this environment. The callback's session correlation does not make completion a prompt signal; it should not write attention state, so Peon remains the attention fallback even when notification integration is enabled. No repository Aider config is edited. |
 | Generic shell | No deterministic extension point | None. | Unsupported; all integration mutation requests are no-ops with a conflict response. |
 
@@ -75,9 +75,18 @@ remains available until an accepted, session-correlated prompt notification from
 Claude's `Notification` hook or Copilot's `notification` hook arrives. Only
 recognized prompt types activate authority; nonprompt notifications do not
 write a readiness-only state. Each Claude/Copilot report must carry the event's
-native ID (`session_id` or `sessionId`) and match the exact ID already accepted
-for that live session through `POST /sessions/:id/harness-session`; missing,
-unregistered, or mismatched IDs are rejected. A recognized prompt report makes
+native ID (`session_id` or `sessionId`), the live session's report token, and
+the immutable generation inherited from that session's launch environment.
+Before sending attention, the reporter
+must register that ID through `POST /sessions/:id/harness-session` using the
+same token and generation, with `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>`
+on both requests, and must stop if registration fails.
+This includes the first prompt notification, so it is registered before
+attention validation runs. Identity registration alone does not activate prompt
+authority. The sidecar accepts the binding only for the live session and its
+unrevoked launch generation; attention must then match the registered native
+ID, token, and generation. Missing, invalid, stale, unregistered, or mismatched
+values are rejected. A recognized prompt report makes
 the live session hook-authoritative for `observed_status`/`attention`,
 `needsUserInput`, `detectedQuestion`, and `suggestedOptions`; activation clears
 older Peon-sourced values while normal source priority protects user-authored
@@ -101,8 +110,10 @@ permission notification may be delayed about six seconds and has no event
 timestamp or turn ID; a late notification may reopen stale attention and
 cannot be reliably rejected as stale from documented fields alone. For
 Copilot, `permission_prompt` and `elicitation_dialog` are prompt events; after
-authority activates, `userPromptSubmitted` marks work and `agentStop` marks a
-completed turn. Before activation, those events do not write attention.
+authority activates, `userPromptSubmitted` marks work. `agentStop` fires before
+the agent is necessarily done because a configured hook can block it and force
+continuation, so it does not write idle or clear a wait. Before activation,
+`userPromptSubmitted` does not write attention.
 Background `agent_idle`, `agent_completed`, and shell-completion notifications
 do not mean the root session needs the user. Copilot event timestamps order
 hook reports against one another and committed terminal input; older reports
@@ -112,19 +123,30 @@ disable, uninstall, or reconciliation-detected notification-hook drift after
 activation returns future inference to fallback. Accepted terminal input means
 sidecar-committed work, not raw typing or unsent input.
 
-For the proposed authority, validating an attention report token authenticates
-the OrkWorks session, not the harness process, because child processes inherit
-it. Event acceptance also requires the allowlisted harness/event/status mapping
-and exact equality between the event's native session ID and the ID already
-accepted through the harness-session route. Every Claude/Copilot attention
-report also carries the current prompt-hook generation for the live session.
-Explicit disable,
-uninstall, or reconciliation-detected notification-hook drift revokes that
-generation before clearing hook-owned attention and prompt fields subject to
-normal user-source priority. Reports already queued or in flight from the
-revoked generation are rejected and cannot reactivate authority. Re-enabling
-requires a new generation. The generation fences lifecycle races; it does not
-authenticate the sending process.
+For the proposed authority, the Claude/Copilot native-ID registration and
+attention routes both validate the session report token and unrevoked launch
+generation. The token authenticates the report to the OrkWorks session, not the
+harness process, because child processes inherit it. A process with access to
+that session environment can submit matching values, so the protocol does not
+prevent same-session process spoofing or prove that the harness emitted an
+event. Event acceptance also checks the allowlisted harness/event/status
+mapping and exact equality between the event's native session ID and the ID
+accepted through the authenticated, generation-bound harness-session route.
+The sidecar issues an immutable, per-live-session generation at launch only
+when the integration is enabled and its owned prompt-notification hook is
+available; otherwise the variable is absent and reports are rejected. It
+passes the value as `ORKWORKS_PROMPT_HOOK_GENERATION`. Hook reporters inherit
+it and forward that exact value for native-ID registration and each
+attention report; they capture it at invocation start and never fetch the
+session's current generation while submitting. Explicit disable, uninstall,
+or reconciliation-detected notification-hook drift revokes that generation
+before clearing hook-owned attention and prompt fields subject to normal
+user-source priority. Reports from the revoked generation are rejected and
+cannot reactivate authority. Re-enabling does not change the environment of an
+already-running harness: that session stays on Peon/terminal fallback until it
+is relaunched under a new OrkWorks live session with a fresh generation. Reports
+without a generation are rejected. The generation fences lifecycle races; it
+does not authenticate the sending process.
 
 Aider's notification means that a response ended and the tool is ready for
 another input. The launch reporter can correlate that callback to the owning

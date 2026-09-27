@@ -255,17 +255,38 @@ Claude Code and GitHub Copilot sessions retain Peon and terminal fallback for
 prompt inference until the sidecar accepts a recognized report from the
 session's prompt-notification hook (`Notification` for Claude Code;
 `notification` for GitHub Copilot). Accepted turn events such as
-`UserPromptSubmit` or `agentStop` may update the turn status and clear an
+`UserPromptSubmit` may update the turn status and clear an
 existing wait as specified, but do not prove the separate prompt-notification
 hook is running, set prompt-authority state, or block Peon from updating prompt
 fields. Only a recognized prompt notification activates that channel's
 authority; recognized nonprompt notifications do not activate authority or
 write a readiness-only state, and unknown or malformed notifications do not
 change state. Each Claude/Copilot report must include the native ID carried by
-that event (`session_id` for Claude, `sessionId` for Copilot) and match the
-exact ID already accepted for that live session through
-`POST /sessions/:id/harness-session`; missing, unregistered, or mismatched IDs
-are rejected without changing authority or attention. Codex and OpenCode
+that event (`session_id` for Claude, `sessionId` for Copilot), the OrkWorks
+session's valid report token, and the immutable generation inherited from that
+session's launch environment. Before
+the reporter sends an attention report, it must register that event's native
+ID through `POST /sessions/:id/harness-session` with the same token and
+generation, using `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>` on both
+requests, and send attention only after that registration succeeds. This
+ordering applies to the first prompt notification as well as later reports;
+registration failure or rejection stops the reporter from sending attention.
+Identity registration alone does not activate prompt authority. The sidecar
+accepts the identity binding only for the live session and its unrevoked launch
+generation, then accepts attention only when the same token,
+generation, and exact registered native ID accompany an allowlisted
+harness/event/status. The sidecar issues an immutable generation at launch only
+when the integration is enabled and its owned prompt-notification hook is
+available; otherwise the environment variable is absent and reports are
+rejected. It passes the value as `ORKWORKS_PROMPT_HOOK_GENERATION`. Hook
+reporters capture and forward that exact
+value for both requests; they do not fetch a replacement generation while
+submitting. Disable, uninstall, or detected drift revokes it. Re-enabling does
+not update an already-running harness: that session remains on fallback until
+it is relaunched under a new OrkWorks live session with a fresh generation.
+Missing, invalid, stale,
+unregistered, or mismatched values are rejected without changing authority or
+attention. Codex and OpenCode
 retain their accepted nonprompt-only fallback: before activation, Peon may
 supply nonprompt status and descriptive metadata; conversational text cannot
 establish prompt attention before or after hook activation. Aider and hookless
@@ -293,18 +314,26 @@ reports are attention no-ops: writing session-wide `agent` metadata would
 temporarily prevent Peon from writing prompt fields under the current
 record-wide source-priority rule. The sidecar's existing committed-terminal-
 input transition continues to clear waits independently. Every Claude/Copilot
-attention report carries a live-session hook generation. Disable, uninstall, or
-detected drift revokes that generation before clearing hook-owned fields, and
-reports from a revoked generation cannot restore authority. Re-enabling the
-integration requires a new generation. This fences delayed reports without
-claiming to authenticate the sending process.
+attention report carries the immutable, per-live-session generation issued by
+the sidecar at launch when the integration is enabled and its owned
+prompt-notification hook is available. Otherwise the environment variable is
+absent and reports are rejected. The sidecar passes it as
+`ORKWORKS_PROMPT_HOOK_GENERATION`; reporters inherit it and forward it
+unchanged, capturing it at invocation start rather than fetching the current
+generation at POST time. Disable, uninstall, or detected drift revokes that
+generation before clearing hook-owned fields, and reports from a revoked
+generation cannot restore authority. Re-enabling does not change the
+environment of an already-running harness; that session remains on
+Peon/terminal fallback until it is relaunched under a new OrkWorks live session
+with a fresh generation. Reports without a generation are rejected. This fences
+lifecycle races without claiming to authenticate the sending process.
 
 The proposed signal contract is harness-specific:
 
 | Harness | Direct prompt signal | Turn and prompt-clear signals | Authority and tradeoff |
 | --- | --- | --- | --- |
 | Claude Code | `Notification` with `notification_type` `permission_prompt`, `elicitation_dialog`, or `elicitation_url_dialog` means an explicit prompt is awaiting the user. Do not treat `PermissionRequest` alone as proof that a user-facing prompt appeared; it runs before the permission flow and may end without a visible prompt. | After authority activates, `UserPromptSubmit` clears an earlier wait and reports `working`; successful `PostToolUse` may clear a permission wait and report `working`. `Stop` is not a completion signal: another configured Stop hook can block stopping, so it must not report `idle` or clear a wait ([Claude Stop contract](https://code.claude.com/docs/en/hooks#stop-decision-control)). `idle_prompt` may report `idle` after its documented delay but does not clear an elicitation. `elicitation_response` and `elicitation_complete` clear elicitation waits. `PreToolUse` must not write attention or clear a prompt. Before authority activates, turn events do not write attention. | Only an accepted prompt `Notification` report for the captured native session activates authority; turn events before activation are attention no-ops. Reconcile detected removal or drift of the owned notification hook by revoking its report generation, demoting, and clearing its fields. Permission notifications may be delayed about six seconds and have no timestamp or turn ID; a late event may reopen stale Needs You. `idle_prompt` arrives about 60 seconds after a response only if the user has not typed. |
-| GitHub Copilot CLI | `notification` with `notification_type` `permission_prompt` or `elicitation_dialog` means an explicit user prompt. `agent_idle`, `agent_completed`, and shell-completion notifications describe background work, not a prompt for the owning OrkWorks session. | After authority activates, `userPromptSubmitted` clears prior waits and reports `working`; successful `postToolUse` may clear a permission wait and report `working`. `agentStop` reports `idle` and clears permission waits only when no elicitation is outstanding; elicitation clears on accepted input or session end. The documented contract has no matching notification for a rejected permission decision. Before authority activates, turn events do not write attention. | Only a recognized prompt `notification` report for the matching native session activates authority; turn events before activation are attention no-ops. Reconcile detected removal or drift of the owned notification hook by revoking its report generation, demoting, and clearing its fields. Order timestamped reports against accepted reports and committed terminal input; reject older or invalid/missing timestamps. |
+| GitHub Copilot CLI | `notification` with `notification_type` `permission_prompt` or `elicitation_dialog` means an explicit user prompt. `agent_idle`, `agent_completed`, and shell-completion notifications describe background work, not a prompt for the owning OrkWorks session. | After authority activates, `userPromptSubmitted` clears prior waits and reports `working`; successful `postToolUse` may clear a permission wait and report `working`. `agentStop` can be blocked by another configured hook and force continuation, so it does not report `idle` or clear a wait. Elicitation clears on accepted input or session end. The documented contract has no matching notification for a rejected permission decision. Before authority activates, turn events do not write attention. | Only a recognized prompt `notification` report for the matching native session activates authority; turn events before activation are attention no-ops. Reconcile detected removal or drift of the owned notification hook by revoking its report generation, demoting, and clearing its fields. Order timestamped reports against accepted reports and committed terminal input; reject older or invalid/missing timestamps. |
 | Aider | No supported event identifies an explicit user question or permission request. Its notification command runs when a response finishes and Aider is ready for another input; that is ordinary turn completion, not proof of Needs You. | The callback is correlated to the owning OrkWorks session through launch environment, but carries no structured Aider event payload or paired prompt lifecycle. Do not write `waiting_for_input` or `idle`: either agent-priority status can suppress Peon's ability to recognize a concrete question. | Aider notifications never activate prompt authority or write attention state. Remove its launch-time static hook flag so Peon and terminal fallback remain available even when the callback is installed. This can miss a question Peon does not recognize, but avoids speculative waits and suppressing Peon with an idle report. |
 
 The hook-capable integrations report `waiting_for_input` only for the explicit
@@ -315,13 +344,18 @@ harness's mapping only after its source contract, clear behavior, missing-hook
 fallback, and false-positive/false-negative tradeoffs are reviewed. Summary and
 diagnostic inference stays independent of attention authority.
 
-When the attention route validates a per-session report token, that token
-authenticates the report to its OrkWorks session; it does not prove that the
-harness process emitted the event because spawned children inherit the token.
-Validate an allowlisted harness/event/status pair and match native session
-identity where the harness supplies it. Aider lacks native identity, so its
-callback is correlated only to the OrkWorks session that launched it and must
-not be treated as proof of an explicit prompt.
+For Claude/Copilot prompt reports, the session-bound report token and
+unrevoked launch generation are required on both native-ID registration and
+attention submission. They bind accepted reports to the live OrkWorks session
+and fence disabled or stale integrations, but do not authenticate the sending
+process: spawned children inherit the token, and a process with access to the
+same session environment can submit matching values. This protocol does not
+claim to prevent same-session process spoofing or prove that the harness itself
+emitted an event. Validate the allowlisted harness/event/status and native-ID
+binding as report consistency checks, not as cryptographic proof of event
+origin. Aider lacks native identity, so its callback is correlated only to the
+OrkWorks session that launched it and must not be treated as proof of an
+explicit prompt.
 Copilot events carry timestamps and must be rejected when older than a newer
 accepted event or committed terminal input. Claude notifications have no
 documented event timestamp or turn ID; process them in receipt order and retain
