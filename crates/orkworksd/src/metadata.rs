@@ -1596,6 +1596,10 @@ impl MetadataStore {
             && meta.harness_session_id_source.as_deref() == Some(report.source.as_str())
             && meta.harness_session_id_confidence == Some(report.confidence)
         {
+            if let Some(resume) = meta.resume.as_mut() {
+                resume.last_seen_at = Some(timestamp.to_string());
+                self.write_session(&meta);
+            }
             return HarnessSessionMergeResult::IgnoredUnchanged;
         }
 
@@ -3955,7 +3959,7 @@ mod tests {
         );
         assert_eq!(
             updated.resume.unwrap().last_seen_at.as_deref(),
-            Some("2026-06-26T11:00:00Z")
+            Some("2026-06-26T12:00:00Z")
         );
         assert_eq!(
             store

@@ -41,21 +41,9 @@ pub(crate) fn clear_label_refresh_generation(session_id: &str) {
         .remove(session_id);
 }
 
-pub(crate) fn try_reserve_label_refresh_generation(
-    session_id: &str,
-    native_session_id: &str,
-    minimum_interval: Duration,
-) -> Option<u64> {
-    try_reserve_label_refresh_generation_at(
-        session_id,
-        native_session_id,
-        std::time::Instant::now(),
-        minimum_interval,
-    )
-}
-
 /// Throttle repeat hook-driven lookups for one session/native identity while
 /// still allowing later events to retry a label that Codex has not saved yet.
+#[cfg(test)]
 fn try_reserve_label_refresh_generation_at(
     session_id: &str,
     native_session_id: &str,
@@ -64,6 +52,37 @@ fn try_reserve_label_refresh_generation_at(
 ) -> Option<u64> {
     let gate = label_refresh_gate(session_id);
     let _gate = gate.lock().unwrap();
+    reserve_label_refresh_generation_at(session_id, native_session_id, now, minimum_interval)
+}
+
+/// Serializes an identity-checked refresh reservation with label persistence.
+/// The operation can hold the workspace lock while invoking `reserve`, so the
+/// persisted identity cannot change between validation and generation advance.
+pub(crate) fn with_label_refresh_reservation<T>(
+    session_id: &str,
+    native_session_id: &str,
+    minimum_interval: Duration,
+    operation: impl FnOnce(&mut dyn FnMut() -> Option<u64>) -> T,
+) -> T {
+    let gate = label_refresh_gate(session_id);
+    let _gate = gate.lock().unwrap();
+    let mut reserve = || {
+        reserve_label_refresh_generation_at(
+            session_id,
+            native_session_id,
+            std::time::Instant::now(),
+            minimum_interval,
+        )
+    };
+    operation(&mut reserve)
+}
+
+fn reserve_label_refresh_generation_at(
+    session_id: &str,
+    native_session_id: &str,
+    now: std::time::Instant,
+    minimum_interval: Duration,
+) -> Option<u64> {
     let mut reservations = LABEL_REFRESH_RESERVATIONS.lock().unwrap();
     if reservations
         .get(session_id)
@@ -628,6 +647,32 @@ mod tests {
             Some(3)
         );
 
+        clear_label_refresh_generation(session_id);
+    }
+
+    #[test]
+    fn stale_identity_cannot_advance_label_refresh_generation() {
+        let session_id = "native-label-refresh-stale-identity-test";
+        clear_label_refresh_generation(session_id);
+
+        let stale_reservation = with_label_refresh_reservation(
+            session_id,
+            "old-thread",
+            Duration::from_secs(5),
+            |reserve| {
+                let current_native_id = "new-thread";
+                (current_native_id == "old-thread").then(reserve).flatten()
+            },
+        );
+        assert_eq!(stale_reservation, None);
+
+        let current_reservation = with_label_refresh_reservation(
+            session_id,
+            "new-thread",
+            Duration::from_secs(5),
+            |reserve| reserve(),
+        );
+        assert_eq!(current_reservation, Some(1));
         clear_label_refresh_generation(session_id);
     }
 }

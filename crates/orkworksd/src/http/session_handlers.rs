@@ -568,43 +568,53 @@ async fn report_harness_session_inner(
             metadata::HarnessSessionMergeResult::Accepted
                 | metadata::HarnessSessionMergeResult::IgnoredUnchanged
         )
-        && crate::codex_session_store::accept_native_label_identity(&id, &native_session_id)
     {
-        let label_source = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|workspace| workspace.metadata.read_session(&id))
-            .filter(|meta| meta.harness == "codex")
-            .map(|meta| meta.label_source);
-        let should_refresh_label =
-            label_source.is_some_and(|source| should_schedule_codex_label_refresh(result, source));
-        let runtime_identity = state
-            .sessions
-            .lock()
-            .unwrap()
-            .get(&id)
-            .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
-            .map(|handle| handle.runtime.identity());
-        if should_refresh_label {
-            if let Some(runtime_identity) = runtime_identity {
-                if let Some(refresh_epoch) =
-                    crate::codex_session_store::try_reserve_label_refresh_generation(
-                        &id,
-                        &native_session_id,
-                        std::time::Duration::from_secs(5),
-                    )
+        let reservation = crate::codex_session_store::with_label_refresh_reservation(
+            &id,
+            &native_session_id,
+            std::time::Duration::from_secs(5),
+            |reserve| {
+                let workspace = state.workspace.lock().unwrap();
+                let Some(meta) = workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.metadata.read_session(&id))
+                    .filter(|meta| {
+                        meta.harness == "codex"
+                            && meta
+                                .resume
+                                .as_ref()
+                                .and_then(|resume| resume.harness_session_id.as_deref())
+                                == Some(native_session_id.as_str())
+                    })
+                else {
+                    return None;
+                };
+                if !crate::codex_session_store::accept_native_label_identity(
+                    &id,
+                    &native_session_id,
+                ) || !should_schedule_codex_label_refresh(result, meta.label_source)
                 {
-                    schedule_codex_label_refresh(
-                        state,
-                        id,
-                        native_session_id,
-                        runtime_identity,
-                        refresh_epoch,
-                    );
+                    return None;
                 }
-            }
+                let runtime_identity = state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
+                    .map(|handle| handle.runtime.identity())?;
+                let refresh_epoch = reserve()?;
+                Some((runtime_identity, refresh_epoch))
+            },
+        );
+        if let Some((runtime_identity, refresh_epoch)) = reservation {
+            schedule_codex_label_refresh(
+                state,
+                id,
+                native_session_id,
+                runtime_identity,
+                refresh_epoch,
+            );
         }
     }
 
