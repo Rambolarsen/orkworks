@@ -97,21 +97,26 @@ recognized, session-correlated prompt notification: `permission_prompt`,
 nonprompt notifications, unknown types, and malformed reports do not activate
 authority or write a readiness-only state.
 
-After that prompt-notification report, direct events own the attention fields:
-`observed_status`/`attention`, `needsUserInput`, `detectedQuestion`, and
-`suggestedOptions`. Promotion clears older Peon-sourced values in those fields;
-normal source priority still protects user-authored values and newer accepted
-direct reports. Peon continues summary, phase, diagnostics, and workflow
-evidence, but cannot set or replace attention or prompt fields from
-conversational text. This mirrors the existing `NonPrompt` boundary for
-Codex/OpenCode while retaining descriptive Peon inference.
+After that prompt-notification report, the harness owns one atomic attention
+tuple: `observed_status`/`attention`, `needsUserInput`, `detectedQuestion`, and
+`suggestedOptions`. Metadata source is record-wide, so the sidecar cannot
+preserve provenance for individual fields. On promotion or demotion, clear the
+whole tuple when the record-wide source is not `user`, and preserve the whole
+tuple when it is `user`. This intentionally clears any non-user tuple,
+including a newer accepted direct report; source priority governs later writes
+but cannot preserve individual non-user fields during this group clear. Do not
+selectively retain fields based on assumed per-field ownership. Peon continues
+summary, phase, diagnostics, and workflow evidence, but cannot set or replace
+attention or prompt fields from conversational text. This mirrors the existing
+`NonPrompt` boundary for Codex/OpenCode while retaining descriptive Peon
+inference.
 
 Authority lasts for the matching live session. A missing, disabled, or inactive
-integration before the first prompt-notification report leaves prompt fallback active.
-After promotion, explicit disable/uninstall or an integration reconciliation
-that detects the owned notification hook is missing or drifted ends authority,
-clears hook-owned attention/prompt fields subject to normal user-source
-priority, and returns future attention inference to Peon/terminal fallback.
+integration before the first prompt-notification report leaves prompt fallback
+active. After promotion, explicit disable/uninstall or an integration
+reconciliation that detects the owned notification hook is missing or drifted
+ends authority, clears the prompt tuple under that same record-wide source
+rule, and returns future attention inference to Peon/terminal fallback.
 Silence alone cannot prove that a hook stopped, so authority remains active and
 attention can go stale until a recognized event or session lifecycle transition.
 Every Claude/Copilot attention report carries the immutable, per-live-session

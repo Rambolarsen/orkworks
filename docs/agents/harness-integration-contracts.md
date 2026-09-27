@@ -99,9 +99,11 @@ the live session hook-authoritative for `observed_status`/`attention`,
 is record-wide, so the sidecar cannot identify provenance for each prompt
 field separately; treat the four fields as one tuple. On activation or
 demotion, clear the whole tuple when the record-wide source is not `user`, and
-preserve the whole tuple when it is `user`. Do not selectively retain
-individual fields based on assumed per-field ownership. Normal source priority
-continues to protect user-authored records and newer accepted direct reports.
+preserve the whole tuple when it is `user`. This intentionally clears any
+non-user tuple, including a newer accepted direct report, because the record
+does not retain per-field provenance. Source priority governs later writes; it
+cannot preserve individual non-user fields during this group clear. Do not
+selectively retain fields based on assumed per-field ownership.
 Peon continues summaries, phase, diagnostics, and workflow evidence.
 When integration reconciliation detects that an owned notification hook is
 missing or drifted, it ends prompt authority, clears the prompt tuple as a unit
