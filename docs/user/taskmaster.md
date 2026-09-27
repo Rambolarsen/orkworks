@@ -13,12 +13,14 @@ time.
 
 - **Analysis** — recommendations produced by the Brain's model analysis,
   which looks for missing agentic-workflow capabilities by comparing your
-  setup against signed reference knowledge and current best practices. The
-  Analysis badge also covers model-assisted rollups that group several
-  similar recommendations into one card; such a rollup draws on observed
-  friction rather than purely on best practices. These appear from the
-  Background discovery poll or when you press **Analyze now** — either way
-  they are the same kind of recommendation.
+  setup against signed reference knowledge, repository facts, and current
+  best practices — sometimes grounded in repository facts alone, without
+  any recorded session observation. The Analysis badge also covers
+  model-assisted rollups that group several similar recommendations into
+  one card; such a rollup draws on observed friction rather than purely on
+  best practices. These appear from the Background discovery poll or when
+  you press **Analyze now** — either way they are the same kind of
+  recommendation.
 - **Observations** — recommendations built deterministically from problems
   actually observed in your sessions: friction that coding agents or Peon
   recorded while work was happening, such as repeated obstacles or

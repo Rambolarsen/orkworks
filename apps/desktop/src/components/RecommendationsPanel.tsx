@@ -326,7 +326,12 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
   }
 
   const visibleRecommendations = hasWorkspace && taskmasterReady
-    ? filterPanelRecommendations(recommendations, originFilter, focusedRecommendationId)
+    ? filterPanelRecommendations(
+        recommendations,
+        originFilter,
+        focusedRecommendationId,
+        blockedRecommendationId ? [blockedRecommendationId] : [],
+      )
     : [];
 
   return (

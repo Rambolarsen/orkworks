@@ -30,9 +30,15 @@ export function filterPanelRecommendations(
   recommendations: WorkflowRecommendation[],
   originFilter: PanelOriginFilter,
   focusedRecommendationId?: string | null,
+  alwaysVisibleIds: string[] = [],
 ): WorkflowRecommendation[] {
   return recommendations.filter((recommendation) => {
-    if (recommendation.id === focusedRecommendationId) return true;
+    if (
+      recommendation.id === focusedRecommendationId
+      || alwaysVisibleIds.includes(recommendation.id)
+    ) {
+      return true;
+    }
     const visibleStatus = recommendation.status === "proposed"
       || (recommendation.status === "executing" && recommendation.rollupMemberIds.length > 0);
     if (!visibleStatus) return false;

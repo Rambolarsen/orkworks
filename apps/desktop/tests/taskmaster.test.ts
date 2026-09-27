@@ -226,7 +226,7 @@ test("Recommendations header wraps its actions in narrow panels", () => {
   assert.match(actionsRule[0], /flex-wrap: wrap/);
 });
 
-test("Codex origin-filter feedback is reflected in docs and panel copy", () => {
+test("Analysis origin docs disclose rollup provenance and repository-fact basis", () => {
   const userDoc = readFileSync(
     new URL("../../../docs/user/taskmaster.md", import.meta.url),
     "utf8",
@@ -239,6 +239,43 @@ test("Codex origin-filter feedback is reflected in docs and panel copy", () => {
     userDoc.slice(analysisStart, observationsStart),
     /rollups?[^.]*observed\s+friction/,
     "Analysis bullet must disclose that rollups can draw on observed friction",
+  );
+  assert.match(
+    userDoc.slice(analysisStart, observationsStart),
+    /repository facts/,
+    "Analysis bullet must disclose its repository-fact basis",
+  );
+});
+
+test("Blocking analysis recommendation stays visible under a non-matching origin filter", () => {
+  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc");
+  const observations = recommendationWithDedupeKey(
+    "improve_workflow:v1:instructions:abc",
+  );
+
+  const blockingId = "rec-proactive:v1:documentation:abc-proposed";
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "all", null, [blockingId]).map((item) => item.id),
+    [blockingId, observations.id],
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "analysis", null, [blockingId]).map((item) => item.id),
+    [blockingId],
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "observations", null, [blockingId]).map((item) => item.id),
+    [blockingId, observations.id],
+  );
+});
+
+test("Without the exemption the blocking card is hidden by a non-matching filter", () => {
+  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc");
+  const observations = recommendationWithDedupeKey(
+    "improve_workflow:v1:instructions:abc",
+  );
+  assert.deepEqual(
+    filterPanelRecommendations([analysis, observations], "observations", null).map((item) => item.id),
+    [observations.id],
   );
 });
 

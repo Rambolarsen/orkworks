@@ -134,7 +134,7 @@ WorkflowObservation
 Observations are immutable while retained, workspace-scoped but
 session-segmented on disk, and never participate in the `SessionMetadata`
 source-priority overwrite rules above — an agent report and a Peon
-observation coexist rather than competing. See the "Workflow observations and the current-summary snapshot (design)"
+observation coexist rather than competing. See the "Workflow observations and the current-summary snapshot (partially implemented)"
 section of [architecture.md](architecture.md) for storage
 paths, routes, and the recording module's interface.
 
