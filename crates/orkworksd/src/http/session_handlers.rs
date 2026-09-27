@@ -562,8 +562,24 @@ async fn report_harness_session_inner(
         }
     }
 
-    if private_lookup_authorized && matches!(result, metadata::HarnessSessionMergeResult::Accepted)
+    if private_lookup_authorized
+        && matches!(
+            result,
+            metadata::HarnessSessionMergeResult::Accepted
+                | metadata::HarnessSessionMergeResult::IgnoredUnchanged
+        )
+        && crate::codex_session_store::accept_native_label_identity(&id, &native_session_id)
     {
+        let label_source = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(&id))
+            .filter(|meta| meta.harness == "codex")
+            .map(|meta| meta.label_source);
+        let should_refresh_label =
+            label_source.is_some_and(|source| should_schedule_codex_label_refresh(result, source));
         let runtime_identity = state
             .sessions
             .lock()
@@ -571,17 +587,23 @@ async fn report_harness_session_inner(
             .get(&id)
             .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
             .map(|handle| handle.runtime.identity());
-        if let Some(runtime_identity) = runtime_identity {
-            if crate::codex_session_store::accept_native_label_identity(&id, &native_session_id) {
-                let refresh_epoch =
-                    crate::codex_session_store::reserve_label_refresh_generation(&id);
-                schedule_codex_label_refresh(
-                    state,
-                    id,
-                    native_session_id,
-                    runtime_identity,
-                    refresh_epoch,
-                );
+        if should_refresh_label {
+            if let Some(runtime_identity) = runtime_identity {
+                if let Some(refresh_epoch) =
+                    crate::codex_session_store::try_reserve_label_refresh_generation(
+                        &id,
+                        &native_session_id,
+                        std::time::Duration::from_secs(5),
+                    )
+                {
+                    schedule_codex_label_refresh(
+                        state,
+                        id,
+                        native_session_id,
+                        runtime_identity,
+                        refresh_epoch,
+                    );
+                }
             }
         }
     }
@@ -599,6 +621,19 @@ async fn report_harness_session_inner(
         metadata::HarnessSessionMergeResult::Invalid => {
             axum::http::StatusCode::BAD_REQUEST.into_response()
         }
+    }
+}
+
+fn should_schedule_codex_label_refresh(
+    result: metadata::HarnessSessionMergeResult,
+    label_source: metadata::LabelSource,
+) -> bool {
+    match result {
+        metadata::HarnessSessionMergeResult::Accepted => label_source.is_automatic(),
+        metadata::HarnessSessionMergeResult::IgnoredUnchanged => {
+            label_source.is_automatic() && label_source != metadata::LabelSource::Codex
+        }
+        _ => false,
     }
 }
 
@@ -786,6 +821,34 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_codex_reports_retry_only_automatic_labels_not_already_from_codex() {
+        assert!(should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::IgnoredUnchanged,
+            metadata::LabelSource::Placeholder,
+        ));
+        assert!(should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::Accepted,
+            metadata::LabelSource::TerminalInput,
+        ));
+        assert!(should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::Accepted,
+            metadata::LabelSource::Codex,
+        ));
+        assert!(!should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::IgnoredUnchanged,
+            metadata::LabelSource::Codex,
+        ));
+        assert!(!should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::IgnoredIdentityChange,
+            metadata::LabelSource::Placeholder,
+        ));
+        assert!(!should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::Accepted,
+            metadata::LabelSource::User,
+        ));
+    }
     use crate::runtime::terminal_runtime::set_session_status;
     use crate::test_support::*;
     use std::io::Write;
