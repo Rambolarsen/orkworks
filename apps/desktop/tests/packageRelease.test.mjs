@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import yaml from "js-yaml";
+import { load as yamlLoad } from "js-yaml";
 
 import {
   createReleaseBuildPlan,
@@ -18,7 +18,7 @@ function findStep(job, name) {
 }
 
 test("Main CI can validate one immutable caller-provided source", () => {
-  const workflow = yaml.load(readFileSync(mainCiWorkflowPath, "utf8"));
+  const workflow = yamlLoad(readFileSync(mainCiWorkflowPath, "utf8"));
 
   assert.deepEqual(workflow.on.push.branches, ["main"]);
   assert.deepEqual(workflow.on.schedule, [{ cron: "0 5 * * *" }]);
@@ -37,7 +37,7 @@ test("Main CI can validate one immutable caller-provided source", () => {
 });
 
 test("electron-builder config declares signed release targets", () => {
-  const config = yaml.load(
+  const config = yamlLoad(
     readFileSync(resolve(desktopRoot, "electron-builder.yml"), "utf8"),
   );
 
@@ -190,7 +190,7 @@ test("Linux release plan uses the Linux GNU target", () => {
 });
 
 test("release workflow smoke-tests Windows installers before upload", () => {
-  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const workflow = yamlLoad(readFileSync(releaseWorkflowPath, "utf8"));
   const buildJob = workflow.jobs.build;
   const names = buildJob.steps.map((step) => step.name).filter(Boolean);
   const verifyIndex = names.indexOf("Verify packaged artifact");
@@ -209,7 +209,7 @@ test("release workflow smoke-tests Windows installers before upload", () => {
 
 test("release workflow freezes and validates stable or nightly sources before signing", () => {
   const source = readFileSync(releaseWorkflowPath, "utf8");
-  const workflow = yaml.load(source);
+  const workflow = yamlLoad(source);
 
   assert.deepEqual(workflow.on.push.tags, ["v*", "!v*-nightly.*"]);
   assert.deepEqual(workflow.on.schedule, [{ cron: "23 3 * * *" }]);
@@ -238,7 +238,7 @@ test("release workflow freezes and validates stable or nightly sources before si
 });
 
 test("release workflow rejects non-main manual dispatches before checkout or install", () => {
-  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const workflow = yamlLoad(readFileSync(releaseWorkflowPath, "utf8"));
   const preflight = workflow.jobs.preflight;
   const guard = preflight.steps[0];
   const checkout = preflight.steps.find((step) => step.uses === "actions/checkout@v4");
@@ -253,7 +253,7 @@ test("release workflow rejects non-main manual dispatches before checkout or ins
 });
 
 test("release workflow skips Main CI for an already-published nightly", () => {
-  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const workflow = yamlLoad(readFileSync(releaseWorkflowPath, "utf8"));
   const validate = workflow.jobs.validate;
 
   assert.deepEqual(validate.needs, ["preflight", "prepare_nightly"]);
@@ -266,7 +266,7 @@ test("release workflow skips Main CI for an already-published nightly", () => {
 
 test("release workflow protects platform jobs and maps only their signing credentials", () => {
   const source = readFileSync(releaseWorkflowPath, "utf8");
-  const workflow = yaml.load(source);
+  const workflow = yamlLoad(source);
   const buildJob = workflow.jobs.build;
 
   assert.deepEqual(workflow.permissions, { contents: "read" });
@@ -308,7 +308,7 @@ test("release workflow protects platform jobs and maps only their signing creden
 
 test("release workflow materializes the App Store Connect API key as a temporary path", () => {
   const source = readFileSync(releaseWorkflowPath, "utf8");
-  const workflow = yaml.load(source);
+  const workflow = yamlLoad(source);
   const buildJob = workflow.jobs.build;
   const names = buildJob.steps.map((step) => step.name).filter(Boolean);
   const prepareStep = findStep(buildJob, "Prepare App Store Connect API key");
@@ -342,7 +342,7 @@ test("release workflow materializes the App Store Connect API key as a temporary
 });
 
 test("release workflow verifies real artifacts, creates checksums, and uploads only release files", () => {
-  const workflow = yaml.load(readFileSync(releaseWorkflowPath, "utf8"));
+  const workflow = yamlLoad(readFileSync(releaseWorkflowPath, "utf8"));
   const expectedUploadPath = [
     "apps/desktop/release/OrkWorks-*",
     "apps/desktop/release/${{ env.ORKWORKS_RELEASE_CHANNEL }}*.yml",
