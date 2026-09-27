@@ -66,9 +66,12 @@ schemas and reporter sequence tests establish the mapping, but live OpenCode
 attention delivery has not been confirmed end to end. A lost reply or reject
 may leave **Needs You** until a later recognized event, accepted input, or
 session death; plugin reload cannot reconstruct requests already pending.
-Claude Code and GitHub Copilot CLI turn events may update the status they
-describe, but do not establish prompt authority. Peon prompt inference remains
-available until an accepted, session-correlated prompt notification from
+Before Claude Code or GitHub Copilot prompt authority activates, turn events
+are attention no-ops. They must not write session-wide `agent` metadata, which
+would temporarily prevent Peon from writing prompt fields under the current
+record-wide source-priority rule. The sidecar's existing committed-terminal-
+input transition continues to clear waits independently. Peon prompt inference
+remains available until an accepted, session-correlated prompt notification from
 Claude's `Notification` hook or Copilot's `notification` hook arrives. Only
 recognized prompt types activate authority; nonprompt notifications do not
 write a readiness-only state. Each Claude/Copilot report must carry the event's
@@ -82,20 +85,24 @@ values. Peon continues summaries, phase, diagnostics, and workflow evidence.
 When integration reconciliation detects that an owned notification hook is
 missing or drifted, it ends prompt authority, clears hook-owned fields subject
 to user-source priority, and restores Peon/terminal fallback. Silence alone
-does not prove hook loss. For Claude, the
-recognized prompt notifications are `permission_prompt`, `elicitation_dialog`,
-and `elicitation_url_dialog`; `UserPromptSubmit` marks work and clears older
-waits, `PostToolUse` after success may clear a permission wait, and `Stop`
-marks a completed turn. `PreToolUse` fires before the tool executes and before
-the permission decision, so it must not write attention or clear a pending
-prompt. `Stop` does not
-resolve an outstanding elicitation. Claude's `PermissionRequest` runs before
+does not prove hook loss. For Claude, the recognized prompt notifications are
+`permission_prompt`, `elicitation_dialog`, and `elicitation_url_dialog`. After
+authority activates, `UserPromptSubmit` marks work and clears older waits, and
+`PostToolUse` after success may clear a permission wait. Claude `Stop` is not a
+completion signal: a different configured Stop hook can block stopping, so
+OrkWorks must not report `idle` or clear a wait from that event. `idle_prompt`
+may report `idle` after its documented delay but does not resolve an
+outstanding elicitation. Before authority activates, these turn events do not
+write attention. `PreToolUse` fires before the tool executes and before the
+permission decision, so it must not write attention or clear a pending prompt.
+Claude's `PermissionRequest` runs before
 the permission flow and does not prove that a visible prompt was shown. Its
 permission notification may be delayed about six seconds and has no event
 timestamp or turn ID; a late notification may reopen stale attention and
 cannot be reliably rejected as stale from documented fields alone. For
-Copilot, `permission_prompt` and `elicitation_dialog` are prompt events,
-`userPromptSubmitted` marks work, and `agentStop` marks a completed turn.
+Copilot, `permission_prompt` and `elicitation_dialog` are prompt events; after
+authority activates, `userPromptSubmitted` marks work and `agentStop` marks a
+completed turn. Before activation, those events do not write attention.
 Background `agent_idle`, `agent_completed`, and shell-completion notifications
 do not mean the root session needs the user. Copilot event timestamps order
 hook reports against one another and committed terminal input; older reports
@@ -109,10 +116,15 @@ For the proposed authority, validating an attention report token authenticates
 the OrkWorks session, not the harness process, because child processes inherit
 it. Event acceptance also requires the allowlisted harness/event/status mapping
 and exact equality between the event's native session ID and the ID already
-accepted through the harness-session route. Explicit disable,
-uninstall, or reconciliation-detected notification-hook drift clears
-hook-owned attention and prompt fields subject to normal user-source priority
-before fallback resumes.
+accepted through the harness-session route. Every Claude/Copilot attention
+report also carries the current prompt-hook generation for the live session.
+Explicit disable,
+uninstall, or reconciliation-detected notification-hook drift revokes that
+generation before clearing hook-owned attention and prompt fields subject to
+normal user-source priority. Reports already queued or in flight from the
+revoked generation are rejected and cannot reactivate authority. Re-enabling
+requires a new generation. The generation fences lifecycle races; it does not
+authenticate the sending process.
 
 Aider's notification means that a response ended and the tool is ready for
 another input. The launch reporter can correlate that callback to the owning

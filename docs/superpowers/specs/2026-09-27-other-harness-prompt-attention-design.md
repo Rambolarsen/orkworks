@@ -77,17 +77,20 @@ coding harness from this session.
 
 | Harness | Opens Needs You | Resolves or clears it | Normal turn | Evidence limits |
 | --- | --- | --- | --- | --- |
-| Claude Code | `Notification` with `permission_prompt`, `elicitation_dialog`, or `elicitation_url_dialog`. Do not use `PermissionRequest` alone: it runs before the permission flow, including cases where no user-facing prompt appears. | `UserPromptSubmit` clears an earlier wait and marks work. `PostToolUse` after a successful call may clear a permission wait and mark work. `Stop` marks the turn idle and clears a permission wait, but does not by itself resolve an outstanding elicitation. `elicitation_response` and `elicitation_complete` clear an elicitation. `PreToolUse` is before tool execution and the permission decision; it must not write attention state or clear a prompt. Accepted terminal input and session end also clear waits. | `UserPromptSubmit` means `working`; `Stop` means `idle`. `PreToolUse` is not an attention or prompt-resolution event. `idle_prompt` is a delayed completion notification, not Needs You. | Permission notification is delayed about six seconds and may be omitted if the user resolves it first. Notification payloads have no event timestamp or turn ID. Use sidecar receipt order, but acknowledge that a delayed notification can reopen stale attention after a later clear; it cannot be reliably rejected as stale from documented fields alone. |
-| GitHub Copilot CLI | `notification` with `permission_prompt` or `elicitation_dialog`. Ignore `agent_idle`, `agent_completed`, and shell-completion notifications for root-session Needs You. | `userPromptSubmitted` clears any earlier wait and marks work. `postToolUse` after a successful call may clear a permission wait and mark work. `agentStop` marks idle and clears a permission wait only when no elicitation is outstanding; elicitation remains until accepted input or session end. A denied permission may remain waiting until the agent stops or another recognized event arrives. | `userPromptSubmitted` means `working`; `agentStop` means `idle`. | Notifications are asynchronous and fire-and-forget. Order timestamped Copilot reports by their event timestamp, reject reports older than the latest accepted report or committed terminal input, and use a stable receive sequence for ties. Missing or invalid timestamps cannot establish authority. Missing delivery can miss or stale a prompt. |
+| Claude Code | `Notification` with `permission_prompt`, `elicitation_dialog`, or `elicitation_url_dialog`. Do not use `PermissionRequest` alone: it runs before the permission flow, including cases where no user-facing prompt appears. | After prompt authority activates, `UserPromptSubmit` clears an earlier wait and marks work; successful `PostToolUse` may clear a permission wait and mark work. `Stop` is not a completion signal: another configured Stop hook can block stopping, so it must not report `idle` or clear a wait. `idle_prompt` may report `idle` after its documented delay; it does not clear an elicitation. `elicitation_response` and `elicitation_complete` clear an elicitation. `PreToolUse` must not write attention or clear a prompt. Accepted terminal input and session end also clear waits. Before authority activates, turn events do not write attention. | After activation, `UserPromptSubmit` means `working`; `Stop` is a no-op for attention; `idle_prompt` is a delayed idle hint. `PreToolUse` is not an attention or prompt-resolution event. | Permission notification is delayed about six seconds and may be omitted if the user resolves it first. `idle_prompt` fires about 60 seconds after a response, only if no typing occurred. Notification payloads have no event timestamp or turn ID; a delayed report may be stale and cannot be reliably rejected from documented fields alone. |
+| GitHub Copilot CLI | `notification` with `permission_prompt` or `elicitation_dialog`. Ignore `agent_idle`, `agent_completed`, and shell-completion notifications for root-session Needs You. | After prompt authority activates, `userPromptSubmitted` clears any earlier wait and marks work; successful `postToolUse` may clear a permission wait and mark work. `agentStop` marks idle and clears a permission wait only when no elicitation is outstanding; elicitation remains until accepted input or session end. A denied permission may remain waiting until another recognized event arrives. Before authority activates, turn events do not write attention. | After activation, `userPromptSubmitted` means `working` and `agentStop` means `idle`. | Notifications are asynchronous and fire-and-forget. Order timestamped Copilot reports by their event timestamp, reject reports older than the latest accepted report or committed terminal input, and use a stable receive sequence for ties. Missing or invalid timestamps cannot establish authority. Missing delivery can miss or stale a prompt. |
 | Aider | No supported event proves an explicit prompt. Do not map its completion notification to `waiting_for_input`. | No prompt-resolution lifecycle exists. Do not write `idle` either: an agent-priority idle report could prevent Peon from recognizing a concrete conversational question. | The completion callback is associated with the owning OrkWorks session by launch environment, but only says the response ended; it does not distinguish a plain completion from an explicit question or carry a matching start/resolution event. | Keep attention writes disabled for this callback and remove Aider's launch-time static hook flag so Peon and terminal fallback remain available. This may miss questions Peon does not recognize, but avoids false waits and avoids suppressing Peon with an idle report. |
 
 ## Authority and fallback rule
 
 For Claude and Copilot, an installed hook file or declared capability does not
-establish prompt authority. A `UserPromptSubmit`, `PostToolUse`, `Stop`, or
-`agentStop` event may update the status it describes and clear a wait on
-accepted new input, but cannot enable prompt authority. Peon and terminal
-fallback remain available for prompt inference until the sidecar accepts a
+establish prompt authority. Before prompt authority activates, turn events are
+no-ops for attention: they must not write session-wide `agent` metadata, because
+the current record-wide source priority would temporarily prevent Peon from
+writing prompt fields even though prompt fallback is meant to remain active.
+Accepted terminal input continues to clear waits through its existing
+sidecar-owned transition. Peon and terminal fallback remain available for
+prompt inference until the sidecar accepts a
 recognized, session-correlated prompt notification: `permission_prompt`,
 `elicitation_dialog`, or Claude's `elicitation_url_dialog`. Recognized
 nonprompt notifications, unknown types, and malformed reports do not activate
@@ -110,6 +113,13 @@ clears hook-owned attention/prompt fields subject to normal user-source
 priority, and returns future attention inference to Peon/terminal fallback.
 Silence alone cannot prove that a hook stopped, so authority remains active and
 attention can go stale until a recognized event or session lifecycle transition.
+Every Claude/Copilot attention report also carries the current prompt-hook
+generation for that live session. Disable, uninstall, or detected drift revokes
+that generation before clearing hook-owned fields. The sidecar rejects queued
+or in-flight reports from a revoked generation, so they cannot reactivate
+authority after demotion. A later installation must issue a new generation
+before reports are accepted. This generation fences lifecycle races but does
+not authenticate the sending process.
 
 The report token authenticates a report to its OrkWorks session; because child
 processes inherit it, it does not prove that the harness itself emitted the
@@ -147,11 +157,14 @@ not suppress working fallback.
   may reopen stale Needs You; later accepted input, turn events, or lifecycle
   transitions clear it. The implementation and UI must preserve this known
   uncertainty rather than claim stale-event rejection.
-- Keeping Peon active before a direct hook event handles missing, disabled, or
-  broken integrations, but text inference can still create false positives
-  until the first accepted prompt-notification report, even if turn events are
-  already arriving. This avoids treating a working turn hook as proof that the
-  separate prompt hook is operational.
+- Keeping Peon active before a direct prompt notification handles missing,
+  disabled, or broken integrations, but text inference can still create false
+  positives until activation. Pre-activation turn reports are attention no-ops
+  so record-wide agent priority cannot suppress that fallback.
+- A `Stop` handler cannot establish that Claude actually stopped because a
+  different configured Stop hook may block the stop. Ignoring it can leave the
+  displayed turn status unchanged; the delayed `idle_prompt`, later accepted
+  input, or session lifecycle provides subsequent evidence.
 - After Claude/Copilot activation, refusing LLM-created prompt state prevents
   speculative Needs You but can miss conversational questions that have no
   direct harness event.
@@ -174,8 +187,9 @@ absent; keep #643 open for the uncompleted real-prompt checks that can be run
 with Claude/Copilot and for any later Aider evidence that becomes available.
 
 For each integration, assert that an absent or inactive integration retains
-Peon and terminal fallback; only an accepted same-session prompt notification
-activates prompt authority; turn events and nonprompt notifications do not;
+Peon and terminal fallback; pre-activation turn events do not write attention;
+only an accepted same-session prompt notification activates prompt authority;
+turn events and nonprompt notifications do not;
 unknown and malformed reports do not change state; missing, unregistered, or
 mismatched native session IDs are rejected; completion does not become Needs
 You; accepted input and
@@ -186,7 +200,9 @@ evidence continue independently. For
 Copilot, timestamped out-of-order reports must not change state. For Claude,
 verify receipt-order handling and record the known late-notification case; do
 not assert source-time stale-event rejection because the documented payload
-has no event timestamp or turn ID. An accepted terminal input is input that
+has no event timestamp or turn ID. For both harnesses, verify that reports
+from a revoked prompt-hook generation cannot restore authority after disable,
+uninstall, or detected drift. An accepted terminal input is input that
 the sidecar commits as work (the
 existing Enter-terminated or deterministic single-key `CommittedWorking`
 transition), not raw character typing or queued, unsent input.
@@ -200,15 +216,18 @@ coverage remains limited until fixtures and live behavior verify the mappings.
 
 1. Add per-session, event-validated Claude/Copilot prompt-channel promotion
    without using integration configuration or declared capability as proof
-   that a hook executed. Keep turn-state reporting separate from prompt
-   authority; only an accepted prompt notification promotes it. Define route
+   that a hook executed. Keep pre-activation turn reports from writing the
+   session-wide attention record so Peon fallback remains writable; only an
+   accepted prompt notification promotes authority. Define route
    authentication as session-level only, require each event's native session ID
    to match the ID already accepted through the harness-session route, validate
-   the allowlisted event/status, reconcile missing or drifted notification
-   entries, and clear only hook-owned fields on demotion. Nonprompt notifications
-   do not write a readiness-only state.
+   the allowlisted event/status, require a revocable prompt-hook generation on
+   every report, reconcile missing or drifted notification entries, and clear
+   only hook-owned fields on demotion. Reject delayed reports from revoked
+   generations. Nonprompt notifications do not write a readiness-only state.
 2. Implement the Claude prompt, elicitation-clear, and turn event mapping with
-   receipt-order behavior, permission clear signals, and stale-state coverage;
+   receipt-order behavior, permission clear signals, safe non-final `Stop`
+   handling, and stale-state coverage;
    remove or disable its current `PreToolUse` attention write because it is
    neither an approval nor a prompt-resolution event.
 3. Implement Copilot notification type filtering plus prompt, tool-resume, and
