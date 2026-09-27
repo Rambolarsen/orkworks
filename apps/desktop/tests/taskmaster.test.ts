@@ -906,8 +906,8 @@ test("A scheduled analysis lands the user on the Analysis filter view", () => {
   );
   assert.match(
     panel,
-    /result\.status === "scheduled" \|\| result\.status === "already_running"\) \{\s*\n\s*\/\/ A scheduled analysis[\s\S]*?setOriginFilter\("analysis"\);/,
-    "scheduled or in-flight analysis must land on the Analysis origin before refresh",
+    /result\.status === "scheduled"\) \{\s*\n\s*\/\/ A scheduled analysis[\s\S]*?setOriginFilter\("analysis"\);/,
+    "the filter switch must trigger on scheduled only — already_running can belong to another workspace's analysis",
   );
 });
 

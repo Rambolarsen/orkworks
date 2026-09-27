@@ -296,10 +296,13 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         setBlockedRecommendationRecoveryAllowed(false);
         setAnalysisMessage(result.message);
       }
-      if (result.status === "scheduled" || result.status === "already_running") {
+      if (result.status === "scheduled") {
         // A scheduled analysis will surface a Brain recommendation on a later
         // poll; land the user on the Analysis view so the result (and its
         // Fix with AI action) is actually visible when it arrives.
+        // already_running is deliberately excluded: it can mean another
+        // workspace's analysis holds the installation-wide lease, and no
+        // recommendation would arrive here.
         setOriginFilter("analysis");
       }
       if (
