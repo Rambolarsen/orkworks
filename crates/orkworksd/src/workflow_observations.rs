@@ -700,9 +700,15 @@ impl WorkflowObservationStore {
             }
             // Fingerprint -> list of indices into `cache.observations`, in
             // sequence order. Sequence order is the append order, so
-            // "previous kept hit" below is well-defined.
+            // "previous kept hit" below is well-defined. Only Peon-origin
+            // records participate: agent reports are deliberate durable
+            // evidence and are never trimmed, and they stay invisible to the
+            // Peon spam grouping.
             let mut by_fingerprint: HashMap<&str, Vec<usize>> = HashMap::new();
             for (index, stored) in cache.observations.iter().enumerate() {
+                if stored.observation.source != ObservationSource::Peon {
+                    continue;
+                }
                 by_fingerprint
                     .entry(stored.observation.fingerprint.as_str())
                     .or_default()
@@ -742,7 +748,11 @@ impl WorkflowObservationStore {
                         // Unparseable timestamps are never trimmed.
                         continue;
                     };
-                    if observed_at.signed_duration_since(prev_at) <= spam_cutoff {
+                    let gap = observed_at.signed_duration_since(prev_at);
+                    // A wall-clock step backward can make the gap negative;
+                    // that is not scan spam, so only nonnegative gaps are
+                    // eligible for the cutoff.
+                    if gap >= chrono::Duration::zero() && gap <= spam_cutoff {
                         drop_indices.insert(indices[position]);
                     }
                 }
@@ -2780,6 +2790,103 @@ mod tests {
             }
             other => panic!("expected Duplicate sourced from tombstone, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn trim_never_touches_agent_origin_observations() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        for (index, offset) in [0i64, 10, 20].iter().enumerate() {
+            store.test_set_clock(t0 + chrono::Duration::minutes(*offset));
+            store
+                .record_observation(
+                    "session-1",
+                    ObservationOrigin::Agent,
+                    &format!("agent-key-{index}"),
+                    ObservationCandidate {
+                        kind: ObservationKind::Obstacle,
+                        description: "model detection".into(),
+                        evidence: format!("agent evidence {index}"),
+                        problem_area: None,
+                        reported_impact: Impact::Medium,
+                        confidence: None,
+                    },
+                )
+                .unwrap();
+        }
+
+        // Agent reports are deliberate durable evidence, not Peon scan spam:
+        // even three same-fingerprint agent hits inside the spam window must
+        // all survive.
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .unwrap();
+        assert!(removed.is_empty());
+        assert_eq!(store.workspace_observations().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn trim_ignores_agent_records_when_grouping_peon_hits() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        store.test_set_clock(t0);
+        store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Agent,
+                "agent-key",
+                ObservationCandidate {
+                    kind: ObservationKind::Obstacle,
+                    description: "model detection".into(),
+                    evidence: "agent evidence".into(),
+                    problem_area: None,
+                    reported_impact: Impact::Medium,
+                    confidence: None,
+                },
+            )
+            .unwrap();
+        let peon_first = record_fingerprint_hit(&store, "session-1", t0, 5);
+        let peon_middle = record_fingerprint_hit(&store, "session-1", t0, 8);
+        let peon_latest = record_fingerprint_hit(&store, "session-1", t0, 12);
+
+        // The agent record is invisible to the peon spam grouping: the peon
+        // hits group among themselves, so the middle peon hit is trimmed.
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(20), &[])
+            .unwrap();
+        assert_eq!(removed.len(), 1);
+        assert!(removed.contains(&peon_middle));
+        assert!(!removed.contains(&peon_first));
+        assert!(!removed.contains(&peon_latest));
+        assert_eq!(store.workspace_observations().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn trim_does_not_classify_negative_gaps_as_spam() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let _first = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let _shifted = record_fingerprint_hit(&store, "session-1", t0, 10);
+        // A wall-clock step backward: this occurrence's observed_at is
+        // earlier than the previous kept hit's, so the raw gap is negative.
+        // It is not scan spam and must survive.
+        let backward = record_fingerprint_hit(&store, "session-1", t0, -5);
+        let _latest = record_fingerprint_hit(&store, "session-1", t0, 20);
+
+        let removed = store
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .unwrap();
+        assert!(
+            !removed.contains(&backward),
+            "negative gap must not be trimmed"
+        );
+        // The +10 hit is still ordinary spam (a 10-minute gap); only the
+        // backward-shifted record is exempted by the nonnegative-gap rule.
+        assert_eq!(removed.len(), 1);
+        assert_eq!(store.workspace_observations().unwrap().len(), 3);
     }
 
     #[test]
