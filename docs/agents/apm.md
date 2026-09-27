@@ -90,6 +90,7 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `adding-harness` | Checklist for adding or changing a harness adapter |
 | `working-on-recommendation` | Resolves a Taskmaster recommendation, scopes the work, and reports verified completion |
 | `writing-skills` | TDD-based skill creation following the Agent Skills standard |
+| `troubleshooting-github-connectivity` | Separates stale RTK output, network failures, and GitHub authentication errors |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 | `surfacing-blind-spots` | Planning checkpoint, end-of-session self-critique, and quality-improvement audit for investigated quality risks |
 | `babysitting-pull-requests` | Repo-owned post-PR workflow for complete comment, CI, and review-state inventories |
