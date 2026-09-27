@@ -153,16 +153,23 @@ the first prompt notification; registration failure or rejection must stop
 the attention request. Registration alone does not activate prompt authority.
 The first successful registration binds the current conversation epoch to one
 native ID. A different ID is accepted only after OrkWorks records the exact
-successfully committed harness reset and receives the matching authenticated
-root lifecycle event: Claude `SessionStart(source=clear)` or Copilot
-`sessionStart(source=new)`. This transition advances the conversation epoch,
+successfully committed harness reset and receives a session-authenticated
+lifecycle report claiming the matching event/source: Claude
+`SessionStart(source=clear)` or Copilot `sessionStart(source=new)`. The report
+fields do not prove root-process origin: any same-session process holding the
+inherited token can spoof the lifecycle claim after a recorded reset. Claude's
+event has no timestamp, so receipt order cannot tie a delayed clear report to
+the reset that produced it. This protocol therefore retains a same-session
+identity-replacement risk and does not provide root-process authentication.
+This transition advances the conversation epoch,
 replaces the binding once, clears the previous prompt tuple under the
 record-wide source rule, and preserves the launch generation. Ordinary
 identity registrations and attention reports cannot rebind; other lifecycle
 sources or unrecorded resets cannot rebind either. Copilot's lifecycle event
 timestamp must be later than the committed reset boundary. Claude has no
-documented event timestamp; process its reset lifecycle report in receipt
-order and retain that ordering limit. Reports from the old native ID are
+documented event timestamp, so receipt order cannot distinguish a delayed
+report for an earlier reset from a report for the current reset. Reports from
+the old native ID are
 rejected after rebinding. The sidecar maintains the conversation epoch
 internally; reports must match its current native-ID binding and cannot choose
 an epoch. Missing, invalid, stale, unregistered, or mismatched
@@ -244,13 +251,21 @@ harness-mapped lifecycle events may update or clear attention, and they do not
 activate authority. Unknown and malformed reports do not change state; missing,
 unregistered, or mismatched native session IDs are rejected; ordinary
 registrations cannot rebind an ID; Claude/Copilot accept a different ID only
-after the exact committed reset and matching authenticated root lifecycle event
-(`SessionStart(source=clear)` for Claude, `sessionStart(source=new)` for
-Copilot). Copilot's timestamp must be later than the committed reset boundary.
+after the exact committed reset and a session-authenticated report claiming
+the matching lifecycle event/source (`SessionStart(source=clear)` for Claude,
+`sessionStart(source=new)` for Copilot). Copilot's timestamp must be later than
+the committed reset boundary. The event/source fields do not authenticate the
+root process; verify and document that any same-session process with the
+inherited token can spoof a rebind after the recorded reset. For Claude, record
+that a delayed prior `SessionStart(source=clear)` may be indistinguishable from
+the current reset because its payload has no timestamp.
 Rebinding advances the conversation epoch once, clears the old prompt tuple
 under the record-wide source rule, preserves the launch generation, and makes
 reports from the previous ID stale. Startup, resume, fork, unrecorded reset,
-out-of-order event, missing token, or revoked generation cannot rebind. Missing
+an out-of-order Copilot event, missing token, or revoked generation cannot
+rebind. Claude's untimestamped lifecycle event cannot prove reset order; record
+that a delayed prior clear report may be accepted against a later recorded
+reset. Missing
 or invalid tokens and revoked generations reject both identity registration and
 attention without state changes; registering an identity alone does not
 activate authority; and the first prompt reporter registers its ID before

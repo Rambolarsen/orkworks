@@ -94,16 +94,20 @@ name and `source` in `sessionStartEvent` and `sessionStartSource`, and the
 sidecar accepts only the harness-specific pair matching the recorded reset.
 The first successful registration binds the
 current conversation epoch to one native ID. A different ID is accepted only
-after OrkWorks records
-the exact successfully committed reset command and accepts the matching
-authenticated root lifecycle event: Claude `SessionStart(source=clear)` or
-Copilot `sessionStart(source=new)`. The reset advances the epoch, replaces the
+after OrkWorks records the exact successfully committed reset command and
+accepts a session-authenticated lifecycle report claiming the matching event
+and source: Claude `SessionStart(source=clear)` or Copilot
+`sessionStart(source=new)`. The reset advances the epoch, replaces the
 binding once, clears the prior prompt tuple under the record-wide source rule,
 and preserves the OrkWorks launch generation. Ordinary registration and
 attention reports cannot rebind; startup, resume, fork, and unrecorded reset
 events cannot rebind either. Copilot's event timestamp must be later than the
-committed reset boundary. Claude's lifecycle event has no documented timestamp
-and is processed in receipt order. Reports from the old native ID are rejected
+committed reset boundary. Claude's lifecycle event has no documented timestamp,
+so receipt order cannot tie a delayed report to the reset that produced it. The
+event/source claim does not prove root-process origin: any same-session process
+with the inherited report token can spoof it after a reset, so this contract
+retains a same-session identity-replacement risk. Reports from the old native
+ID are rejected
 after rebinding. Attention must match the registered native ID, token, and
 launch generation against the sidecar's current conversation-epoch binding.
 Missing, invalid, stale,
