@@ -796,15 +796,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn report_harness_event_does_not_capture_identity_from_a_codex_subagent_event() {
+    fn report_harness_event_captures_owning_codex_session_id_from_hook_event() {
         let trace = run_report_harness_event_sh_trace_with_args(
             "orkworks:harness-integration:v2:codex",
-            r#"{"session_id":"thr_parent","agent_id":"agent_child","hook_event_name":"SubagentStart"}"#,
-            &["--event", "SubagentStart"],
+            r#"{"session_id":"thr_123","hook_event_name":"UserPromptSubmit"}"#,
+            &["--event", "UserPromptSubmit"],
         );
         assert!(
-            !trace.contains("harnessSessionId"),
-            "Codex subagent events belong to the parent session and must not submit their identity; trace:\n{trace}"
+            trace.contains(r#""harnessSessionId":"thr_123""#),
+            "later Codex hook events can recover the owning session ID; trace:\n{trace}"
         );
     }
 
@@ -849,6 +849,9 @@ mod tests {
         assert!(script.contains("codex_hook"));
         assert!(script.contains("sessionStartSource"));
         assert!(script.contains("sessionStartEvent"));
+        assert!(script.contains(
+            "if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id)"
+        ));
         assert!(!script.contains("codexProcessId"));
         assert!(!script.contains("Find-CodexProcessId"));
         assert!(script.contains("$Event -eq \"SessionStart\" -and $data"));
