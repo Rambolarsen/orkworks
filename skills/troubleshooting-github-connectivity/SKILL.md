@@ -1,6 +1,6 @@
 ---
 name: troubleshooting-github-connectivity
-description: Use when GitHub CLI (`gh`) API requests fail, especially when output looks cached, the CLI reports an invalid token, or other sessions can reach GitHub.
+description: Use when GitHub CLI (`gh`) commands fail due to connectivity or transport problems, especially with stale output, invalid-token messages, or when other sessions can reach GitHub.
 ---
 
 # Troubleshooting GitHub CLI API Connectivity
