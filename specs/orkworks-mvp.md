@@ -250,10 +250,15 @@ limited or unsupported rather than inferred.
 An installed integration or declared harness capability does not by itself
 make a signal authoritative or suppress Peon and terminal fallback. Hook
 authority is scoped to one live session and begins only after the sidecar
-accepts a session-correlated, event-validated report. Before that report, Peon
-and terminal fallback remain available for both work and attention state. For
-Codex, OpenCode, Claude Code, and GitHub Copilot CLI, an accepted direct signal
-owns that session's attention fields (`observed_status`/`attention`,
+accepts a session-correlated, event-validated report. Before that report,
+Claude Code and GitHub Copilot sessions retain Peon and terminal fallback for
+attention. Codex and OpenCode retain their accepted nonprompt-only fallback:
+before activation, Peon may supply nonprompt status and descriptive metadata;
+conversational text cannot establish prompt attention before or after hook
+activation. Aider and hookless tools retain their existing Peon and terminal
+fallback. For Codex, OpenCode, Claude Code, and GitHub Copilot CLI, an accepted
+direct signal owns that session's attention fields
+(`observed_status`/`attention`,
 `needsUserInput`, `detectedQuestion`, and `suggestedOptions`); activation clears
 older Peon-sourced values in those fields while normal source priority protects
 user-authored values and newer accepted direct reports. Peon continues
