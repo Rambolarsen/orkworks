@@ -12,11 +12,13 @@
 
 ## Global Constraints
 
-- A user must approve the exact complete plan revision before any child session or plan-owned worktree is created.
+- A user must approve the exact complete plan revision before any plan-owned child session or worktree is created through the orchestration API.
 - The parent session coordinates only; every implementation and review task in the workflow is delegated to a child session.
-- A child may launch only a declared task whose dependencies are complete; duplicate launch requests return the already-created child.
+- Through the orchestration API, a child may launch only a declared task whose dependencies are complete; duplicate launch requests return the already-created child. This is not a host-process security boundary.
+- Orchestration API requests must match the approved plan. This does not prevent a coding-tool process from calling the existing unauthenticated ordinary `POST /sessions` endpoint directly; OrkWorks does not provide a security boundary against same-user processes.
 - A scope change, retry, harness/model change, or concurrency increase requires a new plan revision and explicit approval.
-- Plan approval must use the existing Electron-main-owned `ORKWORKS_OPEN_PLAN_TOKEN`, which is filtered from parent and child coding-tool environments.
+- User-authorized Orchestrator creation, approval, resume, and cancellation use the existing Electron-issued `ORKWORKS_OPEN_PLAN_TOKEN`. Electron main holds it and supplies it to the sidecar; it is withheld from renderer JavaScript and parent/child coding-tool environments. It is not an OS-enforced boundary against same-user processes that can inspect the sidecar environment.
+- Orchestrator-mode creation uses a separate token-protected route that Electron main invokes for the UI flow. Generic `POST /sessions` remains unauthenticated for ordinary sessions, so a same-user coding-tool process can create ordinary sessions outside the approved orchestration plan.
 - Child sessions use the existing workspace sidecar, session metadata store, PTY runtime, and ordinary session lifecycle.
 - Parallel independent task chains use separate plan-owned worktrees. A dependent child may reuse its chain's worktree only after its predecessor session is terminal and the user confirms that no remaining process is using the worktree; this is a user acknowledgement, not OS proof. OrkWorks does not integrate, commit, merge, rebase, push, or automatically clean up child work.
 - Workflow scope is not OS security confinement. Child processes retain the normal user permissions and harness login behavior.
@@ -38,15 +40,15 @@
 | `crates/orkworksd/src/runtime/workspace_gc.rs` | Preserve workspace metadata while orchestration plans or allocated worktrees still need recovery; fail closed on malformed ownership records and keep dirty plan worktrees when the source workspace disappears. |
 | `crates/orkworksd/src/runtime/retention.rs` and session forget handling | Protect orchestrator parent metadata while its plan is nonterminal, a child is live, an allocation is unreconciled, or any plan-owned worktree remains available for manual integration. |
 | `crates/orkworksd/src/session_application.rs` | Route approved child creation through the existing session creation/runtime path and create assigned worktrees after approval. |
-| `crates/orkworksd/src/http/session_handlers.rs` and `CreateSessionCommand` | Accept the explicit Orchestrator mode for user-created parents and an internal validated cwd override for approved child launches. |
+| `crates/orkworksd/src/http/session_handlers.rs` and `CreateSessionCommand` | Add an Orchestrator creation route protected by the existing UI token, separate from generic session creation, plus an internal validated cwd override for approved child launches. |
 | `crates/orkworksd/src/git.rs` | Verify the approved clean base revision and provision unique plan-owned worktree paths/branches. |
 | `crates/orkworksd/src/http/orchestration_handlers.rs` | Expose plan proposal, read, child launch, and child status operations with distinct parent and UI authority checks. |
 | `crates/orkworksd/src/main.rs` and `crates/orkworksd/src/http/mod.rs` | Register orchestration routes and reuse the current sidecar-generation approval authority. |
 | `crates/orkworksd/src/session_types.rs` and session projection modules | Return parent/child links, plan task labels, and ordinary lifecycle/status data to the desktop. |
 | `apps/desktop/electron/main.ts`, `preload.ts`, and preload contract types | Keep the approval credential in Electron main and expose narrow review/approve/reject and manual turn-completion methods to the renderer. |
-| `apps/desktop/electron/planOpener.ts` | Reuse the existing Electron-main-only `ORKWORKS_OPEN_PLAN_TOKEN` request pattern for user plan approvals; do not create a second UI token. |
-| `apps/desktop/src/api.ts`, `apps/desktop/src/domain/session.ts`, and `apps/desktop/src/workspaceSessionController.ts` | Add validated orchestration plan/session-lineage types and preserve mode when creating a parent session. |
-| `apps/desktop/src/components/NewSessionDialog.tsx` | Let the user explicitly choose ordinary session or Orchestrator mode; ordinary remains default. |
+| `apps/desktop/electron/planOpener.ts` | Reuse the existing Electron-issued UI-token request pattern for user plan approvals; do not create a second UI token. |
+| `apps/desktop/src/api.ts`, `apps/desktop/src/domain/session.ts`, and `apps/desktop/src/workspaceSessionController.ts` | Add validated orchestration plan/session-lineage types; route Orchestrator creation through Electron main while ordinary creation stays on the existing API path. |
+| `apps/desktop/src/components/NewSessionDialog.tsx`, `apps/desktop/src/harnessTypes.ts`, and `apps/desktop/src/App.tsx` | Keep the mode choice in UI options and route ordinary versus Orchestrator creation to the appropriate existing or new path; ordinary remains the default. |
 | `apps/desktop/src/components/SessionListPanel.tsx` and a focused orchestration plan component | Nest child sessions and show plan approval, task assignment, dependencies, and progress. |
 | `apps/desktop/src/App.tsx` and session controller | Wire user approval actions, plan refresh, and child selection into existing app state. |
 
@@ -58,6 +60,9 @@
 - Modify: `docs/agents/product-boundaries.md`
 - Modify: `specs/orkworks-mvp.md`
 - Modify: `specs/multi-workspace.md`
+- Modify: `README.md`
+- Modify: `docs/validation/master-session-runner-confinement.md` (preserve as historical evidence; retire its gate for this design)
+- Modify: `docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md` (mark superseded by this proposed launch design)
 - Create: `docs/adr/0066-taskmaster-orchestrated-child-sessions.md`
 - Modify: `docs/adr/0060-independent-workspace-instances.md`
 - Modify: `docs/adr/0064-bounded-taskmaster-coordinator.md`
@@ -66,6 +71,9 @@
 
 - [ ] Replace Taskmaster's v1 and coordinator-gate wording that excludes task decomposition, child launches, and plan-owned worktrees with the approved bounded orchestrator behavior; update `AGENTS.md`, `docs/agents/product-boundaries.md`, and `specs/orkworks-mvp.md` in the same scope-alignment task so repository guidance agrees.
 - [ ] Align `specs/multi-workspace.md` with ordinary child sessions launched through the parent's existing sidecar; remove the conflicting dedicated-child-sidecar/native-proof prerequisite while preserving the single-workspace-per-instance invariant and manual integration boundary.
+- [ ] Update `README.md` to describe this as the proposed Orchestrator design, not the old brokered runner, and keep all claims clear that it is not implemented.
+- [ ] Retain `docs/validation/master-session-runner-confinement.md` as historical evidence, but state that its no-go applies only to the superseded confined-runner design and does not imply native confinement for this proposal.
+- [ ] Mark the old master-session runner design superseded by this proposal so it no longer reads as the current launch architecture.
 - [ ] Preserve the core ADR 0060 decision that each OrkWorks instance owns at most one workspace and sidecar; supersede only the proposed dedicated child-sidecar amendment.
 - [ ] Amend or supersede proposed ADR 0064 where its broker, lease, hard confinement, and durable process-owner requirements conflict with ordinary session children.
 - [ ] Preserve the existing requirement that product/architecture decisions, ambiguous requirements, credentials/permissions, destructive actions, Git mutation or merge approval, conflicting high-confidence results, and high-risk acceptance escalate to the user.
@@ -95,7 +103,7 @@
 - Independent groups may run in parallel; tasks in one group run sequentially and reuse its working directory only after the terminal-session and user quiescence gate. Dependency edges may not cross worktree groups.
 - Plan status is the closed enum `proposed | approved | paused | cancelled | complete`; a failed/blocked task moves the plan to `paused`, records the reason, and requires a newly approved recovery/retry revision before another launch.
 - `max_parallel_children` counts live child sessions in any nonterminal lifecycle state plus launch reservations without an attached child. A child in `needs_parent_result` or `reported_complete` still consumes a slot while its ordinary session remains live; the slot releases only when that session is terminal.
-- A plan-control capability is an OS-random secret bound in memory to one parent session and sidecar generation. It expires when the parent ends, the workspace/sidecar generation changes, or the plan is cancelled, revoked, or complete; neither the secret nor a reusable bearer copy is persisted or logged. While paused it remains valid for plan read/proposal and for reporting outcomes of already-launched children; it cannot launch new children. This lets the live parent collect outstanding results and propose a recovery revision without credential rotation.
+- A plan-control bearer is an OS-random workflow credential bound in memory to one parent session and sidecar generation. It expires when the parent ends, the workspace/sidecar generation changes, or the plan is cancelled, revoked, or complete; it is never persisted or logged. It is injected into the parent coding-tool environment, so it is not confidential from same-user processes that can inspect that environment. While paused it remains valid for plan read/proposal and for reporting outcomes of already-launched children; it cannot launch new children. This lets the live parent collect outstanding results and propose a recovery revision without credential rotation.
 - Resuming the parent creates a fresh capability but leaves the plan paused. The UI must approve the exact current plan revision again before the parent can launch more children.
 - `OrchestrationStore` serializes each plan's read/validate/write transition under a per-plan mutex and atomically replaces one bounded JSON document; malformed or over-limit records fail closed without overwriting the source.
 - Existing sessions gain optional `parentSessionId`, `planId`, and `planTaskId`; old session files deserialize with all three absent.
@@ -125,13 +133,13 @@
 - Modify: `crates/orkworksd/src/runtime/terminal_runtime.rs`
 - Test: sidecar capability tests and Electron/preload contract tests
 
-- [ ] Add an optional session creation mode `orchestrator`; ordinary session creation remains unchanged.
-- [ ] For orchestrator sessions only, generate an OS-random plan-control capability, fail session creation closed if randomness is unavailable, inject it only into that parent's environment, and never persist or log it.
+- [ ] Add a narrow Orchestrator creation path invoked by Electron main using the existing Electron-issued `ORKWORKS_OPEN_PLAN_TOKEN` at `POST /sessions/orchestrator`; generic `POST /sessions` remains ordinary-only, including when its JSON contains an unrecognized `mode` field. Any same-user process that obtains the token can invoke this loopback route; the UI authority pattern is not OS-enforced against processes that can inspect the sidecar environment. Ordinary session creation remains unchanged.
+- [ ] For orchestrator sessions created through the token-protected route only, generate an OS-random plan-control bearer, fail session creation closed if randomness is unavailable, inject it into the parent coding-tool environment, and never persist or log it. Document that same-user processes may inspect/replay it; it is a workflow credential, not an OS-enforced parent identity.
 - [ ] In `SessionApplication::resume_session` and `resume_session_workflow`, detect persisted `sessionMode: orchestrator` and generate a fresh capability for the resumed parent runtime; ordinary session resume stays unchanged.
 - [ ] Require orchestrator resume to pass through Electron main using `ORKWORKS_OPEN_PLAN_TOKEN`. The resumed plan remains paused until the UI approves its exact current revision again.
-- [ ] Reuse the existing `ORKWORKS_OPEN_PLAN_TOKEN` held by Electron main and the sidecar for plan review/approval; do not create a second UI token or expose the existing token to renderer JavaScript.
+- [ ] Reuse the existing `ORKWORKS_OPEN_PLAN_TOKEN` held by Electron main and available in the sidecar for Orchestrator creation, plan review/approval, and resume; do not create a second UI token or expose the existing token to renderer JavaScript or coding-tool environments. Document that same-user processes able to inspect the sidecar environment may obtain it.
 - [ ] Verify `session_env_overrides` continues to filter `ORKWORKS_OPEN_PLAN_TOKEN`; add a regression test proving parent and child coding-tool processes receive no UI approval authority.
-- [ ] Test that a parent capability cannot call UI approval routes, an ordinary session receives no plan-control capability, and a stale sidecar generation cannot approve a plan.
+- [ ] Test generic `POST /sessions` cannot create an orchestrator, the token-protected `POST /sessions/orchestrator` route can, an ordinary session receives no plan-control bearer, and a stale sidecar generation cannot approve a plan. Do not claim protection from a same-user process that can copy either bearer.
 - [ ] Test the paused parent's read/proposal and already-launched-child result authority remains valid until parent end or a sidecar/workspace generation change; new launches remain rejected.
 
 ## Task 4: Implement plan proposal, approval, and scope revisions
@@ -145,9 +153,10 @@
 - Test: handler and application tests in the same modules
 
 **HTTP contract:**
+- `POST /sessions/orchestrator` accepts the user-selected harness/model/goal only with the existing Electron-issued UI token in `ORKWORKS_OPEN_PLAN_TOKEN`; it always creates an orchestrator parent. Electron main invokes this token-protected route, and the sidecar validates the token. Generic `POST /sessions` remains ordinary-only and does not create an orchestrator even if its JSON contains an unrecognized mode field. The token does not establish OS process identity and may be exposed to same-user processes that can inspect the sidecar environment.
 - `POST /sessions/{parent_id}/orchestration/plans` accepts a plan proposal with `expectedRevision` and requires the parent's plan-control bearer capability.
 - `GET /sessions/{parent_id}/orchestration/plan` returns the current revision and child task states to the parent capability or the Electron UI authority.
-- `POST /sessions/{parent_id}/orchestration/plans/{revision}/approval` accepts `{ "decision": "approve" | "reject" }`, requires the existing Electron-main-only `ORKWORKS_OPEN_PLAN_TOKEN`, and rejects if the displayed revision/digest is stale.
+- `POST /sessions/{parent_id}/orchestration/plans/{revision}/approval` accepts `{ "decision": "approve" | "reject" }`, requires the existing Electron-issued UI token in `ORKWORKS_OPEN_PLAN_TOKEN`, and rejects if the displayed revision/digest is stale.
 - `POST /sessions/{parent_id}/orchestration/cancel` requires `ORKWORKS_OPEN_PLAN_TOKEN`, durably fences future launches, revokes the parent plan capability, and marks the plan cancelled. Already-running child sessions remain ordinary manageable sessions and are not implicitly killed; the UI continues to show them under the cancelled plan.
 - `POST /sessions/{parent_id}/orchestration/plans` with an approved plan creates a new proposed revision; it cannot mutate the approved revision in place.
 - [ ] Test that a terminal-authored string or parent capability cannot approve/reject a proposal; verify the UI token is never present in a child session environment.
@@ -237,10 +246,10 @@
 - Modify: `apps/desktop/src/components/DockviewApp.tsx` only if a new panel registration is needed
 - Modify: focused component/API tests and existing session-list styles
 
-- [ ] Add an explicit mode choice to `NewSessionDialog`; ordinary session stays the default, while Orchestrator creation sends `mode: "orchestrator"` and retains the user's goal, harness, and model. Carry the mode through `CreateSessionOptions`, `api.ts`, `workspaceSessionController.ts`, `App.tsx`, `CreateSessionRequest`, and `CreateSessionCommand`.
+- [ ] Add an explicit mode choice to `NewSessionDialog`; ordinary session stays the default. Carry the choice in UI-only `CreateSessionOptions` through `App.tsx`; ordinary creation keeps using the existing controller and generic `POST /sessions`, while Orchestrator creation uses a narrow preload/main method to the token-authorized `POST /sessions/orchestrator`, retaining the user's goal, harness, and model. Do not pass an orchestrator mode field through generic `api.ts` session creation or `CreateSessionRequest`.
 - [ ] Render parent rows with expandable child rows, child count, ordinary lifecycle status, and selection to each child's existing terminal.
-- [ ] Render the complete proposed plan with task descriptions, dependencies, exact precomputed worktree branch and absolute path, harness/model choices, ordered batches, and parallelism before enabling Approve. Clarify that paths are reserved in the plan but not created until approval.
-- [ ] Make approval and rejection call narrow Electron-main-owned preload methods; main reuses `ORKWORKS_OPEN_PLAN_TOKEN` and sends the exact displayed revision/digest. Display a stale-revision error and refresh instead of silently approving a newer plan.
+- [ ] Render the complete proposed plan with task descriptions, dependencies, exact precomputed worktree branch and absolute path, harness/model choices, ordered batches, and parallelism before enabling Approve. Clarify that paths are reserved in the plan but not created until approval, and that approval governs the orchestration API rather than same-user direct sidecar calls or shell commands.
+- [ ] Make approval and rejection call narrow preload methods handled by Electron main; main reuses the Electron-issued `ORKWORKS_OPEN_PLAN_TOKEN` and sends the exact displayed revision/digest. Display a stale-revision error and refresh instead of silently approving a newer plan.
 - [ ] Add an Electron-authorized Cancel Orchestration action that fences future launches and revokes the parent capability; show that already-running children remain visible and can be managed through ordinary session controls.
 - [ ] Before launching a dependent task into a reused worktree, require a separate Electron-authorized user acknowledgement after the predecessor session is terminal. Explain that OrkWorks cannot detect detached processes and that this acknowledgement is the user's quiescence check.
 - [ ] For harnesses without a reliable completion receipt, expose an Electron-authorized "Mark turn ready for parent review" action for the selected live child; bind it to the exact revision, reservation, child session, and task version, and refresh the plan after success.

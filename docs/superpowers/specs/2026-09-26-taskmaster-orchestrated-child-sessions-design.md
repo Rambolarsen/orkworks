@@ -14,7 +14,8 @@ review tasks in that workflow are delegated to ordinary OrkWorks child
 sessions. The user approves the complete bounded workflow once, and the parent
 starts its declared children. OrkWorks records the parent/child relationship
 and presents the hierarchy and progress in the existing Sessions UI. A
-requested task outside the approved plan pauses for a new user approval.
+request through the orchestration API for work outside the approved plan
+pauses for a new user approval.
 
 A child is a normal OrkWorks session created and owned by the active sidecar's
 existing session runtime. This design does not create a second session
@@ -23,7 +24,8 @@ runtime, a child-specific process supervisor, or an OS sandbox.
 ## User flow
 
 1. In the New Session dialog, the user selects **Orchestrator** mode, chooses
-   the coding tool/model, and gives the parent its goal. The parent's role is
+   the coding tool/model, and gives the parent its goal. Electron main invokes
+   the token-protected Orchestrator route for creation. The parent's role is
    planning, delegation, and tracking; it does not carry out the workflow's
    implementation or review tasks itself. Ordinary session creation remains
    the default and is unchanged.
@@ -32,9 +34,9 @@ runtime, a child-specific process supervisor, or an OS sandbox.
    parallelism. Every execution task is assigned to a child session.
 3. OrkWorks renders that proposal in the UI. The user can review and approve
    the exact revision or reject it.
-4. The approved parent launches ready tasks from the declared plan. OrkWorks
-   checks that each request matches the approved plan and starts it through
-   the normal session creation path. A harness turn-completion/idle event
+4. The approved parent requests ready tasks through the orchestration API.
+   OrkWorks checks that each request matches the approved plan and starts it
+   through the normal session creation path. A harness turn-completion/idle event
    moves the assigned task to parent-result review; the PTY session may remain
    open at its prompt. The parent reports the result to advance declared
    dependencies without changing the approved plan. Before a dependent child
@@ -44,13 +46,17 @@ runtime, a child-specific process supervisor, or an OS sandbox.
    session status and terminal selection. The parent tracks child progress,
    collects summaries, and coordinates the next declared tasks through the
    orchestration interface.
-6. A request for an additional task, a broader repository/worktree scope, a
-   higher parallelism limit, or a harness/model outside the approved choices
-   creates a new proposed revision. No child for that revision starts before
-   the user approves it.
+6. A request through the orchestration API for an additional task, a broader
+   repository/worktree scope, a higher parallelism limit, or a harness/model
+   outside the approved choices creates a new proposed revision. No child for
+   that revision starts before the user approves it.
 
 Approval is a UI action bound to the exact plan revision. Text in a terminal,
-a harness hook, or a child report is not approval.
+a harness hook, or a child report is not approval. The existing ordinary
+`POST /sessions` route remains unauthenticated; a coding-tool process with
+`ORKWORKS_PORT` can call it to create an ordinary session outside the approved
+plan. This workflow does not prevent direct sidecar API calls by same-user
+processes.
 
 ## Approved plan
 
@@ -71,10 +77,10 @@ A plan is immutable after approval and contains:
   concurrent live child sessions;
 - the user-approved repository/base revision and the plan's stated scope.
 
-The parent may launch only declared task IDs whose dependencies are
-parent-reported complete, once each. A duplicate request is idempotent and
-returns the existing child session. Tasks sharing a worktree group may not
-run concurrently, and a dependent task cannot reuse its predecessor's
+Through the orchestration API, the parent may launch only declared task IDs
+whose dependencies are parent-reported complete, once each. A duplicate
+request is idempotent and returns the existing child session. Tasks sharing a
+worktree group may not run concurrently, and a dependent task cannot reuse its predecessor's
 worktree until the predecessor session is terminal and the user confirms that
 no remaining process is using the worktree. This is a user acknowledgement,
 not OS proof. A child session ending is not the task-turn boundary.
@@ -91,11 +97,12 @@ the child result; it can advance only declared dependencies and does not mean
 quality approval or user acceptance. This amends the current coordinator
 proposal's stronger machine-attested receipt gate for this proposed
 orchestrator mode. Neither process exit nor terminal text alone proves task
-success. The parent cannot add
-tasks, broaden the orchestration scope, change the approved harness/model
-choices, increase concurrency, or recursively launch grandchildren without a
-new approved plan revision. Failures do not trigger automatic retries; a retry
-requires a new plan revision and approval.
+success. Through the orchestration API, the parent cannot add tasks, broaden
+the orchestration scope, change the approved harness/model choices, increase
+concurrency, or recursively launch grandchildren without a new approved plan
+revision. These limits do not block direct calls to the existing ordinary
+session endpoint. Failures do not trigger automatic retries; a retry requires
+a new plan revision and approval.
 
 `max_parallel_children` counts every nonterminal child session and every
 unattached launch reservation. A child continues to consume capacity while
@@ -126,21 +133,32 @@ behavior may remove the session record; the plan/worktree ownership records
 remain governed by workspace GC and are not implicitly deleted with the parent
 session.
 
-The plan and child launch capability govern what the OrkWorks orchestration
-interface permits. This is a workflow boundary, not a security boundary
-against commands the parent or child can run directly. Children run with the
-same user permissions, inherited harness login behavior, and ordinary session
-environment as other user-created sessions. The approved worktree is the
-child's starting directory and collaboration boundary; macOS, Windows, and
-Linux process/filesystem confinement is not claimed. Instructions that the
-parent delegate all work and that children stay within their assigned tasks
-are not OS-enforced. A future requirement for OS-enforced access restrictions
-would need a separate design.
+The plan and child launch bearer govern what the OrkWorks orchestration
+endpoints permit. This is a workflow boundary, not a security boundary against
+commands or direct sidecar API calls by the parent or child. The plan bearer is
+injected into the parent coding-tool environment; because sessions run with
+the same user permissions and no OS process isolation, another same-user
+process may be able to inspect and replay it. The sidecar binds the bearer to
+one parent plan, but cannot prove which OS process presents it. Generic
+`POST /sessions` remains unauthenticated for ordinary session creation, so
+same-user coding-tool processes can start ordinary sessions outside the plan.
+Orchestrator creation uses a separate token-protected route invoked by
+Electron main for the UI flow; any same-user process that obtains the UI token
+can call it. The plan bearer alone is not accepted by that route.
+Children run with the same user permissions, inherited harness login behavior,
+and ordinary session environment as other user-created sessions. The approved
+worktree is the child's starting directory and collaboration boundary; macOS,
+Windows, and Linux process/filesystem confinement is not claimed. Instructions
+that the parent delegate all work and that children stay within their assigned
+tasks are not OS-enforced. A future requirement for OS-enforced access
+restrictions would need a separate design.
 
 ## Session creation and ownership
 
-Only a session explicitly started in orchestrator mode receives a
-plan-control capability in its launch environment. The parent session record
+Only a session created through the token-protected Orchestrator route invoked
+by Electron main for the UI flow receives a plan-control bearer in its launch
+environment. Generic `POST
+/sessions` cannot create orchestrator-mode sessions. The parent session record
 stores `sessionMode: "orchestrator"` so the sidecar can recognize the mode
 after restart; ordinary sessions default to `sessionMode: "ordinary"` when
 the field is absent. The capability is bound to that parent session and the
@@ -155,10 +173,14 @@ rotation. Before plan approval, the capability may submit a
 bounded plan proposal but cannot launch children. After approval, it
 authorizes only the declared child-plan operations (launch a declared task,
 report a result after that child's authenticated turn receipt, and read that
-plan's child status); it
-cannot create ordinary sessions, change the plan, control unrelated sessions,
-or grant a child its own launch capability. It is distinct from the existing
-workflow-report token, is never persisted or logged. Resuming an ended
+plan's child status). The orchestration API has no operation for creating an
+ordinary session or controlling unrelated sessions, and this bearer is not
+accepted as UI approval authority. The generic ordinary-session route remains
+unauthenticated, however, so a process with `ORKWORKS_PORT` can call it without
+the plan bearer. The bearer is distinct from the existing workflow-report
+token and is never persisted or logged. It is a same-user workflow credential:
+processes able to inspect the parent environment may replay it as the parent.
+Resuming an ended
 orchestrator session through the UI creates a fresh capability, but the plan
 stays paused until the user approves its exact current revision again through
 the UI. The resume request uses Electron main's existing UI authority. A
@@ -244,8 +266,10 @@ approved digest.
   status, and pending scope-change approvals.
 - The plan approval view shows the complete task list, prompts, each worktree's
   exact branch and path, harness/model choices, ordered batches, and
-  concurrency ceiling. A scope-change request shows the proposed delta before
-  approval.
+  concurrency ceiling. It also explains that approval governs OrkWorks'
+  orchestration API; same-user coding-tool processes can still call the
+  unauthenticated ordinary session endpoint or run commands directly. A
+  scope-change request shows the proposed delta before approval.
 
 No parallel-terminal panel or second session dashboard is introduced.
 
@@ -270,6 +294,17 @@ session runtime. Each live session already receives `ORKWORKS_SESSION_ID`,
 `ORKWORKS_PORT`, and a session-scoped workflow-report capability. It does not
 currently expose parent-initiated child launch, plan approval, or parent/child
 metadata; those are the feature work.
+
+The feature adds `POST /sessions/orchestrator`, which accepts a new parent
+only with the existing Electron-issued UI token in `ORKWORKS_OPEN_PLAN_TOKEN`;
+Electron main sends the token, and the sidecar validates it. The token is
+withheld from renderer and coding-tool environments but may be inspected by
+same-user processes that can inspect the sidecar environment. Generic
+`POST /sessions` remains ordinary-only and does not create an orchestrator even
+if its JSON contains an unrecognized mode field. The token is supplied through
+an Electron-main preload method, not renderer code. This uses the existing UI
+authority mechanism; it does not provide OS-enforced process identity,
+authenticate ordinary session creation, or provide process isolation.
 
 The disposable macOS fixture showed that an XPC service with a
 security-scoped folder grant can confine a basic helper and its direct child to
