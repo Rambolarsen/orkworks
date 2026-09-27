@@ -65,7 +65,7 @@ Shared reference knowledge ships with the application and updates automatically
 every six hours while the app is running. Updates are verified before use; an
 offline or failed update keeps the cached version. You can disable knowledge
 updates independently of AI analysis. Settings shows version, last successful
-check, and remaining daily evaluations.
+check, and remaining background evaluations.
 Knowledge page IDs preserve relative Markdown names, including spaces, dots,
 and Unicode, within 256 UTF-8 bytes. Absolute paths, traversal components, and
 control characters are rejected.

@@ -354,8 +354,10 @@ impl TaskmasterRuntime {
         Ok(())
     }
 
-    /// Reservations are durable before a provider call. A failed call consumes
-    /// its reservation, so process restarts cannot reset usage accounting.
+    /// Reservations are durable before a provider call. A failed background
+    /// call consumes its reservation, so process restarts cannot reset usage
+    /// accounting; manual reservations bypass the daily limit and never
+    /// increment the shared counter.
     pub(crate) fn reserve_current(
         &self,
         workspace: &Path,
