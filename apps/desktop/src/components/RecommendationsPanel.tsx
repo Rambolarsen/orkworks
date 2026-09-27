@@ -13,6 +13,9 @@ import {
   formatPacketReadiness,
   formatRecurrence,
   formatTargetSurface,
+  recommendationOrigin,
+  filterPanelRecommendations,
+  type PanelOriginFilter,
 } from "../taskmaster.ts";
 import EmptyState from "./EmptyState";
 import RecommendationEvidence from "./RecommendationEvidence";
@@ -27,9 +30,7 @@ interface RecommendationsPanelProps {
 }
 
 function isActiveBrainRecommendation(recommendation: WorkflowRecommendation): boolean {
-  const brainDerived = recommendation.dedupeKey.startsWith("proactive:v1:")
-    || recommendation.dedupeKey.startsWith("rollup:v1:");
-  return brainDerived
+  return recommendationOrigin(recommendation.dedupeKey) === "analysis"
     && recommendation.type === "improve_workflow"
     && (recommendation.status === "proposed"
       || recommendation.status === "accepted"
@@ -74,12 +75,18 @@ function RecommendationCard({
   focused?: boolean;
 }) {
   const improvement = recommendation.workflowImprovement;
+  const origin = recommendationOrigin(recommendation.dedupeKey);
   return (
     <article className={`recommendation-card${focused ? " recommendation-card--focused" : ""}`}>
       <header className="recommendation-card-header">
         <div>
           <h3>{recommendation.title}</h3>
           <span className="recommendation-target">{formatTargetSurface(improvement.targetSurface)}</span>
+          {origin && (
+            <span className={`recommendation-origin recommendation-origin--${origin}`}>
+              {origin === "analysis" ? "Analysis" : "Observations"}
+            </span>
+          )}
         </div>
         <span className={`recommendation-impact recommendation-impact--${recommendation.priority}`}>
           {formatImpact(recommendation.priority)} impact
@@ -153,6 +160,7 @@ function RecommendationCard({
 
 function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, focusedRecommendationId }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
+  const [originFilter, setOriginFilter] = useState<PanelOriginFilter>("all");
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
   const [error, setError] = useState<string>();
   const [dismissing, setDismissing] = useState<string>();
@@ -316,17 +324,28 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     }
   }
 
-  const visibleRecommendations = hasWorkspace && taskmasterReady ? recommendations.filter(
-    (item) => item.status === "proposed"
-      || (item.status === "executing" && item.rollupMemberIds.length > 0)
-      || item.id === focusedRecommendationId,
-  ) : [];
+  const visibleRecommendations = hasWorkspace && taskmasterReady
+    ? filterPanelRecommendations(recommendations, originFilter, focusedRecommendationId)
+    : [];
 
   return (
     <section className="recommendations-panel">
       <div className="recommendations-panel-header">
         <div><h2>Recommendations</h2><p>Evidence-backed workflow improvements.</p></div>
         <div className="recommendations-panel-actions">
+          <div className="recommendation-origin-filter" role="group" aria-label="Filter by origin">
+            {(["all", "analysis", "observations"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={`recommendation-origin-filter-option${originFilter === value ? " recommendation-origin-filter-option--active" : ""}`}
+                aria-pressed={originFilter === value}
+                onClick={() => setOriginFilter(value)}
+              >
+                {value === "all" ? "All" : value === "analysis" ? "Analysis" : "Observations"}
+              </button>
+            ))}
+          </div>
           <button type="button" disabled={!hasWorkspace || !taskmasterReady || analysisBusy} onClick={() => void analyzeNow()}>
             {analysisBusy ? "Requesting…" : "Analyze now"}
           </button>

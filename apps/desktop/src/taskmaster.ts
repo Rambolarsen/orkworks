@@ -11,6 +11,36 @@ export function formatImpact(impact: Impact): string {
   return impact[0].toUpperCase() + impact.slice(1);
 }
 
+// Mirrors the Rust classifier in crates/orkworksd/src/taskmaster/mod.rs's
+// is_brain_workflow_recommendation — keep prefixes in sync between the two.
+export type RecommendationOrigin = "analysis" | "observations";
+export type PanelOriginFilter = "all" | RecommendationOrigin;
+
+export function recommendationOrigin(dedupeKey: string): RecommendationOrigin | null {
+  if (dedupeKey.startsWith("proactive:v1:") || dedupeKey.startsWith("rollup:v1:")) {
+    return "analysis";
+  }
+  if (dedupeKey.startsWith("improve_workflow:v1:")) {
+    return "observations";
+  }
+  return null;
+}
+
+export function filterPanelRecommendations(
+  recommendations: WorkflowRecommendation[],
+  originFilter: PanelOriginFilter,
+  focusedRecommendationId?: string | null,
+): WorkflowRecommendation[] {
+  return recommendations.filter((recommendation) => {
+    if (recommendation.id === focusedRecommendationId) return true;
+    const visibleStatus = recommendation.status === "proposed"
+      || (recommendation.status === "executing" && recommendation.rollupMemberIds.length > 0);
+    if (!visibleStatus) return false;
+    if (originFilter === "all") return true;
+    return recommendationOrigin(recommendation.dedupeKey) === originFilter;
+  });
+}
+
 export function formatTargetSurface(surface: TargetSurface): string {
   return surface[0].toUpperCase() + surface.slice(1);
 }
