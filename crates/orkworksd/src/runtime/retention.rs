@@ -50,7 +50,6 @@ pub(crate) fn observation_spam_cleanup_once(
             return Vec::new();
         }
     };
-    let protected: Vec<String> = protected.into_iter().collect();
     match ws
         .workflow_observations
         .trim_redundant_occurrences(now, &protected)

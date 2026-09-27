@@ -560,7 +560,17 @@ impl WorkflowObservationStore {
                 .observations
                 .iter()
                 .filter(|stored| within_rate_window(now, &stored.observation.observed_at))
-                .count();
+                .count()
+                // Tombstones within the rate window count too: the
+                // anti-spam trim can remove recently accepted spam from
+                // `observations`, and without this the same burst could
+                // exceed the per-minute cap the tombstone reservation math
+                // depends on.
+                + cache
+                    .tombstones
+                    .iter()
+                    .filter(|tomb| within_rate_window(now, &tomb.accepted_at))
+                    .count();
             if accepted_in_window >= MAX_ACCEPTED_PER_SESSION_MINUTE {
                 return Err(RecordError::RateLimited);
             }
@@ -685,7 +695,7 @@ impl WorkflowObservationStore {
     pub(crate) fn trim_redundant_occurrences(
         &self,
         now: DateTime<Utc>,
-        protected_ids: &[String],
+        protected_ids: &HashSet<String>,
     ) -> Result<Vec<String>, StoreError> {
         let mut inner = self.inner.lock().unwrap();
         if inner.degraded {
@@ -2442,6 +2452,78 @@ mod tests {
     // -- Rate limiting -----------------------------------------------------
 
     #[test]
+    fn trim_does_not_reopen_the_per_minute_rate_cap_via_tombstones() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+
+        // Fill the rolling-minute cap with same-fingerprint spam hits.
+        for i in 0..MAX_ACCEPTED_PER_SESSION_MINUTE {
+            store.test_set_clock(t0);
+            let outcome = store.record_observation(
+                "session-1",
+                ObservationOrigin::Peon,
+                &format!("burst-key-{i}"),
+                ObservationCandidate {
+                    kind: ObservationKind::Obstacle,
+                    description: "model detection".into(),
+                    evidence: format!("burst evidence {i}"),
+                    problem_area: None,
+                    reported_impact: Impact::Medium,
+                    confidence: Some(0.8),
+                },
+            );
+            assert!(
+                matches!(outcome, Ok(RecordOutcome::Accepted(_))),
+                "expected burst call {i} to be accepted, got {outcome:?}"
+            );
+        }
+        store.test_set_clock(t0 + chrono::Duration::seconds(30));
+        let err = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Peon,
+                "burst-key-overflow",
+                ObservationCandidate {
+                    kind: ObservationKind::Obstacle,
+                    description: "model detection overflow".into(),
+                    evidence: "overflow evidence".into(),
+                    problem_area: None,
+                    reported_impact: Impact::Medium,
+                    confidence: Some(0.8),
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err, RecordError::RateLimited);
+
+        // A trim pass inside the same rolling minute removes the spam
+        // middles. The cap must still hold: the fresh tombstones count
+        // toward the rate window, otherwise a producer could exceed the
+        // 60-accepted/minute invariant the tombstone reservation math
+        // depends on.
+        store
+            .trim_redundant_occurrences(t0 + chrono::Duration::seconds(30), &HashSet::new())
+            .unwrap();
+        store.test_set_clock(t0 + chrono::Duration::seconds(31));
+        let err = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Peon,
+                "burst-key-overflow-2",
+                ObservationCandidate {
+                    kind: ObservationKind::Obstacle,
+                    description: "model detection overflow 2".into(),
+                    evidence: "overflow evidence 2".into(),
+                    problem_area: None,
+                    reported_impact: Impact::Medium,
+                    confidence: Some(0.8),
+                },
+            )
+            .unwrap_err();
+        assert_eq!(err, RecordError::RateLimited);
+    }
+
+    #[test]
     fn caps_accepted_observations_at_sixty_per_session_per_rolling_minute() {
         let dir = tempfile::tempdir().unwrap();
         let store = open_store(dir.path());
@@ -2668,7 +2750,7 @@ mod tests {
         // First+latest survive; the two middle hits within the 30-minute spam
         // window of a kept predecessor are trimmed.
         let removed = store
-            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &HashSet::new())
             .unwrap();
         assert_eq!(removed.len(), 2);
         assert!(removed.contains(&middle));
@@ -2693,7 +2775,7 @@ mod tests {
         // recurrence across sessions is the core signal for improvement
         // proposals.
         let removed = store
-            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &HashSet::new())
             .unwrap();
         assert!(removed.is_empty());
         assert_eq!(store.workspace_observations().unwrap().len(), 3);
@@ -2710,7 +2792,7 @@ mod tests {
         // A gap of more than 30 minutes from the previous hit is a genuine
         // re-occurrence (signal), not scan spam.
         let removed = store
-            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(50), &[])
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(50), &HashSet::new())
             .unwrap();
         assert!(removed.is_empty());
         let remaining = store.workspace_observations().unwrap();
@@ -2731,7 +2813,10 @@ mod tests {
         // +10: within the spam window, so it is trimmed even though the
         // nearest unprotected kept hit is +0 (a 35-minute gap).
         let removed = store
-            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(45), &[protected.clone()])
+            .trim_redundant_occurrences(
+                t0 + chrono::Duration::minutes(45),
+                &HashSet::from([protected.clone()]),
+            )
             .unwrap();
         assert_eq!(removed.len(), 1);
         assert!(removed.contains(&after_protected));
@@ -2761,7 +2846,7 @@ mod tests {
             // Trim while the middle hit is still inside the 15-minute
             // idempotency window, so its tombstone must be retained.
             let removed = store
-                .trim_redundant_occurrences(t0 + chrono::Duration::minutes(12), &[])
+                .trim_redundant_occurrences(t0 + chrono::Duration::minutes(12), &HashSet::new())
                 .unwrap();
             assert_eq!(removed.len(), 1);
             removed[0].clone()
@@ -2820,7 +2905,7 @@ mod tests {
         // even three same-fingerprint agent hits inside the spam window must
         // all survive.
         let removed = store
-            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &HashSet::new())
             .unwrap();
         assert!(removed.is_empty());
         assert_eq!(store.workspace_observations().unwrap().len(), 3);
@@ -2854,7 +2939,7 @@ mod tests {
         // The agent record is invisible to the peon spam grouping: the peon
         // hits group among themselves, so the middle peon hit is trimmed.
         let removed = store
-            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(20), &[])
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(20), &HashSet::new())
             .unwrap();
         assert_eq!(removed.len(), 1);
         assert!(removed.contains(&peon_middle));
@@ -2877,7 +2962,7 @@ mod tests {
         let _latest = record_fingerprint_hit(&store, "session-1", t0, 20);
 
         let removed = store
-            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &[])
+            .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &HashSet::new())
             .unwrap();
         assert!(
             !removed.contains(&backward),
@@ -2900,7 +2985,7 @@ mod tests {
 
         // The middle hit would normally be trimmed, but a caller protecting
         // it (because a live recommendation cites its ID) must win.
-        let protected = [middle.clone()];
+        let protected: HashSet<String> = HashSet::from([middle.clone()]);
         let removed = store
             .trim_redundant_occurrences(t0 + chrono::Duration::minutes(30), &protected)
             .unwrap();
