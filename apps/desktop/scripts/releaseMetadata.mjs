@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import yaml from "js-yaml";
+import { load as yamlLoad } from "js-yaml";
 
 const CHECKSUM_MANIFEST = "SHA256SUMS.txt";
 
@@ -217,7 +217,7 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
     "metadata path",
   );
   requireFile(realMetadataPath, "metadata path");
-  const metadata = yaml.load(readFileSync(realMetadataPath, "utf8"));
+  const metadata = yamlLoad(readFileSync(realMetadataPath, "utf8"));
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error(`release metadata is not an object: ${metadataPath}`);
   }
@@ -276,7 +276,7 @@ export function verifyUpdateMetadata({ metadataPath, releaseDir, expectedVersion
 
 export function verifyAppUpdateMetadata({ metadataPath, channel = "latest", provider, owner, repo }) {
   requireReleaseChannel(channel);
-  const metadata = yaml.load(readFileSync(metadataPath, "utf8"));
+  const metadata = yamlLoad(readFileSync(metadataPath, "utf8"));
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     throw new Error(`app update metadata is not an object: ${metadataPath}`);
   }

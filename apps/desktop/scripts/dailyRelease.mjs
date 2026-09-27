@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import yaml from "js-yaml";
+import { load as yamlLoad } from "js-yaml";
 
 const STABLE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const STABLE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -176,7 +176,7 @@ function parseChecksums(value) {
 function requireMetadata({ value, name, version, payloadName, assetsByName, downloadedAssets }) {
   let metadata;
   try {
-    metadata = yaml.load(value);
+    metadata = yamlLoad(value);
   } catch (error) {
     throw new Error(`${name} metadata is invalid`, { cause: error });
   }
