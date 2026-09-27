@@ -6,9 +6,10 @@ lead to a suggestion to improve repository instructions.
 
 ## Two kinds of recommendations
 
-Every recommendation card carries an origin badge, and the Recommendations
-panel header has an All · Analysis · Observations filter so you can focus on
-one kind at a time.
+Recommendations from either pipeline carry an origin badge (anything with an
+unrecognized history shows none), and the Recommendations panel header has an
+All · Analysis · Observations filter so you can focus on one kind at a
+time.
 
 - **Analysis** — recommendations produced by the Brain's model analysis,
   which looks for missing agentic-workflow capabilities by comparing your
