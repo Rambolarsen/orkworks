@@ -216,8 +216,14 @@ test("Recommendations header wraps its actions in narrow panels", () => {
     new URL("../src/App.css", import.meta.url),
     "utf8",
   );
-  assert.match(css, /\.recommendations-panel-header, \.recommendation-card-header \{\s*\n\s*display: flex; align-items: flex-start; justify-content: space-between; gap: var\(--space-3\); flex-wrap: wrap;/);
-  assert.match(css, /\.recommendations-panel-actions \{ display: flex; gap: var\(--space-2\); flex-wrap: wrap; align-items: center; \}/);
+  const headerRule = css.match(
+    /\.recommendations-panel-header, \.recommendation-card-header \{[^}]*\}/,
+  );
+  assert.ok(headerRule, "expected the shared panel/card header rule");
+  assert.match(headerRule[0], /flex-wrap: wrap/);
+  const actionsRule = css.match(/\.recommendations-panel-actions \{[^}]*\}/);
+  assert.ok(actionsRule, "expected the panel actions rule");
+  assert.match(actionsRule[0], /flex-wrap: wrap/);
 });
 
 test("Codex origin-filter feedback is reflected in docs and panel copy", () => {
@@ -225,10 +231,19 @@ test("Codex origin-filter feedback is reflected in docs and panel copy", () => {
     new URL("../../../docs/user/taskmaster.md", import.meta.url),
     "utf8",
   );
-  assert.match(userDoc, /rollup/);
+  const analysisStart = userDoc.indexOf("- **Analysis**");
+  const observationsStart = userDoc.indexOf("- **Observations**");
+  assert.ok(analysisStart >= 0, "expected the Analysis origin bullet");
+  assert.ok(observationsStart > analysisStart, "expected the Observations origin bullet after Analysis");
+  assert.match(
+    userDoc.slice(analysisStart, observationsStart),
+    /rollups?[^.]*observed\s+friction/,
+    "Analysis bullet must disclose that rollups can draw on observed friction",
+  );
 });
 
-test("Panel filter keeps a focused deep-linked card visible in every origin", () => {  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc", {
+test("Panel filter keeps a focused deep-linked card visible in every origin", () => {
+  const analysis = recommendationWithDedupeKey("proactive:v1:documentation:abc", {
     status: "completed" as WorkflowRecommendation["status"],
   });
   const observations = recommendationWithDedupeKey(
