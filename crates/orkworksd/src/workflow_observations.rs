@@ -59,12 +59,12 @@ const MAX_ACCEPTED_PER_SESSION_MINUTE: usize = 60;
 /// live in `record_observation`. Distinct from `IDEMPOTENCY_WINDOW_SECS`,
 /// which governs duplicate-key replay, not acceptance rate.
 const RATE_LIMIT_WINDOW_SECS: i64 = 60;
-/// Gap below which a same-fingerprint re-occurrence is treated as scan spam
-/// rather than a genuine re-occurrence. The background anti-spam trim
-/// (`trim_redundant_occurrences`) removes non-latest occurrences that arrived
-/// within this window of the previous kept hit for the same fingerprint in
-/// the same session, while always retaining each fingerprint's first and
-/// latest occurrence.
+/// Gap at or below which a same-fingerprint re-occurrence is treated as
+/// scan spam rather than a genuine re-occurrence. The background anti-spam
+/// trim (`trim_redundant_occurrences`) removes non-latest occurrences that
+/// arrived within this window of the previous kept hit for the same
+/// fingerprint in the same session, while always retaining each
+/// fingerprint's first and latest occurrence.
 const SPAM_WINDOW_SECS: i64 = 30 * 60;
 
 /// Confidence assigned to every authenticated agent-origin report. The
@@ -670,11 +670,12 @@ impl WorkflowObservationStore {
     }
 
     /// Anti-spam trim: per session, per fingerprint, removes stored
-    /// occurrences that arrived within [`SPAM_WINDOW_SECS`] of a kept
+    /// occurrences that arrived at or within [`SPAM_WINDOW_SECS`] of a kept
     /// predecessor while always retaining each fingerprint's earliest and
     /// latest occurrence. Observations whose IDs appear in `protected_ids`
     /// (for example, IDs cited in evidence snapshots of live recommendations)
-    /// are never removed. Returns the removed observation IDs.
+    /// are never removed; they also count as kept predecessors for gap
+    /// computation. Returns the removed observation IDs.
     ///
     /// This is the background counterpart to tombstone eviction: same risk
     /// class (bounded-storage removal of already-accepted history), applied
@@ -801,14 +802,12 @@ impl WorkflowObservationStore {
             cache.tombstones = tombs;
         }
 
-        // Removed occurrences lose their idempotency entries so a future
-        // report with the same key and payload is not told it duplicated a
-        // record that no longer exists.
-        for id in &removed {
-            inner
-                .idempotency
-                .retain(|_, entry| entry.observation_id != *id);
-        }
+        // Idempotency entries for removed occurrences are deliberately
+        // retained: the trimmed records carry tombstones, so a same-key
+        // same-payload retry within the 15-minute window still returns the
+        // Duplicate identity of the trimmed occurrence. This matches the
+        // restart path, where `open` rebuilds those entries from the
+        // tombstones, and avoids an accept-then-retrim churn cycle.
 
         Ok(removed)
     }
@@ -2708,7 +2707,6 @@ mod tests {
         assert_eq!(remaining.len(), 2);
         assert!(remaining.iter().any(|o| o.id == late));
     }
-
     #[test]
     fn trim_treats_a_protected_hit_as_a_kept_predecessor_for_gap_computation() {
         let dir = tempfile::tempdir().unwrap();
@@ -2732,6 +2730,56 @@ mod tests {
         assert_eq!(remaining.len(), 3);
         assert!(remaining.iter().any(|o| o.id == protected));
         assert!(remaining.iter().any(|o| o.id == latest));
+    }
+
+    #[test]
+    fn trimmed_occurrences_keep_the_idempotency_retry_window_across_restart() {
+        // A close-gap spam pair is recorded, then trimmed. Reopening the
+        // store rebuilds idempotency state from disk; a same-key/same-payload
+        // retry within the 15-minute window must still return the Duplicate
+        // identity of the trimmed occurrence (via its tombstone), so the
+        // pre-restart and post-restart behaviors agree and a retrying
+        // reporter is not re-accepted into a trim/accept churn cycle.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let t0 = Utc::now();
+        let trimmed_id = {
+            let store = open_store(&root);
+            let _first = record_fingerprint_hit(&store, "session-1", t0, 0);
+            let _middle = record_fingerprint_hit(&store, "session-1", t0, 10);
+            let _late = record_fingerprint_hit(&store, "session-1", t0, 20);
+            // Trim while the middle hit is still inside the 15-minute
+            // idempotency window, so its tombstone must be retained.
+            let removed = store
+                .trim_redundant_occurrences(t0 + chrono::Duration::minutes(12), &[])
+                .unwrap();
+            assert_eq!(removed.len(), 1);
+            removed[0].clone()
+        };
+
+        let store = open_store(&root);
+        store.test_set_clock(t0 + chrono::Duration::minutes(14));
+        let retry = store
+            .record_observation(
+                "session-1",
+                ObservationOrigin::Peon,
+                "key-10",
+                ObservationCandidate {
+                    kind: ObservationKind::Obstacle,
+                    description: "model detection".into(),
+                    evidence: "evidence 10".into(),
+                    problem_area: None,
+                    reported_impact: Impact::Medium,
+                    confidence: Some(0.8),
+                },
+            )
+            .unwrap();
+        match retry {
+            RecordOutcome::Duplicate { observation_id, .. } => {
+                assert_eq!(observation_id, trimmed_id);
+            }
+            other => panic!("expected Duplicate sourced from tombstone, got {other:?}"),
+        }
     }
 
     #[test]
