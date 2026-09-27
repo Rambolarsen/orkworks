@@ -7,7 +7,7 @@ description: Use when GitHub CLI (`gh`) commands fail due to connectivity or tra
 
 Distinguish cached output, reachability, authentication, and permissions before changing credentials; cached results and `gh auth status` alone prove neither reachability nor token validity.
 
-Use this repo/runtime's required wrapper. `rtk proxy` bypasses RTK output handling, not network restrictions. If required RTK is missing, report that; otherwise use direct `gh`/`curl`.
+When active instructions require a wrapper, use it for every probe; here that is `rtk proxy <command>`. It bypasses RTK output handling, not network restrictions. If required RTK is missing, report it rather than using an unwrapped fallback. Use direct commands only when no wrapper is required.
 
 ## Diagnose in order
 
@@ -27,7 +27,7 @@ Use this repo/runtime's required wrapper. `rtk proxy` bypasses RTK output handli
 
    Target `/meta`: `https://api.github.com/meta`, `https://api.SUBDOMAIN.ghe.com/meta`, or `https://HOSTNAME/api/v3/meta`. DNS/connection failure means this command environment cannot reach the target; `gh auth status` remains inconclusive until it can.
 4. **Verify authentication after reachability.** Run `gh api user --jq .login` through the required wrapper (`--hostname <host>` if needed). A login confirms authentication for this invocation. On error, inspect selected host/account/config (`GH_CONFIG_DIR`, `GH_HOST`) and token-variable presence, never values. `GH_TOKEN`/`GITHUB_TOKEN` apply to GitHub.com and `*.ghe.com`; GHES also supports `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` ([environment docs](https://cli.github.com/manual/gh_help_environment)).
-5. **Separate permission errors from rate limits.** `403` can mean missing permission or an exhausted limit; `429` can indicate rate limiting. For a safe read-only API request, inspect status and headers with `gh api --include --silent <endpoint> --hostname <host>` or `curl -D -`; never use `gh api --verbose`, which prints the full request. Check the response message and `x-ratelimit-remaining`/`retry-after` before changing credentials or scopes ([GitHub rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit)).
+5. **Separate permission errors from rate limits.** `403` can mean missing permission or an exhausted limit; `429` can indicate rate limiting. For a safe read-only API request, inspect status and headers with `gh api --include --silent <endpoint> --hostname <host>` or `curl -D - -o /dev/null <url>`; never use `gh api --verbose`, which prints the full request. Check status and `x-ratelimit-remaining`/`retry-after` first. If needed, inspect the response message locally; do not log or share a sensitive response body ([GitHub rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit)).
 6. **Use an authorized network-enabled path if isolated.** Retry the minimal read-only request and report which environment failed and which succeeded.
 
 ## Guardrails
