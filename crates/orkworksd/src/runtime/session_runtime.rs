@@ -1155,11 +1155,12 @@ pub(crate) async fn start_session_runtime(
                                         handle.runtime.peon_output_revision =
                                             handle.output_buffer.push(line);
                                     }
-                                    handle.output_lines_seen += raw_persist_lines.len() as u64;
                                     // Deliberately physical: `output_lines_seen` counts
                                     // persisted rows, not the fewer logical lines pushed
                                     // into `output_buffer` above (ADR 0065 Consequences).
-                                    handle.scan_bytes_seen += text.len() as u64;
+                                    handle
+                                        .capacity
+                                        .record_output(raw_persist_lines.len() as u64, text.len() as u64);
                                     handle.scan_buf.push_str(&text);
                                     const MAX_SCAN: usize = 8192;
                                     peon::truncate_usage_scan_buffer(&mut handle.scan_buf, MAX_SCAN);
@@ -1415,12 +1416,7 @@ mod tests {
                 runtime: SessionRuntime::detached_test(),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3086,12 +3082,7 @@ mod tests {
                 runtime: SessionRuntime::detached(40, 120),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3134,12 +3125,7 @@ mod tests {
                 runtime: SessionRuntime::detached(24, 80),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3192,12 +3178,7 @@ mod tests {
                 runtime,
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3245,12 +3226,7 @@ mod tests {
                 runtime,
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3288,12 +3264,7 @@ mod tests {
                 runtime,
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );

@@ -1,9 +1,22 @@
 use crate::git;
 use crate::harness;
-use crate::harness::registry::ResolvedHarness;
+use crate::harness::registry::{ResolvedHarness, ResolvedHarnessRegistry};
 use crate::metadata;
 use crate::session_types::{MemoryState, SessionInfo};
 use std::collections::HashMap;
+
+/// Resolves a session's declared harness id against the harness catalog,
+/// falling back to `generic-shell` when the id is absent or unknown. Single
+/// owner of this fallback (issue #399); previously reimplemented at three
+/// call sites in `session_projection.rs`.
+pub(crate) fn resolve_harness_or_generic_shell<'a>(
+    registry: &'a ResolvedHarnessRegistry,
+    harness_id: Option<&str>,
+) -> Option<&'a ResolvedHarness> {
+    harness_id
+        .and_then(|id| registry.get(id))
+        .or_else(|| registry.get("generic-shell"))
+}
 
 /// Resolves each session's effective cwd (issue #241) via a 3-tier priority
 /// chain: the harness's own self-reported cwd (ADR 0032) when available,
@@ -135,6 +148,22 @@ pub(crate) fn terminal_outcome_for_status(status: &str) -> Option<String> {
     }
 }
 
+/// Resolves whether a *live* handle's session is still live, given its
+/// in-memory process-handle status and persisted metadata. Not meaningful
+/// for a remembered session (no live handle exists at all) — callers with no
+/// live handle must pass `is_live: false` to [`project_session_info`]
+/// directly rather than calling this.
+pub(crate) fn is_live_session(status: &str, meta: Option<&metadata::SessionMetadata>) -> bool {
+    // `status` reflects the in-memory process-handle registry, which can lag
+    // persisted metadata's `lifecycle_phase` (e.g. a harness process that
+    // errors/exits before the handle's own status transitions). Trust either
+    // terminal signal so memory_state doesn't get stuck at Live (#286).
+    status != "killed"
+        && status != "ended"
+        && status != "error"
+        && !meta.is_some_and(|m| m.lifecycle_phase == "ended")
+}
+
 pub(crate) fn merge_live_session_info(
     info: SessionInfo,
     meta: Option<&metadata::SessionMetadata>,
@@ -142,14 +171,35 @@ pub(crate) fn merge_live_session_info(
     harness: Option<&ResolvedHarness>,
     saved_codex_session_ids: &std::collections::HashSet<String>,
 ) -> SessionInfo {
-    // `info.status` reflects the in-memory process-handle registry, which can
-    // lag persisted metadata's `lifecycle_phase` (e.g. a harness process that
-    // errors/exits before the handle's own status transitions). Trust either
-    // terminal signal so memory_state doesn't get stuck at Live (#286).
-    let is_live = info.status != "killed"
-        && info.status != "ended"
-        && info.status != "error"
-        && !meta.is_some_and(|m| m.lifecycle_phase == "ended");
+    let is_live = is_live_session(&info.status, meta);
+    project_session_info(
+        info,
+        meta,
+        is_live,
+        peon_last_inference,
+        harness,
+        saved_codex_session_ids,
+    )
+}
+
+/// Single owner of `SessionInfo`'s field-precedence policy ("meta wins
+/// unless empty", "live wins for status", "attention derived only when
+/// alive"), shared by the live-session path (`merge_live_session_info`,
+/// `is_live` computed from the live handle) and the remembered-session path
+/// (`session_projection::remembered_session_info`, which has no live handle
+/// and always passes `is_live: false`). `info` supplies every field a live
+/// handle can override; a remembered caller passes a baseline built purely
+/// from `meta` ([`SessionInfo::baseline_from_metadata`]) so every `.or(info.X)`
+/// fallback below is a deliberate no-op instead of a second, independently
+/// maintained set of precedence rules (issue #399).
+pub(crate) fn project_session_info(
+    info: SessionInfo,
+    meta: Option<&metadata::SessionMetadata>,
+    is_live: bool,
+    peon_last_inference: Option<&String>,
+    harness: Option<&ResolvedHarness>,
+    saved_codex_session_ids: &std::collections::HashSet<String>,
+) -> SessionInfo {
     let (memory_state, resume_strategy) = derive_memory_state(
         is_live,
         meta.and_then(|m| m.resume.as_ref())
@@ -210,6 +260,15 @@ pub(crate) fn merge_live_session_info(
         terminal_outcome: terminal_outcome_for_status(&info.status),
         cwd: info.cwd,
         created_at: info.created_at.clone(),
+        // Falls back to `created_at` when neither `meta` nor `info` carries a
+        // last-activity timestamp (e.g. a live handle whose metadata hasn't
+        // been persisted yet). This branch is unreachable for a remembered
+        // session's baseline: `meta.last_activity` is a required, always-set
+        // field there, so the fallback never fires — same output as before
+        // this function was unified, just via an inert rather than absent
+        // branch (issue #399, deliberate decision: keep this defensive
+        // fallback rather than drop it, since it still protects the live
+        // path).
         last_activity_at: meta
             .map(|m| m.last_activity.clone())
             .or(info.last_activity_at)
@@ -342,7 +401,7 @@ pub(crate) fn derive_memory_state(
 mod tests {
     use super::*;
 
-    fn harness(id: &str) -> crate::harness::registry::ResolvedHarness {
+    fn registry() -> ResolvedHarnessRegistry {
         let builtins = crate::harness::definition::BuiltinDocument::parse(
             crate::harness::definition::EMBEDDED_BUILTINS,
         )
@@ -352,9 +411,30 @@ mod tests {
             &crate::harness::definition::HarnessUserDocument::default(),
         )
         .unwrap()
-        .get(id)
-        .unwrap()
-        .clone()
+    }
+
+    fn harness(id: &str) -> crate::harness::registry::ResolvedHarness {
+        registry().get(id).unwrap().clone()
+    }
+
+    #[test]
+    fn resolve_harness_or_generic_shell_falls_back_when_id_is_unknown_or_absent() {
+        let registry = registry();
+
+        let known = resolve_harness_or_generic_shell(&registry, Some("opencode"));
+        assert_eq!(known.map(|h| h.definition.id.as_str()), Some("opencode"));
+
+        let unknown = resolve_harness_or_generic_shell(&registry, Some("not-a-real-harness"));
+        assert_eq!(
+            unknown.map(|h| h.definition.id.as_str()),
+            Some("generic-shell")
+        );
+
+        let absent = resolve_harness_or_generic_shell(&registry, None);
+        assert_eq!(
+            absent.map(|h| h.definition.id.as_str()),
+            Some("generic-shell")
+        );
     }
 
     fn test_session_info(

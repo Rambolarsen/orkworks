@@ -106,8 +106,9 @@ fi
 # directory — issue #241) and "session_id" on every event; extract both from
 # one parse of the same payload rather than spawning python3 twice. Codex's
 # SessionStart payload carries other fields too (cwd, hook_event_name,
-# source, ...). Only that root lifecycle event reports native identity;
-# subagent events remain within the owning Codex session. Copilot's
+# source, ...). The native ID may be recovered from any owned Codex hook;
+# SessionStart alone supplies lifecycle metadata used by the replacement guard.
+# Codex documents subagent hook IDs as the owning parent session ID. Copilot's
 # notification payload uses camelCase "sessionId" (not "session_id") per
 # https://docs.github.com/en/copilot/reference/hooks-reference, alongside its
 # own "cwd". `session_source` doubles as
@@ -139,7 +140,7 @@ case "$marker" in
   *:codex)
     codex_fields="$(
       printf '%s' "$payload" |
-      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; source=(data.get("source") or "") if is_start else ""; session_id=(data.get("session_id") or "") if is_start else ""; print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
+      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; source=(data.get("source") or "") if is_start else ""; raw_session_id=data.get("session_id"); session_id=raw_session_id if isinstance(raw_session_id, str) else ""; print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
     )" || true
     IFS=$'\x1f' read -r harness_session_id session_start_source <<< "$codex_fields"
     if [ -n "$session_start_source" ]; then

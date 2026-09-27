@@ -256,12 +256,7 @@ mod tests {
                 runtime: SessionRuntime::detached_test(),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
             },
         );
     }

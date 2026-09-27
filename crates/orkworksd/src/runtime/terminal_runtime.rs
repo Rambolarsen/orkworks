@@ -1360,12 +1360,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -2913,12 +2908,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: true,
-                capacity_check_pending: false,
-                output_lines_seen: 1,
-                scan_bytes_seen: 3,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: true,
+                    capacity_check_pending: false,
+                    output_lines_seen: 1,
+                    scan_bytes_seen: 3,
+                    resume_scan_origin: None,
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -2939,6 +2936,7 @@ mod tests {
             .unwrap()
             .get(&id)
             .unwrap()
+            .capacity
             .resume_scan_origin;
         assert_eq!(first_origin, Some((1, 3)));
 
@@ -2947,8 +2945,7 @@ mod tests {
             let handle = sessions.get_mut(&id).unwrap();
             handle.output_buffer.push("more output".into());
             handle.scan_buf.push_str("def");
-            handle.output_lines_seen += 1;
-            handle.scan_bytes_seen += 3;
+            handle.capacity.record_output(1, 3);
         }
 
         crate::session_application::SessionApplication::new(state.clone())
@@ -2959,6 +2956,7 @@ mod tests {
             .unwrap()
             .get(&id)
             .unwrap()
+            .capacity
             .resume_scan_origin;
         assert_eq!(second_origin, first_origin);
     }
@@ -3006,12 +3004,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3143,12 +3136,7 @@ mod tests {
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(40, 120),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3208,12 +3196,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3276,12 +3259,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3345,12 +3323,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3435,12 +3408,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3589,12 +3557,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3796,12 +3759,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -4037,12 +3995,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );

@@ -38,3 +38,32 @@ prompt is only a handoff pointer and may be edited by the user.
    derives the target session from `ORKWORKS_REPORT_TOKEN`.
 6. If the change is not verified or the completion callback fails, explain the
    failure and do not claim that the recommendation is completed.
+
+## Tie-off rule for work that lands a recommendation indirectly
+
+This skill applies when work *starts from* a recommendation. The same
+completion duty applies when your change implements an existing
+recommendation's improvement from any other starting point (an issue, a code
+review finding, or general maintenance): after your change is verified and
+before the PR reaches a terminal state, tie off that recommendation and
+reference its ID in the PR body. The completion endpoint is session-bound
+(`targetSessionId` must match `ORKWORKS_REPORT_TOKEN`'s session and the
+recommendation must be `Accepted`), so indirect work must first locate the
+matching active record and accept it from this session:
+
+```bash
+# 1. Find the matching active recommendation (none matches → nothing to tie off)
+curl --fail-with-body "http://127.0.0.1:${ORKWORKS_PORT}/taskmaster/recommendations"
+# 2. Accept it from this session
+curl --fail-with-body -X POST \
+  "http://127.0.0.1:${ORKWORKS_PORT}/taskmaster/recommendations/${RECOMMENDATION_ID}/accept" \
+  -H "Content-Type: application/json" \
+  --data "{\"session_id\":\"${ORKWORKS_SESSION_ID}\"}"
+# 3. Complete it (step 5 above)
+```
+
+If the recommendation carries a `completionPacket`, the accept and complete
+requests must also include a `packetMutation` with the packet's current
+`revision`, `evidenceFingerprint`, and `approval.idempotencyKey` from the
+same `GET` payload. See
+[Taskmaster recommendation tie-off](../../docs/agents/development-workflow.md#taskmaster-recommendation-tie-off).

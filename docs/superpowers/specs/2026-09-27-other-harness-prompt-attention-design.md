@@ -41,14 +41,17 @@ coding harness from this session.
 
 - `ResolvedHarness::initial_work_hook_active` in
   `crates/orkworksd/src/harness/registry.rs` initializes the hook flag from an
-  attention capability for Claude, Copilot, and Aider. It does not check
-  whether the workspace integration is installed, active, or has emitted an
-  event.
-- That launch-time flag suppresses Peon's inferred `working` status and the
+  `Attention` capability, except for Codex and OpenCode. Among Claude, Copilot,
+  and Aider, only Aider currently declares `Attention`; Claude and Copilot
+  declare `NativeSessionId` only. The flag does not check whether Aider's
+  workspace integration is installed, active, or has emitted an event.
+- Aider's launch-time flag suppresses Peon's inferred `working` status and the
   hookless terminal-output `working` transition. It does **not** apply the
-  Codex/OpenCode `NonPrompt` policy to these harnesses, so Peon can still infer
-  `waiting_for_input`, `needsUserInput`, and prompt text. A single static flag
-  therefore gives incomplete work-state fallback without proving a hook ran.
+  Codex/OpenCode `NonPrompt` policy, so Peon can still infer
+  `waiting_for_input`, `needsUserInput`, and prompt text. Claude and Copilot do
+  not receive this static launch-time suppression; their current generic hook
+  reports are described separately below. A single static flag therefore
+  gives Aider incomplete work-state fallback without proving a hook ran.
 - The shared Claude and Copilot hook reporter defaults attention to
   `waiting_for_input` and does not read `notification_type`. Claude installs a
   broad `Notification` matcher plus `PreToolUse` and `PostToolUse`; it does not

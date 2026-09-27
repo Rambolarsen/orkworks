@@ -157,6 +157,76 @@ pub(crate) struct SessionInfo {
 }
 
 impl SessionInfo {
+    /// Builds the placeholder `SessionInfo` a remembered (no live handle)
+    /// session projects from, for `session_view::project_session_info`.
+    ///
+    /// Only `id`, `status`, `cwd`, and `created_at` carry real values here —
+    /// `project_session_info` reads those four straight from `info` with no
+    /// `meta` fallback, so they must mirror `meta`. Every other field is
+    /// `None`/inert filler: `project_session_info` either overwrites it
+    /// unconditionally from `meta` (`meta` is always `Some` for a remembered
+    /// session) or falls back to it only when `meta` lacks the value, which a
+    /// remembered session's `meta` — the single source of truth here, with no
+    /// second live source to prefer over it — must not have either. Keeping
+    /// every fallback field `None` reproduces the old `remembered_session_info`
+    /// constructor's behavior, which had no fallback at all (issue #399).
+    pub(crate) fn baseline_from_metadata(meta: &metadata::SessionMetadata) -> SessionInfo {
+        SessionInfo {
+            id: meta.id.clone(),
+            label: meta.label.clone(),
+            harness_id: None,
+            model_provider_id: None,
+            model_id: None,
+            harness: None,
+            model: None,
+            work_phase: String::new(),
+            lifecycle_phase: String::new(),
+            lifecycle: String::new(),
+            attention: None,
+            status: meta.status.clone(),
+            connectivity: None,
+            terminal_outcome: None,
+            cwd: meta.cwd.clone(),
+            created_at: meta.created_at.clone(),
+            last_activity_at: None,
+            last_output_at: None,
+            final_observed_status: None,
+            observed_status: None,
+            summary: None,
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            at_usage_limit: None,
+            capacity_check_pending: None,
+            usage_limit_reset_hint: None,
+            metadata_source: None,
+            metadata_confidence: None,
+            repo_root: None,
+            branch: None,
+            dirty: None,
+            changed_files: None,
+            is_worktree: None,
+            conflict_warning: None,
+            recommendation: None,
+            peon_last_inference: None,
+            peon_diagnostics: None,
+            provider: None,
+            provider_model: None,
+            provider_state: None,
+            memory_state: MemoryState::Remembered,
+            resume_strategy: harness::ResumeStrategy::None,
+            resume: None,
+            resume_options: vec![],
+            resumed_from: None,
+            has_openable_plan: None,
+        }
+    }
+
     pub(crate) fn has_live_runtime(&self) -> bool {
         matches!(
             self.lifecycle.as_str(),

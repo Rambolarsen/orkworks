@@ -551,6 +551,7 @@ async fn report_harness_session_inner(
                 metadata::HarnessSessionMergeResult::Accepted
                     | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
                     | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+                    | metadata::HarnessSessionMergeResult::IgnoredUnchanged
             )
         {
             if let Err(error) = SessionApplication::new(observation_state)
@@ -561,34 +562,67 @@ async fn report_harness_session_inner(
         }
     }
 
-    if private_lookup_authorized && matches!(result, metadata::HarnessSessionMergeResult::Accepted)
+    if private_lookup_authorized
+        && matches!(
+            result,
+            metadata::HarnessSessionMergeResult::Accepted
+                | metadata::HarnessSessionMergeResult::IgnoredUnchanged
+        )
     {
-        let runtime_identity = state
-            .sessions
-            .lock()
-            .unwrap()
-            .get(&id)
-            .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
-            .map(|handle| handle.runtime.identity());
-        if let Some(runtime_identity) = runtime_identity {
-            if crate::codex_session_store::accept_native_label_identity(&id, &native_session_id) {
-                let refresh_epoch =
-                    crate::codex_session_store::reserve_label_refresh_generation(&id);
-                schedule_codex_label_refresh(
-                    state,
-                    id,
-                    native_session_id,
-                    runtime_identity,
-                    refresh_epoch,
-                );
-            }
+        let reservation = crate::codex_session_store::with_label_refresh_reservation(
+            &id,
+            &native_session_id,
+            std::time::Duration::from_secs(5),
+            |reserve| {
+                let workspace = state.workspace.lock().unwrap();
+                let Some(meta) = workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.metadata.read_session(&id))
+                    .filter(|meta| {
+                        meta.harness == "codex"
+                            && meta
+                                .resume
+                                .as_ref()
+                                .and_then(|resume| resume.harness_session_id.as_deref())
+                                == Some(native_session_id.as_str())
+                    })
+                else {
+                    return None;
+                };
+                if !crate::codex_session_store::accept_native_label_identity(
+                    &id,
+                    &native_session_id,
+                ) || !should_schedule_codex_label_refresh(result, meta.label_source)
+                {
+                    return None;
+                }
+                let runtime_identity = state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .filter(|handle| handle.info.harness.as_deref() == Some("codex"))
+                    .map(|handle| handle.runtime.identity())?;
+                let refresh_epoch = reserve()?;
+                Some((runtime_identity, refresh_epoch))
+            },
+        );
+        if let Some((runtime_identity, refresh_epoch)) = reservation {
+            schedule_codex_label_refresh(
+                state,
+                id,
+                native_session_id,
+                runtime_identity,
+                refresh_epoch,
+            );
         }
     }
 
     match result {
         metadata::HarnessSessionMergeResult::Accepted
         | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
-        | metadata::HarnessSessionMergeResult::IgnoredIdentityChange => {
+        | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
+        | metadata::HarnessSessionMergeResult::IgnoredUnchanged => {
             axum::http::StatusCode::OK.into_response()
         }
         metadata::HarnessSessionMergeResult::NotFound => {
@@ -597,6 +631,19 @@ async fn report_harness_session_inner(
         metadata::HarnessSessionMergeResult::Invalid => {
             axum::http::StatusCode::BAD_REQUEST.into_response()
         }
+    }
+}
+
+fn should_schedule_codex_label_refresh(
+    result: metadata::HarnessSessionMergeResult,
+    label_source: metadata::LabelSource,
+) -> bool {
+    match result {
+        metadata::HarnessSessionMergeResult::Accepted => label_source.is_automatic(),
+        metadata::HarnessSessionMergeResult::IgnoredUnchanged => {
+            label_source.is_automatic() && label_source != metadata::LabelSource::Codex
+        }
+        _ => false,
     }
 }
 
@@ -763,19 +810,8 @@ fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
 
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || {
-        #[cfg(test)]
-        let before_write_back = || tests::run_list_sessions_before_write_back_hook(&state);
         let projection = SessionProjection::new(state.clone());
-        let mut infos = {
-            #[cfg(test)]
-            {
-                projection.list_with_hook(before_write_back)
-            }
-            #[cfg(not(test))]
-            {
-                projection.list()
-            }
-        };
+        let mut infos = projection.list();
         for info in &mut infos {
             project_live_peon_diagnostics(&state, info);
         }
@@ -795,50 +831,40 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_codex_reports_retry_only_automatic_labels_not_already_from_codex() {
+        assert!(should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::IgnoredUnchanged,
+            metadata::LabelSource::Placeholder,
+        ));
+        assert!(should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::Accepted,
+            metadata::LabelSource::TerminalInput,
+        ));
+        assert!(should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::Accepted,
+            metadata::LabelSource::Codex,
+        ));
+        assert!(!should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::IgnoredUnchanged,
+            metadata::LabelSource::Codex,
+        ));
+        assert!(!should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::IgnoredIdentityChange,
+            metadata::LabelSource::Placeholder,
+        ));
+        assert!(!should_schedule_codex_label_refresh(
+            metadata::HarnessSessionMergeResult::Accepted,
+            metadata::LabelSource::User,
+        ));
+    }
     use crate::runtime::terminal_runtime::set_session_status;
     use crate::test_support::*;
     use std::io::Write;
     use std::sync::Mutex;
 
     static PLAN_TOKEN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    static LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK: std::sync::LazyLock<
-        std::sync::Mutex<HashMap<usize, Box<dyn FnOnce() + Send>>>,
-    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
-
-    struct ListSessionsBeforeWriteBackHookGuard {
-        state_key: usize,
-    }
-
-    impl Drop for ListSessionsBeforeWriteBackHookGuard {
-        fn drop(&mut self) {
-            LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK
-                .lock()
-                .unwrap()
-                .remove(&self.state_key);
-        }
-    }
-
-    fn install_list_sessions_before_write_back_hook(
-        state: &Arc<AppState>,
-        hook: Box<dyn FnOnce() + Send>,
-    ) -> ListSessionsBeforeWriteBackHookGuard {
-        let state_key = Arc::as_ptr(state) as usize;
-        LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK
-            .lock()
-            .unwrap()
-            .insert(state_key, hook);
-        ListSessionsBeforeWriteBackHookGuard { state_key }
-    }
-
-    pub(super) fn run_list_sessions_before_write_back_hook(state: &Arc<AppState>) {
-        if let Some(hook) = LIST_SESSIONS_BEFORE_WRITE_BACK_HOOK
-            .lock()
-            .unwrap()
-            .remove(&(Arc::as_ptr(state) as usize))
-        {
-            hook();
-        }
-    }
 
     async fn listed_sessions(state: Arc<AppState>) -> Vec<serde_json::Value> {
         let response = list_sessions(State(state)).await.into_response();
@@ -982,12 +1008,7 @@ mod tests {
             ),
             terminal_attached: false,
             resume_in_progress: false,
-            at_usage_limit_latched: false,
-            capacity_check_pending: false,
-            output_lines_seen: 0,
-            scan_bytes_seen: 0,
-            resume_scan_origin: None,
-            pending_capacity_visible_once: false,
+            capacity: crate::capacity_state::CapacityState::default(),
         }
     }
 
@@ -1184,7 +1205,7 @@ mod tests {
         let mut live = attention_test_handle("live-capped", dir.path());
         live.info.harness_id = Some("codex".into());
         live.info.harness = Some("codex".into());
-        live.at_usage_limit_latched = true;
+        live.capacity.at_usage_limit_latched = true;
         state
             .sessions
             .lock()
@@ -1230,7 +1251,7 @@ mod tests {
         let mut live = attention_test_handle("projected-capacity", dir.path());
         live.info.harness_id = Some("codex".into());
         live.info.harness = Some("codex".into());
-        live.at_usage_limit_latched = true;
+        live.capacity.at_usage_limit_latched = true;
         state
             .sessions
             .lock()
@@ -1252,93 +1273,13 @@ mod tests {
         assert_eq!(codex.effective_state, "capped");
     }
 
-    #[tokio::test]
-    async fn list_sessions_write_back_hook_is_scoped_to_its_registered_state() {
-        let hook_state_dir = tempfile::tempdir().unwrap();
-        let hook_state = test_app_state_with_workspace(hook_state_dir.path());
-        let other_state_dir = tempfile::tempdir().unwrap();
-        let other_state = test_app_state_with_workspace(other_state_dir.path());
-        let hook_ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let hook_ran_for_callback = hook_ran.clone();
-
-        let _hook_guard = install_list_sessions_before_write_back_hook(
-            &hook_state,
-            Box::new(move || {
-                hook_ran_for_callback.store(true, std::sync::atomic::Ordering::SeqCst);
-            }),
-        );
-
-        listed_sessions(other_state).await;
-        assert!(
-            !hook_ran.load(std::sync::atomic::Ordering::SeqCst),
-            "a list_sessions call for another AppState must not consume this state’s hook"
-        );
-
-        listed_sessions(hook_state).await;
-        assert!(hook_ran.load(std::sync::atomic::Ordering::SeqCst));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn list_sessions_rejects_stale_capacity_write_back() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
-        let session_id = "stale-capacity-write-back".to_string();
-        let mut handle = attention_test_handle(&session_id, dir.path());
-        handle.info.harness_id = Some("codex".into());
-        handle.info.harness = Some("codex".into());
-        handle.capacity_check_pending = true;
-        handle.info.capacity_check_pending = Some(true);
-        handle
-            .output_buffer
-            .push("You've hit your usage limit".into());
-        handle.output_lines_seen = 1;
-        handle.scan_bytes_seen = 0;
-        handle.resume_scan_origin = Some((0, 0));
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let mut metadata = test_session_metadata(
-                &session_id,
-                "Stale capacity write-back",
-                dir.path().display().to_string(),
-                "running",
-                "before",
-                "before",
-            );
-            metadata.harness = "codex".into();
-            workspace
-                .as_ref()
-                .unwrap()
-                .metadata
-                .write_session(&metadata);
-        }
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(session_id.clone(), handle);
-
-        let stale_state = state.clone();
-        let stale_id = session_id.clone();
-        let _hook_guard = install_list_sessions_before_write_back_hook(
-            &state,
-            Box::new(move || {
-                let mut sessions = stale_state.sessions.lock().unwrap();
-                sessions.get_mut(&stale_id).unwrap().output_lines_seen += 1;
-            }),
-        );
-
-        let sessions = listed_sessions(state.clone()).await;
-        assert_eq!(sessions.len(), 1);
-        let handle = state.sessions.lock().unwrap();
-        let handle = &handle[&session_id];
-        assert!(!handle.at_usage_limit_latched);
-        assert!(handle.capacity_check_pending);
-        assert!(!handle.pending_capacity_visible_once);
-        assert_eq!(handle.info.capacity_check_pending, Some(true));
-        assert_eq!(handle.output_lines_seen, 2);
-        assert_eq!(handle.scan_bytes_seen, 0);
-        assert_eq!(handle.resume_scan_origin, Some((0, 0)));
-    }
+    // The write-back staleness guard itself (comparing a `CapacityState`
+    // snapshot taken at the start of a projection cycle against the live
+    // handle at write-back time) is unit-tested directly against the state
+    // machine's interface in `capacity_state::tests::
+    // stale_write_back_is_detected_by_equality`, rather than through an
+    // HTTP-level race-injection hook (removed with issue #398's
+    // `list_with_hook`/`before_write_back`).
 
     #[tokio::test]
     async fn list_sessions_maps_a_poisoned_projection_lock_to_an_empty_500_response() {
@@ -1963,12 +1904,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -2130,12 +2066,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3188,12 +3119,7 @@ mod tests {
                 ),
                 terminal_attached: true,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -3306,12 +3232,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -4071,9 +3992,9 @@ mod tests {
             handle.info.harness_id = Some("claude-code".into());
             handle.info.harness = Some("claude-code".into());
             handle.info.last_output_at = Some("2026-08-01T08:00:00.000000Z".into());
-            handle.at_usage_limit_latched = true;
-            handle.output_lines_seen = lines;
-            handle.scan_bytes_seen = bytes;
+            handle.capacity.at_usage_limit_latched = true;
+            handle.capacity.output_lines_seen = lines;
+            handle.capacity.scan_bytes_seen = bytes;
             state.sessions.lock().unwrap().insert(id.into(), handle);
         }
         state
@@ -4104,20 +4025,31 @@ mod tests {
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
         let sessions = state.sessions.lock().unwrap();
-        assert!(!sessions[source_id].at_usage_limit_latched);
-        assert_eq!(sessions[source_id].resume_scan_origin, Some((7, 11)));
-        assert!(!sessions["claude-working-peer"].at_usage_limit_latched);
+        assert!(!sessions[source_id].capacity.at_usage_limit_latched);
         assert_eq!(
-            sessions["claude-working-peer"].resume_scan_origin,
+            sessions[source_id].capacity.resume_scan_origin,
+            Some((7, 11))
+        );
+        assert!(
+            !sessions["claude-working-peer"]
+                .capacity
+                .at_usage_limit_latched
+        );
+        assert_eq!(
+            sessions["claude-working-peer"].capacity.resume_scan_origin,
             Some((3, 5))
         );
         drop(sessions);
 
         {
             let mut sessions = state.sessions.lock().unwrap();
-            sessions.get_mut(source_id).unwrap().at_usage_limit_latched = true;
+            sessions
+                .get_mut(source_id)
+                .unwrap()
+                .capacity
+                .at_usage_limit_latched = true;
             let peer = sessions.get_mut("claude-working-peer").unwrap();
-            peer.at_usage_limit_latched = false;
+            peer.capacity.at_usage_limit_latched = false;
             peer.runtime.usage_limit_latched_at = Some(
                 crate::workspace_runtime::parse_hook_observed_at("2026-08-01T08:00:05.000000Z")
                     .unwrap(),
@@ -4141,7 +4073,11 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
-        assert!(!state.sessions.lock().unwrap()[source_id].at_usage_limit_latched);
+        assert!(
+            !state.sessions.lock().unwrap()[source_id]
+                .capacity
+                .at_usage_limit_latched
+        );
     }
 
     #[tokio::test]
@@ -4168,7 +4104,7 @@ mod tests {
         handle.active_work_hook = true;
         handle.info.harness_id = Some("claude-code".into());
         handle.info.harness = Some("claude-code".into());
-        handle.at_usage_limit_latched = true;
+        handle.capacity.at_usage_limit_latched = true;
         handle.runtime.usage_limit_latched_at = Some(
             crate::workspace_runtime::parse_hook_observed_at("2026-08-01T08:00:02.000000Z")
                 .unwrap(),
@@ -4193,7 +4129,11 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
-        assert!(state.sessions.lock().unwrap()[id].at_usage_limit_latched);
+        assert!(
+            state.sessions.lock().unwrap()[id]
+                .capacity
+                .at_usage_limit_latched
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -5499,12 +5439,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -5582,12 +5517,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -5859,12 +5789,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -5992,12 +5917,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -6078,12 +5998,7 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
@@ -6172,12 +6087,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: true,
-                output_lines_seen: 1,
-                scan_bytes_seen: 0,
-                resume_scan_origin: Some((0, 0)),
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: false,
+                    capacity_check_pending: true,
+                    output_lines_seen: 1,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: Some((0, 0)),
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -6275,12 +6192,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: true,
-                output_lines_seen: 1,
-                scan_bytes_seen: 0,
-                resume_scan_origin: Some((0, 0)),
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: false,
+                    capacity_check_pending: true,
+                    output_lines_seen: 1,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: Some((0, 0)),
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -6352,12 +6271,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: true,
-                output_lines_seen: 1,
-                scan_bytes_seen: 0,
-                resume_scan_origin: Some((0, 0)),
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: false,
+                    capacity_check_pending: true,
+                    output_lines_seen: 1,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: Some((0, 0)),
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -6476,12 +6397,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 1,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: false,
+                    capacity_check_pending: false,
+                    output_lines_seen: 1,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: None,
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -6577,12 +6500,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: true,
-                capacity_check_pending: false,
-                output_lines_seen: 2,
-                scan_bytes_seen: 0,
-                resume_scan_origin: Some((1, 0)),
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: true,
+                    capacity_check_pending: false,
+                    output_lines_seen: 2,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: Some((1, 0)),
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -6680,12 +6605,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: true,
-                capacity_check_pending: false,
-                output_lines_seen: 2,
-                scan_bytes_seen: 0,
-                resume_scan_origin: Some((1, 0)),
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: true,
+                    capacity_check_pending: false,
+                    output_lines_seen: 2,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: Some((1, 0)),
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -6765,12 +6692,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: true,
-                capacity_check_pending: false,
-                output_lines_seen: 2,
-                scan_bytes_seen: 0,
-                resume_scan_origin: Some((1, 0)),
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: true,
+                    capacity_check_pending: false,
+                    output_lines_seen: 2,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: Some((1, 0)),
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );
@@ -6805,7 +6734,7 @@ mod tests {
             handle
                 .output_buffer
                 .push("Back in the thread and working again".into());
-            handle.output_lines_seen += 1;
+            handle.capacity.output_lines_seen += 1;
         }
 
         // Second poll, still with no new user input: the one-shot recheck
@@ -6884,12 +6813,14 @@ mod tests {
                 ),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: true,
-                capacity_check_pending: false,
-                output_lines_seen: 2,
-                scan_bytes_seen: 0,
-                resume_scan_origin: Some((1, 0)),
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState {
+                    at_usage_limit_latched: true,
+                    capacity_check_pending: false,
+                    output_lines_seen: 2,
+                    scan_bytes_seen: 0,
+                    resume_scan_origin: Some((1, 0)),
+                    pending_capacity_visible_once: false,
+                },
                 active_work_hook: false,
             },
         );

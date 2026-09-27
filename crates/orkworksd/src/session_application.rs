@@ -1639,13 +1639,7 @@ impl SessionApplication {
         let Some(handle) = sessions.get_mut(id) else {
             return;
         };
-        if !handle.at_usage_limit_latched
-            || handle.capacity_check_pending
-            || handle.resume_scan_origin.is_some()
-        {
-            return;
-        }
-        handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
+        handle.capacity.arm_recheck();
     }
 
     /// Records accepted, non-sensitive user input and seeds the session topic
@@ -2723,7 +2717,11 @@ impl SessionApplication {
                 )
         };
 
-        if result == metadata::HarnessSessionMergeResult::Accepted {
+        if matches!(
+            result,
+            metadata::HarnessSessionMergeResult::Accepted
+                | metadata::HarnessSessionMergeResult::IgnoredUnchanged
+        ) {
             let updated_resume = {
                 let workspace = self.state.workspace.lock().unwrap();
                 workspace
@@ -3923,12 +3921,7 @@ async fn resume_session_workflow(
         runtime,
         terminal_attached: false,
         resume_in_progress: false,
-        at_usage_limit_latched: false,
-        capacity_check_pending,
-        output_lines_seen: 0,
-        scan_bytes_seen: 0,
-        resume_scan_origin: capacity_check_pending.then_some((0, 0)),
-        pending_capacity_visible_once: false,
+        capacity: crate::capacity_state::CapacityState::pending(capacity_check_pending),
     };
     let mut admission = match try_install_claimed_resume_handle(
         &state,
@@ -4308,12 +4301,7 @@ async fn create_session_workflow(
             runtime,
             terminal_attached: false,
             resume_in_progress: false,
-            at_usage_limit_latched: false,
-            capacity_check_pending: false,
-            output_lines_seen: 0,
-            scan_bytes_seen: 0,
-            resume_scan_origin: None,
-            pending_capacity_visible_once: false,
+            capacity: crate::capacity_state::CapacityState::default(),
         },
     );
 
@@ -4484,7 +4472,7 @@ fn clear_claude_capacity_after_working(
     };
     if sessions.values().any(|handle| {
         handle.info.harness_id.as_deref() == Some(harness_id.as_str())
-            && handle.at_usage_limit_latched
+            && handle.capacity.at_usage_limit_latched
             && handle
                 .runtime
                 .usage_limit_latched_at
@@ -4494,9 +4482,8 @@ fn clear_claude_capacity_after_working(
     }
     for handle in sessions.values_mut() {
         if handle.info.harness_id.as_deref() == Some(harness_id.as_str()) {
-            handle.at_usage_limit_latched = false;
+            handle.capacity.clear_latch_and_rearm();
             handle.runtime.usage_limit_latched_at = None;
-            handle.resume_scan_origin = Some((handle.output_lines_seen, handle.scan_bytes_seen));
         }
     }
 }
@@ -5058,12 +5045,7 @@ mod tests {
             ),
             terminal_attached: false,
             resume_in_progress: false,
-            at_usage_limit_latched: false,
-            capacity_check_pending: false,
-            output_lines_seen: 0,
-            scan_bytes_seen: 0,
-            resume_scan_origin: None,
-            pending_capacity_visible_once: false,
+            capacity: crate::capacity_state::CapacityState::default(),
         }
     }
 
@@ -5629,9 +5611,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let mut handle = attention_test_handle(id, root.path());
-        handle.at_usage_limit_latched = true;
-        handle.output_lines_seen = 7;
-        handle.scan_bytes_seen = 11;
+        handle.capacity.at_usage_limit_latched = true;
+        handle.capacity.output_lines_seen = 7;
+        handle.capacity.scan_bytes_seen = 11;
         state.sessions.lock().unwrap().insert(id.into(), handle);
         state
     }
@@ -5649,6 +5631,7 @@ mod tests {
                 .unwrap()
                 .get("arm-usage-limit")
                 .unwrap()
+                .capacity
                 .resume_scan_origin,
             Some((7, 11))
         );
@@ -5663,6 +5646,7 @@ mod tests {
             .unwrap()
             .get_mut("arm-once")
             .unwrap()
+            .capacity
             .resume_scan_origin = Some((1, 2));
 
         SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-once");
@@ -5674,6 +5658,7 @@ mod tests {
                 .unwrap()
                 .get("arm-once")
                 .unwrap()
+                .capacity
                 .resume_scan_origin,
             Some((1, 2))
         );
@@ -5688,6 +5673,7 @@ mod tests {
             .unwrap()
             .get_mut("arm-pending")
             .unwrap()
+            .capacity
             .capacity_check_pending = true;
 
         SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-pending");
@@ -5699,6 +5685,7 @@ mod tests {
                 .unwrap()
                 .get("arm-pending")
                 .unwrap()
+                .capacity
                 .resume_scan_origin,
             None
         );
@@ -5713,6 +5700,7 @@ mod tests {
             .unwrap()
             .get_mut("arm-unlatched")
             .unwrap()
+            .capacity
             .at_usage_limit_latched = false;
 
         SessionApplication::new(state.clone()).arm_usage_limit_recheck("arm-unlatched");
@@ -5724,6 +5712,7 @@ mod tests {
                 .unwrap()
                 .get("arm-unlatched")
                 .unwrap()
+                .capacity
                 .resume_scan_origin,
             None
         );
@@ -6527,6 +6516,32 @@ mod tests {
                 .as_ref()
                 .and_then(|resume| resume.harness_session_id.as_deref()),
             Some("native-harness-report-live")
+        );
+
+        let result = SessionApplication::new(state.clone())
+            .report_harness_session(id, harness_session_report(id, 0.9))
+            .unwrap();
+        assert_eq!(
+            result,
+            metadata::HarnessSessionMergeResult::IgnoredUnchanged
+        );
+        let workspace = state.workspace.lock().unwrap();
+        let persisted_resume = workspace
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume
+            .unwrap();
+        assert_ne!(persisted_resume.last_seen_at.as_deref(), Some("before"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.last_seen_at.as_deref()),
+            persisted_resume.last_seen_at.as_deref()
         );
     }
 
@@ -7546,12 +7561,7 @@ mod tests {
             ),
             terminal_attached: false,
             resume_in_progress: true,
-            at_usage_limit_latched: false,
-            capacity_check_pending: false,
-            output_lines_seen: 0,
-            scan_bytes_seen: 0,
-            resume_scan_origin: None,
-            pending_capacity_visible_once: false,
+            capacity: crate::capacity_state::CapacityState::default(),
         };
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
@@ -8092,12 +8102,7 @@ mod tests {
                 runtime: crate::runtime::session_runtime::SessionRuntime::detached(40, 120),
                 terminal_attached: false,
                 resume_in_progress: false,
-                at_usage_limit_latched: false,
-                capacity_check_pending: false,
-                output_lines_seen: 0,
-                scan_bytes_seen: 0,
-                resume_scan_origin: None,
-                pending_capacity_visible_once: false,
+                capacity: crate::capacity_state::CapacityState::default(),
                 active_work_hook: false,
             },
         );
