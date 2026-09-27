@@ -34,6 +34,37 @@ create one before implementation.
 If the issue board is inaccessible, do not guess at priorities. Stop and tell
 the user that board access is required before picking or closing work.
 
+## Taskmaster recommendation tie-off
+
+Recommendations go stale when the work they propose lands through a PR that
+never ties back to the recommendation — agents later pick the stale
+recommendation and rediscover work that is already merged. When your change
+implements an existing Taskmaster recommendation (one whose
+`proposedImprovement` your diff addresses, whether or not the task started
+from it), complete that recommendation through the sidecar API before the PR
+reaches a terminal state:
+
+```bash
+curl --fail-with-body -X POST \
+  "http://127.0.0.1:${ORKWORKS_PORT}/taskmaster/recommendations/${RECOMMENDATION_ID}/complete" \
+  -H "Authorization: Bearer ${ORKWORKS_REPORT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"summary":"Verified disposition and checks run."}'
+```
+
+- Only post completion after the change is verified; the summary must state
+  the verified disposition (implemented change, or noise/not-a-defect with
+  evidence).
+- Reference the recommendation ID in the PR body as well, so the linkage is
+  visible in review even if completion happens after the merge.
+- Never edit recommendation files under `~/.orkworks/` directly; the API is
+  the only write path.
+- When work starts *from* a recommendation, the
+  [`working-on-recommendation`](https://github.com/Rambolarsen/orkworks/blob/main/skills/working-on-recommendation/SKILL.md)
+  skill's own step 5 covers the same completion call; the rule here extends
+  it to work that lands a recommendation's improvement from any starting
+  point.
+
 ## Assumption discipline
 
 Before acting, make every assumption that could change scope, target,

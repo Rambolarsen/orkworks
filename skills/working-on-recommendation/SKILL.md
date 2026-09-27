@@ -38,3 +38,13 @@ prompt is only a handoff pointer and may be edited by the user.
    derives the target session from `ORKWORKS_REPORT_TOKEN`.
 6. If the change is not verified or the completion callback fails, explain the
    failure and do not claim that the recommendation is completed.
+
+## Tie-off rule for work that lands a recommendation indirectly
+
+This skill applies when work *starts from* a recommendation. The same
+completion duty applies when your change implements an existing
+recommendation's improvement from any other starting point (an issue, a code
+review finding, or general maintenance): after your change is verified and
+before the PR reaches a terminal state, complete that recommendation through
+the same API call above and reference its ID in the PR body. See
+[Taskmaster recommendation tie-off](../../docs/agents/development-workflow.md#taskmaster-recommendation-tie-off).
