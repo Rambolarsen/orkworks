@@ -877,6 +877,14 @@ test("Filtered empty state renders even when observation diagnostics exist", () 
     filteredEmpty,
     "filtered empty state must be gated on workspace/taskmaster readiness and render independent of diagnostics",
   );
+
+  const emptyStateBlock = panel.match(
+    /\{visibleRecommendations\.length === 0 && !error\s*\n\s*&& hasWorkspace && taskmasterReady && originFilter === "all"[\s\S]*?<EmptyState message=\{panelEmptyMessage\("all"\)\} \/>/,
+  );
+  assert.ok(
+    emptyStateBlock,
+    "all-filter empty state must be gated on workspace/taskmaster readiness",
+  );
 });
 
 test("A scheduled analysis lands the user on the Analysis filter view", () => {
@@ -895,6 +903,11 @@ test("A scheduled analysis lands the user on the Analysis filter view", () => {
     scheduledBlock,
     /setOriginFilter\("analysis"\)/,
     "scheduled analysis must switch the panel to the Analysis origin so the arriving recommendation is visible",
+  );
+  assert.match(
+    panel,
+    /result\.status === "scheduled" \|\| result\.status === "already_running"\) \{\s*\n\s*\/\/ A scheduled analysis[\s\S]*?setOriginFilter\("analysis"\);/,
+    "scheduled or in-flight analysis must land on the Analysis origin before refresh",
   );
 });
 

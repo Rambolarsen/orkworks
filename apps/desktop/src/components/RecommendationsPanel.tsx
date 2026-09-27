@@ -296,13 +296,17 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         setBlockedRecommendationRecoveryAllowed(false);
         setAnalysisMessage(result.message);
       }
-      if (result.status === "scheduled") {
+      if (result.status === "scheduled" || result.status === "already_running") {
         // A scheduled analysis will surface a Brain recommendation on a later
         // poll; land the user on the Analysis view so the result (and its
         // Fix with AI action) is actually visible when it arrives.
         setOriginFilter("analysis");
       }
-      if (result.status === "scheduled" || result.status === "active_recommendation") void refresh();
+      if (
+        result.status === "scheduled"
+        || result.status === "already_running"
+        || result.status === "active_recommendation"
+      ) void refresh();
     } catch (cause) {
       if (generation !== workspaceGeneration.current) return;
       setAnalysisError(cause instanceof Error ? cause.message : "Couldn't start Brain analysis.");
@@ -381,8 +385,8 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         <p className="recommendations-filter-empty" role="status">{panelEmptyMessage(originFilter)}</p>
       )}
       {visibleRecommendations.length === 0 && !error
-        && originFilter === "all" && diagnostics.length === 0
-        && !analysisMessage && !blockedRecommendation && (
+        && hasWorkspace && taskmasterReady && originFilter === "all"
+        && diagnostics.length === 0 && !analysisMessage && !blockedRecommendation && (
         <EmptyState message={panelEmptyMessage("all")} />
       )}
       {visibleRecommendations.length > 0 && visibleRecommendations.map((recommendation) => (
