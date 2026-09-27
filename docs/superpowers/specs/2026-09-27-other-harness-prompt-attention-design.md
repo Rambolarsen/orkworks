@@ -152,25 +152,43 @@ only after registration succeeds. Both requests use
 the first prompt notification; registration failure or rejection must stop
 the attention request. Registration alone does not activate prompt authority.
 The first successful registration binds the current conversation epoch to one
-native ID. A different ID is accepted only after OrkWorks records the exact
-successfully committed harness reset and receives a session-authenticated
-lifecycle report claiming the matching event/source: Claude
-`SessionStart(source=clear)` or Copilot `sessionStart(source=new)`. The report
-fields do not prove root-process origin: any same-session process holding the
-inherited token can spoof the lifecycle claim after a recorded reset. Claude's
-event has no timestamp, so receipt order cannot tie a delayed clear report to
-the reset that produced it. This protocol therefore retains a same-session
-identity-replacement risk and does not provide root-process authentication.
-This transition advances the conversation epoch,
-replaces the binding once, clears the previous prompt tuple under the
-record-wide source rule, and preserves the launch generation. Ordinary
-identity registrations and attention reports cannot rebind; other lifecycle
-sources or unrecorded resets cannot rebind either. Copilot's lifecycle event
-timestamp must be later than the committed reset boundary. Claude has no
+native ID. A different ID can rebind only for an exact reset command declared
+in the persisted harness definition: Claude `SessionStart(source=clear)` or
+Copilot `sessionStart(source=new)`. Before dispatching that command to the
+PTY, OrkWorks opens a single-use reservation for the current epoch. A matching
+lifecycle registration for a replacement ID that arrives before the PTY write
+acknowledgement is held as a candidate, along with any following reports for
+that ID; it does not change the binding, epoch, prompt tuple, or attention
+yet. The lifecycle registration is not reported as accepted until delivery
+resolves. On successful delivery acknowledgement, OrkWorks commits the reset,
+advances the epoch, retires the old ID, clears the previous prompt tuple under
+the record-wide source rule, and preserves the launch generation. A queued
+candidate binds the replacement ID and queued reports are checked afterward;
+if there is no candidate, the committed reservation stays available for one
+matching lifecycle registration. Until a replacement binding is accepted,
+reports and exact-resume lookups using the old ID are rejected; the sidecar
+does not fall back to the prior conversation. Failed or canceled delivery closes the
+reservation, discards its candidate reports, and leaves the existing binding,
+epoch, and tuple unchanged. Only one reset delivery may be pending per
+session; a later exact reset supersedes an unmatched committed reservation.
+Ordinary identity registrations and attention reports cannot rebind; other
+lifecycle sources and unrecorded resets cannot rebind either. Copilot's
+lifecycle event timestamp must be later than reservation creation, and
+successful delivery acknowledgement is still required. Claude has no
 documented event timestamp, so receipt order cannot distinguish a delayed
-report for an earlier reset from a report for the current reset. Reports from
-the old native ID are
-rejected after rebinding. The sidecar maintains the conversation epoch
+report for an earlier reset from one received during a later reservation.
+Reports from the old native ID are rejected after rebinding. Copilot currently
+declares only bare `/clear` and `/new`; prompt-bearing forms and `/reset`
+remain outside the accepted label-reset scope in [ADR
+0040](../../adr/0040-harness-declared-session-label-resets.md) and [issue
+#326](https://github.com/Rambolarsen/orkworks/issues/326), even though [the Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference) lists them as
+starting new conversations. They do not authorize rebind under this
+proposal; expanding support requires separate spec and implementation review.
+The report fields do not prove root-process origin: any same-session process
+holding the inherited token can spoof the lifecycle claim during a
+reservation. This protocol therefore retains a same-session
+identity-replacement risk and does not provide root-process authentication.
+The sidecar maintains the conversation epoch
 internally; reports must match its current native-ID binding and cannot choose
 an epoch. Missing, invalid, stale, unregistered, or mismatched
 values are rejected without changing attention or authority.
@@ -250,22 +268,30 @@ notification activates prompt authority. After activation, only allowlisted,
 harness-mapped lifecycle events may update or clear attention, and they do not
 activate authority. Unknown and malformed reports do not change state; missing,
 unregistered, or mismatched native session IDs are rejected; ordinary
-registrations cannot rebind an ID; Claude/Copilot accept a different ID only
-after the exact committed reset and a session-authenticated report claiming
-the matching lifecycle event/source (`SessionStart(source=clear)` for Claude,
-`sessionStart(source=new)` for Copilot). Copilot's timestamp must be later than
-the committed reset boundary. The event/source fields do not authenticate the
+registrations cannot rebind an ID; Claude/Copilot accept a different ID only for an exact reset declared in the
+persisted harness definition. The sidecar opens a reservation before PTY
+dispatch, holds a matching lifecycle report that arrives before the write
+acknowledgement, and binds only after successful delivery. Copilot's timestamp
+must be later than reservation creation. Copilot currently declares only bare
+`/clear` and `/new`; prompt-bearing forms and `/reset` remain outside the
+accepted scope in ADR 0040 and issue #326. The event/source fields do not authenticate the
 root process; verify and document that any same-session process with the
 inherited token can spoof a rebind after the recorded reset. For Claude, record
 that a delayed prior `SessionStart(source=clear)` may be indistinguishable from
 the current reset because its payload has no timestamp.
-Rebinding advances the conversation epoch once, clears the old prompt tuple
-under the record-wide source rule, preserves the launch generation, and makes
-reports from the previous ID stale. Startup, resume, fork, unrecorded reset,
-an out-of-order Copilot event, missing token, or revoked generation cannot
-rebind. Claude's untimestamped lifecycle event cannot prove reset order; record
-that a delayed prior clear report may be accepted against a later recorded
-reset. Missing
+Exercise lifecycle registration both before and after PTY acknowledgement:
+before acknowledgement it must remain queued and cannot authorize attention;
+successful delivery binds it once, while failed or canceled delivery discards
+it and preserves the old state. A successful acknowledgement with no queued
+event retires the old ID and leaves one committed reservation for a later
+matching lifecycle report; exact-resume lookups cannot use the retired ID while
+waiting. Rebinding advances the conversation epoch once, clears the old prompt
+tuple under the record-wide source rule, preserves the launch generation, and
+makes reports from the previous ID stale. Startup, resume, fork, unrecorded
+reset, an out-of-order Copilot event, missing token, or revoked generation
+cannot rebind. Claude's untimestamped lifecycle event cannot prove reset order;
+record that a delayed prior clear report may be accepted against a later
+reservation. Missing
 or invalid tokens and revoked generations reject both identity registration and
 attention without state changes; registering an identity alone does not
 activate authority; and the first prompt reporter registers its ID before
