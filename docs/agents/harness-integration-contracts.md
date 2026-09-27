@@ -87,9 +87,13 @@ on both requests, and must stop if registration fails.
 This includes the first prompt notification, so it is registered before
 attention validation runs. Identity registration alone does not activate prompt
 authority. The sidecar accepts the binding only for the live session and its
-unrevoked launch generation; attention must then match the registered native
-ID, token, and generation. Missing, invalid, stale, unregistered, or mismatched
-values are rejected. A recognized prompt report makes
+unrevoked launch generation. The first successful registration binds that
+generation to one native ID; later registrations with a different ID are
+rejected and cannot replace or reset the binding. A different native ID
+requires a new OrkWorks live session with a fresh generation. Attention must
+then match the registered native ID, token, and generation. Missing, invalid,
+stale, unregistered, or mismatched values are rejected. A recognized prompt
+report makes
 the live session hook-authoritative for `observed_status`/`attention`,
 `needsUserInput`, `detectedQuestion`, and `suggestedOptions`. Metadata source
 is record-wide, so the sidecar cannot identify provenance for each prompt
@@ -105,9 +109,11 @@ under the record-wide source rule above, and restores Peon/terminal fallback.
 Silence alone does not prove hook loss. For Claude, the recognized prompt notifications are
 `permission_prompt`, `elicitation_dialog`, and `elicitation_url_dialog`. After
 authority activates, `UserPromptSubmit` marks work and clears older waits, and
-`PostToolUse` after success may clear a permission wait. Claude `Stop` is not a
-completion signal: a different configured Stop hook can block stopping, so
-OrkWorks must not report `idle` or clear a wait from that event. `idle_prompt`
+Generic successful `PostToolUse` must not clear a permission wait: its
+`tool_use_id` cannot be matched to `PermissionRequest`, which has no such ID.
+Claude `Stop` is not a completion signal: a different configured Stop hook can
+block stopping, so OrkWorks must not report `idle` or clear a wait from that
+event. `idle_prompt`
 may report `idle` after its documented delay but does not resolve an
 outstanding elicitation. Before authority activates, these turn events do not
 write attention. `PreToolUse` fires before the tool executes and before the
@@ -118,12 +124,19 @@ permission notification may be delayed about six seconds and has no event
 timestamp or turn ID; a late notification may reopen stale attention and
 cannot be reliably rejected as stale from documented fields alone. For
 Copilot, `permission_prompt` and `elicitation_dialog` are prompt events; after
-authority activates, `userPromptSubmitted` marks work. `agentStop` fires before
-the agent is necessarily done because a configured hook can block it and force
+authority activates, `userPromptSubmitted` marks work. Generic successful
+`postToolUse` must not clear a permission wait because its payload has no
+invocation ID to correlate with the prompt. `agentStop` fires before the agent
+is necessarily done because a configured hook can block it and force
 continuation, so it does not write idle or clear a wait. Before activation,
 `userPromptSubmitted` does not write attention.
 Background `agent_idle`, `agent_completed`, and shell-completion notifications
-do not mean the root session needs the user. Copilot event timestamps order
+do not mean the root session needs the user. The first two describe background
+subagents, and `agentStop` is not final when another hook forces continuation;
+the documented hooks provide no safe root-turn idle signal. After
+`userPromptSubmitted`, `working` may persist until another authorized status
+event or session end. Reliable root-idle reporting remains a separate
+signal-design gap. Copilot event timestamps order
 hook reports against one another and committed terminal input; older reports
 must be rejected, but raw uncommitted typing must not advance the input time
 used by this stale-report check. In both harnesses, a missing or inactive
