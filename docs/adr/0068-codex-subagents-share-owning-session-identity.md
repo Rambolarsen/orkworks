@@ -9,9 +9,12 @@
 
 Codex CLI subagents run inside the owning Codex session and use its native
 thread identity. They are not independent OrkWorks sessions and must not
-receive a separate OrkWorks session ID. OrkWorks' Codex hook bundle reports
-identity only for the root `SessionStart`; other events, including a
-`SubagentStart` event, cannot submit native identity.
+receive a separate OrkWorks session ID. Codex documents `session_id` as a
+common field on every command hook and says subagent hooks carry the parent
+session ID. This lets the hook bundle recover an initial ID from a later
+owned event if the root `SessionStart` report was missed. Only an authenticated
+root `SessionStart(source=clear)` may replace an existing ID after OrkWorks
+records the explicit reset.
 
 The reporter's PID is request data. The OrkWorks report token authenticates the
 session but is inherited by child processes, so it cannot prove which process
@@ -35,10 +38,10 @@ Never use `codex resume --last` as a fallback.
 ## Consequences
 
 Internal Codex subagents stay associated with their parent's OrkWorks session
-and cannot submit a separate native ID through the hook reporter. Explicit
-Codex `/clear` or `/new` can establish a replacement only after the user has
-recorded the matching reset in OrkWorks and the authenticated root hook reports
-`source: clear`.
+and their hooks report the parent's native thread ID. The first accepted ID is
+retained across all later reports. Explicit Codex `/clear` or `/new` can
+establish a replacement only after the user has recorded the matching reset in
+OrkWorks and the authenticated root hook reports `source: clear`.
 
 The reporting capability proves the OrkWorks session, not the operating-system
 process. Since child processes inherit it, this protocol does not distinguish
@@ -49,3 +52,17 @@ OrkWorks session ID.
 An ID whose rollout has not yet been saved, or whose local state is missing,
 cannot be resumed through OrkWorks until Codex saves it. A missing ID never
 resumes another conversation.
+
+## Amendment (2026-09-27)
+
+Codex's current Hooks contract defines `session_id` as a common field for every
+command hook and says subagent hooks use the parent session ID. The reporter
+may therefore use any installed OrkWorks Codex hook to provide the first
+accepted native ID, including when the `SessionStart` report was missed. The
+event and `source` metadata remain specific to `SessionStart`; identity
+replacement still requires an authenticated root `SessionStart(source=clear)`
+after the explicit reset was recorded. This preserves the identity and reset
+decision above while clarifying the initial-capture path.
+
+Evidence: [Codex Hooks common input fields](https://learn.chatgpt.com/docs/hooks#common-input-fields),
+verified 2026-09-27.

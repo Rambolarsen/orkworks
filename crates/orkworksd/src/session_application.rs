@@ -2717,7 +2717,11 @@ impl SessionApplication {
                 )
         };
 
-        if result == metadata::HarnessSessionMergeResult::Accepted {
+        if matches!(
+            result,
+            metadata::HarnessSessionMergeResult::Accepted
+                | metadata::HarnessSessionMergeResult::IgnoredUnchanged
+        ) {
             let updated_resume = {
                 let workspace = self.state.workspace.lock().unwrap();
                 workspace
@@ -6512,6 +6516,32 @@ mod tests {
                 .as_ref()
                 .and_then(|resume| resume.harness_session_id.as_deref()),
             Some("native-harness-report-live")
+        );
+
+        let result = SessionApplication::new(state.clone())
+            .report_harness_session(id, harness_session_report(id, 0.9))
+            .unwrap();
+        assert_eq!(
+            result,
+            metadata::HarnessSessionMergeResult::IgnoredUnchanged
+        );
+        let workspace = state.workspace.lock().unwrap();
+        let persisted_resume = workspace
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume
+            .unwrap();
+        assert_ne!(persisted_resume.last_seen_at.as_deref(), Some("before"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.last_seen_at.as_deref()),
+            persisted_resume.last_seen_at.as_deref()
         );
     }
 
