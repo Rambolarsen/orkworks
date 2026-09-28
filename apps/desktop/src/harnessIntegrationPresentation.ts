@@ -36,6 +36,7 @@ export function shouldShowInstalledConfirmation(
 // unconditionally alongside an otherwise-healthy status, so they must not
 // force the "needs-you" display state.
 const INFORMATIONAL_DIAGNOSTIC_CODES = new Set(["no_native_session_id", "no_deterministic_integration"]);
+const OUTDATED_HOOK_DIAGNOSTIC_CODES = new Set(["owned_fragment_drifted", "reporter_asset_drifted"]);
 
 export interface IntegrationDisplayState {
   appearance: "off" | "neutral" | "healthy" | "needs-you" | "error" | "in-progress";
@@ -163,6 +164,25 @@ export function deriveIntegrationDisplayState({
   }
 
   const current = status.status;
+  const outdatedHook = enabled
+    && current.registration === "drifted"
+    && current.ownership === "ork_works"
+    && current.diagnostics.length > 0
+    && current.diagnostics.every((item) =>
+      INFORMATIONAL_DIAGNOSTIC_CODES.has(item.code) || OUTDATED_HOOK_DIAGNOSTIC_CODES.has(item.code),
+    );
+
+  if (outdatedHook) {
+    const description = "Enabled, but the installed OrkWorks hook is out of date.";
+    return displayState(
+      "neutral",
+      "outdated hook",
+      description,
+      `${harnessName} is enabled, but its installed OrkWorks hook differs from the current version. Toggle off, then on to update it.`,
+      "neutral",
+    );
+  }
+
   const diagnostic = current.diagnostics.find((d) => !INFORMATIONAL_DIAGNOSTIC_CODES.has(d.code));
 
   if (diagnostic) {
