@@ -95,6 +95,43 @@ test("deriveIntegrationDisplayState returns healthy for enabled installed full c
   assert.match(display.tooltip, /Codex/);
 });
 
+for (const diagnosticCode of ["owned_fragment_drifted", "reporter_asset_drifted"]) {
+  test(`deriveIntegrationDisplayState identifies ${diagnosticCode} as an outdated enabled hook`, () => {
+    const display = deriveIntegrationDisplayState({
+      harnessName: "Codex",
+      enabled: true,
+      status: integrationStatus({
+        registration: "drifted",
+        diagnostics: [{ code: diagnosticCode, message: "Installed hook differs from current version." }],
+      }),
+    });
+
+    assert.equal(display.appearance, "needs-you");
+    assert.equal(display.label, "outdated hook");
+    assert.match(display.description, /out of date/i);
+    assert.match(display.tooltip, /toggle off.*on.*update/i);
+  });
+}
+
+test("deriveIntegrationDisplayState keeps actionable diagnostics ahead of outdated-hook status", () => {
+  const display = deriveIntegrationDisplayState({
+    harnessName: "Codex",
+    enabled: true,
+    status: integrationStatus({
+      registration: "drifted",
+      diagnostics: [
+        { code: "reporter_asset_drifted", message: "Installed hook differs from current version." },
+        { code: "needs_repair", message: "The hook needs repair." },
+      ],
+    }),
+  });
+
+  assert.equal(display.appearance, "needs-you");
+  assert.equal(display.label, "action required");
+  assert.equal(display.glyph, "warning");
+  assert.match(display.description, /needs repair/i);
+});
+
 test("deriveIntegrationDisplayState returns needs-you for enabled but absent integrations", () => {
   const display = deriveIntegrationDisplayState({
     harnessName: "Claude Code",
