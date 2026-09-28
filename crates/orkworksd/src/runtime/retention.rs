@@ -492,7 +492,7 @@ mod tests {
 
         // Between planning and applying, the user accepts a recommendation
         // citing the planned middle hit.
-        let cited = {
+        {
             let ws_guard = state.workspace.lock().unwrap();
             let ws = ws_guard.as_ref().unwrap();
             let middle = ws
@@ -528,7 +528,11 @@ mod tests {
     fn observation_spam_cleanup_apply_stops_on_workspace_identity_change() {
         // The plan is computed against one workspace instance. If the
         // workspace changes (switch/close) before a segment is applied, the
-        // stale plan must not write anything.
+        // stale plan must not write anything. The swap keeps the same root
+        // path, so the path check cannot catch it: only the fresh store
+        // instance's new identity can. Without the identity check, the
+        // fresh store's cache loads session-a from disk and the apply would
+        // actually remove the planned middle hit.
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let plans = {
@@ -550,30 +554,19 @@ mod tests {
                 .instance_id()
         });
 
-        // Swap the workspace: same root path is fine, but a fresh store
-        // instance means a different identity.
-        let identity = identity;
-        {
-            let ws_guard = state.workspace.lock().unwrap();
-            let ws = ws_guard.as_ref().unwrap();
-            record_spam_hits(&ws.workflow_observations, "session-z", 3);
-        }
-        // Replace with a new workspace over a new root so the store
-        // instance id differs.
-        let new_root = tempfile::tempdir().unwrap();
-        crate::test_support::swap_workspace(&state, new_root.path());
+        // Reopen the SAME root as a fresh store instance: same path, new
+        // identity, session-a reloadable from disk.
+        crate::test_support::swap_workspace(&state, dir.path());
 
         let removed = apply_plans(state.clone(), plans, &identity, chrono::Utc::now());
         assert!(removed.is_empty());
-        // The original workspace's segments were not trimmed: the fresh
-        // store over the old root still has all six records (both
-        // spam-hit sessions).
-        let old_root_store = crate::workflow_observations::WorkflowObservationStore::open(
+        // The original workspace's segments were not trimmed: a fresh
+        // store over the old root still has all three records.
+        let reloaded = crate::workflow_observations::WorkflowObservationStore::open(
             dir.path().join(".orkworks-test"),
         )
         .unwrap();
-        assert_eq!(old_root_store.workspace_observations().unwrap().len(), 6);
-        let _ = new_root;
+        assert_eq!(reloaded.workspace_observations().unwrap().len(), 3);
     }
 
     #[test]

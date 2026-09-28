@@ -695,6 +695,12 @@ impl WorkflowObservationStore {
     /// are never removed; they also count as kept predecessors for gap
     /// computation. Returns the removed observation IDs.
     ///
+    /// Reference composition of [`Self::plan_redundant_trims`] and
+    /// [`Self::apply_trim_session`]: production applies the split halves
+    /// through the retention loop (one workspace-lock re-check per
+    /// segment); this whole-workspace composition is kept as the
+    /// behavior-identical reference the trim tests run against.
+    ///
     /// This is the background counterpart to tombstone eviction: same risk
     /// class (bounded-storage removal of already-accepted history), applied
     /// to the scan-spam pattern where the Peon inference loop re-detects one
@@ -735,13 +741,15 @@ impl WorkflowObservationStore {
 
     /// Fast, IO-free planning half of the anti-spam trim: computes, per
     /// session, which Peon-origin occurrences would be dropped under the
-    /// trim rules. Never mutates state. Callers that must not hold the
+    /// trim rules. Never mutates state. `now` is accepted for call-site
+    /// symmetry with [`Self::apply_trim_session`] but the planning rules
+    /// are purely timestamp-relative. Callers that must not hold the
     /// workspace lock across disk writes use this with
     /// [`Self::apply_trim_session`]; [`Self::trim_redundant_occurrences`]
     /// composes both and applies the plan immediately.
     pub(crate) fn plan_redundant_trims(
         &self,
-        now: DateTime<Utc>,
+        _now: DateTime<Utc>,
         protected_ids: &HashSet<String>,
     ) -> Result<Vec<RedundantTrimPlan>, StoreError> {
         let inner = self.inner.lock().unwrap();
@@ -1005,8 +1013,9 @@ fn parse_time(iso: &str) -> Option<DateTime<Utc>> {
 /// The most recent kept predecessor is carried forward in a single pass
 /// rather than rescanning the prefix. Unparseable timestamps are never
 /// trimmed; an unparseable kept predecessor leaves the running timestamp
-/// unchanged (exact predecessor resolution across unparseable records is
-/// not attempted — those records only exist after manual corruption).
+/// unchanged, which resolves to the same earlier parseable record the
+/// backward scan would find (those records only exist after manual
+/// corruption).
 fn session_drop_indices(
     observations: &[StoredObservation],
     protected_ids: &HashSet<String>,
@@ -2910,6 +2919,7 @@ mod tests {
         assert_eq!(remaining.len(), 2);
         assert!(remaining.iter().any(|o| o.id == late));
     }
+
     #[test]
     fn apply_trim_session_never_removes_the_current_first_or_latest() {
         // A stale plan must not defeat the first-plus-latest guarantee: a
