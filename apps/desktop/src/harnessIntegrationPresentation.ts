@@ -175,7 +175,7 @@ export function deriveIntegrationDisplayState({
   if (outdatedHook) {
     const description = "Enabled, but the installed OrkWorks hook is out of date.";
     return displayState(
-      "neutral",
+      "needs-you",
       "outdated hook",
       description,
       `${harnessName} is enabled, but its installed OrkWorks hook differs from the current version. Toggle off, then on to update it.`,
