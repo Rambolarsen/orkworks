@@ -643,6 +643,12 @@ pub(crate) async fn report_harness_session_from_local_relay(
     use axum::http::header::AUTHORIZATION;
     use axum::http::HeaderValue;
 
+    // The relay may have awaited filesystem I/O since its initial token check.
+    // The shared handler also accepts unauthenticated reports, so reject a
+    // revoked capability before dispatching this queued report.
+    if !verify_workflow_report_token(&id, report_token) {
+        return axum::http::StatusCode::UNAUTHORIZED;
+    }
     let Ok(value) = HeaderValue::from_str(&format!("Bearer {report_token}")) else {
         return axum::http::StatusCode::UNAUTHORIZED;
     };
@@ -1845,6 +1851,38 @@ mod tests {
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
         let token = "mailbox-capability";
+        crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
+        crate::runtime::terminal_runtime::clear_workflow_report_token(id);
+        let revoked_token_status = report_harness_session_from_local_relay(
+            state.clone(),
+            id.to_string(),
+            HarnessSessionReportRequest {
+                harness_session_id: "revoked-native-id".into(),
+                source: "codex_hook".into(),
+                confidence: 0.98,
+                hook_fingerprint: Some("a".repeat(64)),
+                session_start_source: None,
+                session_start_event: None,
+            },
+            token,
+        )
+        .await;
+        assert_eq!(
+            revoked_token_status,
+            axum::http::StatusCode::UNAUTHORIZED,
+            "the local relay must reject a capability revoked during mailbox scanning"
+        );
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume
+            .is_none());
         crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
         let relay = crate::runtime::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
         let report_path = relay
