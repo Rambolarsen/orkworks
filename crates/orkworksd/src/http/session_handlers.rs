@@ -1958,9 +1958,48 @@ mod tests {
             "a stale runtime leaves reports untouched"
         );
 
+        #[cfg(unix)]
+        let (mailbox_path, moved_mailbox, outside_report, _outside_parent) = {
+            use std::os::unix::fs::symlink;
+
+            let outside_parent = tempfile::tempdir().unwrap();
+            let outside_directory = outside_parent.path().join("outside");
+            std::fs::create_dir(&outside_directory).unwrap();
+            let outside_report =
+                outside_directory.join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+            std::fs::write(
+                &outside_report,
+                serde_json::json!({
+                    "report": {
+                        "harnessSessionId": "outside-directory-id",
+                        "source": "codex_hook",
+                        "confidence": 0.98,
+                        "hookFingerprint": "a".repeat(64)
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let mailbox_path = relay.mailbox_path().to_path_buf();
+            let moved_mailbox = outside_parent.path().join("moved-mailbox");
+            std::fs::rename(&mailbox_path, &moved_mailbox).unwrap();
+            symlink(outside_directory, &mailbox_path).unwrap();
+            (mailbox_path, moved_mailbox, outside_report, outside_parent)
+        };
+
         let outcome = relay
             .consume_ready(state.clone(), id, token, runtime_generation)
             .await;
+
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&mailbox_path).unwrap();
+            std::fs::rename(&moved_mailbox, &mailbox_path).unwrap();
+            assert!(
+                outside_report.exists(),
+                "the relay must not consume or remove files from a replacement directory"
+            );
+        }
 
         assert_eq!(outcome.reports_accepted, 1);
         assert_eq!(outcome.reports_consumed, 5);

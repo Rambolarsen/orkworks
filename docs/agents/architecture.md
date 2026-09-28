@@ -322,7 +322,10 @@ hook process. The reporter publishes native-ID reports there when the mailbox
 is available, for cases where Codex's command network sandbox blocks loopback;
 it does not enable network access. The runtime validates reports through the
 existing in-memory report token, hook fingerprint and Codex identity-reset
-rules, then removes them. The report token is not written into mailbox files.
+rules, then removes them. It pins the mailbox directory and uses handle-bound
+operations on Unix; on Windows, a retained directory handle prevents path
+replacement while reports are processed. The report token is not written into
+mailbox files.
 Child processes inherit the mailbox capability, so it does not prove process
 identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 

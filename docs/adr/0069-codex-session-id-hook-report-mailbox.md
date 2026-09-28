@@ -36,6 +36,14 @@ handler. The existing recorded-reset and authenticated root
 accepted Codex ID. Invalid and stale reports are discarded. Mailbox files and
 the directory are removed with runtime cleanup.
 
+The sidecar pins the mailbox directory while the runtime is active. Unix
+scans, opens, and removals are relative to that directory handle and refuse
+symlinks; Windows holds a directory handle that allows report creation but
+prevents the mailbox path from being renamed or replaced. If Unix code detects
+that a child moved or replaced the mailbox path, cleanup preserves the
+replacement and may leave the displaced mailbox in the system temporary
+directory rather than removing a directory it cannot safely identify by path.
+
 The mailbox carries Codex native session identity only. It does not relay
 attention or other hook reports, add general localhost access, or change
 ordinary command networking. Failure to create a mailbox leaves the existing
