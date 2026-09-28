@@ -454,6 +454,75 @@ fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity()
 pub(crate) mod test_support {
     pub(crate) mod native_inference;
     use super::*;
+
+    /// A minimal `improve_workflow` recommendation whose evidence cites the
+    /// given observation IDs, for tests that exercise the interaction
+    /// between recommendations and workflow-observation retention.
+    pub(crate) fn test_recommendation_with_evidence_ids(
+        id: &str,
+        observation_ids: Vec<String>,
+        status: taskmaster::RecommendationStatus,
+    ) -> taskmaster::Recommendation {
+        let evidence: Vec<taskmaster::WorkflowObservationEvidence> = observation_ids
+            .iter()
+            .map(|observation_id| taskmaster::WorkflowObservationEvidence {
+                observation_id: observation_id.clone(),
+                sequence: 1,
+                session_id: "session-a".into(),
+                kind: crate::workflow_observations::ObservationKind::Obstacle,
+                description: "A recurring obstacle".into(),
+                evidence: "Test evidence".into(),
+                problem_area: None,
+                reported_impact: crate::workflow_observations::Impact::Medium,
+                source: crate::workflow_observations::ObservationSource::Peon,
+                confidence: 0.8,
+                observed_at: "2026-09-27T00:00:00Z".into(),
+            })
+            .collect();
+        taskmaster::Recommendation {
+            id: id.into(),
+            workspace_id: "workspace-1".into(),
+            chain_id: id.into(),
+            chain_depth: 0,
+            recommendation_type: taskmaster::RecommendationType::ImproveWorkflow,
+            status,
+            priority: crate::workflow_observations::Impact::Medium,
+            title: "Improve workflow".into(),
+            summary: "Make the obstacle easier to avoid".into(),
+            reason: vec!["It recurred".into()],
+            evidence,
+            repository_evidence: vec![],
+            knowledge_evidence: vec![],
+            source_session_ids: vec!["session-a".into()],
+            target_session_id: None,
+            suggested_harness_id: None,
+            suggested_model: None,
+            suggested_working_directory: None,
+            suggested_prompt: None,
+            confidence: taskmaster::RecommendationConfidence::Medium,
+            requires_approval: false,
+            dedupe_key: format!("improve_workflow:v1:test:{id}"),
+            created_at: "2026-09-27T00:00:00Z".into(),
+            updated_at: "2026-09-27T00:00:00Z".into(),
+            expires_at: None,
+            workflow_improvement: taskmaster::WorkflowImprovement {
+                proposed_improvement: "Remove the obstacle".into(),
+                target_surface: taskmaster::TargetSurface::Tooling,
+                observation_ids,
+                recurrence_count: 1,
+                affected_session_ids: vec!["session-a".into()],
+                impact: crate::workflow_observations::Impact::Medium,
+                expected_benefit: "Less repeated failure".into(),
+                supersedes_recommendation_id: None,
+                dismissal_watermark: None,
+            },
+            completion_packet: None,
+            rollup_member_ids: Vec::new(),
+            rollup_member_dedupe_keys: Vec::new(),
+            rollup_generation: None,
+            rolled_up_by: None,
+        }
+    }
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_HARNESS_COUNTER: AtomicU64 = AtomicU64::new(0);
