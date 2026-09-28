@@ -39,35 +39,87 @@ pub(crate) fn observation_spam_cleanup_once(
     state: Arc<AppState>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Vec<String> {
-    let ws_guard = state.workspace.lock().unwrap();
-    let Some(ws) = ws_guard.as_ref() else {
-        return Vec::new();
-    };
-    let protected = match protected_observation_ids(ws) {
-        Ok(protected) => protected,
-        Err(error) => {
-            tracing::warn!(%error, "observation spam cleanup: could not list recommendations; skipping pass");
+    // First critical section: workspace identity, protected set, and the
+    // IO-free trim plan. Everything past this point runs without holding
+    // the workspace mutex, so the disk-heavy segment rewrites cannot block
+    // session APIs, Peon evaluation, or workspace switching for their
+    // cumulative duration.
+    let (plans, identity) = {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
             return Vec::new();
-        }
+        };
+        let identity = (ws.path.clone(), ws.workflow_observations.instance_id());
+        let protected = match protected_observation_ids(ws) {
+            Ok(protected) => protected,
+            Err(error) => {
+                tracing::warn!(%error, "observation spam cleanup: could not list recommendations; skipping pass");
+                return Vec::new();
+            }
+        };
+        let plans = match ws
+            .workflow_observations
+            .plan_redundant_trims(now, &protected)
+        {
+            Ok(plans) => plans,
+            Err(error) => {
+                tracing::warn!(%error, "observation spam cleanup: trim planning failed");
+                return Vec::new();
+            }
+        };
+        (plans, identity)
     };
-    match ws
-        .workflow_observations
-        .trim_redundant_occurrences(now, &protected)
-    {
-        Ok(removed) => {
-            if !removed.is_empty() {
-                tracing::info!(
-                    removed = removed.len(),
-                    "observation spam cleanup: trimmed redundant occurrences"
+
+    let removed = apply_plans(state, plans, &identity, now);
+    if !removed.is_empty() {
+        tracing::info!(
+            removed = removed.len(),
+            "observation spam cleanup: trimmed redundant occurrences"
+        );
+    }
+    removed
+}
+
+/// Applies planned trims one session at a time. Each segment re-acquires
+/// the workspace lock, re-verifies that the workspace is still the one the
+/// plan was computed against (path + observation-store instance), applies
+/// that segment's rewrite, and releases the lock before moving on — so no
+/// single guard hold spans more than one segment's fsync, and a workspace
+/// switch mid-pass stops the stale plan instead of writing into a
+/// workspace this instance may no longer own.
+fn apply_plans(
+    state: Arc<AppState>,
+    plans: Vec<crate::workflow_observations::RedundantTrimPlan>,
+    identity: &(std::path::PathBuf, u64),
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    let mut removed: Vec<String> = Vec::new();
+    for plan in plans {
+        let ws_guard = state.workspace.lock().unwrap();
+        let Some(ws) = ws_guard.as_ref() else {
+            break;
+        };
+        if ws.path != identity.0 || ws.workflow_observations.instance_id() != identity.1 {
+            tracing::info!(
+                "observation spam cleanup: workspace changed mid-pass; discarding stale plan"
+            );
+            break;
+        }
+        match ws
+            .workflow_observations
+            .apply_trim_session(&plan.session_id, &plan.drop_ids, now)
+        {
+            Ok(ids) => removed.extend(ids),
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %plan.session_id,
+                    %error,
+                    "observation spam cleanup: segment rewrite failed; continuing with other sessions"
                 );
             }
-            removed
-        }
-        Err(error) => {
-            tracing::warn!(%error, "observation spam cleanup: trim pass failed");
-            Vec::new()
         }
     }
+    removed
 }
 
 pub(crate) fn delete_session_evidence(
@@ -399,6 +451,58 @@ mod tests {
         let remaining = ws.workflow_observations.workspace_observations().unwrap();
         assert_eq!(remaining.len(), 2);
         assert!(removed.contains(&cited_id));
+    }
+
+    #[test]
+    fn observation_spam_cleanup_apply_stops_on_workspace_identity_change() {
+        // The plan is computed against one workspace instance. If the
+        // workspace changes (switch/close) before a segment is applied, the
+        // stale plan must not write anything.
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let plans = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            record_spam_hits(&ws.workflow_observations, "session-a", 3);
+            ws.workflow_observations
+                .plan_redundant_trims(chrono::Utc::now(), &HashSet::new())
+                .unwrap()
+        };
+        assert_eq!(plans.len(), 1);
+
+        let identity = (dir.path().to_path_buf(), {
+            let ws_guard = state.workspace.lock().unwrap();
+            ws_guard
+                .as_ref()
+                .unwrap()
+                .workflow_observations
+                .instance_id()
+        });
+
+        // Swap the workspace: same root path is fine, but a fresh store
+        // instance means a different identity.
+        let identity = identity;
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            record_spam_hits(&ws.workflow_observations, "session-z", 3);
+        }
+        // Replace with a new workspace over a new root so the store
+        // instance id differs.
+        let new_root = tempfile::tempdir().unwrap();
+        crate::test_support::swap_workspace(&state, new_root.path());
+
+        let removed = apply_plans(state.clone(), plans, &identity, chrono::Utc::now());
+        assert!(removed.is_empty());
+        // The original workspace's segments were not trimmed: the fresh
+        // store over the old root still has all six records (both
+        // spam-hit sessions).
+        let old_root_store = crate::workflow_observations::WorkflowObservationStore::open(
+            dir.path().join(".orkworks-test"),
+        )
+        .unwrap();
+        assert_eq!(old_root_store.workspace_observations().unwrap().len(), 6);
+        let _ = new_root;
     }
 
     #[test]

@@ -219,6 +219,14 @@ pub(crate) enum RecordOutcome {
     },
 }
 
+/// One session's planned anti-spam trim, produced by
+/// `plan_redundant_trims` and applied by `apply_trim_session`.
+#[derive(Clone, Debug)]
+pub(crate) struct RedundantTrimPlan {
+    pub session_id: String,
+    pub drop_ids: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -697,14 +705,53 @@ impl WorkflowObservationStore {
         now: DateTime<Utc>,
         protected_ids: &HashSet<String>,
     ) -> Result<Vec<String>, StoreError> {
-        let mut inner = self.inner.lock().unwrap();
+        let plans = self.plan_redundant_trims(now, protected_ids)?;
+        let mut removed: Vec<String> = Vec::new();
+        for plan in plans {
+            match self.apply_trim_session(&plan.session_id, &plan.drop_ids, now) {
+                Ok(ids) => removed.extend(ids),
+                Err(error) => {
+                    // One unusable segment must not strand the rest of the
+                    // workspace; its in-memory cache stays consistent with
+                    // its unchanged on-disk segment.
+                    tracing::warn!(
+                        session_id = %plan.session_id,
+                        %error,
+                        "observation spam trim: segment rewrite failed; continuing with other sessions"
+                    );
+                }
+            }
+        }
+
+        // Idempotency entries for removed occurrences are deliberately
+        // retained: the trimmed records carry tombstones, so a same-key
+        // same-payload retry within the 15-minute window still returns the
+        // Duplicate identity of the trimmed occurrence. This matches the
+        // restart path, where `open` rebuilds those entries from the
+        // tombstones, and avoids an accept-then-retrim churn cycle.
+
+        Ok(removed)
+    }
+
+    /// Fast, IO-free planning half of the anti-spam trim: computes, per
+    /// session, which Peon-origin occurrences would be dropped under the
+    /// trim rules. Never mutates state. Callers that must not hold the
+    /// workspace lock across disk writes use this with
+    /// [`Self::apply_trim_session`]; [`Self::trim_redundant_occurrences`]
+    /// composes both and applies the plan immediately.
+    pub(crate) fn plan_redundant_trims(
+        &self,
+        now: DateTime<Utc>,
+        protected_ids: &HashSet<String>,
+    ) -> Result<Vec<RedundantTrimPlan>, StoreError> {
+        let inner = self.inner.lock().unwrap();
         if inner.degraded {
             return Ok(Vec::new());
         }
         let spam_cutoff = chrono::Duration::seconds(SPAM_WINDOW_SECS);
-        let mut removed: Vec<String> = Vec::new();
+        let mut plans: Vec<RedundantTrimPlan> = Vec::new();
 
-        for (session_id, cache) in inner.session_cache.iter_mut() {
+        for (session_id, cache) in inner.session_cache.iter() {
             if cache.observations.len() < 2 {
                 continue;
             }
@@ -772,73 +819,99 @@ impl WorkflowObservationStore {
                 continue;
             }
 
-            let mut tombs: Vec<Tombstone> = cache
-                .tombstones
-                .iter()
-                .cloned()
-                .filter(|t| within_window(now, &t.accepted_at))
-                .collect();
-            for index in &drop_indices {
-                let evicted = &cache.observations[*index];
-                maybe_tombstone(&mut tombs, evicted.clone(), now);
-            }
-            if tombs.len() > MAX_TOMBSTONES {
-                tombs.sort_by_key(|t| t.sequence);
-                let excess = tombs.len() - MAX_TOMBSTONES;
-                tombs.drain(0..excess);
-            }
-            tombs.sort_by_key(|t| t.sequence);
-
-            let kept: Vec<StoredObservation> = cache
-                .observations
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| !drop_indices.contains(index))
-                .map(|(_, stored)| stored.clone())
-                .collect();
-            let dropped: Vec<String> = cache
+            let drop_ids = cache
                 .observations
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| drop_indices.contains(index))
                 .map(|(_, stored)| stored.observation.id.clone())
                 .collect();
-
-            let mut buf: Vec<u8> = Vec::new();
-            for t in &tombs {
-                let json = serialize_tombstone_line(t).map_err(std::io::Error::other)?;
-                buf.extend_from_slice(json.as_bytes());
-                buf.push(b'\n');
-            }
-            for o in &kept {
-                let json = serialize_observation_line(o).map_err(std::io::Error::other)?;
-                buf.extend_from_slice(json.as_bytes());
-                buf.push(b'\n');
-            }
-            if let Err(error) = durable_write(&self.segment_path(session_id), &buf) {
-                // One unusable segment must not strand the rest of the
-                // workspace: this session's in-memory cache stays
-                // consistent with its unchanged on-disk segment, and the
-                // remaining sessions are still processed.
-                tracing::warn!(
-                    session_id = %session_id,
-                    %error,
-                    "observation spam trim: segment rewrite failed; continuing with other sessions"
-                );
-                continue;
-            }
-            cache.observations = kept;
-            cache.tombstones = tombs;
-            removed.extend(dropped);
+            plans.push(RedundantTrimPlan {
+                session_id: session_id.clone(),
+                drop_ids,
+            });
         }
 
-        // Idempotency entries for removed occurrences are deliberately
-        // retained: the trimmed records carry tombstones, so a same-key
-        // same-payload retry within the 15-minute window still returns the
-        // Duplicate identity of the trimmed occurrence. This matches the
-        // restart path, where `open` rebuilds those entries from the
-        // tombstones, and avoids an accept-then-retrim churn cycle.
+        Ok(plans)
+    }
 
+    /// Applying half of the anti-spam trim: rewrites one session segment,
+    /// removing exactly the planned observation IDs that are still present.
+    /// IDs that no longer exist (the segment changed since the plan) are
+    /// skipped; unknown session IDs are a no-op. Returns the actually
+    /// removed observation IDs.
+    pub(crate) fn apply_trim_session(
+        &self,
+        session_id: &str,
+        drop_ids: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Vec<String>, StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.degraded {
+            return Ok(Vec::new());
+        }
+        let Some(cache) = inner.session_cache.get_mut(session_id) else {
+            return Ok(Vec::new());
+        };
+        let drop_set: HashSet<&str> = drop_ids.iter().map(String::as_str).collect();
+        let drop_indices: HashSet<usize> = cache
+            .observations
+            .iter()
+            .enumerate()
+            .filter(|(_, stored)| drop_set.contains(stored.observation.id.as_str()))
+            .map(|(index, _)| index)
+            .collect();
+        if drop_indices.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tombs: Vec<Tombstone> = cache
+            .tombstones
+            .iter()
+            .cloned()
+            .filter(|t| within_window(now, &t.accepted_at))
+            .collect();
+        for index in &drop_indices {
+            let evicted = &cache.observations[*index];
+            maybe_tombstone(&mut tombs, evicted.clone(), now);
+        }
+        if tombs.len() > MAX_TOMBSTONES {
+            tombs.sort_by_key(|t| t.sequence);
+            let excess = tombs.len() - MAX_TOMBSTONES;
+            tombs.drain(0..excess);
+        }
+        tombs.sort_by_key(|t| t.sequence);
+
+        let kept: Vec<StoredObservation> = cache
+            .observations
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !drop_indices.contains(index))
+            .map(|(_, stored)| stored.clone())
+            .collect();
+
+        let mut buf: Vec<u8> = Vec::new();
+        for t in &tombs {
+            let json = serialize_tombstone_line(t).map_err(std::io::Error::other)?;
+            buf.extend_from_slice(json.as_bytes());
+            buf.push(b'\n');
+        }
+        for o in &kept {
+            let json = serialize_observation_line(o).map_err(std::io::Error::other)?;
+            buf.extend_from_slice(json.as_bytes());
+            buf.push(b'\n');
+        }
+        durable_write(&self.segment_path(session_id), &buf)?;
+
+        let removed: Vec<String> = cache
+            .observations
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| drop_indices.contains(index))
+            .map(|(_, stored)| stored.observation.id.clone())
+            .collect();
+        cache.observations = kept;
+        cache.tombstones = tombs;
         Ok(removed)
     }
 
@@ -2809,6 +2882,92 @@ mod tests {
         assert_eq!(remaining.len(), 2);
         assert!(remaining.iter().any(|o| o.id == late));
     }
+    #[test]
+    fn apply_trim_session_skips_planned_ids_missing_from_the_segment() {
+        // Records may change between planning and applying (new appends,
+        // restarts). Applying a stale plan must remove exactly the planned
+        // IDs still present and tolerate the rest without error; a second
+        // apply finds nothing left to remove and changes nothing.
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let _first = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let _middle = record_fingerprint_hit(&store, "session-1", t0, 10);
+        let _latest = record_fingerprint_hit(&store, "session-1", t0, 20);
+        let plan = store
+            .plan_redundant_trims(t0 + chrono::Duration::minutes(30), &HashSet::new())
+            .unwrap();
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].drop_ids.len(), 1);
+
+        let first_removed = store
+            .apply_trim_session(
+                &plan[0].session_id,
+                &plan[0].drop_ids,
+                t0 + chrono::Duration::minutes(30),
+            )
+            .unwrap();
+        assert_eq!(first_removed.len(), 1);
+
+        // Second apply: the planned ID is gone. Also include an ID that
+        // never existed.
+        let second_removed = store
+            .apply_trim_session(
+                &plan[0].session_id,
+                &[plan[0].drop_ids[0].clone(), "never-existed".to_string()],
+                t0 + chrono::Duration::minutes(30),
+            )
+            .unwrap();
+        assert!(second_removed.is_empty());
+        assert_eq!(store.workspace_observations().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn trim_redundant_occurrences_matches_plan_then_apply() {
+        // The workspace-wide API must behave exactly like the split
+        // plan/apply path the retention loop uses, so its tests remain
+        // valid for both.
+        let dir_a = tempfile::tempdir().unwrap();
+        let store = open_store(dir_a.path());
+        let t0 = Utc::now();
+        for offset in [0i64, 10, 20] {
+            record_fingerprint_hit(&store, "session-1", t0, offset);
+        }
+        let dir_b = tempfile::tempdir().unwrap();
+        let direct = open_store(dir_b.path());
+        let direct_t0 = Utc::now();
+        for offset in [0i64, 10, 20] {
+            record_fingerprint_hit(&direct, "session-2", direct_t0, offset);
+        }
+
+        let split_removed = {
+            let plan = store
+                .plan_redundant_trims(t0 + chrono::Duration::minutes(30), &HashSet::new())
+                .unwrap();
+            let mut removed = Vec::new();
+            for plan in plan {
+                removed.extend(
+                    store
+                        .apply_trim_session(
+                            &plan.session_id,
+                            &plan.drop_ids,
+                            t0 + chrono::Duration::minutes(30),
+                        )
+                        .unwrap(),
+                );
+            }
+            removed
+        };
+        let direct_removed = direct
+            .trim_redundant_occurrences(direct_t0 + chrono::Duration::minutes(30), &HashSet::new())
+            .unwrap();
+
+        assert_eq!(split_removed.len(), 1);
+        assert_eq!(direct_removed.len(), 1);
+        assert_eq!(store.workspace_observations().unwrap().len(), 2);
+        assert_eq!(direct.workspace_observations().unwrap().len(), 2);
+    }
+
     #[test]
     fn trim_treats_a_protected_hit_as_a_kept_predecessor_for_gap_computation() {
         let dir = tempfile::tempdir().unwrap();
