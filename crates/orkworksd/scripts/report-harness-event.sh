@@ -121,6 +121,22 @@ session_start_source=""
 session_start_event=""
 session_source=""
 codex_attention="no"
+attention_post_kind="not_applicable"
+attention_curl_exit=""
+attention_http_status=""
+harness_session_post_kind="skipped_no_harness_session_id"
+session_curl_exit=""
+session_http_status=""
+
+# Codex POST failures are captured in the redacted diagnostic below. Preserve
+# curl's previous `-sS` stderr behavior for the other harness reporters.
+reporter_curl() {
+  if [ "$session_source" = "codex_hook" ]; then
+    curl "$@" 2>/dev/null
+  else
+    curl "$@"
+  fi
+}
 
 case "$marker" in
   *:claude-code)
@@ -193,9 +209,13 @@ if source == "codex_hook":
         payload["hookFingerprint"] = fingerprint
 print(json.dumps(payload))
 ' "$status" "$observed_at" "$reported_cwd" "$session_source" "$event" "$hook_fingerprint")"
-  curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
+  attention_post_kind="posted"
+  attention_curl_exit=0
+  attention_http_status=$(reporter_curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
-    -d "$attention_payload" >/dev/null || true
+    -d "$attention_payload" --output /dev/null --write-out '%{http_code}') || attention_curl_exit=$?
+elif [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; then
+  attention_post_kind="skipped_missing_environment"
 fi
 
 if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ]; then
@@ -213,8 +233,62 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
   if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
     session_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\n"
   fi
-  printf '%b' "$session_curl_config" |
-    curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
+  harness_session_post_kind="posted"
+  session_curl_exit=0
+  session_http_status=$(printf '%b' "$session_curl_config" |
+    reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
       -H "Content-Type: application/json" \
-      -d "$session_payload" >/dev/null || true
+      -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
+elif [ "$session_source" = "codex_hook" ]; then
+  if [ -z "$harness_session_id" ]; then
+    harness_session_post_kind="skipped_no_harness_session_id"
+  else
+    harness_session_post_kind="skipped_missing_environment"
+  fi
+fi
+
+# Keep one private, redacted Codex reporter trace for local diagnosis. Never
+# include session IDs, tokens, payloads, response bodies, or request URLs.
+if [ "$session_source" = "codex_hook" ]; then
+  diagnostic_path="${HOME:-}/.orkworks/hook-scripts/report-harness-event-diagnostic.json"
+  diagnostic_dir=$(dirname "$diagnostic_path")
+  if [ -n "${HOME:-}" ] && mkdir -p "$diagnostic_dir" 2>/dev/null; then
+    (umask 077
+      python3 -c '
+import json, os, pathlib, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+def post_result(kind, curl_exit, http_status):
+    if kind == "posted":
+        return {"curlExit": int(curl_exit), "httpStatus": http_status}
+    return {"result": kind}
+
+record = {
+    "event": sys.argv[2],
+    "harnessSessionIdParsed": sys.argv[3] == "yes",
+    "orkworksSessionIdPresent": sys.argv[4] == "yes",
+    "portPresent": sys.argv[5] == "yes",
+    "reportTokenPresent": sys.argv[6] == "yes",
+    "attentionPost": post_result(sys.argv[7], sys.argv[8], sys.argv[9]),
+    "harnessSessionPost": post_result(sys.argv[10], sys.argv[11], sys.argv[12]),
+}
+fd, temporary = tempfile.mkstemp(prefix=".report-harness-event-", dir=path.parent)
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
+        json.dump(record, output, separators=(",", ":"))
+        output.write("\n")
+    os.replace(temporary, path)
+except Exception:
+    try:
+        os.unlink(temporary)
+    except OSError:
+        pass
+' "$diagnostic_path" "$event" \
+        "$([ -n "$harness_session_id" ] && printf yes || printf no)" \
+        "$([ -n "${ORKWORKS_SESSION_ID:-}" ] && printf yes || printf no)" \
+        "$([ -n "${ORKWORKS_PORT:-}" ] && printf yes || printf no)" \
+        "$([ -n "${ORKWORKS_REPORT_TOKEN:-}" ] && printf yes || printf no)" \
+        "$attention_post_kind" "$attention_curl_exit" "$attention_http_status" \
+        "$harness_session_post_kind" "$session_curl_exit" "$session_http_status" ) >/dev/null 2>&1 || true
+  fi
 fi

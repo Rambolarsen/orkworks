@@ -84,3 +84,6 @@ jobs:
 
       - name: Test OpenCode session reporter
         run: node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs
+
+      - name: Test POSIX harness reporter diagnostics
+        run: bash crates/orkworksd/scripts/report-harness-event.test.sh

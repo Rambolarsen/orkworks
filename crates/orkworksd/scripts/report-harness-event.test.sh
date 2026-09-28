@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+reporter="$script_dir/report-harness-event.sh"
+temp_dir="$(mktemp -d)"
+real_python3="$(command -v python3)"
+trap 'rm -rf "$temp_dir"' EXIT
+
+mkdir -p "$temp_dir/bin" "$temp_dir/home"
+cat > "$temp_dir/bin/curl" <<'CURL'
+#!/usr/bin/env bash
+set -euo pipefail
+output_path=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--output" ] && [ $# -ge 2 ]; then
+    output_path="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+if [ -n "${TEST_RESPONSE_BODY:-}" ] && [ "$output_path" != "/dev/null" ]; then
+  printf '%s' "$TEST_RESPONSE_BODY"
+fi
+printf '%s' "${TEST_HTTP_STATUS:-204}"
+if [ "${TEST_CURL_EXIT:-0}" -ne 0 ]; then
+  printf '%s\n' "${TEST_CURL_STDERR:-curl fixture failure}" >&2
+fi
+exit "${TEST_CURL_EXIT:-0}"
+CURL
+chmod +x "$temp_dir/bin/curl"
+cat > "$temp_dir/bin/python3" <<'PYTHON'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "${PYTHON3_CALLS_FILE:-}" ]; then
+  printf 'call\n' >> "$PYTHON3_CALLS_FILE"
+fi
+exec "$REAL_PYTHON3" "$@"
+PYTHON
+chmod +x "$temp_dir/bin/python3"
+
+run_reporter() {
+  local reporter_harness="${2:-codex}"
+  env PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
+    ORKWORKS_SESSION_ID='orkworks-session-secret' \
+    ORKWORKS_PORT='4567' \
+    ORKWORKS_REPORT_TOKEN='report-token-secret' \
+    attention_curl_exit=73 \
+    session_curl_exit=74 \
+    PYTHON3_CALLS_FILE="$temp_dir/python3-calls" \
+    REAL_PYTHON3="$real_python3" \
+    TEST_RESPONSE_BODY='response-body-secret' \
+    TEST_CURL_STDERR='curl fixture failure' \
+    TEST_HTTP_STATUS="${TEST_HTTP_STATUS:-204}" \
+    TEST_CURL_EXIT="${TEST_CURL_EXIT:-0}" \
+    bash "$reporter" --marker "orkworks:harness-integration:$reporter_harness" --event "$1"
+}
+
+diagnostic_file="$temp_dir/home/.orkworks/hook-scripts/report-harness-event-diagnostic.json"
+
+printf '%s' '{"session_id":"codex-session-secret","source":"startup"}' |
+  run_reporter SessionStart
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record == {
+    "event": "SessionStart",
+    "harnessSessionIdParsed": True,
+    "orkworksSessionIdPresent": True,
+    "portPresent": True,
+    "reportTokenPresent": True,
+    "attentionPost": {"result": "not_applicable"},
+    "harnessSessionPost": {"curlExit": 0, "httpStatus": "204"},
+}, record
+serialized = json.dumps(record)
+for secret in ("codex-session-secret", "orkworks-session-secret", "report-token-secret", "response-body-secret"):
+    assert secret not in serialized
+PY
+
+: > "$temp_dir/python3-calls"
+printf '%s' '{"session_id":"codex-session-secret"}' |
+  run_reporter UserPromptSubmit
+python_calls="$(wc -l < "$temp_dir/python3-calls")"
+if [ "$python_calls" -ne 4 ]; then
+  printf 'Expected 4 Python startups for a Codex turn hook, got %s\n' "$python_calls" >&2
+  exit 1
+fi
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record["attentionPost"] == {"curlExit": 0, "httpStatus": "204"}, record
+assert record["harnessSessionPost"] == {"curlExit": 0, "httpStatus": "204"}, record
+PY
+
+TEST_HTTP_STATUS=403 TEST_CURL_EXIT=0 \
+  printf '%s' '{"session_id":"codex-session-secret"}' |
+  TEST_HTTP_STATUS=403 TEST_CURL_EXIT=0 run_reporter UserPromptSubmit
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record["event"] == "UserPromptSubmit", record
+assert record["harnessSessionIdParsed"] is True, record
+assert record["attentionPost"] == {"curlExit": 0, "httpStatus": "403"}, record
+assert record["harnessSessionPost"] == {"curlExit": 0, "httpStatus": "403"}, record
+PY
+
+TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 \
+  printf '%s' '{"session_id":"codex-session-secret"}' |
+  TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter UserPromptSubmit
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record["event"] == "UserPromptSubmit", record
+assert record["attentionPost"] == {"curlExit": 7, "httpStatus": "000"}, record
+assert record["harnessSessionPost"] == {"curlExit": 7, "httpStatus": "000"}, record
+PY
+
+printf '%s' '{"event":"SessionStart","session_id":17}' |
+  run_reporter SessionStart
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record["event"] == "SessionStart"
+assert record["harnessSessionIdParsed"] is False
+assert record["harnessSessionPost"] == {"result": "skipped_no_harness_session_id"}
+PY
+
+printf '%s' '{"session_id":"codex-session-secret"}' |
+  env -u ORKWORKS_SESSION_ID -u ORKWORKS_PORT -u ORKWORKS_REPORT_TOKEN \
+    PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" REAL_PYTHON3="$real_python3" \
+    bash "$reporter" --marker 'orkworks:harness-integration:codex' --event Stop
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record["harnessSessionIdParsed"] is True, record
+assert record["orkworksSessionIdPresent"] is False, record
+assert record["portPresent"] is False, record
+assert record["reportTokenPresent"] is False, record
+assert record["attentionPost"] == {"result": "skipped_missing_environment"}, record
+assert record["harnessSessionPost"] == {"result": "skipped_missing_environment"}, record
+PY
+
+codex_stderr="$(printf '%s' '{"session_id":"codex-session-secret"}' |
+  TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter UserPromptSubmit codex 2>&1)"
+if [ -n "$codex_stderr" ]; then
+  printf 'Codex curl errors should be captured by the redacted diagnostic, got: %s\n' "$codex_stderr" >&2
+  exit 1
+fi
+
+expected_errors="$(printf 'curl fixture failure\ncurl fixture failure')"
+claude_stderr="$(printf '%s' '{"session_id":"claude-session-secret"}' |
+  TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter Notification claude-code 2>&1)"
+if [ "$claude_stderr" != "$expected_errors" ]; then
+  printf 'Claude curl errors should remain visible, got: %s\n' "$claude_stderr" >&2
+  exit 1
+fi
+
+copilot_stderr="$(printf '%s' '{"sessionId":"copilot-session-secret"}' |
+  TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter notification copilot 2>&1)"
+if [ "$copilot_stderr" != "$expected_errors" ]; then
+  printf 'Copilot curl errors should remain visible, got: %s\n' "$copilot_stderr" >&2
+  exit 1
+fi
+
+printf 'Codex hook reporter diagnostic tests passed.\n'

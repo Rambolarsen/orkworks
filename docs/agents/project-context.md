@@ -39,15 +39,17 @@ GitHub Actions has seven distinct workflow classes:
   `release` environment; nightly GitHub writes use a separate CI-only token.
 - `.github/workflows/pr-ci.yml` validates pull requests targeting `main`.
   Its path-routed Rust job also runs the OpenCode session reporter's Node tests
-  using the Node version pinned in `.nvmrc`.
+  using the Node version pinned in `.nvmrc`, plus the POSIX harness reporter's
+  Bash diagnostics test.
   Its focused Windows custom-inference job runs native fixture transport,
   approval-gated activation, and trust tests when Rust files, `rust-toolchain.toml`
   or the PR workflow change. It requires the targeted tests to be discoverable
   before running them, preventing a platform gate from producing an empty pass.
   Existing Linux job names and branch-protection requirements are unchanged.
 - `.github/workflows/main-ci.yml` unconditionally reruns the full desktop and
-  Rust test suites plus the OpenCode session reporter's Node tests against
-  `main`, without path filters, on every push to `main`, daily by schedule,
+  Rust test suites plus the OpenCode session reporter's Node tests and POSIX
+  harness reporter's Bash diagnostics test against `main`, without path
+  filters, on every push to `main`, daily by schedule,
   and by manual dispatch. This exists because
   `pr-ci.yml` only triggers on `pull_request` and never re-validates `main`
   after a merge, so a bad merge — including one that bypasses branch

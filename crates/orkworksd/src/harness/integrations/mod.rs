@@ -696,6 +696,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/scripts/report-harness-event.sh"
         );
+        let home = tempfile::tempdir().unwrap();
         let mut command = Command::new("bash");
         command
             .arg("-x")
@@ -706,6 +707,7 @@ mod tests {
             command.arg(arg);
         }
         let mut child = command
+            .env("HOME", home.path())
             .env("ORKWORKS_SESSION_ID", "test-session")
             .env("ORKWORKS_PORT", "1") // unroutable; curl fails fast, harmless (`|| true`)
             .stdin(Stdio::piped())

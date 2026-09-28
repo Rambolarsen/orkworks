@@ -63,6 +63,7 @@ fn run_reporter_for_event(
         .arg("--hook-fingerprint")
         .arg(hook_fingerprint)
         .env("PATH", path)
+        .env("HOME", dir.path())
         .env("ORKWORKS_SESSION_ID", "test-session")
         .env("ORKWORKS_PORT", "1")
         .stdin(Stdio::piped())
@@ -78,6 +79,10 @@ fn run_reporter_for_event(
         .unwrap();
     let status = child.wait().unwrap();
     assert!(status.success(), "reporter script exited non-zero");
+    let diagnostic = dir
+        .path()
+        .join(".orkworks/hook-scripts/report-harness-event-diagnostic.json");
+    assert!(diagnostic.is_file(), "reporter diagnostic was not written");
 
     let captured = fs::read_to_string(&capture).ok()?;
     Some(serde_json::from_str(&captured).unwrap_or_else(|e| {
