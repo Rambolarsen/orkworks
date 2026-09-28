@@ -105,10 +105,26 @@ fn apply_plans(
             );
             break;
         }
-        match ws
-            .workflow_observations
-            .apply_trim_session(&plan.session_id, &plan.drop_ids, now)
-        {
+        // The protected set is revalidated under this segment's lock: a
+        // recommendation accepted after the plan was made is not caught by
+        // the workspace-identity check, but its citations must still win
+        // over the stale plan.
+        let protected = match protected_observation_ids(ws) {
+            Ok(protected) => protected,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "observation spam cleanup: could not revalidate protected set; skipping segment"
+                );
+                continue;
+            }
+        };
+        match ws.workflow_observations.apply_trim_session(
+            &plan.session_id,
+            &plan.drop_ids,
+            &protected,
+            now,
+        ) {
             Ok(ids) => removed.extend(ids),
             Err(error) => {
                 tracing::warn!(
@@ -451,6 +467,61 @@ mod tests {
         let remaining = ws.workflow_observations.workspace_observations().unwrap();
         assert_eq!(remaining.len(), 2);
         assert!(removed.contains(&cited_id));
+    }
+
+    #[test]
+    fn observation_spam_cleanup_apply_respects_newly_accepted_citations() {
+        // A recommendation accepted after planning (before this session's
+        // plan is applied) is not caught by the workspace-identity check.
+        // The apply must revalidate the protected set per segment so the
+        // newly cited observation survives.
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let (plans, identity) = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            record_spam_hits(&ws.workflow_observations, "session-a", 3);
+            let identity = (ws.path.clone(), ws.workflow_observations.instance_id());
+            let plans = ws
+                .workflow_observations
+                .plan_redundant_trims(chrono::Utc::now(), &HashSet::new())
+                .unwrap();
+            (plans, identity)
+        };
+        assert_eq!(plans.len(), 1);
+
+        // Between planning and applying, the user accepts a recommendation
+        // citing the planned middle hit.
+        let cited = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let middle = ws
+                .workflow_observations
+                .session_observations("session-a")
+                .unwrap()[1]
+                .id
+                .clone();
+            ws.recommendation_store
+                .put(&test_recommendation_with_evidence_ids(
+                    "rec-accepted",
+                    vec![middle],
+                    crate::taskmaster::RecommendationStatus::Accepted,
+                ))
+                .unwrap();
+        };
+
+        let removed = apply_plans(state.clone(), plans, &identity, chrono::Utc::now());
+        assert!(removed.is_empty());
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(
+            ws.workflow_observations
+                .session_observations("session-a")
+                .unwrap()
+                .len(),
+            3
+        );
     }
 
     #[test]

@@ -708,7 +708,7 @@ impl WorkflowObservationStore {
         let plans = self.plan_redundant_trims(now, protected_ids)?;
         let mut removed: Vec<String> = Vec::new();
         for plan in plans {
-            match self.apply_trim_session(&plan.session_id, &plan.drop_ids, now) {
+            match self.apply_trim_session(&plan.session_id, &plan.drop_ids, protected_ids, now) {
                 Ok(ids) => removed.extend(ids),
                 Err(error) => {
                     // One unusable segment must not strand the rest of the
@@ -752,73 +752,11 @@ impl WorkflowObservationStore {
         let mut plans: Vec<RedundantTrimPlan> = Vec::new();
 
         for (session_id, cache) in inner.session_cache.iter() {
-            if cache.observations.len() < 2 {
-                continue;
-            }
-            // Fingerprint -> list of indices into `cache.observations`, in
-            // sequence order. Sequence order is the append order, so
-            // "previous kept hit" below is well-defined. Only Peon-origin
-            // records participate: agent reports are deliberate durable
-            // evidence and are never trimmed, and they stay invisible to the
-            // Peon spam grouping.
-            let mut by_fingerprint: HashMap<&str, Vec<usize>> = HashMap::new();
-            for (index, stored) in cache.observations.iter().enumerate() {
-                if stored.observation.source != ObservationSource::Peon {
-                    continue;
-                }
-                by_fingerprint
-                    .entry(stored.observation.fingerprint.as_str())
-                    .or_default()
-                    .push(index);
-            }
-
-            let mut drop_indices: HashSet<usize> = HashSet::new();
-            for indices in by_fingerprint.values() {
-                if indices.len() < 2 {
-                    continue;
-                }
-                for position in 0..indices.len() {
-                    let stored = &cache.observations[indices[position]];
-                    let observation = &stored.observation;
-                    if protected_ids.contains(&observation.id) {
-                        continue;
-                    }
-                    let is_latest = position == indices.len() - 1;
-                    if is_latest {
-                        continue;
-                    }
-                    let prev_kept_at = indices[..position].iter().rev().find_map(|prev_index| {
-                        let prev = &cache.observations[*prev_index].observation;
-                        if drop_indices.contains(prev_index) {
-                            return None;
-                        }
-                        // The most recent non-dropped predecessor is a kept
-                        // hit whether or not the caller protected it: gap
-                        // computation counts protected survivors.
-                        parse_time(prev.observed_at.as_str())
-                    });
-                    // The first occurrence of a fingerprint always survives.
-                    let Some(prev_at) = prev_kept_at else {
-                        continue;
-                    };
-                    let Some(observed_at) = parse_time(observation.observed_at.as_str()) else {
-                        // Unparseable timestamps are never trimmed.
-                        continue;
-                    };
-                    let gap = observed_at.signed_duration_since(prev_at);
-                    // A wall-clock step backward can make the gap negative;
-                    // that is not scan spam, so only nonnegative gaps are
-                    // eligible for the cutoff.
-                    if gap >= chrono::Duration::zero() && gap <= spam_cutoff {
-                        drop_indices.insert(indices[position]);
-                    }
-                }
-            }
-
+            let drop_indices =
+                session_drop_indices(&cache.observations, protected_ids, spam_cutoff);
             if drop_indices.is_empty() {
                 continue;
             }
-
             let drop_ids = cache
                 .observations
                 .iter()
@@ -835,30 +773,38 @@ impl WorkflowObservationStore {
         Ok(plans)
     }
 
-    /// Applying half of the anti-spam trim: rewrites one session segment,
-    /// removing exactly the planned observation IDs that are still present.
-    /// IDs that no longer exist (the segment changed since the plan) are
+    /// Applying half of the anti-spam trim: rewrites one session segment.
+    /// The trim decision is recomputed against the segment's CURRENT state
+    /// (records may have changed since the plan was made) and intersected
+    /// with `drop_ids`, so a stale plan can never remove an occurrence the
+    /// current rules would keep — the first-plus-latest guarantee and the
+    /// protected set always win over the plan. IDs that no longer exist are
     /// skipped; unknown session IDs are a no-op. Returns the actually
     /// removed observation IDs.
     pub(crate) fn apply_trim_session(
         &self,
         session_id: &str,
         drop_ids: &[String],
+        protected_ids: &HashSet<String>,
         now: DateTime<Utc>,
     ) -> Result<Vec<String>, StoreError> {
         let mut inner = self.inner.lock().unwrap();
         if inner.degraded {
             return Ok(Vec::new());
         }
+        let spam_cutoff = chrono::Duration::seconds(SPAM_WINDOW_SECS);
         let Some(cache) = inner.session_cache.get_mut(session_id) else {
             return Ok(Vec::new());
         };
-        let drop_set: HashSet<&str> = drop_ids.iter().map(String::as_str).collect();
+        let planned: HashSet<&str> = drop_ids.iter().map(String::as_str).collect();
+        let recomputed = session_drop_indices(&cache.observations, protected_ids, spam_cutoff);
         let drop_indices: HashSet<usize> = cache
             .observations
             .iter()
             .enumerate()
-            .filter(|(_, stored)| drop_set.contains(stored.observation.id.as_str()))
+            .filter(|(index, stored)| {
+                recomputed.contains(index) && planned.contains(stored.observation.id.as_str())
+            })
             .map(|(index, _)| index)
             .collect();
         if drop_indices.is_empty() {
@@ -1046,6 +992,88 @@ fn parse_time(iso: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(iso)
         .ok()
         .map(|dt| dt.with_timezone(&Utc))
+}
+
+/// Computes which indices into `observations` (already in sequence order)
+/// the anti-spam trim drops: non-latest Peon-origin occurrences that
+/// arrived at or within `spam_cutoff` after the previous kept hit of the
+/// same fingerprint in the same session. Each fingerprint's first and
+/// latest occurrence always survive; protected IDs are never dropped and
+/// count as kept predecessors for gap computation; a nonnegative gap is
+/// required so a backward wall-clock step cannot read as spam.
+///
+/// The most recent kept predecessor is carried forward in a single pass
+/// rather than rescanning the prefix. Unparseable timestamps are never
+/// trimmed; an unparseable kept predecessor leaves the running timestamp
+/// unchanged (exact predecessor resolution across unparseable records is
+/// not attempted — those records only exist after manual corruption).
+fn session_drop_indices(
+    observations: &[StoredObservation],
+    protected_ids: &HashSet<String>,
+    spam_cutoff: chrono::Duration,
+) -> HashSet<usize> {
+    if observations.len() < 2 {
+        return HashSet::new();
+    }
+    // Fingerprint -> list of indices into `observations`, in sequence
+    // order. Only Peon-origin records participate: agent reports are
+    // deliberate durable evidence and are never trimmed, and they stay
+    // invisible to the Peon spam grouping.
+    let mut by_fingerprint: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (index, stored) in observations.iter().enumerate() {
+        if stored.observation.source != ObservationSource::Peon {
+            continue;
+        }
+        by_fingerprint
+            .entry(stored.observation.fingerprint.as_str())
+            .or_default()
+            .push(index);
+    }
+
+    let mut drop_indices: HashSet<usize> = HashSet::new();
+    for indices in by_fingerprint.values() {
+        if indices.len() < 2 {
+            continue;
+        }
+        // Observed_at of the most recent kept hit (dropped candidates do
+        // not update it; protected and kept occurrences do).
+        let mut last_kept_at: Option<DateTime<Utc>> = None;
+        for (position, &index) in indices.iter().enumerate() {
+            let observation = &observations[index].observation;
+            if protected_ids.contains(&observation.id) {
+                if let Some(kept_at) = parse_time(observation.observed_at.as_str()) {
+                    last_kept_at = Some(kept_at);
+                }
+                continue;
+            }
+            let is_latest = position == indices.len() - 1;
+            if is_latest {
+                if let Some(kept_at) = parse_time(observation.observed_at.as_str()) {
+                    last_kept_at = Some(kept_at);
+                }
+                continue;
+            }
+            let Some(observed_at) = parse_time(observation.observed_at.as_str()) else {
+                // Unparseable timestamps are never trimmed.
+                continue;
+            };
+            // The first occurrence of a fingerprint always survives.
+            let Some(prev_at) = last_kept_at else {
+                last_kept_at = Some(observed_at);
+                continue;
+            };
+            let gap = observed_at.signed_duration_since(prev_at);
+            // A wall-clock step backward can make the gap negative; that
+            // is not scan spam, so only nonnegative gaps are eligible for
+            // the cutoff.
+            if gap >= chrono::Duration::zero() && gap <= spam_cutoff {
+                drop_indices.insert(index);
+            } else {
+                last_kept_at = Some(observed_at);
+            }
+        }
+    }
+    drop_indices
 }
 
 /// Like `within_window` but over the shorter `RATE_LIMIT_WINDOW_SECS` used to
@@ -2883,6 +2911,33 @@ mod tests {
         assert!(remaining.iter().any(|o| o.id == late));
     }
     #[test]
+    fn apply_trim_session_never_removes_the_current_first_or_latest() {
+        // A stale plan must not defeat the first-plus-latest guarantee: a
+        // planned ID that is now the fingerprint's first retained
+        // occurrence (e.g. the original first was evicted by bounded
+        // trimming after the plan was made) must be revalidated away.
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let t0 = Utc::now();
+        let first = record_fingerprint_hit(&store, "session-1", t0, 0);
+        let middle = record_fingerprint_hit(&store, "session-1", t0, 10);
+        let _latest = record_fingerprint_hit(&store, "session-1", t0, 20);
+
+        let removed = store
+            .apply_trim_session(
+                "session-1",
+                &[first.clone(), middle.clone()],
+                &HashSet::new(),
+                t0 + chrono::Duration::minutes(30),
+            )
+            .unwrap();
+        assert_eq!(removed.len(), 1);
+        assert!(removed.contains(&middle));
+        assert!(!removed.contains(&first));
+        assert_eq!(store.workspace_observations().unwrap().len(), 2);
+    }
+
+    #[test]
     fn apply_trim_session_skips_planned_ids_missing_from_the_segment() {
         // Records may change between planning and applying (new appends,
         // restarts). Applying a stale plan must remove exactly the planned
@@ -2904,6 +2959,7 @@ mod tests {
             .apply_trim_session(
                 &plan[0].session_id,
                 &plan[0].drop_ids,
+                &HashSet::new(),
                 t0 + chrono::Duration::minutes(30),
             )
             .unwrap();
@@ -2915,6 +2971,7 @@ mod tests {
             .apply_trim_session(
                 &plan[0].session_id,
                 &[plan[0].drop_ids[0].clone(), "never-existed".to_string()],
+                &HashSet::new(),
                 t0 + chrono::Duration::minutes(30),
             )
             .unwrap();
@@ -2951,6 +3008,7 @@ mod tests {
                         .apply_trim_session(
                             &plan.session_id,
                             &plan.drop_ids,
+                            &HashSet::new(),
                             t0 + chrono::Duration::minutes(30),
                         )
                         .unwrap(),
