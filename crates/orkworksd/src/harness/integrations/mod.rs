@@ -825,6 +825,78 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn codex_identity_hook_spools_report_without_network_or_persisting_token() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let mailbox = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let curl_calls = bin.path().join("curl-calls");
+        let curl = bin.path().join("curl");
+        fs::write(
+            &curl,
+            format!("#!/bin/sh\nprintf called >> '{}'\n", curl_calls.display()),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&curl, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let script_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/scripts/report-harness-event.sh"
+        );
+        let mut child = Command::new("bash")
+            .arg(script_path)
+            .arg("--marker")
+            .arg("orkworks:harness-integration:v2:codex")
+            .arg("--event")
+            .arg("SessionStart")
+            .arg("--hook-fingerprint")
+            .arg("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.path().display()))
+            .env("ORKWORKS_SESSION_ID", "test-session")
+            .env("ORKWORKS_PORT", "1")
+            .env("ORKWORKS_REPORT_TOKEN", "report-secret")
+            .env("ORKWORKS_CODEX_SESSION_REPORT_DIR", mailbox.path())
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("spawn Codex hook reporter");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                br#"{"session_id":"thr_clear","hook_event_name":"SessionStart","source":"clear"}"#,
+            )
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+
+        let reports = fs::read_dir(mailbox.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .collect::<Vec<_>>();
+        assert_eq!(reports.len(), 1, "the hook must publish one report");
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(&reports[0]).unwrap()).unwrap();
+        assert_eq!(report["report"]["harnessSessionId"], "thr_clear");
+        assert_eq!(report["report"]["source"], "codex_hook");
+        assert_eq!(report["report"]["sessionStartSource"], "clear");
+        assert_eq!(report["report"]["sessionStartEvent"], "SessionStart");
+        assert_eq!(
+            report["report"]["hookFingerprint"],
+            "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        );
+        assert!(!report.to_string().contains("report-secret"));
+        assert!(
+            !curl_calls.exists(),
+            "identity reports must use the mailbox"
+        );
+    }
+
     #[test]
     fn report_harness_event_ps1_always_posts_generic_attention() {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
@@ -857,6 +929,70 @@ mod tests {
         assert!(!script.contains("codexProcessId"));
         assert!(!script.contains("Find-CodexProcessId"));
         assert!(script.contains("$Event -eq \"SessionStart\" -and $data"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn report_harness_event_ps1_spools_codex_identity_without_network_or_token() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let mailbox = tempfile::tempdir().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let curl_calls = temp.path().join("curl-calls");
+        let wrapper = temp.path().join("run-reporter.ps1");
+        let script_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts/report-harness-event.ps1");
+        std::fs::write(
+            &wrapper,
+            r#"function Invoke-RestMethod { Add-Content -Path $env:ORKWORKS_CURL_CALLS -Value called; throw 'unexpected HTTP' }
+& $env:ORKWORKS_REPORTER_SCRIPT -Marker 'orkworks:harness-integration:v2:codex' -Event 'SessionStart' -HookFingerprint 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1'"#,
+        )
+        .unwrap();
+        let mut child = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(wrapper)
+            .env("ORKWORKS_REPORTER_SCRIPT", script_path)
+            .env("ORKWORKS_CURL_CALLS", &curl_calls)
+            .env("ORKWORKS_SESSION_ID", "test-session")
+            .env("ORKWORKS_PORT", "1")
+            .env("ORKWORKS_REPORT_TOKEN", "report-secret")
+            .env("ORKWORKS_CODEX_SESSION_REPORT_DIR", mailbox.path())
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("spawn PowerShell hook reporter");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                br#"{"session_id":"thr_clear","hook_event_name":"SessionStart","source":"clear"}"#,
+            )
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        let reports = std::fs::read_dir(mailbox.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .collect::<Vec<_>>();
+        assert_eq!(reports.len(), 1);
+        let report: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&reports[0]).unwrap()).unwrap();
+        assert_eq!(report["report"]["harnessSessionId"], "thr_clear");
+        assert_eq!(report["report"]["sessionStartSource"], "clear");
+        assert!(!report.to_string().contains("report-secret"));
+        assert!(
+            !curl_calls.exists(),
+            "identity reports must use the mailbox"
+        );
     }
 
     #[test]
