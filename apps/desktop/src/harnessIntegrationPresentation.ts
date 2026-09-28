@@ -183,7 +183,10 @@ export function deriveIntegrationDisplayState({
     );
   }
 
-  const diagnostic = current.diagnostics.find((d) => !INFORMATIONAL_DIAGNOSTIC_CODES.has(d.code));
+  const diagnostic = current.diagnostics.find((d) =>
+    !INFORMATIONAL_DIAGNOSTIC_CODES.has(d.code)
+      && !(current.registration === "drifted" && OUTDATED_HOOK_DIAGNOSTIC_CODES.has(d.code)),
+  );
 
   if (diagnostic) {
     return displayState(
