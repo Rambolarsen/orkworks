@@ -128,6 +128,16 @@ harness_session_post_kind="skipped_no_harness_session_id"
 session_curl_exit=""
 session_http_status=""
 
+# Codex POST failures are captured in the redacted diagnostic below. Preserve
+# curl's previous `-sS` stderr behavior for the other harness reporters.
+reporter_curl() {
+  if [ "$session_source" = "codex_hook" ]; then
+    curl "$@" 2>/dev/null
+  else
+    curl "$@"
+  fi
+}
+
 case "$marker" in
   *:claude-code)
     # Single line delimited by the ASCII unit separator (0x1F), not two
@@ -201,9 +211,9 @@ print(json.dumps(payload))
 ' "$status" "$observed_at" "$reported_cwd" "$session_source" "$event" "$hook_fingerprint")"
   attention_post_kind="posted"
   attention_curl_exit=0
-  attention_http_status=$(curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
+  attention_http_status=$(reporter_curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
-    -d "$attention_payload" --output /dev/null --write-out '%{http_code}' 2>/dev/null) || attention_curl_exit=$?
+    -d "$attention_payload" --output /dev/null --write-out '%{http_code}') || attention_curl_exit=$?
 elif [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; then
   attention_post_kind="skipped_missing_environment"
 fi
@@ -226,9 +236,9 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
   harness_session_post_kind="posted"
   session_curl_exit=0
   session_http_status=$(printf '%b' "$session_curl_config" |
-    curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
+    reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
       -H "Content-Type: application/json" \
-      -d "$session_payload" --output /dev/null --write-out '%{http_code}' 2>/dev/null) || session_curl_exit=$?
+      -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
 elif [ "$session_source" = "codex_hook" ]; then
   if [ -z "$harness_session_id" ]; then
     harness_session_post_kind="skipped_no_harness_session_id"

@@ -24,6 +24,9 @@ if [ -n "${TEST_RESPONSE_BODY:-}" ] && [ "$output_path" != "/dev/null" ]; then
   printf '%s' "$TEST_RESPONSE_BODY"
 fi
 printf '%s' "${TEST_HTTP_STATUS:-204}"
+if [ "${TEST_CURL_EXIT:-0}" -ne 0 ]; then
+  printf '%s\n' "${TEST_CURL_STDERR:-curl fixture failure}" >&2
+fi
 exit "${TEST_CURL_EXIT:-0}"
 CURL
 chmod +x "$temp_dir/bin/curl"
@@ -38,6 +41,7 @@ PYTHON
 chmod +x "$temp_dir/bin/python3"
 
 run_reporter() {
+  local reporter_harness="${2:-codex}"
   env PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
     ORKWORKS_SESSION_ID='orkworks-session-secret' \
     ORKWORKS_PORT='4567' \
@@ -47,9 +51,10 @@ run_reporter() {
     PYTHON3_CALLS_FILE="$temp_dir/python3-calls" \
     REAL_PYTHON3="$real_python3" \
     TEST_RESPONSE_BODY='response-body-secret' \
+    TEST_CURL_STDERR='curl fixture failure' \
     TEST_HTTP_STATUS="${TEST_HTTP_STATUS:-204}" \
     TEST_CURL_EXIT="${TEST_CURL_EXIT:-0}" \
-    bash "$reporter" --marker 'orkworks:harness-integration:codex' --event "$1"
+    bash "$reporter" --marker "orkworks:harness-integration:$reporter_harness" --event "$1"
 }
 
 diagnostic_file="$temp_dir/home/.orkworks/hook-scripts/report-harness-event-diagnostic.json"
@@ -159,5 +164,27 @@ assert record["reportTokenPresent"] is False, record
 assert record["attentionPost"] == {"result": "skipped_missing_environment"}, record
 assert record["harnessSessionPost"] == {"result": "skipped_missing_environment"}, record
 PY
+
+codex_stderr="$(printf '%s' '{"session_id":"codex-session-secret"}' |
+  TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter UserPromptSubmit codex 2>&1)"
+if [ -n "$codex_stderr" ]; then
+  printf 'Codex curl errors should be captured by the redacted diagnostic, got: %s\n' "$codex_stderr" >&2
+  exit 1
+fi
+
+expected_errors="$(printf 'curl fixture failure\ncurl fixture failure')"
+claude_stderr="$(printf '%s' '{"session_id":"claude-session-secret"}' |
+  TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter Notification claude-code 2>&1)"
+if [ "$claude_stderr" != "$expected_errors" ]; then
+  printf 'Claude curl errors should remain visible, got: %s\n' "$claude_stderr" >&2
+  exit 1
+fi
+
+copilot_stderr="$(printf '%s' '{"sessionId":"copilot-session-secret"}' |
+  TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter notification copilot 2>&1)"
+if [ "$copilot_stderr" != "$expected_errors" ]; then
+  printf 'Copilot curl errors should remain visible, got: %s\n' "$copilot_stderr" >&2
+  exit 1
+fi
 
 printf 'Codex hook reporter diagnostic tests passed.\n'

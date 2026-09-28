@@ -47,6 +47,36 @@ has saved its rollout.
 Codex CLI subagents remain part of their parent OrkWorks session and do not
 appear as separate OrkWorks sessions.
 
+### Codex hook reports
+
+Codex hook trust and command network access are separate. Approving OrkWorks'
+hooks with `/hooks` allows them to run; it does not let their commands reach
+OrkWorks' local sidecar. If Codex's `workspace-write` network access is off,
+the hook cannot post the native session ID or attention state to `127.0.0.1`.
+
+For a loopback-only network proxy, add these settings to `~/.codex/config.toml`
+and preserve any other existing settings in the same tables:
+
+```toml
+[sandbox_workspace_write]
+network_access = true
+
+[features.network_proxy]
+enabled = true
+domains = { "127.0.0.1" = "allow" }
+```
+
+The allow rule is for the loopback host on any port; OrkWorks chooses its local
+sidecar port at runtime. Restart Codex after changing its configuration. See
+the [Codex configuration reference](https://developers.openai.com/codex/config-reference/)
+for the network proxy settings.
+
+On macOS and Linux, the latest OrkWorks Codex hook result is recorded at
+`~/.orkworks/hook-scripts/report-harness-event-diagnostic.json`. It records
+whether the native ID was parsed and the POST's curl exit code and HTTP status,
+without storing the ID, token, payload, or response body. The Windows reporter
+does not currently write this diagnostic.
+
 Use the arrow beside a tool to show or hide its details; collapsing keeps
 unsaved custom-path edits. If an enabled tool needs installation or repair,
 toggle it off and on, then confirm the integration update. Installation
