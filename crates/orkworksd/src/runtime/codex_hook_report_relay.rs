@@ -33,7 +33,7 @@ pub(crate) struct RelayOutcome {
 /// A private temporary directory whose path is passed only to one Codex
 /// runtime. Its handle and lifetime are tied to the PTY driver's lifetime.
 pub(crate) struct CodexHookReportRelay {
-    mailbox: Option<MailboxDirectory>,
+    mailbox: Option<Arc<MailboxDirectory>>,
     directory: Option<tempfile::TempDir>,
 }
 
@@ -44,7 +44,7 @@ impl CodexHookReportRelay {
             .tempdir()?;
         let mailbox = MailboxDirectory::open(directory.path())?;
         Ok(Self {
-            mailbox: Some(mailbox),
+            mailbox: Some(Arc::new(mailbox)),
             directory: Some(directory),
         })
     }
@@ -84,17 +84,36 @@ impl CodexHookReportRelay {
         }
 
         let mut outcome = RelayOutcome::default();
-        let mailbox = self
-            .mailbox
-            .as_ref()
-            .expect("Codex mailbox handle remains live");
-        let Ok(reports) = select_reports(mailbox, MAX_REPORTS_PER_PASS) else {
-            return outcome;
+        let mailbox = Arc::clone(
+            self.mailbox
+                .as_ref()
+                .expect("Codex mailbox handle remains live"),
+        );
+
+        // Directory scans and file reads/removals are blocking syscalls
+        // (openat/fdopendir/read/unlinkat); run them on the blocking pool
+        // rather than the async executor, matching this module's other
+        // filesystem work.
+        let scan_mailbox = Arc::clone(&mailbox);
+        let reports = match tokio::task::spawn_blocking(move || {
+            select_reports(&scan_mailbox, MAX_REPORTS_PER_PASS)
+        })
+        .await
+        {
+            Ok(Ok(reports)) => reports,
+            Ok(Err(_)) | Err(_) => return outcome,
         };
 
         for name in reports {
             outcome.reports_consumed += 1;
-            if let Some(report) = read_report(mailbox, &name) {
+            let read_mailbox = Arc::clone(&mailbox);
+            let read_name = name.clone();
+            let report =
+                tokio::task::spawn_blocking(move || read_report(&read_mailbox, &read_name))
+                    .await
+                    .ok()
+                    .flatten();
+            if let Some(report) = report {
                 let status = report_harness_session_from_local_relay(
                     state.clone(),
                     session_id.to_string(),
@@ -106,7 +125,9 @@ impl CodexHookReportRelay {
                     outcome.reports_accepted += 1;
                 }
             }
-            let _ = mailbox.remove(&name);
+            let remove_mailbox = Arc::clone(&mailbox);
+            let remove_name = name.clone();
+            let _ = tokio::task::spawn_blocking(move || remove_mailbox.remove(&remove_name)).await;
         }
 
         outcome
