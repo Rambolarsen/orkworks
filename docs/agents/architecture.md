@@ -153,8 +153,15 @@ the pre-context evaluator gate share that projection. Custom definitions report
 approval required, unavailable, or ready after current executable approval, including
 when they override a built-in ID. An explicit inference clear cannot fall back
 to the legacy native profile. The Recommendations picker preserves unavailable
-stored selections and uses static suggestions/free-text only for all providers;
-it never calls Peon's dynamic model-discovery endpoint. Peon discovery is unchanged.
+stored selections, shows provider-specific model suggestions, and allows
+manual IDs. Codex and Ollama can refresh live models only on an explicit user
+request; Claude Code uses its built-in static catalog. Taskmaster refresh uses
+the Taskmaster draft provider and Ollama URL, a separate Electron-authorized
+route, and the shared provider-discovery implementation where safe. It never
+calls Peon's HTTP discovery endpoint, performs inference, applies settings, or
+changes Peon state. Custom Taskmaster providers keep static suggestions and
+manual entry; Taskmaster does not execute custom model-list commands. Peon's
+existing model refresh remains unchanged.
 Native readiness permits presentation/discovery metadata overrides but rejects
 launch or Peon execution overrides unless an explicit custom inference command is
 declared and trusted. Ollama does not advertise reasoning-effort support; a stored
@@ -162,6 +169,15 @@ unsupported effort is not ready for evaluation. Settings reject unsupported effo
 instead of silently discarding it. Model and effort string bounds are shared with
 the custom transport: nonempty, at most 256 UTF-8 bytes, no control characters,
 and no model trimming or prefix rewriting.
+Taskmaster status exposes the latest analysis outcome per workspace separately
+from provider/configuration availability. Recommendations shows queued or
+running state and the latest result; Settings includes provider/model,
+timestamps, and useful failure details. Outcomes persist across restarts, with
+an abandoned running attempt reported as interrupted. A later success clears or
+supersedes the workspace's prior analysis error; knowledge-update errors remain
+separate. Background checks that do not dispatch inference do not replace the
+last outcome. The status does not enumerate or coordinate other OrkWorks
+instances.
 `taskmaster/runtime/inference.rs` now captures an immutable identity containing
 the approved definition/path, trust generation, runtime generation, selected
 settings and workspace key. Its short synchronous action guard re-resolves and
