@@ -25,11 +25,14 @@ TUI enables mouse tracking.
 ## Decision
 
 Keep xterm's wheel accumulator call in both paths so its partial-scroll state
-stays synchronized, but do not use a zero accumulator result to discard a
-nonzero wheel event. Preserve the explicit `deltaY === 0` guard and the
-application-owned wheel handler behavior. Carry this minimal change as a pnpm
-patch against the exact xterm version; verify both mouse-tracking and
-non-mouse-tracking alternate-buffer input before removing the patch after an
+stays synchronized. In the mouse-report path, preserve the accumulator gate
+while the active buffer has scrollback and bypass it only when that buffer has
+no scrollback. In the passive path, which only runs when the active buffer has
+no scrollback, send one direction sequence for every nonzero vertical event.
+Preserve the explicit `deltaY === 0` guard and the application-owned wheel
+handler behavior. Carry this minimal change as a pnpm patch against the exact
+xterm version; verify small and large input with and without TUI mouse tracking,
+and verify normal-buffer mouse dampening before removing the patch after an
 upstream release provides equivalent behavior.
 
 ## Consequences
@@ -38,7 +41,8 @@ upstream release provides equivalent behavior.
   either mouse-tracking mode.
 - The app sends one direction event per nonzero wheel event in alternate-buffer
   mode; the magnitude remains unused, matching xterm's existing behavior.
+- Mouse-report events in a normal buffer with scrollback continue to honor
+  xterm's accumulated line threshold.
 - OrkWorks owns a small version-specific patch and must revalidate it when
   upgrading xterm.js.
-- Normal-buffer scrollback without mouse tracking and zero-delta events keep
-  their existing behavior.
+- Zero-delta events keep their existing behavior.

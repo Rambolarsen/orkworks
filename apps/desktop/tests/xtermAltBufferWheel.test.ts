@@ -14,6 +14,12 @@ const xtermCommonJs = readFileSync(
   new URL("../node_modules/@xterm/xterm/lib/xterm.js", import.meta.url),
   "utf8",
 );
+const unconditionalMouseWheelGate = /(?:coreMouseService\.consumeWheelEvent\([^;]*\)===0|0===\w+\.coreMouseService\.consumeWheelEvent\()/;
+
+test("the shipped-bundle wheel-gate check recognizes both equality orders", () => {
+  assert.match("if(e.coreMouseService.consumeWheelEvent(ev)===0)return!1", unconditionalMouseWheelGate);
+  assert.match("if(0===e.coreMouseService.consumeWheelEvent(ev))return!1", unconditionalMouseWheelGate);
+});
 
 test("xterm forwards nonzero wheel events through mouse tracking in the alternate buffer", () => {
   const mouseReportPath = xtermSource.match(/case 'wheel':([\s\S]*?)\n\s*default:/)?.[1] ?? "";
@@ -23,6 +29,7 @@ test("xterm forwards nonzero wheel events through mouse tracking in the alternat
   assert.match(mouseReportPath, /if\s*\(\s*deltaY\s*===\s*0\s*\)/);
   assert.match(mouseReportPath, /action = deltaY < 0 \? CoreMouseAction\.UP : CoreMouseAction\.DOWN;/);
   assert.match(mouseReportPath, /but = CoreMouseButton\.WHEEL;/);
+  assert.match(mouseReportPath, /if\s*\(\s*lines\s*===\s*0\s*&&\s*self\.buffer\.hasScrollback\s*\)/);
 });
 
 test("xterm forwards nonzero passive wheel events in the alternate buffer", () => {
@@ -44,11 +51,12 @@ for (const [format, bundle] of [["ESM", xtermEsm], ["CommonJS", xtermCommonJs]] 
     const passiveWheelPath = passiveStart < 0 ? "" : bundle.slice(passiveStart, passiveStart + 500);
 
     assert.match(mouseReportPath, /consumeWheelEvent\(/);
-    assert.doesNotMatch(mouseReportPath, /consumeWheelEvent\([^;]*\)===0/);
+    assert.doesNotMatch(mouseReportPath, unconditionalMouseWheelGate);
     assert.match(mouseReportPath, /deltaY/);
+    assert.match(mouseReportPath, /hasScrollback/);
     assert.match(mouseReportPath, /(?:deltaY|[a-z])===0|0===(?:[a-z])/);
     assert.match(passiveWheelPath, /consumeWheelEvent\(/);
-    assert.doesNotMatch(passiveWheelPath, /consumeWheelEvent\([^;]*\)===0/);
+    assert.doesNotMatch(passiveWheelPath, unconditionalMouseWheelGate);
     assert.match(passiveWheelPath, /(?:deltaY|[a-z])===0|0===(?:[a-z])/);
     assert.match(passiveWheelPath, /triggerDataEvent\(/);
   });
