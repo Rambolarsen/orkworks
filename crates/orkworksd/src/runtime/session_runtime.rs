@@ -772,6 +772,29 @@ pub(crate) async fn handle_runtime_exit(
     true
 }
 
+async fn drain_codex_reports_before_exit(
+    state: Arc<AppState>,
+    relay: Option<&super::codex_hook_report_relay::CodexHookReportRelay>,
+    session_id: &str,
+    report_token: &str,
+    runtime_generation: u64,
+) -> super::codex_hook_report_relay::RelayOutcome {
+    let Some(relay) = relay else {
+        return super::codex_hook_report_relay::RelayOutcome::default();
+    };
+    let outcome = relay
+        .consume_ready(state, session_id, report_token, runtime_generation)
+        .await;
+    if outcome.reports_consumed > 0 {
+        tracing::debug!(
+            reports_consumed = outcome.reports_consumed,
+            reports_accepted = outcome.reports_accepted,
+            "drained Codex hook reports before PTY exit"
+        );
+    }
+    outcome
+}
+
 /// Aborts a child that crossed the PTY-spawn boundary but could not finish
 /// startup. A delete may already have moved this same generation to `ending`;
 /// in that case the normal terminal finalizer owns its durable completion.
@@ -1317,6 +1340,14 @@ pub(crate) async fn start_session_runtime(
                             }
                         }
                         DriverEvent::Exited => {
+                            let _ = drain_codex_reports_before_exit(
+                                driver_state.clone(),
+                                codex_hook_report_relay.as_ref(),
+                                &driver_id,
+                                &report_token_for_driver,
+                                run_generation,
+                            )
+                            .await;
                             let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
                                 final_persist_batches
@@ -1357,6 +1388,14 @@ pub(crate) async fn start_session_runtime(
                             break;
                         }
                         DriverEvent::WaitError(error) => {
+                            let _ = drain_codex_reports_before_exit(
+                                driver_state.clone(),
+                                codex_hook_report_relay.as_ref(),
+                                &driver_id,
+                                &report_token_for_driver,
+                                run_generation,
+                            )
+                            .await;
                             let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
                                 final_persist_batches
@@ -1480,6 +1519,49 @@ mod tests {
         );
 
         state
+    }
+
+    #[tokio::test]
+    async fn exit_drain_consumes_a_queued_codex_report() {
+        let id = format!("codex-exit-drain-{}", uuid::Uuid::new_v4());
+        let state = test_state_with_runtime_session(&id);
+        let (generation, token) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&id).unwrap();
+            handle.info.harness = Some("codex".into());
+            handle.info.harness_id = Some("codex".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            (
+                handle.runtime.run_generation(),
+                "exit-drain-token".to_string(),
+            )
+        };
+        crate::runtime::terminal_runtime::set_workflow_report_token(&id, token.clone());
+        let relay = crate::runtime::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+        let report_path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(
+            &report_path,
+            serde_json::json!({
+                "report": {
+                    "harnessSessionId": "queued-before-exit",
+                    "source": "codex_hook",
+                    "confidence": 0.98,
+                    "hookFingerprint": "a".repeat(64)
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let outcome =
+            drain_codex_reports_before_exit(state, Some(&relay), &id, &token, generation).await;
+
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+        assert_eq!(outcome.reports_consumed, 1);
+        assert!(!report_path.exists(), "exit must drain the queued report");
     }
 
     #[test]

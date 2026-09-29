@@ -15,6 +15,8 @@ use std::sync::Arc;
 
 const MAX_REPORT_BYTES: u64 = 4 * 1024;
 const MAX_REPORTS_PER_PASS: usize = 32;
+const MAX_MAILBOX_ENTRIES_PER_PASS: usize = 1024;
+const STALE_PENDING_REPORT_AGE: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,11 +88,9 @@ impl CodexHookReportRelay {
             .mailbox
             .as_ref()
             .expect("Codex mailbox handle remains live");
-        let Ok(mut reports) = mailbox.entries(MAX_REPORTS_PER_PASS) else {
+        let Ok(reports) = select_reports(mailbox, MAX_REPORTS_PER_PASS) else {
             return outcome;
         };
-        reports.retain(|name| is_report_filename(name));
-        reports.sort();
 
         for name in reports {
             outcome.reports_consumed += 1;
@@ -144,6 +144,48 @@ fn is_report_filename(name: &OsStr) -> bool {
         return false;
     };
     uuid::Uuid::parse_str(stem).is_ok_and(|id| id.simple().to_string() == stem)
+}
+
+fn select_reports(
+    mailbox: &MailboxDirectory,
+    report_limit: usize,
+) -> io::Result<Vec<std::ffi::OsString>> {
+    let entries = mailbox.entries(MAX_MAILBOX_ENTRIES_PER_PASS)?;
+    let mut reports = Vec::with_capacity(report_limit);
+    for name in entries {
+        if is_report_filename(&name) {
+            reports.push(name);
+            if reports.len() >= report_limit {
+                break;
+            }
+        } else {
+            discard_stale_pending_report(mailbox, &name);
+        }
+    }
+    reports.sort();
+    Ok(reports)
+}
+
+fn discard_stale_pending_report(mailbox: &MailboxDirectory, name: &OsStr) {
+    if !name
+        .to_str()
+        .is_some_and(|name| name.starts_with(".pending-"))
+    {
+        return;
+    }
+    let Ok(file) = mailbox.open_report(name) else {
+        return;
+    };
+    let stale = file
+        .metadata()
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| std::time::SystemTime::now().duration_since(modified).ok())
+        .is_some_and(|age| age >= STALE_PENDING_REPORT_AGE);
+    drop(file);
+    if stale {
+        let _ = mailbox.remove(name);
+    }
 }
 
 fn read_report(mailbox: &MailboxDirectory, name: &OsStr) -> Option<HarnessSessionReportRequest> {
@@ -453,6 +495,49 @@ mod tests {
             original_survived,
             "a moved mailbox is left for manual cleanup"
         );
+    }
+
+    #[test]
+    fn pending_files_do_not_consume_the_report_limit() {
+        let relay = super::CodexHookReportRelay::new().unwrap();
+        for sequence in 0..(super::MAX_REPORTS_PER_PASS * 2) {
+            std::fs::write(
+                relay.mailbox_path().join(format!(".pending-{sequence}")),
+                b"partial",
+            )
+            .unwrap();
+        }
+        let mut report_name = None;
+        for _ in 0..128 {
+            let candidate = format!("{}.json", uuid::Uuid::new_v4().simple());
+            std::fs::write(
+                relay.mailbox_path().join(&candidate),
+                br#"{"report":{"harnessSessionId":"native-id","source":"codex_hook","confidence":0.98,"hookFingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#,
+            )
+            .unwrap();
+            let first_entries = relay
+                .mailbox
+                .as_ref()
+                .unwrap()
+                .entries(super::MAX_REPORTS_PER_PASS)
+                .unwrap();
+            if !first_entries.contains(&std::ffi::OsString::from(&candidate)) {
+                report_name = Some(candidate);
+                break;
+            }
+            std::fs::remove_file(relay.mailbox_path().join(candidate)).unwrap();
+        }
+        let report_name = report_name.expect("place a completed report beyond the first scan page");
+
+        let report_names =
+            super::select_reports(relay.mailbox.as_ref().unwrap(), super::MAX_REPORTS_PER_PASS)
+                .unwrap();
+        assert_eq!(
+            report_names.len(),
+            1,
+            "abandoned staging files must not occupy the completed-report limit"
+        );
+        assert_eq!(report_names[0], std::ffi::OsString::from(report_name));
     }
 
     #[cfg(windows)]
