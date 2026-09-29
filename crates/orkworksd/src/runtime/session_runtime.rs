@@ -772,6 +772,29 @@ pub(crate) async fn handle_runtime_exit(
     true
 }
 
+async fn drain_codex_reports_before_exit(
+    state: Arc<AppState>,
+    relay: Option<&super::codex_hook_report_relay::CodexHookReportRelay>,
+    session_id: &str,
+    report_token: &str,
+    runtime_generation: u64,
+) -> super::codex_hook_report_relay::RelayOutcome {
+    let Some(relay) = relay else {
+        return super::codex_hook_report_relay::RelayOutcome::default();
+    };
+    let outcome = relay
+        .consume_ready(state, session_id, report_token, runtime_generation)
+        .await;
+    if outcome.reports_consumed > 0 {
+        tracing::debug!(
+            reports_consumed = outcome.reports_consumed,
+            reports_accepted = outcome.reports_accepted,
+            "drained Codex hook reports before PTY exit"
+        );
+    }
+    outcome
+}
+
 /// Aborts a child that crossed the PTY-spawn boundary but could not finish
 /// startup. A delete may already have moved this same generation to `ending`;
 /// in that case the normal terminal finalizer owns its durable completion.
@@ -836,12 +859,18 @@ pub(crate) async fn start_session_runtime(
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
 ) -> Result<(), String> {
-    let run_generation = state
+    let (run_generation, is_codex_session) = state
         .sessions
         .lock()
         .unwrap()
         .get(&id)
-        .map(|handle| handle.runtime.run_generation())
+        .map(|handle| {
+            (
+                handle.runtime.run_generation(),
+                handle.info.harness.as_deref() == Some("codex")
+                    || handle.info.harness_id.as_deref() == Some("codex"),
+            )
+        })
         .ok_or_else(|| "session runtime handle is not installed".to_string())?;
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&mut control_rx, initial_size).await;
@@ -887,6 +916,23 @@ pub(crate) async fn start_session_runtime(
         );
         "failed to generate a secure workflow-observation reporting capability".to_string()
     })?;
+    let codex_hook_report_relay = if is_codex_session {
+        match super::codex_hook_report_relay::CodexHookReportRelay::new() {
+            Ok(relay) => {
+                cmd.env("ORKWORKS_CODEX_SESSION_REPORT_DIR", relay.mailbox_path());
+                Some(relay)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "could not create temporary Codex hook report mailbox; retaining HTTP reporting fallback"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
     for (key, value) in session_env_overrides(&id, port, &report_token) {
         cmd.env(&key, &value);
     }
@@ -1020,6 +1066,10 @@ pub(crate) async fn start_session_runtime(
     let driver_output_tx = output_tx.clone();
     let driver_killer = killer.clone();
     tokio::spawn(async move {
+        let codex_hook_report_relay = codex_hook_report_relay;
+        let report_token_for_driver = report_token.clone();
+        let mut codex_report_interval =
+            tokio::time::interval(std::time::Duration::from_millis(100));
         let mut writer = writer;
         let mut persist_buffer: Vec<u8> = Vec::new();
         let mut pending_utf8: Vec<u8> = Vec::new();
@@ -1062,6 +1112,37 @@ pub(crate) async fn start_session_runtime(
 
         loop {
             tokio::select! {
+                _ = codex_report_interval.tick(), if codex_hook_report_relay.is_some() => {
+                    let owns_live_runtime = driver_state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get(&driver_id)
+                        .is_some_and(|handle| {
+                            handle.runtime.run_generation() == run_generation
+                                && handle.info.lifecycle == "alive"
+                                && handle.info.lifecycle_phase == "active"
+                        });
+                    if owns_live_runtime {
+                        if let Some(relay) = codex_hook_report_relay.as_ref() {
+                        let outcome = relay
+                            .consume_ready(
+                                driver_state.clone(),
+                                &driver_id,
+                                &report_token_for_driver,
+                                run_generation,
+                            )
+                            .await;
+                        if outcome.reports_consumed > 0 {
+                            tracing::debug!(
+                                reports_consumed = outcome.reports_consumed,
+                                reports_accepted = outcome.reports_accepted,
+                                "processed Codex hook report mailbox"
+                            );
+                        }
+                        }
+                    }
+                }
                 kill_change = kill_rx.changed() => {
                     match kill_change {
                         Ok(()) if *kill_rx.borrow() => {
@@ -1259,6 +1340,14 @@ pub(crate) async fn start_session_runtime(
                             }
                         }
                         DriverEvent::Exited => {
+                            let _ = drain_codex_reports_before_exit(
+                                driver_state.clone(),
+                                codex_hook_report_relay.as_ref(),
+                                &driver_id,
+                                &report_token_for_driver,
+                                run_generation,
+                            )
+                            .await;
                             let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
                                 final_persist_batches
@@ -1299,6 +1388,14 @@ pub(crate) async fn start_session_runtime(
                             break;
                         }
                         DriverEvent::WaitError(error) => {
+                            let _ = drain_codex_reports_before_exit(
+                                driver_state.clone(),
+                                codex_hook_report_relay.as_ref(),
+                                &driver_id,
+                                &report_token_for_driver,
+                                run_generation,
+                            )
+                            .await;
                             let mut final_persist_batches = pending_persist_batches;
                             if !persist_buffer.is_empty() {
                                 final_persist_batches
@@ -1422,6 +1519,49 @@ mod tests {
         );
 
         state
+    }
+
+    #[tokio::test]
+    async fn exit_drain_consumes_a_queued_codex_report() {
+        let id = format!("codex-exit-drain-{}", uuid::Uuid::new_v4());
+        let state = test_state_with_runtime_session(&id);
+        let (generation, token) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&id).unwrap();
+            handle.info.harness = Some("codex".into());
+            handle.info.harness_id = Some("codex".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            (
+                handle.runtime.run_generation(),
+                "exit-drain-token".to_string(),
+            )
+        };
+        crate::runtime::terminal_runtime::set_workflow_report_token(&id, token.clone());
+        let relay = crate::runtime::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+        let report_path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(
+            &report_path,
+            serde_json::json!({
+                "report": {
+                    "harnessSessionId": "queued-before-exit",
+                    "source": "codex_hook",
+                    "confidence": 0.98,
+                    "hookFingerprint": "a".repeat(64)
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let outcome =
+            drain_codex_reports_before_exit(state, Some(&relay), &id, &token, generation).await;
+
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&id);
+        assert_eq!(outcome.reports_consumed, 1);
+        assert!(!report_path.exists(), "exit must drain the queued report");
     }
 
     #[test]

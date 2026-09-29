@@ -634,6 +634,31 @@ async fn report_harness_session_inner(
     }
 }
 
+pub(crate) async fn report_harness_session_from_local_relay(
+    state: Arc<AppState>,
+    id: String,
+    report: HarnessSessionReportRequest,
+    report_token: &str,
+) -> axum::http::StatusCode {
+    use axum::http::header::AUTHORIZATION;
+    use axum::http::HeaderValue;
+
+    // The relay may have awaited filesystem I/O since its initial token check.
+    // The shared handler also accepts unauthenticated reports, so reject a
+    // revoked capability before dispatching this queued report.
+    if !verify_workflow_report_token(&id, report_token) {
+        return axum::http::StatusCode::UNAUTHORIZED;
+    }
+    let Ok(value) = HeaderValue::from_str(&format!("Bearer {report_token}")) else {
+        return axum::http::StatusCode::UNAUTHORIZED;
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, value);
+    report_harness_session_inner(state, id, headers, report)
+        .await
+        .status()
+}
+
 fn should_schedule_codex_label_refresh(
     result: metadata::HarnessSessionMergeResult,
     label_source: metadata::LabelSource,
@@ -1793,6 +1818,214 @@ mod tests {
                 .and_then(|r| r.harness_session_id.as_deref()),
             Some("native-123"),
         );
+    }
+
+    #[tokio::test]
+    async fn codex_mailbox_report_uses_authenticated_harness_session_merge() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "mailbox-codex";
+        let mut session = test_session_metadata(
+            id,
+            "Codex mailbox",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "codex".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.info.harness = Some("codex".into());
+        handle.info.harness_id = Some("codex".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        let runtime_generation = handle.runtime.run_generation();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let token = "mailbox-capability";
+        crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
+        crate::runtime::terminal_runtime::clear_workflow_report_token(id);
+        let revoked_token_status = report_harness_session_from_local_relay(
+            state.clone(),
+            id.to_string(),
+            HarnessSessionReportRequest {
+                harness_session_id: "revoked-native-id".into(),
+                source: "codex_hook".into(),
+                confidence: 0.98,
+                hook_fingerprint: Some("a".repeat(64)),
+                session_start_source: None,
+                session_start_event: None,
+            },
+            token,
+        )
+        .await;
+        assert_eq!(
+            revoked_token_status,
+            axum::http::StatusCode::UNAUTHORIZED,
+            "the local relay must reject a capability revoked during mailbox scanning"
+        );
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume
+            .is_none());
+        crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
+        let relay = crate::runtime::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+        let report_path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(
+            &report_path,
+            serde_json::json!({
+                "report": {
+                    "harnessSessionId": "native-mailbox-123",
+                    "source": "codex_hook",
+                    "confidence": 0.98,
+                    "hookFingerprint": "a".repeat(64)
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let malformed_path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(&malformed_path, b"not json").unwrap();
+        let oversized_path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(&oversized_path, vec![b'x'; 4097]).unwrap();
+        let wrong_source_path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(
+            &wrong_source_path,
+            serde_json::json!({
+                "report": {
+                    "harnessSessionId": "forged-native-id",
+                    "source": "claude_hook",
+                    "confidence": 0.98,
+                    "hookFingerprint": "a".repeat(64)
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let missing_fingerprint_path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(
+            &missing_fingerprint_path,
+            serde_json::json!({
+                "report": {
+                    "harnessSessionId": "forged-native-id",
+                    "source": "codex_hook",
+                    "confidence": 0.98
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let unauthorized = relay
+            .consume_ready(state.clone(), id, "wrong-capability", runtime_generation)
+            .await;
+        assert_eq!(unauthorized.reports_accepted, 0);
+        assert!(
+            report_path.exists(),
+            "an unauthorized consumer leaves reports untouched"
+        );
+        let stale = relay
+            .consume_ready(state.clone(), id, token, runtime_generation + 1)
+            .await;
+        assert_eq!(stale.reports_consumed, 0);
+        assert!(
+            report_path.exists(),
+            "a stale runtime leaves reports untouched"
+        );
+
+        #[cfg(unix)]
+        let (mailbox_path, moved_mailbox, outside_report, _outside_parent) = {
+            use std::os::unix::fs::symlink;
+
+            let outside_parent = tempfile::tempdir().unwrap();
+            let outside_directory = outside_parent.path().join("outside");
+            std::fs::create_dir(&outside_directory).unwrap();
+            let outside_report =
+                outside_directory.join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+            std::fs::write(
+                &outside_report,
+                serde_json::json!({
+                    "report": {
+                        "harnessSessionId": "outside-directory-id",
+                        "source": "codex_hook",
+                        "confidence": 0.98,
+                        "hookFingerprint": "a".repeat(64)
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let mailbox_path = relay.mailbox_path().to_path_buf();
+            let moved_mailbox = outside_parent.path().join("moved-mailbox");
+            std::fs::rename(&mailbox_path, &moved_mailbox).unwrap();
+            symlink(outside_directory, &mailbox_path).unwrap();
+            (mailbox_path, moved_mailbox, outside_report, outside_parent)
+        };
+
+        let outcome = relay
+            .consume_ready(state.clone(), id, token, runtime_generation)
+            .await;
+
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&mailbox_path).unwrap();
+            std::fs::rename(&moved_mailbox, &mailbox_path).unwrap();
+            assert!(
+                outside_report.exists(),
+                "the relay must not consume or remove files from a replacement directory"
+            );
+        }
+
+        assert_eq!(outcome.reports_accepted, 1);
+        assert_eq!(outcome.reports_consumed, 5);
+        assert!(
+            !report_path.exists()
+                && !malformed_path.exists()
+                && !oversized_path.exists()
+                && !wrong_source_path.exists()
+                && !missing_fingerprint_path.exists(),
+            "each examined report is removed after one processing attempt"
+        );
+        let workspace = state.workspace.lock().unwrap();
+        let updated = workspace
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(
+            updated
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("native-mailbox-123")
+        );
+        crate::runtime::terminal_runtime::clear_workflow_report_token(id);
     }
 
     #[tokio::test]

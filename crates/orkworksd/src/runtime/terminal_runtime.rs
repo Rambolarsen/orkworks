@@ -893,6 +893,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && !key.starts_with("VSCODE_")
         && !key.starts_with("ELECTRON_")
         && key != "ORKWORKS_OPEN_PLAN_TOKEN"
+        && key != "ORKWORKS_CODEX_SESSION_REPORT_DIR"
 }
 
 #[cfg(unix)]
@@ -2727,6 +2728,9 @@ mod tests {
         assert!(!should_forward_terminal_env("VSCODE_INSPECTOR_OPTIONS"));
         assert!(!should_forward_terminal_env("VSCODE_PID"));
         assert!(!should_forward_terminal_env("ELECTRON_RUN_AS_NODE"));
+        assert!(!should_forward_terminal_env(
+            "ORKWORKS_CODEX_SESSION_REPORT_DIR"
+        ));
     }
 
     #[test]
