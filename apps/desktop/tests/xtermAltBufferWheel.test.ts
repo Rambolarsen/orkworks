@@ -46,8 +46,10 @@ for (const [format, bundle] of [["ESM", xtermEsm], ["CommonJS", xtermCommonJs]] 
     assert.match(mouseReportPath, /consumeWheelEvent\(/);
     assert.doesNotMatch(mouseReportPath, /consumeWheelEvent\([^;]*\)===0/);
     assert.match(mouseReportPath, /deltaY/);
+    assert.match(mouseReportPath, /(?:deltaY|[a-z])===0|0===(?:[a-z])/);
     assert.match(passiveWheelPath, /consumeWheelEvent\(/);
     assert.doesNotMatch(passiveWheelPath, /consumeWheelEvent\([^;]*\)===0/);
+    assert.match(passiveWheelPath, /(?:deltaY|[a-z])===0|0===(?:[a-z])/);
     assert.match(passiveWheelPath, /triggerDataEvent\(/);
   });
 }
