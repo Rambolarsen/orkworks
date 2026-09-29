@@ -170,11 +170,33 @@ if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
             $sessionReport["sessionStartEvent"] = $sessionStartEvent
         }
         $sessionBody = $sessionReport | ConvertTo-Json -Compress
-        $sessionHeaders = @{}
-        if ($env:ORKWORKS_REPORT_TOKEN) {
-            $sessionHeaders["Authorization"] = "Bearer $($env:ORKWORKS_REPORT_TOKEN)"
+        $reportSpooled = $false
+        if ($sessionSource -eq "codex_hook" -and $env:ORKWORKS_CODEX_SESSION_REPORT_DIR) {
+            $temporaryReport = $null
+            try {
+                $envelopeBody = @{ report = $sessionReport } | ConvertTo-Json -Compress -Depth 8
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($envelopeBody)
+                if ($bytes.Length -le 4096) {
+                    $directory = $env:ORKWORKS_CODEX_SESSION_REPORT_DIR
+                    $temporaryReport = Join-Path $directory (".pending-" + [guid]::NewGuid().ToString("N"))
+                    $publishedReport = Join-Path $directory ([guid]::NewGuid().ToString("N") + ".json")
+                    [System.IO.File]::WriteAllBytes($temporaryReport, $bytes)
+                    [System.IO.File]::Move($temporaryReport, $publishedReport)
+                    $reportSpooled = $true
+                }
+            } catch {
+                if ($temporaryReport -and [System.IO.File]::Exists($temporaryReport)) {
+                    try { [System.IO.File]::Delete($temporaryReport) } catch {}
+                }
+            }
         }
-        Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
-            -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
+        if (-not $reportSpooled) {
+            $sessionHeaders = @{}
+            if ($env:ORKWORKS_REPORT_TOKEN) {
+                $sessionHeaders["Authorization"] = "Bearer $($env:ORKWORKS_REPORT_TOKEN)"
+            }
+            Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
+                -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
+        }
     } catch {}
 }

@@ -234,11 +234,42 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
     session_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\n"
   fi
   harness_session_post_kind="posted"
-  session_curl_exit=0
-  session_http_status=$(printf '%b' "$session_curl_config" |
-    reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
-      -H "Content-Type: application/json" \
-      -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
+  session_curl_exit=""
+  session_http_status=""
+  report_spooled="no"
+  if [ "$session_source" = "codex_hook" ] && [ -n "${ORKWORKS_CODEX_SESSION_REPORT_DIR:-}" ]; then
+    if python3 -c '
+import json, os, sys, tempfile, uuid
+report = json.loads(sys.argv[1])
+encoded = json.dumps({"report": report}, separators=(",", ":")).encode()
+if len(encoded) > 4096:
+    raise SystemExit(2)
+directory = sys.argv[2]
+fd, temporary = tempfile.mkstemp(prefix=".pending-", dir=directory)
+try:
+    with os.fdopen(fd, "wb") as output:
+        output.write(encoded)
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temporary, os.path.join(directory, uuid.uuid4().hex + ".json"))
+except Exception:
+    try:
+        os.unlink(temporary)
+    except OSError:
+        pass
+    raise
+' "$session_payload" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" 2>/dev/null; then
+      report_spooled="yes"
+      harness_session_post_kind="enqueued"
+    fi
+  fi
+  if [ "$report_spooled" != "yes" ]; then
+    session_curl_exit=0
+    session_http_status=$(printf '%b' "$session_curl_config" |
+      reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
+        -H "Content-Type: application/json" \
+        -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
+  fi
 elif [ "$session_source" = "codex_hook" ]; then
   if [ -z "$harness_session_id" ]; then
     harness_session_post_kind="skipped_no_harness_session_id"
