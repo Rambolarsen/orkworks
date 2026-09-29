@@ -176,23 +176,43 @@ where safe behind a separate Electron-authorized Taskmaster request, bound to
 Taskmaster's selected provider and draft connection settings. Do not send the
 Taskmaster UI through Peon's discovery endpoint. Custom providers retain static
 suggestions and manual model IDs; Taskmaster does not run custom model-list
-commands. Failed or stale refresh results leave manual entry and the saved
-model usable and report the refresh failure separately from analysis status.
-Peon's existing model refresh remains unchanged.
+commands. Select a typed, code-owned discovery operation from the validated
+built-in provider: Codex uses the fixed app-server model-list operation and
+Ollama queries the supplied draft URL. Do not resolve a mutable provider
+definition to choose a model-list command, including for built-in IDs with a
+user-defined `models` command override. Failed or stale refresh results leave
+manual entry and the saved model usable and report the refresh failure
+separately from analysis status. Peon's existing model refresh remains
+unchanged.
 
 Separately show Taskmaster's analysis run status in Recommendations and
 Settings. The status distinguishes queued/running work from the latest
 succeeded, failed, or interrupted result, and includes provider/model,
-timestamps, and a useful failure summary. Persist latest outcomes per
-workspace. A restart that finds the current workspace's attempt still running
-reports it as interrupted. A successful analysis clears or supersedes that
-workspace's previous analysis error; knowledge-update errors remain separate.
-Background cooldown, cache, or eligibility checks that do not dispatch
-analysis do not overwrite the last actual outcome. Status is scoped to the
-instance's selected workspace; do not add peer-instance status or analysis
-coordination. Errors remain inline and unobtrusive: no background popups or
-focus changes. Personal/team brain connections and exporting local lessons are
-deferred.
+timestamps, and a useful failure summary. Persist one bounded run record per
+workspace, containing an `activeAttempt` (queued/running, when present) and a
+`latestOutcome` (succeeded/failed/interrupted, when present); the status
+projection shows the active attempt first, then the latest outcome, then idle.
+A restart marks a persisted running attempt interrupted and clears a queued
+attempt while preserving the prior result. Mark an attempt running before
+context collection or prompt construction; failures after that point are failed
+outcomes even if the provider was not invoked. Pre-evaluation skips clear
+queued attempts and preserve prior outcomes, removing empty records. Each
+workspace retains one bounded record with only its active attempt and latest
+terminal outcome; total record count grows with the number of workspaces used,
+and global retention/cleanup are outside this increment. A successful analysis
+clears or supersedes only that workspace's previous analysis error; the
+workspace-scoped run record is the sole source for displaying analysis outcomes.
+Retain the installation-wide legacy `lastError` only to read older ledger files;
+stop writing or displaying it as an analysis error. Knowledge-update errors
+remain separate. Background cooldown, cache, or eligibility checks that do not
+dispatch analysis do not overwrite the last actual outcome. Status is scoped to
+the instance's selected workspace. Expose it through a narrow
+`getTaskmasterRunStatus()` preload method and Electron-authenticated
+`GET /taskmaster/run-status` request. Recommendations polls it alongside its
+recommendation list; Settings polls every five seconds and refreshes on window
+focus. Do not add peer-instance status or analysis coordination. Errors remain
+inline and unobtrusive: no background popups or focus changes. Personal/team
+brain connections and exporting local lessons are deferred.
 
 ## Validation
 

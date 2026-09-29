@@ -161,7 +161,12 @@ route, and the shared provider-discovery implementation where safe. It never
 calls Peon's HTTP discovery endpoint, performs inference, applies settings, or
 changes Peon state. Custom Taskmaster providers keep static suggestions and
 manual entry; Taskmaster does not execute custom model-list commands. Peon's
-existing model refresh remains unchanged.
+existing model refresh remains unchanged. Taskmaster discovery selects a typed,
+code-owned operation from the validated built-in provider: Codex always uses the
+fixed app-server model-list operation and Ollama queries the supplied draft URL.
+Neither path resolves a mutable provider definition to choose a model-list
+command, including when a built-in ID has a user-defined `models` command
+override.
 Native readiness permits presentation/discovery metadata overrides but rejects
 launch or Peon execution overrides unless an explicit custom inference command is
 declared and trusted. Ollama does not advertise reasoning-effort support; a stored
@@ -175,9 +180,23 @@ running state and the latest result; Settings includes provider/model,
 timestamps, and useful failure details. Outcomes persist across restarts, with
 an abandoned running attempt reported as interrupted. A later success clears or
 supersedes the workspace's prior analysis error; knowledge-update errors remain
-separate. Background checks that do not dispatch inference do not replace the
-last outcome. The status does not enumerate or coordinate other OrkWorks
-instances.
+separate. Each workspace run record contains an optional `activeAttempt` and
+the `latestOutcome`; the status projection shows the active attempt first, then
+the latest outcome, then idle. Background checks that do not dispatch inference
+do not replace the last outcome. Evaluator exits either finalize dispatched
+work or clear the active attempt for pre-evaluation skips; context collection
+and prompt-construction failures are failed outcomes even if the provider was
+not invoked. Recovery clears queued attempts and marks running attempts
+interrupted. Each workspace retains only its active attempt and latest terminal
+outcome; total record count grows with the number of workspaces used, with
+global retention and cleanup outside this increment. The workspace run record
+is the sole displayed source for analysis outcomes; the legacy installation-wide
+`lastError` remains readable for old ledger files but is no longer written or
+displayed as an analysis error. Both UI surfaces call the narrow
+`getTaskmasterRunStatus()` preload method, backed by Electron-authenticated
+`GET /taskmaster/run-status`; Settings polls every five seconds and on window
+focus, and Recommendations polls alongside its recommendation list. The status
+does not enumerate or coordinate other OrkWorks instances.
 `taskmaster/runtime/inference.rs` now captures an immutable identity containing
 the approved definition/path, trust generation, runtime generation, selected
 settings and workspace key. Its short synchronous action guard re-resolves and
