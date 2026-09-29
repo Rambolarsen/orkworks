@@ -6,4 +6,5 @@ Containerfile   text eol=lf
 .nvmrc          text eol=lf
 compose.yaml    text eol=lf
 rust-toolchain.toml text eol=lf
+apps/desktop/patches/*.patch whitespace=-blank-at-eol
 .dockerignore   text eol=lf

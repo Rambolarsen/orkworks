@@ -76,3 +76,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0066](./0066-hook-owned-prompt-attention.md) | Hook-owned prompt attention for Codex and OpenCode | accepted |
 | [0067](./0067-codex-exact-session-identity-and-resume.md) | Codex exact session identity and resume | superseded by [0068](./0068-codex-subagents-share-owning-session-identity.md) |
 | [0068](./0068-codex-subagents-share-owning-session-identity.md) | Codex subagents share the owning OrkWorks session identity | accepted |
+| [0069](./0069-alt-buffer-wheel-input-survives-xterm-dampening.md) | Alternate-buffer wheel input survives xterm dampening | accepted |
