@@ -234,7 +234,7 @@ if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$ha
     session_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\n"
   fi
   harness_session_post_kind="posted"
-  session_curl_exit=0
+  session_curl_exit=""
   session_http_status=""
   report_spooled="no"
   if [ "$session_source" = "codex_hook" ] && [ -n "${ORKWORKS_CODEX_SESSION_REPORT_DIR:-}" ]; then
@@ -264,6 +264,7 @@ except Exception:
     fi
   fi
   if [ "$report_spooled" != "yes" ]; then
+    session_curl_exit=0
     session_http_status=$(printf '%b' "$session_curl_config" |
       reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
         -H "Content-Type: application/json" \
