@@ -321,11 +321,18 @@ sidecar creates a private temporary mailbox and passes that path to the Codex
 hook process. The reporter publishes native-ID reports there when the mailbox
 is available, for cases where Codex's command network sandbox blocks loopback;
 it does not enable network access. The runtime validates reports through the
-existing in-memory report token, hook fingerprint and Codex identity-reset
-rules, then removes them. It pins the mailbox directory and uses handle-bound
-operations on Unix; on Windows, a retained directory handle prevents path
-replacement while reports are processed. The report token is not written into
-mailbox files.
+existing in-memory report token (re-checked immediately before each report is
+applied), hook fingerprint, and Codex identity-reset rules, then removes them,
+draining once more before terminal cleanup so a short-lived session doesn't
+lose a report queued right before exit. It pins the mailbox directory and uses
+handle-bound operations on Unix; on Windows, a retained directory handle
+prevents path replacement while reports are processed. The mailbox directory
+itself is only ever removed on Windows, where the held handle makes that safe;
+on Unix, removing it by path would be a TOCTOU against a child that controls
+that path for the mailbox's whole lifetime, so it is leaked instead. The
+report token is not written into mailbox files, and the mailbox path is
+stripped from every other child's forwarded environment so it cannot leak
+across sessions.
 Child processes inherit the mailbox capability, so it does not prove process
 identity. See [ADR 0069](../adr/0069-codex-session-id-hook-report-mailbox.md).
 

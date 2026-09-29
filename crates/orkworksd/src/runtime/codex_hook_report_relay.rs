@@ -118,20 +118,22 @@ impl Drop for CodexHookReportRelay {
         let Some(directory) = self.directory.take() else {
             return;
         };
-        let path = directory.path().to_path_buf();
-        let path_still_names_mailbox = self
-            .mailbox
-            .as_ref()
-            .is_some_and(|mailbox| mailbox.is_same_directory(&path));
         drop(self.mailbox.take());
 
-        if path_still_names_mailbox {
-            drop(directory);
-        } else {
-            // A child replaced or moved the path. Avoid letting TempDir remove
-            // an unrelated directory now occupying the original pathname.
-            // The displaced mailbox may remain in the system temp directory.
+        // On Unix the mailbox path is writable by the Codex child for its
+        // whole lifetime, so an `is_same_directory` check immediately before
+        // removal is still a TOCTOU: the child can rename the original away
+        // and create a fresh directory at that pathname between the check
+        // and TempDir's recursive path-based delete, causing this drop to
+        // destroy unrelated data. There is no handle-safe way to remove a
+        // directory entry by path, so leak it instead of risking that.
+        // Windows is not affected: its directory handle keeps an exclusive
+        // share mode for the relay's whole lifetime, so nothing can occupy
+        // or replace this pathname while it's held.
+        if cfg!(unix) {
             let _ = directory.keep();
+        } else {
+            drop(directory);
         }
     }
 }
@@ -318,18 +320,6 @@ impl MailboxDirectory {
         }
         Ok(())
     }
-
-    fn is_same_directory(&self, path: &Path) -> bool {
-        use std::os::unix::fs::MetadataExt;
-
-        let Ok(opened) = self.handle.metadata() else {
-            return false;
-        };
-        let Ok(current) = std::fs::symlink_metadata(path) else {
-            return false;
-        };
-        current.is_dir() && opened.dev() == current.dev() && opened.ino() == current.ino()
-    }
 }
 
 #[cfg(windows)]
@@ -401,22 +391,6 @@ impl MailboxDirectory {
     fn remove(&self, name: &OsStr) -> io::Result<()> {
         std::fs::remove_file(self.path.join(name))
     }
-
-    fn is_same_directory(&self, path: &Path) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-
-        let Ok(opened) = self._handle.metadata() else {
-            return false;
-        };
-        let Ok(current) = std::fs::symlink_metadata(path) else {
-            return false;
-        };
-        current.is_dir()
-            && current.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
-            && opened.volume_serial_number() == current.volume_serial_number()
-            && opened.file_index() == current.file_index()
-    }
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -443,10 +417,6 @@ impl MailboxDirectory {
 
     fn remove(&self, _: &OsStr) -> io::Result<()> {
         unreachable!()
-    }
-
-    fn is_same_directory(&self, _: &Path) -> bool {
-        false
     }
 }
 

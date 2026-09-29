@@ -28,21 +28,32 @@ session's hook reporter. The Codex reporter atomically publishes bounded,
 uniquely named JSON files containing only harness-session report fields. It
 does not write the report token into the mailbox.
 
-The owning runtime consumes only reports in its own mailbox while it is live.
-It uses the report token held in memory and the same harness-session
-authorization, fingerprint/provenance, and metadata merge path as the HTTP
-handler. The existing recorded-reset and authenticated root
-`SessionStart(source=clear)` guard remains the only way to replace an
-accepted Codex ID. Invalid and stale reports are discarded. Mailbox files and
-the directory are removed with runtime cleanup.
+The owning runtime consumes only reports in its own mailbox while it is live,
+draining it once more before terminal cleanup so a short-lived session cannot
+lose a report already queued when the process exits. It uses the report token
+held in memory and the same harness-session authorization,
+fingerprint/provenance, and metadata merge path as the HTTP handler, and
+re-verifies the token immediately before applying each report rather than
+only at the start of a scan pass. The existing recorded-reset and
+authenticated root `SessionStart(source=clear)` guard remains the only way to
+replace an accepted Codex ID. Invalid and stale reports are discarded, and
+abandoned reporter staging files are aged out so they cannot occupy the
+per-pass scan budget indefinitely. Mailbox files are removed as they are
+consumed.
 
 The sidecar pins the mailbox directory while the runtime is active. Unix
 scans, opens, and removals are relative to that directory handle and refuse
 symlinks; Windows holds a directory handle that allows report creation but
-prevents the mailbox path from being renamed or replaced. If Unix code detects
-that a child moved or replaced the mailbox path, cleanup preserves the
-replacement and may leave the displaced mailbox in the system temporary
-directory rather than removing a directory it cannot safely identify by path.
+prevents the mailbox path from being renamed or replaced. The mailbox
+*directory* itself is never removed by path on Unix at runtime cleanup: the
+path stays writable by the Codex child for the mailbox's whole lifetime, so
+any check-then-remove sequence keyed on the path, rather than the held
+handle, is a TOCTOU a child could use to make cleanup delete an unrelated
+directory later occupying that pathname. The directory is leaked instead,
+left for the OS temp-directory lifecycle rather than removed unsafely.
+Windows is not exposed to this: its directory handle holds an exclusive share
+mode for the runtime's whole lifetime, so nothing can occupy or replace that
+pathname while cleanup runs, and its directory is removed normally.
 
 The mailbox carries Codex native session identity only. It does not relay
 attention or other hook reports, add general localhost access, or change
@@ -52,7 +63,12 @@ HTTP reporter path in place and emits only redacted diagnostics.
 The mailbox path is an additional per-session reporting capability. Since
 child processes inherit the reporting environment, this design does not
 distinguish the configured Codex hook from another child process holding that
-capability. It does not claim operating-system process authentication.
+capability. It does not claim operating-system process authentication. To
+keep that capability scoped to its owning session, the mailbox environment
+variable is stripped from every child's forwarded environment before a
+runtime sets its own value, so a non-Codex session, or a Codex session whose
+mailbox failed to create, never inherits another session's mailbox path from
+the parent sidecar process.
 
 ## Consequences
 
