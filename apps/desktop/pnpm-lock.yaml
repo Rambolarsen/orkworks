@@ -35,8 +35,8 @@ importers:
         specifier: ^8.3.1
         version: 8.3.1
       dockview-react:
-        specifier: ^6.6.1
-        version: 6.6.1(react@19.2.7)
+        specifier: ^8.3.1
+        version: 8.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9(supports-color@7.2.0)
@@ -877,19 +877,14 @@ packages:
   dmg-builder@26.15.3:
     resolution: {integrity: sha512-O3zJUFUYHJKgzPqioHxfxzBzlSC1eXCSr79gMSBKBP5AgjjpmrydMsMLotEg9fAJF36vdUncb+4ndRNxoPdlSQ==}
 
-  dockview-core@6.6.1:
-    resolution: {integrity: sha512-WuNoO2wl3rGI8MaTuvmfgViek4WafHLD9Kf//Hw69g8TgAHSpAWr6RW15kU6U9vwtQxIi/YBxQNcIA5RzQ46Fw==}
-
   dockview-core@8.3.1:
     resolution: {integrity: sha512-6Loais9hlIRo25sTQSWGWlgbPr22ddoLBzpGDFaTnocawnC45twp5f2S2WxUz5/HPa/a65I4yxKUqZa8xrcc5Q==}
 
-  dockview-react@6.6.1:
-    resolution: {integrity: sha512-zF/CQzAxjA2mlSTnDt2rbBe49uG33mvg1DPitNCPrIhhDulyiiBG1A1pRyjVx4MJbVh1xx5gAYbNRwu+mCR7CQ==}
-
-  dockview@6.6.1:
-    resolution: {integrity: sha512-vBnxWVk0f665z1Zyx598l/BMUjHD3SK5V4XorxpYGjaSREM8lLc8O6ylgKTtw+ZnCOMYOhcwov9x0ubfFazvMw==}
+  dockview-react@8.3.1:
+    resolution: {integrity: sha512-siezdOZ5izcdEn7TSYeWc+mC3hPgyW6rK6QHd6+L6PCRUKdB0WkGABtLtHmLn4Dr3VCm6C2+cv1qSCqJBeiFyA==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   dockview@8.3.1:
     resolution: {integrity: sha512-2odBC9cDKcVCVx8Db86vq9s9JZKzbgvdkxDzcfsrD9nORLc5UqhLgLvVcJguorBv7CyEpKDzFO1JVLYWJCYrJA==}
@@ -2862,20 +2857,13 @@ snapshots:
       - electron-builder-squirrel-windows
       - supports-color
 
-  dockview-core@6.6.1: {}
-
   dockview-core@8.3.1: {}
 
-  dockview-react@6.6.1(react@19.2.7):
+  dockview-react@8.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
-      dockview: 6.6.1(react@19.2.7)
-    transitivePeerDependencies:
-      - react
-
-  dockview@6.6.1(react@19.2.7):
-    dependencies:
-      dockview-core: 6.6.1
+      dockview: 8.3.1
       react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
 
   dockview@8.3.1:
     dependencies:
