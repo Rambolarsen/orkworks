@@ -2227,6 +2227,50 @@ impl ProviderManager {
             })
     }
 
+    /// Discover models through Taskmaster's code-owned provider contract. This
+    /// deliberately does not consult mutable Peon model-list commands.
+    pub fn discover_taskmaster_models(
+        &self,
+        profile: native_inference::NativeProfile,
+        ollama_base_url: Option<&str>,
+    ) -> Result<Vec<String>, ProviderOperationError> {
+        self.discover_taskmaster_models_with_codex_command(profile, ollama_base_url, "codex")
+    }
+
+    fn discover_taskmaster_models_with_codex_command(
+        &self,
+        profile: native_inference::NativeProfile,
+        ollama_base_url: Option<&str>,
+        codex_command: &str,
+    ) -> Result<Vec<String>, ProviderOperationError> {
+        match profile {
+            native_inference::NativeProfile::Codex => {
+                let mut definition = profile.definition();
+                definition.list_models_command = Some(codex_command.to_string());
+                definition.list_models_args = vec!["app-server".into(), "--stdio".into()];
+                self.discover_codex_models(&definition)
+                    .map(|models| models.into_iter().map(|model| model.id).collect())
+                    .map_err(|message| ProviderOperationError {
+                        code: classify_invocation_error(&message),
+                        message,
+                    })
+            }
+            native_inference::NativeProfile::Ollama => {
+                let base_url = ollama_base_url.unwrap_or("http://127.0.0.1:11434");
+                let response = self.verify_ollama(base_url);
+                if response.ok {
+                    Ok(response.models)
+                } else {
+                    Err(ollama_operation_error(&response))
+                }
+            }
+            native_inference::NativeProfile::Claude => Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::UnsupportedCapability,
+                message: "Taskmaster model discovery is not supported for Claude Code".into(),
+            }),
+        }
+    }
+
     pub fn verify_provider(
         &self,
         request: PeonProviderVerifyRequest,
@@ -5199,6 +5243,66 @@ done
             .unwrap();
         assert_eq!(options[0].display_name, "GPT Live");
         assert_eq!(options[0].reasoning_efforts[0].id, "high");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn taskmaster_discovery_ignores_models_override() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let codex = dir.path().join("fixed-codex");
+        std::fs::write(
+            &codex,
+            r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "--stdio" ] || exit 22
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"model/list"'*) printf '%s\n' '{"id":2,"result":{"data":[{"id":"fixed-codex-model","displayName":"Fixed Codex"}]}}'; break ;;
+  esac
+done
+"#,
+        )
+        .unwrap();
+        make_test_executable(&codex);
+        let override_marker = dir.path().join("override-was-run");
+        let override_command = dir.path().join("mutable-model-command");
+        std::fs::write(
+            &override_command,
+            format!("#!/bin/sh\ntouch '{}'\n", override_marker.display()),
+        )
+        .unwrap();
+        make_test_executable(&override_command);
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![ProviderDefinition {
+                id: "codex".into(),
+                label: "Codex".into(),
+                command: "codex".into(),
+                default_args: vec![],
+                model_arg_template: None,
+                supports_model: true,
+                timeout_secs: 2,
+                prompt_transport: PromptTransport::Stdin,
+                reasoning_effort_args: vec![],
+                list_models_command: Some(override_command.display().to_string()),
+                list_models_args: vec![],
+                static_models: vec![],
+                http_list_models: false,
+            }],
+            sample_settings(vec![]),
+            vec![],
+        );
+
+        let models = manager
+            .discover_taskmaster_models_with_codex_command(
+                native_inference::NativeProfile::Codex,
+                None,
+                codex.to_str().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(models, vec!["fixed-codex-model"]);
+        assert!(!override_marker.exists());
     }
 
     #[test]

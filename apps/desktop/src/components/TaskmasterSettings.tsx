@@ -1,14 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import InferenceTrustSettings from "./InferenceTrustSettings";
-import { editTaskmasterScope, supportsTaskmasterAnalysis, type AnalysisContext, type TaskmasterSettings as Settings, type TaskmasterSettingsStatus } from "../taskmasterSettings";
+import { editTaskmasterScope, formatTaskmasterRunStatus, supportsTaskmasterAnalysis, type AnalysisContext, type TaskmasterRunStatus, type TaskmasterSettings as Settings, type TaskmasterSettingsStatus } from "../taskmasterSettings";
 
-export default function TaskmasterSettings() {
+export default function TaskmasterSettings({ currentWorkspacePath }: { currentWorkspacePath: string | null }) {
   const [status, setStatus] = useState<TaskmasterSettingsStatus | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [scope, setScope] = useState<"global" | "workspace">("global");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [runStatus, setRunStatus] = useState<TaskmasterRunStatus | null>(null);
+  const [runStatusError, setRunStatusError] = useState<string | null>(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshed, setRefreshed] = useState<{ key: string; models: string[] } | null>(null);
+  const refreshGeneration = useRef(0);
+  const runStatusWorkspace = useRef<string | null>(null);
   useEffect(() => {
     let disposed = false;
     window.orkworks.getTaskmasterSettings().then((value) => {
@@ -16,13 +23,60 @@ export default function TaskmasterSettings() {
     }).catch((reason: unknown) => { if (!disposed) setError(String(reason)); });
     return () => { disposed = true; };
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    let requestGeneration = 0;
+    runStatusWorkspace.current = currentWorkspacePath;
+    setRunStatus(null);
+    setRunStatusError(null);
+    if (!currentWorkspacePath) return () => { disposed = true; };
+    const refreshStatus = () => {
+      const request = ++requestGeneration;
+      void window.orkworks.getTaskmasterRunStatus().then((value) => {
+        if (disposed || request !== requestGeneration) return;
+        if (value.workspacePath !== currentWorkspacePath) return;
+        runStatusWorkspace.current = value.workspacePath;
+        setRunStatus(value);
+        setRunStatusError(null);
+      }).catch((reason: unknown) => {
+        if (!disposed && request === requestGeneration) { runStatusWorkspace.current = null; setRunStatus(null); setRunStatusError(String(reason)); }
+      });
+    };
+    refreshStatus();
+    const timer = window.setInterval(refreshStatus, 5000);
+    window.addEventListener("focus", refreshStatus);
+    return () => { disposed = true; window.clearInterval(timer); window.removeEventListener("focus", refreshStatus); };
+  }, [currentWorkspacePath]);
   const workspace = scope === "workspace" ? status?.workspacePath ?? null : null;
   const effective = draft && workspace ? { ...draft, ...draft.workspaceOverrides[workspace] } : draft;
   const provider = effective?.selection?.provider ?? "";
   const providers = status?.providers ?? [];
   const selectedProvider = providers.find((item) => item.id === provider);
-  // Static suggestions only: discovery is executable code outside inference trust.
-  const models = selectedProvider?.models ?? [];
+  const ollamaUrl = effective?.selection?.ollamaBaseUrl ?? "http://127.0.0.1:11434";
+  const refreshKey = `${provider}\n${provider === "ollama" ? ollamaUrl : ""}`;
+  const currentRefreshKey = useRef(refreshKey);
+  currentRefreshKey.current = refreshKey;
+  useEffect(() => {
+    refreshGeneration.current++;
+    setRefreshBusy(false);
+    setRefreshError(null);
+  }, [refreshKey]);
+  const canRefreshModels = provider === "codex" || provider === "ollama";
+  const models = refreshed?.key === refreshKey ? refreshed.models : selectedProvider?.models ?? [];
+  async function refreshModels() {
+    if (!canRefreshModels) return;
+    const key = refreshKey;
+    const generation = ++refreshGeneration.current;
+    setRefreshBusy(true); setRefreshError(null);
+    try {
+      const models = await window.orkworks.refreshTaskmasterModels(provider as "codex" | "ollama", provider === "ollama" ? ollamaUrl : undefined);
+      if (generation === refreshGeneration.current && currentRefreshKey.current === key) setRefreshed({ key, models });
+    } catch (reason) {
+      if (generation === refreshGeneration.current && currentRefreshKey.current === key) setRefreshError(String(reason));
+    } finally {
+      if (generation === refreshGeneration.current && currentRefreshKey.current === key) setRefreshBusy(false);
+    }
+  }
   function edit(patch: Partial<Settings>) {
     setDraft((value) => value && editTaskmasterScope(value, workspace, patch));
     setSaved(false);
@@ -75,7 +129,12 @@ export default function TaskmasterSettings() {
         <input list="taskmaster-model-options" value={effective.selection?.model ?? ""} onChange={(event) => edit({ selection: { ...effective.selection!, model: event.target.value } })} placeholder="Model ID" />
         <datalist id="taskmaster-model-options">{models.map((model) => <option key={model} value={model} />)}</datalist>
       </label>
-      <p className="settings-section-copy">Enter the model ID used by your provider. Suggestions are static; opening these settings does not run model discovery.</p>
+      <p className="settings-section-copy">Enter the model ID used by your provider. Opening these settings does not run discovery; built-in Codex and Ollama suggestions can be refreshed on request.</p>
+      {canRefreshModels && <>
+        <button type="button" disabled={refreshBusy} onClick={() => void refreshModels()}>{refreshBusy ? "Refreshing models…" : "Refresh model suggestions"}</button>
+        <p className="settings-section-copy" aria-live="polite">{refreshed?.key === refreshKey ? `Showing ${models.length} live model suggestions.` : "Refresh to load the provider's current model list."}</p>
+        {refreshError && <p role="alert">{refreshError}</p>}
+      </>}
       <label>Reasoning effort (optional)
         <select value={effective.selection?.reasoningEffort ?? ""} onChange={(event) => edit({ selection: { ...effective.selection!, reasoningEffort: event.target.value || undefined } })}>
           <option value="">Provider default</option><option value="low" disabled={!selectedProvider?.supportsReasoningEffort}>Low</option><option value="medium" disabled={!selectedProvider?.supportsReasoningEffort}>Medium</option><option value="high" disabled={!selectedProvider?.supportsReasoningEffort}>High</option>
@@ -110,7 +169,15 @@ export default function TaskmasterSettings() {
       <div><dt>Knowledge version</dt><dd>{status.knowledgeUpdate.version ?? status.knowledgeVersion ?? "Not loaded"}</dd></div>
       <div><dt>Last successful knowledge check</dt><dd>{status.knowledgeUpdate.lastSuccessfulUpdate ?? "Not yet checked"}</dd></div>
     </dl>
-    {(status.lastError || status.knowledgeUpdate.lastError) && <p role="status">{status.lastError || status.knowledgeUpdate.lastError}</p>}
+    <section className="taskmaster-run-status" aria-label="Taskmaster analysis run status">
+      <strong>Analysis run</strong>
+      {currentWorkspacePath && runStatus?.workspacePath === currentWorkspacePath ? <>
+        <p role="status">{formatTaskmasterRunStatus(runStatus)}</p>
+        {runStatus.activeAttempt && <p>Queued {runStatus.activeAttempt.queuedAt}{runStatus.activeAttempt.startedAt ? ` · started ${runStatus.activeAttempt.startedAt}` : ""}</p>}
+        {runStatus.latestOutcome && <p>Finished {runStatus.latestOutcome.completedAt}{runStatus.latestOutcome.state === "failed" && runStatus.latestOutcome.errorSummary ? ` · ${runStatus.latestOutcome.errorSummary}` : ""}</p>}
+      </> : <p role="status">{currentWorkspacePath ? runStatusError ?? "Loading analysis status…" : "No workspace selected."}</p>}
+    </section>
+    {status.knowledgeUpdate.lastError && <p role="status">Knowledge update: {status.knowledgeUpdate.lastError}</p>}
     {error && <p role="alert">{error}</p>}
     {saved && <p role="status">Recommendation settings saved.</p>}
     <button type="button" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save recommendation settings"}</button>

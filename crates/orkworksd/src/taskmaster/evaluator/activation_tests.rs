@@ -7,7 +7,7 @@ use crate::harness::{
 use crate::taskmaster::{
     inference_approval::{self, ApprovalAction, ApprovalRequest},
     inference_trust::InferenceTrustStore,
-    runtime::TaskmasterSettings,
+    runtime::{TaskmasterRunTrigger, TaskmasterSettings},
 };
 use serde_json::json;
 use std::{
@@ -117,7 +117,34 @@ impl Fixture {
     }
 
     fn run(&self) {
-        run_model_evaluation_at(self.state.clone(), self.root.clone());
+        let runtime = TaskmasterRuntime::open(self.root.clone());
+        let workspace_path = self.dir.path().to_path_buf();
+        let lease = runtime.try_analysis_lease().unwrap().unwrap();
+        let _ = runtime.recover_workspace_run(&workspace_path, &lease);
+        let selection = runtime
+            .status(Some(&workspace_path))
+            .effective_settings
+            .selection
+            .unwrap();
+        let id = runtime
+            .queue_run(
+                &workspace_path,
+                TaskmasterRunTrigger::Background,
+                &selection.provider,
+                &selection.model,
+            )
+            .unwrap();
+        run_model_evaluation_at_with_workspace(
+            self.state.clone(),
+            self.root.clone(),
+            None,
+            Some(lease),
+            Some(ScheduledRun {
+                id,
+                workspace_path,
+                root: self.root.clone(),
+            }),
+        );
         assert_eq!(
             self.fallback_calls.load(Ordering::SeqCst),
             0,
@@ -161,6 +188,15 @@ fn activation_requires_approval_then_persists_grounded_custom_output() {
     assert_eq!(fixture.recommendations().len(), 1);
     assert_eq!(fixture.remaining(), 7);
     assert_eq!(
+        TaskmasterRuntime::open(fixture.root.clone())
+            .run_status(Some(fixture.dir.path()))
+            .unwrap()
+            .latest_outcome
+            .unwrap()
+            .state,
+        crate::taskmaster::runtime::TaskmasterRunOutcomeState::Succeeded
+    );
+    assert_eq!(
         fs::read_to_string(fixture.marker.with_extension("model")).unwrap(),
         "vendor/opaque model;$(literal)"
     );
@@ -187,10 +223,25 @@ fn custom_evaluation_failures_spend_one_reservation_without_recommendations() {
         assert_eq!(fixture.remaining(), 7, "{mode}");
         assert!(fixture.recommendations().is_empty(), "{mode}");
         let runtime = TaskmasterRuntime::open(fixture.root.clone());
-        let error = runtime.status(Some(fixture.dir.path())).last_error.unwrap();
+        let error = runtime
+            .run_status(Some(fixture.dir.path()))
+            .unwrap()
+            .latest_outcome
+            .unwrap()
+            .error_summary
+            .unwrap();
         assert!(
             !error.contains("PRIVATE_PROVIDER_ERROR"),
             "stderr must be redacted"
+        );
+        assert_eq!(
+            runtime
+                .run_status(Some(fixture.dir.path()))
+                .unwrap()
+                .latest_outcome
+                .unwrap()
+                .state,
+            crate::taskmaster::runtime::TaskmasterRunOutcomeState::Failed
         );
     }
 }

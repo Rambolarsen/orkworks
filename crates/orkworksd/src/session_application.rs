@@ -2631,6 +2631,22 @@ impl SessionApplication {
         }
 
         drop(workspace);
+        if let Some(taskmaster_root) = crate::taskmaster::runtime::taskmaster_global_dir() {
+            let runtime = crate::taskmaster::runtime::TaskmasterRuntime::open(taskmaster_root);
+            match runtime.try_analysis_lease() {
+                Ok(Some(lease)) => {
+                    if let Err(error) = runtime.recover_workspace_run(&path, &lease) {
+                        tracing::warn!(path = %path.display(), %error, "failed to recover Taskmaster analysis status");
+                    }
+                }
+                Ok(None) => {
+                    tracing::debug!(path = %path.display(), "Taskmaster analysis is active in another instance; defer run-status recovery")
+                }
+                Err(error) => {
+                    tracing::warn!(path = %path.display(), %error, "could not acquire Taskmaster analysis lease for run-status recovery")
+                }
+            }
+        }
         crate::taskmaster::evaluator::schedule_evaluation(self.state.clone());
 
         let git_context = git::detect(&path);

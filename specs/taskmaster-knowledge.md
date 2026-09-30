@@ -192,8 +192,13 @@ timestamps, and a useful failure summary. Persist one bounded run record per
 workspace, containing an `activeAttempt` (queued/running, when present) and a
 `latestOutcome` (succeeded/failed/interrupted, when present); the status
 projection shows the active attempt first, then the latest outcome, then idle.
+No selected workspace or an unreadable ledger is unavailable, not idle.
 A restart marks a persisted running attempt interrupted and clears a queued
-attempt while preserving the prior result. Mark an attempt running before
+attempt while preserving the prior result, but only after acquiring the same
+installation-wide analysis lease used by evaluators. If another instance holds
+that lease, leave the record unchanged and retry on the next workspace open or
+evaluation admission. Status reads are read-only and do not infer interruption.
+Mark an attempt running before
 context collection or prompt construction; failures after that point are failed
 outcomes even if the provider was not invoked. Pre-evaluation skips clear
 queued attempts and preserve prior outcomes, removing empty records. Each

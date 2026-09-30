@@ -30,6 +30,20 @@ Analysis recommendations judge what your workflow is missing; Observations
 recommendations target what already went wrong (and an Analysis rollup may
 bundle both angles). Both are suggestions you review and act on yourself.
 
+## Model choices and analysis status
+
+In Taskmaster settings, model suggestions follow the selected provider. For
+built-in Codex and Ollama, choose **Refresh models** to request the provider's
+current model list; opening Settings does not make a provider request. Claude
+Code and custom providers keep their configured suggestions, and you can still
+enter a model ID manually.
+
+Taskmaster shows analysis activity separately from provider readiness. The
+Settings page and Recommendations panel report when an analysis is queued or
+running, and its latest success, failure, or interruption. A failure includes
+the provider/model and a short error summary, so you can distinguish a failed
+analysis from a provider that is simply not configured.
+
 ## Inspect before acting
 
 A workflow-improvement card includes the proposed change, its target, and

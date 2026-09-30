@@ -9,7 +9,8 @@ use crate::taskmaster::rollup::{
     RollupCluster, RollupFamilySnapshot, MAX_ROLLUP_INPUT_BYTES, MAX_ROLLUP_RESPONSE_BYTES,
 };
 use crate::taskmaster::runtime::{
-    taskmaster_global_dir, EvaluationSnapshot, RollupEvaluationToken, TaskmasterRuntime,
+    taskmaster_global_dir, EvaluationSnapshot, RollupEvaluationToken, TaskmasterRunOutcomeState,
+    TaskmasterRunTrigger, TaskmasterRuntime,
 };
 use crate::taskmaster::{
     KnowledgeEvidence, Recommendation, RecommendationConfidence, RecommendationStatus,
@@ -275,41 +276,86 @@ struct ModelProposal {
 }
 
 fn schedule_model_evaluation(state: Arc<AppState>) {
-    let _ = schedule_model_evaluation_with_workspace(state, None, None);
+    let Some(root) = taskmaster_global_dir() else {
+        return;
+    };
+    let Some(workspace_path) = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|workspace| workspace.path.clone())
+    else {
+        return;
+    };
+    let _ = schedule_model_evaluation_with_workspace(
+        state,
+        workspace_path,
+        root,
+        TaskmasterRunTrigger::Background,
+        false,
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScheduleResult {
+    Scheduled,
+    AlreadyRunning,
+    Unavailable,
 }
 
 pub(crate) fn schedule_manual_evaluation(
     state: Arc<AppState>,
     workspace_path: std::path::PathBuf,
-) -> bool {
+) -> ScheduleResult {
     let Some(root) = taskmaster_global_dir() else {
-        return false;
+        return ScheduleResult::Unavailable;
     };
-    schedule_model_evaluation_with_workspace(state, Some(workspace_path), Some(root))
+    schedule_model_evaluation_with_workspace(
+        state,
+        workspace_path,
+        root,
+        TaskmasterRunTrigger::Manual,
+        true,
+    )
 }
 
 fn schedule_model_evaluation_with_workspace(
     state: Arc<AppState>,
-    manual_workspace: Option<std::path::PathBuf>,
-    lease_root: Option<std::path::PathBuf>,
-) -> bool {
+    workspace_path: std::path::PathBuf,
+    lease_root: std::path::PathBuf,
+    trigger: TaskmasterRunTrigger,
+    manual: bool,
+) -> ScheduleResult {
     if tokio::runtime::Handle::try_current().is_err() {
-        return false;
+        return ScheduleResult::Unavailable;
     }
     {
         let mut in_flight = ANALYSIS_IN_FLIGHT
             .lock()
             .expect("Taskmaster scheduler lock poisoned");
         if *in_flight {
-            return false;
+            return ScheduleResult::AlreadyRunning;
         }
-        let lease = if let Some(root) = lease_root {
-            match TaskmasterRuntime::open(root).try_analysis_lease() {
-                Ok(Some(lease)) => Some(lease),
-                Ok(None) | Err(_) => return false,
-            }
-        } else {
-            None
+        let runtime = TaskmasterRuntime::open(lease_root.clone());
+        let lease = match runtime.try_analysis_lease() {
+            Ok(Some(lease)) => lease,
+            Ok(None) => return ScheduleResult::AlreadyRunning,
+            Err(_) => return ScheduleResult::Unavailable,
+        };
+        let _ = runtime.recover_workspace_run(&workspace_path, &lease);
+        let status = runtime.status(Some(&workspace_path));
+        let Some(selection) = status.effective_settings.selection else {
+            return ScheduleResult::Unavailable;
+        };
+        let run_id = match runtime.queue_run(
+            &workspace_path,
+            trigger,
+            &selection.provider,
+            &selection.model,
+        ) {
+            Ok(run_id) => run_id,
+            Err(_) => return ScheduleResult::Unavailable,
         };
         *in_flight = true;
         tokio::task::spawn_blocking(move || {
@@ -320,26 +366,52 @@ fn schedule_model_evaluation_with_workspace(
                 }
             }
             let _flight = Flight;
-            run_model_evaluation_with_workspace(state, manual_workspace, lease);
+            run_model_evaluation_with_workspace(
+                state,
+                manual.then_some(workspace_path.clone()),
+                Some(lease),
+                Some(ScheduledRun {
+                    id: run_id,
+                    workspace_path,
+                    root: lease_root,
+                }),
+            );
         });
     }
-    true
+    ScheduleResult::Scheduled
 }
 
 fn run_model_evaluation_with_workspace(
     state: Arc<AppState>,
     manual_workspace: Option<std::path::PathBuf>,
     analysis_lease: Option<std::fs::File>,
+    scheduled_run: Option<ScheduledRun>,
 ) {
-    let Some(root) = taskmaster_global_dir() else {
+    let root = scheduled_run
+        .as_ref()
+        .map(|run| run.root.clone())
+        .or_else(taskmaster_global_dir);
+    let Some(root) = root else {
         return;
     };
-    run_model_evaluation_at_with_workspace(state, root, manual_workspace, analysis_lease);
+    run_model_evaluation_at_with_workspace(
+        state,
+        root,
+        manual_workspace,
+        analysis_lease,
+        scheduled_run,
+    );
+}
+
+struct ScheduledRun {
+    id: u64,
+    workspace_path: std::path::PathBuf,
+    root: std::path::PathBuf,
 }
 
 #[cfg(test)]
 fn run_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
-    run_model_evaluation_at_with_workspace(state, root, None, None);
+    run_model_evaluation_at_with_workspace(state, root, None, None, None);
 }
 
 fn run_model_evaluation_at_with_workspace(
@@ -347,6 +419,7 @@ fn run_model_evaluation_at_with_workspace(
     root: std::path::PathBuf,
     manual_workspace: Option<std::path::PathBuf>,
     analysis_lease: Option<std::fs::File>,
+    scheduled_run: Option<ScheduledRun>,
 ) {
     run_model_evaluation_with_context_and_workspace(
         state,
@@ -354,6 +427,7 @@ fn run_model_evaluation_at_with_workspace(
         crate::taskmaster::context::collect_repository_facts,
         manual_workspace,
         analysis_lease,
+        scheduled_run,
     );
 }
 
@@ -369,7 +443,7 @@ fn run_model_evaluation_with_context(
         &str,
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
 ) {
-    run_model_evaluation_with_context_and_workspace(state, root, collect_facts, None, None);
+    run_model_evaluation_with_context_and_workspace(state, root, collect_facts, None, None, None);
 }
 
 fn run_model_evaluation_with_context_and_workspace(
@@ -383,7 +457,15 @@ fn run_model_evaluation_with_context_and_workspace(
     ) -> Result<Vec<crate::taskmaster::RepositoryEvidence>, String>,
     manual_workspace: Option<std::path::PathBuf>,
     analysis_lease: Option<std::fs::File>,
+    scheduled_run: Option<ScheduledRun>,
 ) {
+    let runtime = Arc::new(TaskmasterRuntime::open(root.clone()));
+    let mut run_guard = scheduled_run.map(|run| RunGuard {
+        runtime: runtime.clone(),
+        workspace_path: run.workspace_path,
+        id: run.id,
+        completed: false,
+    });
     let (workspace_path, workspace_instance, observations, recommendations) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
@@ -416,7 +498,6 @@ fn run_model_evaluation_with_context_and_workspace(
         return;
     }
     let trust = super::inference_trust::InferenceTrustStore::new(root.clone());
-    let runtime = TaskmasterRuntime::open(root);
     let _lease = match analysis_lease {
         Some(lease) => lease,
         None => match runtime.try_analysis_lease() {
@@ -462,6 +543,16 @@ fn run_model_evaluation_with_context_and_workspace(
     ) {
         return;
     }
+    if let Some(guard) = run_guard.as_mut() {
+        let Some(selection) = snapshot.settings.selection.as_ref() else {
+            return;
+        };
+        if guard.workspace_path != workspace_path
+            || !guard.mark_running(&selection.provider, &selection.model)
+        {
+            return;
+        }
+    }
     let now = chrono::Utc::now().to_rfc3339();
     let facts = match collect_facts(
         &workspace_path,
@@ -471,6 +562,9 @@ fn run_model_evaluation_with_context_and_workspace(
     ) {
         Ok(facts) => facts,
         Err(error) => {
+            if let Some(guard) = run_guard.as_mut() {
+                guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error));
+            }
             let _ = runtime.record_evaluation_error(
                 &state.harness_store,
                 &workspace_path,
@@ -492,6 +586,9 @@ fn run_model_evaluation_with_context_and_workspace(
     let prompt = match compose_provider_prompt(prompt, rollup_request.as_ref()) {
         Ok(prompt) => prompt,
         Err(error) => {
+            if let Some(guard) = run_guard.as_mut() {
+                guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error));
+            }
             let _ = runtime.record_evaluation_error(
                 &state.harness_store,
                 &workspace_path,
@@ -501,8 +598,14 @@ fn run_model_evaluation_with_context_and_workspace(
             return;
         }
     };
-    let Ok(cache_key) = provider_cache_key(&snapshot, &prompt, rollup_request.as_ref()) else {
-        return;
+    let cache_key = match provider_cache_key(&snapshot, &prompt, rollup_request.as_ref()) {
+        Ok(key) => key,
+        Err(error) => {
+            if let Some(guard) = run_guard.as_mut() {
+                guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error));
+            }
+            return;
+        }
     };
     let reservation = if manual_workspace.is_some() {
         // Accept/fix-with-AI also takes the workspace lock before transitioning
@@ -604,15 +707,30 @@ fn run_model_evaluation_with_context_and_workspace(
                     rollup_request.as_ref(),
                     &output,
                 ) {
-                    let _ = runtime.record_evaluation_success(
-                        &state.harness_store,
-                        &workspace_path,
-                        &snapshot,
-                        &cache_key,
+                    let committed = runtime
+                        .record_evaluation_success(
+                            &state.harness_store,
+                            &workspace_path,
+                            &snapshot,
+                            &cache_key,
+                        )
+                        .unwrap_or(false);
+                    if committed {
+                        if let Some(guard) = run_guard.as_mut() {
+                            guard.finish(TaskmasterRunOutcomeState::Succeeded, None);
+                        }
+                    }
+                } else if let Some(guard) = run_guard.as_mut() {
+                    guard.finish(
+                        TaskmasterRunOutcomeState::Failed,
+                        Some("Taskmaster provider response could not be applied"),
                     );
                 }
             }
             Err(error) => {
+                if let Some(guard) = run_guard.as_mut() {
+                    guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error.message));
+                }
                 let _ = runtime.record_evaluation_error(
                     &state.harness_store,
                     &workspace_path,
@@ -620,6 +738,39 @@ fn run_model_evaluation_with_context_and_workspace(
                     Some(error.message),
                 );
             }
+        }
+    }
+}
+
+struct RunGuard {
+    runtime: Arc<TaskmasterRuntime>,
+    workspace_path: std::path::PathBuf,
+    id: u64,
+    completed: bool,
+}
+
+impl RunGuard {
+    fn mark_running(&self, provider: &str, model: &str) -> bool {
+        self.runtime
+            .mark_run_running(&self.workspace_path, self.id, provider, model)
+            .unwrap_or(false)
+    }
+
+    fn finish(&mut self, state: TaskmasterRunOutcomeState, error: Option<&str>) {
+        if self
+            .runtime
+            .finish_run(&self.workspace_path, self.id, state, error)
+            .unwrap_or(false)
+        {
+            self.completed = true;
+        }
+    }
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            let _ = self.runtime.clear_run(&self.workspace_path, self.id);
         }
     }
 }
@@ -974,7 +1125,7 @@ fn apply_model_output_parsed(
         return false;
     }
     if !runtime
-        .record_evaluation_error(&state.harness_store, workspace_path, snapshot, None)
+        .with_current_evaluation(&state.harness_store, workspace_path, snapshot, || {})
         .unwrap_or(false)
     {
         return false;
@@ -1231,10 +1382,7 @@ mod tests {
             r#"{"enrichments":[],"proposals":[{"targetSurface":"documentation","title":"Document it","summary":"A grounded hypothesis","repositoryFactHashes":["not-provided"],"knowledgePageIds":[]}]}"#,
         );
 
-        assert_eq!(
-            runtime.status(Some(directory.path())).last_error.as_deref(),
-            Some("Taskmaster provider cited unsupplied knowledge")
-        );
+        assert!(runtime.status(Some(directory.path())).last_error.is_none());
         assert!(state
             .workspace
             .lock()

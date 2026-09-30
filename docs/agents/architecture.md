@@ -166,7 +166,8 @@ code-owned operation from the validated built-in provider: Codex always uses the
 fixed app-server model-list operation and Ollama queries the supplied draft URL.
 Neither path resolves a mutable provider definition to choose a model-list
 command, including when a built-in ID has a user-defined `models` command
-override.
+override. The model-refresh and run-status protocol decision is recorded in
+[ADR 0071](../adr/0071-taskmaster-model-refresh-and-run-status.md).
 Native readiness permits presentation/discovery metadata overrides but rejects
 launch or Peon execution overrides unless an explicit custom inference command is
 declared and trusted. Ollama does not advertise reasoning-effort support; a stored
@@ -187,7 +188,10 @@ do not replace the last outcome. Evaluator exits either finalize dispatched
 work or clear the active attempt for pre-evaluation skips; context collection
 and prompt-construction failures are failed outcomes even if the provider was
 not invoked. Recovery clears queued attempts and marks running attempts
-interrupted. Each workspace retains only its active attempt and latest terminal
+interrupted only after acquiring the same installation-wide analysis lease used
+by evaluators; if another instance holds the lease, recovery waits for the next
+workspace open or evaluation admission. Status queries are read-only. Each
+workspace retains only its active attempt and latest terminal
 outcome; total record count grows with the number of workspaces used, with
 global retention and cleanup outside this increment. The workspace run record
 is the sole displayed source for analysis outcomes; the legacy installation-wide

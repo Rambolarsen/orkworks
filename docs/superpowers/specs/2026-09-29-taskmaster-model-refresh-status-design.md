@@ -111,7 +111,9 @@ timestamps, trigger kind (manual/background), provider, model, and a safe error
 summary when applicable. Each record contains only the latest outcome and any
 currently active attempt; error summaries and other strings have existing
 field-size bounds. The status projection shows the active attempt first,
-otherwise the latest outcome, otherwise idle. Records are retained per
+otherwise the latest outcome, otherwise idle. No selected workspace or an
+unreadable ledger is unavailable, not idle; the authenticated status route
+returns unavailable in those cases. Records are retained per
 workspace, so the number of records grows with the number of workspaces used;
 global retention and cleanup are outside this increment. Write state
 transitions through Taskmaster's existing durable ledger and locking discipline.
@@ -125,9 +127,13 @@ attempt to an `interrupted` `latestOutcome`; it clears a persisted `queued`
 attempt and preserves the prior outcome because evaluator work had not started.
 If clearing leaves no prior outcome, remove the empty workspace record.
 Recovery runs when the sidecar starts or opens its owned workspace, before
-background scheduling. Status queries are read-only and do not infer that a
-live attempt is interrupted. Do not include another workspace's status in the
-renderer response, enumerate other instances, or add cross-instance analysis
+background scheduling, and when a later evaluation acquires the analysis
+lease. Recovery must first acquire the same installation-wide analysis lease
+used by evaluation. If that lease is held, another instance may still be
+working; leave the record unchanged and retry on the next open or evaluation
+admission. Status queries remain read-only and never infer that a live attempt
+is interrupted. Do not include another workspace's status in the renderer
+response, enumerate other instances, or add cross-instance analysis
 coordination.
 
 The workspace-scoped run record is the sole source for displaying analysis
@@ -186,7 +192,11 @@ does not open a modal, show a background popup, or change focus.
 
 ## Implementation gate
 
-Before code, record the sidecar request and run-status protocol decision in an
-ADR, then create an implementation plan from this reviewed design. The existing
-authoritative Taskmaster spec has been updated alongside this design; issue #676
+The sidecar request and run-status protocol decision is recorded in
+[ADR 0071](../../adr/0071-taskmaster-model-refresh-and-run-status.md). The
+separate model-refresh and run-status implementation plans are
+[`2026-09-30-taskmaster-model-refresh.md`](../plans/2026-09-30-taskmaster-model-refresh.md)
+and
+[`2026-09-30-taskmaster-run-status.md`](../plans/2026-09-30-taskmaster-run-status.md).
+The authoritative Taskmaster spec is updated alongside this design; issue #676
 tracks the work.
