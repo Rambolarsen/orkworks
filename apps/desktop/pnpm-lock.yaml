@@ -15,6 +15,9 @@ overrides:
   tar@7.5.16: '>=7.5.18'
   baseline-browser-mapping@>=2.0.0 <2.11.0: '>=2.11.0'
 
+patchedDependencies:
+  '@xterm/xterm@6.0.0': a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf
+
 importers:
 
   .:
@@ -27,7 +30,7 @@ importers:
         version: 0.19.0
       '@xterm/xterm':
         specifier: ^6.0.0
-        version: 6.0.0
+        version: 6.0.0(patch_hash=a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf)
       dockview:
         specifier: ^8.3.1
         version: 8.3.1
@@ -2553,7 +2556,7 @@ snapshots:
 
   '@xterm/addon-webgl@0.19.0': {}
 
-  '@xterm/xterm@6.0.0': {}
+  '@xterm/xterm@6.0.0(patch_hash=a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf)': {}
 
   abbrev@4.0.0: {}
 
