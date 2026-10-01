@@ -4,7 +4,7 @@
 
 Policy accepted via the review in [PR
 #652](https://github.com/Rambolarsen/orkworks/pull/652) and recorded as
-[ADR 0073](../../docs/adr/0073-other-harness-prompt-attention-authority.md);
+[ADR 0073](../../adr/0073-other-harness-prompt-attention-authority.md);
 the product rule is authoritative in [the MVP
 spec](../../../specs/orkworks-mvp.md#deterministic-harness-supplied-signals).
 Live payload fixtures and real-prompt checks remain open
