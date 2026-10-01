@@ -1,5 +1,6 @@
 //! Preserve the owning OrkWorks environment when Codex supports a shared daemon.
 
+use super::terminal_runtime::should_forward_terminal_env;
 use crate::harness::CommandSpec;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
@@ -14,6 +15,14 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Str
     let tool = crate::harness::detect::probe_installed_tool(&command.program)
         .ok_or_else(|| PROBE_ERROR.to_string())?;
     let mut probe = tokio::process::Command::new(tool.executable);
+    // Help wrappers receive the same authority boundary as the PTY child.
+    probe
+        .env_clear()
+        .envs(std::env::vars_os().filter(|(key, _)| {
+            key.to_str()
+                .map(should_forward_terminal_env)
+                .unwrap_or(true)
+        }));
     probe
         .arg("--help")
         .current_dir(&command.cwd)

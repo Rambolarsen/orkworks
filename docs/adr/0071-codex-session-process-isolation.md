@@ -27,7 +27,8 @@ arguments only when the help output advertises that exact option, without
 adding a duplicate. This applies to new sessions and exact resume. An
 unsuccessful or truncated probe aborts startup with a readable retry error;
 a successful probe without the flag preserves the older CLI's arguments.
-Other coding tools do not run this probe.
+The probe uses the PTY environment filter to exclude launcher-only variables
+and the UI approval token. Other coding tools do not run this probe.
 
 Retain the existing capability generation, report mailbox, hook trust,
 identity replacement rules, and exact-resume checks. Do not edit global Codex
