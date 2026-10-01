@@ -20,8 +20,9 @@ section and recorded the evidence in
 The current implementations do not yet meet that policy: the shared Claude and
 Copilot reporter defaults every notification to `waiting_for_input` without
 reading `notification_type` and carries no event name, report-token header, or
-launch generation; Claude installs broad `PreToolUse` and `PostToolUse`
-attention writes; and Aider declares a static launch-time `Attention` flag
+launch generation; Claude installs a broad `PreToolUse` attention write (its
+`PostToolUse` entry is the synchronous `Write|Edit` plan-path hook, not an
+attention event); and Aider declares a static launch-time `Attention` flag
 that suppresses Peon's `working` fallback without proving any hook executed.
 Until this boundary is recorded as a decision before the follow-up runtime
 issues
@@ -45,8 +46,10 @@ runtime behavior changes:
    remain available. Only an accepted, allowlisted prompt notification report
    for the live session promotes authority; after activation, only the
    harness's mapped turn and clear events may update or clear attention, and
-   they never activate authority again. Unknown, malformed, nonprompt, and
-   unauthorized reports do not change state.
+   they never activate authority again. Unknown, malformed, and unauthorized
+   reports do not change state; before activation, recognized nonprompt
+   notifications are likewise no-ops for attention and write no readiness-only
+   state.
 2. **Validation and identity wall.** Every Claude/Copilot native-ID
    registration and attention report must carry the event's native ID
    (`session_id` for Claude, `sessionId` for Copilot), the live session's
@@ -105,10 +108,13 @@ runtime behavior changes:
    wait because another configured hook can block completion and force
    continuation. Denied permissions may remain waiting; the documented contract
    has no rejection event. Timestamped reports are ordered against accepted
-   reports and committed terminal input: reports at or older than the
-   committed-input boundary are rejected, raw uncommitted typing never
-   advances that boundary, and equal timestamps use a deterministic receive
-   sequence.
+   hook reports and committed terminal input: reports with missing or invalid
+   timestamps are rejected, a report timestamp less than or equal to the
+   committed-input boundary is rejected, raw uncommitted typing never advances
+   that boundary, and equal-time hook reports use a deterministic receive
+   sequence; a report timestamped at the committed-input boundary is rejected
+   as the follow-up mapping issue's ordering rule
+   ([#683](https://github.com/Rambolarsen/orkworks/issues/683)).
 6. **Aider stays on Peon fallback.** Remove Aider's launch-time static
    `Attention` hook flag. Its completion callback never activates prompt
    authority and never writes attention state, including `idle` or
