@@ -123,9 +123,10 @@ if [ "${1:-}" = 'pr' ] && [ "${2:-}" = 'list' ]; then
       if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED","isCrossRepository":false}]\n'; matched=1; fi
       ;;
     open-stalled-plus-fresh)
-      # stale-feature has two open PRs: one stalled, one fresh. The fresh PR
-      # still covers the branch; nothing may be reported for it.
-      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN","isCrossRepository":false,"updatedAt":"2020-01-01T00:00:00Z"},{"number":708,"state":"OPEN","isCrossRepository":false,"updatedAt":"2030-01-01T00:00:00Z"}]\n'; matched=1; fi
+      # stale-feature has two open PRs: one stalled, one fresh (timestamp
+      # supplied via GH_FRESH_ISO). The fresh PR still covers the branch;
+      # nothing may be reported for it.
+      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN","isCrossRepository":false,"updatedAt":"2020-01-01T00:00:00Z"},{"number":708,"state":"OPEN","isCrossRepository":false,"updatedAt":"%s"}]\n' "$GH_FRESH_ISO"; matched=1; fi
       if [ "$head_ref" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN","isCrossRepository":false}]\n'; matched=1; fi
       if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED","isCrossRepository":false}]\n'; matched=1; fi
       ;;
@@ -143,12 +144,21 @@ chmod +x "$bin/gh"
 # local bare remote only for pushes done before the audit runs.
 git -C "$repo" config remote.origin.url "https://github.com/Rambolarsen/orkworks"
 
+# A dynamically derived "fresh" PR timestamp (one hour ago) for the stalled +
+# fresh PR fixture; a hardcoded future date would go stale once the clock
+# passes it.
+fresh_iso="$(node -e 'console.log(new Date(Number(process.argv[1]) * 1000).toISOString().replace(/\.\d+Z$/, "Z"))' "$((now - 3600))")"
+
 # Simulate a long-lived stale checkout: local main lags origin/main (the
 # land-squash commit exists only on the pushed remote and its remote-tracking
 # ref). The helper must compare against the fetched origin default branch,
 # not the stale local one, or it would false-flag squash-merged.
 baseline_sha="$(git -C "$repo" rev-parse main^)"
 git -C "$repo" update-ref refs/heads/main "$baseline_sha"
+
+# A normal clone has a symbolic refs/remotes/origin/HEAD; set it so the
+# helper resolves the default branch the way it will in the real repo.
+git -C "$repo" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
 
 # Case 1: default (open) PR mode. Only stale-feature is stranded.
 output="$( (cd "$repo" && PATH="$bin:$PATH" GH_PR_LIST_MODE=pr-branch "$helper") )"
@@ -206,7 +216,7 @@ fi
 
 # Case 3c: with one stalled and one fresh open PR on the same branch, the
 # fresh PR covers the branch; nothing may be reported for it.
-output_mixed="$( (cd "$repo" && PATH="$bin:$PATH" GH_PR_LIST_MODE=open-stalled-plus-fresh "$helper" --state all) )"
+output_mixed="$( (cd "$repo" && PATH="$bin:$PATH" GH_FRESH_ISO="$fresh_iso" GH_PR_LIST_MODE=open-stalled-plus-fresh "$helper" --state all) )"
 if grep -Fq 'stale-feature' <<<"$output_mixed"; then
   echo 'stranded-branch-audit reported a branch whose open PRs include a fresh one' >&2
   exit 1

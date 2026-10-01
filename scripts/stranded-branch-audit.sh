@@ -47,7 +47,11 @@ fi
 stale_secs=$((7 * 86400))
 now=$(date +%s)
 remote_branch_prefix="refs/remotes/origin/"
-default_branch="$(git symbolic-ref --short "refs/remotes/origin/HEAD" 2>/dev/null | sed "s|^${remote_branch_prefix}||" || true)"
+  # Resolve the default branch from the full symbolic ref: the --short form
+  # returns "origin/main", which the prefix strip below cannot reduce and
+  # which must not be re-prefixed with origin/ when compared against the
+  # remote-tracking tree.
+  default_branch="$(git symbolic-ref "refs/remotes/origin/HEAD" 2>/dev/null | sed "s|^${remote_branch_prefix}||" || true)"
 if [ -z "$default_branch" ]; then
   default_branch='main'
 fi
