@@ -63,8 +63,8 @@ summary of at most 1,000 characters, and a response of at most 64 KiB.
 
 The sidecar validates every supplied ID, rejects empty or duplicate clusters,
 overlapping families, invalid bounds, mismatched target surfaces, and any
-generated text outside its bounds. Invalid output is rejected as a whole; no
-partial rollup is applied. All cluster and member ordering is normalized
+generated text outside its bounds. Invalid output is rejected as a whole (rollup validation failures are amended
+below to degrade instead); no partial rollup is applied. All cluster and member ordering is normalized
 before identity is computed. The stable parent identity is
 `rollup:<sha256-hex>` over sorted member recommendation IDs. Generated prose
 does not determine identity or derived claims. A server-owned evaluation token
@@ -126,3 +126,38 @@ The recommendation schema and lifecycle store become more complex, and model
 availability can affect only semantic grouping. The workspace lock and
 recoverable graph transaction are required to prevent partially hidden
 recommendations during membership changes or process failure.
+
+## Amendment — 2026-10-01: rollup proposed change
+
+A rollup parent's title and summary describe the problem but not the change, so
+the Fix with AI handoff gives the receiving session nothing concrete to act on.
+Each rollup cluster now carries one required, validated `proposedChange`: a
+bounded summary, one to three repo-relative `edit`/`create` targets with a
+short instruction each, and a prose verification hint, at most 1.5 KiB
+serialized. The sidecar validates paths against the canonical workspace root
+(no escapes, `.git` at any depth, Windows-reserved names, duplicates, or
+mismatched existence), at parse time and again under the lock when applied.
+Validation is advisory; the receiving session rechecks each target.
+
+This stays inside the decision above. `proposedChange` is model-written
+presentation, never evidence: it does not affect parent identity, recurrence,
+sessions, impact, or confidence, and `executing`, `accepted`, and terminal
+parents keep the value they had. The rollup prompt version advances to
+`taskmaster-rollup-v2`, so cached `v1` results are never applied. No session
+creation, file edit, or acceptance is introduced. Instruction and configuration
+surfaces are allowed targets; the sidecar flags those that can change hooks,
+permissions, or CI as `sensitive`, and the handoff tells the session to tell
+the user before editing them.
+
+One behavior changes. The decision above rejects invalid rollup output as part
+of rejecting the combined provider response, which also discarded unrelated
+model enrichments and proposals and still consumed the evaluation reservation.
+A rollup validation failure now discards the whole rollups section, with
+nothing partial applied, while the rest of the response and the deterministic
+exact recommendations are still applied. A degraded section is not an
+authoritative empty clustering result: existing rollup parents and members are
+left untouched. The run is recorded as succeeded with a classified
+rollup-degraded reason and cached for identical inputs. Invalid-JSON or
+over-cap responses remain whole-response failures.
+Contract detail lives in
+[`specs/taskmaster.md`](../../specs/taskmaster.md#rollup-proposed-change).
