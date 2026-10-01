@@ -156,6 +156,7 @@ fn classify_known_failure_text(
         Some((ProviderOperationErrorCode::ProviderFailure, "rate limited"))
     } else if lower.contains("unauthorized")
         || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
         || has_http_status(&lower, 401)
     {
         Some((ProviderOperationErrorCode::Unauthorized, "authentication"))
@@ -804,6 +805,7 @@ mod tests {
                 "insufficient_quota for account private-account",
                 "quota exceeded",
             ),
+            ("invalid_api_key for private-account", "authentication"),
             ("HTTP 429 You exceeded your current quota", "quota exceeded"),
             ("HTTP 429 usage_limit_reached", "quota exceeded"),
             ("HTTP 429 credit_balance_exhausted", "quota exceeded"),
