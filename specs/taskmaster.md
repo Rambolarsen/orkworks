@@ -723,8 +723,10 @@ the `.git` segment rule, the surface-class rule, and sensitivity to it, so an
 allowed-looking symlink such as `docs/guide.md` pointing into `.git/` or into
 product source is rejected. `sensitive` is true when either the stated or the
 canonical path is sensitive, and the card and handoff use that computed value.
-The stored `path` is the validated stated repo-relative path, not the canonical
-one.
+An `edit` target that the platform reports as having more than one hard link is
+also rejected, because a hard link hides its other path from canonicalization
+(for example `docs/guide.md` hard-linked to `.git/config`). The stored `path` is
+the validated stated repo-relative path, not the canonical one.
 
 Path validation does filesystem I/O, so it runs under the workspace lock when
 output is applied; an earlier parse-time pre-filter is optional. It is
@@ -739,14 +741,15 @@ skills are legitimate targets and are allowed. The sidecar sets
 `.codex/`, `.opencode/`, `.agents/`, `.cursor/`, `.vscode/`, `.devcontainer/`,
 `.husky/`, `.githooks/`, `.github/`, `.cargo/`, or `scripts/`, or whose final path
 segment equals `.mcp.json`, `.gitattributes`, `.gitmodules`, `opencode.json`, `apm.yml`,
-`package.json`, `Cargo.toml`, or `build.rs`, at any depth, because those paths can run code or
+`package.json`, `Cargo.toml`, `build.rs`, `Makefile`, `justfile`, or `Dockerfile`, at any depth, because those paths can run code or
 change hooks, permissions, or CI. A Markdown file under `skills/`, `.claude/skills/`,
 `.agents/skills/`, or `.codex/skills/` is never flagged, even beneath a flagged
 directory; other files there, such as skill scripts, follow the normal rules.
-`AGENTS.md`, `CLAUDE.md`, and skills are
-deliberately not flagged: the flag marks paths that execute or change
-permissions, and these are the primary intended targets. The model never sets
-this flag.
+`AGENTS.md`, `CLAUDE.md`, and skills are not flagged by name: the flag marks
+paths that execute or change permissions, and these are the primary intended
+targets. The directory rule takes precedence, so `.claude/CLAUDE.md` or
+`scripts/AGENTS.md` is flagged because of the directory it sits under. The model
+never sets this flag.
 
 **Failure behavior.** Rollup failures degrade instead of rejecting the
 response. The rollups section is parsed leniently and validated as a unit,
@@ -774,8 +777,9 @@ which stops a consistently bad model from burning the daily allowance. A
 degradation caused by the apply-time filesystem check is not written to the
 evaluation cache: the environment can change without changing the cache inputs,
 and a manual analysis keeps the cache, so caching it could suppress a
-now-valid rollup indefinitely. The cooldown and daily allowance still bound
-retries. The evaluation reservation is consumed either way. This
+now-valid rollup indefinitely. Automatic retries stay bounded by the cooldown
+and daily allowance; a manual analysis remains unlimited under the existing
+manual-analysis contract. The evaluation reservation is consumed either way. This
 replaces the earlier rule that an invalid rollup rejected the whole combined
 response.
 
@@ -1309,7 +1313,7 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] An authenticated target agent can transition an accepted `improve_workflow` recommendation to `completed`; the callback cannot name a different target session or lifecycle state, and retries are idempotent.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
 - [ ] A rollup parent stores a validated `proposedChange` (summary, one to three `edit`/`create` targets, verification) of at most 1.5 KiB; a missing or invalid one, a model-supplied `sensitive`, an escaping, `.git`, Windows-reserved, out-of-scope, or duplicate (lexical or canonical) path, a missing or non-regular `edit` target, or an existing or dangling-symlink `create` target degrades the rollups section while enrichments, proposals, and exact recommendations are still applied.
-- [ ] A degraded rollups section leaves every existing rollup parent and member untouched (it is not treated as an authoritative empty clustering result, and enrichments or proposals targeting a rollup parent or member are dropped), is recorded as a succeeded run with a classified rollup-degraded reason and no model text, and is cached for identical inputs except when caused by the apply-time filesystem check, which is not cached; a response that is invalid JSON or over the cap still fails as a whole.
+- [ ] A degraded rollups section leaves every existing rollup parent and member untouched (it is not treated as an authoritative empty clustering result, and enrichments targeting a rollup parent or member are dropped; proposals always apply), is recorded as a succeeded run with a classified rollup-degraded reason and no model text, and is cached for identical inputs except when caused by the apply-time filesystem check, which is not cached; a response that is invalid JSON or over the cap still fails as a whole.
 - [ ] `proposedChange` never alters rollup identity, recurrence, affected sessions, impact, or confidence; a same-member-set `v2` result backfills a still-`proposed` parent, and `executing`, `accepted`, and terminal parents keep the value they had.
 - [ ] The sidecar, never the model, sets `sensitive` on targets under `.claude/`, `.codex/`, `.opencode/`, `.github/workflows/`, `opencode.json`, or `apm.yml`; the card badges them and the Fix prompt tells the session to tell the user before editing them.
 - [ ] A target whose canonical destination lands under `.git/`, out of scope, or in a sensitive path (for example a `docs/` symlink into `.git/` or product source) is rejected or flagged using the canonical path, and a Markdown file under a skills subtree is never flagged sensitive even beneath `.claude/`.
