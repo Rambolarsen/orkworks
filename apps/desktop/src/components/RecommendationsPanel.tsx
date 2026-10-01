@@ -5,6 +5,7 @@ import {
   getTaskmasterRecommendation,
   getTaskmasterRecommendations,
   type ObservationDiagnostic,
+  type ProposedChange,
   type WorkflowRecommendation,
 } from "../api.ts";
 import {
@@ -19,7 +20,6 @@ import {
   panelEmptyMessage,
   type PanelOriginFilter,
 } from "../taskmaster.ts";
-import type { ProposedChange } from "../api.ts";
 import { formatTaskmasterRunStatus, formatTaskmasterRunTimestamp, type TaskmasterRunStatus } from "../taskmasterSettings.ts";
 import EmptyState from "./EmptyState";
 import RecommendationEvidence from "./RecommendationEvidence";

@@ -1557,6 +1557,10 @@ fn v1_tokens_are_stale_and_degrade_summary_is_bounded_and_classified() {
     );
     assert_eq!(ApplyDisposition::Applied.summary(), None);
     assert!(!ApplyDisposition::RollupsDegraded("proposed_change_filesystem").cacheable());
+    assert!(!ApplyDisposition::RollupsDegraded(
+        crate::taskmaster::proposed_change::ChangeValidationError::EditTargetMissing.code()
+    )
+    .cacheable());
     assert!(ApplyDisposition::RollupsDegraded("proposed_change_scope").cacheable());
     assert!(ApplyDisposition::Applied.cacheable());
 }

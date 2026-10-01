@@ -1131,7 +1131,7 @@ impl ApplyDisposition {
     /// cache inputs, and a manual analysis keeps the cache, so they are not
     /// cached; everything else is.
     fn cacheable(&self) -> bool {
-        !matches!(self, Self::RollupsDegraded("proposed_change_filesystem"))
+        !matches!(self, Self::RollupsDegraded(code) if *code == crate::taskmaster::proposed_change::FILESYSTEM_CODE)
     }
 
     fn summary(&self) -> Option<String> {

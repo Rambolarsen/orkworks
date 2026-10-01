@@ -73,6 +73,9 @@ pub(crate) enum ChangeValidationError {
     CreateParentInvalid,
 }
 
+/// Code for filesystem-check degradations; shared with cache policy.
+pub(crate) const FILESYSTEM_CODE: &str = "proposed_change_filesystem";
+
 impl ChangeValidationError {
     /// Bounded classified reason; never includes model text.
     pub(crate) fn code(self) -> &'static str {
@@ -88,7 +91,7 @@ impl ChangeValidationError {
             | Self::EditTargetHardLinked
             | Self::EscapesWorkspace
             | Self::CreateTargetExists
-            | Self::CreateParentInvalid => "proposed_change_filesystem",
+            | Self::CreateParentInvalid => FILESYSTEM_CODE,
         }
     }
 }
