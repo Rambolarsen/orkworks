@@ -725,7 +725,19 @@ fn run_model_evaluation_with_context_and_workspace(
                     rollup_request.as_ref(),
                     &output,
                 ) {
-                    Ok(()) => {
+                    Ok(disposition) if !disposition.cacheable() => {
+                        // Environment-dependent degradation: not cached so a
+                        // changed workspace can retry. record_evaluation_success
+                        // only writes the cache key; cooldown was recorded at
+                        // reservation, so nothing else needs replicating.
+                        if let Some(guard) = run_guard.as_mut() {
+                            guard.finish(
+                                TaskmasterRunOutcomeState::Succeeded,
+                                disposition.summary().as_deref(),
+                            );
+                        }
+                    }
+                    Ok(disposition) => {
                         match runtime.record_evaluation_success(
                             &state.harness_store,
                             &workspace_path,
@@ -734,7 +746,10 @@ fn run_model_evaluation_with_context_and_workspace(
                         ) {
                             Ok(true) => {
                                 if let Some(guard) = run_guard.as_mut() {
-                                    guard.finish(TaskmasterRunOutcomeState::Succeeded, None);
+                                    guard.finish(
+                                        TaskmasterRunOutcomeState::Succeeded,
+                                        disposition.summary().as_deref(),
+                                    );
                                 }
                             }
                             Ok(false) => {
@@ -951,7 +966,7 @@ fn apply_provider_output_with_diagnostic(
     supplied_recommendations: &[Recommendation],
     rollup_request: Option<&RollupEvaluationRequest>,
     output: &str,
-) -> Result<(), String> {
+) -> Result<ApplyDisposition, String> {
     let parsed = rollup_request.map_or_else(
         || parse_provider_response(output, None),
         |request| parse_provider_response(output, Some(&request.snapshots)),
@@ -963,7 +978,7 @@ fn apply_provider_output_with_diagnostic(
         {
             return Err("Taskmaster rollup response became stale before application".into());
         }
-        if apply_model_output_parsed(
+        match apply_model_output_parsed(
             state.as_ref(),
             runtime,
             snapshot,
@@ -974,9 +989,8 @@ fn apply_provider_output_with_diagnostic(
             model,
             rollup_request,
         ) {
-            Ok(())
-        } else {
-            Err("Taskmaster provider response could not be applied because its evaluation context changed".into())
+            Some(disposition) => Ok(disposition),
+            None => Err("Taskmaster provider response could not be applied because its evaluation context changed".into()),
         }
     });
     if let Err(error) = &result {
@@ -1105,6 +1119,36 @@ fn validate_legacy_model_output(
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ApplyDisposition {
+    Applied,
+    /// Rollups were discarded; everything else was applied.
+    RollupsDegraded(&'static str),
+}
+
+impl ApplyDisposition {
+    /// Filesystem-check degradations depend on the environment, not on the
+    /// cache inputs, and a manual analysis keeps the cache, so they are not
+    /// cached; everything else is.
+    fn cacheable(&self) -> bool {
+        !matches!(self, Self::RollupsDegraded("proposed_change_filesystem"))
+    }
+
+    fn summary(&self) -> Option<String> {
+        match self {
+            Self::Applied => None,
+            Self::RollupsDegraded(code) => Some(format!(
+                "Rollups degraded ({code}); other results were applied"
+            )),
+        }
+    }
+}
+
+/// Rollup parents and members are owned by the rollup graph reconciliation.
+fn is_rollup_record(recommendation: &Recommendation) -> bool {
+    !recommendation.rollup_member_ids.is_empty() || recommendation.rolled_up_by.is_some()
+}
+
 fn apply_model_output_parsed(
     state: &AppState,
     runtime: &TaskmasterRuntime,
@@ -1115,7 +1159,7 @@ fn apply_model_output_parsed(
     supplied_recommendations: &[Recommendation],
     model: ModelOutput,
     rollup_request: Option<&RollupEvaluationRequest>,
-) -> bool {
+) -> Option<ApplyDisposition> {
     let bundle = snapshot.knowledge.as_ref();
     let page_map = bundle
         .into_iter()
@@ -1168,20 +1212,18 @@ fn apply_model_output_parsed(
             snapshot,
             Some("Taskmaster provider cited unsupplied knowledge".into()),
         );
-        return false;
+        return None;
     }
     if !runtime
         .with_current_evaluation(&state.harness_store, workspace_path, snapshot, || {})
         .unwrap_or(false)
     {
-        return false;
+        return None;
     }
-    // Interim (replaced by degrade handling in a later task): a degraded
-    // section is never an authoritative empty result, so apply nothing.
-    let rollups = match &model.rollups {
-        RollupSection::Valid(clusters) => clusters.clone(),
-        RollupSection::NotRequested => Vec::new(),
-        RollupSection::Degraded(_) => return false,
+    let (rollups, mut degraded) = match &model.rollups {
+        RollupSection::Valid(clusters) => (clusters.clone(), None),
+        RollupSection::NotRequested => (Vec::new(), None),
+        RollupSection::Degraded(code) => (Vec::new(), Some(*code)),
     };
     let mut accepted = false;
     let _ = runtime.with_current_evaluation(&state.harness_store, workspace_path, snapshot, || {
@@ -1293,10 +1335,39 @@ fn apply_model_output_parsed(
         updates.push(recommendation);
     }
     if let Some(request) = rollup_request {
-        accepted = SessionApplication::apply_rollup_clusters_locked(
-            workspace, request.token.workspace_instance, &request.snapshots,
-            &rollups, request.token.generation, &updates,
-        );
+        // Path validation does filesystem I/O; the workspace lock is held here.
+        let mut resolved_rollups = Vec::with_capacity(rollups.len());
+        if degraded.is_none() {
+            for cluster in &rollups {
+                match crate::taskmaster::proposed_change::resolve_targets_on_disk(
+                    &workspace.path,
+                    &cluster.proposed_change,
+                ) {
+                    Ok(change) => {
+                        let mut resolved = cluster.clone();
+                        resolved.proposed_change = change;
+                        resolved_rollups.push(resolved);
+                    }
+                    Err(error) => {
+                        degraded = Some(error.code());
+                        break;
+                    }
+                }
+            }
+        }
+        if degraded.is_some() {
+            // A degraded section is not an authoritative empty result: skip the
+            // rollup graph reconciliation and write only non-rollup updates.
+            for recommendation in updates.iter().filter(|item| !is_rollup_record(item)) {
+                if workspace.recommendation_store.put(recommendation).is_err() { return; }
+            }
+            accepted = true;
+        } else {
+            accepted = SessionApplication::apply_rollup_clusters_locked(
+                workspace, request.token.workspace_instance, &request.snapshots,
+                &resolved_rollups, request.token.generation, &updates,
+            );
+        }
     } else {
         for recommendation in updates {
             if workspace.recommendation_store.put(&recommendation).is_err() { return; }
@@ -1304,7 +1375,10 @@ fn apply_model_output_parsed(
         accepted = true;
     }
     });
-    accepted
+    accepted.then(|| match degraded {
+        Some(code) => ApplyDisposition::RollupsDegraded(code),
+        None => ApplyDisposition::Applied,
+    })
 }
 
 fn select_relevant_pages(

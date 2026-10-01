@@ -1284,8 +1284,29 @@ fn empty_result_preserves_changed_evidence_and_terminal_parent_state() {
     }
 }
 
+fn apply_with_disposition(
+    state: &std::sync::Arc<crate::AppState>,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    directory: &std::path::Path,
+    request: &RollupEvaluationRequest,
+    output: &str,
+) -> Result<ApplyDisposition, String> {
+    apply_provider_output_with_diagnostic(
+        state,
+        runtime,
+        snapshot,
+        directory,
+        workspace_instance(state),
+        &[],
+        &stored_recommendations(state),
+        Some(request),
+        output,
+    )
+}
+
 #[test]
-fn omitted_rollups_are_not_an_authoritative_empty_result() {
+fn omitted_rollups_degrade_without_dissolving_existing_rollups() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
     let snapshot = bound_snapshot(&state, &runtime, directory.path());
@@ -1302,14 +1323,17 @@ fn omitted_rollups_are_not_an_authoritative_empty_result() {
     let before = stored_recommendations(&state);
     let request = build_rollup_request(workspace_instance(&state), &snapshot, &before).unwrap();
     let legacy_only = r#"{"enrichments":[],"proposals":[]}"#;
-    assert!(!apply_combined_output(
-        &state,
-        &runtime,
-        &snapshot,
-        directory.path(),
-        &request,
-        legacy_only
-    ));
+    assert_eq!(
+        apply_with_disposition(
+            &state,
+            &runtime,
+            &snapshot,
+            directory.path(),
+            &request,
+            legacy_only
+        ),
+        Ok(ApplyDisposition::RollupsDegraded("rollups_missing"))
+    );
     assert_eq!(stored_recommendations(&state), before);
     assert_eq!(
         parse_provider_response(legacy_only, Some(&request.snapshots))
@@ -1318,6 +1342,223 @@ fn omitted_rollups_are_not_an_authoritative_empty_result() {
         RollupSection::Degraded("rollups_missing")
     );
     assert!(parse_provider_response(legacy_only, None).is_ok());
+}
+
+#[test]
+fn degraded_rollups_leave_existing_parents_and_members_untouched() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let before = stored_recommendations(&state);
+    let request = build_rollup_request(workspace_instance(&state), &snapshot, &before).unwrap();
+    let mut bad = cluster(&["a", "b"]);
+    bad.proposed_change.targets[0].path = ".git/config".into();
+    let disposition = apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &output(&[bad]),
+    )
+    .unwrap();
+    assert_eq!(
+        disposition,
+        ApplyDisposition::RollupsDegraded("proposed_change_path")
+    );
+    assert_eq!(
+        stored_recommendations(&state),
+        before,
+        "a degraded section must not dissolve or rewrite rollups"
+    );
+    let disposition = apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        "{}",
+    )
+    .unwrap();
+    assert_eq!(
+        disposition,
+        ApplyDisposition::RollupsDegraded("rollups_missing")
+    );
+    assert_eq!(stored_recommendations(&state), before);
+}
+
+#[test]
+fn degraded_run_drops_enrichments_on_rollup_records_but_applies_others() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let before = stored_recommendations(&state);
+    let parent = before
+        .iter()
+        .find(|item| !item.rollup_member_ids.is_empty())
+        .unwrap();
+    assert_eq!(parent.status, RecommendationStatus::Proposed);
+    let request = build_rollup_request(workspace_instance(&state), &snapshot, &before).unwrap();
+    let response = serde_json::json!({
+        "enrichments": [
+            {"dedupeKey": parent.dedupe_key, "knowledgePageIds": []},
+            {"dedupeKey": "exact:c", "knowledgePageIds": []},
+        ],
+    })
+    .to_string();
+    let disposition = apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &response,
+    )
+    .unwrap();
+    assert_eq!(
+        disposition,
+        ApplyDisposition::RollupsDegraded("rollups_missing")
+    );
+    let after = stored_recommendations(&state);
+    for original in before.iter().filter(|item| item.id != "c") {
+        assert_eq!(
+            after.iter().find(|item| item.id == original.id).unwrap(),
+            original,
+            "rollup parent and members must be untouched"
+        );
+    }
+    let c_before = before.iter().find(|item| item.id == "c").unwrap();
+    let c_after = after.iter().find(|item| item.id == "c").unwrap();
+    assert_ne!(
+        c_after.updated_at, c_before.updated_at,
+        "a non-rollup enrichment still applies"
+    );
+}
+
+#[test]
+fn rollup_record_filter_matches_parents_and_members_only() {
+    let plain = recommendation("x", 1);
+    assert!(!is_rollup_record(&plain));
+    let mut parent = plain.clone();
+    parent.rollup_member_ids = vec!["a".into()];
+    assert!(is_rollup_record(&parent));
+    let mut member = plain;
+    member.rolled_up_by = Some("p".into());
+    assert!(is_rollup_record(&member));
+}
+
+#[test]
+fn a_valid_empty_clustering_result_stays_authoritative() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let current = stored_recommendations(&state);
+    let request = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    let disposition = apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        r#"{"rollups":[]}"#,
+    )
+    .unwrap();
+    assert_eq!(disposition, ApplyDisposition::Applied);
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    let parent = stored_recommendations(&state)
+        .into_iter()
+        .find(|r| r.id == parent_id)
+        .unwrap();
+    assert_eq!(parent.status, RecommendationStatus::Superseded);
+}
+
+#[test]
+fn missing_edit_target_degrades_at_apply_time_and_creates_no_parent() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    let mut missing = cluster(&["a", "b"]);
+    missing.proposed_change.targets[0].action =
+        crate::taskmaster::proposed_change::TargetAction::Edit;
+    missing.proposed_change.targets[0].path = "does/not/exist.md".into();
+    let disposition = apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &output(&[missing]),
+    )
+    .unwrap();
+    assert_eq!(
+        disposition,
+        ApplyDisposition::RollupsDegraded("proposed_change_filesystem")
+    );
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    assert!(stored_recommendations(&state)
+        .iter()
+        .all(|r| r.id != parent_id));
+}
+
+#[test]
+fn v1_tokens_are_stale_and_degrade_summary_is_bounded_and_classified() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let mut request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    request.token.prompt_version = "taskmaster-rollup-v1".into();
+    assert!(apply_with_disposition(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &request,
+        &output(&[cluster(&["a", "b"])])
+    )
+    .is_err());
+    assert_eq!(
+        ApplyDisposition::RollupsDegraded("proposed_change_path")
+            .summary()
+            .as_deref(),
+        Some("Rollups degraded (proposed_change_path); other results were applied")
+    );
+    assert_eq!(ApplyDisposition::Applied.summary(), None);
+    assert!(!ApplyDisposition::RollupsDegraded("proposed_change_filesystem").cacheable());
+    assert!(ApplyDisposition::RollupsDegraded("proposed_change_scope").cacheable());
+    assert!(ApplyDisposition::Applied.cacheable());
 }
 
 #[test]
@@ -1340,7 +1581,7 @@ fn evidence_change_after_preflight_cannot_apply_legacy_enrichment() {
     let before = stored_recommendations(&state);
     let response = serde_json::json!({"enrichments":[{"dedupeKey":"exact:c","knowledgePageIds":[]}],"rollups":[cluster(&["a", "b"])]}).to_string();
     let model = parse_provider_response(&response, Some(&request.snapshots)).unwrap();
-    assert!(!apply_model_output_parsed(
+    assert!(apply_model_output_parsed(
         &state,
         &runtime,
         &snapshot,
@@ -1350,7 +1591,8 @@ fn evidence_change_after_preflight_cannot_apply_legacy_enrichment() {
         &recommendations,
         model,
         Some(&request)
-    ));
+    )
+    .is_none());
     assert_eq!(stored_recommendations(&state), before);
 }
 
