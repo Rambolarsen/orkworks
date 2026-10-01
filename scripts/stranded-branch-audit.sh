@@ -74,7 +74,9 @@ while IFS= read -r branch; do
     continue
   fi
 
-  if ! pr_json="$(gh pr list --repo "$repo_slug" --state "$pr_state" --head "$repo_slug:$branch" --json number,state 2>/dev/null)"; then
+  # gh matches --head by branch name only; an owner-qualified "<owner>:<branch>"
+  # value matches nothing and would lose OPEN-PR coverage for same-repo branches.
+  if ! pr_json="$(gh pr list --repo "$repo_slug" --state "$pr_state" --head "$branch" --json number,state 2>/dev/null)"; then
     pr_json='[]'
   fi
   # gh success with empty stdout (no PRs matched) still needs to be a JSON

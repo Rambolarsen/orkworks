@@ -91,20 +91,26 @@ cat > "$bin/gh" <<'EOF'
 set -euo pipefail
 
 if [ "${1:-}" = 'pr' ] && [ "${2:-}" = 'list' ]; then
-  # Args look like: pr list --repo X --state open --head X:branch --json number,state
-  # ${@: -3:1} is exactly the X:branch element; a bare ${@: -3} would be a
+  # Args look like: pr list --repo X --state open --head branch --json number,state
+  # ${@: -3:1} is exactly the --head value; a bare ${@: -3} would be a
   # three-element slice joined with spaces.
-  local_ref="${@: -3:1}"
-  branch="${local_ref#*:}"
+  head_ref="${@: -3:1}"
+  # Real gh matches --head by branch name only: an owner-qualified
+  # "<owner>:<branch>" value matches nothing (verified against gh pr list),
+  # which is precisely how the helper's former "$repo_slug:$branch" filter
+  # silently lost same-repo PR coverage.
+  case "$head_ref" in
+    *:*) printf '[]\n'; exit 0 ;;
+  esac
   matched=0
   case "${GH_PR_LIST_MODE:?}" in
     pr-branch)
-      if [ "$branch" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN"}]\n'; matched=1; fi
-      if [ "$branch" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED"}]\n'; matched=1; fi
+      if [ "$head_ref" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN"}]\n'; matched=1; fi
+      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED"}]\n'; matched=1; fi
       ;;
     open-pr-branch)
-      if [ "$branch" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN"}]\n'; matched=1; fi
-      if [ "$branch" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED"}]\n'; matched=1; fi
+      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN"}]\n'; matched=1; fi
+      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED"}]\n'; matched=1; fi
       ;;
   esac
   if [ "$matched" = 0 ]; then printf '[]\n'; fi
