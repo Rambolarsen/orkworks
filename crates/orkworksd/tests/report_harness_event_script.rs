@@ -66,6 +66,7 @@ fn run_reporter_for_event(
         .env("HOME", dir.path())
         .env("ORKWORKS_SESSION_ID", "test-session")
         .env("ORKWORKS_PORT", "1")
+        .env_remove("ORKWORKS_CODEX_SESSION_REPORT_DIR")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

@@ -86,10 +86,19 @@ the [Codex configuration reference](https://developers.openai.com/codex/config-r
 for the network proxy settings.
 
 On macOS and Linux, the latest OrkWorks Codex hook result is recorded at
-`~/.orkworks/hook-scripts/report-harness-event-diagnostic.json`. It records
-whether the native ID was parsed and the POST's curl exit code and HTTP status,
-without storing the ID, token, payload, or response body. The Windows reporter
-does not currently write this diagnostic.
+`~/.orkworks/hook-scripts/report-harness-event-diagnostic.json`; the Windows
+reporter writes the same file. In addition to whether the native ID was parsed
+and the POST result, the diagnostic keeps a bounded ordered sequence of at most
+16 redacted `PermissionRequest` and `PostToolUse` records: only the top-level key names
+`hook_event_name`, `model`, `permission_mode`, `turn_id`, `tool_name`,
+`tool_use_id`, and `tool_response`, plus only the `hook_event_name`,
+`permission_mode`, `turn_id`, `tool_name`, and `tool_use_id` scalar values.
+`tool_use_id` is retained only when it is a string of at most 128 characters.
+The sequence preserves event order but omits session IDs, paths, `tool_input`,
+token fields, all other values, and response bodies. `PostToolUse` is capture-only
+and does not change **Needs You** behavior. The new event changes Codex's hook
+fingerprint, so approve the updated OrkWorks bundle once in Codex's `/hooks`
+screen after updating the integration.
 
 Use the arrow beside a tool to show or hide its details; collapsing keeps
 unsaved custom-path edits. If an enabled tool needs installation or repair,
