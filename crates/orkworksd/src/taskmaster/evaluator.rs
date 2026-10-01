@@ -696,7 +696,7 @@ fn run_model_evaluation_with_context_and_workspace(
         };
         match result {
             Ok(output) => {
-                if apply_provider_output(
+                match apply_provider_output_with_diagnostic(
                     &state,
                     &runtime,
                     &snapshot,
@@ -707,24 +707,26 @@ fn run_model_evaluation_with_context_and_workspace(
                     rollup_request.as_ref(),
                     &output,
                 ) {
-                    let committed = runtime
-                        .record_evaluation_success(
-                            &state.harness_store,
-                            &workspace_path,
-                            &snapshot,
-                            &cache_key,
-                        )
-                        .unwrap_or(false);
-                    if committed {
-                        if let Some(guard) = run_guard.as_mut() {
-                            guard.finish(TaskmasterRunOutcomeState::Succeeded, None);
+                    Ok(()) => {
+                        let committed = runtime
+                            .record_evaluation_success(
+                                &state.harness_store,
+                                &workspace_path,
+                                &snapshot,
+                                &cache_key,
+                            )
+                            .unwrap_or(false);
+                        if committed {
+                            if let Some(guard) = run_guard.as_mut() {
+                                guard.finish(TaskmasterRunOutcomeState::Succeeded, None);
+                            }
                         }
                     }
-                } else if let Some(guard) = run_guard.as_mut() {
-                    guard.finish(
-                        TaskmasterRunOutcomeState::Failed,
-                        Some("Taskmaster provider response could not be applied"),
-                    );
+                    Err(error) => {
+                        if let Some(guard) = run_guard.as_mut() {
+                            guard.finish(TaskmasterRunOutcomeState::Failed, Some(&error));
+                        }
+                    }
                 }
             }
             Err(error) => {
@@ -892,56 +894,74 @@ fn apply_provider_output(
     rollup_request: Option<&RollupEvaluationRequest>,
     output: &str,
 ) -> bool {
-    let parsed = rollup_request.map_or_else(
-        || parse_provider_response(output, None),
-        |request| parse_provider_response(output, Some(&request.snapshots)),
-    );
-    let Ok(model) = parsed else {
-        let _ = runtime.record_evaluation_error(
-            &state.harness_store,
-            workspace_path,
-            snapshot,
-            Some(if rollup_request.is_some() {
-                "Taskmaster provider returned an invalid combined response".into()
-            } else {
-                "Taskmaster provider returned invalid JSON".into()
-            }),
-        );
-        return false;
-    };
-    if let Err(error) =
-        validate_legacy_model_output(&model, snapshot, facts, supplied_recommendations)
-    {
-        let _ = runtime.record_evaluation_error(
-            &state.harness_store,
-            workspace_path,
-            snapshot,
-            Some(error),
-        );
-        return false;
-    }
-    if rollup_request.is_some()
-        && !rollup_application_is_current(state, runtime, snapshot, rollup_request.unwrap())
-    {
-        let _ = runtime.record_evaluation_error(
-            &state.harness_store,
-            workspace_path,
-            snapshot,
-            Some("Taskmaster rollup response became stale before application".into()),
-        );
-        return false;
-    }
-    apply_model_output_parsed(
-        state.as_ref(),
+    apply_provider_output_with_diagnostic(
+        state,
         runtime,
         snapshot,
         workspace_path,
         workspace_instance,
         facts,
         supplied_recommendations,
-        model,
         rollup_request,
+        output,
     )
+    .is_ok()
+}
+
+fn apply_provider_output_with_diagnostic(
+    state: &Arc<AppState>,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    workspace_path: &std::path::Path,
+    workspace_instance: u64,
+    facts: &[crate::taskmaster::RepositoryEvidence],
+    supplied_recommendations: &[Recommendation],
+    rollup_request: Option<&RollupEvaluationRequest>,
+    output: &str,
+) -> Result<(), String> {
+    let parsed = rollup_request.map_or_else(
+        || parse_provider_response(output, None),
+        |request| parse_provider_response(output, Some(&request.snapshots)),
+    );
+    let model = parsed.map_err(|_| {
+        if rollup_request.is_some() {
+            "Taskmaster provider returned an invalid combined response".to_string()
+        } else {
+            "Taskmaster provider returned invalid JSON".to_string()
+        }
+    });
+    let result = model.and_then(|model| {
+        validate_legacy_model_output(&model, snapshot, facts, supplied_recommendations)?;
+        if rollup_request.is_some()
+            && !rollup_application_is_current(state, runtime, snapshot, rollup_request.unwrap())
+        {
+            return Err("Taskmaster rollup response became stale before application".into());
+        }
+        if apply_model_output_parsed(
+            state.as_ref(),
+            runtime,
+            snapshot,
+            workspace_path,
+            workspace_instance,
+            facts,
+            supplied_recommendations,
+            model,
+            rollup_request,
+        ) {
+            Ok(())
+        } else {
+            Err("Taskmaster provider response could not be applied because its evaluation context changed".into())
+        }
+    });
+    if let Err(error) = &result {
+        let _ = runtime.record_evaluation_error(
+            &state.harness_store,
+            workspace_path,
+            snapshot,
+            Some(error.clone()),
+        );
+    }
+    result
 }
 
 fn rollup_application_is_current(

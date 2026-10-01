@@ -18,7 +18,7 @@ import {
   panelEmptyMessage,
   type PanelOriginFilter,
 } from "../taskmaster.ts";
-import { formatTaskmasterRunStatus, type TaskmasterRunStatus } from "../taskmasterSettings.ts";
+import { formatTaskmasterRunStatus, formatTaskmasterRunTimestamp, type TaskmasterRunStatus } from "../taskmasterSettings.ts";
 import EmptyState from "./EmptyState";
 import RecommendationEvidence from "./RecommendationEvidence";
 
@@ -383,7 +383,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
-      {hasWorkspace && taskmasterReady && <p className="recommendation-analysis-run" role="status">{runStatus ? formatTaskmasterRunStatus(runStatus) : runStatusError ?? "Loading analysis status…"}</p>}
+      {hasWorkspace && taskmasterReady && <p className="recommendation-analysis-run" role="status">{runStatus ? `${formatTaskmasterRunStatus(runStatus)}${formatTaskmasterRunTimestamp(runStatus) ? ` · ${formatTaskmasterRunTimestamp(runStatus)}` : ""}` : runStatusError ?? "Loading analysis status…"}</p>}
       {analysisMessage && <div className="recommendation-analysis-status" role="status">
         {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
         <p>{analysisMessage}</p>

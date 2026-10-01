@@ -48,6 +48,11 @@ export function formatTaskmasterRunStatus(status: TaskmasterRunStatus): string {
   const detail = outcome.state === "failed" && outcome.errorSummary ? `: ${outcome.errorSummary}` : "";
   return `${outcome.state[0].toUpperCase()}${outcome.state.slice(1)} ${outcome.trigger} analysis · ${outcome.provider} / ${outcome.model}${detail}`;
 }
+export function formatTaskmasterRunTimestamp(status: TaskmasterRunStatus): string {
+  const active = status.activeAttempt;
+  if (active) return active.startedAt ? `Started ${active.startedAt}` : `Queued ${active.queuedAt}`;
+  return status.latestOutcome ? `Finished ${status.latestOutcome.completedAt}` : "";
+}
 export function editTaskmasterScope(settings: TaskmasterSettings, workspace: string | null, patch: Partial<TaskmasterSettings> | null): TaskmasterSettings {
   if (!workspace) return { ...settings, ...patch };
   const workspaceOverrides = { ...settings.workspaceOverrides };

@@ -855,7 +855,7 @@ function App() {
         <SettingsModal
           initialSection={settingsSection}
           initialSettings={settings}
-          currentWorkspacePath={workspace?.path ?? null}
+          currentWorkspacePath={workspace?.workspaceIdentity ?? workspace?.path ?? null}
           updateStatus={updateState.status}
           updateCurrentVersion={updateState.currentVersion}
           updateChannel={updateState.channel}
