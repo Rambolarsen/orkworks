@@ -294,7 +294,7 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
             FragmentState::Installed | FragmentState::Drifted => {
                 // One OrkWorks group per event is the owned shape. Multiple
                 // owned groups for the same event are ambiguous, while one
-                // group on each of the five Codex events is the complete
+                // group on each of the six Codex events is the complete
                 // bundle and must be removable as one unit.
                 if !owned_events.insert(event) {
                     return Ok(FragmentState::Ambiguous);
