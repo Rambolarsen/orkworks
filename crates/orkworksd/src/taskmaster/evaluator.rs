@@ -708,17 +708,32 @@ fn run_model_evaluation_with_context_and_workspace(
                     &output,
                 ) {
                     Ok(()) => {
-                        let committed = runtime
-                            .record_evaluation_success(
-                                &state.harness_store,
-                                &workspace_path,
-                                &snapshot,
-                                &cache_key,
-                            )
-                            .unwrap_or(false);
-                        if committed {
-                            if let Some(guard) = run_guard.as_mut() {
-                                guard.finish(TaskmasterRunOutcomeState::Succeeded, None);
+                        match runtime.record_evaluation_success(
+                            &state.harness_store,
+                            &workspace_path,
+                            &snapshot,
+                            &cache_key,
+                        ) {
+                            Ok(true) => {
+                                if let Some(guard) = run_guard.as_mut() {
+                                    guard.finish(TaskmasterRunOutcomeState::Succeeded, None);
+                                }
+                            }
+                            Ok(false) => {
+                                if let Some(guard) = run_guard.as_mut() {
+                                    guard.finish(
+                                        TaskmasterRunOutcomeState::Interrupted,
+                                        Some("Taskmaster result was not committed because its workspace or provider context changed"),
+                                    );
+                                }
+                            }
+                            Err(error) => {
+                                if let Some(guard) = run_guard.as_mut() {
+                                    let summary = format!(
+                                        "Taskmaster result was applied, but its evaluation cache could not be saved: {error}"
+                                    );
+                                    guard.finish(TaskmasterRunOutcomeState::Failed, Some(&summary));
+                                }
                             }
                         }
                     }
@@ -923,14 +938,7 @@ fn apply_provider_output_with_diagnostic(
         || parse_provider_response(output, None),
         |request| parse_provider_response(output, Some(&request.snapshots)),
     );
-    let model = parsed.map_err(|_| {
-        if rollup_request.is_some() {
-            "Taskmaster provider returned an invalid combined response".to_string()
-        } else {
-            "Taskmaster provider returned invalid JSON".to_string()
-        }
-    });
-    let result = model.and_then(|model| {
+    let result = parsed.and_then(|model| {
         validate_legacy_model_output(&model, snapshot, facts, supplied_recommendations)?;
         if rollup_request.is_some()
             && !rollup_application_is_current(state, runtime, snapshot, rollup_request.unwrap())
