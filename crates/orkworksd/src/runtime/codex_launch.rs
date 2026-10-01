@@ -12,8 +12,13 @@ const PROBE_ERROR: &str =
 /// Probe before PTY spawn so launch and exact resume use the same isolation.
 /// Older CLIs without the option retain their existing arguments.
 pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), String> {
-    let tool = crate::harness::detect::probe_installed_tool(&command.program)
-        .ok_or_else(|| PROBE_ERROR.to_string())?;
+    let tool = crate::harness::detect::probe_installed_tool(&command.program).ok_or_else(|| {
+        tracing::warn!(
+            reason = "executable not found",
+            "Codex session-isolation probe failed"
+        );
+        PROBE_ERROR.to_string()
+    })?;
     let mut probe = tokio::process::Command::new(tool.executable);
     // Help wrappers must receive neither launcher authority nor an ambient session capability.
     probe
@@ -34,33 +39,49 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Str
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     let read_help = async {
-        let mut child = probe.spawn().ok()?;
-        let mut stdout = child.stdout.take()?.take(MAX_HELP_BYTES + 1);
-        let mut stderr = child.stderr.take()?.take(MAX_HELP_BYTES + 1);
+        let mut child = probe.spawn().map_err(|_| "help process could not start")?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or("help stdout pipe missing")?
+            .take(MAX_HELP_BYTES + 1);
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or("help stderr pipe missing")?
+            .take(MAX_HELP_BYTES + 1);
         let mut out = Vec::new();
         let mut err = Vec::new();
         let (out_result, err_result) =
             tokio::join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err),);
-        out_result.ok()?;
-        err_result.ok()?;
+        out_result.map_err(|_| "help stdout read failed")?;
+        err_result.map_err(|_| "help stderr read failed")?;
         // Do not wait on an oversized writer: dropping the child kills it.
         if out.len() as u64 > MAX_HELP_BYTES || err.len() as u64 > MAX_HELP_BYTES {
-            return None;
+            return Err("help output exceeded the size limit");
         }
-        if !child.wait().await.ok()?.success() {
-            return None;
+        if !child
+            .wait()
+            .await
+            .map_err(|_| "help process wait failed")?
+            .success()
+        {
+            return Err("help process exited unsuccessfully");
         }
-        Some(format!(
+        Ok(format!(
             "{}\n{}",
             String::from_utf8_lossy(&out),
             String::from_utf8_lossy(&err)
         ))
     };
-    let help = tokio::time::timeout(Duration::from_secs(3), read_help)
-        .await
-        .ok()
-        .flatten()
-        .ok_or_else(|| PROBE_ERROR.to_string())?;
+    let help = match tokio::time::timeout(Duration::from_secs(3), read_help).await {
+        Ok(result) => result,
+        Err(_) => Err("help probe timed out"),
+    }
+    .map_err(|reason| {
+        tracing::warn!(reason, "Codex session-isolation probe failed");
+        PROBE_ERROR.to_string()
+    })?;
     if help
         .lines()
         .any(|line| line.split_whitespace().next() == Some("--no-daemon"))
