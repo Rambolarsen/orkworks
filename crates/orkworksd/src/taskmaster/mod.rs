@@ -1212,38 +1212,62 @@ mod tests {
         assert!(!reference.contains("proposedChange"));
     }
 
+    fn rollup_reference_value(recommendation: &Recommendation) -> (serde_json::Value, usize) {
+        let reference = build_rollup_reference(recommendation);
+        let body = reference
+            .trim_start_matches("<orkworks-untrusted-rollup-reference>\n")
+            .trim_end_matches("\n</orkworks-untrusted-rollup-reference>");
+        (serde_json::from_str(body).unwrap(), body.len())
+    }
+
     #[test]
-    fn build_rollup_reference_never_half_includes_proposed_change() {
+    fn build_rollup_reference_keeps_proposed_change_whole_when_only_evidence_is_popped() {
         let mut recommendation = rollup_recommendation_with_change(true);
+        let template = recommendation.evidence[0].clone();
+        recommendation.evidence = (0..40)
+            .map(|index| {
+                let mut item = template.clone();
+                item.observation_id = format!("obs-{index}");
+                item.evidence = "e".repeat(2_000);
+                item
+            })
+            .collect();
+        let (value, len) = rollup_reference_value(&recommendation);
+        assert!(len <= MAX_ROLLUP_PROMPT_REFERENCE_CHARS);
+        assert_eq!(value["truncated"], true);
+        let kept = value["evidence"].as_array().unwrap().len();
+        assert!(kept > 0 && kept < 40, "evidence kept: {kept}");
+        assert_eq!(
+            value["proposedChange"],
+            recommendation
+                .proposed_change
+                .as_ref()
+                .unwrap()
+                .prompt_reference()
+        );
+    }
+
+    #[test]
+    fn build_rollup_reference_omits_proposed_change_whole_in_minimal_fallback() {
+        let mut recommendation = rollup_recommendation_with_change(true);
+        recommendation.title = "t".repeat(240);
         recommendation.summary = "s".repeat(1_000);
         recommendation.workflow_improvement.proposed_improvement = "p".repeat(2_000);
         recommendation.workflow_improvement.expected_benefit = "b".repeat(2_000);
         recommendation.reason = vec!["r".repeat(2_000)];
-        recommendation.rollup_member_ids =
-            (0..8).map(|i| format!("m{i}{}", "x".repeat(250))).collect();
-        recommendation.rollup_member_dedupe_keys =
-            (0..8).map(|i| format!("d{i}{}", "y".repeat(250))).collect();
-        recommendation.source_session_ids = (0..16)
-            .map(|i| format!("s{i}{}", "z".repeat(250)))
+        recommendation.repository_evidence = (0..16)
+            .map(|index| RepositoryEvidence {
+                path: format!("docs/{index}.md"),
+                sha256: "0".repeat(64),
+                excerpt: "x".repeat(2_000),
+                observed_at: "2026-09-13T00:00:00Z".into(),
+            })
             .collect();
-        recommendation.workflow_improvement.affected_session_ids = (0..16)
-            .map(|i| format!("a{i}{}", "w".repeat(250)))
-            .collect();
-        let reference = build_rollup_reference(&recommendation);
-        let body = reference
-            .trim_start_matches("<orkworks-untrusted-rollup-reference>\n")
-            .trim_end_matches("\n</orkworks-untrusted-rollup-reference>");
-        let value: serde_json::Value = serde_json::from_str(body).unwrap();
-        let expected = recommendation
-            .proposed_change
-            .as_ref()
-            .unwrap()
-            .prompt_reference();
-        match value.get("proposedChange") {
-            Some(included) => assert_eq!(included, &expected),
-            None => {}
-        }
-        assert!(body.len() <= 16_000);
+        let (value, len) = rollup_reference_value(&recommendation);
+        assert!(len <= MAX_ROLLUP_PROMPT_REFERENCE_CHARS);
+        assert_eq!(value["truncated"], true);
+        assert!(value.get("proposedChange").is_none());
+        assert!(value.get("repositoryEvidence").is_none());
     }
 
     #[test]
