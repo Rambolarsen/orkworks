@@ -82,6 +82,7 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Str
         tracing::warn!(reason, "Codex session-isolation probe failed");
         PROBE_ERROR.to_string()
     })?;
+    let help = crate::peon::strip_ansi(&help);
     if help
         .lines()
         .any(|line| line.split_whitespace().next() == Some("--no-daemon"))
@@ -119,6 +120,17 @@ mod tests {
     async fn mixed_help_streams_preserve_the_advertised_isolation_option() {
         let args = prepare(
             "printf 'warning'; printf '  --no-daemon  independent\\n' >&2",
+            &["resume", "saved-id"],
+        )
+        .await
+        .unwrap();
+        assert_eq!(args, ["--no-daemon", "resume", "saved-id"]);
+    }
+
+    #[tokio::test]
+    async fn styled_help_preserves_the_advertised_isolation_option() {
+        let args = prepare(
+            "printf '  \\033[1;32m--no-daemon\\033[0m  independent\\n'",
             &["resume", "saved-id"],
         )
         .await
