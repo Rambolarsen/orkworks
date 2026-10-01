@@ -16,6 +16,8 @@ import {
   filterPanelRecommendations,
   panelEmptyMessage,
   sortedEvidence,
+  proposedChangeReference,
+  proposedChangeGuidance,
   type PanelOriginFilter,
 } from "../src/taskmaster.ts";
 
@@ -1008,4 +1010,42 @@ test("Recommendations panel drops the previous workspace's data instead of leavi
   const guardBlock = panel.slice(panel.indexOf("if (!hasWorkspace) {"));
   assert.match(guardBlock, /setRecommendations\(\[\]\)/);
   assert.match(guardBlock, /setDiagnostics\(\[\]\)/);
+});
+
+const proposedChangeFixture = JSON.parse(
+  readFileSync(new URL("./fixtures/rollup-proposed-change.json", import.meta.url), "utf8"),
+);
+
+function rollupRecommendationWithChange(): WorkflowRecommendation {
+  return {
+    ...recommendation,
+    id: `rollup:${"a".repeat(64)}`,
+    rollupMemberIds: ["member-1", "member-2"],
+    rollupMemberDedupeKeys: ["dedupe-1", "dedupe-2"],
+    proposedChange: proposedChangeFixture.plain.change,
+  };
+}
+
+test("proposed change prompt helpers match the shared Rust fixture", () => {
+  const fixture = proposedChangeFixture;
+  assert.deepEqual(proposedChangeReference(fixture.plain.change), fixture.plain.expectedReference);
+  assert.equal(proposedChangeGuidance(fixture.plain.change), fixture.plain.expectedGuidance);
+  assert.ok(proposedChangeGuidance(fixture.sensitive.change).endsWith(fixture.sensitive.expectedGuidanceSuffix));
+});
+
+test("rollup fix prompt carries the proposed change inside the delimiters and guidance outside", () => {
+  const prompt = buildFixPromptDraft(rollupRecommendationWithChange());
+  const [before, inside] = prompt.split("<orkworks-untrusted-rollup-reference>");
+  const reference = inside.split("</orkworks-untrusted-rollup-reference>")[0];
+  assert.ok(reference.includes('"proposedChange"'));
+  assert.ok(!before.includes("model-written proposedChange"));
+  const after = prompt.split("</orkworks-untrusted-rollup-reference>")[1];
+  assert.ok(after.includes("Proposed change: the delimited reference data"));
+  assert.ok(after.indexOf("Proposed change:") < after.indexOf("Proactive findings"));
+});
+
+test("rollup fix prompt without a proposed change is unchanged", () => {
+  const prompt = buildFixPromptDraft({ ...rollupRecommendationWithChange(), proposedChange: null });
+  assert.ok(!prompt.includes("Proposed change:"));
+  assert.ok(!prompt.includes('"proposedChange"'));
 });

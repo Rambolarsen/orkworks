@@ -685,6 +685,20 @@ export interface WorkflowRecommendation {
   rollupMemberDedupeKeys: string[];
   rollupGeneration: number | null;
   rolledUpBy: string | null;
+  proposedChange?: ProposedChange | null;
+}
+
+export interface ChangeTarget {
+  path: string;
+  action: "edit" | "create";
+  instruction: string;
+  sensitive: boolean;
+}
+
+export interface ProposedChange {
+  summary: string;
+  targets: ChangeTarget[];
+  verification: string;
 }
 
 export interface ObservationDiagnostic {
