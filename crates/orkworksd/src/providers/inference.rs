@@ -75,7 +75,15 @@ pub(super) fn native_cli_failure_summary(
     provider: &str,
     stderr: &str,
     stdout: &str,
+    executable_missing: bool,
 ) -> (ProviderOperationErrorCode, &'static str) {
+    if executable_missing {
+        return (
+            ProviderOperationErrorCode::ProviderFailure,
+            "CLI unavailable",
+        );
+    }
+
     if provider == "codex" {
         // `codex exec --json` reports terminal failures as top-level JSONL
         // events. Read only their message fields; never return that text.
@@ -762,7 +770,7 @@ mod tests {
         ];
 
         for (event, expected_code, expected_summary) in cases {
-            let (code, summary) = super::native_cli_failure_summary("codex", "", event);
+            let (code, summary) = super::native_cli_failure_summary("codex", "", event, false);
             assert_eq!(code, expected_code);
             assert_eq!(summary, expected_summary);
             assert!(!summary.contains('@'));
@@ -777,7 +785,7 @@ mod tests {
         let unknown = r#"{"type":"turn.failed","error":{"message":"private detail user@example.test /Users/private"}}"#;
 
         for stdout in [assistant_message, unknown] {
-            let (code, summary) = super::native_cli_failure_summary("codex", "", stdout);
+            let (code, summary) = super::native_cli_failure_summary("codex", "", stdout, false);
             assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
             assert_eq!(summary, "provider failure");
             assert!(!summary.contains("private"));
@@ -791,11 +799,42 @@ mod tests {
             "codex",
             "Permission denied for account user@example.test at /private/path",
             "",
+            false,
         );
         assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
         assert_eq!(summary, "access denied");
         assert!(!summary.contains('@'));
         assert!(!summary.contains("/private"));
+    }
+
+    #[test]
+    fn native_cli_failure_summary_classifies_missing_cli_from_stderr_only() {
+        let (code, summary) = super::native_cli_failure_summary(
+            "codex",
+            "No such file or directory (os error 2): /private/tooling/codex",
+            "",
+            true,
+        );
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(summary, "CLI unavailable");
+
+        let (code, summary) = super::native_cli_failure_summary(
+            "codex",
+            "",
+            r#"{"type":"turn.failed","error":{"message":"No such file or directory (os error 2): /private/tooling/codex"}}"#,
+            false,
+        );
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(summary, "provider failure");
+
+        let (code, summary) = super::native_cli_failure_summary(
+            "codex",
+            "No such file or directory (os error 2): /private/config.toml",
+            "",
+            false,
+        );
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(summary, "provider failure");
     }
 
     #[test]
@@ -853,7 +892,7 @@ mod tests {
             ),
             ("request timed out after 90s", "timeout"),
         ] {
-            let (_, summary) = super::native_cli_failure_summary("codex", message, "");
+            let (_, summary) = super::native_cli_failure_summary("codex", message, "", false);
             assert_eq!(summary, expected);
             assert!(!summary.contains("private"));
             assert!(!summary.contains("https://"));
@@ -869,7 +908,7 @@ mod tests {
         ]
         .join("\n");
 
-        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout);
+        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout, false);
 
         assert_eq!(code, ProviderOperationErrorCode::Unauthorized);
         assert_eq!(summary, "authentication");
@@ -883,7 +922,7 @@ mod tests {
         ]
         .join("\n");
 
-        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout);
+        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout, false);
 
         assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
         assert_eq!(summary, "provider failure");
