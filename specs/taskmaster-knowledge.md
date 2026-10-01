@@ -162,10 +162,62 @@ selected source files). Support excluded paths. Ignored files, credential files,
 and files resolving outside the workspace are excluded. Symlinks cannot bypass
 these limits. Explain that allowed context may be sent to the chosen provider.
 
-Show knowledge version, last successful update, remaining background evaluations,
-model/configuration availability, and expandable recommendation provenance.
-Errors appear unobtrusively in Settings; no background popups or focus changes.
-Personal/team brain connections and exporting local lessons are deferred.
+Show knowledge version, last successful update, remaining background
+evaluations, provider/configuration availability, and expandable recommendation
+provenance. The Taskmaster model picker shows suggestions for the selected
+provider and continues to allow manual model IDs. Opening Settings does not
+discover models or execute a provider command. A user may explicitly refresh
+models for built-in Taskmaster providers with live discovery: Codex uses its
+app-server model list and Ollama lists models at the Taskmaster selection's
+draft URL. Claude Code uses its built-in static catalog. Refresh performs model
+listing only; it does not run inference, apply settings, or mutate Peon
+selection or runtime state. Use the shared provider-discovery implementation
+where safe behind a separate Electron-authorized Taskmaster request, bound to
+Taskmaster's selected provider and draft connection settings. Do not send the
+Taskmaster UI through Peon's discovery endpoint. Custom providers retain static
+suggestions and manual model IDs; Taskmaster does not run custom model-list
+commands. Select a typed, code-owned discovery operation from the validated
+built-in provider: Codex uses the fixed app-server model-list operation and
+Ollama queries the supplied draft URL. Do not resolve a mutable provider
+definition to choose a model-list command, including for built-in IDs with a
+user-defined `models` command override. Failed or stale refresh results leave
+manual entry and the saved model usable and report the refresh failure
+separately from analysis status. Peon's existing model refresh remains
+unchanged.
+
+Separately show Taskmaster's analysis run status in Recommendations and
+Settings. The status distinguishes queued/running work from the latest
+succeeded, failed, or interrupted result, and includes provider/model,
+timestamps, and a useful failure summary. Persist one bounded run record per
+workspace, containing an `activeAttempt` (queued/running, when present) and a
+`latestOutcome` (succeeded/failed/interrupted, when present); the status
+projection shows the active attempt first, then the latest outcome, then idle.
+No selected workspace or an unreadable ledger is unavailable, not idle.
+A restart marks a persisted running attempt interrupted and clears a queued
+attempt while preserving the prior result, but only after acquiring the same
+installation-wide analysis lease used by evaluators. If another instance holds
+that lease, leave the record unchanged and retry on the next workspace open or
+evaluation admission. Status reads are read-only and do not infer interruption.
+Mark an attempt running before
+context collection or prompt construction; failures after that point are failed
+outcomes even if the provider was not invoked. Pre-evaluation skips clear
+queued attempts and preserve prior outcomes, removing empty records. Each
+workspace retains one bounded record with only its active attempt and latest
+terminal outcome; total record count grows with the number of workspaces used,
+and global retention/cleanup are outside this increment. A successful analysis
+clears or supersedes only that workspace's previous analysis error; the
+workspace-scoped run record is the sole source for displaying analysis outcomes.
+Retain the installation-wide legacy `lastError` only to read older ledger files;
+stop writing or displaying it as an analysis error. Knowledge-update errors
+remain separate. Background cooldown, cache, or eligibility checks that do not
+dispatch analysis do not overwrite the last actual outcome. Status is scoped to
+the instance's selected workspace. Expose it through a narrow
+`getTaskmasterRunStatus()` preload method and Electron-authenticated
+`GET /taskmaster/run-status` request. Recommendations polls it alongside its
+recommendation list; Settings polls every five seconds and refreshes on window
+focus. Do not add peer-instance status or analysis coordination. Errors remain
+inline and unobtrusive: no background popups or focus changes. Personal/team
+brain connections and exporting local lessons are deferred.
 
 ## Validation
 
@@ -177,6 +229,14 @@ Personal/team brain connections and exporting local lessons are deferred.
 - Ungrounded model citations are rejected; a knowledge-only change cannot
   bypass dismissal or rewrite accepted work.
 - Daily limits survive restarts; background provider failures consume a reservation.
+- Taskmaster suggestions change with the selected provider. Codex and Ollama
+  live refresh is explicit, uses Taskmaster draft settings, and never applies
+  Peon settings or runs inference. Claude presents its built-in catalog; custom
+  providers remain static/free-text and do not run discovery commands.
+- Taskmaster reports queued/running/latest outcome separately from provider
+  availability, surfaces failures in Recommendations and Settings, scopes
+  outcomes to the current workspace, and recovers interrupted attempts after a
+  restart without changing focus.
 - Manual analysis requests work with background discovery disabled, bypass the workspace cooldown and the daily allowance, and return any active Brain recommendation without invoking a provider.
 - Workspace/configuration switches discard stale results, and context exclusions
   apply to symlinks, ignored files, credentials, caches, and model requests.

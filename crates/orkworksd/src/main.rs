@@ -61,7 +61,8 @@ use crate::http::taskmaster_handlers::{
     get_recommendation, list_recommendations, report_completion_packet,
 };
 use crate::http::taskmaster_settings_handlers::{
-    get_taskmaster_settings, post_taskmaster_knowledge, set_taskmaster_settings,
+    get_taskmaster_run_status, get_taskmaster_settings, post_taskmaster_knowledge,
+    refresh_taskmaster_models, set_taskmaster_settings,
 };
 use crate::http::workflow_observation_handlers::report_workflow_observation;
 use crate::runtime::peon_runtime::peon_loop;
@@ -331,6 +332,11 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             "/settings/taskmaster",
             get(get_taskmaster_settings).post(set_taskmaster_settings),
         )
+        .route(
+            "/settings/taskmaster/models",
+            post(refresh_taskmaster_models),
+        )
+        .route("/taskmaster/run-status", get(get_taskmaster_run_status))
         .route(
             "/settings/taskmaster/knowledge",
             post(post_taskmaster_knowledge),

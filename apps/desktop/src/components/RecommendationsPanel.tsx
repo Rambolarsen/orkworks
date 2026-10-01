@@ -18,6 +18,7 @@ import {
   panelEmptyMessage,
   type PanelOriginFilter,
 } from "../taskmaster.ts";
+import { formatTaskmasterRunStatus, formatTaskmasterRunTimestamp, type TaskmasterRunStatus } from "../taskmasterSettings.ts";
 import EmptyState from "./EmptyState";
 import RecommendationEvidence from "./RecommendationEvidence";
 
@@ -172,6 +173,8 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
   const [blockedRecommendation, setBlockedRecommendation] = useState<WorkflowRecommendation>();
   const [blockedRecommendationId, setBlockedRecommendationId] = useState<string>();
   const [blockedRecommendationRecoveryAllowed, setBlockedRecommendationRecoveryAllowed] = useState(false);
+  const [runStatus, setRunStatus] = useState<TaskmasterRunStatus | null>(null);
+  const [runStatusError, setRunStatusError] = useState<string>();
   const refreshGeneration = useRef(0);
   const workspaceGeneration = useRef(0);
 
@@ -181,6 +184,11 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
+      void window.orkworks.getTaskmasterRunStatus().then((status) => {
+        if (generation === refreshGeneration.current) { setRunStatus(status); setRunStatusError(undefined); }
+      }).catch((cause: unknown) => {
+        if (generation === refreshGeneration.current) { setRunStatus(null); setRunStatusError(cause instanceof Error ? cause.message : "Couldn't load analysis status."); }
+      });
       const response = await getTaskmasterRecommendations(baseUrl);
       let nextRecommendations = response.recommendations;
       if (blockedRecommendationId) {
@@ -247,6 +255,8 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
+      setRunStatus(null);
+      setRunStatusError(undefined);
       setError(undefined);
       return;
     }
@@ -261,6 +271,8 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
+      setRunStatus(null);
+      setRunStatusError(undefined);
       setError(undefined);
       return;
     }
@@ -371,6 +383,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
+      {hasWorkspace && taskmasterReady && <p className="recommendation-analysis-run" role="status">{runStatus ? `${formatTaskmasterRunStatus(runStatus)}${formatTaskmasterRunTimestamp(runStatus) ? ` · ${formatTaskmasterRunTimestamp(runStatus)}` : ""}` : runStatusError ?? "Loading analysis status…"}</p>}
       {analysisMessage && <div className="recommendation-analysis-status" role="status">
         {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
         <p>{analysisMessage}</p>

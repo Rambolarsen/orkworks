@@ -275,6 +275,76 @@ fn manual_evaluation_discards_a_request_after_workspace_switch() {
         |_, _, _, _| panic!("repository context must not be collected for a stale workspace"),
         Some(requested_workspace),
         None,
+        None,
+    );
+}
+
+#[test]
+fn scheduled_run_clears_queued_skip_and_records_context_failure() {
+    let fixture = Fixture::new();
+    let root = fixture.dir.path().join("runtime");
+    let skipped = fixture
+        .runtime
+        .queue_run(
+            fixture.dir.path(),
+            crate::taskmaster::runtime::TaskmasterRunTrigger::Manual,
+            "custom",
+            "opaque/model",
+        )
+        .unwrap();
+    run_model_evaluation_with_context_and_workspace(
+        fixture.state.clone(),
+        root.clone(),
+        |_, _, _, _| panic!("a stale manual request must not collect context"),
+        Some(fixture.dir.path().join("different-workspace")),
+        None,
+        Some(ScheduledRun {
+            id: skipped,
+            workspace_path: fixture.dir.path().to_path_buf(),
+            root: root.clone(),
+        }),
+    );
+    let status = fixture
+        .runtime
+        .run_status(Some(fixture.dir.path()))
+        .unwrap();
+    assert_eq!(status.active_attempt, None);
+    assert_eq!(status.latest_outcome, None);
+
+    let failed = fixture
+        .runtime
+        .queue_run(
+            fixture.dir.path(),
+            crate::taskmaster::runtime::TaskmasterRunTrigger::Background,
+            "custom",
+            "opaque/model",
+        )
+        .unwrap();
+    run_model_evaluation_with_context_and_workspace(
+        fixture.state.clone(),
+        root.clone(),
+        |_, _, _, _| Err("context collection failed".into()),
+        None,
+        None,
+        Some(ScheduledRun {
+            id: failed,
+            workspace_path: fixture.dir.path().to_path_buf(),
+            root,
+        }),
+    );
+    let status = fixture
+        .runtime
+        .run_status(Some(fixture.dir.path()))
+        .unwrap();
+    assert_eq!(status.active_attempt, None);
+    let outcome = status.latest_outcome.unwrap();
+    assert_eq!(
+        outcome.state,
+        crate::taskmaster::runtime::TaskmasterRunOutcomeState::Failed
+    );
+    assert_eq!(
+        outcome.error_summary.as_deref(),
+        Some("context collection failed")
     );
 }
 
@@ -466,6 +536,7 @@ fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
         },
         Some(fixture.dir.path().to_path_buf()),
         None,
+        None,
     );
 
     let ledger: serde_json::Value = serde_json::from_slice(
@@ -604,7 +675,7 @@ fn evaluation_identity_reservation_checks_trust_and_uses_bound_cache_key() {
 }
 
 #[test]
-fn evaluation_identity_stale_output_cannot_change_current_error_status() {
+fn evaluation_identity_stale_output_does_not_write_legacy_global_error() {
     let fixture = Fixture::new();
     fixture
         .runtime
@@ -618,14 +689,16 @@ fn evaluation_identity_stale_output_cannot_change_current_error_status() {
         .revoke("custom", fixture.trust.generation().unwrap())
         .unwrap();
     assert_eq!(fixture.apply(), 0);
-    assert_eq!(
-        fixture
-            .runtime
-            .status(Some(fixture.dir.path()))
-            .last_error
-            .as_deref(),
-        Some("current diagnostic")
-    );
+    assert!(fixture
+        .runtime
+        .status(Some(fixture.dir.path()))
+        .last_error
+        .is_none());
+    let ledger: serde_json::Value = serde_json::from_slice(
+        &fs::read(fixture.dir.path().join("runtime/evaluations.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(ledger.get("lastError").is_none());
     apply_model_output(
         &fixture.state,
         &fixture.runtime,
@@ -636,14 +709,11 @@ fn evaluation_identity_stale_output_cannot_change_current_error_status() {
         &[],
         "invalid JSON",
     );
-    assert_eq!(
-        fixture
-            .runtime
-            .status(Some(fixture.dir.path()))
-            .last_error
-            .as_deref(),
-        Some("current diagnostic")
-    );
+    assert!(fixture
+        .runtime
+        .status(Some(fixture.dir.path()))
+        .last_error
+        .is_none());
 }
 
 #[test]

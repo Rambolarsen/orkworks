@@ -177,7 +177,70 @@ pub(crate) struct TaskmasterStatus {
     pub analysis_status: String,
     pub knowledge_version: Option<String>,
     pub last_evaluated_at: Option<String>,
+    #[serde(skip_serializing)]
+    #[allow(dead_code)]
     pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskmasterRunStatus {
+    pub workspace_path: Option<String>,
+    pub active_attempt: Option<TaskmasterRunAttempt>,
+    pub latest_outcome: Option<TaskmasterRunOutcome>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TaskmasterRunAttemptState {
+    Queued,
+    Running,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TaskmasterRunOutcomeState {
+    Succeeded,
+    Failed,
+    Interrupted,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TaskmasterRunTrigger {
+    Manual,
+    Background,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskmasterRunAttempt {
+    pub id: u64,
+    pub state: TaskmasterRunAttemptState,
+    pub queued_at: String,
+    pub started_at: Option<String>,
+    pub trigger: TaskmasterRunTrigger,
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskmasterRunOutcome {
+    pub state: TaskmasterRunOutcomeState,
+    pub started_at: String,
+    pub completed_at: String,
+    pub trigger: TaskmasterRunTrigger,
+    pub provider: String,
+    pub model: String,
+    pub error_summary: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceRunRecord {
+    active_attempt: Option<TaskmasterRunAttempt>,
+    latest_outcome: Option<TaskmasterRunOutcome>,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -190,10 +253,14 @@ struct EvaluationLedger {
     // Older versions cached reservations, not accepted results. Ignore those keys.
     #[serde(default, rename = "acceptedWorkspaceCacheKeys")]
     workspace_cache_keys: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "omit_legacy_error")]
     last_error: Option<String>,
     #[serde(default)]
     generation: u64,
+    #[serde(default)]
+    workspace_runs: BTreeMap<String, WorkspaceRunRecord>,
+    #[serde(default)]
+    next_run_id: u64,
 }
 
 struct RuntimeData {
@@ -305,6 +372,197 @@ impl TaskmasterRuntime {
             effective_settings: effective,
             last_evaluated_at,
         }
+    }
+
+    pub(crate) fn run_status(
+        &self,
+        workspace: Option<&Path>,
+    ) -> Result<TaskmasterRunStatus, String> {
+        let workspace = workspace.ok_or_else(|| "No workspace is selected".to_string())?;
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        let _persistence = PERSISTENCE_LOCK
+            .lock()
+            .expect("taskmaster persistence lock poisoned");
+        let _file_lock = persistence_file_lock(&self.root)?;
+        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+        reload_durable(&self.root, &mut data);
+        if !data.ledger_readable {
+            return Err("Taskmaster evaluation ledger is unreadable".into());
+        }
+        let record = data.ledger.workspace_runs.get(&key);
+        Ok(TaskmasterRunStatus {
+            workspace_path: Some(key),
+            active_attempt: record.and_then(|record| record.active_attempt.clone()),
+            latest_outcome: record.and_then(|record| record.latest_outcome.clone()),
+        })
+    }
+
+    pub(crate) fn queue_run(
+        &self,
+        workspace: &Path,
+        trigger: TaskmasterRunTrigger,
+        provider: &str,
+        model: &str,
+    ) -> Result<u64, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            if ledger
+                .workspace_runs
+                .get(&key)
+                .is_some_and(|record| record.active_attempt.is_some())
+            {
+                return Err("Taskmaster analysis already has an active attempt".into());
+            }
+            ledger.next_run_id = ledger.next_run_id.saturating_add(1);
+            let id = ledger.next_run_id;
+            let record = ledger.workspace_runs.entry(key).or_default();
+            record.active_attempt = Some(TaskmasterRunAttempt {
+                id,
+                state: TaskmasterRunAttemptState::Queued,
+                queued_at: chrono::Utc::now().to_rfc3339(),
+                started_at: None,
+                trigger,
+                provider: provider.to_string(),
+                model: model.to_string(),
+            });
+            Ok(id)
+        })
+    }
+
+    pub(crate) fn mark_run_running(
+        &self,
+        workspace: &Path,
+        run_id: u64,
+        provider: &str,
+        model: &str,
+    ) -> Result<bool, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            let Some(attempt) = ledger
+                .workspace_runs
+                .get_mut(&key)
+                .and_then(|record| record.active_attempt.as_mut())
+                .filter(|attempt| attempt.id == run_id)
+            else {
+                return Ok(false);
+            };
+            attempt.state = TaskmasterRunAttemptState::Running;
+            attempt.started_at = Some(chrono::Utc::now().to_rfc3339());
+            attempt.provider = provider.to_string();
+            attempt.model = model.to_string();
+            Ok(true)
+        })
+    }
+
+    pub(crate) fn finish_run(
+        &self,
+        workspace: &Path,
+        run_id: u64,
+        state: TaskmasterRunOutcomeState,
+        error_summary: Option<&str>,
+    ) -> Result<bool, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            let Some(record) = ledger.workspace_runs.get_mut(&key) else {
+                return Ok(false);
+            };
+            if record.active_attempt.as_ref().map(|attempt| attempt.id) != Some(run_id) {
+                return Ok(false);
+            }
+            let attempt = record
+                .active_attempt
+                .take()
+                .expect("matching active attempt");
+            let completed_at = chrono::Utc::now().to_rfc3339();
+            record.latest_outcome = Some(TaskmasterRunOutcome {
+                state,
+                started_at: attempt
+                    .started_at
+                    .unwrap_or_else(|| attempt.queued_at.clone()),
+                completed_at,
+                trigger: attempt.trigger,
+                provider: attempt.provider,
+                model: attempt.model,
+                error_summary: error_summary.map(bounded_run_error_summary),
+            });
+            Ok(true)
+        })
+    }
+
+    pub(crate) fn clear_run(&self, workspace: &Path, run_id: u64) -> Result<bool, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            let Some(record) = ledger.workspace_runs.get_mut(&key) else {
+                return Ok(false);
+            };
+            if record.active_attempt.as_ref().map(|attempt| attempt.id) != Some(run_id) {
+                return Ok(false);
+            }
+            record.active_attempt = None;
+            if record.latest_outcome.is_none() {
+                ledger.workspace_runs.remove(&key);
+            }
+            Ok(true)
+        })
+    }
+
+    /// Recovery is available only to a caller holding the same installation-wide
+    /// lease as an evaluator, so another live instance is never marked interrupted.
+    pub(crate) fn recover_workspace_run(
+        &self,
+        workspace: &Path,
+        _analysis_lease: &fs::File,
+    ) -> Result<bool, String> {
+        let key = canonical_workspace_key(workspace)
+            .ok_or_else(|| "Selected workspace is unavailable".to_string())?;
+        self.mutate_ledger(|ledger| {
+            let Some(record) = ledger.workspace_runs.get_mut(&key) else {
+                return Ok(false);
+            };
+            let Some(attempt) = record.active_attempt.take() else {
+                return Ok(false);
+            };
+            if attempt.state == TaskmasterRunAttemptState::Running {
+                record.latest_outcome = Some(TaskmasterRunOutcome {
+                    state: TaskmasterRunOutcomeState::Interrupted,
+                    started_at: attempt
+                        .started_at
+                        .unwrap_or_else(|| attempt.queued_at.clone()),
+                    completed_at: chrono::Utc::now().to_rfc3339(),
+                    trigger: attempt.trigger,
+                    provider: attempt.provider,
+                    model: attempt.model,
+                    error_summary: None,
+                });
+            }
+            if record.latest_outcome.is_none() {
+                ledger.workspace_runs.remove(&key);
+            }
+            Ok(true)
+        })
+    }
+
+    fn mutate_ledger<T>(
+        &self,
+        mutate: impl FnOnce(&mut EvaluationLedger) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _persistence = PERSISTENCE_LOCK
+            .lock()
+            .expect("taskmaster persistence lock poisoned");
+        let _file_lock = persistence_file_lock(&self.root)?;
+        let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
+        reload_durable(&self.root, &mut data);
+        if !data.ledger_readable {
+            return Err("Taskmaster evaluation ledger is unreadable".into());
+        }
+        let result = mutate(&mut data.ledger)?;
+        write_json(&self.root.join("evaluations.json"), &data.ledger)?;
+        Ok(result)
     }
 
     pub(crate) fn replace_settings(&self, settings: TaskmasterSettings) -> Result<(), String> {
@@ -500,7 +758,7 @@ impl TaskmasterRuntime {
     pub(crate) fn record_error(
         &self,
         generation: u64,
-        error: Option<String>,
+        _error: Option<String>,
     ) -> Result<bool, String> {
         let _persistence = PERSISTENCE_LOCK
             .lock()
@@ -508,11 +766,11 @@ impl TaskmasterRuntime {
         let _file_lock = persistence_file_lock(&self.root)?;
         let mut data = self.data.lock().expect("taskmaster runtime lock poisoned");
         reload_durable(&self.root, &mut data);
+        // `lastError` is a legacy deserialization-only field. Execution errors
+        // are stored in workspace-scoped run outcomes instead.
         if !data.ledger_readable || data.ledger.generation != generation {
             return Ok(false);
         }
-        data.ledger.last_error = error;
-        write_json(&self.root.join("evaluations.json"), &data.ledger)?;
         Ok(true)
     }
 
@@ -846,6 +1104,29 @@ fn canonical_workspace_key(path: &Path) -> Option<String> {
 fn utc_day() -> String {
     chrono::Utc::now().format("%F").to_string()
 }
+fn omit_legacy_error(_: &Option<String>) -> bool {
+    true
+}
+fn bounded_run_error_summary(error: &str) -> String {
+    let normalized = error
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let mut bounded = String::new();
+    for character in normalized.trim().chars() {
+        if bounded.len() + character.len_utf8() > 512 {
+            break;
+        }
+        bounded.push(character);
+    }
+    bounded
+}
 fn valid_relative_markdown_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= MAX_PATH_BYTES
@@ -992,6 +1273,187 @@ mod tests {
             fs::read_to_string(directory.path().join("evaluations.json")).unwrap(),
             "corrupt"
         );
+    }
+
+    #[test]
+    fn taskmaster_run_status_distinguishes_idle_from_missing_or_corrupt_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        assert!(runtime
+            .run_status(None)
+            .unwrap_err()
+            .contains("No workspace"));
+        let status = runtime.run_status(Some(directory.path())).unwrap();
+        assert_eq!(status.active_attempt, None);
+        assert_eq!(status.latest_outcome, None);
+        let canonical = fs::canonicalize(directory.path()).unwrap();
+        assert_eq!(
+            status.workspace_path.as_deref(),
+            Some(canonical.to_str().unwrap())
+        );
+
+        fs::write(directory.path().join("evaluations.json"), "corrupt").unwrap();
+        let unreadable = TaskmasterRuntime::open(directory.path().into());
+        assert!(unreadable
+            .run_status(Some(directory.path()))
+            .unwrap_err()
+            .contains("unreadable"));
+    }
+
+    #[test]
+    fn legacy_analysis_error_remains_readable_but_is_not_serialized() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("evaluations.json"),
+            r#"{"day":"2026-09-30","reservations":2,"lastError":"old failure"}"#,
+        )
+        .unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        assert_eq!(
+            runtime.status(None).last_error.as_deref(),
+            Some("old failure")
+        );
+        assert!(!serde_json::to_string(&runtime.status(None))
+            .unwrap()
+            .contains("lastError"));
+        let encoded = serde_json::to_string(&runtime.data.lock().unwrap().ledger).unwrap();
+        assert!(!encoded.contains("lastError"));
+        assert!(encoded.contains("workspaceRuns"));
+    }
+
+    #[test]
+    fn taskmaster_run_transitions_preserve_latest_and_reject_stale_attempts() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let run_id = runtime
+            .queue_run(
+                directory.path(),
+                TaskmasterRunTrigger::Manual,
+                "codex",
+                "gpt-x",
+            )
+            .unwrap();
+        assert!(runtime
+            .mark_run_running(directory.path(), run_id, "codex", "gpt-x")
+            .unwrap());
+        assert!(!runtime
+            .finish_run(
+                directory.path(),
+                run_id + 1,
+                TaskmasterRunOutcomeState::Failed,
+                Some("stale")
+            )
+            .unwrap());
+        assert!(runtime
+            .finish_run(
+                directory.path(),
+                run_id,
+                TaskmasterRunOutcomeState::Failed,
+                Some(&format!("{}\n", "x".repeat(600)))
+            )
+            .unwrap());
+        let status = runtime.run_status(Some(directory.path())).unwrap();
+        assert_eq!(status.active_attempt, None);
+        let outcome = status.latest_outcome.unwrap();
+        assert_eq!(outcome.state, TaskmasterRunOutcomeState::Failed);
+        assert_eq!(outcome.error_summary.as_ref().unwrap().len(), 512);
+        assert!(!outcome.error_summary.as_ref().unwrap().contains('\n'));
+        let second = runtime
+            .queue_run(
+                directory.path(),
+                TaskmasterRunTrigger::Background,
+                "ollama",
+                "llama",
+            )
+            .unwrap();
+        assert!(runtime.clear_run(directory.path(), second).unwrap());
+        assert_eq!(
+            runtime
+                .run_status(Some(directory.path()))
+                .unwrap()
+                .latest_outcome
+                .unwrap(),
+            outcome
+        );
+    }
+
+    #[test]
+    fn running_attempt_records_the_selection_used_by_the_evaluator() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let run_id = runtime
+            .queue_run(
+                directory.path(),
+                TaskmasterRunTrigger::Background,
+                "codex",
+                "old-model",
+            )
+            .unwrap();
+
+        assert!(runtime
+            .mark_run_running(directory.path(), run_id, "ollama", "llama3")
+            .unwrap());
+        let status = runtime.run_status(Some(directory.path())).unwrap();
+        let attempt = status.active_attempt.unwrap();
+        assert_eq!(attempt.provider, "ollama");
+        assert_eq!(attempt.model, "llama3");
+    }
+
+    #[test]
+    fn recovery_needs_analysis_lease_and_marks_only_running_attempt_interrupted() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let run_id = runtime
+            .queue_run(
+                directory.path(),
+                TaskmasterRunTrigger::Background,
+                "codex",
+                "gpt-x",
+            )
+            .unwrap();
+        let lease = runtime.try_analysis_lease().unwrap().unwrap();
+        let other_instance = TaskmasterRuntime::open(directory.path().into());
+        assert!(other_instance.try_analysis_lease().unwrap().is_none());
+        assert!(runtime
+            .recover_workspace_run(directory.path(), &lease)
+            .unwrap());
+        assert_eq!(
+            runtime
+                .run_status(Some(directory.path()))
+                .unwrap()
+                .latest_outcome,
+            None
+        );
+        assert_eq!(
+            runtime
+                .run_status(Some(directory.path()))
+                .unwrap()
+                .active_attempt,
+            None
+        );
+
+        let next_id = runtime
+            .queue_run(
+                directory.path(),
+                TaskmasterRunTrigger::Manual,
+                "codex",
+                "gpt-x",
+            )
+            .unwrap();
+        assert!(runtime
+            .mark_run_running(directory.path(), next_id, "ollama", "llama")
+            .unwrap());
+        assert!(runtime
+            .recover_workspace_run(directory.path(), &lease)
+            .unwrap());
+        let outcome = runtime
+            .run_status(Some(directory.path()))
+            .unwrap()
+            .latest_outcome
+            .unwrap();
+        assert_eq!(outcome.state, TaskmasterRunOutcomeState::Interrupted);
+        assert_eq!(outcome.trigger, TaskmasterRunTrigger::Manual);
+        assert_ne!(run_id, next_id);
     }
 
     #[test]

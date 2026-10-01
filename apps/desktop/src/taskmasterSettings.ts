@@ -23,8 +23,35 @@ export interface TaskmasterSettingsStatus {
   providers: TaskmasterProvider[];
   settings: TaskmasterSettings; effectiveSettings: TaskmasterSettings;
   remainingEvaluations: number; analysisStatus: string; knowledgeVersion: string | null;
-  lastEvaluatedAt: string | null; lastError: string | null; workspacePath: string | null;
+  lastEvaluatedAt: string | null; workspacePath: string | null;
   knowledgeUpdate: { version: string | null; lastSuccessfulUpdate: string | null; lastError: string | null };
+}
+export type TaskmasterRunTrigger = "manual" | "background";
+export type TaskmasterRunAttemptState = "queued" | "running";
+export type TaskmasterRunOutcomeState = "succeeded" | "failed" | "interrupted";
+export interface TaskmasterRunAttempt {
+  id: number; state: TaskmasterRunAttemptState; queuedAt: string; startedAt: string | null;
+  trigger: TaskmasterRunTrigger; provider: string; model: string;
+}
+export interface TaskmasterRunOutcome {
+  state: TaskmasterRunOutcomeState; startedAt: string; completedAt: string;
+  trigger: TaskmasterRunTrigger; provider: string; model: string; errorSummary: string | null;
+}
+export interface TaskmasterRunStatus {
+  workspacePath: string | null; activeAttempt: TaskmasterRunAttempt | null; latestOutcome: TaskmasterRunOutcome | null;
+}
+export function formatTaskmasterRunStatus(status: TaskmasterRunStatus): string {
+  const active = status.activeAttempt;
+  if (active) return `${active.state === "queued" ? "Queued" : "Running"} ${active.trigger} analysis · ${active.provider} / ${active.model}`;
+  const outcome = status.latestOutcome;
+  if (!outcome) return "No analysis runs for this workspace.";
+  const detail = outcome.state !== "succeeded" && outcome.errorSummary ? `: ${outcome.errorSummary}` : "";
+  return `${outcome.state[0].toUpperCase()}${outcome.state.slice(1)} ${outcome.trigger} analysis · ${outcome.provider} / ${outcome.model}${detail}`;
+}
+export function formatTaskmasterRunTimestamp(status: TaskmasterRunStatus): string {
+  const active = status.activeAttempt;
+  if (active) return active.startedAt ? `Started ${active.startedAt}` : `Queued ${active.queuedAt}`;
+  return status.latestOutcome ? `Finished ${status.latestOutcome.completedAt}` : "";
 }
 export function editTaskmasterScope(settings: TaskmasterSettings, workspace: string | null, patch: Partial<TaskmasterSettings> | null): TaskmasterSettings {
   if (!workspace) return { ...settings, ...patch };

@@ -43,6 +43,7 @@ const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
 interface SettingsModalProps {
   initialSection?: SettingsSection;
   initialSettings: AppSettings;
+  currentWorkspacePath: string | null;
   updateStatus: UpdateStatus | null;
   updateCurrentVersion: string | null;
   updateChannel: "latest" | "nightly" | null;
@@ -96,7 +97,7 @@ function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
   return stripDerivedHarnessFields(harness);
 }
 
-export default function SettingsModal({ initialSection = "tools", initialSettings, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSection = "tools", initialSettings, currentWorkspacePath, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -1000,7 +1001,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
               </div>
             )}
 
-            {activeSection === "recommendations" && <TaskmasterSettings />}
+            {activeSection === "recommendations" && <TaskmasterSettings currentWorkspacePath={currentWorkspacePath} />}
 
             {activeSection === "updates" && (
               <UpdatesSection

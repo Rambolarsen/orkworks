@@ -590,6 +590,30 @@ app.whenReady().then(async () => {
     knowledgeUpdates.setEnabled(settings?.automaticKnowledgeUpdates !== false);
     return { ...result, knowledgeUpdate: knowledgeUpdates.status() };
   }
+  async function refreshTaskmasterModels(provider: unknown, ollamaBaseUrl?: unknown): Promise<string[]> {
+    if (provider !== "codex" && provider !== "ollama") throw new Error("Taskmaster model refresh is unavailable for this provider");
+    if (ollamaBaseUrl !== undefined && typeof ollamaBaseUrl !== "string") throw new Error("Invalid Ollama URL");
+    const generation = backendGeneration;
+    const port = await restoration.getReadiness();
+    if (generation !== backendGeneration) throw new Error("Workspace changed; retry model discovery");
+    const result = await taskmasterRequest(port, openPlanToken, "models", {
+      provider,
+      ...(ollamaBaseUrl === undefined ? {} : { ollamaBaseUrl }),
+    });
+    if (generation !== backendGeneration) throw new Error("Workspace changed; retry model discovery");
+    if (!Array.isArray(result.models) || result.models.some((model) => typeof model !== "string")) {
+      throw new Error("Invalid Taskmaster model response");
+    }
+    return result.models as string[];
+  }
+  async function readTaskmasterRunStatus(): Promise<Record<string, unknown>> {
+    const generation = backendGeneration;
+    const port = await restoration.getReadiness();
+    if (generation !== backendGeneration) throw new Error("Workspace changed; reload Recommendations");
+    const result = await taskmasterRequest(port, openPlanToken, "run-status");
+    if (generation !== backendGeneration) throw new Error("Workspace changed; reload Recommendations");
+    return result;
+  }
   const STALE_BACKEND_GENERATION_MESSAGE =
     "The workspace changed before this request could run. Reload the current workspace and retry.";
   const generationBoundRequestControllers = new Set<AbortController>();
@@ -1341,6 +1365,8 @@ app.whenReady().then(async () => {
     return rendererSettings(currentSettings);
   });
   ipcMain.handle("get-taskmaster-settings", () => readTaskmasterSettings());
+  ipcMain.handle("get-taskmaster-run-status", () => readTaskmasterRunStatus());
+  ipcMain.handle("refresh-taskmaster-models", (_event, provider: unknown, ollamaBaseUrl?: unknown) => refreshTaskmasterModels(provider, ollamaBaseUrl));
   ipcMain.handle("get-inference-trust", async () => readInferenceTrust(await inferenceTrustContext()));
   ipcMain.handle("approve-inference-adapter", (_event, request: unknown) => enqueueSettingsWrite(async () => approveInferenceAdapter(request, await inferenceTrustContext())));
   ipcMain.handle("revoke-inference-adapter", (_event, request: unknown) => enqueueSettingsWrite(async () => revokeInferenceAdapter(request, await inferenceTrustContext())));

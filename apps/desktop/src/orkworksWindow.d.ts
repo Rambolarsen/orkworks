@@ -156,6 +156,8 @@ declare global {
       saveLayout: (json: string) => Promise<void>;
       getSettings: () => Promise<AppSettings>;
       getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
+      getTaskmasterRunStatus: () => Promise<import("./taskmasterSettings").TaskmasterRunStatus>;
+      refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string) => Promise<string[]>;
       requestTaskmasterAnalysis: () => Promise<import("./api").ManualTaskmasterAnalysisResponse>;
       dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;
       acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<WorkflowRecommendation>;

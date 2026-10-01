@@ -271,18 +271,22 @@ pub(crate) async fn analyze_taskmaster(
             Some("Configure an available Taskmaster model before requesting Brain analysis."),
         );
     }
-    if crate::taskmaster::evaluator::schedule_manual_evaluation(state, workspace_path) {
-        manual_analysis_response(
+    match crate::taskmaster::evaluator::schedule_manual_evaluation(state, workspace_path) {
+        crate::taskmaster::evaluator::ScheduleResult::Scheduled => manual_analysis_response(
             "scheduled",
             None,
             Some("Brain analysis requested. Recommendations will refresh automatically."),
-        )
-    } else {
-        manual_analysis_response(
+        ),
+        crate::taskmaster::evaluator::ScheduleResult::AlreadyRunning => manual_analysis_response(
             "already_running",
             None,
             Some("A Taskmaster analysis is already running."),
-        )
+        ),
+        crate::taskmaster::evaluator::ScheduleResult::Unavailable => manual_analysis_response(
+            "unavailable",
+            None,
+            Some("Taskmaster analysis could not be scheduled. Check Taskmaster settings and try again."),
+        ),
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::http::ErrorResponse;
+use crate::providers::{native_inference::NativeProfile, ProviderOperationErrorResponse};
 use crate::taskmaster::provider_catalog::{self, TaskmasterProvider};
 use crate::taskmaster::runtime::{
     KnowledgeBundle, TaskmasterRuntime, TaskmasterSettings, TaskmasterStatus,
@@ -94,6 +95,83 @@ pub(crate) async fn get_taskmaster_settings(
         return status.into_response();
     }
     Json(status_for(&state, &runtime_for(&state))).into_response()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct TaskmasterModelsRequest {
+    provider: String,
+    #[serde(default)]
+    ollama_base_url: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct TaskmasterModelsResponse {
+    models: Vec<String>,
+}
+
+pub(crate) async fn refresh_taskmaster_models(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<TaskmasterModelsRequest>,
+) -> Response {
+    if let Err(status) = authorize_taskmaster_request(&headers) {
+        return status.into_response();
+    }
+    let snapshot = match state.harness_store.snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let Some(profile) = NativeProfile::resolve(&snapshot, request.provider.trim()) else {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ErrorResponse {
+                error: "Taskmaster model discovery is available only for built-in Codex and Ollama providers".into(),
+            }),
+        )
+            .into_response();
+    };
+    if profile == NativeProfile::Claude {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ErrorResponse {
+                error: "Taskmaster model discovery is not supported for Claude Code".into(),
+            }),
+        )
+            .into_response();
+    }
+    let providers = state.providers.clone();
+    match tokio::task::spawn_blocking(move || {
+        providers.discover_taskmaster_models(profile, request.ollama_base_url.as_deref())
+    })
+    .await
+    {
+        Ok(Ok(models)) => Json(TaskmasterModelsResponse { models }).into_response(),
+        Ok(Err(error)) => (
+            StatusCode::BAD_GATEWAY,
+            Json(ProviderOperationErrorResponse { error }),
+        )
+            .into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+pub(crate) async fn get_taskmaster_run_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(status) = authorize_taskmaster_request(&headers) {
+        return status.into_response();
+    }
+    let runtime = runtime_for(&state);
+    match runtime.run_status(workspace_path(&state).as_deref()) {
+        Ok(status) => Json(status).into_response(),
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse { error }),
+        )
+            .into_response(),
+    }
 }
 
 pub(crate) async fn set_taskmaster_settings(
@@ -264,6 +342,86 @@ mod tests {
             "taskmaster-test-token".parse().unwrap(),
         );
         headers
+    }
+
+    #[tokio::test]
+    async fn run_status_is_authenticated_and_reports_no_workspace_or_corrupt_ledger_unavailable() {
+        let _ = authorized_headers();
+        let directory = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(directory.path());
+        let mut unauthorized = HeaderMap::new();
+        unauthorized.insert("x-orkworks-open-plan-token", "wrong".parse().unwrap());
+        assert_eq!(
+            get_taskmaster_run_status(State(state.clone()), unauthorized)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        state.workspace.lock().unwrap().take();
+        assert_eq!(
+            get_taskmaster_run_status(State(state.clone()), authorized_headers())
+                .await
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+
+        let state = test_app_state_with_workspace(&directory.path().join("corrupt"));
+        let root = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .root_path()
+            .join("taskmaster");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("evaluations.json"), "corrupt").unwrap();
+        assert_eq!(
+            get_taskmaster_run_status(State(state), authorized_headers())
+                .await
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    #[tokio::test]
+    async fn model_refresh_rejects_unauthorized_and_non_builtin_providers() {
+        let _ = authorized_headers();
+        let directory = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(directory.path());
+        let request = || {
+            Json(TaskmasterModelsRequest {
+                provider: "custom-provider".into(),
+                ollama_base_url: None,
+            })
+        };
+        assert_eq!(
+            refresh_taskmaster_models(State(state.clone()), HeaderMap::new(), request())
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            refresh_taskmaster_models(State(state.clone()), authorized_headers(), request())
+                .await
+                .status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            refresh_taskmaster_models(
+                State(state),
+                authorized_headers(),
+                Json(TaskmasterModelsRequest {
+                    provider: "claude-code".into(),
+                    ollama_base_url: None
+                })
+            )
+            .await
+            .status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     #[tokio::test]

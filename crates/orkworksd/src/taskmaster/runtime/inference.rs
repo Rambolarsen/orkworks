@@ -173,7 +173,7 @@ impl TaskmasterRuntime {
         }
     }
 
-    /// Stale custom results must not replace or clear current diagnostics.
+    /// Validate failure identity without writing the legacy global error field.
     pub(crate) fn record_evaluation_error(
         &self,
         harnesses: &HarnessStore,
@@ -187,9 +187,7 @@ impl TaskmasterRuntime {
             }
             let mut saved = Ok(false);
             self.with_current_custom_data(harnesses, captured, |data| {
-                data.ledger.last_error = error;
-                saved = super::write_json(&self.root.join("evaluations.json"), &data.ledger)
-                    .map(|()| true);
+                saved = Ok(data.ledger_readable);
             })?;
             saved
         } else {

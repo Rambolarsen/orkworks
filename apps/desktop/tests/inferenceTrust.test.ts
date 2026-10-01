@@ -42,7 +42,7 @@ test("approval transport rejects sidecar changes during fetch or body decoding",
     context.isCurrent = () => current;
     context.fetcher = async () => {
       if (phase === "fetch") current = false;
-      return { ok: true, json: async () => { current = false; return { adapters: [adapter] }; } } as Response;
+      return { ok: true, text: async () => { current = false; return JSON.stringify({ adapters: [adapter] }); } } as Response;
     };
     await assert.rejects(readInferenceTrust(context), /changed/);
   }

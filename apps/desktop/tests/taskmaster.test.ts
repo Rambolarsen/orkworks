@@ -532,6 +532,17 @@ test("Fix with AI is gated on the active session actually being alive, not merel
   assert.match(dockview, /\.lifecycle === "alive"/);
 });
 
+test("Recommendations polls authenticated Taskmaster run status without coupling it to recommendation errors", () => {
+  const panel = readFileSync(new URL("../src/components/RecommendationsPanel.tsx", import.meta.url), "utf8");
+  const refreshStart = panel.indexOf("const refresh = useCallback");
+  const refreshEnd = panel.indexOf("}, [blockedRecommendationId", refreshStart);
+  const refresh = panel.slice(refreshStart, refreshEnd);
+  assert.match(refresh, /getTaskmasterRunStatus\(\)/);
+  assert.match(refresh, /setRunStatusError/);
+  assert.match(panel, /setInterval\(\(\) => \{/);
+  assert.match(panel, /formatTaskmasterRunStatus\(runStatus\)/);
+});
+
 test("Analyze now asks the backend to revalidate a cached active recommendation", () => {
   const panel = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
