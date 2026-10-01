@@ -55,8 +55,9 @@ environment. Codex 0.159.2's default shared background server can retain the
 first session's environment, leaving later OrkWorks sessions without a native
 ID. After updating OrkWorks, end and relaunch affected sessions. Older Codex
 versions without the option keep their existing launch arguments. If the
-compatibility check fails, session startup reports an error so you can check
-the configured executable and retry.
+compatibility check fails, the app shows its generic session startup error.
+Check the configured executable and retry; the detailed compatibility
+diagnostic is recorded in sidecar logs.
 
 ### Codex hook reports
 

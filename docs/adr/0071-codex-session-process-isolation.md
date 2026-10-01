@@ -25,7 +25,7 @@ executable with `--help` before spawning the PTY child. Bound the probe to
 three seconds and 64 KiB per output stream. Add `--no-daemon` before existing
 arguments only when the help output advertises that exact option, without
 adding a duplicate. This applies to new sessions and exact resume. An
-unsuccessful or truncated probe aborts startup with a readable retry error;
+unsuccessful or truncated probe aborts startup and logs a retry diagnostic;
 a successful probe without the flag preserves the older CLI's arguments.
 The probe uses the PTY environment filter and excludes all `ORKWORKS_`
 variables, including UI approval authority and any inherited session reporting
@@ -39,7 +39,9 @@ configuration, stop its shared daemon, or change already-running sessions.
 
 Each compatible OrkWorks Codex launch owns its execution environment instead
 of borrowing an earlier launch's capability. It also pays one bounded help
-probe at startup. Existing sessions must be ended and relaunched to obtain
+probe at startup. Startup failures retain the existing generic UI error;
+the detailed probe failure is available in sidecar logs. Existing sessions
+must be ended and relaunched to obtain
 isolated environments; their native identities are never guessed or rewritten.
 A separate process may use more resources than Codex's shared daemon.
 
