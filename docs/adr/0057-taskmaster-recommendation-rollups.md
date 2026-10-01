@@ -138,7 +138,8 @@ serialized. The sidecar validates paths against the canonical workspace root
 (no escapes, `.git` at any depth, Windows-reserved names, duplicates, or
 mismatched existence, or product-source paths outside the repository-level
 instruction, skill, test, tooling, and documentation surfaces). Filesystem
-validation runs under the workspace lock when output is applied. It is advisory;
+validation runs under the workspace lock when output is applied and re-applies
+the path, scope, and sensitivity rules to the canonical destination. It is advisory;
 the receiving session rechecks each target.
 
 This stays inside the decision above. `proposedChange` is model-written
@@ -159,7 +160,9 @@ nothing partial applied, while the rest of the response and the deterministic
 exact recommendations are still applied. A degraded section is not an
 authoritative empty clustering result: existing rollup parents and members are
 left untouched. The run is recorded as succeeded with a classified
-rollup-degraded reason and cached for identical inputs. Invalid-JSON or
+rollup-degraded reason and cached for identical inputs, except a degradation
+caused by the apply-time filesystem check, which is not cached so a changed
+workspace can retry. Invalid-JSON or
 over-cap responses remain whole-response failures. This is an amendment, not a
 supersession: the Consequences above state that "model availability can affect
 only semantic grouping", and rejecting the whole combined response also
