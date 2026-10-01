@@ -121,6 +121,8 @@ session_start_source=""
 session_start_event=""
 session_source=""
 codex_attention="no"
+codex_capture_only="no"
+codex_payload_capture=""
 attention_post_kind="not_applicable"
 attention_curl_exit=""
 attention_http_status=""
@@ -164,6 +166,30 @@ case "$marker" in
     fi
     session_source="codex_hook"
     case "$event" in
+      PermissionRequest|PostToolUse)
+        codex_payload_capture="$(printf '%s' "$payload" | python3 -c '
+import json, sys
+allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name")
+safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_response"}
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = None
+capture = {"payloadKeys": [], "payloadScalars": {}}
+if isinstance(data, dict):
+    keys = [key for key in data if isinstance(key, str) and key in safe_payload_keys]
+    capture["payloadKeys"] = sorted(keys)[:64]
+    for key in allowed_scalars:
+        value = data.get(key)
+        if isinstance(value, str) and len(value) <= 128:
+            capture["payloadScalars"][key] = value
+        elif type(value) in (int, float, bool):
+            capture["payloadScalars"][key] = value
+print(json.dumps(capture, separators=(",", ":")))
+' 2>/dev/null)" || codex_payload_capture=""
+        ;;
+    esac
+    case "$event" in
       UserPromptSubmit)
         status="working"
         codex_attention="yes"
@@ -177,6 +203,11 @@ case "$marker" in
         codex_attention="yes"
         ;;
       SessionStart)
+        ;;
+      PostToolUse)
+        codex_capture_only="yes"
+        attention_post_kind="skipped_capture_only"
+        harness_session_post_kind="skipped_capture_only"
         ;;
     esac
     ;;
@@ -193,7 +224,7 @@ esac
 # Codex's SessionStart event captures identity only. Turn events carry their
 # explicit normalized status and provenance so the sidecar can validate the
 # deterministic signal without trusting mutable payload text.
-if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && \
+if [ "$codex_capture_only" != "yes" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && \
   { [ "$session_source" != "codex_hook" ] || [ "$codex_attention" = "yes" ]; }; then
   observed_at="$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))')"
   attention_payload="$(python3 -c '
@@ -218,7 +249,7 @@ elif [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; the
   attention_post_kind="skipped_missing_environment"
 fi
 
-if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ]; then
+if [ "$codex_capture_only" != "yes" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ]; then
   escaped_session_id=$(printf '%s' "$harness_session_id" | sed 's/[\\"]/\\&/g')
   if [ "$session_source" = "codex_hook" ] && [ -n "$hook_fingerprint" ]; then
     escaped_fingerprint=$(printf '%s' "$hook_fingerprint" | sed 's/[\\"]/\\&/g')
@@ -270,7 +301,7 @@ except Exception:
         -H "Content-Type: application/json" \
         -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
   fi
-elif [ "$session_source" = "codex_hook" ]; then
+elif [ "$session_source" = "codex_hook" ] && [ "$codex_capture_only" != "yes" ]; then
   if [ -z "$harness_session_id" ]; then
     harness_session_post_kind="skipped_no_harness_session_id"
   else
@@ -278,8 +309,12 @@ elif [ "$session_source" = "codex_hook" ]; then
   fi
 fi
 
-# Keep one private, redacted Codex reporter trace for local diagnosis. Never
-# include session IDs, tokens, payloads, response bodies, or request URLs.
+# Keep one private, redacted Codex reporter trace for local diagnosis. The
+# capture-only exception stores allowlisted top-level payload key names plus
+# only hook_event_name, permission_mode, turn_id, and tool_name scalar values
+# scalar values for PermissionRequest and PostToolUse. Never include tool_input,
+# transcript_path, cwd, session IDs, tokens, arbitrary free text, full payloads,
+# response bodies, or request URLs.
 if [ "$session_source" = "codex_hook" ]; then
   diagnostic_path="${HOME:-}/.orkworks/hook-scripts/report-harness-event-diagnostic.json"
   diagnostic_dir=$(dirname "$diagnostic_path")
@@ -287,20 +322,79 @@ if [ "$session_source" = "codex_hook" ]; then
     (umask 077
       python3 -c '
 import json, os, pathlib, sys, tempfile
+import fcntl
 path = pathlib.Path(sys.argv[1])
+allowed_events = ("PermissionRequest", "PostToolUse")
+allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name")
+safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_response"}
 def post_result(kind, curl_exit, http_status):
     if kind == "posted":
         return {"curlExit": int(curl_exit), "httpStatus": http_status}
     return {"result": kind}
 
+def clean_result(value):
+    if isinstance(value, dict):
+        if set(value) == {"curlExit", "httpStatus"} and type(value.get("curlExit")) is int:
+            status = value.get("httpStatus")
+            return {"curlExit": value["curlExit"], "httpStatus": status if isinstance(status, str) and len(status) <= 8 else ""}
+        result = value.get("result")
+        if result in ("posted", "enqueued", "skipped_no_harness_session_id", "skipped_missing_environment", "skipped_capture_only", "not_applicable"):
+            return {"result": result}
+    return {"result": "not_applicable"}
+
+def clean_capture(value):
+    if not isinstance(value, dict):
+        return {"payloadKeys": [], "payloadScalars": {}}
+    keys = value.get("payloadKeys")
+    keys = [key for key in keys if isinstance(key, str) and key in safe_payload_keys] if isinstance(keys, list) else []
+    scalars = value.get("payloadScalars")
+    scalars = scalars if isinstance(scalars, dict) else {}
+    clean_scalars = {}
+    for key in allowed_scalars:
+        item = scalars.get(key)
+        if isinstance(item, str) and len(item) <= 128:
+            clean_scalars[key] = item
+        elif type(item) in (int, float, bool):
+            clean_scalars[key] = item
+    return {"payloadKeys": sorted(set(keys))[:64], "payloadScalars": clean_scalars}
+
+captures = {}
+lock_path = path.with_name("report-harness-event-diagnostic.lock")
+lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+os.fchmod(lock_fd, 0o600)
+fcntl.flock(lock_fd, fcntl.LOCK_EX)
+try:
+    previous = json.loads(path.read_text(encoding="utf-8"))
+    old_captures = previous.get("codexPayloadCapture") if isinstance(previous, dict) else None
+    if isinstance(old_captures, dict):
+        for old_event in allowed_events:
+            old = old_captures.get(old_event)
+            if isinstance(old, dict):
+                cleaned = clean_capture(old)
+                cleaned["attentionPost"] = clean_result(old.get("attentionPost"))
+                cleaned["harnessSessionPost"] = clean_result(old.get("harnessSessionPost"))
+                captures[old_event] = cleaned
+except Exception:
+    pass
+
+event = sys.argv[2]
+diagnostic_events = ("SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop")
+diagnostic_event = event if event in diagnostic_events else "Unknown"
+if event in allowed_events:
+    current = clean_capture(json.loads(sys.argv[13]))
+    current["attentionPost"] = post_result(sys.argv[7], sys.argv[8], sys.argv[9])
+    current["harnessSessionPost"] = post_result(sys.argv[10], sys.argv[11], sys.argv[12])
+    captures[event] = current
+
 record = {
-    "event": sys.argv[2],
+    "event": diagnostic_event,
     "harnessSessionIdParsed": sys.argv[3] == "yes",
     "orkworksSessionIdPresent": sys.argv[4] == "yes",
     "portPresent": sys.argv[5] == "yes",
     "reportTokenPresent": sys.argv[6] == "yes",
     "attentionPost": post_result(sys.argv[7], sys.argv[8], sys.argv[9]),
     "harnessSessionPost": post_result(sys.argv[10], sys.argv[11], sys.argv[12]),
+    "codexPayloadCapture": captures,
 }
 fd, temporary = tempfile.mkstemp(prefix=".report-harness-event-", dir=path.parent)
 try:
@@ -314,12 +408,15 @@ except Exception:
         os.unlink(temporary)
     except OSError:
         pass
+finally:
+    os.close(lock_fd)
 ' "$diagnostic_path" "$event" \
         "$([ -n "$harness_session_id" ] && printf yes || printf no)" \
         "$([ -n "${ORKWORKS_SESSION_ID:-}" ] && printf yes || printf no)" \
         "$([ -n "${ORKWORKS_PORT:-}" ] && printf yes || printf no)" \
         "$([ -n "${ORKWORKS_REPORT_TOKEN:-}" ] && printf yes || printf no)" \
         "$attention_post_kind" "$attention_curl_exit" "$attention_http_status" \
-        "$harness_session_post_kind" "$session_curl_exit" "$session_http_status" ) >/dev/null 2>&1 || true
+        "$harness_session_post_kind" "$session_curl_exit" "$session_http_status" \
+        "${codex_payload_capture:-}" ) >/dev/null 2>&1 || true
   fi
 fi

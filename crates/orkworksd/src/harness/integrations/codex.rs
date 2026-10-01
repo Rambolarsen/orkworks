@@ -16,10 +16,11 @@ use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, In
 /// Windows even in the untracked-and-ignored case that worked before this
 /// change, breaking Windows Codex installs entirely rather than just
 /// falling back for the tracked case.
-const CODEX_EVENTS: [&str; 4] = [
+const CODEX_EVENTS: [&str; 5] = [
     "SessionStart",
     "UserPromptSubmit",
     "PermissionRequest",
+    "PostToolUse",
     "Stop",
 ];
 
@@ -292,7 +293,7 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
             FragmentState::Installed | FragmentState::Drifted => {
                 // One OrkWorks group per event is the owned shape. Multiple
                 // owned groups for the same event are ambiguous, while one
-                // group on each of the four Codex events is the complete
+                // group on each of the five Codex events is the complete
                 // bundle and must be removable as one unit.
                 if !owned_events.insert(event) {
                     return Ok(FragmentState::Ambiguous);
@@ -323,6 +324,7 @@ mod tests {
         IntegrationContext, IntegrationHandler, ReporterAssetResolver,
     };
     use crate::test_support::FakeHome;
+    use std::io::Write;
 
     fn reporter_path(home: &std::path::Path) -> std::path::PathBuf {
         home.join(".orkworks/hook-scripts/report-harness-event.sh")
@@ -403,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_writes_the_codex_four_event_bundle_without_dropping_foreign_hooks() {
+    fn merge_writes_the_codex_five_event_bundle_without_dropping_foreign_hooks() {
         let mut document = Map::new();
         document.insert(
             "hooks".into(),
@@ -423,6 +425,7 @@ mod tests {
             "SessionStart",
             "UserPromptSubmit",
             "PermissionRequest",
+            "PostToolUse",
             "Stop",
         ] {
             let groups = hooks[event].as_array().unwrap();
@@ -443,6 +446,190 @@ mod tests {
         }
         assert_eq!(hooks["Stop"].as_array().unwrap().len(), 2);
         assert_eq!(hooks["Stop"][0]["hooks"][0]["command"], "user-stop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reporter_captures_redacted_permission_and_post_tool_events_locally() {
+        let home = tempfile::tempdir().unwrap();
+        let diagnostic_path = home
+            .path()
+            .join(".orkworks/hook-scripts/report-harness-event-diagnostic.json");
+        std::fs::create_dir_all(diagnostic_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &diagnostic_path,
+            json!({
+                "codexPayloadCapture": {
+                    "PermissionRequest": {
+                        "payloadKeys": ["api_key", "password", "hook_event_name"],
+                        "payloadScalars": {
+                            "hook_event_name": "PermissionRequest",
+                            "turn_id": "private-old-turn-id"
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let stub_bin = home.path().join("bin");
+        std::fs::create_dir_all(&stub_bin).unwrap();
+        let curl_stub = stub_bin.join("curl");
+        let curl_calls = home.path().join("curl-calls");
+        std::fs::write(
+            &curl_stub,
+            "#!/bin/sh\nprintf x >> \"$CURL_CALL_LOG\"\nprintf 200\n",
+        )
+        .unwrap();
+        let mut curl_permissions = std::fs::metadata(&curl_stub).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        curl_permissions.set_mode(0o700);
+        std::fs::set_permissions(&curl_stub, curl_permissions).unwrap();
+        let reporter =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/report-harness-event.sh");
+
+        let mut children = Vec::new();
+        for (event, payload) in [
+            (
+                "PermissionRequest",
+                json!({
+                    "session_id": "private-harness-session-id",
+                    "transcript_path": "/private/transcript.jsonl",
+                    "cwd": "/private/workspace",
+                    "hook_event_name": "PermissionRequest",
+                    "permission_mode": "default",
+                    "turn_id": "turn-abc123",
+                    "tool_name": "Bash",
+                    "tool_input": { "command": "private-command-text" },
+                    "api_key": "private-api-key-value",
+                    "password": "private-password-value",
+                    "secret": "private-secret-value",
+                    "model": "private-model-name"
+                }),
+            ),
+            (
+                "PostToolUse",
+                json!({
+                    "session_id": "private-harness-session-id",
+                    "transcript_path": "/private/transcript.jsonl",
+                    "cwd": "/private/workspace",
+                    "hook_event_name": "PostToolUse",
+                    "permission_mode": "default",
+                    "turn_id": "turn-abc123",
+                    "tool_name": "Bash",
+                    "tool_input": { "command": "private-command-text" },
+                    "api_key": "private-api-key-value",
+                    "password": "private-password-value",
+                    "secret": "private-secret-value",
+                    "tool_response": "private-tool-response"
+                }),
+            ),
+        ] {
+            let mut child = std::process::Command::new("bash")
+                .arg(&reporter)
+                .args([
+                    "--marker",
+                    "orkworks:harness-integration:v2:codex",
+                    "--event",
+                    event,
+                ])
+                .env_clear()
+                .env(
+                    "PATH",
+                    format!(
+                        "{}:{}",
+                        stub_bin.display(),
+                        std::env::var("PATH").unwrap_or_default()
+                    ),
+                )
+                .env("HOME", home.path())
+                .env("ORKWORKS_SESSION_ID", "private-orkworks-session-id")
+                .env("ORKWORKS_PORT", "1")
+                .env("ORKWORKS_REPORT_TOKEN", "private-report-token")
+                .env("CURL_CALL_LOG", &curl_calls)
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(payload.to_string().as_bytes())
+                .unwrap();
+            children.push((event, child));
+        }
+        for (_, child) in &mut children {
+            assert!(child.wait().unwrap().success());
+        }
+
+        assert_eq!(std::fs::read_to_string(&curl_calls).unwrap(), "xx");
+        assert!(
+            home.path()
+                .join(".orkworks/hook-scripts/report-harness-event-diagnostic.lock")
+                .is_file(),
+            "the persistent lock protects concurrent diagnostic updates"
+        );
+
+        let diagnostic = std::fs::read_to_string(diagnostic_path).unwrap();
+        let diagnostic_json: Value = serde_json::from_str(&diagnostic).unwrap();
+        let captured = diagnostic_json["codexPayloadCapture"]
+            .as_object()
+            .expect("capture has a bounded event map");
+        assert_eq!(captured.len(), 2);
+        for event in ["PermissionRequest", "PostToolUse"] {
+            assert_eq!(captured[event]["payloadScalars"]["hook_event_name"], event);
+            assert_eq!(
+                captured[event]["payloadScalars"]["permission_mode"],
+                "default"
+            );
+            assert_eq!(captured[event]["payloadScalars"]["turn_id"], "turn-abc123");
+            assert_eq!(captured[event]["payloadScalars"]["tool_name"], "Bash");
+            for key in ["hook_event_name", "permission_mode", "turn_id", "tool_name"] {
+                assert!(captured[event]["payloadKeys"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(key)));
+            }
+            for forbidden_key in ["api_key", "password", "secret"] {
+                assert!(!captured[event]["payloadKeys"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(forbidden_key)));
+            }
+        }
+        let post_tool_capture = &diagnostic_json["codexPayloadCapture"]["PostToolUse"];
+        assert_eq!(
+            post_tool_capture["attentionPost"]["result"],
+            "skipped_capture_only"
+        );
+        assert_eq!(
+            post_tool_capture["harnessSessionPost"]["result"],
+            "skipped_capture_only"
+        );
+        for forbidden in [
+            "private-harness-session-id",
+            "/private/transcript.jsonl",
+            "/private/workspace",
+            "private-command-text",
+            "private-api-key-value",
+            "private-password-value",
+            "private-secret-value",
+            "private-tool-response",
+            "private-model-name",
+            "private-orkworks-session-id",
+            "private-report-token",
+        ] {
+            assert!(
+                !diagnostic.contains(forbidden),
+                "diagnostic leaked {forbidden}"
+            );
+        }
+        for forbidden_key in ["session_id", "transcript_path", "cwd", "tool_input"] {
+            assert!(!captured["PermissionRequest"]["payloadKeys"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(forbidden_key)));
+        }
     }
 
     #[test]

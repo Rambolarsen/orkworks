@@ -71,6 +71,11 @@ $sessionStartSource = ""
 $sessionStartEvent = ""
 $sessionSource = ""
 $codexAttention = $false
+$codexCaptureOnly = $false
+$codexPayloadCapture = $null
+$safeCodexPayloadKeys = @("hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_response")
+$attentionPostKind = "not_applicable"
+$harnessSessionPostKind = "skipped_no_harness_session_id"
 
 if ($Marker -clike "*:claude-code") {
     try {
@@ -96,12 +101,34 @@ if ($Marker -clike "*:claude-code") {
         if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id) {
             $harnessSessionId = ([string]$data.session_id).Trim()
         }
+        if ($data -is [System.Management.Automation.PSCustomObject] -and $Event -in @("PermissionRequest", "PostToolUse")) {
+            $payloadKeys = @(
+                $data.PSObject.Properties.Name | Where-Object {
+                    $_ -in $safeCodexPayloadKeys
+                } | Sort-Object -Unique | Select-Object -First 64
+            )
+            $payloadScalars = @{}
+            foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name")) {
+                $value = $data.$key
+                if ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
+                    $payloadScalars[$key] = $value
+                } elseif ($null -ne $value -and $value -is [ValueType]) {
+                    $payloadScalars[$key] = $value
+                }
+            }
+            $codexPayloadCapture = @{ payloadKeys = $payloadKeys; payloadScalars = $payloadScalars }
+        }
         if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.source -in @("startup", "resume", "clear", "compact")) {
             $sessionStartSource = [string]$data.source
             $sessionStartEvent = "SessionStart"
         }
     } catch {}
     $sessionSource = "codex_hook"
+    if ($Event -eq "PostToolUse") {
+        $codexCaptureOnly = $true
+        $attentionPostKind = "skipped_capture_only"
+        $harnessSessionPostKind = "skipped_capture_only"
+    }
     switch ($Event) {
         "UserPromptSubmit" {
             $Status = "working"
@@ -139,7 +166,7 @@ if ($Marker -clike "*:claude-code") {
 # Codex's SessionStart event captures identity only. Turn events carry their
 # explicit normalized status and provenance so the sidecar can validate the
 # deterministic signal without trusting mutable payload text.
-if ($sessionId -and $port -and ($sessionSource -ne "codex_hook" -or $codexAttention)) {
+if (-not $codexCaptureOnly -and $sessionId -and $port -and ($sessionSource -ne "codex_hook" -or $codexAttention)) {
     try {
         $observedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
         $attention = @{ status = $Status; observedAt = $observedAt }
@@ -156,10 +183,15 @@ if ($sessionId -and $port -and ($sessionSource -ne "codex_hook" -or $codexAttent
         $attentionBody = $attention | ConvertTo-Json -Compress
         Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/attention" `
             -ContentType "application/json" -Body $attentionBody -TimeoutSec 5 | Out-Null
-    } catch {}
+        $attentionPostKind = "posted"
+    } catch {
+        $attentionPostKind = "failed"
+    }
+} elseif ($sessionSource -eq "codex_hook" -and $codexAttention) {
+    $attentionPostKind = "skipped_missing_environment"
 }
 
-if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
+if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -and $sessionSource) {
     try {
         $sessionReport = @{ harnessSessionId = $harnessSessionId; source = $sessionSource; confidence = 0.98 }
         if ($sessionSource -eq "codex_hook" -and $HookFingerprint) {
@@ -198,5 +230,128 @@ if ($sessionId -and $port -and $harnessSessionId -and $sessionSource) {
             Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
                 -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
         }
-    } catch {}
+        $harnessSessionPostKind = "posted"
+    } catch {
+        $harnessSessionPostKind = "failed"
+    }
+} elseif ($sessionSource -eq "codex_hook" -and -not $codexCaptureOnly) {
+    if (-not $harnessSessionId) {
+        $harnessSessionPostKind = "skipped_no_harness_session_id"
+    } else {
+        $harnessSessionPostKind = "skipped_missing_environment"
+    }
+}
+
+# Keep the same private redacted local diagnostic as the POSIX reporter. The
+# capture-only exception stores an allowlist of top-level key names plus only
+# hook_event_name, permission_mode, turn_id, and tool_name scalar values.
+# Sensitive key names and values, paths, session IDs, tokens, payloads, and
+# arbitrary free text are excluded.
+if ($sessionSource -eq "codex_hook" -and $HOME) {
+    $diagnosticDirectory = Join-Path $HOME ".orkworks/hook-scripts"
+    $diagnosticPath = Join-Path $diagnosticDirectory "report-harness-event-diagnostic.json"
+    $diagnosticMutex = $null
+    $temporaryDiagnostic = $null
+    function Set-PrivateDiagnosticAcl {
+        param([string]$Path)
+        if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+            $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $acl = New-Object System.Security.AccessControl.FileSecurity
+            $acl.SetAccessRuleProtection($true, $false)
+            $acl.SetOwner($identity.User)
+            $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $identity.User,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            $acl.SetAccessRule($rule)
+            Set-Acl -LiteralPath $Path -AclObject $acl
+        }
+    }
+    function Get-PrivateDiagnosticResult {
+        param($Value)
+        $result = $Value.result
+        if ($result -in @("posted", "failed", "enqueued", "skipped_no_harness_session_id", "skipped_missing_environment", "skipped_capture_only", "not_applicable")) {
+            return @{ result = $result }
+        }
+        return @{ result = "not_applicable" }
+    }
+    try {
+        [System.IO.Directory]::CreateDirectory($diagnosticDirectory) | Out-Null
+        # A named mutex serializes the read/merge/replace transaction without
+        # leaving a lock file whose ACL or inode lifecycle must be managed.
+        $diagnosticMutex = [System.Threading.Mutex]::new($false, "Local\OrkWorks.ReportHarnessEventDiagnostic")
+        try {
+            $null = $diagnosticMutex.WaitOne()
+        } catch [System.Threading.AbandonedMutexException] {
+            # WaitOne throws only after granting ownership of an abandoned mutex.
+        }
+        $captures = @{}
+        if ([System.IO.File]::Exists($diagnosticPath)) {
+            try {
+                $previous = [System.IO.File]::ReadAllText($diagnosticPath) | ConvertFrom-Json
+                $oldCaptures = $previous.codexPayloadCapture
+                foreach ($oldEvent in @("PermissionRequest", "PostToolUse")) {
+                    $old = $oldCaptures.$oldEvent
+                    if ($old) {
+                        $oldKeys = @($old.payloadKeys | Where-Object {
+                            $_ -is [string] -and $_ -in $safeCodexPayloadKeys
+                        } | Sort-Object -Unique | Select-Object -First 64)
+                        $oldScalars = @{}
+                        foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name")) {
+                            $value = $old.payloadScalars.$key
+                            if ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
+                                $oldScalars[$key] = $value
+                            } elseif ($null -ne $value -and $value -is [ValueType]) {
+                                $oldScalars[$key] = $value
+                            }
+                        }
+                        $captures[$oldEvent] = @{
+                            payloadKeys = $oldKeys
+                            payloadScalars = $oldScalars
+                            attentionPost = Get-PrivateDiagnosticResult $old.attentionPost
+                            harnessSessionPost = Get-PrivateDiagnosticResult $old.harnessSessionPost
+                        }
+                    }
+                }
+            } catch {}
+        }
+        if ($Event -in @("PermissionRequest", "PostToolUse") -and $null -ne $codexPayloadCapture) {
+            $codexPayloadCapture["attentionPost"] = @{ result = $attentionPostKind }
+            $codexPayloadCapture["harnessSessionPost"] = @{ result = $harnessSessionPostKind }
+            $captures[$Event] = $codexPayloadCapture
+        }
+        $record = @{
+            event = $(if ($Event -in @("SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop")) { $Event } else { "Unknown" })
+            harnessSessionIdParsed = [bool]$harnessSessionId
+            orkworksSessionIdPresent = [bool]$sessionId
+            portPresent = [bool]$port
+            reportTokenPresent = [bool]$env:ORKWORKS_REPORT_TOKEN
+            attentionPost = @{ result = $attentionPostKind }
+            harnessSessionPost = @{ result = $harnessSessionPostKind }
+            codexPayloadCapture = $captures
+        }
+        $diagnosticBody = $record | ConvertTo-Json -Compress -Depth 8
+        $temporaryDiagnostic = Join-Path $diagnosticDirectory (".report-harness-event-" + [guid]::NewGuid().ToString("N"))
+        [System.IO.File]::WriteAllText($temporaryDiagnostic, $diagnosticBody, [System.Text.UTF8Encoding]::new($false))
+        Set-PrivateDiagnosticAcl $temporaryDiagnostic
+
+        if ([System.IO.File]::Exists($diagnosticPath)) {
+            Set-PrivateDiagnosticAcl $diagnosticPath
+            [System.IO.File]::Replace($temporaryDiagnostic, $diagnosticPath, $null)
+        } else {
+            [System.IO.File]::Move($temporaryDiagnostic, $diagnosticPath)
+        }
+        Set-PrivateDiagnosticAcl $diagnosticPath
+        $temporaryDiagnostic = $null
+    } catch {
+        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {
+            try { [System.IO.File]::Delete($temporaryDiagnostic) } catch {}
+        }
+    } finally {
+        if ($diagnosticMutex) {
+            $diagnosticMutex.ReleaseMutex()
+            $diagnosticMutex.Dispose()
+        }
+    }
 }
