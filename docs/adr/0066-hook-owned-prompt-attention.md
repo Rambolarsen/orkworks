@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Deciders: Rambolarsen, Codex
-- Date: 2026-09-26
+- Date: 2026-10-01
 
 ## Context
 
@@ -72,3 +72,15 @@ provenance rather than recording OpenCode reports as `codex_hook`.
 - Claude Code, Copilot CLI, Aider, and hookless tools keep their existing Peon
   policy. [#643](https://github.com/Rambolarsen/orkworks/issues/643) tracks
   separate review of their event coverage.
+
+## Amendment (2026-10-01)
+
+The consequence above is stale for Claude, Copilot, and Aider. The reviewed
+Claude/Copilot/Aider prompt-attention boundary accepted in
+[PR #652](https://github.com/Rambolarsen/orkworks/pull/652) is recorded in
+[ADR 0073](0073-other-harness-prompt-attention-authority.md): Claude and
+Copilot gain event-validated, session-scoped prompt authority with Peon
+fallback before activation, and Aider keeps Peon fallback with its static
+launch-time hook flag removed. ADR 0066's Codex/OpenCode decision and scope,
+including the peon-inference boundary above, remain unchanged. #643 remains
+open for version-pinned fixture and live-evidence checks.

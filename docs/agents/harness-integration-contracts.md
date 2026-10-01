@@ -79,6 +79,7 @@ attention delivery has not been confirmed end to end. A lost reply or reject
 may leave **Needs You** until a later recognized event, accepted input, or
 session death; plugin reload cannot reconstruct requests already pending.
 Before Claude Code or GitHub Copilot prompt authority activates, turn events
+(Boundary: [ADR 0073](../adr/0073-other-harness-prompt-attention-authority.md))
 are attention no-ops. They must not write session-wide `agent` metadata, which
 would temporarily prevent Peon from writing prompt fields under the current
 record-wide source-priority rule. The sidecar's existing committed-terminal-
