@@ -4097,7 +4097,7 @@ mod tests {
             .unwrap();
             make_test_executable(&script);
 
-            let child_stderr = runner.run("codex", script.to_str().unwrap(), &[], "", 1, None);
+            let child_stderr = runner.run("codex", script.to_str().unwrap(), &[], "", 10, None);
             assert!(!child_stderr.launch_failure);
             let (_, summary) = inference::native_cli_failure_summary(
                 "codex",
