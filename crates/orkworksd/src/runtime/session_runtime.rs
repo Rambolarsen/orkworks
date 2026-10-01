@@ -873,7 +873,18 @@ pub(crate) async fn start_session_runtime(
         })
         .ok_or_else(|| "session runtime handle is not installed".to_string())?;
     if is_codex_session {
-        super::codex_launch::isolate_session(&mut command).await?;
+        if let Err(error) = super::codex_launch::isolate_session(&mut command).await {
+            // A deletion may already own the ending transition. There is no
+            // PTY driver yet to finalize it, so always schedule this generation.
+            set_session_status_for_generation(&state, &id, run_generation, "error").await;
+            schedule_session_ending_finalization(
+                state.clone(),
+                id.clone(),
+                run_generation,
+                "error".into(),
+            );
+            return Err(error);
+        }
     }
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&mut control_rx, initial_size).await;
