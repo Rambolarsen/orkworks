@@ -196,6 +196,7 @@ mod tests {
             assert_eq!(model, Some("chosen-model"));
             assert_eq!(connection, Some("http://127.0.0.1:11436"));
             InvocationResult {
+                launch_failure: false,
                 success: true,
                 stdout: r#"{"proposals":[]}"#.into(),
                 stderr: String::new(),
@@ -239,6 +240,7 @@ mod tests {
                 r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"proposals\":[]}"}"#
             };
             InvocationResult {
+                launch_failure: false,
                 success: true,
                 stdout: stdout.into(),
                 stderr: String::new(),
@@ -301,6 +303,7 @@ mod tests {
         ) -> InvocationResult {
             let probe = command.get_args().any(|arg| arg == "--version");
             InvocationResult {
+                launch_failure: false,
                 success: probe,
                 stdout: if probe { "2.1.236 (Claude Code)" } else { "" }.into(),
                 stderr: if probe {

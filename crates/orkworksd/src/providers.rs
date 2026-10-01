@@ -639,6 +639,7 @@ pub struct ProvidersResponse {
 // --- Invocation abstraction ---
 
 struct InvocationResult {
+    launch_failure: bool,
     success: bool,
     stdout: String,
     stderr: String,
@@ -708,6 +709,7 @@ trait ProviderRunner: Send + Sync {
         _model: Option<&str>,
     ) -> InvocationResult {
         InvocationResult {
+            launch_failure: false,
             success: false,
             stdout: String::new(),
             stderr: "runner does not support isolated inference".into(),
@@ -729,6 +731,7 @@ trait ProviderRunner: Send + Sync {
         };
         if gate(&mut start).is_none() || !entered {
             return InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: "workspace changed before provider dispatch".into(),
@@ -777,6 +780,7 @@ trait ProviderRunner: Send + Sync {
         };
         if gate(&mut start).is_none() || !entered {
             return InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: "workspace changed before provider dispatch".into(),
@@ -953,6 +957,7 @@ impl ProviderRunner for ProcessRunner {
         match self.run_prepared_with_encoding(id, cmd, prompt, timeout_secs, false) {
             ProcessOutcome::Finished(result) => result,
             ProcessOutcome::TimedOut => InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: "timed out".into(),
@@ -991,6 +996,7 @@ impl ProcessRunner {
         strict_stdout: bool,
         gate: &mut ProviderDispatchGate<'_>,
     ) -> InvocationResult {
+        let mut launch_failure = false;
         let outcome = self.run_prepared_with_spawn(
             id,
             cmd,
@@ -1000,7 +1006,12 @@ impl ProcessRunner {
             |command, prepare_child| {
                 let mut child = None;
                 let mut spawn = || {
-                    child = Some(command.spawn().and_then(|mut child| {
+                    let spawn_result = command.spawn();
+                    launch_failure = matches!(
+                        &spawn_result,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                    );
+                    child = Some(spawn_result.and_then(|mut child| {
                         prepare_child(&mut child)?;
                         Ok(child)
                     }));
@@ -1027,13 +1038,18 @@ impl ProcessRunner {
             },
         );
         match outcome {
-            Ok(ProcessOutcome::Finished(result)) => result,
+            Ok(ProcessOutcome::Finished(mut result)) => {
+                result.launch_failure = launch_failure;
+                result
+            }
             Ok(ProcessOutcome::TimedOut) => InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: "timed out".into(),
             },
             Err(error) => InvocationResult {
+                launch_failure,
                 success: false,
                 stdout: String::new(),
                 stderr: error.to_string(),
@@ -1049,21 +1065,34 @@ impl ProcessRunner {
         timeout_secs: u64,
         strict_stdout: bool,
     ) -> ProcessOutcome {
-        self.run_prepared_with_spawn(
-            id,
-            cmd,
-            prompt,
-            timeout_secs,
-            strict_stdout,
-            |cmd, prepare_child| {
-                let child = cmd.spawn().and_then(|mut child| {
-                    prepare_child(&mut child)?;
-                    Ok(child)
-                });
-                Ok::<_, std::convert::Infallible>(child)
-            },
-        )
-        .unwrap_or_else(|never| match never {})
+        let mut launch_failure = false;
+        let mut outcome = self
+            .run_prepared_with_spawn(
+                id,
+                cmd,
+                prompt,
+                timeout_secs,
+                strict_stdout,
+                |cmd, prepare_child| {
+                    let spawn_result = cmd.spawn();
+                    launch_failure = matches!(
+                        &spawn_result,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                    );
+                    let child = spawn_result.and_then(|mut child| {
+                        prepare_child(&mut child)?;
+                        Ok(child)
+                    });
+                    Ok::<_, std::convert::Infallible>(child)
+                },
+            )
+            .unwrap_or_else(|never| match never {});
+        if launch_failure {
+            if let ProcessOutcome::Finished(result) = &mut outcome {
+                result.launch_failure = true;
+            }
+        }
+        outcome
     }
 
     /// The callback keeps its dispatch guard through spawn and child setup.
@@ -1095,6 +1124,7 @@ impl ProcessRunner {
                 Ok(job) => job,
                 Err(error) => {
                     return Ok(ProcessOutcome::Finished(InvocationResult {
+                        launch_failure: false,
                         success: false,
                         stdout: String::new(),
                         stderr: error.to_string(),
@@ -1125,6 +1155,7 @@ impl ProcessRunner {
             Err(e) => {
                 tracing::warn!(provider = %id, error = %e, "peon: failed to spawn");
                 return Ok(ProcessOutcome::Finished(InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: e.to_string(),
@@ -1203,6 +1234,7 @@ impl ProcessRunner {
                     join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                     tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
                     return ProcessOutcome::Finished(InvocationResult {
+                        launch_failure: false,
                         success: false,
                         stdout: String::new(),
                         stderr: e.to_string(),
@@ -1260,6 +1292,7 @@ impl ProcessRunner {
                     terminate_child(&mut child);
                     join_capture_threads(stdout_thread, stderr_thread);
                     return ProcessOutcome::Finished(InvocationResult {
+                        launch_failure: false,
                         success: false,
                         stdout: String::new(),
                         stderr: e.to_string(),
@@ -1284,6 +1317,7 @@ impl ProcessRunner {
                     terminate_child(&mut child);
                     join_capture_threads(stdout_thread, stderr_thread);
                     return ProcessOutcome::Finished(InvocationResult {
+                        launch_failure: false,
                         success: false,
                         stdout: String::new(),
                         stderr: message,
@@ -1306,6 +1340,7 @@ impl ProcessRunner {
                 Ok(text) => text,
                 Err(_) => {
                     return ProcessOutcome::Finished(InvocationResult {
+                        launch_failure: false,
                         success: false,
                         stdout: String::new(),
                         stderr: "provider stdout is not UTF-8".into(),
@@ -1316,6 +1351,7 @@ impl ProcessRunner {
             String::from_utf8_lossy(&stdout).into_owned()
         };
         ProcessOutcome::Finished(InvocationResult {
+            launch_failure: false,
             success: status.success(),
             stdout,
             stderr: String::from_utf8_lossy(&stderr.unwrap_or_default()).into_owned(),
@@ -1443,6 +1479,7 @@ impl HttpRunner {
                 .unwrap_or_else(|| self.settings.read().unwrap().ollama_base_url.clone()),
             _ => {
                 return InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: format!("HttpRunner does not support provider {id}"),
@@ -1454,6 +1491,7 @@ impl HttpRunner {
             Some(model) if !model.is_empty() => model,
             _ => {
                 return InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: "no Ollama model selected in Peon settings".to_string(),
@@ -1490,6 +1528,7 @@ impl HttpRunner {
             Ok(Ok(result)) => result,
             Ok(Err(HttpReadError::OutputExceeded)) => {
                 return InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: format!(
@@ -1500,6 +1539,7 @@ impl HttpRunner {
             }
             Ok(Err(HttpReadError::DispatchRejected)) => {
                 return InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: "workspace changed before provider dispatch".into(),
@@ -1507,6 +1547,7 @@ impl HttpRunner {
             }
             Ok(Err(HttpReadError::DispatchFailed(error))) => {
                 return InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: error.to_string(),
@@ -1521,6 +1562,7 @@ impl HttpRunner {
                     format!("Ollama generate request failed: {e}")
                 };
                 return InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: msg,
@@ -1528,6 +1570,7 @@ impl HttpRunner {
             }
             Err(_) => {
                 return InvocationResult {
+                    launch_failure: false,
                     success: false,
                     stdout: String::new(),
                     stderr: "Ollama generate request timed out".to_string(),
@@ -1537,6 +1580,7 @@ impl HttpRunner {
 
         if response_body.len() > MAX_PROVIDER_OUTPUT_BYTES {
             return InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: format!(
@@ -1556,6 +1600,7 @@ impl HttpRunner {
                 ""
             };
             return InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: format!(
@@ -1570,11 +1615,13 @@ impl HttpRunner {
 
         match serde_json::from_str::<OllamaGenerateResponse>(&text) {
             Ok(gen) => InvocationResult {
+                launch_failure: false,
                 success: true,
                 stdout: gen.response,
                 stderr: String::new(),
             },
             Err(e) => InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: format!("failed to parse Ollama generate response: {e}"),
@@ -2149,8 +2196,12 @@ impl ProviderManager {
             if !result.success {
                 // Only a fixed category is surfaced: raw CLI diagnostics may
                 // carry account, prompt, provider, or path details.
-                let (code, reason) =
-                    inference::native_cli_failure_summary(provider, &result.stderr, &result.stdout);
+                let (code, reason) = inference::native_cli_failure_summary(
+                    provider,
+                    &result.stderr,
+                    &result.stdout,
+                    result.launch_failure,
+                );
                 return Err(ProviderOperationError {
                     code,
                     message: format!("inference-only CLI invocation failed ({reason})"),
@@ -3444,6 +3495,7 @@ impl ProviderRunner for FakeRunner {
                 if spec.sleep_ms > 0 {
                     if spec.sleep_ms > timeout_secs.saturating_mul(1000) {
                         return InvocationResult {
+                            launch_failure: false,
                             success: false,
                             stdout: String::new(),
                             stderr: "timed out".to_string(),
@@ -3452,12 +3504,14 @@ impl ProviderRunner for FakeRunner {
                     std::thread::sleep(std::time::Duration::from_millis(spec.sleep_ms));
                 }
                 InvocationResult {
+                    launch_failure: false,
                     success: spec.exit_code == 0,
                     stdout: spec.stdout_val.clone(),
                     stderr: spec.stderr_val.clone(),
                 }
             }
             None => InvocationResult {
+                launch_failure: false,
                 success: false,
                 stdout: String::new(),
                 stderr: format!("no fake configured for {id}"),
@@ -4003,6 +4057,7 @@ mod tests {
 
         let success = runner.run("test", command, &args, "", 1, None);
         assert!(success.success);
+        assert!(!success.launch_failure);
 
         let missing = runner.run(
             "test",
@@ -4013,7 +4068,45 @@ mod tests {
             None,
         );
         assert!(!missing.success);
+        assert!(missing.launch_failure);
         assert!(!missing.stderr.is_empty());
+
+        let mut dispatch_gate = |spawn: &mut dyn FnMut() -> std::io::Result<()>| Some(spawn());
+        let mut command = Command::new("__orkworks_missing_gated_provider_command__");
+        let gated_missing = ProcessRunner.run_prepared_with_dispatch_gate(
+            "test",
+            &mut command,
+            "",
+            1,
+            false,
+            &mut dispatch_gate,
+        );
+        assert!(!gated_missing.success);
+        assert!(gated_missing.launch_failure);
+
+        #[cfg(unix)]
+        {
+            use crate::test_support::make_test_executable;
+
+            let dir = tempfile::tempdir().unwrap();
+            let script = dir.path().join("provider-reports-missing-config");
+            std::fs::write(
+                &script,
+                "#!/bin/sh\necho 'No such file or directory (os error 2): /private/config.toml' >&2\nexit 1\n",
+            )
+            .unwrap();
+            make_test_executable(&script);
+
+            let child_stderr = runner.run("codex", script.to_str().unwrap(), &[], "", 1, None);
+            assert!(!child_stderr.launch_failure);
+            let (_, summary) = inference::native_cli_failure_summary(
+                "codex",
+                &child_stderr.stderr,
+                &child_stderr.stdout,
+                child_stderr.launch_failure,
+            );
+            assert_eq!(summary, "provider failure");
+        }
     }
 
     #[cfg(unix)]
