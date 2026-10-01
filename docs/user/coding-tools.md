@@ -47,12 +47,25 @@ has saved its rollout.
 Codex CLI subagents remain part of their parent OrkWorks session and do not
 appear as separate OrkWorks sessions.
 
+### Codex session isolation
+
+OrkWorks checks whether the installed Codex supports `--no-daemon` and uses it
+for new sessions and exact resume. Each session then has its own reporting
+environment. Codex 0.159.2's default shared background server can retain the
+first session's environment, leaving later OrkWorks sessions without a native
+ID. After updating OrkWorks, end and relaunch affected sessions. Older Codex
+versions without the option keep their existing launch arguments. If the
+compatibility check fails, session startup reports an error so you can check
+the configured executable and retry.
+
 ### Codex hook reports
 
 Codex hook trust and command network access are separate. Approving OrkWorks'
 hooks with `/hooks` allows them to run; it does not let their commands reach
 OrkWorks' local sidecar. If Codex's `workspace-write` network access is off,
-the hook cannot post the native session ID or attention state to `127.0.0.1`.
+the hook cannot post attention state to `127.0.0.1`. Native session IDs use a
+private local mailbox when OrkWorks supplies one, so their delivery does not
+require network access.
 
 For a loopback-only network proxy, add these settings to `~/.codex/config.toml`
 and preserve any other existing settings in the same tables:

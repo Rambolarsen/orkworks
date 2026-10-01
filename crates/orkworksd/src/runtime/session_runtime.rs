@@ -852,7 +852,7 @@ fn startup_generation_is_ending(state: &AppState, id: &str, generation: RuntimeG
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
-    command: harness::CommandSpec,
+    mut command: harness::CommandSpec,
     initial_prompt: Option<String>,
     mut control_rx: mpsc::Receiver<RuntimeCommand>,
     output_tx: broadcast::Sender<RuntimeEvent>,
@@ -872,6 +872,9 @@ pub(crate) async fn start_session_runtime(
             )
         })
         .ok_or_else(|| "session runtime handle is not installed".to_string())?;
+    if is_codex_session {
+        super::codex_launch::isolate_session(&mut command).await?;
+    }
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&mut control_rx, initial_size).await;
     let pty_sys = make_pty_system();
@@ -1519,6 +1522,92 @@ mod tests {
         );
 
         state
+    }
+
+    // Removing launch isolation would make both PTY children use the first
+    // session's reporting environment, as Codex's shared daemon did live.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_launch_and_resume_keep_separate_reporting_environments() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("codex-fixture");
+        std::fs::write(&executable, r#"#!/bin/sh
+if [ "$1" = "--help" ]; then
+  printf 'Options:\n      --no-daemon  Run without the shared background server\n'
+  exit 0
+fi
+isolated=no
+if [ "$1" = "--no-daemon" ]; then isolated=yes; shift; fi
+if [ "$isolated" = no ]; then
+  if [ ! -f daemon-env ]; then
+    printf '%s\n%s\n' "$ORKWORKS_SESSION_ID" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" > daemon-env
+  fi
+  cp daemon-env "$ORKWORKS_SESSION_ID.env"
+else
+  printf '%s\n%s\n' "$ORKWORKS_SESSION_ID" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" > "$ORKWORKS_SESSION_ID.env"
+fi
+printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
+"#).unwrap();
+        crate::test_support::make_test_executable(&executable);
+        let mut mailboxes = Vec::new();
+        for (id, args) in [
+            ("codex-isolated-launch", vec!["--model", "test-model"]),
+            ("codex-isolated-resume", vec!["resume", "exact-native-id"]),
+        ] {
+            let state = test_state_with_runtime_session(id);
+            let (runtime, control_rx) =
+                SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+            let output_tx = runtime.output_tx.clone();
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut(id).unwrap();
+                handle.info.harness = Some("codex".into());
+                handle.info.harness_id = Some("codex".into());
+                handle.runtime = runtime;
+            }
+            let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+            start_session_runtime(
+                state,
+                id.into(),
+                harness::CommandSpec {
+                    program: executable.display().to_string(),
+                    args: args.iter().map(|arg| (*arg).into()).collect(),
+                    cwd: dir.path().display().to_string(),
+                },
+                None,
+                control_rx,
+                output_tx,
+                kill_rx,
+                PtySize {
+                    rows: DEFAULT_TERMINAL_ROWS,
+                    cols: DEFAULT_TERMINAL_COLS,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+            )
+            .await
+            .unwrap();
+            let environment_path = dir.path().join(format!("{id}.env"));
+            for _ in 0..100 {
+                if dir.path().join(format!("{id}.args")).exists() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let environment = std::fs::read_to_string(environment_path).unwrap();
+            let mut fields = environment.lines();
+            assert_eq!(fields.next(), Some(id));
+            mailboxes.push(fields.next().unwrap().to_string());
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join(format!("{id}.args"))).unwrap(),
+                args.join("\n") + "\n"
+            );
+        }
+        assert_ne!(mailboxes[0], mailboxes[1]);
+        assert!(
+            !dir.path().join("daemon-env").exists(),
+            "no session may seed a shared daemon environment"
+        );
     }
 
     #[tokio::test]

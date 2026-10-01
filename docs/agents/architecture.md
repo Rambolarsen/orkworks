@@ -342,6 +342,15 @@ versa.
 
 For Codex, an identity report that also carries `ORKWORKS_REPORT_TOKEN` triggers a bounded, read-only lookup of `$CODEX_HOME/state_5.sqlite` (or `~/.codex/state_5.sqlite`), selecting `threads.name` then `threads.title` by exact native ID and storing the result as a Codex label when the current label is still automatic. Missing or unsupported data preserves the current label.
 
+Codex runtime startup probes the configured executable's `--help` with bounded
+output and a three-second deadline. When it advertises `--no-daemon`, both new
+launches and exact resume receive that flag before their existing arguments.
+This avoids Codex 0.159.2's shared app-server retaining the first launch's
+OrkWorks environment across conversations. Successful older help output without
+the option preserves the original arguments; failed or oversized probes abort
+startup. Existing sessions require relaunch. Global Codex configuration and
+its shared daemon are untouched. See [ADR 0071](../adr/0071-codex-session-process-isolation.md).
+
 Codex session identity stays bound to the conversation OrkWorks launched:
 differing Codex hook IDs are ignored, except for an authenticated root
 `SessionStart` with `source=clear` after OrkWorks records that explicit reset.
