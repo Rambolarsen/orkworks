@@ -885,6 +885,18 @@ pub(crate) async fn start_session_runtime(
             );
             return Err(error);
         }
+        let was_killed = *kill_rx.borrow();
+        if was_killed || startup_generation_is_ending(&state, &id, run_generation) {
+            // Deletion during a successful help probe must not spawn Codex.
+            set_session_status_for_generation(&state, &id, run_generation, "killed").await;
+            schedule_session_ending_finalization(
+                state.clone(),
+                id.clone(),
+                run_generation,
+                "killed".into(),
+            );
+            return Err("session runtime was deleted during startup".into());
+        }
     }
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&mut control_rx, initial_size).await;

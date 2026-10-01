@@ -50,7 +50,11 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Str
         if !child.wait().await.ok()?.success() {
             return None;
         }
-        Some(String::from_utf8_lossy(&out).into_owned() + &String::from_utf8_lossy(&err))
+        Some(format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&out),
+            String::from_utf8_lossy(&err)
+        ))
     };
     let help = tokio::time::timeout(Duration::from_secs(3), read_help)
         .await
