@@ -1,8 +1,6 @@
 //! Model-written, sidecar-validated change proposal carried by a rollup
 //! parent. Presentation only: never evidence, never part of recommendation
 //! identity (see `specs/taskmaster.md` "Rollup proposed change").
-// Later tasks of the rollup proposed-change plan consume these items.
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
