@@ -193,10 +193,6 @@ does not open a modal, show a background popup, or change focus.
 ## Implementation gate
 
 The sidecar request and run-status protocol decision is recorded in
-[ADR 0071](../../adr/0071-taskmaster-model-refresh-and-run-status.md). The
-separate model-refresh and run-status implementation plans are
-[`2026-09-30-taskmaster-model-refresh.md`](../plans/2026-09-30-taskmaster-model-refresh.md)
-and
-[`2026-09-30-taskmaster-run-status.md`](../plans/2026-09-30-taskmaster-run-status.md).
+[ADR 0071](../../adr/0071-taskmaster-model-refresh-and-run-status.md).
 The authoritative Taskmaster spec is updated alongside this design; issue #676
 tracks the work.
