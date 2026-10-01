@@ -67,17 +67,24 @@ authority rule. Add a conservative resolution path, in this order:
 1. **Verification gate (blocking).** Before any behavior change, capture a real
    `PermissionRequest` and `PostToolUse` payload pair under auto-review and
    under a manual prompt, recording only key names plus the allowlisted scalars
-   `hook_event_name`, `permission_mode`, `turn_id`, and `tool_name`. Never record
+   `hook_event_name`, `permission_mode`, `turn_id`, `tool_name`, and any
+   per-invocation identifier the payload carries (for example `tool_use_id`). Never record
    `tool_input`, transcript paths, or other free text. This is a deliberate,
    reviewed exception to the reporter's no-payload rule and must stay local,
    bounded, and redacted like the existing reporter diagnostic.
-2. **Turn-scoped `PostToolUse` resolution.** If the gate shows `PostToolUse`
-   carries the same `turn_id` and `tool_name`, install it as a fifth owned
-   event. The sidecar records `turn_id` and `tool_name` from the accepted
-   `PermissionRequest` and clears the wait only when a `PostToolUse` matches
-   both and no other `PermissionRequest` is outstanding for that turn.
-   Ambiguous cases (parallel calls, missing or mismatched `turn_id`) leave
-   `needs_you` in place. A late or duplicate event never reopens a cleared wait.
+2. **Invocation-scoped `PostToolUse` resolution.** `turn_id` plus `tool_name`
+   is not unique: one turn can invoke the same tool repeatedly, and a late or
+   duplicate `PostToolUse` for an earlier call could clear a later, real
+   prompt. So `PostToolUse` may clear a wait only if the gate shows both events
+   carry the same per-invocation identifier (for example a tool-use ID), or
+   shows an ordering and deduplication guarantee that makes the match
+   unambiguous. If neither exists, no `PostToolUse` correlation is adopted and
+   step 2 is withdrawn. When an identifier does exist, install `PostToolUse` as
+   a fifth owned event; the sidecar records the identifier from the accepted
+   `PermissionRequest` and clears the wait only on an exact match with no other
+   `PermissionRequest` outstanding. Ambiguous cases (parallel calls, missing
+   identifier) leave `needs_you` in place. A late or duplicate event never
+   reopens a cleared wait.
 3. **No terminal-text heuristic.** Terminal text such as "Reviewing approval
    requests" is not an authority source for attention: it is a Peon-tier
    inference and the hook-authority rule keeps it from overriding hook state.
@@ -88,8 +95,8 @@ authority rule. Add a conservative resolution path, in this order:
 
 - The "generic successful `PostToolUse` must not clear a permission wait"
   sentence in `harness-integration-contracts.md` stays true for generic
-  uncorrelated events; this amendment would allow only the turn-and-tool
-  correlated case above, once the gate proves the fields exist.
+  uncorrelated events; this amendment would allow only the exact
+  per-invocation-identifier match above, once the gate proves one exists.
 - A missed or ambiguous correlation fails safe: Needs You stays until `Stop`,
   the same behavior as today. The remaining cost is occasional false Needs You,
   not a missed real prompt.

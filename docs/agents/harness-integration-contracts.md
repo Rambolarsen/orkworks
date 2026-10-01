@@ -33,7 +33,13 @@ fixture and version/feature evidence are added beside the binding.
 
 ### Prompt attention authority
 
-Codex's `PermissionRequest` is a direct prompt signal. `Stop` marks an idle
+Codex's `PermissionRequest` is a direct prompt signal, with one known
+exception: it also fires when `approvals_reviewer = "auto_review"` resolves the
+request with no human prompt, and the current bundle has no event that
+resolves the wait, so a working session latches Needs You until `Stop`
+([#690](https://github.com/Rambolarsen/orkworks/issues/690); proposed
+amendment in [ADR 0051](../adr/0051-codex-deterministic-attention-hooks.md)).
+`Stop` marks an idle
 turn, and conversational questions in terminal output do not establish a
 prompt. Peon can provide a nonprompt status, summary, phase, and diagnostics
 before a validated hook executes; after activation, its descriptive fields
