@@ -76,7 +76,7 @@ assert record == {
     "reportTokenPresent": True,
     "attentionPost": {"result": "not_applicable"},
     "harnessSessionPost": {"curlExit": 0, "httpStatus": "204"},
-    "codexPayloadCapture": {},
+    "codexPayloadCapture": [],
 }, record
 serialized = json.dumps(record)
 for secret in ("codex-session-secret", "orkworks-session-secret", "report-token-secret", "response-body-secret"):
@@ -95,10 +95,11 @@ import sys
 
 record = json.loads(pathlib.Path(sys.argv[1]).read_text())
 captures = record["codexPayloadCapture"]
-assert captures["PermissionRequest"]["payloadScalars"]["tool_use_id"] == "call-123", captures
-assert captures["PostToolUse"]["payloadScalars"]["tool_use_id"] == "call-123", captures
-assert "tool_use_id" in captures["PermissionRequest"]["payloadKeys"], captures
-assert "tool_use_id" in captures["PostToolUse"]["payloadKeys"], captures
+assert [capture["event"] for capture in captures] == ["PermissionRequest", "PostToolUse"], captures
+assert captures[0]["payloadScalars"]["tool_use_id"] == "call-123", captures
+assert captures[1]["payloadScalars"]["tool_use_id"] == "call-123", captures
+assert "tool_use_id" in captures[0]["payloadKeys"], captures
+assert "tool_use_id" in captures[1]["payloadKeys"], captures
 for secret in ("private-command-text", "private-response"):
     assert secret not in json.dumps(record), secret
 PY
@@ -113,7 +114,7 @@ import pathlib
 import sys
 
 record = json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert "tool_use_id" not in record["codexPayloadCapture"]["PostToolUse"]["payloadScalars"], record
+assert "tool_use_id" not in record["codexPayloadCapture"][-1]["payloadScalars"], record
 PY
 
 printf '%s' '{not-json' | run_reporter PermissionRequest
@@ -124,8 +125,45 @@ import sys
 
 record = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert record["event"] == "PermissionRequest", record
-assert record["codexPayloadCapture"]["PermissionRequest"]["payloadKeys"] == [], record
-assert record["codexPayloadCapture"]["PermissionRequest"]["payloadScalars"] == {}, record
+assert record["codexPayloadCapture"][-1]["event"] == "PermissionRequest", record
+assert record["codexPayloadCapture"][-1]["payloadKeys"] == [], record
+assert record["codexPayloadCapture"][-1]["payloadScalars"] == {}, record
+PY
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+record = json.loads(path.read_text())
+record["codexPayloadCapture"] = [
+    {
+        "event": "PermissionRequest" if index % 2 == 0 else "PostToolUse",
+        "payloadKeys": ["hook_event_name", "session_id"],
+        "payloadScalars": {"turn_id": f"turn-{index}", "cwd": "/private/path"},
+        "attentionPost": {"result": "posted"},
+        "harnessSessionPost": {"result": "posted"},
+    }
+    for index in range(20)
+]
+path.write_text(json.dumps(record))
+PY
+printf '%s' '{"hook_event_name":"PostToolUse","turn_id":"turn-new"}' |
+  run_reporter PostToolUse
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+captures = record["codexPayloadCapture"]
+assert len(captures) == 16, captures
+assert captures[0]["payloadScalars"]["turn_id"] == "turn-5", captures
+assert captures[-1]["event"] == "PostToolUse", captures
+assert captures[-1]["payloadScalars"]["turn_id"] == "turn-new", captures
+serialized = json.dumps(record)
+assert "session_id" not in serialized and "/private/path" not in serialized
 PY
 
 : > "$temp_dir/python3-calls"

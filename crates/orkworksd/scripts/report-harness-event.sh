@@ -313,11 +313,12 @@ elif [ "$session_source" = "codex_hook" ] && [ "$codex_capture_only" != "yes" ];
 fi
 
 # Keep one private, redacted Codex reporter trace for local diagnosis. The
-# capture-only exception stores allowlisted top-level payload key names plus
-# only hook_event_name, permission_mode, turn_id, tool_name, and bounded
-# tool_use_id scalar values for PermissionRequest and PostToolUse. Never include
-# tool_input, transcript_path, cwd, session IDs, tokens, arbitrary free text,
-# full payloads, response bodies, or request URLs.
+# capture-only exception stores a bounded ordered sequence of sanitized
+# PermissionRequest and PostToolUse records: allowlisted top-level payload key
+# names plus hook_event_name, permission_mode, turn_id, tool_name, and bounded
+# tool_use_id scalar values. Never include tool_input, transcript_path, cwd,
+# session IDs, tokens, arbitrary free text, full payloads, response bodies,
+# or request URLs.
 if [ "$session_source" = "codex_hook" ]; then
   diagnostic_path="${HOME:-}/.orkworks/hook-scripts/report-harness-event-diagnostic.json"
   diagnostic_dir=$(dirname "$diagnostic_path")
@@ -328,6 +329,7 @@ import json, os, pathlib, sys, tempfile
 import fcntl
 path = pathlib.Path(sys.argv[1])
 allowed_events = ("PermissionRequest", "PostToolUse")
+max_capture_events = 16
 allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")
 safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_use_id", "tool_response"}
 def post_result(kind, curl_exit, http_status):
@@ -364,7 +366,7 @@ def clean_capture(value):
             clean_scalars[key] = item
     return {"payloadKeys": sorted(set(keys))[:64], "payloadScalars": clean_scalars}
 
-captures = {}
+captures = []
 lock_path = path.with_name("report-harness-event-diagnostic.lock")
 lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
 os.fchmod(lock_fd, 0o600)
@@ -372,14 +374,13 @@ fcntl.flock(lock_fd, fcntl.LOCK_EX)
 try:
     previous = json.loads(path.read_text(encoding="utf-8"))
     old_captures = previous.get("codexPayloadCapture") if isinstance(previous, dict) else None
-    if isinstance(old_captures, dict):
-        for old_event in allowed_events:
-            old = old_captures.get(old_event)
-            if isinstance(old, dict):
-                cleaned = clean_capture(old)
+    if isinstance(old_captures, list):
+        for old in old_captures[-max_capture_events:]:
+            if isinstance(old, dict) and old.get("event") in allowed_events:
+                cleaned = {"event": old["event"], **clean_capture(old)}
                 cleaned["attentionPost"] = clean_result(old.get("attentionPost"))
                 cleaned["harnessSessionPost"] = clean_result(old.get("harnessSessionPost"))
-                captures[old_event] = cleaned
+                captures.append(cleaned)
 except Exception:
     pass
 
@@ -394,7 +395,7 @@ if event in allowed_events:
     current = clean_capture(raw_capture)
     current["attentionPost"] = post_result(sys.argv[7], sys.argv[8], sys.argv[9])
     current["harnessSessionPost"] = post_result(sys.argv[10], sys.argv[11], sys.argv[12])
-    captures[event] = current
+    captures.append({"event": event, **current})
 
 record = {
     "event": diagnostic_event,
@@ -404,7 +405,7 @@ record = {
     "reportTokenPresent": sys.argv[6] == "yes",
     "attentionPost": post_result(sys.argv[7], sys.argv[8], sys.argv[9]),
     "harnessSessionPost": post_result(sys.argv[10], sys.argv[11], sys.argv[12]),
-    "codexPayloadCapture": captures,
+    "codexPayloadCapture": captures[-max_capture_events:],
 }
 fd, temporary = tempfile.mkstemp(prefix=".report-harness-event-", dir=path.parent)
 try:

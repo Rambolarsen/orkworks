@@ -110,6 +110,15 @@ if ($Marker -clike "*:claude-code") {
     } catch {}
     $sessionSource = "claude_hook"
 } elseif ($Marker -clike "*:codex") {
+    if ($Event -in @("PermissionRequest", "PostToolUse")) {
+        # Always append a current event, even when JSON is malformed or is not
+        # an object, so an older event cannot masquerade as this invocation.
+        $codexPayloadCapture = @{
+            event = $Event
+            payloadKeys = @()
+            payloadScalars = @{}
+        }
+    }
     try {
         $data = $payload | ConvertFrom-Json
         if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id) {
@@ -138,7 +147,11 @@ if ($Marker -clike "*:claude-code") {
                     $payloadScalars[$key] = $value
                 }
             }
-            $codexPayloadCapture = @{ payloadKeys = $payloadKeys; payloadScalars = $payloadScalars }
+            $codexPayloadCapture = @{
+                event = $Event
+                payloadKeys = $payloadKeys
+                payloadScalars = $payloadScalars
+            }
         }
         if ($Event -eq "SessionStart" -and $data -is [System.Management.Automation.PSCustomObject] -and $data.source -in @("startup", "resume", "clear", "compact")) {
             $sessionStartSource = [string]$data.source
@@ -252,7 +265,7 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
             Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
                 -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
         }
-        $harnessSessionPostKind = "posted"
+        $harnessSessionPostKind = if ($reportSpooled) { "enqueued" } else { "posted" }
     } catch {
         $harnessSessionPostKind = "failed"
     }
@@ -264,12 +277,12 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
     }
 }
 
-# Keep the same private redacted local diagnostic as the POSIX reporter. The
-# capture-only exception stores an allowlist of top-level key names plus only
-# hook_event_name, permission_mode, turn_id, tool_name, and bounded tool_use_id
-# scalar values.
-# Sensitive key names and values, paths, session IDs, tokens, payloads, and
-# arbitrary free text are excluded.
+# Keep the same private redacted local diagnostic as the POSIX reporter. Its
+# capture-only exception stores a bounded ordered sequence of at most 16
+# PermissionRequest/PostToolUse records, with allowlisted top-level key names
+# and only hook_event_name, permission_mode, turn_id, tool_name, and bounded
+# tool_use_id scalar values. Never store tool_input, transcript_path, cwd,
+# session IDs, tokens, arbitrary free text, full payloads, or response bodies.
 if ($sessionSource -eq "codex_hook" -and $HOME) {
     $diagnosticDirectory = Join-Path $HOME ".orkworks/hook-scripts"
     $diagnosticPath = Join-Path $diagnosticDirectory "report-harness-event-diagnostic.json"
@@ -309,49 +322,51 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
         } catch [System.Threading.AbandonedMutexException] {
             # WaitOne throws only after granting ownership of an abandoned mutex.
         }
-        $captures = @{}
+        $captures = [System.Collections.Generic.List[object]]::new()
         if ([System.IO.File]::Exists($diagnosticPath)) {
             try {
                 $previous = [System.IO.File]::ReadAllText($diagnosticPath) | ConvertFrom-Json
                 $oldCaptures = $previous.codexPayloadCapture
-                foreach ($oldEvent in @("PermissionRequest", "PostToolUse")) {
-                    $old = $oldCaptures.$oldEvent
-                    if ($old) {
-                        $oldKeys = @($old.payloadKeys | Where-Object {
-                            $_ -is [string] -and $_ -cin $safeCodexPayloadKeys
-                        } | Sort-Object -Unique | Select-Object -First 64)
-                        $oldScalars = @{}
-                        foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")) {
-                            $property = Get-ExactJsonPropertyValue $old.payloadScalars $key
-                            $value = $null
-                            if ($null -ne $property) {
-                                $value = $property.Value
-                            }
-                            if ($key -eq "tool_use_id") {
-                                if ($value -is [string] -and $value.Length -le 128) {
-                                    $oldScalars[$key] = $value
-                                }
-                            } elseif ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
-                                $oldScalars[$key] = $value
-                            } elseif ($null -ne $value -and $value -is [ValueType]) {
-                                $oldScalars[$key] = $value
-                            }
+                foreach ($old in @($oldCaptures)) {
+                    if ($old.event -notin @("PermissionRequest", "PostToolUse")) {
+                        continue
+                    }
+                    $oldKeys = @($old.payloadKeys | Where-Object {
+                        $_ -is [string] -and $_ -cin $safeCodexPayloadKeys
+                    } | Sort-Object -Unique | Select-Object -First 64)
+                    $oldScalars = @{}
+                    foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")) {
+                        $property = Get-ExactJsonPropertyValue $old.payloadScalars $key
+                        $value = $null
+                        if ($null -ne $property) {
+                            $value = $property.Value
                         }
-                        $captures[$oldEvent] = @{
-                            payloadKeys = $oldKeys
-                            payloadScalars = $oldScalars
-                            attentionPost = Get-PrivateDiagnosticResult $old.attentionPost
-                            harnessSessionPost = Get-PrivateDiagnosticResult $old.harnessSessionPost
+                        if ($key -eq "tool_use_id") {
+                            if ($value -is [string] -and $value.Length -le 128) {
+                                $oldScalars[$key] = $value
+                            }
+                        } elseif ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
+                            $oldScalars[$key] = $value
+                        } elseif ($null -ne $value -and $value -is [ValueType]) {
+                            $oldScalars[$key] = $value
                         }
                     }
+                    $captures.Add(@{
+                        event = $old.event
+                        payloadKeys = $oldKeys
+                        payloadScalars = $oldScalars
+                        attentionPost = Get-PrivateDiagnosticResult $old.attentionPost
+                        harnessSessionPost = Get-PrivateDiagnosticResult $old.harnessSessionPost
+                    })
                 }
             } catch {}
         }
-        if ($Event -in @("PermissionRequest", "PostToolUse") -and $null -ne $codexPayloadCapture) {
+        if ($Event -in @("PermissionRequest", "PostToolUse")) {
             $codexPayloadCapture["attentionPost"] = @{ result = $attentionPostKind }
             $codexPayloadCapture["harnessSessionPost"] = @{ result = $harnessSessionPostKind }
-            $captures[$Event] = $codexPayloadCapture
+            $captures.Add($codexPayloadCapture)
         }
+        $captures = @($captures.ToArray() | Select-Object -Last 16)
         $record = @{
             event = $(if ($Event -in @("SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop")) { $Event } else { "Unknown" })
             harnessSessionIdParsed = [bool]$harnessSessionId
@@ -360,12 +375,14 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
             reportTokenPresent = [bool]$env:ORKWORKS_REPORT_TOKEN
             attentionPost = @{ result = $attentionPostKind }
             harnessSessionPost = @{ result = $harnessSessionPostKind }
-            codexPayloadCapture = $captures
+            codexPayloadCapture = @($captures)
         }
         $diagnosticBody = $record | ConvertTo-Json -Compress -Depth 8
         $temporaryDiagnostic = Join-Path $diagnosticDirectory (".report-harness-event-" + [guid]::NewGuid().ToString("N"))
-        [System.IO.File]::WriteAllText($temporaryDiagnostic, $diagnosticBody, [System.Text.UTF8Encoding]::new($false))
+        $stream = [System.IO.File]::Open($temporaryDiagnostic, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $stream.Dispose()
         Set-PrivateDiagnosticAcl $temporaryDiagnostic
+        [System.IO.File]::WriteAllText($temporaryDiagnostic, $diagnosticBody, [System.Text.UTF8Encoding]::new($false))
 
         if ([System.IO.File]::Exists($diagnosticPath)) {
             Set-PrivateDiagnosticAcl $diagnosticPath

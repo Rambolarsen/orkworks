@@ -459,15 +459,14 @@ mod tests {
         std::fs::write(
             &diagnostic_path,
             json!({
-                "codexPayloadCapture": {
-                    "PermissionRequest": {
+                "codexPayloadCapture": [{
+                        "event": "PermissionRequest",
                         "payloadKeys": ["api_key", "password", "hook_event_name"],
                         "payloadScalars": {
                             "hook_event_name": "PermissionRequest",
                             "turn_id": "private-old-turn-id"
                         }
-                    }
-                }
+                    }]
             })
             .to_string(),
         )
@@ -575,36 +574,44 @@ mod tests {
         let diagnostic = std::fs::read_to_string(diagnostic_path).unwrap();
         let diagnostic_json: Value = serde_json::from_str(&diagnostic).unwrap();
         let captured = diagnostic_json["codexPayloadCapture"]
-            .as_object()
-            .expect("capture has a bounded event map");
-        assert_eq!(captured.len(), 2);
+            .as_array()
+            .expect("capture has a bounded ordered event sequence");
+        assert_eq!(captured.len(), 3);
+        assert_eq!(captured[0]["event"], "PermissionRequest");
+        assert_eq!(
+            captured[0]["payloadScalars"]["turn_id"],
+            "private-old-turn-id"
+        );
+        assert_eq!(captured[0]["payloadKeys"], json!(["hook_event_name"]));
+        let by_event = captured
+            .iter()
+            .map(|capture| (capture["event"].as_str().unwrap(), capture))
+            .collect::<std::collections::HashMap<_, _>>();
         for event in ["PermissionRequest", "PostToolUse"] {
-            assert_eq!(captured[event]["payloadScalars"]["hook_event_name"], event);
-            assert_eq!(
-                captured[event]["payloadScalars"]["permission_mode"],
-                "default"
-            );
-            assert_eq!(captured[event]["payloadScalars"]["turn_id"], "turn-abc123");
-            assert_eq!(captured[event]["payloadScalars"]["tool_name"], "Bash");
-            assert_eq!(captured[event]["payloadScalars"]["tool_use_id"], "call-123");
+            let entry = by_event[event];
+            assert_eq!(entry["payloadScalars"]["hook_event_name"], event);
+            assert_eq!(entry["payloadScalars"]["permission_mode"], "default");
+            assert_eq!(entry["payloadScalars"]["turn_id"], "turn-abc123");
+            assert_eq!(entry["payloadScalars"]["tool_name"], "Bash");
+            assert_eq!(entry["payloadScalars"]["tool_use_id"], "call-123");
             for key in ["hook_event_name", "permission_mode", "turn_id", "tool_name"] {
-                assert!(captured[event]["payloadKeys"]
+                assert!(entry["payloadKeys"]
                     .as_array()
                     .unwrap()
                     .contains(&json!(key)));
             }
-            assert!(captured[event]["payloadKeys"]
+            assert!(entry["payloadKeys"]
                 .as_array()
                 .unwrap()
                 .contains(&json!("tool_use_id")));
             for forbidden_key in ["api_key", "password", "secret"] {
-                assert!(!captured[event]["payloadKeys"]
+                assert!(!entry["payloadKeys"]
                     .as_array()
                     .unwrap()
                     .contains(&json!(forbidden_key)));
             }
         }
-        let post_tool_capture = &diagnostic_json["codexPayloadCapture"]["PostToolUse"];
+        let post_tool_capture = by_event["PostToolUse"];
         assert_eq!(
             post_tool_capture["attentionPost"]["result"],
             "skipped_capture_only"
@@ -632,7 +639,7 @@ mod tests {
             );
         }
         for forbidden_key in ["session_id", "transcript_path", "cwd", "tool_input"] {
-            assert!(!captured["PermissionRequest"]["payloadKeys"]
+            assert!(!by_event["PermissionRequest"]["payloadKeys"]
                 .as_array()
                 .unwrap()
                 .contains(&json!(forbidden_key)));

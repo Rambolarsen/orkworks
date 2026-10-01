@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Capture a redacted `PermissionRequest` and `PostToolUse` payload pair locally so issue #690 can establish whether Codex exposes turn-and-tool correlation fields.
+**Goal:** Capture redacted `PermissionRequest` and `PostToolUse` events locally under both auto-review and manual-prompt modes so issue #690 can establish whether Codex exposes turn-and-tool correlation fields.
 
-**Architecture:** The shared shell and PowerShell reporters capture only an allowlist of safe top-level payload key names and the bounded scalar fields `hook_event_name`, `permission_mode`, `turn_id`, `tool_name`, and `tool_use_id` into a private diagnostic record. `tool_use_id` is retained only as a string of at most 128 characters. The diagnostic retains at most the latest record for each of those two events. `PostToolUse` is a capture-only event and skips attention and identity reporting; it becomes the fifth owned Codex event, changing the bundle fingerprint.
+**Architecture:** The shared shell and PowerShell reporters capture only an allowlist of safe top-level payload key names and the bounded scalar fields `hook_event_name`, `permission_mode`, `turn_id`, `tool_name`, and `tool_use_id` into a private diagnostic record. `tool_use_id` is retained only as a string of at most 128 characters. The diagnostic retains a bounded ordered sequence of at most 16 records for those two events, preserving event order without storing session IDs. `PostToolUse` is a capture-only event and skips attention and identity reporting; it becomes the fifth owned Codex event, changing the bundle fingerprint.
 
 **Tech Stack:** Rust unit tests, Bash, PowerShell, Python JSON parsing, Markdown.
 
@@ -36,7 +36,7 @@
 - Modify: `crates/orkworksd/scripts/report-harness-event.ps1`
 
 - [x] Parse the top-level key names and allowlisted scalar values only for `PermissionRequest` and `PostToolUse`.
-- [x] Preserve a bounded per-event record in the existing diagnostic JSON using the existing private permissions and atomic replacement pattern.
+- [x] Preserve a bounded ordered event sequence in the existing diagnostic JSON using private permissions and atomic replacement in both reporters.
 - [x] Mark `PostToolUse` as capture-only and skip attention and harness-session requests.
 - [x] Run the focused Bash reporter test and confirm it passes. The PowerShell twin could not be executed because `pwsh` is not installed in this environment.
 
@@ -61,5 +61,5 @@
 - [x] Run `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check`.
 - [x] Run `cargo test --manifest-path crates/orkworksd/Cargo.toml`.
 - [x] Run `bash scripts/verify-repo.sh` and `bash scripts/doc-check.sh`.
-- [ ] Exercise the capture path in a real auto-review Codex session and confirm both event records appear without forbidden payload data.
-- [ ] Post the observed correlation findings to issue #690 before any later step changes attention behavior.
+- [ ] Exercise the capture path in a real auto-review Codex session and a real manual-prompt session; confirm both event records appear without forbidden payload data.
+- [ ] Post the observed correlation findings from both modes to issue #690 before any later step changes attention behavior.

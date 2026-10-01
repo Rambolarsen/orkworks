@@ -1033,6 +1033,22 @@ mod tests {
         assert!(!script.contains("$_ -in $safeCodexPayloadKeys"));
         assert!(!script.contains("$value = $data.$key"));
         assert!(!script.contains("$value = $old.payloadScalars.$key"));
+        assert!(script.contains("Always append a current event"));
+        assert!(script.contains(
+            "$harnessSessionPostKind = if ($reportSpooled) { \"enqueued\" } else { \"posted\" }"
+        ));
+        assert!(script.contains("codexPayloadCapture = @($captures)"));
+        assert!(script.contains("Select-Object -Last 16"));
+        let create_temp = script
+            .find("[System.IO.File]::Open($temporaryDiagnostic")
+            .unwrap();
+        let secure_temp = script
+            .find("Set-PrivateDiagnosticAcl $temporaryDiagnostic")
+            .unwrap();
+        let write_temp = script
+            .find("[System.IO.File]::WriteAllText($temporaryDiagnostic")
+            .unwrap();
+        assert!(create_temp < secure_temp && secure_temp < write_temp);
     }
 
     // Every prior test above (and the .sh equivalents) reads asset content
