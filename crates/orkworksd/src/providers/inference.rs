@@ -129,7 +129,12 @@ fn classify_known_failure_text(
     message: &str,
 ) -> Option<(ProviderOperationErrorCode, &'static str)> {
     let lower = message.to_ascii_lowercase();
-    if lower.contains("timed out") || lower.contains("timeout") {
+    if lower.contains("proxy") && lower.contains("connect") {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "network failure",
+        ))
+    } else if lower.contains("timed out") || lower.contains("timeout") {
         Some((ProviderOperationErrorCode::Timeout, "timeout"))
     } else if lower.contains("insufficient_quota")
         || lower.contains("quota exceeded")
@@ -152,11 +157,6 @@ fn classify_known_failure_text(
         || has_http_status(&lower, 401)
     {
         Some((ProviderOperationErrorCode::Unauthorized, "authentication"))
-    } else if lower.contains("proxy") && lower.contains("connect") {
-        Some((
-            ProviderOperationErrorCode::ProviderFailure,
-            "network failure",
-        ))
     } else if lower.contains("forbidden")
         || lower.contains("permission denied")
         || lower.contains("not authorized")
@@ -782,6 +782,10 @@ mod tests {
             ("HTTP 429 credit_balance_exhausted", "quota exceeded"),
             (
                 "Proxy connection failed: HTTP CONNECT failed with status 403",
+                "network failure",
+            ),
+            (
+                "Proxy connection failed: HTTP CONNECT failed with status 401",
                 "network failure",
             ),
             (
