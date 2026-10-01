@@ -79,16 +79,32 @@ pub(super) fn native_cli_failure_summary(
     if provider == "codex" {
         // `codex exec --json` reports terminal failures as top-level JSONL
         // events. Read only their message fields; never return that text.
+        let mut retry_error = None;
+        let mut saw_terminal_failure = false;
         for line in stdout.lines() {
             let Ok(event) = serde_json::from_str::<Value>(line) else {
                 continue;
             };
-            let message = match event["type"].as_str() {
-                Some("error") => event["message"].as_str(),
-                Some("turn.failed") => event["error"]["message"].as_str(),
-                _ => None,
-            };
-            if let Some(classified) = message.and_then(classify_known_failure_text) {
+            match event["type"].as_str() {
+                Some("turn.failed") => {
+                    saw_terminal_failure = true;
+                    if let Some(classified) = event["error"]["message"]
+                        .as_str()
+                        .and_then(classify_known_failure_text)
+                    {
+                        return classified;
+                    }
+                }
+                Some("error") if retry_error.is_none() => {
+                    retry_error = event["message"]
+                        .as_str()
+                        .and_then(classify_known_failure_text);
+                }
+                _ => {}
+            }
+        }
+        if !saw_terminal_failure {
+            if let Some(classified) = retry_error {
                 return classified;
             }
         }
@@ -119,6 +135,7 @@ fn classify_known_failure_text(
         || lower.contains("quota exceeded")
         || lower.contains("usage limit")
         || lower.contains("credit balance")
+        || lower.contains("credit_balance_exhausted")
         || lower.contains("spending limit")
     {
         Some((
@@ -135,6 +152,11 @@ fn classify_known_failure_text(
         || has_http_status(&lower, 401)
     {
         Some((ProviderOperationErrorCode::Unauthorized, "authentication"))
+    } else if lower.contains("proxy") && lower.contains("connect") {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "network failure",
+        ))
     } else if lower.contains("forbidden")
         || lower.contains("permission denied")
         || lower.contains("not authorized")
@@ -757,6 +779,11 @@ mod tests {
                 "insufficient_quota for account private-account",
                 "quota exceeded",
             ),
+            ("HTTP 429 credit_balance_exhausted", "quota exceeded"),
+            (
+                "Proxy connection failed: HTTP CONNECT failed with status 403",
+                "network failure",
+            ),
             (
                 "HTTP 503 internal server error at https://private.example",
                 "provider server error",
@@ -781,6 +808,34 @@ mod tests {
             assert!(!summary.contains("https://"));
             assert!(!summary.contains("90s"));
         }
+    }
+
+    #[test]
+    fn codex_failure_summary_prefers_terminal_turn_failure_over_reconnect_errors() {
+        let stdout = [
+            r#"{"type":"error","message":"disconnected while reconnecting"}"#,
+            r#"{"type":"turn.failed","error":{"message":"HTTP 401 Unauthorized"}}"#,
+        ]
+        .join("\n");
+
+        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout);
+
+        assert_eq!(code, ProviderOperationErrorCode::Unauthorized);
+        assert_eq!(summary, "authentication");
+    }
+
+    #[test]
+    fn codex_failure_summary_does_not_use_retry_error_when_terminal_failure_is_unknown() {
+        let stdout = [
+            r#"{"type":"error","message":"request timed out while reconnecting"}"#,
+            r#"{"type":"turn.failed","error":{"message":"unrecognized private diagnostic"}}"#,
+        ]
+        .join("\n");
+
+        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout);
+
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(summary, "provider failure");
     }
 
     #[test]
