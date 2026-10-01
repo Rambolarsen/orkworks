@@ -169,15 +169,31 @@ fn classify_known_failure_text(
         || has_http_status(&lower, 404)
     {
         Some((ProviderOperationErrorCode::ModelFailure, "model failure"))
+    } else if lower.contains("invalid config")
+        || lower.contains("configuration error")
+        || lower.contains("error loading config.toml")
+        || lower.contains("unknown configuration field")
+    {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "configuration error",
+        ))
+    } else if has_http_status(&lower, 400)
+        || has_http_status(&lower, 422)
+        || lower.contains("context_length_exceeded")
+        || lower.contains("invalid_request_error")
+        || lower.contains("invalid parameter")
+        || lower.contains("invalid request")
+        || lower.contains("request_validation_error")
+    {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "request validation error",
+        ))
     } else if lower.contains("unsupported") {
         Some((
             ProviderOperationErrorCode::UnsupportedCapability,
             "unsupported",
-        ))
-    } else if lower.contains("invalid config") || lower.contains("configuration error") {
-        Some((
-            ProviderOperationErrorCode::ProviderFailure,
-            "configuration error",
         ))
     } else if (500..=599).any(|status| has_http_status(&lower, status))
         || lower.contains("server_error")
@@ -733,6 +749,11 @@ mod tests {
                 ProviderOperationErrorCode::ModelFailure,
                 "model failure",
             ),
+            (
+                r#"{"type":"turn.failed","error":{"message":"HTTP 422 context_length_exceeded; /Users/private/path"}}"#,
+                ProviderOperationErrorCode::ProviderFailure,
+                "request validation error",
+            ),
         ];
 
         for (event, expected_code, expected_summary) in cases {
@@ -799,6 +820,22 @@ mod tests {
             (
                 "invalid config at /Users/private/config.toml",
                 "configuration error",
+            ),
+            (
+                "Error loading config.toml: unknown configuration field model_reasoning_effort",
+                "configuration error",
+            ),
+            (
+                "HTTP 400 context_length_exceeded for private prompt",
+                "request validation error",
+            ),
+            (
+                "HTTP 400 unsupported parameter `reasoning_summary`",
+                "request validation error",
+            ),
+            (
+                "HTTP 422 invalid parameter at /Users/private/request.json",
+                "request validation error",
             ),
             (
                 "unsupported feature at /Users/private/project",
