@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Capture redacted `PermissionRequest` and `PostToolUse` events locally under both auto-review and manual-prompt modes so issue #690 can establish whether Codex exposes turn-and-tool correlation fields.
+**Goal:** Capture redacted `PreToolUse`, `PermissionRequest`, and `PostToolUse` events locally under both auto-review and manual-prompt modes so issue #690 can establish whether Codex exposes turn-and-tool correlation fields and whether `PreToolUse` IDs correlate with permission events.
 
-**Architecture:** The shared shell and PowerShell reporters capture only an allowlist of safe top-level payload key names and the bounded scalar fields `hook_event_name`, `permission_mode`, `turn_id`, `tool_name`, and `tool_use_id` into a private diagnostic record. `tool_use_id` is retained only as a string of at most 128 characters. The diagnostic retains a bounded ordered sequence of at most 16 records for those two events, preserving event order without storing session IDs. `PostToolUse` is a capture-only event and skips attention and identity reporting; it becomes the fifth owned Codex event, changing the bundle fingerprint.
+**Architecture:** The shared shell and PowerShell reporters capture only an allowlist of safe top-level payload key names and the bounded scalar fields `hook_event_name`, `permission_mode`, `turn_id`, `tool_name`, and `tool_use_id` into a private diagnostic record. `tool_use_id` is retained only as a string of at most 128 characters. The diagnostic retains a bounded ordered sequence of at most 16 records for `PreToolUse`, `PermissionRequest`, and `PostToolUse`, preserving event order without storing session IDs. `PreToolUse` and `PostToolUse` are capture-only events and skip attention and identity reporting; together they change the Codex bundle to six owned events and change its fingerprint.
 
 **Tech Stack:** Rust unit tests, Bash, PowerShell, Python JSON parsing, Markdown.
 
@@ -15,10 +15,16 @@
 - Do not change attention behavior.
 - Never persist `tool_input`, `transcript_path`, `cwd`, session IDs, tokens, or arbitrary free text.
 - Capture only the safe payload key names `hook_event_name`, `model`, `permission_mode`, `turn_id`, `tool_name`, `tool_use_id`, and `tool_response`, plus bounded scalar values `hook_event_name`, `permission_mode`, `turn_id`, `tool_name`, and `tool_use_id`.
-- `PostToolUse` must have no attention or harness-session side effects.
+- `PreToolUse` and `PostToolUse` must have no attention or harness-session side effects.
 - Preserve unrelated Codex hooks; native `/hooks` trust remains user controlled.
 
 ---
+
+### Initial experiment (completed): `PermissionRequest` and `PostToolUse`
+
+Tasks 1–5 below record the initial two-event experiment that was implemented
+first. The follow-up experiment at the end adds `PreToolUse` without changing
+the earlier attention contract.
 
 ### Task 1: Pin reporter redaction and capture-only behavior
 
