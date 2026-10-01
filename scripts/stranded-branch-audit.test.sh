@@ -105,12 +105,22 @@ if [ "${1:-}" = 'pr' ] && [ "${2:-}" = 'list' ]; then
   matched=0
   case "${GH_PR_LIST_MODE:?}" in
     pr-branch)
-      if [ "$head_ref" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN"}]\n'; matched=1; fi
-      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED"}]\n'; matched=1; fi
+      # A fork PR with a matching branch name (isCrossRepository) is a
+      # different branch's content and must not cover the origin branch.
+      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":705,"state":"OPEN","isCrossRepository":true}]\n'; matched=1; fi
+      if [ "$head_ref" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN","isCrossRepository":false}]\n'; matched=1; fi
+      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED","isCrossRepository":false}]\n'; matched=1; fi
       ;;
     open-pr-branch)
-      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN"}]\n'; matched=1; fi
-      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED"}]\n'; matched=1; fi
+      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN","isCrossRepository":false}]\n'; matched=1; fi
+      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED","isCrossRepository":false}]\n'; matched=1; fi
+      ;;
+    open-stalled-pr-branch)
+      # stale-feature's open PR has been inactive far past the stale window:
+      # the helper must report it instead of treating the OPEN record as cover.
+      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN","isCrossRepository":false,"updatedAt":"2020-01-01T00:00:00Z"}]\n'; matched=1; fi
+      if [ "$head_ref" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN","isCrossRepository":false}]\n'; matched=1; fi
+      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED","isCrossRepository":false}]\n'; matched=1; fi
       ;;
   esac
   if [ "$matched" = 0 ]; then printf '[]\n'; fi
@@ -125,6 +135,13 @@ chmod +x "$bin/gh"
 # The helper parses the origin slug from the remote URL; rewrite it back to the
 # local bare remote only for pushes done before the audit runs.
 git -C "$repo" config remote.origin.url "https://github.com/Rambolarsen/orkworks"
+
+# Simulate a long-lived stale checkout: local main lags origin/main (the
+# land-squash commit exists only on the pushed remote and its remote-tracking
+# ref). The helper must compare against the fetched origin default branch,
+# not the stale local one, or it would false-flag squash-merged.
+baseline_sha="$(git -C "$repo" rev-parse main^)"
+git -C "$repo" update-ref refs/heads/main "$baseline_sha"
 
 # Case 1: default (open) PR mode. Only stale-feature is stranded.
 output="$( (cd "$repo" && PATH="$bin:$PATH" GH_PR_LIST_MODE=pr-branch "$helper") )"
@@ -161,6 +178,22 @@ fi
 output_open="$( (cd "$repo" && PATH="$bin:$PATH" GH_PR_LIST_MODE=open-pr-branch "$helper" --state all) )"
 if grep -Fq 'stale-feature' <<<"$output_open"; then
   echo 'stranded-branch-audit flagged a branch with an open PR under --state all' >&2
+  exit 1
+fi
+
+# Case 3b: a stalled open PR (no activity past the stale window) does NOT
+# block the flag; the helper reports it with a stalled summary instead.
+output_stalled="$( (cd "$repo" && PATH="$bin:$PATH" GH_PR_LIST_MODE=open-stalled-pr-branch "$helper" --state all) )"
+if ! grep -Fq 'stale-feature' <<<"$output_stalled"; then
+  echo 'stranded-branch-audit did not report a stalled open PR' >&2
+  exit 1
+fi
+if ! grep -Fq 'stalled' <<<"$output_stalled"; then
+  echo 'stranded-branch-audit reported a stalled open PR without the stalled marker' >&2
+  exit 1
+fi
+if grep -Fq 'pr-feature' <<<"$output_stalled"; then
+  echo 'stranded-branch-audit flagged a branch with a fresh open PR' >&2
   exit 1
 fi
 
