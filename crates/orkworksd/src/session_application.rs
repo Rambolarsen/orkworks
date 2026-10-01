@@ -4506,6 +4506,20 @@ fn clear_claude_capacity_after_working(
 
 #[cfg(test)]
 mod tests {
+    fn test_proposed_change() -> crate::taskmaster::proposed_change::ProposedChange {
+        use crate::taskmaster::proposed_change::{ChangeTarget, ProposedChange, TargetAction};
+        ProposedChange {
+            summary: "Document the retry policy".into(),
+            targets: vec![ChangeTarget {
+                path: "RETRY_POLICY.md".into(),
+                action: TargetAction::Create,
+                instruction: "Create the file describing the retry schedule".into(),
+                sensitive: false,
+            }],
+            verification: "Confirm the file exists".into(),
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -10091,6 +10105,7 @@ mod tests {
                     target_surface: crate::taskmaster::TargetSurface::Tooling,
                     title: "Combined setup problems".into(),
                     summary: "Keep the setup reliable".into(),
+                    proposed_change: test_proposed_change(),
                 }],
                 1,
                 &[],
@@ -10195,6 +10210,7 @@ mod tests {
                     target_surface: crate::taskmaster::TargetSurface::Tooling,
                     title: "Combined setup problems".into(),
                     summary: "Keep the setup reliable".into(),
+                    proposed_change: test_proposed_change(),
                 }],
                 1,
                 &[],
@@ -10233,6 +10249,7 @@ mod tests {
                     target_surface: crate::taskmaster::TargetSurface::Tooling,
                     title: "Combined setup problems".into(),
                     summary: "Keep the setup reliable".into(),
+                    proposed_change: test_proposed_change(),
                 }],
                 2,
                 &[],

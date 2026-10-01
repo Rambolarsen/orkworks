@@ -100,16 +100,40 @@ fn recommendation(id: &str, sequence: u64) -> Recommendation {
     }
 }
 
-fn cluster(ids: &[&str]) -> RollupCluster {
-    RollupCluster {
+fn sample_change() -> crate::taskmaster::proposed_change::ModelProposedChange {
+    use crate::taskmaster::proposed_change::{
+        ModelChangeTarget, ModelProposedChange, TargetAction,
+    };
+    ModelProposedChange {
+        summary: "Document the retry policy".into(),
+        targets: vec![ModelChangeTarget {
+            path: "RETRY_POLICY.md".into(),
+            action: TargetAction::Create,
+            instruction: "Create the file describing the bounded retry schedule".into(),
+        }],
+        verification: "Confirm the file exists and names the schedule".into(),
+    }
+}
+
+fn cluster(ids: &[&str]) -> crate::taskmaster::rollup::ModelRollupCluster {
+    crate::taskmaster::rollup::ModelRollupCluster {
         member_recommendation_ids: ids.iter().map(|id| (*id).into()).collect(),
         target_surface: TargetSurface::Tooling,
         title: "Combined model title".into(),
         summary: "Combined model summary".into(),
+        proposed_change: sample_change(),
     }
 }
 
-fn output(clusters: &[RollupCluster]) -> String {
+fn validated(cluster: &crate::taskmaster::rollup::ModelRollupCluster) -> RollupCluster {
+    let recommendations = ["a", "b", "c", "d"].map(|id| recommendation(id, 1));
+    let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+    crate::taskmaster::rollup::validate_rollup_clusters(&snapshots, std::slice::from_ref(cluster))
+        .unwrap()
+        .remove(0)
+}
+
+fn output(clusters: &[crate::taskmaster::rollup::ModelRollupCluster]) -> String {
     serde_json::json!({ "rollups": clusters }).to_string()
 }
 
@@ -209,7 +233,7 @@ fn rollup_prompt_is_bounded_and_labels_all_supplied_data_untrusted() {
 }
 
 #[test]
-fn rollup_parser_accepts_same_target_clusters_and_rejects_invalid_response_as_a_whole() {
+fn rollup_parser_accepts_same_target_clusters() {
     let recommendations = [recommendation("a", 1), recommendation("b", 2)];
     let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
     let valid =
@@ -227,7 +251,7 @@ fn rollup_parser_accepts_same_target_clusters_and_rejects_invalid_response_as_a_
         parse_provider_response(&combined, Some(&snapshots))
             .unwrap()
             .rollups,
-        Some(vec![cluster(&["a", "b"])])
+        RollupSection::Valid(vec![validated(&cluster(&["a", "b"]))])
     );
 
     let invalid = crate::taskmaster::rollup::validate_rollup_clusters(
@@ -1286,7 +1310,12 @@ fn omitted_rollups_are_not_an_authoritative_empty_result() {
         legacy_only
     ));
     assert_eq!(stored_recommendations(&state), before);
-    assert!(parse_provider_response(legacy_only, Some(&request.snapshots)).is_err());
+    assert_eq!(
+        parse_provider_response(legacy_only, Some(&request.snapshots))
+            .unwrap()
+            .rollups,
+        RollupSection::Degraded("rollups_missing")
+    );
     assert!(parse_provider_response(legacy_only, None).is_ok());
 }
 
@@ -1365,4 +1394,87 @@ fn dissolved_parent_cannot_reopen_without_a_new_family_generation() {
         &response
     ));
     assert_eq!(stored_recommendations(&state), before);
+}
+
+#[test]
+fn validation_carries_a_validated_proposed_change_and_rejects_invalid_ones() {
+    let recommendations = [recommendation("a", 1), recommendation("b", 2)];
+    let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+    let valid =
+        crate::taskmaster::rollup::validate_rollup_clusters(&snapshots, &[cluster(&["a", "b"])])
+            .unwrap();
+    assert_eq!(valid[0].proposed_change.targets[0].path, "RETRY_POLICY.md");
+    assert!(!valid[0].proposed_change.targets[0].sensitive);
+
+    let mut bad = cluster(&["a", "b"]);
+    bad.proposed_change.targets[0].path = "../escape.md".into();
+    let error =
+        crate::taskmaster::rollup::validate_rollup_clusters(&snapshots, &[bad]).unwrap_err();
+    assert_eq!(error.code(), "proposed_change_path");
+    assert_eq!(
+        crate::taskmaster::rollup::RollupValidationError::DuplicateCluster.code(),
+        "rollup_cluster_invalid"
+    );
+}
+
+#[test]
+fn rollups_section_degrades_instead_of_failing_the_response() {
+    let recommendations = [recommendation("a", 1), recommendation("b", 2)];
+    let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+    let parse = |value: serde_json::Value| {
+        parse_provider_response(&value.to_string(), Some(&snapshots))
+            .unwrap()
+            .rollups
+    };
+
+    assert!(matches!(
+        parse(serde_json::json!({"rollups":[cluster(&["a","b"])]})),
+        RollupSection::Valid(_)
+    ));
+    assert!(matches!(
+        parse(serde_json::json!({})),
+        RollupSection::Degraded("rollups_missing")
+    ));
+    assert!(matches!(
+        parse(serde_json::json!({"rollups":"nope"})),
+        RollupSection::Degraded("rollups_malformed")
+    ));
+
+    let mut missing_change = serde_json::to_value(cluster(&["a", "b"])).unwrap();
+    missing_change
+        .as_object_mut()
+        .unwrap()
+        .remove("proposedChange");
+    assert!(matches!(
+        parse(serde_json::json!({"rollups":[missing_change]})),
+        RollupSection::Degraded("rollups_malformed")
+    ));
+
+    let mut with_sensitive = serde_json::to_value(cluster(&["a", "b"])).unwrap();
+    with_sensitive["proposedChange"]["targets"][0]["sensitive"] = serde_json::json!(true);
+    assert!(matches!(
+        parse(serde_json::json!({"rollups":[with_sensitive]})),
+        RollupSection::Degraded("rollups_malformed")
+    ));
+
+    let mut bad_path = cluster(&["a", "b"]);
+    bad_path.proposed_change.targets[0].path = ".git/config".into();
+    assert!(matches!(
+        parse(serde_json::json!({"rollups":[bad_path]})),
+        RollupSection::Degraded("proposed_change_path")
+    ));
+
+    // Whole-response failures remain.
+    assert!(parse_provider_response("not-json", Some(&snapshots)).is_err());
+    let huge = "x".repeat(crate::taskmaster::rollup::MAX_ROLLUP_RESPONSE_BYTES + 1);
+    assert!(parse_provider_response(&huge, Some(&snapshots)).is_err());
+}
+
+#[test]
+fn rollup_prompt_version_is_v2_and_names_proposed_change() {
+    assert_eq!(ROLLUP_PROMPT_VERSION, "taskmaster-rollup-v2");
+    let recommendations = [recommendation("a", 1), recommendation("b", 2)];
+    let snapshot = evaluation_snapshot();
+    let request = build_rollup_request(1, &snapshot, &recommendations).unwrap();
+    assert!(request.prompt.contains("proposedChange"));
 }

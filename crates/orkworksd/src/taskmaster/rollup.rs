@@ -1,3 +1,6 @@
+use super::proposed_change::{
+    validate_proposed_change, ChangeValidationError, ModelProposedChange, ProposedChange,
+};
 use super::{Recommendation, RecommendationStatus, TargetSurface, WorkflowObservationEvidence};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -43,11 +46,22 @@ pub(crate) struct RollupFamilySnapshot {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ModelRollupCluster {
+    pub member_recommendation_ids: Vec<String>,
+    pub target_surface: TargetSurface,
+    pub title: String,
+    pub summary: String,
+    pub proposed_change: ModelProposedChange,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct RollupCluster {
     pub member_recommendation_ids: Vec<String>,
     pub target_surface: TargetSurface,
     pub title: String,
     pub summary: String,
+    pub proposed_change: ProposedChange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +81,21 @@ pub(crate) enum RollupValidationError {
     MismatchedTargetSurface,
     NotProposed(String),
     GeneratedTextOutOfBounds { field: &'static str, limit: usize },
+    InvalidProposedChange(ChangeValidationError),
+}
+
+impl RollupValidationError {
+    /// Bounded classified reason recorded in the run status; never model text.
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::TooManyFamilies | Self::TooManyObservations | Self::InputTooLarge => {
+                "rollup_input_out_of_bounds"
+            }
+            Self::ResponseTooLarge | Self::TooManyClusters => "rollup_response_out_of_bounds",
+            Self::InvalidProposedChange(error) => error.code(),
+            _ => "rollup_cluster_invalid",
+        }
+    }
 }
 
 impl RollupFamilySnapshot {
@@ -205,7 +234,7 @@ fn is_exact_family(recommendation: &Recommendation) -> bool {
 
 pub(crate) fn validate_rollup_clusters(
     supplied_snapshots: &[RollupFamilySnapshot],
-    model_clusters: &[RollupCluster],
+    model_clusters: &[ModelRollupCluster],
 ) -> Result<Vec<RollupCluster>, RollupValidationError> {
     if supplied_snapshots.len() > MAX_ROLLUP_FAMILIES {
         return Err(RollupValidationError::TooManyFamilies);
@@ -238,6 +267,8 @@ pub(crate) fn validate_rollup_clusters(
     for cluster in model_clusters {
         validate_generated_text("title", &cluster.title, MAX_ROLLUP_TITLE_CHARS)?;
         validate_generated_text("summary", &cluster.summary, MAX_ROLLUP_SUMMARY_CHARS)?;
+        let proposed_change = validate_proposed_change(&cluster.proposed_change)
+            .map_err(RollupValidationError::InvalidProposedChange)?;
         if cluster.member_recommendation_ids.is_empty() {
             return Err(RollupValidationError::EmptyCluster);
         }
@@ -276,6 +307,7 @@ pub(crate) fn validate_rollup_clusters(
             target_surface: cluster.target_surface,
             title: cluster.title.clone(),
             summary: cluster.summary.clone(),
+            proposed_change,
         });
     }
     let mut normalized = normalized;
@@ -517,12 +549,26 @@ mod tests {
         .unwrap()
     }
 
-    fn cluster(ids: &[&str], target_surface: TargetSurface) -> RollupCluster {
-        RollupCluster {
+    fn model_change() -> ModelProposedChange {
+        use super::super::proposed_change::{ModelChangeTarget, TargetAction};
+        ModelProposedChange {
+            summary: "Document the retry policy".into(),
+            targets: vec![ModelChangeTarget {
+                path: "RETRY_POLICY.md".into(),
+                action: TargetAction::Create,
+                instruction: "Create the file describing the retry schedule".into(),
+            }],
+            verification: "Confirm the file exists".into(),
+        }
+    }
+
+    fn cluster(ids: &[&str], target_surface: TargetSurface) -> ModelRollupCluster {
+        ModelRollupCluster {
             member_recommendation_ids: ids.iter().map(|id| (*id).into()).collect(),
             target_surface,
             title: "Related workflow issue".into(),
             summary: "These exact families share one bounded problem.".into(),
+            proposed_change: model_change(),
         }
     }
 
@@ -822,7 +868,7 @@ mod tests {
         ] {
             let result = validate_rollup_clusters(
                 &snapshots,
-                &[RollupCluster {
+                &[ModelRollupCluster {
                     member_recommendation_ids: vec![
                         "recommendation-a".into(),
                         "recommendation-b".into(),
@@ -830,6 +876,7 @@ mod tests {
                     target_surface: TargetSurface::Tooling,
                     title,
                     summary,
+                    proposed_change: model_change(),
                 }],
             );
             assert!(matches!(
@@ -970,11 +1017,12 @@ mod tests {
     fn rejects_oversized_serialized_response() {
         let result = validate_rollup_clusters(
             &[],
-            &[RollupCluster {
+            &[ModelRollupCluster {
                 member_recommendation_ids: vec!["x".repeat(10_000); 8],
                 target_surface: TargetSurface::Tooling,
                 title: "Valid title".into(),
                 summary: "Valid summary".into(),
+                proposed_change: model_change(),
             }],
         );
         assert!(matches!(
