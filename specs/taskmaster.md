@@ -599,8 +599,10 @@ IDs per family, and 128 KiB of serialized input. The model response is bounded
 to 64 KiB and at most eight clusters, each containing two to eight distinct
 supplied family IDs, with a title of at most 240 characters and a summary of
 at most 1,000 characters. The sidecar rejects unknown, empty, duplicate,
-overlapping, invalid, or cross-target clusters as a whole; no partial result
-is applied. Cluster and member ordering is normalized before identity is
+overlapping, invalid, or cross-target clusters as a whole; no partial rollup
+is applied, and a rollup validation failure discards the rollups without
+rejecting the rest of the combined response (see
+[Rollup proposed change](#rollup-proposed-change)). Cluster and member ordering is normalized before identity is
 computed, and the parent ID is `rollup:<sha256-hex>` over sorted member
 recommendation IDs. A server-owned evaluation token contains the workspace
 instance ID, a monotonic generation within that workspace instance, the
@@ -640,6 +642,181 @@ in place. Dismissed, accepted, completed, expired, failed, and other terminal
 parents remain immutable history with hidden `rolled_up` members. New
 qualifying evidence creates a new exact-family generation rather than
 reopening a terminal graph.
+
+### Rollup proposed change
+
+A rollup parent's title and summary describe the problem; they do not say what
+to change. Each cluster in a rollup response therefore carries one required
+`proposedChange`, a model-written, validated, **non-evidence** proposal for the
+receiving session to check and act on. Model response and API use the same
+camelCase names:
+
+```text
+proposedChange
+  summary        non-empty, at most 200 characters; the concrete change in one sentence
+  targets        one to three entries, no duplicate paths
+    path         repo-relative path
+    action       edit | create
+    instruction  non-empty, at most 160 characters; what to do in that file
+    sensitive    sidecar-computed boolean, stored and exposed; never model-supplied
+  verification   non-empty, at most 200 characters; how to confirm the change worked
+```
+
+The model response omits `sensitive`; a model-supplied `sensitive` is an
+unknown field and fails the section. The re-serialized UTF-8 JSON of a
+`proposedChange` is at most 1.5 KiB. The 64 KiB combined-response cap is
+unchanged, is measured on the raw provider string, and covers the entire
+response (enrichments, proposals, and rollups). Typical output fits, but
+worst-case multibyte or `\uXXXX`-escaped text across proposals and eight
+clusters can exceed it; that is an oversized response, which remains a
+whole-response failure. The implementation plan must size real provider
+responses against the cap before relying on it. `verification` is prose describing a check, never a command for
+OrkWorks or the sidecar to run. All text fields, including `path`, use the same
+generated-text validation as `title` and `summary` and additionally reject `<`
+and `>`, so the prompt reference cleaner never alters a stored value.
+
+The sidecar validates each target path against the canonical root of the
+active workspace.
+Path length is at most 260 bytes. Reject:
+
+- control characters (including NUL), backslashes, any `:`, a leading `/`, and
+  empty, `.` or `..` segments;
+- a segment with a trailing dot or space, or a Windows reserved device name
+  (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`), with or without an
+  extension;
+- any segment equal to `.git`, compared case-insensitively, at any depth;
+- duplicate paths within one `proposedChange`, compared case-insensitively;
+- a path outside the repository-level surfaces below.
+
+A target must classify, case-insensitively, as at least one of these generic
+(not repository-specific) surface classes, independent of the cluster's
+`target_surface`; anything else, such as product source, is out of scope. This
+mirrors the Fix prompt's existing scope of repository-level instructions,
+skills, tests, tooling, and documentation:
+
+- **instructions:** a file named `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, or
+  `.cursorrules` at any depth, or `.github/copilot-instructions.md`;
+- **skills:** a path under `skills/`, `.claude/skills/`, `.agents/skills/`, or
+  `.codex/skills/`;
+- **documentation:** a path under `docs/` or `specs/`, or a `.md`, `.mdx`,
+  `.rst`, or `.txt` file at any depth;
+- **tests:** a path with a `tests`, `test`, `__tests__`, or `spec` directory
+  segment, or a file name matching `*_test.*`, `*_tests.*`, `*.test.*`,
+  `*.spec.*`, or `test_*`;
+- **tooling:** a path under `scripts/`, `.github/`, `.husky/`, `.githooks/`,
+  `.devcontainer/`, `.vscode/`, `.cargo/`, `.claude/`, `.codex/`, `.opencode/`,
+  `.agents/`, or `.cursor/`; a file named `Makefile`, `justfile`, or
+  `Dockerfile`, or in the sensitive file-name list below, at any depth; or a
+  `.json`, `.yml`, `.yaml`, or `.toml` file directly in the repository root.
+
+An `edit` path must resolve, after canonicalization, to an existing regular
+file (not a directory, device, or FIFO) inside the workspace root, so a symlink
+cannot escape it. A `create` path's leaf must be reported absent by
+`symlink_metadata` (a dangling symlink counts as existing), and its parent must
+already exist, be a directory, and canonicalize inside the workspace root. Two
+targets that resolve to the same file (two `edit` paths with one canonical file,
+or two `create` paths with one canonical parent and leaf, for example through an
+in-workspace symlink alias) are rejected as duplicates. After
+canonicalization the sidecar derives the canonical repo-relative destination
+(for `create`, the canonical parent-relative path plus the leaf) and re-applies
+the `.git` segment rule, the surface-class rule, and sensitivity to it, so an
+allowed-looking symlink such as `docs/guide.md` pointing into `.git/` or into
+product source is rejected. `sensitive` is true when either the stated or the
+canonical path is sensitive, and the card and handoff use that computed value.
+An `edit` target that the platform reports as having more than one hard link is
+also rejected, because a hard link hides its other path from canonicalization
+(for example `docs/guide.md` hard-linked to `.git/config`). The stored `path` is
+the validated stated repo-relative path, not the canonical one.
+
+Path validation does filesystem I/O, so it runs under the workspace lock when
+output is applied; an earlier parse-time pre-filter is optional. It is
+advisory: the file can change before the user acts, and the
+sidecar does not re-validate at handoff. The receiving session rechecks every
+target, including whether an `edit` target still exists or a `create` target
+has appeared, and reports the difference instead of forcing the change.
+
+Instruction and configuration surfaces such as `AGENTS.md`, `CLAUDE.md`, and
+skills are legitimate targets and are allowed. The sidecar sets
+`sensitive: true`, comparing case-insensitively, on a target under `.claude/`,
+`.codex/`, `.opencode/`, `.agents/`, `.cursor/`, `.vscode/`, `.devcontainer/`,
+`.husky/`, `.githooks/`, `.github/`, `.cargo/`, or `scripts/`, or whose final path
+segment equals `.mcp.json`, `.gitattributes`, `.gitmodules`, `opencode.json`, `apm.yml`,
+`package.json`, `Cargo.toml`, `build.rs`, `Makefile`, `justfile`, or `Dockerfile`, at any depth, because those paths can run code or
+change hooks, permissions, or CI. A Markdown file under `skills/`, `.claude/skills/`,
+`.agents/skills/`, or `.codex/skills/` is never flagged, even beneath a flagged
+directory; other files there, such as skill scripts, follow the normal rules.
+`AGENTS.md`, `CLAUDE.md`, and skills are not flagged by name: the flag marks
+paths that execute or change permissions, and these are the primary intended
+targets. The directory rule takes precedence, so `.claude/CLAUDE.md` or
+`scripts/AGENTS.md` is flagged because of the directory it sits under. The model
+never sets this flag.
+
+**Failure behavior.** Rollup failures degrade instead of rejecting the
+response. The rollups section is parsed leniently and validated as a unit,
+including `proposedChange`, so a missing, malformed, or oversized-cluster-count
+section, a missing `proposedChange`, a model-supplied `sensitive`, an unknown
+field inside a cluster, or any cluster or path validation failure (at parse or
+apply time) discards the whole section with nothing partial applied. A response
+that is not valid JSON as a whole, or exceeds the response cap, remains a
+whole-response failure.
+
+A degraded rollups section is not an empty clustering result. A valid empty
+result is authoritative and may dissolve proposed parents; a degraded section
+must instead leave every existing rollup parent and member untouched and apply
+only the non-rollup updates, without graph reconciliation. Enrichments, which name a
+dedupe key, are dropped when they target a rollup parent or rolled-up member so
+that "untouched" holds. Proposals create new records and carry no identity of an
+existing one, so they always apply, as do all other enrichments and the
+deterministic exact recommendations.
+
+The run is recorded as succeeded with a rollup-degraded diagnostic: one bounded
+classified reason code, never model text, in the existing evaluation status.
+Except for a filesystem-check degradation, it is cached like any successful
+run, so identical inputs are not re-evaluated or re-billed until they change,
+which stops a consistently bad model from burning the daily allowance. A
+degradation caused by the apply-time filesystem check is not written to the
+evaluation cache: the environment can change without changing the cache inputs,
+and a manual analysis keeps the cache, so caching it could suppress a
+now-valid rollup indefinitely. Automatic retries stay bounded by the cooldown
+and daily allowance; a manual analysis remains unlimited under the existing
+manual-analysis contract. The evaluation reservation is consumed either way. This
+replaces the earlier rule that an invalid rollup rejected the whole combined
+response.
+
+The rollup prompt version advances to `taskmaster-rollup-v2`. Because the
+version is part of the evaluation token and the provider cache key, a cached
+`v1` result is a cache miss after upgrade and an in-flight `v1` request fails
+the token check at apply time; neither is applied. The instruction
+string and the response schema in the prompt name `proposedChange` explicitly
+and describe the limits above.
+
+`proposedChange` is presentation, not evidence. It never feeds parent identity
+(the `rollup:<sha256-hex>` ID is still over sorted member IDs) and never
+affects recurrence, affected sessions, impact, or confidence, which stay
+derived from member observations. It is not counted inside the 64-entry,
+128 KiB parent evidence projection. It is stored on the rollup parent as an
+optional field next to the other rollup-only fields, not inside
+`workflowImprovement`, and is written in the same recoverable parent/member
+transaction. It serializes as `null` for exact cards, legacy records, and
+rollups produced before `v2`. A same-member-set `v2` result sets or updates it
+in place on a parent that is still `proposed`, including backfilling an
+existing `v1` parent. `executing`, `accepted`, and terminal parents keep the
+value they had, including `null`. The cluster's `target_surface` stays derived
+from its members. It is not required to match a target path's surface class,
+but every target must fall within the surface classes above.
+
+The card labels the block a model-written hypothesis, renders every field as
+plain text (no Markdown, no links), and shows a warning badge on a `sensitive`
+target. The Fix with AI handoff for a rollup places the proposed change inside
+the delimited untrusted reference data, included whole or omitted whole when
+the reference is truncated. Outside the delimiters, it directs the receiving
+session to read each target file first and confirm the change still applies, to
+state why and stop when it does not, to name any file it changes outside the
+listed targets, to treat `verification` as a hint rather than a command, and,
+for a `sensitive` target, to tell the user before editing and never widen
+permissions, hooks, or CI behavior. A rollup without a `proposedChange`
+produces the existing handoff unchanged. The Rust and desktop prompt builders
+are tested against one shared fixture so they cannot drift.
 
 ### Kind-to-target mapping
 
@@ -818,8 +995,9 @@ Required recommendation fields:
 Rollup records additionally expose `rollupMemberIds`,
 `rollupMemberDedupeKeys`, `rollupGeneration`, `rolledUpBy`, and
 `supersedesRecommendationId`. For a replacement rollup, that last field links
-the new parent to its superseded rollup parent. Legacy records deserialize
-these as empty lists or `null`.
+the new parent to its superseded rollup parent. Rollup parents also expose
+`proposedChange` (see [Rollup proposed change](#rollup-proposed-change)).
+Legacy records deserialize these as empty lists or `null`.
 
 ## Recommendation lifecycle
 
@@ -1134,6 +1312,12 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] A Fix with AI prompt contains the stable recommendation ID and directs the target agent to use the `working-on-recommendation` skill to read the recommendation and its source-session evidence.
 - [ ] An authenticated target agent can transition an accepted `improve_workflow` recommendation to `completed`; the callback cannot name a different target session or lifecycle state, and retries are idempotent.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
+- [ ] A rollup parent stores a validated `proposedChange` (summary, one to three `edit`/`create` targets, verification) of at most 1.5 KiB; a missing or invalid one, a model-supplied `sensitive`, an escaping, `.git`, Windows-reserved, out-of-scope, or duplicate (lexical or canonical) path, a missing or non-regular `edit` target, or an existing or dangling-symlink `create` target degrades the rollups section while enrichments, proposals, and exact recommendations are still applied.
+- [ ] A degraded rollups section leaves every existing rollup parent and member untouched (it is not treated as an authoritative empty clustering result, and enrichments targeting a rollup parent or member are dropped; proposals always apply), is recorded as a succeeded run with a classified rollup-degraded reason and no model text, and is cached for identical inputs except when caused by the apply-time filesystem check, which is not cached; a response that is invalid JSON or over the cap still fails as a whole.
+- [ ] `proposedChange` never alters rollup identity, recurrence, affected sessions, impact, or confidence; a same-member-set `v2` result backfills a still-`proposed` parent, and `executing`, `accepted`, and terminal parents keep the value they had.
+- [ ] The sidecar, never the model, sets `sensitive` on targets under `.claude/`, `.codex/`, `.opencode/`, `.github/workflows/`, `opencode.json`, or `apm.yml`; the card badges them and the Fix prompt tells the session to tell the user before editing them.
+- [ ] A target whose canonical destination lands under `.git/`, out of scope, or in a sensitive path (for example a `docs/` symlink into `.git/` or product source) is rejected or flagged using the canonical path, and a Markdown file under a skills subtree is never flagged sensitive even beneath `.claude/`.
+- [ ] A rollup Fix with AI prompt places `proposedChange` whole inside the delimited untrusted reference data (or omits it whole) and tells the session to recheck each target first; a rollup without one produces the unchanged prompt, and the Rust and desktop prompt builders pass the same shared fixture.
 
 ## Non-goals reaffirmed
 
