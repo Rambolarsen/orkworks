@@ -2147,19 +2147,13 @@ impl ProviderManager {
                 )
             };
             if !result.success {
-                // Only the classified code is surfaced: raw stderr may carry
-                // account or path details and this message reaches the ledger.
-                let code = classify_invocation_error(&result.stderr);
-                let reason = match code {
-                    ProviderOperationErrorCode::Timeout => "timeout",
-                    ProviderOperationErrorCode::Unauthorized => "unauthorized",
-                    ProviderOperationErrorCode::ModelFailure => "model failure",
-                    ProviderOperationErrorCode::UnsupportedCapability => "unsupported",
-                    _ => "provider failure",
-                };
+                // Only a fixed category is surfaced: raw CLI diagnostics may
+                // carry account, prompt, provider, or path details.
+                let (code, reason) =
+                    inference::native_cli_failure_summary(provider, &result.stderr, &result.stdout);
                 return Err(ProviderOperationError {
                     code,
-                    message: format!("inference-only CLI invocation failed ({reason}); check the installed CLI and its existing login"),
+                    message: format!("inference-only CLI invocation failed ({reason})"),
                 });
             }
             return invocation.decode(&result.stdout);
