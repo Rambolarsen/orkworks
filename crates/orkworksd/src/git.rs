@@ -30,10 +30,9 @@ pub fn detect(cwd: &Path) -> GitContext {
         .ok()
         .and_then(|h| h.shorthand().map(|s| s.to_string()));
 
-    let is_worktree = repo
-        .workdir()
-        .map(|w| w.join(".git").is_file())
-        .unwrap_or(false);
+    // `Repository::is_worktree` checks real worktree linkage; a `.git` file
+    // alone is not proof, since submodule checkouts have one too.
+    let is_worktree = repo.is_worktree();
 
     let mut changed_files = 0;
     let mut dirty = false;
@@ -82,5 +81,55 @@ mod tests {
         if ctx.dirty {
             assert!(ctx.changed_files > 0);
         }
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(["-c", "protocol.file.allow=always"])
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+
+    fn init_repo(dir: &Path) {
+        git(dir, &["init", "-q"]);
+        git(dir, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    }
+
+    #[test]
+    fn linked_worktree_is_detected_as_worktree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("main");
+        std::fs::create_dir(&main).unwrap();
+        init_repo(&main);
+        let wt = tmp.path().join("wt");
+        git(
+            &main,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "wt"],
+        );
+
+        assert!(detect(&wt).is_worktree);
+        assert!(!detect(&main).is_worktree);
+    }
+
+    #[test]
+    fn submodule_checkout_is_not_a_worktree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sub = tmp.path().join("sub_repo");
+        let main = tmp.path().join("main_repo");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::create_dir(&main).unwrap();
+        init_repo(&sub);
+        init_repo(&main);
+        git(
+            &main,
+            &["submodule", "add", "-q", sub.to_str().unwrap(), "sub"],
+        );
+        assert!(main.join("sub/.git").is_file());
+
+        assert!(!detect(&main.join("sub")).is_worktree);
     }
 }
