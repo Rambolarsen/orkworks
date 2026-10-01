@@ -122,6 +122,13 @@ if [ "${1:-}" = 'pr' ] && [ "${2:-}" = 'list' ]; then
       if [ "$head_ref" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN","isCrossRepository":false}]\n'; matched=1; fi
       if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED","isCrossRepository":false}]\n'; matched=1; fi
       ;;
+    open-stalled-plus-fresh)
+      # stale-feature has two open PRs: one stalled, one fresh. The fresh PR
+      # still covers the branch; nothing may be reported for it.
+      if [ "$head_ref" = 'stale-feature' ]; then printf '[{"number":701,"state":"OPEN","isCrossRepository":false,"updatedAt":"2020-01-01T00:00:00Z"},{"number":708,"state":"OPEN","isCrossRepository":false,"updatedAt":"2030-01-01T00:00:00Z"}]\n'; matched=1; fi
+      if [ "$head_ref" = 'pr-feature' ]; then printf '[{"number":700,"state":"OPEN","isCrossRepository":false}]\n'; matched=1; fi
+      if [ "$head_ref" = 'squash-merged' ]; then printf '[{"number":702,"state":"MERGED","isCrossRepository":false}]\n'; matched=1; fi
+      ;;
   esac
   if [ "$matched" = 0 ]; then printf '[]\n'; fi
   exit 0
@@ -194,6 +201,14 @@ if ! grep -Fq 'stalled' <<<"$output_stalled"; then
 fi
 if grep -Fq 'pr-feature' <<<"$output_stalled"; then
   echo 'stranded-branch-audit flagged a branch with a fresh open PR' >&2
+  exit 1
+fi
+
+# Case 3c: with one stalled and one fresh open PR on the same branch, the
+# fresh PR covers the branch; nothing may be reported for it.
+output_mixed="$( (cd "$repo" && PATH="$bin:$PATH" GH_PR_LIST_MODE=open-stalled-plus-fresh "$helper" --state all) )"
+if grep -Fq 'stale-feature' <<<"$output_mixed"; then
+  echo 'stranded-branch-audit reported a branch whose open PRs include a fresh one' >&2
   exit 1
 fi
 

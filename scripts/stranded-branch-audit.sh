@@ -92,9 +92,11 @@ while IFS= read -r branch; do
   # An OPEN same-repo PR covers the branch in both modes: in open mode the
   # list only contains open PRs, in all mode any OPEN entry counts. MERGED
   # records do not cover — state=all exists precisely to catch branches whose
-  # only PR record is merged. Exception: an open PR with no activity for over
-  # the stale window is itself subject to the rebase-or-close rule, so it is
-  # reported with a stalled summary instead of covering the branch.
+  # only PR record is merged. Exception: when every open PR for the branch has
+  # been inactive for over the stale window, each is itself subject to the
+  # rebase-or-close rule, so the stalled PRs are reported instead of covering
+  # the branch. A single fresh open PR (or one with no updatedAt, freshness
+  # unknown) covers the branch and nothing is reported.
   if printf '%s' "$pr_json" | jq -e 'any(.[]; .state == "OPEN")' >/dev/null 2>&1; then
     stalled="$(printf '%s' "$pr_json" | jq -r --argjson now "$now" --argjson stale "$stale_secs" '
       def open_age: ($now - (.updatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdate));
@@ -105,7 +107,12 @@ while IFS= read -r branch; do
           map("#\(.number) open, stalled \((open_age / 86400) | floor | tostring)d")
           | join(", ")
         else empty end')"
-    if [ -z "$stalled" ]; then
+    fresh="$(printf '%s' "$pr_json" | jq --argjson now "$now" --argjson stale "$stale_secs" '
+      def open_age: ($now - (.updatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdate));
+      [ .[] | select(.state == "OPEN")
+             | select((.updatedAt == null) or (open_age <= $stale)) ]
+      | length')"
+    if [ -z "$stalled" ] || [ "$fresh" -gt 0 ]; then
       continue
     fi
     pr_summary="$stalled"
