@@ -114,6 +114,58 @@ mod tests {
         Ok(command.args)
     }
 
+    // Removing the stream separator would hide an option behind stdout's banner.
+    #[tokio::test]
+    async fn mixed_help_streams_preserve_the_advertised_isolation_option() {
+        let args = prepare(
+            "printf 'warning'; printf '  --no-daemon  independent\\n' >&2",
+            &["resume", "saved-id"],
+        )
+        .await
+        .unwrap();
+        assert_eq!(args, ["--no-daemon", "resume", "saved-id"]);
+    }
+
+    // Run with controlled ambient values in another test process, never mutate
+    // the parallel runner's environment. Removing the filter exposes a capability.
+    #[tokio::test]
+    async fn help_probe_filters_environment_in_an_isolated_process() {
+        const CHILD: &str = "CODEX_PROBE_FILTER_TEST_CHILD";
+        const BLOCKED: &[&str] = &[
+            "ORKWORKS_SESSION_ID",
+            "ORKWORKS_REPORT_TOKEN",
+            "ORKWORKS_PORT",
+            "ORKWORKS_OPEN_PLAN_TOKEN",
+            "ORKWORKS_CODEX_SESSION_REPORT_DIR",
+            "OrKwOrKs_RePoRt_ToKeN",
+            "NODE_OPTIONS",
+            "VSCODE_INSPECTOR_OPTIONS",
+            "VSCODE_PID",
+            "ELECTRON_RUN_AS_NODE",
+        ];
+        if std::env::var_os(CHILD).is_some() {
+            let script = format!(
+                "for key in {}; do if printenv \"$key\" >/dev/null; then exit 17; fi; done\ntest \"$CODEX_PROBE_ALLOWED\" = kept || exit 18\nprintf '  --no-daemon\\n'",
+                BLOCKED.join(" ")
+            );
+            let args = prepare(&script, &[]).await.unwrap();
+            assert_eq!(args, ["--no-daemon"]);
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "runtime::codex_launch::tests::help_probe_filters_environment_in_an_isolated_process", "--nocapture"])
+            .env(CHILD, "1")
+            .env("CODEX_PROBE_ALLOWED", "kept")
+            .envs(BLOCKED.iter().map(|key| (*key, "fixture-only")))
+            .output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     #[tokio::test]
     async fn older_codex_and_similar_option_names_preserve_arguments() {
         let args = prepare(

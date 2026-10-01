@@ -874,14 +874,17 @@ pub(crate) async fn start_session_runtime(
         .ok_or_else(|| "session runtime handle is not installed".to_string())?;
     if is_codex_session {
         if let Err(error) = super::codex_launch::isolate_session(&mut command).await {
-            // A deletion may already own the ending transition. There is no
-            // PTY driver yet to finalize it, so always schedule this generation.
-            set_session_status_for_generation(&state, &id, run_generation, "error").await;
+            // Deletion signals cancellation before its asynchronous status
+            // transition. Preserve that intent even if the probe fails first.
+            let terminal_status = if *kill_rx.borrow() { "killed" } else { "error" };
+            set_session_status_for_generation(&state, &id, run_generation, terminal_status).await;
+            // There is no PTY driver yet to finalize an existing ending
+            // transition, so always schedule this generation.
             schedule_session_ending_finalization(
                 state.clone(),
                 id.clone(),
                 run_generation,
-                "error".into(),
+                terminal_status.into(),
             );
             return Err(error);
         }
@@ -1545,6 +1548,160 @@ mod tests {
         );
 
         state
+    }
+
+    #[cfg(unix)]
+    async fn delete_during_codex_probe(help_exit: u8, deletion_transition_completed: bool) {
+        let dir = tempfile::tempdir().unwrap();
+        let id = format!("codex-probe-delete-{help_exit}-{deletion_transition_completed}");
+        let state = test_state_with_runtime_session(&id);
+        let metadata_root = dir.path().join("metadata");
+        *state.workspace.lock().unwrap() = Some(crate::WorkspaceState {
+            path: dir.path().into(),
+            metadata: crate::metadata::MetadataStore::new(&metadata_root),
+            workflow_observations: crate::workflow_observations::WorkflowObservationStore::open(
+                metadata_root.clone(),
+            )
+            .unwrap(),
+            recommendation_store: crate::taskmaster::store::RecommendationStore::open(
+                metadata_root,
+            )
+            .unwrap(),
+            lease: None,
+        });
+        let meta = crate::test_support::test_session_metadata(
+            &id,
+            "Probe deletion",
+            dir.path().display().to_string(),
+            "creating",
+            "now",
+            "now",
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let executable = dir.path().join("codex-delete-fixture");
+        std::fs::write(
+            &executable,
+            format!(
+                r#"#!/bin/sh
+if [ "$1" = --help ]; then
+  : > help-started
+  while [ ! -f help-release ]; do sleep 0.01; done
+  printf '  --no-daemon  independent\n'
+  exit {help_exit}
+fi
+: > launched
+"#
+            ),
+        )
+        .unwrap();
+        crate::test_support::make_test_executable(&executable);
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&id).unwrap();
+            handle.info.harness = Some("codex".into());
+            handle.info.harness_id = Some("codex".into());
+            handle.info.status = "creating".into();
+            handle.info.lifecycle_phase = "creating".into();
+            handle.runtime = runtime;
+            handle.kill_tx = kill_tx;
+        }
+        let runtime_task = tokio::spawn(start_session_runtime(
+            state.clone(),
+            id.clone(),
+            harness::CommandSpec {
+                program: executable.display().to_string(),
+                args: vec![],
+                cwd: dir.path().display().to_string(),
+            },
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        ));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !dir.path().join("help-started").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("probe must reach the fixture's release barrier");
+        if deletion_transition_completed {
+            crate::session_application::SessionApplication::new(state.clone())
+                .delete_session(&id)
+                .await
+                .unwrap();
+            assert_eq!(
+                state.sessions.lock().unwrap()[&id].info.lifecycle_phase,
+                "ending"
+            );
+        } else {
+            // delete_session sends this signal before awaiting its status write.
+            state.sessions.lock().unwrap()[&id]
+                .kill_tx
+                .send(true)
+                .unwrap();
+            assert_eq!(
+                state.sessions.lock().unwrap()[&id].info.lifecycle_phase,
+                "creating"
+            );
+        }
+        std::fs::write(dir.path().join("help-release"), "").unwrap();
+        assert!(runtime_task.await.unwrap().is_err());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if state.sessions.lock().unwrap()[&id].info.lifecycle_phase == "ended" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("deleted pre-spawn generation must finalize");
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions[&id].info.status, "killed");
+        assert!(!sessions[&id].runtime.startup_spawned());
+        assert!(
+            !dir.path().join("launched").exists(),
+            "deleted probe must not launch the coding tool"
+        );
+    }
+
+    // Removing failure finalization leaves the deleted generation stuck in ending.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_failed_probe_finalizes_concurrent_deletion() {
+        delete_during_codex_probe(1, true).await;
+    }
+
+    // Removing the post-probe deletion gate spawns the already-deleted coding tool.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_successful_probe_does_not_spawn_after_concurrent_deletion() {
+        delete_during_codex_probe(0, true).await;
+    }
+
+    // A failed probe must honor the deletion signal before its status write.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_failed_probe_honors_cancellation_before_status_transition() {
+        delete_during_codex_probe(1, false).await;
     }
 
     // Removing launch isolation would make both PTY children use the first
