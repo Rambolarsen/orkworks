@@ -2147,7 +2147,20 @@ impl ProviderManager {
                 )
             };
             if !result.success {
-                return Err(ProviderOperationError { code: classify_invocation_error(&result.stderr), message: "inference-only CLI invocation failed; check the installed CLI and its existing login".into() });
+                // Only the classified code is surfaced: raw stderr may carry
+                // account or path details and this message reaches the ledger.
+                let code = classify_invocation_error(&result.stderr);
+                let reason = match code {
+                    ProviderOperationErrorCode::Timeout => "timeout",
+                    ProviderOperationErrorCode::Unauthorized => "unauthorized",
+                    ProviderOperationErrorCode::ModelFailure => "model failure",
+                    ProviderOperationErrorCode::UnsupportedCapability => "unsupported",
+                    _ => "provider failure",
+                };
+                return Err(ProviderOperationError {
+                    code,
+                    message: format!("inference-only CLI invocation failed ({reason}); check the installed CLI and its existing login"),
+                });
             }
             return invocation.decode(&result.stdout);
         }

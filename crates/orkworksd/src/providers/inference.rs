@@ -185,7 +185,7 @@ fn prepare_with_preferences(
                 "search_tool",
                 "tool_search",
                 "tool_suggest",
-                "request_permissions",
+                "exec_permission_approvals",
                 "request_permissions_tool",
                 "deferred_executor",
             ] {
@@ -389,6 +389,12 @@ fn decode_codex(stdout: &str) -> Result<String, ProviderOperationError> {
             Some("item.started" | "item.updated" | "item.completed") => {
                 match event["item"]["type"].as_str() {
                     Some("reasoning") => {}
+                    // Codex reports configuration warnings (deprecated or
+                    // under-development features) as `error` items on an
+                    // otherwise normal turn. They are diagnostics, not tool
+                    // actions; a failed turn still ends in `turn.failed`/`error`
+                    // events or lacks a completed answer, both rejected below.
+                    Some("error") => {}
                     Some("agent_message") => {
                         if event["type"] == "item.completed" {
                             answer = event["item"]["text"].as_str().map(str::to_owned);
@@ -531,6 +537,41 @@ mod tests {
         ] { assert!(decode_codex(output).is_err(), "{output}"); }
         let claude = prepare(&definition("claude-code"), "chosen", None, "context".into()).unwrap();
         assert!(claude.decode("{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true,\"result\":\"{}\"}").is_err());
+    }
+
+    #[test]
+    fn decoder_ignores_codex_diagnostic_error_items() {
+        // Verbatim stream shape from codex-cli 0.159.3: configuration warnings
+        // arrive as `error` items before an otherwise ordinary completed turn.
+        let output = [
+            r#"{"type":"thread.started","thread_id":"t"}"#,
+            r#"{"type":"item.completed","item":{"id":"item_0","type":"error","message":"`[features].request_permissions` is deprecated."}}"#,
+            r#"{"type":"item.completed","item":{"id":"item_1","type":"error","message":"Under-development features enabled: skip_host_skill_discovery."}}"#,
+            r#"{"type":"turn.started"}"#,
+            r#"{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"{\"proposals\":[]}"}}"#,
+            r#"{"type":"turn.completed","usage":{}}"#,
+        ]
+        .join("\n");
+        assert_eq!(decode_codex(&output).unwrap(), r#"{"proposals":[]}"#);
+        // Diagnostics alone are still not an answer.
+        let only_errors = [
+            r#"{"type":"item.completed","item":{"type":"error","message":"warn"}}"#,
+            r#"{"type":"turn.completed"}"#,
+        ]
+        .join("\n");
+        assert!(decode_codex(&only_errors).is_err());
+    }
+
+    #[test]
+    fn codex_uses_current_permission_feature_name() {
+        let invocation = prepare(&definition("codex"), "chosen", None, "context".into()).unwrap();
+        let settings: Vec<_> = invocation
+            .command
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect();
+        assert!(!settings.contains(&"features.request_permissions=false"));
+        assert!(settings.contains(&"features.exec_permission_approvals=false"));
     }
 
     #[test]
