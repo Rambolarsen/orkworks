@@ -1597,6 +1597,39 @@ fn evidence_change_after_preflight_cannot_apply_legacy_enrichment() {
 }
 
 #[test]
+fn evidence_change_after_preflight_cannot_apply_legacy_enrichment_when_degraded() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    {
+        let guard = state.workspace.lock().unwrap();
+        let store = &guard.as_ref().unwrap().recommendation_store;
+        let mut changed = store.get("a").unwrap().unwrap();
+        changed.evidence[0].evidence = "Changed after preflight".into();
+        store.put(&changed).unwrap();
+    }
+    let before = stored_recommendations(&state);
+    let response = r#"{"enrichments":[{"dedupeKey":"exact:c","knowledgePageIds":[]}]}"#;
+    let model = parse_provider_response(response, Some(&request.snapshots)).unwrap();
+    assert_eq!(model.rollups, RollupSection::Degraded("rollups_missing"));
+    assert!(apply_model_output_parsed(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        workspace_instance(&state),
+        &[],
+        &recommendations,
+        model,
+        Some(&request)
+    )
+    .is_none());
+    assert_eq!(stored_recommendations(&state), before);
+}
+
+#[test]
 fn dissolved_parent_cannot_reopen_without_a_new_family_generation() {
     let directory = tempfile::tempdir().unwrap();
     let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b", "c"]);

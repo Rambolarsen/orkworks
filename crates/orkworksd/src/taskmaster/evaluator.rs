@@ -1358,6 +1358,15 @@ fn apply_model_output_parsed(
         if degraded.is_some() {
             // A degraded section is not an authoritative empty result: skip the
             // rollup graph reconciliation and write only non-rollup updates.
+            // Same in-lock staleness guard as the valid path: the inputs the
+            // model saw must still match before any legacy update is written.
+            if !SessionApplication::rollup_inputs_match_locked(
+                workspace,
+                request.token.workspace_instance,
+                &request.snapshots,
+            ) {
+                return;
+            }
             for recommendation in updates.iter().filter(|item| !is_rollup_record(item)) {
                 if workspace.recommendation_store.put(recommendation).is_err() { return; }
             }

@@ -443,7 +443,7 @@ impl SessionApplication {
         Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots)
     }
 
-    fn rollup_inputs_match_locked(
+    pub(crate) fn rollup_inputs_match_locked(
         workspace: &WorkspaceState,
         workspace_instance: u64,
         supplied_snapshots: &[RollupFamilySnapshot],
