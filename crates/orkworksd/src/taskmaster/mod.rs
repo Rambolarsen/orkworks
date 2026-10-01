@@ -9,6 +9,7 @@ mod coordinator_tests;
 pub(crate) mod evaluator;
 pub(crate) mod inference_approval;
 pub(crate) mod inference_trust;
+pub(crate) mod proposed_change;
 pub(crate) mod provider_catalog;
 pub(crate) mod rollup;
 pub(crate) mod runtime;
