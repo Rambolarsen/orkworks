@@ -40,8 +40,8 @@ or ignored without mutation.
 
 ## Amendment 2026-10-01 (proposed): `PermissionRequest` is not proof of a human prompt
 
-Status of this amendment: **proposed** (owner approved the payload-capture
-exception and the four-to-five event bundle on 2026-10-01; behavior stays
+Status of this amendment: **proposed** (owner approved capture-only
+`PostToolUse` and `PreToolUse` diagnostics on 2026-10-01; behavior stays
 unchanged until the verification gate below passes). It records a gap in the decision above
 and the verification gate for closing it; it changes no behavior until the gate
 passes and the amendment is marked accepted. Tracked by
@@ -65,8 +65,8 @@ Hook authority stands; the gap is the missing resolution signal, not the
 authority rule. Add a conservative resolution path, in this order:
 
 1. **Verification gate (blocking).** Before any behavior change, capture a real
-   `PermissionRequest` and `PostToolUse` payload pair under auto-review and
-   under a manual prompt, recording only key names plus the allowlisted scalars
+   `PreToolUse`, `PermissionRequest`, and `PostToolUse` event sequence under
+   auto-review and under a manual prompt, recording only key names plus the allowlisted scalars
    `hook_event_name`, `permission_mode`, `turn_id`, `tool_name`, and any
    per-invocation identifier the payload carries (for example `tool_use_id`). Never record
    `tool_input`, transcript paths, or other free text. This is a deliberate,
@@ -75,16 +75,13 @@ authority rule. Add a conservative resolution path, in this order:
 2. **Invocation-scoped `PostToolUse` resolution.** `turn_id` plus `tool_name`
    is not unique: one turn can invoke the same tool repeatedly, and a late or
    duplicate `PostToolUse` for an earlier call could clear a later, real
-   prompt. So `PostToolUse` may clear a wait only if the gate shows both events
-   carry the same per-invocation identifier (for example a tool-use ID), or
-   shows an ordering and deduplication guarantee that makes the match
-   unambiguous. If neither exists, no `PostToolUse` correlation is adopted and
-   step 2 is withdrawn. When an identifier does exist, install `PostToolUse` as
-   a fifth owned event; the sidecar records the identifier from the accepted
-   `PermissionRequest` and clears the wait only on an exact match with no other
-   `PermissionRequest` outstanding. Ambiguous cases (parallel calls, missing
-   identifier) leave `needs_you` in place. A late or duplicate event never
-   reopens a cleared wait.
+   prompt. `PermissionRequest` has no documented invocation ID, while
+   `PreToolUse` and `PostToolUse` carry `tool_use_id`. A future resolution may
+   use that ID only if the gate proves that the captured event ordering
+   unambiguously ties the request to the matching pre/post pair. Otherwise no
+   `PostToolUse` correlation is adopted and step 2 is withdrawn. Ambiguous
+   cases (parallel calls, missing IDs, or uncertain ordering) leave
+   `needs_you` in place. A late or duplicate event never reopens a cleared wait.
 3. **No terminal-text heuristic.** Terminal text such as "Reviewing approval
    requests" is not an authority source for attention: it is a Peon-tier
    inference and the hook-authority rule keeps it from overriding hook state.
@@ -100,7 +97,8 @@ authority rule. Add a conservative resolution path, in this order:
 - A missed or ambiguous correlation fails safe: Needs You stays until `Stop`,
   the same behavior as today. The remaining cost is occasional false Needs You,
   not a missed real prompt.
-- The Codex bundle grows from four to five owned events, so the bundle
-  fingerprint changes and users must re-approve hooks via `/hooks` once.
+- The capture experiment adds `PreToolUse` to the current five-event bundle,
+  making six owned events; the bundle fingerprint changes and users must
+  re-approve hooks via `/hooks` once.
 - If the gate shows the fields are absent, this amendment is withdrawn and the
   issue falls back to documenting the limitation and a user-side workaround.

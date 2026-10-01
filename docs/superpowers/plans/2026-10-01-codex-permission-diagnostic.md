@@ -63,3 +63,14 @@
 - [x] Run `bash scripts/verify-repo.sh` and `bash scripts/doc-check.sh`.
 - [ ] Exercise the capture path in a real auto-review Codex session and a real manual-prompt session; confirm both event records appear without forbidden payload data.
 - [ ] Post the observed correlation findings from both modes to issue #690 before any later step changes attention behavior.
+
+### Follow-up experiment: Capture `PreToolUse` invocation IDs
+
+The user approved a capture-only experiment to test whether `PreToolUse`'s
+`tool_use_id` can be connected to `PermissionRequest` by event order and to the
+matching `PostToolUse`. This expands the Codex bundle to six events and changes
+its fingerprint. It does not change attention behavior.
+
+- [x] Add a failing reporter test requiring redacted `PreToolUse`, `PermissionRequest`, and `PostToolUse` captures, matching IDs only on the pre/post pair, and no attention or identity POSTs for the capture-only events.
+- [x] Add `PreToolUse` to the owned Codex event bundle and both reporters' bounded capture allowlist.
+- [ ] Observe real auto-review and manual-prompt event ordering before proposing any attention behavior change.

@@ -1030,6 +1030,13 @@ mod tests {
         assert!(!script.contains("$value = if ($null -ne $property)"));
         assert!(!script.contains("return $property.Value"));
         assert!(script.contains("-cin $safeCodexPayloadKeys"));
+        assert!(
+            script.contains("$Event -in @(\"PreToolUse\", \"PermissionRequest\", \"PostToolUse\")")
+        );
+        assert!(script.contains("$Event -in @(\"PreToolUse\", \"PostToolUse\")"));
+        assert!(script.contains(
+            "$old.event -notin @(\"PreToolUse\", \"PermissionRequest\", \"PostToolUse\")"
+        ));
         assert!(!script.contains("$_ -in $safeCodexPayloadKeys"));
         assert!(!script.contains("$value = $data.$key"));
         assert!(!script.contains("$value = $old.payloadScalars.$key"));

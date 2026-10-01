@@ -166,7 +166,7 @@ case "$marker" in
     fi
     session_source="codex_hook"
     case "$event" in
-      PermissionRequest|PostToolUse)
+      PreToolUse|PermissionRequest|PostToolUse)
         codex_payload_capture="$(printf '%s' "$payload" | python3 -c '
 import json, sys
 allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")
@@ -207,7 +207,7 @@ print(json.dumps(capture, separators=(",", ":")))
         ;;
       SessionStart)
         ;;
-      PostToolUse)
+      PreToolUse|PostToolUse)
         codex_capture_only="yes"
         attention_post_kind="skipped_capture_only"
         harness_session_post_kind="skipped_capture_only"
@@ -314,9 +314,9 @@ fi
 
 # Keep one private, redacted Codex reporter trace for local diagnosis. The
 # capture-only exception stores a bounded ordered sequence of sanitized
-# PermissionRequest and PostToolUse records: allowlisted top-level payload key
-# names plus hook_event_name, permission_mode, turn_id, tool_name, and bounded
-# tool_use_id scalar values. Never include tool_input, transcript_path, cwd,
+# PreToolUse, PermissionRequest, and PostToolUse records: allowlisted top-level
+# payload key names plus hook_event_name, permission_mode, turn_id, tool_name,
+# and bounded tool_use_id scalar values. Never include tool_input, transcript_path, cwd,
 # session IDs, tokens, arbitrary free text, full payloads, response bodies,
 # or request URLs.
 if [ "$session_source" = "codex_hook" ]; then
@@ -328,7 +328,7 @@ if [ "$session_source" = "codex_hook" ]; then
 import json, os, pathlib, sys, tempfile
 import fcntl
 path = pathlib.Path(sys.argv[1])
-allowed_events = ("PermissionRequest", "PostToolUse")
+allowed_events = ("PreToolUse", "PermissionRequest", "PostToolUse")
 max_capture_events = 16
 allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")
 safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_use_id", "tool_response"}
@@ -385,7 +385,7 @@ except Exception:
     pass
 
 event = sys.argv[2]
-diagnostic_events = ("SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop")
+diagnostic_events = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop")
 diagnostic_event = event if event in diagnostic_events else "Unknown"
 if event in allowed_events:
     try:
