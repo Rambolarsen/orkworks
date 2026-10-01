@@ -1019,6 +1019,22 @@ mod tests {
         assert!(script.contains("[string]$Marker"));
     }
 
+    #[test]
+    fn report_harness_event_ps1_uses_exact_case_for_redacted_payload_fields() {
+        let script = include_str!("../../../scripts/report-harness-event.ps1");
+        assert!(script.contains("$property.Name -ceq $Name"));
+        assert!(script.contains("return $property;"));
+        assert!(script.contains("$property = Get-ExactJsonPropertyValue $data $key"));
+        assert!(script.contains("$property = Get-ExactJsonPropertyValue $old.payloadScalars $key"));
+        assert!(script.contains("$value = $property.Value"));
+        assert!(!script.contains("$value = if ($null -ne $property)"));
+        assert!(!script.contains("return $property.Value"));
+        assert!(script.contains("-cin $safeCodexPayloadKeys"));
+        assert!(!script.contains("$_ -in $safeCodexPayloadKeys"));
+        assert!(!script.contains("$value = $data.$key"));
+        assert!(!script.contains("$value = $old.payloadScalars.$key"));
+    }
+
     // Every prior test above (and the .sh equivalents) reads asset content
     // via a synthetic ReporterAssetResolver pointed at a throwaway tempdir,
     // never the real crates/orkworksd/scripts/ directory a handler's

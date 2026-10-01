@@ -73,7 +73,21 @@ $sessionSource = ""
 $codexAttention = $false
 $codexCaptureOnly = $false
 $codexPayloadCapture = $null
-$safeCodexPayloadKeys = @("hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_response")
+$safeCodexPayloadKeys = @("hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_use_id", "tool_response")
+function Get-ExactJsonPropertyValue {
+    param($Object, [string]$Name)
+    if ($Object -isnot [System.Management.Automation.PSCustomObject]) {
+        return $null
+    }
+    foreach ($property in $Object.PSObject.Properties) {
+        if ($property.Name -ceq $Name) {
+            # Return the property object so PowerShell's function pipeline
+            # cannot enumerate a one-element array value into a scalar.
+            return $property;
+        }
+    }
+    return $null
+}
 $attentionPostKind = "not_applicable"
 $harnessSessionPostKind = "skipped_no_harness_session_id"
 
@@ -104,13 +118,21 @@ if ($Marker -clike "*:claude-code") {
         if ($data -is [System.Management.Automation.PSCustomObject] -and $Event -in @("PermissionRequest", "PostToolUse")) {
             $payloadKeys = @(
                 $data.PSObject.Properties.Name | Where-Object {
-                    $_ -in $safeCodexPayloadKeys
+                    $_ -cin $safeCodexPayloadKeys
                 } | Sort-Object -Unique | Select-Object -First 64
             )
             $payloadScalars = @{}
-            foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name")) {
-                $value = $data.$key
-                if ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
+            foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")) {
+                $property = Get-ExactJsonPropertyValue $data $key
+                $value = $null
+                if ($null -ne $property) {
+                    $value = $property.Value
+                }
+                if ($key -eq "tool_use_id") {
+                    if ($value -is [string] -and $value.Length -le 128) {
+                        $payloadScalars[$key] = $value
+                    }
+                } elseif ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
                     $payloadScalars[$key] = $value
                 } elseif ($null -ne $value -and $value -is [ValueType]) {
                     $payloadScalars[$key] = $value
@@ -244,7 +266,8 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
 
 # Keep the same private redacted local diagnostic as the POSIX reporter. The
 # capture-only exception stores an allowlist of top-level key names plus only
-# hook_event_name, permission_mode, turn_id, and tool_name scalar values.
+# hook_event_name, permission_mode, turn_id, tool_name, and bounded tool_use_id
+# scalar values.
 # Sensitive key names and values, paths, session IDs, tokens, payloads, and
 # arbitrary free text are excluded.
 if ($sessionSource -eq "codex_hook" -and $HOME) {
@@ -295,12 +318,20 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
                     $old = $oldCaptures.$oldEvent
                     if ($old) {
                         $oldKeys = @($old.payloadKeys | Where-Object {
-                            $_ -is [string] -and $_ -in $safeCodexPayloadKeys
+                            $_ -is [string] -and $_ -cin $safeCodexPayloadKeys
                         } | Sort-Object -Unique | Select-Object -First 64)
                         $oldScalars = @{}
-                        foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name")) {
-                            $value = $old.payloadScalars.$key
-                            if ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
+                        foreach ($key in @("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")) {
+                            $property = Get-ExactJsonPropertyValue $old.payloadScalars $key
+                            $value = $null
+                            if ($null -ne $property) {
+                                $value = $property.Value
+                            }
+                            if ($key -eq "tool_use_id") {
+                                if ($value -is [string] -and $value.Length -le 128) {
+                                    $oldScalars[$key] = $value
+                                }
+                            } elseif ($null -ne $value -and $value -is [string] -and $value.Length -le 128) {
                                 $oldScalars[$key] = $value
                             } elseif ($null -ne $value -and $value -is [ValueType]) {
                                 $oldScalars[$key] = $value

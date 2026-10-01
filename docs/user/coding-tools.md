@@ -90,10 +90,12 @@ On macOS and Linux, the latest OrkWorks Codex hook result is recorded at
 reporter writes the same file. In addition to whether the native ID was parsed
 and the POST result, the diagnostic keeps one redacted record each for
 `PermissionRequest` and `PostToolUse`: only the top-level key names
-`hook_event_name`, `model`, `permission_mode`, `turn_id`, `tool_name`, and
-`tool_response`, plus only the `hook_event_name`, `permission_mode`, `turn_id`, and
-`tool_name` scalar values. It omits session IDs, paths, `tool_input`, token
-fields, all other values, and response bodies. `PostToolUse` is capture-only
+`hook_event_name`, `model`, `permission_mode`, `turn_id`, `tool_name`,
+`tool_use_id`, and `tool_response`, plus only the `hook_event_name`,
+`permission_mode`, `turn_id`, `tool_name`, and `tool_use_id` scalar values.
+`tool_use_id` is retained only when it is a string of at most 128 characters.
+The diagnostic omits session IDs, paths, `tool_input`, token fields, all other
+values, and response bodies. `PostToolUse` is capture-only
 and does not change **Needs You** behavior. The new event changes Codex's hook
 fingerprint, so approve the updated OrkWorks bundle once in Codex's `/hooks`
 screen after updating the integration.

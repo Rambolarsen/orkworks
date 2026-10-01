@@ -500,6 +500,7 @@ mod tests {
                     "permission_mode": "default",
                     "turn_id": "turn-abc123",
                     "tool_name": "Bash",
+                    "tool_use_id": "call-123",
                     "tool_input": { "command": "private-command-text" },
                     "api_key": "private-api-key-value",
                     "password": "private-password-value",
@@ -517,6 +518,7 @@ mod tests {
                     "permission_mode": "default",
                     "turn_id": "turn-abc123",
                     "tool_name": "Bash",
+                    "tool_use_id": "call-123",
                     "tool_input": { "command": "private-command-text" },
                     "api_key": "private-api-key-value",
                     "password": "private-password-value",
@@ -584,12 +586,17 @@ mod tests {
             );
             assert_eq!(captured[event]["payloadScalars"]["turn_id"], "turn-abc123");
             assert_eq!(captured[event]["payloadScalars"]["tool_name"], "Bash");
+            assert_eq!(captured[event]["payloadScalars"]["tool_use_id"], "call-123");
             for key in ["hook_event_name", "permission_mode", "turn_id", "tool_name"] {
                 assert!(captured[event]["payloadKeys"]
                     .as_array()
                     .unwrap()
                     .contains(&json!(key)));
             }
+            assert!(captured[event]["payloadKeys"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("tool_use_id")));
             for forbidden_key in ["api_key", "password", "secret"] {
                 assert!(!captured[event]["payloadKeys"]
                     .as_array()

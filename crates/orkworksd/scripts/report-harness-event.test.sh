@@ -42,7 +42,7 @@ chmod +x "$temp_dir/bin/python3"
 
 run_reporter() {
   local reporter_harness="${2:-codex}"
-  env PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
+  env -u ORKWORKS_CODEX_SESSION_REPORT_DIR PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
     ORKWORKS_SESSION_ID='orkworks-session-secret' \
     ORKWORKS_PORT='4567' \
     ORKWORKS_REPORT_TOKEN='report-token-secret' \
@@ -76,10 +76,56 @@ assert record == {
     "reportTokenPresent": True,
     "attentionPost": {"result": "not_applicable"},
     "harnessSessionPost": {"curlExit": 0, "httpStatus": "204"},
+    "codexPayloadCapture": {},
 }, record
 serialized = json.dumps(record)
 for secret in ("codex-session-secret", "orkworks-session-secret", "report-token-secret", "response-body-secret"):
     assert secret not in serialized
+PY
+
+printf '%s' '{"hook_event_name":"PermissionRequest","permission_mode":"default","turn_id":"turn-1","tool_name":"Bash","tool_use_id":"call-123","tool_input":{"command":"private-command-text"}}' |
+  run_reporter PermissionRequest
+printf '%s' '{"hook_event_name":"PostToolUse","permission_mode":"default","turn_id":"turn-1","tool_name":"Bash","tool_use_id":"call-123","tool_response":"private-response"}' |
+  run_reporter PostToolUse
+
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+captures = record["codexPayloadCapture"]
+assert captures["PermissionRequest"]["payloadScalars"]["tool_use_id"] == "call-123", captures
+assert captures["PostToolUse"]["payloadScalars"]["tool_use_id"] == "call-123", captures
+assert "tool_use_id" in captures["PermissionRequest"]["payloadKeys"], captures
+assert "tool_use_id" in captures["PostToolUse"]["payloadKeys"], captures
+for secret in ("private-command-text", "private-response"):
+    assert secret not in json.dumps(record), secret
+PY
+
+python3 - <<'PY' | run_reporter PostToolUse
+import json
+print(json.dumps({"tool_use_id": "x" * 129}))
+PY
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert "tool_use_id" not in record["codexPayloadCapture"]["PostToolUse"]["payloadScalars"], record
+PY
+
+printf '%s' '{not-json' | run_reporter PermissionRequest
+python3 - "$diagnostic_file" <<'PY'
+import json
+import pathlib
+import sys
+
+record = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert record["event"] == "PermissionRequest", record
+assert record["codexPayloadCapture"]["PermissionRequest"]["payloadKeys"] == [], record
+assert record["codexPayloadCapture"]["PermissionRequest"]["payloadScalars"] == {}, record
 PY
 
 : > "$temp_dir/python3-calls"

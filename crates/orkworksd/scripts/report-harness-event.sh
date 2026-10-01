@@ -169,8 +169,8 @@ case "$marker" in
       PermissionRequest|PostToolUse)
         codex_payload_capture="$(printf '%s' "$payload" | python3 -c '
 import json, sys
-allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name")
-safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_response"}
+allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")
+safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_use_id", "tool_response"}
 try:
     data = json.load(sys.stdin)
 except Exception:
@@ -181,7 +181,10 @@ if isinstance(data, dict):
     capture["payloadKeys"] = sorted(keys)[:64]
     for key in allowed_scalars:
         value = data.get(key)
-        if isinstance(value, str) and len(value) <= 128:
+        if key == "tool_use_id":
+            if isinstance(value, str) and len(value) <= 128:
+                capture["payloadScalars"][key] = value
+        elif isinstance(value, str) and len(value) <= 128:
             capture["payloadScalars"][key] = value
         elif type(value) in (int, float, bool):
             capture["payloadScalars"][key] = value
@@ -311,10 +314,10 @@ fi
 
 # Keep one private, redacted Codex reporter trace for local diagnosis. The
 # capture-only exception stores allowlisted top-level payload key names plus
-# only hook_event_name, permission_mode, turn_id, and tool_name scalar values
-# scalar values for PermissionRequest and PostToolUse. Never include tool_input,
-# transcript_path, cwd, session IDs, tokens, arbitrary free text, full payloads,
-# response bodies, or request URLs.
+# only hook_event_name, permission_mode, turn_id, tool_name, and bounded
+# tool_use_id scalar values for PermissionRequest and PostToolUse. Never include
+# tool_input, transcript_path, cwd, session IDs, tokens, arbitrary free text,
+# full payloads, response bodies, or request URLs.
 if [ "$session_source" = "codex_hook" ]; then
   diagnostic_path="${HOME:-}/.orkworks/hook-scripts/report-harness-event-diagnostic.json"
   diagnostic_dir=$(dirname "$diagnostic_path")
@@ -325,8 +328,8 @@ import json, os, pathlib, sys, tempfile
 import fcntl
 path = pathlib.Path(sys.argv[1])
 allowed_events = ("PermissionRequest", "PostToolUse")
-allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name")
-safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_response"}
+allowed_scalars = ("hook_event_name", "permission_mode", "turn_id", "tool_name", "tool_use_id")
+safe_payload_keys = {"hook_event_name", "model", "permission_mode", "turn_id", "tool_name", "tool_use_id", "tool_response"}
 def post_result(kind, curl_exit, http_status):
     if kind == "posted":
         return {"curlExit": int(curl_exit), "httpStatus": http_status}
@@ -352,7 +355,10 @@ def clean_capture(value):
     clean_scalars = {}
     for key in allowed_scalars:
         item = scalars.get(key)
-        if isinstance(item, str) and len(item) <= 128:
+        if key == "tool_use_id":
+            if isinstance(item, str) and len(item) <= 128:
+                clean_scalars[key] = item
+        elif isinstance(item, str) and len(item) <= 128:
             clean_scalars[key] = item
         elif type(item) in (int, float, bool):
             clean_scalars[key] = item
@@ -381,7 +387,11 @@ event = sys.argv[2]
 diagnostic_events = ("SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop")
 diagnostic_event = event if event in diagnostic_events else "Unknown"
 if event in allowed_events:
-    current = clean_capture(json.loads(sys.argv[13]))
+    try:
+        raw_capture = json.loads(sys.argv[13] or "{}")
+    except (TypeError, ValueError):
+        raw_capture = {}
+    current = clean_capture(raw_capture)
     current["attentionPost"] = post_result(sys.argv[7], sys.argv[8], sys.argv[9])
     current["harnessSessionPost"] = post_result(sys.argv[10], sys.argv[11], sys.argv[12])
     captures[event] = current
