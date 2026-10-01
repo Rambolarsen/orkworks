@@ -47,7 +47,11 @@ fi
 stale_secs=$((7 * 86400))
 now=$(date +%s)
 remote_branch_prefix="refs/remotes/origin/"
-default_branch="$(git symbolic-ref --short "refs/remotes/origin/HEAD" 2>/dev/null | sed "s|^${remote_branch_prefix}||" || true)"
+  # Resolve the default branch from the full symbolic ref: the --short form
+  # returns "origin/main", which the prefix strip below cannot reduce and
+  # which must not be re-prefixed with origin/ when compared against the
+  # remote-tracking tree.
+  default_branch="$(git symbolic-ref "refs/remotes/origin/HEAD" 2>/dev/null | sed "s|^${remote_branch_prefix}||" || true)"
 if [ -z "$default_branch" ]; then
   default_branch='main'
 fi
@@ -67,33 +71,64 @@ while IFS= read -r branch; do
   # when it is not an ancestor (squash-merge histories are common here):
   # merging the branch into the default branch must produce exactly the
   # default branch's own tree, i.e. the branch contributes nothing new.
-  default_tree="$(git rev-parse "$default_branch^{tree}" 2>/dev/null)"
+  # Compare against the fetched origin ref, not the possibly-stale local
+  # default branch (see the fetch --prune instruction in grooming-the-board).
+  default_tree="$(git rev-parse "origin/$default_branch^{tree}" 2>/dev/null)"
   if [ -n "$default_tree" ] &&
-     git merge-tree --write-tree "$default_branch" "origin/$branch" >/dev/null 2>&1 &&
-     [ "$(git merge-tree --write-tree "$default_branch" "origin/$branch" 2>/dev/null)" = "$default_tree" ]; then
+     git merge-tree --write-tree "origin/$default_branch" "origin/$branch" >/dev/null 2>&1 &&
+     [ "$(git merge-tree --write-tree "origin/$default_branch" "origin/$branch" 2>/dev/null)" = "$default_tree" ]; then
     continue
   fi
 
-  if ! pr_json="$(gh pr list --repo "$repo_slug" --state "$pr_state" --head "$repo_slug:$branch" --json number,state 2>/dev/null)"; then
+  # gh matches --head by branch name only; an owner-qualified "<owner>:<branch>"
+  # value matches nothing and would lose OPEN-PR coverage for same-repo branches.
+  if ! pr_json="$(gh pr list --repo "$repo_slug" --state "$pr_state" --head "$branch" --json number,state,updatedAt,isCrossRepository 2>/dev/null)"; then
     pr_json='[]'
   fi
   # gh success with empty stdout (no PRs matched) still needs to be a JSON
   # array for the jq steps below; real gh prints [] in that case.
   pr_json="${pr_json:-[]}"
-  # An OPEN PR covers the branch in both modes: in open mode the list only
-  # contains open PRs, in all mode any OPEN entry counts. MERGED records do
-  # not cover — state=all exists precisely to catch branches whose only PR
-  # record is merged.
-  if printf '%s' "$pr_json" | jq -e 'if length == 0 then false else (any(.[]; .state == "OPEN")) end' >/dev/null 2>&1; then
-    continue
+  # Keep same-repo records only: --head matches by branch name, so an
+  # unrelated fork PR whose branch happens to share this branch's name is a
+  # different branch's content and must not cover it.
+  pr_json="$(printf '%s' "$pr_json" | jq -c 'map(select(.isCrossRepository | not))' 2>/dev/null)" || pr_json='[]'
+  pr_json="${pr_json:-[]}"
+  # An OPEN same-repo PR covers the branch in both modes: in open mode the
+  # list only contains open PRs, in all mode any OPEN entry counts. MERGED
+  # records do not cover — state=all exists precisely to catch branches whose
+  # only PR record is merged. Exception: when every open PR for the branch has
+  # been inactive for over the stale window, each is itself subject to the
+  # rebase-or-close rule, so the stalled PRs are reported instead of covering
+  # the branch. A single fresh open PR (or one with no updatedAt, freshness
+  # unknown) covers the branch and nothing is reported.
+  if printf '%s' "$pr_json" | jq -e 'any(.[]; .state == "OPEN")' >/dev/null 2>&1; then
+    stalled="$(printf '%s' "$pr_json" | jq -r --argjson now "$now" --argjson stale "$stale_secs" '
+      def open_age: ($now - (.updatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdate));
+      [ .[] | select(.state == "OPEN")
+             | select(.updatedAt != null)
+             | select(open_age > $stale) ]
+      | if length > 0 then
+          map("#\(.number) open, stalled \((open_age / 86400) | floor | tostring)d")
+          | join(", ")
+        else empty end')"
+    fresh="$(printf '%s' "$pr_json" | jq --argjson now "$now" --argjson stale "$stale_secs" '
+      def open_age: ($now - (.updatedAt | sub("\\.[0-9]+Z$"; "Z") | fromdate));
+      [ .[] | select(.state == "OPEN")
+             | select((.updatedAt == null) or (open_age <= $stale)) ]
+      | length')"
+    if [ -z "$stalled" ] || [ "$fresh" -gt 0 ]; then
+      continue
+    fi
+    pr_summary="$stalled"
+  else
+    pr_summary="$(printf '%s' "$pr_json" | jq -r '
+      if (length == 0) then
+        "no PR"
+      else
+        map((if .state == "OPEN" then "#\(.number) open" else "#\(.number) \(.state | ascii_downcase)" end) | tostring)
+        | join(", ")
+      end')"
   fi
-  pr_summary="$(printf '%s' "$pr_json" | jq -r '
-    if (length == 0) then
-      "no PR"
-    else
-      map((if .state == "OPEN" then "#\(.number) open" else "#\(.number) \(.state | ascii_downcase)" end) | tostring)
-      | join(", ")
-    end')"
 
   age_days=$((age / 86400))
   printf '%s\t%dd\t%s\n' "$branch" "$age_days" "$pr_summary"
