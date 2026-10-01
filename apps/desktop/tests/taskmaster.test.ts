@@ -17,6 +17,7 @@ import {
   panelEmptyMessage,
   sortedEvidence,
   proposedChangeReference,
+  formatProposedChange,
   proposedChangeGuidance,
   type PanelOriginFilter,
 } from "../src/taskmaster.ts";
@@ -1048,4 +1049,18 @@ test("rollup fix prompt without a proposed change is unchanged", () => {
   const prompt = buildFixPromptDraft({ ...rollupRecommendationWithChange(), proposedChange: null });
   assert.ok(!prompt.includes("Proposed change:"));
   assert.ok(!prompt.includes('"proposedChange"'));
+});
+
+test("formatProposedChange labels targets and flags sensitive ones as plain text", () => {
+  const view = formatProposedChange({
+    summary: "Pin retries",
+    targets: [
+      { path: ".github/workflows/ci.yml", action: "edit", instruction: "Pin it", sensitive: true },
+      { path: "docs/retry.md", action: "create", instruction: "Add page", sensitive: false },
+    ],
+    verification: "Read the workflow",
+  });
+  assert.deepEqual(view.targets.map((target) => target.label), ["Edit .github/workflows/ci.yml", "Create docs/retry.md"]);
+  assert.deepEqual(view.targets.map((target) => target.sensitive), [true, false]);
+  assert.equal(view.summary, "Pin retries");
 });

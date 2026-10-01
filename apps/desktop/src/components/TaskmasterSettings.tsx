@@ -174,7 +174,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
       {currentWorkspacePath && runStatus?.workspacePath === currentWorkspacePath ? <>
         <p role="status">{formatTaskmasterRunStatus(runStatus)}</p>
         {runStatus.activeAttempt && <p>Queued {runStatus.activeAttempt.queuedAt}{runStatus.activeAttempt.startedAt ? ` · started ${runStatus.activeAttempt.startedAt}` : ""}</p>}
-        {runStatus.latestOutcome && <p>Finished {runStatus.latestOutcome.completedAt}{runStatus.latestOutcome.state === "failed" && runStatus.latestOutcome.errorSummary ? ` · ${runStatus.latestOutcome.errorSummary}` : ""}</p>}
+        {runStatus.latestOutcome && <p>Finished {runStatus.latestOutcome.completedAt}{runStatus.latestOutcome.errorSummary ? ` · ${runStatus.latestOutcome.errorSummary}` : ""}</p>}
       </> : <p role="status">{currentWorkspacePath ? runStatusError ?? "Loading analysis status…" : "No workspace selected."}</p>}
     </section>
     {status.knowledgeUpdate.lastError && <p role="status">Knowledge update: {status.knowledgeUpdate.lastError}</p>}

@@ -94,3 +94,12 @@ test("privileged transport keeps per-resource byte limits and rejects invalid au
   }
   assert.equal(calls, before);
 });
+
+test("a degraded succeeded run surfaces its reason; a clean one shows no detail", () => {
+  const outcome = { state: "succeeded" as const, startedAt: "t0", completedAt: "t1", trigger: "manual" as const, provider: "codex", model: "m" };
+  const degraded = formatTaskmasterRunStatus({ workspacePath: "/w", activeAttempt: null,
+    latestOutcome: { ...outcome, errorSummary: "Rollups degraded (proposed_change_path); other results were applied" } });
+  assert.ok(degraded.includes("Rollups degraded (proposed_change_path)"));
+  const clean = formatTaskmasterRunStatus({ workspacePath: "/w", activeAttempt: null, latestOutcome: { ...outcome, errorSummary: null } });
+  assert.equal(clean, "Succeeded manual analysis · codex / m");
+});

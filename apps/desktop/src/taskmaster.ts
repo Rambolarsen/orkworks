@@ -288,3 +288,15 @@ function buildRollupReference(recommendation: WorkflowRecommendation): string {
   }
   return `<orkworks-untrusted-rollup-reference>\n${serialized}\n</orkworks-untrusted-rollup-reference>`;
 }
+
+export function formatProposedChange(change: ProposedChange) {
+  return {
+    summary: change.summary,
+    targets: change.targets.map((target) => ({
+      label: `${target.action === "edit" ? "Edit" : "Create"} ${target.path}`,
+      instruction: target.instruction,
+      sensitive: target.sensitive === true,
+    })),
+    verification: change.verification,
+  };
+}
