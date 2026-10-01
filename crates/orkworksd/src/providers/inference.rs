@@ -138,7 +138,9 @@ fn classify_known_failure_text(
         Some((ProviderOperationErrorCode::Timeout, "timeout"))
     } else if lower.contains("insufficient_quota")
         || lower.contains("quota exceeded")
+        || lower.contains("exceeded your current quota")
         || lower.contains("usage limit")
+        || lower.contains("usage_limit_reached")
         || lower.contains("credit balance")
         || lower.contains("credit_balance_exhausted")
         || lower.contains("spending limit")
@@ -197,6 +199,8 @@ fn classify_known_failure_text(
         ))
     } else if (500..=599).any(|status| has_http_status(&lower, status))
         || lower.contains("server_error")
+        || lower.contains("server_overloaded")
+        || lower.contains("server overloaded")
         || lower.contains("internal server error")
         || lower.contains("service unavailable")
         || lower.contains("bad gateway")
@@ -800,6 +804,8 @@ mod tests {
                 "insufficient_quota for account private-account",
                 "quota exceeded",
             ),
+            ("HTTP 429 You exceeded your current quota", "quota exceeded"),
+            ("HTTP 429 usage_limit_reached", "quota exceeded"),
             ("HTTP 429 credit_balance_exhausted", "quota exceeded"),
             (
                 "Proxy connection failed: HTTP CONNECT failed with status 403",
@@ -813,6 +819,8 @@ mod tests {
                 "HTTP 503 internal server error at https://private.example",
                 "provider server error",
             ),
+            ("server_overloaded", "provider server error"),
+            ("Server overloaded; retry later.", "provider server error"),
             (
                 "DNS error while connecting to private.example",
                 "network failure",
