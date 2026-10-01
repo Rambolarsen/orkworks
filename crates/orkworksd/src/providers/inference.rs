@@ -185,7 +185,7 @@ fn prepare_with_preferences(
                 "search_tool",
                 "tool_search",
                 "tool_suggest",
-                "exec_permission_approvals",
+                "request_permissions",
                 "request_permissions_tool",
                 "deferred_executor",
             ] {
@@ -378,6 +378,7 @@ impl PreparedInference {
 fn decode_codex(stdout: &str) -> Result<String, ProviderOperationError> {
     let mut answer = None;
     let mut complete = false;
+    let mut turn_started = false;
     for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
         let event: Value =
             serde_json::from_str(line).map_err(|_| invalid("invalid Codex inference event"))?;
@@ -385,16 +386,17 @@ fn decode_codex(stdout: &str) -> Result<String, ProviderOperationError> {
             return Err(invalid("unexpected event after Codex completion"));
         }
         match event["type"].as_str() {
-            Some("thread.started" | "turn.started") => {}
+            Some("thread.started") => {}
+            Some("turn.started") => turn_started = true,
             Some("item.started" | "item.updated" | "item.completed") => {
                 match event["item"]["type"].as_str() {
                     Some("reasoning") => {}
                     // Codex reports configuration warnings (deprecated or
-                    // under-development features) as `error` items on an
-                    // otherwise normal turn. They are diagnostics, not tool
-                    // actions; a failed turn still ends in `turn.failed`/`error`
-                    // events or lacks a completed answer, both rejected below.
-                    Some("error") => {}
+                    // under-development features) as `error` items before the
+                    // turn starts. Those are diagnostics, not tool actions. An
+                    // `error` item once the turn is running is a real failure
+                    // and falls through to the rejection below.
+                    Some("error") if !turn_started => {}
                     Some("agent_message") => {
                         if event["type"] == "item.completed" {
                             answer = event["item"]["text"].as_str().map(str::to_owned);
@@ -560,18 +562,32 @@ mod tests {
         ]
         .join("\n");
         assert!(decode_codex(&only_errors).is_err());
+        // An error raised during the turn is a real failure, not a config warning,
+        // even if a stray answer and completion follow it.
+        let mid_turn = [
+            r#"{"type":"turn.started"}"#,
+            r#"{"type":"item.completed","item":{"type":"error","message":"API error"}}"#,
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"{}"}}"#,
+            r#"{"type":"turn.completed"}"#,
+        ]
+        .join("\n");
+        assert!(decode_codex(&mid_turn).is_err());
     }
 
     #[test]
-    fn codex_uses_current_permission_feature_name() {
+    fn codex_keeps_the_feature_name_every_supported_version_accepts() {
+        // `--strict-config` rejects unknown feature names, so renaming to a flag an
+        // older supported Codex (>=0.153.4) lacks would fail every call. The
+        // deprecated alias still works on current Codex and only warns, which the
+        // decoder tolerates before the turn starts.
         let invocation = prepare(&definition("codex"), "chosen", None, "context".into()).unwrap();
         let settings: Vec<_> = invocation
             .command
             .get_args()
             .map(|arg| arg.to_str().unwrap())
             .collect();
-        assert!(!settings.contains(&"features.request_permissions=false"));
-        assert!(settings.contains(&"features.exec_permission_approvals=false"));
+        assert!(settings.contains(&"features.request_permissions=false"));
+        assert!(!settings.contains(&"features.exec_permission_approvals=false"));
     }
 
     #[test]
