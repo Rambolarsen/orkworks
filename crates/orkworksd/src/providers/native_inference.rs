@@ -59,7 +59,10 @@ impl NativeProfile {
             default_args: vec![],
             model_arg_template: None,
             supports_model: false,
-            timeout_secs: 30,
+            // Taskmaster prompts carry up to 256 KiB of context; a ~73 KB prompt
+            // already needed 23s on codex-cli 0.159.3. Stay inside the 1..=120s
+            // range that inference definitions validate.
+            timeout_secs: 90,
             prompt_transport: super::PromptTransport::Stdin,
             reasoning_effort_args: vec![],
             list_models_command: None,
@@ -189,7 +192,7 @@ mod tests {
             assert!(command.is_empty());
             assert!(args.is_empty());
             assert_eq!(prompt, "fixture context");
-            assert_eq!(timeout, 30);
+            assert_eq!(timeout, 90);
             assert_eq!(model, Some("chosen-model"));
             assert_eq!(connection, Some("http://127.0.0.1:11436"));
             InvocationResult {
@@ -228,7 +231,7 @@ mod tests {
                 assert_eq!(timeout, 5);
                 "2.1.236 (Claude Code)"
             } else {
-                assert_eq!(timeout, 30);
+                assert_eq!(timeout, 90);
                 assert!(args.contains(&"--safe-mode"));
                 assert!(args.contains(&"--model=chosen-model"));
                 assert!(!args.iter().any(|arg| arg.contains("peon-sentinel")));
@@ -271,6 +274,64 @@ mod tests {
             before
         );
         assert!(manager.runtime.read().unwrap().is_empty());
+    }
+
+    /// Passes the version probe, then fails the real invocation the way
+    /// `ProcessRunner` reports a killed, over-long child.
+    struct TimingOutRunner;
+    impl ProviderRunner for TimingOutRunner {
+        fn run(
+            &self,
+            _: &str,
+            _: &str,
+            _: &[String],
+            _: &str,
+            _: u64,
+            _: Option<&str>,
+        ) -> InvocationResult {
+            panic!("native CLI must use its isolated prepared command");
+        }
+        fn run_prepared(
+            &self,
+            _: &str,
+            command: &mut Command,
+            _: &str,
+            _: u64,
+            _: Option<&str>,
+        ) -> InvocationResult {
+            let probe = command.get_args().any(|arg| arg == "--version");
+            InvocationResult {
+                success: probe,
+                stdout: if probe { "2.1.236 (Claude Code)" } else { "" }.into(),
+                stderr: if probe {
+                    String::new()
+                } else {
+                    "claude timed out after 90s".into()
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn native_cli_failure_reports_its_classified_reason() {
+        let mut manager = ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![]);
+        manager.runner = Arc::new(TimingOutRunner);
+        let error = manager
+            .invoke_native_taskmaster_prompt(
+                NativeProfile::Claude,
+                "chosen-model",
+                None,
+                None,
+                "fixture context".into(),
+            )
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            crate::providers::ProviderOperationErrorCode::Timeout
+        );
+        assert!(error.message.contains("(timeout)"), "{}", error.message);
+        // The reason is the classified code only; raw stderr never reaches the ledger.
+        assert!(!error.message.contains("90s"), "{}", error.message);
     }
 
     #[test]
