@@ -487,6 +487,7 @@ mod tests {
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,
             rolled_up_by: None,
+            proposed_change: None,
         }
     }
 

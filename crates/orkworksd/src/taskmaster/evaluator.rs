@@ -1288,6 +1288,7 @@ fn apply_model_output_parsed(
             workflow_improvement: WorkflowImprovement { proposed_improvement: proposal.summary, target_surface, observation_ids: Vec::new(), recurrence_count: 0, affected_session_ids: Vec::new(), impact: Impact::Low, expected_benefit: "Hypothesis based on the cited repository facts.".into(), supersedes_recommendation_id: None, dismissal_watermark: None },
             completion_packet: None,
             rollup_member_ids: Vec::new(), rollup_member_dedupe_keys: Vec::new(), rollup_generation: None, rolled_up_by: None,
+            proposed_change: None,
         };
         updates.push(recommendation);
     }

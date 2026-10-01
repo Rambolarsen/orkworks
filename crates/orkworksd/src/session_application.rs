@@ -687,6 +687,14 @@ impl SessionApplication {
                 first_member.workflow_improvement.expected_benefit.clone();
             parent.workflow_improvement.supersedes_recommendation_id = supersedes_recommendation_id;
             parent.workflow_improvement.dismissal_watermark = None;
+            // The model's change proposal is presentation: refresh it while the
+            // parent is still proposed (including backfilling a v1 parent);
+            // executing parents keep what they had.
+            if existing_parent
+                .is_none_or(|existing| existing.status == RecommendationStatus::Proposed)
+            {
+                parent.proposed_change = Some(cluster.proposed_change.clone());
+            }
 
             for id in parent
                 .rollup_member_ids

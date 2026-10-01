@@ -167,6 +167,8 @@ pub(crate) struct Recommendation {
     pub rollup_generation: Option<u64>,
     #[serde(default)]
     pub rolled_up_by: Option<String>,
+    #[serde(default)]
+    pub proposed_change: Option<proposed_change::ProposedChange>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -500,6 +502,7 @@ pub(crate) fn evaluate_workflow_improvements(
             rollup_generation,
             rolled_up_by: active_rollup_member
                 .and_then(|recommendation| recommendation.rolled_up_by.clone()),
+            proposed_change: None,
         });
     }
     proposals.sort_by(|left, right| left.dedupe_key.cmp(&right.dedupe_key));

@@ -97,6 +97,7 @@ fn recommendation(id: &str, sequence: u64) -> Recommendation {
         rollup_member_dedupe_keys: Vec::new(),
         rollup_generation: None,
         rolled_up_by: None,
+        proposed_change: None,
     }
 }
 
@@ -1477,4 +1478,98 @@ fn rollup_prompt_version_is_v2_and_names_proposed_change() {
     let snapshot = evaluation_snapshot();
     let request = build_rollup_request(1, &snapshot, &recommendations).unwrap();
     assert!(request.prompt.contains("proposedChange"));
+}
+
+#[test]
+fn rollup_parent_stores_proposed_change_and_refresh_updates_it_while_proposed() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    let parent = stored_recommendations(&state)
+        .into_iter()
+        .find(|r| r.id == parent_id)
+        .unwrap();
+    assert_eq!(
+        parent.proposed_change.as_ref().unwrap().targets[0].path,
+        "RETRY_POLICY.md"
+    );
+
+    let current = stored_recommendations(&state);
+    let refresh = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    let mut updated = cluster(&["a", "b"]);
+    updated.proposed_change.summary = "Refreshed summary".into();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &refresh,
+        &output(&[updated])
+    ));
+    let parent = stored_recommendations(&state)
+        .into_iter()
+        .find(|r| r.id == parent_id)
+        .unwrap();
+    assert_eq!(parent.proposed_change.unwrap().summary, "Refreshed summary");
+}
+
+#[test]
+fn executing_rollup_parent_keeps_its_proposed_change() {
+    // The apply path's `Executing` keep-branch is defensive: the store graph
+    // invariants and the input-match check make a same-member refresh of an
+    // Executing parent unreachable (apply is rejected as stale before any
+    // write). Pin that outcome and that proposed_change is untouched.
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let initial =
+        build_rollup_request(workspace_instance(&state), &snapshot, &recommendations).unwrap();
+    assert!(apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &initial,
+        &output(&[cluster(&["a", "b"])])
+    ));
+    let current = stored_recommendations(&state);
+    let refresh = build_rollup_request(workspace_instance(&state), &snapshot, &current).unwrap();
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    {
+        let guard = state.workspace.lock().unwrap();
+        let store = &guard.as_ref().unwrap().recommendation_store;
+        let mut parent = store.get(&parent_id).unwrap().unwrap();
+        parent.status = RecommendationStatus::Executing;
+        store.put(&parent).unwrap();
+    }
+    let mut updated = cluster(&["a", "b"]);
+    updated.proposed_change.summary = "Must not replace".into();
+    assert!(!apply_combined_output(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        &refresh,
+        &output(&[updated]),
+    ));
+    let parent = stored_recommendations(&state)
+        .into_iter()
+        .find(|r| r.id == parent_id)
+        .unwrap();
+    assert_eq!(parent.status, RecommendationStatus::Executing);
+    assert_eq!(
+        parent.proposed_change.unwrap().summary,
+        "Document the retry policy"
+    );
 }

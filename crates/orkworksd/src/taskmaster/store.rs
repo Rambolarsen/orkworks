@@ -1635,6 +1635,7 @@ mod tests {
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,
             rolled_up_by: None,
+            proposed_change: None,
         }
     }
 
@@ -2061,6 +2062,19 @@ mod tests {
                 .updated_at,
             "2026-08-21T12:00:00Z"
         );
+    }
+
+    #[test]
+    fn legacy_records_without_proposed_change_deserialize_to_none_and_serialize_null() {
+        let mut value = serde_json::to_value(recommendation("legacy", "session")).unwrap();
+        value.as_object_mut().unwrap().remove("proposedChange");
+        let parsed: Recommendation = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.proposed_change, None);
+        assert!(serde_json::to_value(&parsed)
+            .unwrap()
+            .get("proposedChange")
+            .unwrap()
+            .is_null());
     }
 
     #[test]
