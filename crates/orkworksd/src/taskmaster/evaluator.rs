@@ -723,7 +723,7 @@ fn run_model_evaluation_with_context_and_workspace(
                                 if let Some(guard) = run_guard.as_mut() {
                                     guard.finish(
                                         TaskmasterRunOutcomeState::Interrupted,
-                                        Some("Taskmaster result was not committed because its workspace or provider context changed"),
+                                        Some("Taskmaster output was applied, but its evaluation cache was not committed because the workspace/provider context or cache ledger was unavailable or had changed"),
                                     );
                                 }
                             }

@@ -45,7 +45,7 @@ export function formatTaskmasterRunStatus(status: TaskmasterRunStatus): string {
   if (active) return `${active.state === "queued" ? "Queued" : "Running"} ${active.trigger} analysis · ${active.provider} / ${active.model}`;
   const outcome = status.latestOutcome;
   if (!outcome) return "No analysis runs for this workspace.";
-  const detail = outcome.state === "failed" && outcome.errorSummary ? `: ${outcome.errorSummary}` : "";
+  const detail = outcome.state !== "succeeded" && outcome.errorSummary ? `: ${outcome.errorSummary}` : "";
   return `${outcome.state[0].toUpperCase()}${outcome.state.slice(1)} ${outcome.trigger} analysis · ${outcome.provider} / ${outcome.model}${detail}`;
 }
 export function formatTaskmasterRunTimestamp(status: TaskmasterRunStatus): string {
