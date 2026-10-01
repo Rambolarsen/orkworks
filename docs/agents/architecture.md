@@ -478,11 +478,19 @@ sidecar may run one bounded model rollup over currently proposed exact-family
 snapshots: at most 32 families, three representative observations per family,
 96 observations, eight source sessions per family, and 128 KiB input. The
 model may return at most eight two-to-eight-family clusters with bounded title
-and summary text; the sidecar rejects unknown, duplicate, overlapping, or
-cross-target clusters as a whole. A parent uses the stable
-`rollup:<sha256-hex>` identity over sorted member IDs, while generated prose
-cannot alter evidence-derived counts or claims. Exact recommendations remain
-available when the model is unavailable.
+and summary text plus one required `proposedChange` (summary, one to three
+file targets, and a verification note); the sidecar rejects unknown,
+duplicate, overlapping, or cross-target clusters as a whole. A parent uses the
+stable `rollup:<sha256-hex>` identity over sorted member IDs, while generated
+prose and `proposedChange` cannot alter evidence-derived counts or claims or
+the identity. `proposedChange` is non-evidence: target paths are validated
+against the workspace under the workspace lock, `sensitive` is sidecar-computed,
+and the Fix with AI handoff places it inside the untrusted reference block. A
+rollup validation failure degrades instead of rejecting the whole combined
+response: the rollups section is discarded and the run status records a
+rollup-degraded reason. See `specs/taskmaster.md` "Rollup proposed change" and
+the ADR 0057 amendment. Exact recommendations remain available when the model
+is unavailable.
 
 The recommendation graph is recovered before reads are served. Parent/member
 updates are staged and published through the fsynced manifest transaction

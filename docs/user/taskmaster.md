@@ -43,6 +43,14 @@ Settings page and Recommendations panel report when an analysis is queued or
 running, and its latest success, failure, or interruption. A failure includes
 the provider/model and a short error summary, so you can distinguish a failed
 analysis from a provider that is simply not configured.
+If the model's rollup grouping could not be used, the analysis still succeeds
+with your individual recommendations and the status reads `Rollups degraded`
+followed by a short reason code.
+
+A rollup card also shows a proposed change: the model's suggested edit or new
+file targets and how to verify the change. It is a suggestion for the
+receiving session to check, not evidence; paths that look sensitive are
+flagged.
 
 ## Inspect before acting
 
