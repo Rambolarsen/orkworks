@@ -40,7 +40,9 @@ or ignored without mutation.
 
 ## Amendment 2026-10-01 (proposed): `PermissionRequest` is not proof of a human prompt
 
-Status of this amendment: **proposed**. It records a gap in the decision above
+Status of this amendment: **proposed** (owner approved the payload-capture
+exception and the four-to-five event bundle on 2026-10-01; behavior stays
+unchanged until the verification gate below passes). It records a gap in the decision above
 and the verification gate for closing it; it changes no behavior until the gate
 passes and the amendment is marked accepted. Tracked by
 [#690](https://github.com/Rambolarsen/orkworks/issues/690).
