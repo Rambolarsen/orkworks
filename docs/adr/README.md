@@ -79,4 +79,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0069](./0069-codex-session-id-hook-report-mailbox.md) | Codex native session IDs use a temporary hook report mailbox when sandboxed networking blocks loopback | accepted |
 | [0070](./0070-alt-buffer-wheel-input-survives-xterm-dampening.md) | Alternate-buffer wheel input survives xterm dampening | accepted |
 | [0071](./0071-taskmaster-model-refresh-and-run-status.md) | Taskmaster owns model refresh and workspace-scoped analysis status | accepted |
-| [0071](./0071-codex-session-process-isolation.md) | Codex sessions use independent processes | accepted |
+| [0072](./0072-codex-session-process-isolation.md) | Codex sessions use independent processes | accepted |

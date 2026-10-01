@@ -349,7 +349,7 @@ This avoids Codex 0.159.2's shared app-server retaining the first launch's
 OrkWorks environment across conversations. Successful older help output without
 the option preserves the original arguments; failed or oversized probes abort
 startup. Existing sessions require relaunch. Global Codex configuration and
-its shared daemon are untouched. See [ADR 0071](../adr/0071-codex-session-process-isolation.md).
+its shared daemon are untouched. See [ADR 0072](../adr/0072-codex-session-process-isolation.md).
 
 Codex session identity stays bound to the conversation OrkWorks launched:
 differing Codex hook IDs are ignored, except for an authenticated root
