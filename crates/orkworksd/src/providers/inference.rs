@@ -71,6 +71,168 @@ pub(crate) fn valid_native_model(model: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "-._/:@+".contains(c))
 }
 
+pub(super) fn native_cli_failure_summary(
+    provider: &str,
+    stderr: &str,
+    stdout: &str,
+) -> (ProviderOperationErrorCode, &'static str) {
+    if provider == "codex" {
+        // `codex exec --json` reports terminal failures as top-level JSONL
+        // events. Read only their message fields; never return that text.
+        let mut retry_error = None;
+        let mut saw_terminal_failure = false;
+        for line in stdout.lines() {
+            let Ok(event) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            match event["type"].as_str() {
+                Some("turn.failed") => {
+                    saw_terminal_failure = true;
+                    if let Some(classified) = event["error"]["message"]
+                        .as_str()
+                        .and_then(classify_known_failure_text)
+                    {
+                        return classified;
+                    }
+                }
+                Some("error") if retry_error.is_none() => {
+                    retry_error = event["message"]
+                        .as_str()
+                        .and_then(classify_known_failure_text);
+                }
+                _ => {}
+            }
+        }
+        if !saw_terminal_failure {
+            if let Some(classified) = retry_error {
+                return classified;
+            }
+        }
+    }
+
+    if let Some(classified) = classify_known_failure_text(stderr) {
+        return classified;
+    }
+
+    let code = super::classify_invocation_error(stderr);
+    let summary = match code {
+        ProviderOperationErrorCode::Timeout => "timeout",
+        ProviderOperationErrorCode::Unauthorized => "authentication",
+        ProviderOperationErrorCode::ModelFailure => "model failure",
+        ProviderOperationErrorCode::UnsupportedCapability => "unsupported",
+        _ => "provider failure",
+    };
+    (code, summary)
+}
+
+fn classify_known_failure_text(
+    message: &str,
+) -> Option<(ProviderOperationErrorCode, &'static str)> {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("proxy") && lower.contains("connect") {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "network failure",
+        ))
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        Some((ProviderOperationErrorCode::Timeout, "timeout"))
+    } else if lower.contains("insufficient_quota")
+        || lower.contains("quota exceeded")
+        || lower.contains("exceeded your current quota")
+        || lower.contains("usage limit")
+        || lower.contains("usage_limit_reached")
+        || lower.contains("credit balance")
+        || lower.contains("credit_balance_exhausted")
+        || lower.contains("spending limit")
+    {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "quota exceeded",
+        ))
+    } else if lower.contains("rate limit")
+        || lower.contains("too many requests")
+        || has_http_status(&lower, 429)
+    {
+        Some((ProviderOperationErrorCode::ProviderFailure, "rate limited"))
+    } else if lower.contains("unauthorized")
+        || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
+        || has_http_status(&lower, 401)
+    {
+        Some((ProviderOperationErrorCode::Unauthorized, "authentication"))
+    } else if lower.contains("forbidden")
+        || lower.contains("permission denied")
+        || lower.contains("not authorized")
+        || has_http_status(&lower, 403)
+    {
+        Some((ProviderOperationErrorCode::ProviderFailure, "access denied"))
+    } else if lower.contains("model not found")
+        || lower.contains("unknown model")
+        || lower.contains("model was not found")
+        || has_http_status(&lower, 404)
+    {
+        Some((ProviderOperationErrorCode::ModelFailure, "model failure"))
+    } else if lower.contains("invalid config")
+        || lower.contains("configuration error")
+        || lower.contains("error loading config.toml")
+        || lower.contains("unknown configuration field")
+    {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "configuration error",
+        ))
+    } else if has_http_status(&lower, 400)
+        || has_http_status(&lower, 422)
+        || lower.contains("context_length_exceeded")
+        || lower.contains("invalid_request_error")
+        || lower.contains("invalid parameter")
+        || lower.contains("invalid request")
+        || lower.contains("request_validation_error")
+    {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "request validation error",
+        ))
+    } else if lower.contains("unsupported") {
+        Some((
+            ProviderOperationErrorCode::UnsupportedCapability,
+            "unsupported",
+        ))
+    } else if (500..=599).any(|status| has_http_status(&lower, status))
+        || lower.contains("server_error")
+        || lower.contains("server_overloaded")
+        || lower.contains("server overloaded")
+        || lower.contains("internal server error")
+        || lower.contains("service unavailable")
+        || lower.contains("bad gateway")
+    {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "provider server error",
+        ))
+    } else if lower.contains("connection refused")
+        || lower.contains("failed to connect")
+        || lower.contains("network error")
+        || lower.contains("connection reset")
+        || lower.contains("dns error")
+        || lower.contains("tls error")
+        || lower.contains("disconnected")
+    {
+        Some((
+            ProviderOperationErrorCode::ProviderFailure,
+            "network failure",
+        ))
+    } else {
+        None
+    }
+}
+
+fn has_http_status(message: &str, status: u16) -> bool {
+    [format!("http {status}"), format!("status {status}")]
+        .iter()
+        .any(|needle| message.contains(needle))
+}
+
 fn prepare_with_preferences(
     definition: &ProviderDefinition,
     model: &str,
@@ -572,6 +734,159 @@ mod tests {
         ]
         .join("\n");
         assert!(decode_codex(&mid_turn).is_err());
+    }
+
+    #[test]
+    fn codex_failure_summary_classifies_only_error_events_and_never_returns_the_message() {
+        let cases = [
+            (
+                r#"{"type":"error","message":"HTTP 401 Unauthorized; account=user@example.test request_id=secret-123"}"#,
+                ProviderOperationErrorCode::Unauthorized,
+                "authentication",
+            ),
+            (
+                r#"{"type":"turn.failed","error":{"message":"HTTP 429 rate limit exceeded; retry-after=30"}}"#,
+                ProviderOperationErrorCode::ProviderFailure,
+                "rate limited",
+            ),
+            (
+                r#"{"type":"turn.failed","error":{"message":"The selected model was not found; /Users/private/path"}}"#,
+                ProviderOperationErrorCode::ModelFailure,
+                "model failure",
+            ),
+            (
+                r#"{"type":"turn.failed","error":{"message":"HTTP 422 context_length_exceeded; /Users/private/path"}}"#,
+                ProviderOperationErrorCode::ProviderFailure,
+                "request validation error",
+            ),
+        ];
+
+        for (event, expected_code, expected_summary) in cases {
+            let (code, summary) = super::native_cli_failure_summary("codex", "", event);
+            assert_eq!(code, expected_code);
+            assert_eq!(summary, expected_summary);
+            assert!(!summary.contains('@'));
+            assert!(!summary.contains("secret-123"));
+            assert!(!summary.contains("/Users"));
+        }
+    }
+
+    #[test]
+    fn codex_failure_summary_ignores_non_error_events_and_unknown_text() {
+        let assistant_message = r#"{"type":"item.completed","item":{"type":"agent_message","text":"HTTP 401 Unauthorized"}}"#;
+        let unknown = r#"{"type":"turn.failed","error":{"message":"private detail user@example.test /Users/private"}}"#;
+
+        for stdout in [assistant_message, unknown] {
+            let (code, summary) = super::native_cli_failure_summary("codex", "", stdout);
+            assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+            assert_eq!(summary, "provider failure");
+            assert!(!summary.contains("private"));
+            assert!(!summary.contains('@'));
+        }
+    }
+
+    #[test]
+    fn native_cli_failure_summary_uses_known_stderr_categories_without_echoing_text() {
+        let (code, summary) = super::native_cli_failure_summary(
+            "codex",
+            "Permission denied for account user@example.test at /private/path",
+            "",
+        );
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(summary, "access denied");
+        assert!(!summary.contains('@'));
+        assert!(!summary.contains("/private"));
+    }
+
+    #[test]
+    fn native_cli_failure_summary_maps_known_categories_to_fixed_labels() {
+        for (message, expected) in [
+            (
+                "insufficient_quota for account private-account",
+                "quota exceeded",
+            ),
+            ("invalid_api_key for private-account", "authentication"),
+            ("HTTP 429 You exceeded your current quota", "quota exceeded"),
+            ("HTTP 429 usage_limit_reached", "quota exceeded"),
+            ("HTTP 429 credit_balance_exhausted", "quota exceeded"),
+            (
+                "Proxy connection failed: HTTP CONNECT failed with status 403",
+                "network failure",
+            ),
+            (
+                "Proxy connection failed: HTTP CONNECT failed with status 401",
+                "network failure",
+            ),
+            (
+                "HTTP 503 internal server error at https://private.example",
+                "provider server error",
+            ),
+            ("server_overloaded", "provider server error"),
+            ("Server overloaded; retry later.", "provider server error"),
+            (
+                "DNS error while connecting to private.example",
+                "network failure",
+            ),
+            (
+                "invalid config at /Users/private/config.toml",
+                "configuration error",
+            ),
+            (
+                "Error loading config.toml: unknown configuration field model_reasoning_effort",
+                "configuration error",
+            ),
+            (
+                "HTTP 400 context_length_exceeded for private prompt",
+                "request validation error",
+            ),
+            (
+                "HTTP 400 unsupported parameter `reasoning_summary`",
+                "request validation error",
+            ),
+            (
+                "HTTP 422 invalid parameter at /Users/private/request.json",
+                "request validation error",
+            ),
+            (
+                "unsupported feature at /Users/private/project",
+                "unsupported",
+            ),
+            ("request timed out after 90s", "timeout"),
+        ] {
+            let (_, summary) = super::native_cli_failure_summary("codex", message, "");
+            assert_eq!(summary, expected);
+            assert!(!summary.contains("private"));
+            assert!(!summary.contains("https://"));
+            assert!(!summary.contains("90s"));
+        }
+    }
+
+    #[test]
+    fn codex_failure_summary_prefers_terminal_turn_failure_over_reconnect_errors() {
+        let stdout = [
+            r#"{"type":"error","message":"disconnected while reconnecting"}"#,
+            r#"{"type":"turn.failed","error":{"message":"HTTP 401 Unauthorized"}}"#,
+        ]
+        .join("\n");
+
+        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout);
+
+        assert_eq!(code, ProviderOperationErrorCode::Unauthorized);
+        assert_eq!(summary, "authentication");
+    }
+
+    #[test]
+    fn codex_failure_summary_does_not_use_retry_error_when_terminal_failure_is_unknown() {
+        let stdout = [
+            r#"{"type":"error","message":"request timed out while reconnecting"}"#,
+            r#"{"type":"turn.failed","error":{"message":"unrecognized private diagnostic"}}"#,
+        ]
+        .join("\n");
+
+        let (code, summary) = super::native_cli_failure_summary("codex", "", &stdout);
+
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(summary, "provider failure");
     }
 
     #[test]
