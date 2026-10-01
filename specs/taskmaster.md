@@ -685,14 +685,39 @@ Path length is at most 260 bytes. Reject:
   (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`), with or without an
   extension;
 - any segment equal to `.git`, compared case-insensitively, at any depth;
-- duplicate paths within one `proposedChange`, compared case-insensitively.
+- duplicate paths within one `proposedChange`, compared case-insensitively;
+- a path outside the repository-level surfaces below.
+
+A target must classify, case-insensitively, as at least one of these generic
+(not repository-specific) surface classes, independent of the cluster's
+`target_surface`; anything else, such as product source, is out of scope. This
+mirrors the Fix prompt's existing scope of repository-level instructions,
+skills, tests, tooling, and documentation:
+
+- **instructions:** a file named `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, or
+  `.cursorrules` at any depth, or `.github/copilot-instructions.md`;
+- **skills:** a path under `skills/`, `.claude/skills/`, `.agents/skills/`, or
+  `.codex/skills/`;
+- **documentation:** a path under `docs/` or `specs/`, or a `.md`, `.mdx`,
+  `.rst`, or `.txt` file at any depth;
+- **tests:** a path with a `tests`, `test`, `__tests__`, or `spec` directory
+  segment, or a file name matching `*_test.*`, `*_tests.*`, `*.test.*`,
+  `*.spec.*`, or `test_*`;
+- **tooling:** a path under `scripts/`, `.github/`, `.husky/`, `.githooks/`,
+  `.devcontainer/`, `.vscode/`, `.cargo/`, `.claude/`, `.codex/`, `.opencode/`,
+  `.agents/`, or `.cursor/`; a file named `Makefile`, `justfile`, or
+  `Dockerfile`, or in the sensitive file-name list below, at any depth; or a
+  `.json`, `.yml`, `.yaml`, or `.toml` file directly in the repository root.
 
 An `edit` path must resolve, after canonicalization, to an existing regular
 file (not a directory, device, or FIFO) inside the workspace root, so a symlink
 cannot escape it. A `create` path's leaf must be reported absent by
 `symlink_metadata` (a dangling symlink counts as existing), and its parent must
-already exist, be a directory, and canonicalize inside the workspace root. The
-stored `path` is the validated repo-relative path, not the canonical one.
+already exist, be a directory, and canonicalize inside the workspace root. Two
+targets that resolve to the same file (two `edit` paths with one canonical file,
+or two `create` paths with one canonical parent and leaf, for example through an
+in-workspace symlink alias) are rejected as duplicates. The stored `path` is the
+validated repo-relative path, not the canonical one.
 
 Path validation does filesystem I/O, so it runs under the workspace lock when
 output is applied; an earlier parse-time pre-filter is optional. It is
@@ -705,9 +730,9 @@ Instruction and configuration surfaces such as `AGENTS.md`, `CLAUDE.md`, and
 skills are legitimate targets and are allowed. The sidecar sets
 `sensitive: true`, comparing case-insensitively, on a target under `.claude/`,
 `.codex/`, `.opencode/`, `.agents/`, `.cursor/`, `.vscode/`, `.devcontainer/`,
-`.husky/`, `.githooks/`, `.github/`, `.cargo/`, or `scripts/`, or equal to
-`.mcp.json`, `.gitattributes`, `.gitmodules`, `opencode.json`, `apm.yml`,
-`package.json`, `Cargo.toml`, or `build.rs`, because those paths can run code or
+`.husky/`, `.githooks/`, `.github/`, `.cargo/`, or `scripts/`, or whose final path
+segment equals `.mcp.json`, `.gitattributes`, `.gitmodules`, `opencode.json`, `apm.yml`,
+`package.json`, `Cargo.toml`, or `build.rs`, at any depth, because those paths can run code or
 change hooks, permissions, or CI. `AGENTS.md`, `CLAUDE.md`, and skills are
 deliberately not flagged: the flag marks paths that execute or change
 permissions, and these are the primary intended targets. The model never sets
@@ -725,8 +750,10 @@ whole-response failure.
 A degraded rollups section is not an empty clustering result. A valid empty
 result is authoritative and may dissolve proposed parents; a degraded section
 must instead leave every existing rollup parent and member untouched and apply
-only the non-rollup updates, without graph reconciliation. Enrichments,
-proposals, and deterministic exact recommendations are applied as usual.
+only the non-rollup updates, without graph reconciliation. Enrichments and
+proposals that target a rollup parent or rolled-up member are dropped so that
+"untouched" holds; all other enrichments, proposals, and the deterministic
+exact recommendations are applied as usual.
 
 The run is recorded as succeeded with a rollup-degraded diagnostic: one bounded
 classified reason code, never model text, in the existing evaluation status.
@@ -755,7 +782,8 @@ rollups produced before `v2`. A same-member-set `v2` result sets or updates it
 in place on a parent that is still `proposed`, including backfilling an
 existing `v1` parent. `executing`, `accepted`, and terminal parents keep the
 value they had, including `null`. The cluster's `target_surface` stays derived
-from its members and is not required to match the paths in `targets`.
+from its members. It is not required to match a target path's surface class,
+but every target must fall within the surface classes above.
 
 The card labels the block a model-written hypothesis, renders every field as
 plain text (no Markdown, no links), and shows a warning badge on a `sensitive`
@@ -1264,8 +1292,8 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] A Fix with AI prompt contains the stable recommendation ID and directs the target agent to use the `working-on-recommendation` skill to read the recommendation and its source-session evidence.
 - [ ] An authenticated target agent can transition an accepted `improve_workflow` recommendation to `completed`; the callback cannot name a different target session or lifecycle state, and retries are idempotent.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
-- [ ] A rollup parent stores a validated `proposedChange` (summary, one to three `edit`/`create` targets, verification) of at most 1.5 KiB; a missing or invalid one, a model-supplied `sensitive`, an escaping, `.git`, Windows-reserved, or duplicate path, a missing or non-regular `edit` target, or an existing or dangling-symlink `create` target degrades the rollups section while enrichments, proposals, and exact recommendations are still applied.
-- [ ] A degraded rollups section leaves every existing rollup parent and member untouched (it is not treated as an authoritative empty clustering result), is recorded as a succeeded run with a classified rollup-degraded reason and no model text, and is cached for identical inputs; a response that is invalid JSON or over the cap still fails as a whole.
+- [ ] A rollup parent stores a validated `proposedChange` (summary, one to three `edit`/`create` targets, verification) of at most 1.5 KiB; a missing or invalid one, a model-supplied `sensitive`, an escaping, `.git`, Windows-reserved, out-of-scope, or duplicate (lexical or canonical) path, a missing or non-regular `edit` target, or an existing or dangling-symlink `create` target degrades the rollups section while enrichments, proposals, and exact recommendations are still applied.
+- [ ] A degraded rollups section leaves every existing rollup parent and member untouched (it is not treated as an authoritative empty clustering result, and enrichments or proposals targeting a rollup parent or member are dropped), is recorded as a succeeded run with a classified rollup-degraded reason and no model text, and is cached for identical inputs; a response that is invalid JSON or over the cap still fails as a whole.
 - [ ] `proposedChange` never alters rollup identity, recurrence, affected sessions, impact, or confidence; a same-member-set `v2` result backfills a still-`proposed` parent, and `executing`, `accepted`, and terminal parents keep the value they had.
 - [ ] The sidecar, never the model, sets `sensitive` on targets under `.claude/`, `.codex/`, `.opencode/`, `.github/workflows/`, `opencode.json`, or `apm.yml`; the card badges them and the Fix prompt tells the session to tell the user before editing them.
 - [ ] A rollup Fix with AI prompt places `proposedChange` whole inside the delimited untrusted reference data (or omits it whole) and tells the session to recheck each target first; a rollup without one produces the unchanged prompt, and the Rust and desktop prompt builders pass the same shared fixture.

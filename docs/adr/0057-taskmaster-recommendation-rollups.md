@@ -136,8 +136,10 @@ bounded summary, one to three repo-relative `edit`/`create` targets with a
 short instruction each, and a prose verification hint, at most 1.5 KiB
 serialized. The sidecar validates paths against the canonical workspace root
 (no escapes, `.git` at any depth, Windows-reserved names, duplicates, or
-mismatched existence), at parse time and again under the lock when applied.
-Validation is advisory; the receiving session rechecks each target.
+mismatched existence, or product-source paths outside the repository-level
+instruction, skill, test, tooling, and documentation surfaces). Filesystem
+validation runs under the workspace lock when output is applied. It is advisory;
+the receiving session rechecks each target.
 
 This stays inside the decision above. `proposedChange` is model-written
 presentation, never evidence: it does not affect parent identity, recurrence,
@@ -149,8 +151,8 @@ surfaces are allowed targets; the sidecar flags those that can change hooks,
 permissions, or CI as `sensitive`, and the handoff tells the session to tell
 the user before editing them.
 
-One behavior changes. The decision above rejects invalid rollup output as part
-of rejecting the combined provider response, which also discarded unrelated
+One behavior is refined, not reversed. The decision above rejects invalid rollup
+output as part of rejecting the combined provider response, which also discarded unrelated
 model enrichments and proposals and still consumed the evaluation reservation.
 A rollup validation failure now discards the whole rollups section, with
 nothing partial applied, while the rest of the response and the deterministic
@@ -158,6 +160,11 @@ exact recommendations are still applied. A degraded section is not an
 authoritative empty clustering result: existing rollup parents and members are
 left untouched. The run is recorded as succeeded with a classified
 rollup-degraded reason and cached for identical inputs. Invalid-JSON or
-over-cap responses remain whole-response failures.
+over-cap responses remain whole-response failures. This is an amendment, not a
+supersession: the Consequences above state that "model availability can affect
+only semantic grouping", and rejecting the whole combined response also
+discarded unrelated enrichments and proposals, which contradicted that
+consequence. Degrading restores it while keeping the decision that no partial
+rollup is applied.
 Contract detail lives in
 [`specs/taskmaster.md`](../../specs/taskmaster.md#rollup-proposed-change).
