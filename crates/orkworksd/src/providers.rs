@@ -945,6 +945,19 @@ fn process_runner_preserves_the_child_exit_code() {
     assert_eq!(result.exit_code, Some(17));
 }
 
+#[cfg(unix)]
+#[test]
+fn process_runner_preserves_nonzero_exit_code_when_output_capture_fails() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "head -c 65537 /dev/zero; exit 17"]);
+
+    let result = ProcessRunner.run_prepared("codex", &mut command, "", 2, None);
+
+    assert!(!result.success);
+    assert_eq!(result.exit_code, Some(17));
+    assert!(result.stderr.contains("provider output exceeded"));
+}
+
 impl ProviderRunner for ProcessRunner {
     fn run(
         &self,
@@ -1342,7 +1355,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
-                        exit_code: None,
+                        exit_code: status.code().filter(|code| *code != 0),
                         stdout: String::new(),
                         stderr: message,
                     });
