@@ -71,6 +71,8 @@ pub(crate) enum ChangeValidationError {
     EscapesWorkspace,
     CreateTargetExists,
     CreateParentInvalid,
+    /// Canonical (symlink-resolved) destination hit the `.git`/scope rules.
+    CanonicalDestinationRejected,
 }
 
 /// Code for filesystem-check degradations; shared with cache policy.
@@ -91,7 +93,8 @@ impl ChangeValidationError {
             | Self::EditTargetHardLinked
             | Self::EscapesWorkspace
             | Self::CreateTargetExists
-            | Self::CreateParentInvalid => FILESYSTEM_CODE,
+            | Self::CreateParentInvalid
+            | Self::CanonicalDestinationRejected => FILESYSTEM_CODE,
         }
     }
 }
@@ -327,10 +330,10 @@ fn classify_canonical(relative: &str) -> Result<bool, ChangeValidationError> {
         .split('/')
         .any(|segment| segment.eq_ignore_ascii_case(".git"))
     {
-        return Err(ChangeValidationError::PathInvalid);
+        return Err(ChangeValidationError::CanonicalDestinationRejected);
     }
     if !is_in_scope(relative) {
-        return Err(ChangeValidationError::PathOutOfScope);
+        return Err(ChangeValidationError::CanonicalDestinationRejected);
     }
     Ok(is_sensitive_path(relative))
 }
@@ -734,13 +737,16 @@ mod tests {
         };
         assert_eq!(
             check("docs/guide.md", TargetAction::Edit),
-            Err(ChangeValidationError::PathInvalid)
+            Err(ChangeValidationError::CanonicalDestinationRejected)
         );
         // `docs/code/run.sh` is in scope lexically (docs/) but canonically src/run.sh.
         assert_eq!(
             check("docs/code/run.sh", TargetAction::Create),
-            Err(ChangeValidationError::PathOutOfScope)
+            Err(ChangeValidationError::CanonicalDestinationRejected)
         );
+        // Symlink-dependent, so it must follow the non-cacheable filesystem path.
+        let code = ChangeValidationError::CanonicalDestinationRejected.code();
+        assert_eq!(code, FILESYSTEM_CODE);
     }
 
     #[cfg(unix)]
