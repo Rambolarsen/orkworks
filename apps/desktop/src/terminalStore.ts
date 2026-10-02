@@ -59,7 +59,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     theme: orkworksTerminalTheme,
     allowProposedApi: true,
     scrollback: 2000,
-    scrollSensitivity: 1,
+    scrollSensitivity: 0.5,
     fastScrollSensitivity: 10,
     overviewRuler: { width: 8 },
     linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
