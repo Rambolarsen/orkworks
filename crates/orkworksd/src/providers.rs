@@ -1145,6 +1145,7 @@ impl ProcessRunner {
                     return Ok(ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: error.to_string(),
                     }))
