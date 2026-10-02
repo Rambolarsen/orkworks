@@ -175,7 +175,10 @@ export function proposedChangeGuidance(change: ProposedChange): string {
 }
 
 function cleanReferenceText(value: string, limit = 2_000): string {
-  return value.replace(/[\u0000-\u001f\u007f-\u009f<>]/g, " ").slice(0, limit);
+  // Count Unicode code points (like Rust's `chars().take(limit)`), never UTF-16 units.
+  return Array.from(value.replace(/[\u0000-\u001f\u007f-\u009f<>]/g, " "))
+    .slice(0, limit)
+    .join("");
 }
 
 function boundedSequence(value: number): number {

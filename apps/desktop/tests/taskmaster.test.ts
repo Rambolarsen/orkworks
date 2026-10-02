@@ -1034,6 +1034,20 @@ test("proposed change prompt helpers match the shared Rust fixture", () => {
   assert.ok(proposedChangeGuidance(fixture.sensitive.change).endsWith(fixture.sensitive.expectedGuidanceSuffix));
 });
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+test("proposed change reference counts code points, not UTF-16 units", () => {
+  const base = proposedChangeFixture.plain.change;
+  const intact = "\u{1F600}".repeat(101);
+  assert.equal(proposedChangeReference({ ...base, summary: intact }).summary, intact);
+
+  const truncated = proposedChangeReference({ ...base, summary: "\u{1F600}".repeat(300) }).summary;
+  assert.equal(Array.from(truncated).length, 200);
+  assert.equal(truncated, Array.from(truncated).join(""));
+  assert.doesNotMatch(truncated, LONE_SURROGATE);
+  assert.ok(!truncated.includes("\uFFFD"));
+});
+
 test("rollup fix prompt carries the proposed change inside the delimiters and guidance outside", () => {
   const prompt = buildFixPromptDraft(rollupRecommendationWithChange());
   const [before, inside] = prompt.split("<orkworks-untrusted-rollup-reference>");
