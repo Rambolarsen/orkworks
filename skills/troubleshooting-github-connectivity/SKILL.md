@@ -9,9 +9,9 @@ Distinguish cached output, reachability, authentication, and permissions before 
 
 ## Before the first GitHub request
 
-For routine GitHub work, use the configured GitHub connector when available. Confirm it can read the exact target repository or resource before proceeding. A successful read establishes access only for that identity, host, and resource; it does not establish write permission. A sandbox or shell network block is not an authentication or permission failure. If no authorized connector is available, follow the diagnostic flow below for the intended transport. For mutations, use only an access path authorized for that action and rely on its response to confirm write permission; stop on an explicit permission denial rather than switching identities or transports to bypass it.
+Choose the access path based on the requested operation and actual reachability. Use `gh` when shell networking works and its credentials are authorized for that action. When shell networking is blocked or `gh` is unavailable, use a configured GitHub connector only for operations it authorizes. Confirm the exact target with a read-only request through the selected path; a successful read establishes access only for that identity, host, and resource, not write permission. A sandbox or shell network block is not an authentication or permission failure. For mutations, choose a path known to be authorized for that action when possible. If a write is denied, stop using that path; use another only when it is independently known to be authorized, never to evade the denial.
 
-This preflight is only a path-selection and target-access check. Do not run failure diagnostics when the selected authorized path can already read the requested target.
+This preflight is only a path-selection and target-access check. Do not run failure diagnostics when the selected path can already read the requested target.
 
 When active instructions require a wrapper, use it for every probe; here that is `rtk proxy <command>`. It bypasses RTK output handling, not network restrictions. If required RTK is missing, report it rather than using an unwrapped fallback. Use direct commands only when no wrapper is required.
 
