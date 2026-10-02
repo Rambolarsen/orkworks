@@ -41,13 +41,14 @@ All implementation work is tracked as GitHub issues: [https://github.com/Rambola
 
 Before any GitHub issue, pull-request, or remote API work, load and follow
 [`troubleshooting-github-connectivity`](skills/troubleshooting-github-connectivity/SKILL.md)
-before the first request; do not wait for `gh` to fail. If shell networking is
-blocked and a GitHub connector is available, verify the exact target
-with a read-only request and use that connector for the work it authorizes.
-Authentication or read access does not establish write permission; let the
-requested write's response determine whether it is allowed. Report which access
-path failed or succeeded, and never treat a sandbox block alone as an
-authentication or permission failure.
+before the first request; do not wait for `gh` to fail. Choose a path
+that can perform the requested operation: when shell networking works and
+`gh` is authorized for that action, use it; when shell networking is blocked,
+verify the exact target with a read-only request through an available GitHub
+connector and use the connector only for work it authorizes. Authentication or
+read access does not establish write permission. Report which access path
+failed or succeeded, and never treat a sandbox block alone as an authentication
+or permission failure.
 
 - **Prioritize GitHub Copilot harness work first**, then stabilization work, then net-new work in lowest-incomplete-milestone order. Break ties by user impact.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
