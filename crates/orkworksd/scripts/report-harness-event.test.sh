@@ -12,9 +12,13 @@ cat > "$temp_dir/bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
 output_path=""
+request_body=""
 while [ $# -gt 0 ]; do
   if [ "$1" = "--output" ] && [ $# -ge 2 ]; then
     output_path="$2"
+    shift 2
+  elif [ "$1" = "-d" ] && [ $# -ge 2 ]; then
+    request_body="$2"
     shift 2
   else
     shift
@@ -22,6 +26,9 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "${TEST_RESPONSE_BODY:-}" ] && [ "$output_path" != "/dev/null" ]; then
   printf '%s' "$TEST_RESPONSE_BODY"
+fi
+if [ -n "${TEST_CURL_BODIES_FILE:-}" ]; then
+  printf '%s\n' "$request_body" >> "$TEST_CURL_BODIES_FILE"
 fi
 printf '%s' "${TEST_HTTP_STATUS:-204}"
 if [ "${TEST_CURL_EXIT:-0}" -ne 0 ]; then
@@ -46,6 +53,7 @@ run_reporter() {
     ORKWORKS_SESSION_ID='orkworks-session-secret' \
     ORKWORKS_PORT='4567' \
     ORKWORKS_REPORT_TOKEN='report-token-secret' \
+    ORKWORKS_PROMPT_HOOK_GENERATION='generation-secret' \
     attention_curl_exit=73 \
     session_curl_exit=74 \
     PYTHON3_CALLS_FILE="$temp_dir/python3-calls" \
@@ -54,6 +62,7 @@ run_reporter() {
     TEST_CURL_STDERR='curl fixture failure' \
     TEST_HTTP_STATUS="${TEST_HTTP_STATUS:-204}" \
     TEST_CURL_EXIT="${TEST_CURL_EXIT:-0}" \
+    TEST_CURL_BODIES_FILE="${TEST_CURL_BODIES_FILE:-}" \
     bash "$reporter" --marker "orkworks:harness-integration:$reporter_harness" --event "$1"
 }
 
@@ -256,19 +265,33 @@ if [ -n "$codex_stderr" ]; then
   exit 1
 fi
 
-expected_errors="$(printf 'curl fixture failure\ncurl fixture failure')"
-claude_stderr="$(printf '%s' '{"session_id":"claude-session-secret"}' |
+expected_errors='curl fixture failure'
+claude_stderr="$(printf '%s' '{"session_id":"claude-session-secret","notification_type":"permission_prompt"}' |
   TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter Notification claude-code 2>&1)"
 if [ "$claude_stderr" != "$expected_errors" ]; then
   printf 'Claude curl errors should remain visible, got: %s\n' "$claude_stderr" >&2
   exit 1
 fi
 
-copilot_stderr="$(printf '%s' '{"sessionId":"copilot-session-secret"}' |
+copilot_stderr="$(printf '%s' '{"sessionId":"copilot-session-secret","notificationType":"permission_prompt"}' |
   TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter notification copilot 2>&1)"
 if [ "$copilot_stderr" != "$expected_errors" ]; then
   printf 'Copilot curl errors should remain visible, got: %s\n' "$copilot_stderr" >&2
   exit 1
 fi
+
+request_bodies_file="$temp_dir/prompt-request-bodies.jsonl"
+printf '%s' '{"session_id":"claude-session-secret","notification_type":"permission_prompt"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter Notification claude-code
+python3 - "$request_bodies_file" <<'PY'
+import json
+import pathlib
+import sys
+
+bodies = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert len(bodies) == 2, bodies
+assert bodies[1]["harnessSessionId"] == "claude-session-secret", bodies[1]
+assert bodies[1]["promptHookGeneration"] == "generation-secret", bodies[1]
+PY
 
 printf 'Codex hook reporter diagnostic tests passed.\n'

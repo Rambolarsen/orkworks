@@ -1770,6 +1770,49 @@ impl MetadataStore {
         AttentionMergeResult::Accepted
     }
 
+    /// Applies the initial Claude/Copilot prompt wait without changing
+    /// descriptive metadata, summaries, workflow evidence, or activity time.
+    /// A user-owned attention tuple remains authoritative as a whole.
+    pub fn merge_prompt_authority_wait(&self, id: &str) -> AttentionMergeResult {
+        let mut meta = match self.read_session(id) {
+            Some(meta) => meta,
+            None => return AttentionMergeResult::NotFound,
+        };
+        if meta.metadata_source == "user" {
+            return AttentionMergeResult::Accepted;
+        }
+        meta.observed_status = Some("waiting_for_input".into());
+        if meta.lifecycle == "alive" {
+            meta.attention = Some("needs_you".into());
+        }
+        meta.needs_user_input = None;
+        meta.detected_question = None;
+        meta.suggested_options = None;
+        if self.try_write_session(&meta).is_err() {
+            return AttentionMergeResult::PersistFailed;
+        }
+        AttentionMergeResult::Accepted
+    }
+
+    pub fn clear_prompt_authority_tuple(&self, id: &str) -> AttentionMergeResult {
+        let mut meta = match self.read_session(id) {
+            Some(meta) => meta,
+            None => return AttentionMergeResult::NotFound,
+        };
+        if meta.metadata_source == "user" {
+            return AttentionMergeResult::Accepted;
+        }
+        meta.observed_status = None;
+        meta.attention = None;
+        meta.needs_user_input = None;
+        meta.detected_question = None;
+        meta.suggested_options = None;
+        if self.try_write_session(&meta).is_err() {
+            return AttentionMergeResult::PersistFailed;
+        }
+        AttentionMergeResult::Accepted
+    }
+
     /// A harness clear is authoritative until it next reports a path. This
     /// prevents terminal-output fallback from immediately restoring it.
     pub fn plan_path_is_explicitly_cleared(&self, id: &str) -> bool {
@@ -4229,6 +4272,36 @@ mod tests {
         assert_eq!(updated.observed_status.as_deref(), Some("working"));
         assert_eq!(updated.metadata_source, "user");
         assert!(store.read_events("attention-user-test").is_empty());
+    }
+
+    #[test]
+    fn prompt_authority_wait_and_clear_preserve_user_owned_tuple() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("prompt-user-tuple");
+        meta.metadata_source = "user".into();
+        meta.observed_status = Some("working".into());
+        meta.attention = Some("working".into());
+        meta.needs_user_input = Some(true);
+        meta.detected_question = Some("Keep this question".into());
+        meta.suggested_options = Some(vec!["yes".into(), "no".into()]);
+        let expected = meta.clone();
+        store.write_session(&meta);
+
+        assert_eq!(
+            store.merge_prompt_authority_wait("prompt-user-tuple"),
+            AttentionMergeResult::Accepted
+        );
+        assert_eq!(
+            store.clear_prompt_authority_tuple("prompt-user-tuple"),
+            AttentionMergeResult::Accepted
+        );
+        let actual = store.read_session("prompt-user-tuple").unwrap();
+        assert_eq!(actual.observed_status, expected.observed_status);
+        assert_eq!(actual.attention, expected.attention);
+        assert_eq!(actual.needs_user_input, expected.needs_user_input);
+        assert_eq!(actual.detected_question, expected.detected_question);
+        assert_eq!(actual.suggested_options, expected.suggested_options);
     }
 
     #[test]

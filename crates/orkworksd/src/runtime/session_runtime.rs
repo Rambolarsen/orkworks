@@ -5,8 +5,9 @@ use crate::runtime::observed_status::{
 use crate::runtime::terminal_runtime::resolve_windows_program;
 use crate::runtime::terminal_runtime::{
     clear_workflow_report_token_if_matches, make_pty_system, new_workflow_report_token,
-    schedule_session_ending_finalization, session_env_overrides, set_session_status_for_generation,
-    set_workflow_report_token, should_forward_terminal_env, terminal_env_overrides,
+    schedule_session_ending_finalization, session_env_overrides_with_prompt_generation,
+    set_session_status_for_generation, set_workflow_report_token, should_forward_terminal_env,
+    terminal_env_overrides,
 };
 use crate::{harness, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
@@ -1031,7 +1032,16 @@ pub(crate) async fn start_session_runtime(
     } else {
         None
     };
-    for (key, value) in session_env_overrides(&id, port, &report_token) {
+    let prompt_generation = super::prompt_authority::registry().generation_for_launch(&id);
+    let prompt_generation_value = prompt_generation
+        .as_ref()
+        .map(|(_, generation)| generation.as_str());
+    for (key, value) in session_env_overrides_with_prompt_generation(
+        &id,
+        port,
+        &report_token,
+        prompt_generation_value,
+    ) {
         cmd.env(&key, &value);
     }
 
@@ -1040,6 +1050,9 @@ pub(crate) async fn start_session_runtime(
         Ok(child) => child,
         Err(error) => {
             clear_workflow_report_token_if_matches(&id, &report_token);
+            if let Some((_, generation)) = &prompt_generation {
+                super::prompt_authority::registry().remove_if_generation(&id, generation);
+            }
             return Err(error.to_string());
         }
     };

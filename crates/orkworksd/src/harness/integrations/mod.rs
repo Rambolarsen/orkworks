@@ -559,12 +559,12 @@ mod tests {
     use crate::test_support::FakeHome;
 
     #[test]
-    fn report_harness_event_defaults_to_waiting_attention_and_accepts_a_status_override() {
+    fn report_harness_event_does_not_default_other_harness_notifications_to_waiting() {
         let script = include_str!("../../../scripts/report-harness-event.sh");
         assert!(script.contains("ORKWORKS_SESSION_ID"));
         assert!(script.contains("ORKWORKS_PORT"));
         assert!(script.contains("/sessions/$ORKWORKS_SESSION_ID/attention"));
-        assert!(script.contains("status=\"waiting_for_input\""));
+        assert!(script.contains("status=\"\""));
         assert!(script.contains("--status"));
         assert!(script.contains("\"status\":sys.argv[1]"));
     }
@@ -654,8 +654,8 @@ mod tests {
         let script = include_str!("../../../scripts/report-harness-event.sh");
         let max_time_count = script.matches("--max-time").count();
         assert_eq!(
-            max_time_count, 3,
-            "every possible curl call (attention, harness-session, plan-path) \
+            max_time_count, 4,
+            "every possible curl call (Codex attention, prompt attention, harness-session, plan-path) \
              must cap its own runtime so a stuck orkworksd cannot hang the \
              harness's own hook mechanism"
         );
@@ -697,6 +697,22 @@ mod tests {
             "/scripts/report-harness-event.sh"
         );
         let home = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let curl_log = bin.path().join("curl.log");
+        let curl_path = bin.path().join("curl");
+        fs::write(
+            &curl_path,
+            format!(
+                "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> '{}'\ncase \"$*\" in *--write-out*) printf 200;; esac\n",
+                curl_log.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&curl_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let mut command = Command::new("bash");
         command
             .arg("-x")
@@ -709,7 +725,17 @@ mod tests {
         let mut child = command
             .env("HOME", home.path())
             .env("ORKWORKS_SESSION_ID", "test-session")
-            .env("ORKWORKS_PORT", "1") // unroutable; curl fails fast, harmless (`|| true`)
+            .env("ORKWORKS_REPORT_TOKEN", "test-report-token")
+            .env("ORKWORKS_PROMPT_HOOK_GENERATION", "test-generation")
+            .env("ORKWORKS_PORT", "1")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin.path().display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -728,7 +754,11 @@ mod tests {
             output.status.success(),
             "script exited non-zero: {output:?}"
         );
-        String::from_utf8_lossy(&output.stderr).into_owned()
+        format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stderr),
+            fs::read_to_string(curl_log).unwrap_or_default()
+        )
     }
 
     #[cfg(unix)]
@@ -739,13 +769,82 @@ mod tests {
             r#"{"session_id":"abc123","cwd":"/tmp/some/worktree"}"#,
         );
         assert!(
-            trace.contains(r#""cwd": "/tmp/some/worktree""#),
-            "expected the cwd from stdin to appear in the constructed attention payload; trace:\n{trace}"
+            trace.contains("/tmp/some/worktree"),
+            "expected the reported cwd to be extracted from stdin; trace:\n{trace}"
         );
         assert!(
-            trace.contains(r#"{"harnessSessionId":"abc123","source":"claude_hook","confidence":0.98}"#),
+            trace.contains(r#""harnessSessionId":"abc123","source":"claude_hook","confidence":0.98,"promptHookGeneration":"test-generation""#),
             "expected session_id to still be forwarded when both fields are present; trace:\n{trace}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_registers_claude_identity_and_leaves_unmapped_events_noop() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:claude-code",
+            r#"{"session_id":"claude-native-1","cwd":"/workspace"}"#,
+            &["--event", "Notification"],
+        );
+        let registration = trace
+            .find("/harness-session")
+            .expect("Claude invocation registers its native session identity");
+        assert!(trace.contains("promptHookGeneration"));
+        assert!(trace.contains("test-generation"));
+        assert!(
+            !trace.contains("/attention"),
+            "Claude notifications without a recognized notification_type remain no-op; registration at {registration}; trace:\n{trace}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_posts_claude_prompt_only_after_registration_succeeds() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:claude-code",
+            r#"{"session_id":"claude-native-1","notification_type":"permission_prompt"}"#,
+            &["--event", "Notification"],
+        );
+        let registration = trace.find("/harness-session").unwrap();
+        let attention = trace.find("/attention").unwrap();
+        assert!(
+            registration < attention,
+            "registration must precede attention; trace:\n{trace}"
+        );
+        assert!(trace.contains("notificationType"), "{trace}");
+        assert!(trace.contains("permission_prompt"), "{trace}");
+        assert!(trace.contains("promptHookGeneration"), "{trace}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_posts_timestamped_copilot_prompt_after_registration() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:copilot",
+            r#"{"sessionId":"copilot-native-1","notification_type":"elicitation_dialog","timestamp":"2026-10-02T09:00:00Z"}"#,
+            &["--event", "notification"],
+        );
+        let registration = trace.find("/harness-session").unwrap();
+        let attention = trace.find("/attention").unwrap();
+        assert!(
+            registration < attention,
+            "registration must precede attention; trace:\n{trace}"
+        );
+        assert!(trace.contains("observedAt"), "{trace}");
+        assert!(trace.contains("2026-10-02T09:00:00Z"), "{trace}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_harness_event_forwards_copilot_reset_timestamp() {
+        let trace = run_report_harness_event_sh_trace_with_args(
+            "orkworks:harness-integration:v2:copilot",
+            r#"{"sessionId":"copilot-native-new","timestamp":1790899200000,"source":"new"}"#,
+            &["--event", "sessionStart"],
+        );
+        assert!(trace.contains("sessionStartObservedAt"), "{trace}");
+        assert!(trace.contains("sessionStartEvent"), "{trace}");
+        assert!(trace.contains("sessionStartSource"), "{trace}");
     }
 
     #[test]
@@ -759,20 +858,11 @@ mod tests {
             "orkworks:harness-integration:v2:claude-code",
             r#"{"session_id":"abc123"}"#,
         );
-        let attention_payload_line = trace
-            .lines()
-            .find(|line| line.contains("attention_payload="))
-            .unwrap_or_else(|| {
-                panic!("expected an attention_payload= trace line; trace:\n{trace}")
-            });
         assert!(
-            !attention_payload_line.contains(r#""cwd""#),
-            "attention payload should omit cwd entirely when none was reported; line:\n{attention_payload_line}"
-        );
-        assert!(
-            trace.contains(r#"{"harnessSessionId":"abc123","source":"claude_hook","confidence":0.98}"#),
+            trace.contains(r#""harnessSessionId":"abc123","source":"claude_hook","confidence":0.98,"promptHookGeneration":"test-generation""#),
             "session_id must still be forwarded correctly, not shifted into the cwd slot; trace:\n{trace}"
         );
+        assert!(!trace.contains("/attention"));
     }
 
     #[test]
@@ -898,12 +988,18 @@ mod tests {
     }
 
     #[test]
-    fn report_harness_event_ps1_always_posts_generic_attention() {
+    fn report_harness_event_ps1_gates_other_harness_attention_behind_authority() {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
         assert!(script.contains("ORKWORKS_SESSION_ID"));
         assert!(script.contains("ORKWORKS_PORT"));
         assert!(script.contains("/sessions/$sessionId/attention"));
-        assert!(script.contains("waiting_for_input"));
+        assert!(script.contains("$sessionSource -eq \"codex_hook\" -and $codexAttention"));
+        assert!(script.contains("ORKWORKS_PROMPT_HOOK_GENERATION"));
+        assert!(script.contains("promptHookGeneration"));
+        assert!(script.contains("$nativeRegistrationAccepted -and $promptNotificationAllowed"));
+        assert!(script.contains("notification_type"));
+        assert!(script.contains("sessionStartObservedAt"));
+        assert!(script.contains("FromUnixTimeMilliseconds"));
     }
 
     #[test]
@@ -1000,8 +1096,8 @@ mod tests {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
         let timeout_count = script.matches("-TimeoutSec").count();
         assert_eq!(
-            timeout_count, 3,
-            "every possible Invoke-RestMethod call (attention, harness-session, \
+            timeout_count, 4,
+            "every possible Invoke-RestMethod call (Codex attention, prompt attention, harness-session, \
              plan-path) must cap its own runtime so a stuck orkworksd cannot \
              hang the harness's own hook mechanism"
         );

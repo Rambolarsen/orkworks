@@ -118,6 +118,7 @@ pub(crate) fn recommendation_deliveries_in_flight_for_workspace(
 pub(crate) enum SessionError {
     BadRequest(&'static str),
     EmptyBadRequest,
+    Accepted,
     Conflict,
     ConflictWithMessage(&'static str),
     NotFound,
@@ -2226,6 +2227,201 @@ impl SessionApplication {
         crate::codex_session_store::clear_native_label_refresh_block(id);
     }
 
+    pub(crate) fn prepare_prompt_identity_reset(&self, id: &str, command: &str) -> bool {
+        let harness_id = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .map(|metadata| metadata.harness);
+        let Some(harness_id) = harness_id else {
+            return false;
+        };
+        crate::runtime::prompt_authority::registry().reserve_reset(id, &harness_id, command)
+    }
+
+    pub(crate) fn commit_prompt_identity_reset(&self, id: &str) {
+        let Some(native_session_id) =
+            crate::runtime::prompt_authority::registry().acknowledge_reset(id)
+        else {
+            return;
+        };
+        let harness_id = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .map(|metadata| metadata.harness);
+        let (source, event, lifecycle_source) = match harness_id.as_deref() {
+            Some("claude-code") => ("claude_hook", "SessionStart", "clear"),
+            Some("copilot") => ("copilot_hook", "sessionStart", "new"),
+            _ => return,
+        };
+        let _ = self.clear_prompt_authority_tuple(id);
+        let _ = self.report_harness_session_with_codex_context(
+            id,
+            metadata::HarnessSessionReport {
+                harness_session_id: native_session_id.clone(),
+                source: source.into(),
+                confidence: 0.98,
+            },
+            Some(lifecycle_source),
+            Some(event),
+            true,
+        );
+        let persisted_candidate = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(id))
+            .and_then(|metadata| metadata.resume)
+            .and_then(|resume| resume.harness_session_id)
+            .is_some_and(|persisted_id| persisted_id == native_session_id);
+        if !persisted_candidate {
+            return;
+        }
+        let Some(commit) = crate::runtime::prompt_authority::registry().complete_reset(id) else {
+            return;
+        };
+        if let Some(queued) = commit.queued_prompt_wait {
+            self.apply_queued_prompt_wait(id, &queued);
+        }
+    }
+
+    fn apply_queued_prompt_wait(
+        &self,
+        id: &str,
+        queued: &crate::runtime::prompt_authority::QueuedPromptWait,
+    ) {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return;
+        };
+        let Some(metadata) = workspace.metadata.read_session(id) else {
+            return;
+        };
+        let harness_id = metadata.harness;
+        let Some((_, generation)) =
+            crate::runtime::prompt_authority::registry().generation_for_launch(id)
+        else {
+            return;
+        };
+        let Some(native_id) = metadata
+            .resume
+            .as_ref()
+            .and_then(|resume| resume.harness_session_id.as_deref())
+        else {
+            return;
+        };
+        let preserve_user_tuple = metadata.metadata_source == "user";
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id).filter(|handle| {
+            handle.info.lifecycle == "alive" && handle.info.lifecycle_phase == "active"
+        }) else {
+            return;
+        };
+        if queued.observed_at.is_some_and(|timestamp| {
+            handle
+                .runtime
+                .last_hook_attention_at
+                .is_some_and(|previous| timestamp <= previous)
+                || handle
+                    .runtime
+                    .accepted_input_at
+                    .is_some_and(|accepted_at| timestamp <= accepted_at)
+        }) {
+            return;
+        }
+        let authority = crate::runtime::prompt_authority::registry();
+        if !authority.native_id_matches(id, &harness_id, &generation, native_id)
+            || !matches!(
+                workspace.metadata.merge_prompt_authority_wait(id),
+                metadata::AttentionMergeResult::Accepted
+            )
+            || !authority.activate(id, &harness_id, &generation, native_id)
+        {
+            return;
+        }
+        if !preserve_user_tuple {
+            handle.info.observed_status = Some("waiting_for_input".into());
+            handle.info.attention = Some("needs_you".into());
+            handle.info.needs_user_input = None;
+            handle.info.detected_question = None;
+            handle.info.suggested_options = None;
+        }
+        if let Some(observed_at) = queued.observed_at {
+            handle.runtime.last_hook_attention_at = Some(observed_at);
+        }
+    }
+
+    pub(crate) fn cancel_prompt_identity_reset(&self, id: &str) {
+        crate::runtime::prompt_authority::registry().cancel_reset(id);
+    }
+
+    pub(crate) fn revoke_prompt_authority_for_harness(&self, harness_id: &str) {
+        let workspace = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace.as_ref() else {
+            return;
+        };
+        let mut sessions = self.state.sessions.lock().unwrap();
+        for (session_id, handle) in sessions.iter_mut().filter(|(_, handle)| {
+            handle.info.harness_id.as_deref() == Some(harness_id)
+                || handle.info.harness.as_deref() == Some(harness_id)
+        }) {
+            let Some((_, generation)) =
+                crate::runtime::prompt_authority::registry().generation_for_launch(session_id)
+            else {
+                continue;
+            };
+            crate::runtime::prompt_authority::registry().revoke(session_id, &generation);
+            let _ = workspace.metadata.clear_prompt_authority_tuple(session_id);
+            if workspace
+                .metadata
+                .read_session(session_id)
+                .is_some_and(|metadata| metadata.metadata_source != "user")
+            {
+                handle.info.observed_status = None;
+                handle.info.attention = None;
+                handle.info.needs_user_input = None;
+                handle.info.detected_question = None;
+                handle.info.suggested_options = None;
+            }
+        }
+    }
+
+    pub(crate) fn clear_prompt_authority_tuple(&self, id: &str) -> Result<(), SessionError> {
+        let workspace = self.state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
+        match workspace.metadata.clear_prompt_authority_tuple(id) {
+            metadata::AttentionMergeResult::Accepted => {}
+            metadata::AttentionMergeResult::NotFound => return Err(SessionError::NotFound),
+            metadata::AttentionMergeResult::PersistFailed => {
+                return Err(SessionError::Internal("application operation failed"));
+            }
+            metadata::AttentionMergeResult::Ignored => return Err(SessionError::EmptyBadRequest),
+        }
+        if workspace
+            .metadata
+            .read_session(id)
+            .is_some_and(|metadata| metadata.metadata_source != "user")
+        {
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                handle.info.observed_status = None;
+                handle.info.attention = None;
+                handle.info.needs_user_input = None;
+                handle.info.detected_question = None;
+                handle.info.suggested_options = None;
+            }
+        }
+        Ok(())
+    }
+
     /// Returns whether `line` exactly names a label-reset command declared by
     /// the session's persisted harness. The workspace lock is released before
     /// consulting the harness catalog so the two stores never overlap.
@@ -2310,6 +2506,7 @@ impl SessionApplication {
         // ADR 0042: a dead session's reporting capability must stop working
         // immediately, even if a caller captured the token beforehand.
         crate::runtime::terminal_runtime::clear_workflow_report_token(id);
+        crate::runtime::prompt_authority::registry().remove(id);
     }
 
     /// Persists a validated Peon input label while preventing a reset from
@@ -2777,12 +2974,23 @@ impl SessionApplication {
         if !metadata::valid_harness_session_report(&report) {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
         }
+        let lifecycle_pair_valid = match report.source.as_str() {
+            "codex_hook" => {
+                session_start_event == Some("SessionStart")
+                    && session_start_source.is_some_and(|source| {
+                        matches!(source, "startup" | "resume" | "clear" | "compact")
+                    })
+            }
+            "claude_hook" => {
+                session_start_event == Some("SessionStart") && session_start_source == Some("clear")
+            }
+            "copilot_hook" => {
+                session_start_event == Some("sessionStart") && session_start_source == Some("new")
+            }
+            _ => false,
+        };
         if session_start_source.is_some() != session_start_event.is_some()
-            || session_start_source.is_some_and(|source| {
-                report.source != "codex_hook"
-                    || session_start_event != Some("SessionStart")
-                    || !matches!(source, "startup" | "resume" | "clear" | "compact")
-            })
+            || (session_start_source.is_some() && !lifecycle_pair_valid)
         {
             return Ok(metadata::HarnessSessionMergeResult::Invalid);
         }
@@ -3380,6 +3588,135 @@ impl SessionApplication {
         }
     }
 
+    pub(crate) fn report_prompt_attention(
+        &self,
+        id: &str,
+        source: &str,
+        event: Option<&str>,
+        notification_type: Option<&str>,
+        native_session_id: &str,
+        status: &str,
+        generation: Option<&str>,
+        observed_at: Option<&str>,
+        token: Option<&str>,
+    ) -> Result<(), SessionError> {
+        let (harness_id, event_name) = match source {
+            "claude_hook" => ("claude-code", "Notification"),
+            "copilot_hook" => ("copilot", "notification"),
+            _ => return Err(SessionError::EmptyBadRequest),
+        };
+        let notification_allowed = match (harness_id, notification_type) {
+            (
+                "claude-code",
+                Some("permission_prompt" | "elicitation_dialog" | "elicitation_url_dialog"),
+            ) => true,
+            ("copilot", Some("permission_prompt" | "elicitation_dialog")) => true,
+            _ => false,
+        };
+        let generation = generation.ok_or(SessionError::EmptyBadRequest)?;
+        let token = token.ok_or(SessionError::EmptyBadRequest)?;
+        if event != Some(event_name)
+            || status != "waiting_for_input"
+            || !notification_allowed
+            || native_session_id.is_empty()
+            || !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token)
+        {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let observed_at = observed_at
+            .map(parse_hook_observed_at)
+            .transpose()
+            .map_err(|_| SessionError::EmptyBadRequest)?;
+        if harness_id == "copilot" && observed_at.is_none() {
+            return Err(SessionError::EmptyBadRequest);
+        }
+
+        let workspace = self.state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
+        let metadata = workspace
+            .metadata
+            .read_session(id)
+            .filter(|metadata| {
+                metadata.harness == harness_id
+                    && metadata.lifecycle == "alive"
+                    && metadata
+                        .resume
+                        .as_ref()
+                        .and_then(|resume| resume.harness_session_id.as_deref())
+                        .is_some()
+            })
+            .ok_or(SessionError::EmptyBadRequest)?;
+        let native_id = metadata
+            .resume
+            .as_ref()
+            .and_then(|resume| resume.harness_session_id.as_deref())
+            .ok_or(SessionError::EmptyBadRequest)?;
+        let preserve_user_tuple = metadata.metadata_source == "user";
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let handle = sessions
+            .get_mut(id)
+            .filter(|handle| {
+                handle.info.lifecycle == "alive"
+                    && handle.info.lifecycle_phase == "active"
+                    && (handle.info.harness_id.as_deref() == Some(harness_id)
+                        || handle.info.harness.as_deref() == Some(harness_id))
+            })
+            .ok_or(SessionError::EmptyBadRequest)?;
+        if observed_at.is_some_and(|timestamp| {
+            handle
+                .runtime
+                .last_hook_attention_at
+                .is_some_and(|previous| timestamp <= previous)
+                || handle
+                    .runtime
+                    .accepted_input_at
+                    .is_some_and(|accepted_at| timestamp <= accepted_at)
+        }) {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        let authority = crate::runtime::prompt_authority::registry();
+        if !authority.generation_matches(id, harness_id, generation) {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        if authority.queue_prompt_wait(
+            id,
+            harness_id,
+            generation,
+            native_session_id,
+            notification_type.expect("validated prompt notification type"),
+            observed_at,
+        ) {
+            return Err(SessionError::Accepted);
+        }
+        if native_id != native_session_id
+            || !authority.native_id_matches(id, harness_id, generation, native_session_id)
+        {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        match workspace.metadata.merge_prompt_authority_wait(id) {
+            metadata::AttentionMergeResult::Accepted => {}
+            metadata::AttentionMergeResult::NotFound => return Err(SessionError::NotFound),
+            metadata::AttentionMergeResult::PersistFailed => {
+                return Err(SessionError::Internal("application operation failed"));
+            }
+            metadata::AttentionMergeResult::Ignored => return Err(SessionError::EmptyBadRequest),
+        }
+        if !authority.activate(id, harness_id, generation, native_session_id) {
+            return Err(SessionError::EmptyBadRequest);
+        }
+        if !preserve_user_tuple {
+            handle.info.observed_status = Some("waiting_for_input".into());
+            handle.info.attention = Some("needs_you".into());
+            handle.info.needs_user_input = None;
+            handle.info.detected_question = None;
+            handle.info.suggested_options = None;
+        }
+        if let Some(observed_at) = observed_at {
+            handle.runtime.last_hook_attention_at = Some(observed_at);
+        }
+        Ok(())
+    }
+
     fn validate_codex_hook_signal(
         &self,
         id: &str,
@@ -3569,6 +3906,34 @@ impl SessionApplication {
             active_harness_ids: canonical_active_harness_ids,
             active_harness_revision: existing.active_harness_revision.saturating_add(1),
         };
+        for disabled_harness in existing.active_harness_ids.iter().filter(|id| {
+            matches!(id.as_str(), "claude-code" | "copilot")
+                && !memory.active_harness_ids.contains(id)
+        }) {
+            let mut sessions = self.state.sessions.lock().unwrap();
+            for (session_id, handle) in sessions.iter_mut().filter(|(_, handle)| {
+                handle.info.harness_id.as_deref() == Some(disabled_harness)
+                    || handle.info.harness.as_deref() == Some(disabled_harness)
+            }) {
+                if let Some((_, generation)) =
+                    crate::runtime::prompt_authority::registry().generation_for_launch(session_id)
+                {
+                    crate::runtime::prompt_authority::registry().revoke(session_id, &generation);
+                    let _ = workspace.metadata.clear_prompt_authority_tuple(session_id);
+                    if workspace
+                        .metadata
+                        .read_session(session_id)
+                        .is_some_and(|metadata| metadata.metadata_source != "user")
+                    {
+                        handle.info.observed_status = None;
+                        handle.info.attention = None;
+                        handle.info.needs_user_input = None;
+                        handle.info.detected_question = None;
+                        handle.info.suggested_options = None;
+                    }
+                }
+            }
+        }
         workspace.metadata.write_workspace_memory(&memory);
         Ok(memory)
     }
@@ -4076,23 +4441,35 @@ async fn resume_session_workflow(
 
     let startup_state = state.clone();
     let startup_id = id.clone();
+    let startup_harness_id = meta.harness.clone();
+    let startup_executable = command.program.clone();
     let startup_task = tokio::spawn(async move {
-        let start_result = crate::runtime::session_runtime::start_session_runtime(
-            startup_state.clone(),
-            startup_id.clone(),
-            command,
-            None,
-            control_rx,
-            output_tx,
-            kill_tx.subscribe(),
-            PtySize {
-                rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-                cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-                pixel_width: 0,
-                pixel_height: 0,
-            },
-        )
-        .await;
+        let start_result = match prepare_prompt_authority_generation(
+            &startup_state,
+            &startup_id,
+            Some(&startup_harness_id),
+            &startup_executable,
+        ) {
+            Ok(()) => {
+                crate::runtime::session_runtime::start_session_runtime(
+                    startup_state.clone(),
+                    startup_id.clone(),
+                    command,
+                    None,
+                    control_rx,
+                    output_tx,
+                    kill_tx.subscribe(),
+                    PtySize {
+                        rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                        cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    },
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
 
         if let Err(error) = &start_result {
             admission.commit();
@@ -4168,6 +4545,28 @@ pub(crate) struct ResolvedSessionLaunch {
     pub(crate) command: harness::CommandSpec,
     pub(crate) provider_id: Option<String>,
     pub(crate) provider_label: Option<String>,
+}
+
+fn prepare_prompt_authority_generation(
+    state: &Arc<AppState>,
+    session_id: &str,
+    harness_id: Option<&str>,
+    executable: &str,
+) -> Result<(), String> {
+    let Some(harness_id) = harness_id.filter(|id| matches!(*id, "claude-code" | "copilot")) else {
+        crate::runtime::prompt_authority::registry().remove(session_id);
+        return Ok(());
+    };
+    if !crate::http::integration_handlers::prompt_attention_launch_ready(
+        state, harness_id, executable,
+    ) {
+        crate::runtime::prompt_authority::registry().remove(session_id);
+        return Ok(());
+    }
+    let generation = crate::runtime::terminal_runtime::new_workflow_report_token()
+        .map_err(|_| "failed to generate a secure prompt hook launch generation".to_string())?;
+    crate::runtime::prompt_authority::registry().issue(session_id, harness_id, &generation);
+    Ok(())
 }
 
 pub(crate) fn resolve_session_launch(
@@ -4490,24 +4889,38 @@ async fn create_session_workflow(
     // the generation guards that keep it correct against concurrent deletion.
     let startup_state = state.clone();
     let startup_id = id.clone();
+    let startup_harness_id = resolved_launch.session_harness_id.clone();
+    let startup_executable = command.program.clone();
     tokio::spawn(async move {
-        match crate::runtime::session_runtime::start_session_runtime(
-            startup_state.clone(),
-            startup_id.clone(),
-            command,
-            initial_prompt,
-            control_rx,
-            output_tx,
-            kill_tx.subscribe(),
-            PtySize {
-                rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-                cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-                pixel_width: 0,
-                pixel_height: 0,
-            },
+        let start_result = prepare_prompt_authority_generation(
+            &startup_state,
+            &startup_id,
+            startup_harness_id.as_deref(),
+            &startup_executable,
         )
-        .await
-        {
+        .and_then(|()| Ok(()));
+        let start_result = match start_result {
+            Ok(()) => {
+                crate::runtime::session_runtime::start_session_runtime(
+                    startup_state.clone(),
+                    startup_id.clone(),
+                    command,
+                    initial_prompt,
+                    control_rx,
+                    output_tx,
+                    kill_tx.subscribe(),
+                    PtySize {
+                        rows: crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                        cols: crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    },
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
+        match start_result {
             Ok(()) => {
                 let now = iso_now();
                 let ws_guard = startup_state.workspace.lock().unwrap();

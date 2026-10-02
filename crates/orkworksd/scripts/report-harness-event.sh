@@ -2,7 +2,7 @@
 set -u
 
 marker=""
-status="waiting_for_input"
+status=""
 hook_fingerprint=""
 event=""
 # Plan-path mode (ADR 0038): set by an installed hook entry passing
@@ -119,7 +119,10 @@ reported_cwd=""
 harness_session_id=""
 session_start_source=""
 session_start_event=""
+session_start_observed_at=""
 session_source=""
+prompt_notification_type=""
+prompt_observed_at=""
 codex_attention="no"
 codex_capture_only="no"
 codex_payload_capture=""
@@ -129,6 +132,7 @@ attention_http_status=""
 harness_session_post_kind="skipped_no_harness_session_id"
 session_curl_exit=""
 session_http_status=""
+native_registration_accepted="no"
 
 # Codex POST failures are captured in the redacted diagnostic below. Preserve
 # curl's previous `-sS` stderr behavior for the other harness reporters.
@@ -150,9 +154,12 @@ case "$marker" in
     # is non-whitespace, so `read` preserves empty fields correctly.
     claude_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import json,sys; data=json.load(sys.stdin); print("%s\x1f%s" % (data.get("cwd") or "", data.get("session_id") or ""))' 2>/dev/null
+        python3 -c 'import json,sys; data=json.load(sys.stdin); event=sys.argv[1]; source=data.get("source") if event == "SessionStart" else ""; notification=data.get("notification_type") if event == "Notification" else ""; print("%s\x1f%s\x1f%s\x1f%s" % (data.get("cwd") or "", data.get("session_id") or "", source if source == "clear" else "", notification if isinstance(notification,str) else ""))' "$event" 2>/dev/null
     )" || true
-    IFS=$'\x1f' read -r reported_cwd harness_session_id <<< "$claude_fields"
+    IFS=$'\x1f' read -r reported_cwd harness_session_id session_start_source prompt_notification_type <<< "$claude_fields"
+    if [ "$event" = "SessionStart" ] && [ "$session_start_source" = "clear" ]; then
+      session_start_event="SessionStart"
+    fi
     session_source="claude_hook"
     ;;
   *:codex)
@@ -217,9 +224,17 @@ print(json.dumps(capture, separators=(",", ":")))
   *:copilot)
     copilot_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import json,sys; data=json.load(sys.stdin); print("%s\x1f%s" % (data.get("cwd") or "", data.get("sessionId") or ""))' 2>/dev/null
+        python3 -c 'import datetime,json,sys; data=json.load(sys.stdin); event=sys.argv[1]; source=data.get("source") if event == "sessionStart" else ""; notification=data.get("notification_type") if event == "notification" else ""; timestamp=data.get("timestamp") if event == "notification" else ""; start_ts=data.get("timestamp") if event == "sessionStart" else "";
+def iso(value):
+ if isinstance(value,str): return value
+ if isinstance(value,(int,float)) and not isinstance(value,bool): return datetime.datetime.fromtimestamp(value/1000,datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")
+ return ""
+print("%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s" % (data.get("cwd") or "", data.get("sessionId") or "", source if source == "new" else "", notification if isinstance(notification,str) else "", iso(timestamp), iso(start_ts)))' "$event" 2>/dev/null
     )" || true
-    IFS=$'\x1f' read -r reported_cwd harness_session_id <<< "$copilot_fields"
+    IFS=$'\x1f' read -r reported_cwd harness_session_id session_start_source prompt_notification_type prompt_observed_at session_start_observed_at <<< "$copilot_fields"
+    if [ "$event" = "sessionStart" ] && [ "$session_start_source" = "new" ]; then
+      session_start_event="sessionStart"
+    fi
     session_source="copilot_hook"
     ;;
 esac
@@ -227,7 +242,7 @@ esac
 # Codex's SessionStart event captures identity only. Turn events carry their
 # explicit normalized status and provenance so the sidecar can validate the
 # deterministic signal without trusting mutable payload text.
-if [ "$codex_capture_only" != "yes" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && \
+if [ "$codex_capture_only" != "yes" ] && [ "$session_source" = "codex_hook" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && \
   { [ "$session_source" != "codex_hook" ] || [ "$codex_attention" = "yes" ]; }; then
   observed_at="$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))')"
   attention_payload="$(python3 -c '
@@ -252,9 +267,16 @@ elif [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; the
   attention_post_kind="skipped_missing_environment"
 fi
 
-if [ "$codex_capture_only" != "yes" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ]; then
+if [ "$codex_capture_only" != "yes" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && [ -n "$harness_session_id" ] && [ -n "$session_source" ] && \
+  { [ "$session_source" = "codex_hook" ] || { [ -n "${ORKWORKS_REPORT_TOKEN:-}" ] && [ -n "${ORKWORKS_PROMPT_HOOK_GENERATION:-}" ]; }; }; then
   escaped_session_id=$(printf '%s' "$harness_session_id" | sed 's/[\\"]/\\&/g')
-  if [ "$session_source" = "codex_hook" ] && [ -n "$hook_fingerprint" ]; then
+  if [ "$session_source" = "claude_hook" ] || [ "$session_source" = "copilot_hook" ]; then
+    session_payload="$(python3 -c 'import json,sys; data={"harnessSessionId":sys.argv[1],"source":sys.argv[2],"confidence":0.98,"promptHookGeneration":sys.argv[3]}; event,source,observed_at=sys.argv[4:];
+if event and source:
+ data["sessionStartEvent"]=event; data["sessionStartSource"]=source
+ if source == "new": data["sessionStartObservedAt"]=observed_at
+print(json.dumps(data,separators=(",",":")))' "$harness_session_id" "$session_source" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$session_start_event" "$session_start_source" "$session_start_observed_at")"
+  elif [ "$session_source" = "codex_hook" ] && [ -n "$hook_fingerprint" ]; then
     escaped_fingerprint=$(printf '%s' "$hook_fingerprint" | sed 's/[\\"]/\\&/g')
     session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98,"hookFingerprint":"%s"}' "$escaped_session_id" "$session_source" "$escaped_fingerprint")
   else
@@ -304,11 +326,57 @@ except Exception:
         -H "Content-Type: application/json" \
         -d "$session_payload" --output /dev/null --write-out '%{http_code}') || session_curl_exit=$?
   fi
+  if { [ "$session_source" = "claude_hook" ] || [ "$session_source" = "copilot_hook" ]; }; then
+    if [ "$session_curl_exit" = "0" ] && {
+      [ "$session_http_status" = "200" ] || [ "$session_http_status" = "202" ];
+    }; then
+      native_registration_accepted="yes"
+    else
+      harness_session_post_kind="failed"
+    fi
+  fi
 elif [ "$session_source" = "codex_hook" ] && [ "$codex_capture_only" != "yes" ]; then
   if [ -z "$harness_session_id" ]; then
     harness_session_post_kind="skipped_no_harness_session_id"
   else
     harness_session_post_kind="skipped_missing_environment"
+  fi
+elif { [ "$session_source" = "claude_hook" ] || [ "$session_source" = "copilot_hook" ]; } && [ "$codex_capture_only" != "yes" ]; then
+  if [ -z "$harness_session_id" ]; then
+    harness_session_post_kind="skipped_no_harness_session_id"
+  else
+    harness_session_post_kind="skipped_missing_authority_environment"
+  fi
+fi
+
+# Prompt waits are the only Claude/Copilot attention mapping in this shared
+# reporter. Their native identity registration above must succeed first; turn
+# event mappings remain owned by the follow-up harness-specific issues.
+prompt_notification_allowed="no"
+if [ "$session_source" = "claude_hook" ] && [ "$event" = "Notification" ]; then
+  case "$prompt_notification_type" in
+    permission_prompt|elicitation_dialog|elicitation_url_dialog) prompt_notification_allowed="yes" ;;
+  esac
+elif [ "$session_source" = "copilot_hook" ] && [ "$event" = "notification" ]; then
+  case "$prompt_notification_type" in
+    permission_prompt|elicitation_dialog) prompt_notification_allowed="yes" ;;
+  esac
+fi
+if [ "$native_registration_accepted" = "yes" ] && [ "$prompt_notification_allowed" = "yes" ]; then
+  attention_payload="$(python3 -c 'import json,sys; d={"status":"waiting_for_input","source":sys.argv[1],"event":sys.argv[2],"notificationType":sys.argv[3],"harnessSessionId":sys.argv[5],"promptHookGeneration":sys.argv[4]};
+if sys.argv[1] == "copilot_hook": d["observedAt"]=sys.argv[6]
+print(json.dumps(d,separators=(",",":")))' "$session_source" "$event" "$prompt_notification_type" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$harness_session_id" "$prompt_observed_at")"
+  attention_curl_exit=0
+  attention_http_status=$(reporter_curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
+    -H "Authorization: Bearer $ORKWORKS_REPORT_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$attention_payload" --output /dev/null --write-out '%{http_code}') || attention_curl_exit=$?
+  if [ "$attention_curl_exit" = "0" ] && {
+    [ "$attention_http_status" = "200" ] || [ "$attention_http_status" = "202" ];
+  }; then
+    attention_post_kind="posted"
+  else
+    attention_post_kind="failed"
   fi
 fi
 

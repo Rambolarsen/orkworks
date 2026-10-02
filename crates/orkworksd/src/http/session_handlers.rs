@@ -59,6 +59,10 @@ pub(crate) struct HarnessSessionReportRequest {
     pub(crate) session_start_source: Option<String>,
     #[serde(rename = "sessionStartEvent", default)]
     pub(crate) session_start_event: Option<String>,
+    #[serde(rename = "promptHookGeneration", default)]
+    pub(crate) prompt_hook_generation: Option<String>,
+    #[serde(rename = "sessionStartObservedAt", default)]
+    pub(crate) session_start_observed_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -82,6 +86,19 @@ pub(crate) struct AttentionReportRequest {
     pub(crate) event: Option<String>,
     #[serde(rename = "hookFingerprint", default)]
     pub(crate) hook_fingerprint: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PromptAttentionReportRequest {
+    status: String,
+    source: String,
+    event: String,
+    notification_type: String,
+    harness_session_id: String,
+    prompt_hook_generation: String,
+    #[serde(default)]
+    observed_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -416,6 +433,46 @@ pub(crate) async fn report_attention_with_headers(
         .unwrap_or_else(application_error_response)
 }
 
+pub(crate) async fn report_attention_route(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(value): Json<serde_json::Value>,
+) -> axum::response::Response {
+    if matches!(
+        value.get("source").and_then(serde_json::Value::as_str),
+        Some("claude_hook" | "copilot_hook")
+    ) {
+        let Ok(request) = serde_json::from_value::<PromptAttentionReportRequest>(value) else {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
+        };
+        return SessionApplication::new(state)
+            .report_prompt_attention(
+                &id,
+                &request.source,
+                Some(&request.event),
+                Some(&request.notification_type),
+                &request.harness_session_id,
+                &request.status,
+                Some(&request.prompt_hook_generation),
+                request.observed_at.as_deref(),
+                bearer_token(&headers),
+            )
+            .map(|_| axum::http::StatusCode::OK.into_response())
+            .or_else(|error| match error {
+                crate::session_application::SessionError::Accepted => {
+                    Ok(axum::http::StatusCode::ACCEPTED.into_response())
+                }
+                error => Err(error),
+            })
+            .unwrap_or_else(application_error_response);
+    }
+    let Ok(request) = serde_json::from_value::<AttentionReportRequest>(value) else {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    };
+    report_attention_with_headers(State(state), Path(id), headers, Json(request)).await
+}
+
 #[cfg(test)]
 pub(crate) async fn report_attention(
     state: State<Arc<AppState>>,
@@ -478,6 +535,9 @@ fn application_error_response(
         crate::session_application::SessionError::EmptyBadRequest => {
             axum::http::StatusCode::BAD_REQUEST.into_response()
         }
+        crate::session_application::SessionError::Accepted => {
+            axum::http::StatusCode::ACCEPTED.into_response()
+        }
         crate::session_application::SessionError::Conflict => {
             axum::http::StatusCode::CONFLICT.into_response()
         }
@@ -519,22 +579,121 @@ async fn report_harness_session_inner(
 ) -> axum::response::Response {
     let observation_state = state.clone();
     let is_codex_hook = req.source == "codex_hook";
+    let prompt_harness = match req.source.as_str() {
+        "claude_hook" => Some("claude-code"),
+        "copilot_hook" => Some("copilot"),
+        _ => None,
+    };
     let native_session_id = req.harness_session_id.clone();
-    let private_lookup_authorized = is_codex_hook
-        && bearer_token(&headers).is_some_and(|token| verify_workflow_report_token(&id, token));
     let report = metadata::HarnessSessionReport {
-        harness_session_id: req.harness_session_id,
-        source: req.source,
+        harness_session_id: req.harness_session_id.clone(),
+        source: req.source.clone(),
         confidence: req.confidence,
     };
-
+    if !metadata::valid_harness_session_report(&report) {
+        return axum::http::StatusCode::BAD_REQUEST.into_response();
+    }
+    if let Some(harness_id) = prompt_harness {
+        let lifecycle_valid = match (
+            harness_id,
+            req.session_start_event.as_deref(),
+            req.session_start_source.as_deref(),
+        ) {
+            (_, None, None) => true,
+            ("claude-code", Some("SessionStart"), Some("clear")) => true,
+            ("copilot", Some("sessionStart"), Some("new")) => req
+                .session_start_observed_at
+                .as_deref()
+                .and_then(|raw| crate::workspace_runtime::parse_hook_observed_at(raw).ok())
+                .is_some(),
+            _ => false,
+        };
+        if !lifecycle_valid {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
+        }
+    }
+    let lifecycle_observed_at = req
+        .session_start_observed_at
+        .as_deref()
+        .and_then(|raw| crate::workspace_runtime::parse_hook_observed_at(raw).ok());
+    let private_lookup_authorized = is_codex_hook
+        && bearer_token(&headers).is_some_and(|token| verify_workflow_report_token(&id, token));
+    let prompt_registration_authorized = if let Some(expected_harness) = prompt_harness {
+        let token = bearer_token(&headers);
+        let generation = req.prompt_hook_generation.as_deref();
+        let live_harness_matches = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_session(&id))
+            .is_some_and(|session| session.harness == expected_harness)
+            && state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(&id)
+                .is_some_and(|handle| {
+                    handle.info.lifecycle == "alive"
+                        && handle.info.lifecycle_phase == "active"
+                        && (handle.info.harness_id.as_deref() == Some(expected_harness)
+                            || handle.info.harness.as_deref() == Some(expected_harness))
+                });
+        let authorized = live_harness_matches
+            && token.is_some_and(|token| verify_workflow_report_token(&id, token))
+            && generation.is_some_and(|generation| {
+                crate::runtime::prompt_authority::registry().generation_matches(
+                    &id,
+                    expected_harness,
+                    generation,
+                )
+            });
+        if !authorized {
+            return axum::http::StatusCode::BAD_REQUEST.into_response();
+        }
+        match crate::runtime::prompt_authority::registry().register_native_id(
+            &id,
+            expected_harness,
+            generation.expect("authorized generation exists"),
+            &native_session_id,
+            req.session_start_event.is_some(),
+            lifecycle_observed_at,
+        ) {
+            crate::runtime::prompt_authority::BindResult::Bound
+            | crate::runtime::prompt_authority::BindResult::Unchanged => true,
+            crate::runtime::prompt_authority::BindResult::Held => {
+                if crate::runtime::prompt_authority::registry().acknowledged_candidate_matches(
+                    &id,
+                    expected_harness,
+                    generation.expect("authorized generation exists"),
+                    &native_session_id,
+                ) {
+                    SessionApplication::new(state.clone()).commit_prompt_identity_reset(&id);
+                }
+                return axum::http::StatusCode::ACCEPTED.into_response();
+            }
+            crate::runtime::prompt_authority::BindResult::Rejected => {
+                return axum::http::StatusCode::BAD_REQUEST.into_response();
+            }
+        }
+    } else {
+        false
+    };
+    if prompt_registration_authorized && req.session_start_event.is_some() {
+        if SessionApplication::new(state.clone())
+            .clear_prompt_authority_tuple(&id)
+            .is_err()
+        {
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
     let result = match SessionApplication::new(state.clone())
         .report_harness_session_with_codex_context(
             &id,
             report,
             req.session_start_source.as_deref(),
             req.session_start_event.as_deref(),
-            private_lookup_authorized,
+            private_lookup_authorized || prompt_registration_authorized,
         ) {
         Ok(result) => result,
         Err(crate::session_application::SessionError::Conflict) => {
@@ -1615,12 +1774,303 @@ mod tests {
                 hook_fingerprint: None,
                 session_start_source: None,
                 session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
             }),
         )
         .await
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn prompt_hook_registration_requires_live_capability_and_binds_identity_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = format!("claude-prompt-{}", uuid::Uuid::new_v4().simple());
+        let generation = format!("{}", "a".repeat(64));
+        let token = format!("{}", "b".repeat(64));
+        let mut session = test_session_metadata(
+            &session_id,
+            "Claude",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "claude-code".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(&session_id, token.clone());
+        crate::runtime::prompt_authority::registry().issue(&session_id, "claude-code", &generation);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let report = || HarnessSessionReportRequest {
+            harness_session_id: "claude-native-session-1".into(),
+            source: "claude_hook".into(),
+            confidence: 0.98,
+            hook_fingerprint: None,
+            session_start_source: None,
+            session_start_event: None,
+            prompt_hook_generation: Some(generation.clone()),
+            session_start_observed_at: None,
+        };
+
+        for _ in 0..2 {
+            let response = report_harness_session_with_headers(
+                State(state.clone()),
+                Path(session_id.clone()),
+                headers.clone(),
+                Json(report()),
+            )
+            .await
+            .into_response();
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+        }
+
+        assert!(
+            crate::runtime::prompt_authority::registry().native_id_matches(
+                &session_id,
+                "claude-code",
+                &generation,
+                "claude-native-session-1",
+            )
+        );
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert_eq!(
+            saved
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("claude-native-session-1")
+        );
+        assert!(
+            saved.attention.is_none(),
+            "identity registration must not change attention state"
+        );
+
+        let rejected = report_harness_session_with_headers(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "claude-native-session-2".into(),
+                ..report()
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(rejected.status(), axum::http::StatusCode::BAD_REQUEST);
+        crate::runtime::prompt_authority::registry().remove(&session_id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&session_id);
+    }
+
+    #[tokio::test]
+    async fn claude_reset_registration_waits_for_pty_ack_before_rebinding_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = format!("claude-reset-{}", uuid::Uuid::new_v4().simple());
+        let generation = "e".repeat(64);
+        let token = "f".repeat(64);
+        let mut session = test_session_metadata(
+            &session_id,
+            "Claude",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "claude-code".into();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.attention = Some("needs_you".into());
+        session.observed_status = Some("waiting_for_input".into());
+        session.metadata_source = "peon".into();
+        session.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("claude-before-clear".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(&session_id, token.clone());
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue(&session_id, "claude-code", &generation);
+        assert_eq!(
+            authority.register_native_id(
+                &session_id,
+                "claude-code",
+                &generation,
+                "claude-before-clear",
+                false,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Bound
+        );
+        assert!(authority.reserve_reset(&session_id, "claude-code", "/clear"));
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_harness_session_with_headers(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "claude-after-clear".into(),
+                source: "claude_hook".into(),
+                confidence: 0.98,
+                hook_fingerprint: None,
+                session_start_source: Some("clear".into()),
+                session_start_event: Some("SessionStart".into()),
+                prompt_hook_generation: Some(generation.clone()),
+                session_start_observed_at: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::ACCEPTED);
+        let before_ack = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert_eq!(
+            before_ack
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("claude-before-clear")
+        );
+        assert_eq!(
+            before_ack.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
+
+        SessionApplication::new(state.clone()).commit_prompt_identity_reset(&session_id);
+        let after_ack = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert_eq!(
+            after_ack
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("claude-after-clear")
+        );
+        assert_eq!(after_ack.observed_status, None);
+        assert_eq!(after_ack.attention, None);
+        assert!(authority.reserve_reset(&session_id, "claude-code", "/clear"));
+        assert_eq!(
+            authority.acknowledge_reset(&session_id),
+            None,
+            "PTY acknowledgement may precede the replacement lifecycle event"
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_harness_session_with_headers(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "claude-after-second-clear".into(),
+                source: "claude_hook".into(),
+                confidence: 0.98,
+                hook_fingerprint: None,
+                session_start_source: Some("clear".into()),
+                session_start_event: Some("SessionStart".into()),
+                prompt_hook_generation: Some(generation.clone()),
+                session_start_observed_at: None,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::ACCEPTED);
+        let after_delayed_lifecycle = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert_eq!(
+            after_delayed_lifecycle
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            Some("claude-after-second-clear")
+        );
+        assert!(authority.native_id_matches(
+            &session_id,
+            "claude-code",
+            &generation,
+            "claude-after-second-clear",
+        ));
+        authority.remove(&session_id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&session_id);
     }
 
     #[tokio::test]
@@ -1637,6 +2087,8 @@ mod tests {
                 hook_fingerprint: None,
                 session_start_source: None,
                 session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
             }),
         )
         .await
@@ -1708,6 +2160,8 @@ mod tests {
                 hook_fingerprint: Some("a".repeat(64)),
                 session_start_source: None,
                 session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
             }),
         )
         .await
@@ -1797,6 +2251,8 @@ mod tests {
                 hook_fingerprint: Some("a".repeat(64)),
                 session_start_source: None,
                 session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
             }),
         )
         .await
@@ -1866,6 +2322,8 @@ mod tests {
                 hook_fingerprint: Some("a".repeat(64)),
                 session_start_source: None,
                 session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
             },
             token,
         )
@@ -2071,6 +2529,8 @@ mod tests {
                 hook_fingerprint: Some(fingerprint.clone()),
                 session_start_source: None,
                 session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
             }),
         )
         .await
@@ -2215,6 +2675,8 @@ mod tests {
                 hook_fingerprint: None,
                 session_start_source: None,
                 session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
             }),
         )
         .await
@@ -3566,6 +4028,230 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn prompt_attention_requires_registered_identity_and_changes_only_the_prompt_tuple() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = format!("claude-attention-{}", uuid::Uuid::new_v4().simple());
+        let generation = "c".repeat(64);
+        let token = "d".repeat(64);
+        let mut session = test_session_metadata(
+            &session_id,
+            "Claude",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "claude-code".into();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("claude-attention-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        session.metadata_source = "peon".into();
+        session.summary = Some("descriptive summary survives".into());
+        session.needs_user_input = Some(true);
+        session.detected_question = Some("user question survives?".into());
+        session.suggested_options = Some(vec!["yes".into()]);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(&session_id, token.clone());
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue(&session_id, "claude-code", &generation);
+        assert_eq!(
+            authority.register_native_id(
+                &session_id,
+                "claude-code",
+                &generation,
+                "claude-attention-native",
+                false,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Bound
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_attention_route(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(serde_json::json!({
+                "status":"waiting_for_input",
+                "source":"claude_hook",
+                "event":"Notification",
+                "notificationType":"permission_prompt",
+                "harnessSessionId":"claude-attention-native",
+                "promptHookGeneration":generation
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
+        assert_eq!(saved.needs_user_input, None);
+        assert_eq!(saved.detected_question, None);
+        assert_eq!(saved.suggested_options, None);
+        assert_eq!(
+            saved.summary.as_deref(),
+            Some("descriptive summary survives")
+        );
+        assert_eq!(saved.metadata_source, "peon");
+        assert!(authority.is_active(&session_id));
+        assert!(authority.reserve_reset(&session_id, "claude-code", "/clear"));
+        assert_eq!(
+            authority.register_native_id(
+                &session_id,
+                "claude-code",
+                &generation,
+                "claude-attention-native-after-clear",
+                true,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Held
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_attention_route(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(serde_json::json!({
+                "status":"waiting_for_input",
+                "source":"claude_hook",
+                "event":"Notification",
+                "notificationType":"permission_prompt",
+                "harnessSessionId":"claude-attention-native",
+                "promptHookGeneration":generation
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_attention_route(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(serde_json::json!({
+                "status":"waiting_for_input",
+                "source":"claude_hook",
+                "event":"Notification",
+                "notificationType":"permission_prompt",
+                "harnessSessionId":"claude-attention-native-after-clear",
+                "promptHookGeneration":generation
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), axum::http::StatusCode::ACCEPTED);
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        assert_eq!(
+            saved.resume.as_ref().unwrap().harness_session_id.as_deref(),
+            Some("claude-attention-native")
+        );
+        assert_eq!(
+            authority.acknowledge_reset(&session_id).as_deref(),
+            Some("claude-attention-native-after-clear")
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_attention_route(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(serde_json::json!({
+                "status":"waiting_for_input",
+                "source":"claude_hook",
+                "event":"Notification",
+                "notificationType":"permission_prompt",
+                "harnessSessionId":"claude-attention-native-after-clear",
+                "promptHookGeneration":generation
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), axum::http::StatusCode::ACCEPTED);
+        let commit = authority.complete_reset(&session_id).unwrap();
+        assert_eq!(
+            commit.native_session_id,
+            "claude-attention-native-after-clear"
+        );
+        assert_eq!(
+            commit.queued_prompt_wait.unwrap().notification_type,
+            "permission_prompt"
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_attention_route(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(serde_json::json!({
+                "status":"waiting_for_input",
+                "source":"claude_hook",
+                "event":"Notification",
+                "notificationType":"permission_prompt",
+                "harnessSessionId":"claude-attention-native",
+                "promptHookGeneration":generation
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        authority.remove(&session_id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&session_id);
     }
 
     #[tokio::test]

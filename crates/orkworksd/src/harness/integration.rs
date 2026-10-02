@@ -677,6 +677,25 @@ pub(crate) trait IntegrationHandler: Send + Sync {
     }
 }
 
+pub(crate) fn prompt_attention_hook_ready(
+    binding: &IntegrationBinding,
+    ctx: &IntegrationContext<'_>,
+) -> bool {
+    if !ctx.enabled
+        || !matches!(
+            binding,
+            IntegrationBinding::Claude | IntegrationBinding::Copilot
+        )
+    {
+        return false;
+    }
+    handler(binding).status(ctx).is_ok_and(|status| {
+        status.activation == IntegrationActivation::Active
+            && status.registration == IntegrationRegistration::Installed
+            && status.ownership == IntegrationOwnership::OrkWorks
+    })
+}
+
 pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationHandler {
     super::integrations::handler(binding)
 }
