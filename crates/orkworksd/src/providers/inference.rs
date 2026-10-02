@@ -133,6 +133,20 @@ pub(super) fn native_cli_failure_summary(
     (code, summary)
 }
 
+pub(super) fn native_cli_failure_details(
+    provider: &str,
+    stderr: &str,
+    stdout: &str,
+    executable_missing: bool,
+    exit_code: Option<i32>,
+) -> (ProviderOperationErrorCode, String) {
+    let (code, summary) = native_cli_failure_summary(provider, stderr, stdout, executable_missing);
+    match exit_code {
+        Some(exit_code) => (code, format!("{summary} (CLI exit {exit_code})")),
+        None => (code, summary.to_string()),
+    }
+}
+
 fn classify_known_failure_text(
     message: &str,
 ) -> Option<(ProviderOperationErrorCode, &'static str)> {
@@ -492,9 +506,16 @@ impl PreparedInference {
         }
         let result = runner.run_prepared(id, &mut probe, "", 5, None);
         if !result.success {
+            let exit_detail = result
+                .exit_code
+                .filter(|code| *code != 0)
+                .map(|code| format!(" (CLI exit {code})"))
+                .unwrap_or_default();
             return Err(ProviderOperationError {
                 code: super::classify_invocation_error(&result.stderr),
-                message: "CLI compatibility check failed; check the installed coding tool".into(),
+                message: format!(
+                    "CLI compatibility check failed; check the installed coding tool{exit_detail}"
+                ),
             });
         }
         let version = match self.profile {
@@ -926,6 +947,32 @@ mod tests {
 
         assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
         assert_eq!(summary, "provider failure");
+    }
+
+    #[test]
+    fn native_cli_failure_details_include_exit_status_without_echoing_cli_output() {
+        // Codex exec JSONL currently emits message-only terminal failures.
+        let stdout = r#"{"type":"turn.failed","error":{"message":"private account user@example.test at /Users/private"}}"#;
+
+        let (code, summary) =
+            super::native_cli_failure_details("codex", "", stdout, false, Some(1));
+
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(summary, "provider failure (CLI exit 1)");
+        assert!(!summary.contains("private"));
+        assert!(!summary.contains('@'));
+        assert!(!summary.contains("/Users"));
+    }
+
+    #[test]
+    fn native_cli_failure_details_omit_exit_status_when_process_has_none() {
+        let stdout = r#"{"type":"turn.failed","error":{"message":"private diagnostic"}}"#;
+
+        let (_, summary) = super::native_cli_failure_details("codex", "", stdout, false, None);
+
+        assert_eq!(summary, "provider failure");
+        assert!(!summary.contains("private"));
+        assert!(!summary.contains('@'));
     }
 
     #[test]

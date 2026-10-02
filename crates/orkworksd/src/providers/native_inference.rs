@@ -198,6 +198,7 @@ mod tests {
             InvocationResult {
                 launch_failure: false,
                 success: true,
+                exit_code: None,
                 stdout: r#"{"proposals":[]}"#.into(),
                 stderr: String::new(),
             }
@@ -242,6 +243,7 @@ mod tests {
             InvocationResult {
                 launch_failure: false,
                 success: true,
+                exit_code: None,
                 stdout: stdout.into(),
                 stderr: String::new(),
             }
@@ -305,6 +307,7 @@ mod tests {
             InvocationResult {
                 launch_failure: false,
                 success: probe,
+                exit_code: None,
                 stdout: if probe { "2.1.236 (Claude Code)" } else { "" }.into(),
                 stderr: if probe {
                     String::new()

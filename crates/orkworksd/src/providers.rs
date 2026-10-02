@@ -641,11 +641,13 @@ pub struct ProvidersResponse {
 struct InvocationResult {
     launch_failure: bool,
     success: bool,
+    exit_code: Option<i32>,
     stdout: String,
     stderr: String,
 }
 
 const MAX_PROVIDER_OUTPUT_BYTES: usize = 64 * 1024;
+const PROMPT_WRITE_EXIT_GRACE: Duration = Duration::from_millis(250);
 
 fn read_limited(reader: &mut impl Read) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -711,6 +713,7 @@ trait ProviderRunner: Send + Sync {
         InvocationResult {
             launch_failure: false,
             success: false,
+            exit_code: None,
             stdout: String::new(),
             stderr: "runner does not support isolated inference".into(),
         }
@@ -733,6 +736,7 @@ trait ProviderRunner: Send + Sync {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "workspace changed before provider dispatch".into(),
             };
@@ -782,6 +786,7 @@ trait ProviderRunner: Send + Sync {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "workspace changed before provider dispatch".into(),
             };
@@ -929,6 +934,31 @@ fn process_cleanup_does_not_join_a_pipe_thread_past_its_deadline() {
     assert!(!join_until(thread, std::time::Instant::now()));
 }
 
+#[cfg(unix)]
+#[test]
+fn process_runner_preserves_the_child_exit_code() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "exit 17"]);
+
+    let result = ProcessRunner.run_prepared("codex", &mut command, "", 2, None);
+
+    assert!(!result.success);
+    assert_eq!(result.exit_code, Some(17));
+}
+
+#[cfg(unix)]
+#[test]
+fn process_runner_preserves_nonzero_exit_code_when_output_capture_fails() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "head -c 65537 /dev/zero; exit 17"]);
+
+    let result = ProcessRunner.run_prepared("codex", &mut command, "", 2, None);
+
+    assert!(!result.success);
+    assert_eq!(result.exit_code, Some(17));
+    assert!(result.stderr.contains("provider output exceeded"));
+}
+
 impl ProviderRunner for ProcessRunner {
     fn run(
         &self,
@@ -959,6 +989,7 @@ impl ProviderRunner for ProcessRunner {
             ProcessOutcome::TimedOut => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "timed out".into(),
             },
@@ -1045,12 +1076,14 @@ impl ProcessRunner {
             Ok(ProcessOutcome::TimedOut) => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "timed out".into(),
             },
             Err(error) => InvocationResult {
                 launch_failure,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: error.to_string(),
             },
@@ -1126,6 +1159,7 @@ impl ProcessRunner {
                     return Ok(ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: error.to_string(),
                     }))
@@ -1157,6 +1191,7 @@ impl ProcessRunner {
                 return Ok(ProcessOutcome::Finished(InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: e.to_string(),
                 }));
@@ -1230,12 +1265,28 @@ impl ProcessRunner {
                     join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                 }
                 Ok(Err(e)) => {
+                    let exit_status_deadline = std::time::Instant::now()
+                        + PROMPT_WRITE_EXIT_GRACE.min(remaining_until(deadline));
+                    let exit_code = loop {
+                        match child.try_wait() {
+                            Ok(Some(status)) => break status.code().filter(|code| *code != 0),
+                            Ok(None) => {
+                                let remaining = remaining_until(exit_status_deadline);
+                                if remaining.is_zero() {
+                                    break None;
+                                }
+                                std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                            }
+                            Err(_) => break None,
+                        }
+                    };
                     terminate_child(&mut child);
                     join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                     tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code,
                         stdout: String::new(),
                         stderr: e.to_string(),
                     });
@@ -1294,6 +1345,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: e.to_string(),
                     });
@@ -1319,6 +1371,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: status.code().filter(|code| *code != 0),
                         stdout: String::new(),
                         stderr: message,
                     });
@@ -1342,6 +1395,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: "provider stdout is not UTF-8".into(),
                     })
@@ -1353,6 +1407,7 @@ impl ProcessRunner {
         ProcessOutcome::Finished(InvocationResult {
             launch_failure: false,
             success: status.success(),
+            exit_code: status.code(),
             stdout,
             stderr: String::from_utf8_lossy(&stderr.unwrap_or_default()).into_owned(),
         })
@@ -1481,6 +1536,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: format!("HttpRunner does not support provider {id}"),
                 }
@@ -1493,6 +1549,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: "no Ollama model selected in Peon settings".to_string(),
                 }
@@ -1530,6 +1587,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: format!(
                         "provider output exceeded {} bytes",
@@ -1541,6 +1599,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: "workspace changed before provider dispatch".into(),
                 };
@@ -1549,6 +1608,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: error.to_string(),
                 };
@@ -1564,6 +1624,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: msg,
                 };
@@ -1572,6 +1633,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: "Ollama generate request timed out".to_string(),
                 };
@@ -1582,6 +1644,7 @@ impl HttpRunner {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!(
                     "provider output exceeded {} bytes",
@@ -1602,6 +1665,7 @@ impl HttpRunner {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!(
                     "{prefix}Ollama returned HTTP {}: {}",
@@ -1617,12 +1681,14 @@ impl HttpRunner {
             Ok(gen) => InvocationResult {
                 launch_failure: false,
                 success: true,
+                exit_code: None,
                 stdout: gen.response,
                 stderr: String::new(),
             },
             Err(e) => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!("failed to parse Ollama generate response: {e}"),
             },
@@ -2196,11 +2262,12 @@ impl ProviderManager {
             if !result.success {
                 // Only a fixed category is surfaced: raw CLI diagnostics may
                 // carry account, prompt, provider, or path details.
-                let (code, reason) = inference::native_cli_failure_summary(
+                let (code, reason) = inference::native_cli_failure_details(
                     provider,
                     &result.stderr,
                     &result.stdout,
                     result.launch_failure,
+                    result.exit_code,
                 );
                 return Err(ProviderOperationError {
                     code,
@@ -3497,6 +3564,7 @@ impl ProviderRunner for FakeRunner {
                         return InvocationResult {
                             launch_failure: false,
                             success: false,
+                            exit_code: None,
                             stdout: String::new(),
                             stderr: "timed out".to_string(),
                         };
@@ -3506,6 +3574,7 @@ impl ProviderRunner for FakeRunner {
                 InvocationResult {
                     launch_failure: false,
                     success: spec.exit_code == 0,
+                    exit_code: Some(spec.exit_code),
                     stdout: spec.stdout_val.clone(),
                     stderr: spec.stderr_val.clone(),
                 }
@@ -3513,6 +3582,7 @@ impl ProviderRunner for FakeRunner {
             None => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!("no fake configured for {id}"),
             },
@@ -3727,6 +3797,36 @@ mod tests {
                 vec![(vec!["--version".into()], String::new())]
             );
         }
+    }
+
+    #[test]
+    fn taskmaster_version_probe_failure_reports_exit_code_without_raw_output() {
+        if isolated_cli_config(
+            "providers::tests::taskmaster_version_probe_failure_reports_exit_code_without_raw_output",
+        ) {
+            return;
+        }
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload::default(),
+            vec![FakeProvider::new("codex")
+                .stderr("private version diagnostic")
+                .exit_code(17)
+                .with_invocations(calls.clone())],
+        );
+
+        let error = manager
+            .invoke_taskmaster_prompt("codex", "chosen", None, None, "private context".into())
+            .unwrap_err();
+
+        assert_eq!(error.code, ProviderOperationErrorCode::ProviderFailure);
+        assert!(error.message.contains("CLI compatibility check failed"));
+        assert!(error.message.contains("CLI exit 17"));
+        assert!(!error.message.contains("private"));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![(vec!["--version".into()], String::new())]
+        );
     }
 
     #[test]
@@ -4159,6 +4259,65 @@ mod tests {
         }
         let _ = unsafe { libc::kill(-child_pid, libc::SIGKILL) };
         panic!("provider {child_pid} survived failed prompt-write cleanup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_preserves_exit_code_when_prompt_write_fails_after_child_exit() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 0.1; exit 17"]);
+        let prompt = "x".repeat(1024 * 1024);
+
+        let result = ProcessRunner.run_prepared("codex", &mut command, &prompt, 10, None);
+
+        assert!(!result.success);
+        assert!(result.stderr.contains("Broken pipe"), "{}", result.stderr);
+        assert_eq!(result.exit_code, Some(17));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_waits_briefly_for_exit_after_prompt_write_fails() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let closed_stdin = dir.path().join("stdin-closed");
+        let release_child = dir.path().join("release-child");
+        let script = dir.path().join("provider-closes-stdin-then-exits");
+        std::fs::write(
+            &script,
+            r#"#!/bin/sh
+exec 0<&-
+printf ready > "$1/stdin-closed"
+while [ ! -e "$1/release-child" ]; do sleep 0.01; done
+exit 17
+"#,
+        )
+        .unwrap();
+        make_test_executable(&script);
+
+        let closed_stdin_for_monitor = closed_stdin.clone();
+        let release_child_for_monitor = release_child.clone();
+        let release_thread = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !closed_stdin_for_monitor.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if !closed_stdin_for_monitor.exists() {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            std::fs::write(release_child_for_monitor, b"release").is_ok()
+        });
+
+        let args = vec![dir.path().to_string_lossy().into_owned()];
+        let prompt = "x".repeat(1024 * 1024);
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &args, &prompt, 10, None);
+
+        assert!(release_thread.join().unwrap(), "child did not close stdin");
+        assert!(!result.success);
+        assert!(result.stderr.contains("Broken pipe"), "{}", result.stderr);
+        assert_eq!(result.exit_code, Some(17));
     }
 
     #[cfg(unix)]
