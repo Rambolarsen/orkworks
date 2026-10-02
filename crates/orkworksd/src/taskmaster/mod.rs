@@ -516,11 +516,15 @@ pub(crate) fn evaluate_workflow_improvements(
 pub(crate) fn build_fix_prompt(recommendation: &Recommendation) -> String {
     let improvement = &recommendation.workflow_improvement;
     if !recommendation.rollup_member_ids.is_empty() {
-        let rollup_reference = build_rollup_reference(recommendation);
+        let (rollup_reference, retains_proposed_change) =
+            build_rollup_reference_with_retention(recommendation);
         let rollup_id = clean_rollup_reference_text(&recommendation.id, 256);
+        // Guidance points at the delimited proposal, so emit it only when the
+        // final serialized reference still carries `proposedChange`.
         let proposed_change_guidance = recommendation
             .proposed_change
             .as_ref()
+            .filter(|_| retains_proposed_change)
             .map(|change| format!("{}\n\n", change.prompt_guidance()))
             .unwrap_or_default();
         return format!(
@@ -617,7 +621,14 @@ fn clean_proposed_change_reference(
     reference
 }
 
+#[cfg(test)]
 fn build_rollup_reference(recommendation: &Recommendation) -> String {
+    build_rollup_reference_with_retention(recommendation).0
+}
+
+/// Returns the delimited reference plus whether the final serialized block
+/// still contains `proposedChange` (false once the minimal fallbacks run).
+fn build_rollup_reference_with_retention(recommendation: &Recommendation) -> (String, bool) {
     let evidence = recommendation
         .evidence
         .iter()
@@ -707,7 +718,9 @@ fn build_rollup_reference(recommendation: &Recommendation) -> String {
         reference["truncated"] = serde_json::Value::Bool(true);
         serialized = serde_json::to_string(&reference).expect("rollup reference is serializable");
     }
+    let mut retains_proposed_change = reference.get("proposedChange").is_some();
     if serialized.len() > MAX_ROLLUP_PROMPT_REFERENCE_CHARS {
+        retains_proposed_change = false;
         reference = serde_json::json!({
             "rollupId": reference["rollupId"],
             "memberRecommendationIds": reference["memberRecommendationIds"],
@@ -741,8 +754,11 @@ fn build_rollup_reference(recommendation: &Recommendation) -> String {
         })
         .to_string();
     }
-    format!(
-        "<orkworks-untrusted-rollup-reference>\n{serialized}\n</orkworks-untrusted-rollup-reference>"
+    (
+        format!(
+            "<orkworks-untrusted-rollup-reference>\n{serialized}\n</orkworks-untrusted-rollup-reference>"
+        ),
+        retains_proposed_change,
     )
 }
 
@@ -1325,6 +1341,33 @@ mod tests {
         assert_eq!(value["truncated"], true);
         assert!(value.get("proposedChange").is_none());
         assert!(value.get("repositoryEvidence").is_none());
+    }
+
+    #[test]
+    fn build_fix_prompt_emits_guidance_only_when_reference_retains_proposed_change() {
+        let retained = rollup_recommendation_with_change(true);
+        let prompt = build_fix_prompt(&retained);
+        assert!(build_rollup_reference(&retained).contains("proposedChange"));
+        assert!(prompt.contains("Proposed change: the delimited reference data"));
+
+        let mut dropped = rollup_recommendation_with_change(true);
+        dropped.title = "t".repeat(240);
+        dropped.summary = "s".repeat(1_000);
+        dropped.workflow_improvement.proposed_improvement = "p".repeat(2_000);
+        dropped.workflow_improvement.expected_benefit = "b".repeat(2_000);
+        dropped.reason = vec!["r".repeat(2_000)];
+        dropped.repository_evidence = (0..16)
+            .map(|index| RepositoryEvidence {
+                path: format!("docs/{index}.md"),
+                sha256: "0".repeat(64),
+                excerpt: "x".repeat(2_000),
+                observed_at: "2026-09-13T00:00:00Z".into(),
+            })
+            .collect();
+        assert!(!build_rollup_reference(&dropped).contains("proposedChange"));
+        let prompt = build_fix_prompt(&dropped);
+        assert!(!prompt.contains("Proposed change:"));
+        assert!(!prompt.contains("proposedChange"));
     }
 
     #[test]

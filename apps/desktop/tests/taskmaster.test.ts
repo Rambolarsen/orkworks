@@ -1065,6 +1065,35 @@ test("rollup fix prompt without a proposed change is unchanged", () => {
   assert.ok(!prompt.includes('"proposedChange"'));
 });
 
+test("rollup fix prompt emits proposed-change guidance only when the reference retained it", () => {
+  const retained = buildFixPromptDraft(rollupRecommendationWithChange());
+  assert.ok(retained.includes('"proposedChange"'));
+  assert.ok(retained.includes("Proposed change: the delimited reference data"));
+
+  const base = rollupRecommendationWithChange();
+  const dropped = buildFixPromptDraft({
+    ...base,
+    title: "t".repeat(240),
+    summary: "s".repeat(1_000),
+    reason: ["r".repeat(2_000)],
+    workflowImprovement: {
+      ...base.workflowImprovement,
+      proposedImprovement: "p".repeat(2_000),
+      expectedBenefit: "b".repeat(2_000),
+    },
+    rollupMemberIds: Array.from({ length: 8 }, (_, i) => `${i}${"m".repeat(255)}`),
+    repositoryEvidence: Array.from({ length: 16 }, (_, i) => ({
+      path: `docs/${i}.md`,
+      sha256: "0".repeat(64),
+      excerpt: "x".repeat(2_000),
+      observedAt: "2026-09-13T00:00:00Z",
+    })),
+  });
+  assert.ok(dropped.includes('"truncated":true'));
+  assert.ok(!dropped.includes("proposedChange"));
+  assert.ok(!dropped.includes("Proposed change:"));
+});
+
 test("formatProposedChange labels targets and flags sensitive ones as plain text", () => {
   const view = formatProposedChange({
     summary: "Pin retries",
