@@ -297,6 +297,8 @@ fn combined_taskmaster_prompt_requests_all_response_sections_once() {
     assert!(prompt.contains("enrichments"));
     assert!(prompt.contains("proposals"));
     assert!(prompt.contains("rollups"));
+    assert_eq!(prompt.matches("parent directory").count(), 1);
+    assert_eq!(prompt.matches("already exist").count(), 1);
 }
 
 #[test]
@@ -1757,6 +1759,9 @@ fn rollup_prompt_version_is_v2_and_names_proposed_change() {
     let snapshot = evaluation_snapshot();
     let request = build_rollup_request(1, &snapshot, &recommendations).unwrap();
     assert!(request.prompt.contains("proposedChange"));
+    assert_eq!(request.prompt.matches("parent directory").count(), 1);
+    assert_eq!(request.prompt.matches("already exist").count(), 1);
+    assert!(request.prompt.contains("do not invent new directories"));
 }
 
 #[test]
