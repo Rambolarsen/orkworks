@@ -1264,13 +1264,19 @@ impl ProcessRunner {
                     join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                 }
                 Ok(Err(e)) => {
+                    let exit_code = child
+                        .try_wait()
+                        .ok()
+                        .flatten()
+                        .and_then(|status| status.code())
+                        .filter(|code| *code != 0);
                     terminate_child(&mut child);
                     join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                     tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
-                        exit_code: None,
+                        exit_code,
                         stdout: String::new(),
                         stderr: e.to_string(),
                     });
@@ -4243,6 +4249,20 @@ mod tests {
         }
         let _ = unsafe { libc::kill(-child_pid, libc::SIGKILL) };
         panic!("provider {child_pid} survived failed prompt-write cleanup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_preserves_exit_code_when_prompt_write_fails_after_child_exit() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 0.1; exit 17"]);
+        let prompt = "x".repeat(1024 * 1024);
+
+        let result = ProcessRunner.run_prepared("codex", &mut command, &prompt, 10, None);
+
+        assert!(!result.success);
+        assert!(result.stderr.contains("Broken pipe"), "{}", result.stderr);
+        assert_eq!(result.exit_code, Some(17));
     }
 
     #[cfg(unix)]
