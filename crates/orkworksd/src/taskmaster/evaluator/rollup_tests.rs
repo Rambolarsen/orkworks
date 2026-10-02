@@ -1568,6 +1568,12 @@ fn v1_tokens_are_stale_and_degrade_summary_is_bounded_and_classified() {
             .code()
     )
     .cacheable());
+    // A canonical (symlink) duplicate depends on the filesystem: not cacheable.
+    assert!(!ApplyDisposition::RollupsDegraded(
+        crate::taskmaster::proposed_change::ChangeValidationError::CanonicalDestinationRejected
+            .code()
+    )
+    .cacheable());
     assert!(ApplyDisposition::RollupsDegraded("proposed_change_scope").cacheable());
     assert!(ApplyDisposition::Applied.cacheable());
 }

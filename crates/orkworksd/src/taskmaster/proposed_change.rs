@@ -71,7 +71,8 @@ pub(crate) enum ChangeValidationError {
     EscapesWorkspace,
     CreateTargetExists,
     CreateParentInvalid,
-    /// Canonical (symlink-resolved) destination hit the `.git`/scope rules.
+    /// Canonical (symlink-resolved) destination hit the `.git`/scope rules or
+    /// aliased another target; depends on the filesystem, so never cached.
     CanonicalDestinationRejected,
 }
 
@@ -374,7 +375,7 @@ pub(crate) fn resolve_targets_on_disk(
                     }
                 }
                 if !canonical_seen.insert(canonical.to_string_lossy().to_lowercase()) {
-                    return Err(ChangeValidationError::DuplicatePath);
+                    return Err(ChangeValidationError::CanonicalDestinationRejected);
                 }
                 repo_relative(&root, &canonical)?
             }
@@ -401,7 +402,7 @@ pub(crate) fn resolve_targets_on_disk(
                     leaf.to_lowercase()
                 );
                 if !canonical_seen.insert(key) {
-                    return Err(ChangeValidationError::DuplicatePath);
+                    return Err(ChangeValidationError::CanonicalDestinationRejected);
                 }
                 let parent_relative = repo_relative(&root, &parent)?;
                 if parent_relative.is_empty() {
@@ -629,6 +630,10 @@ mod tests {
             validate_proposed_change(&dup),
             Err(ChangeValidationError::DuplicatePath)
         );
+        assert_eq!(
+            ChangeValidationError::DuplicatePath.code(),
+            "proposed_change_path"
+        );
 
         let mut big = model("a.md", TargetAction::Create);
         for n in 0..2 {
@@ -703,7 +708,7 @@ mod tests {
         });
         assert_eq!(
             resolve_targets_on_disk(root, &validate_proposed_change(&change).unwrap()).map(|_| ()),
-            Err(ChangeValidationError::DuplicatePath)
+            Err(ChangeValidationError::CanonicalDestinationRejected)
         );
         let mut create = model("docs/new.md", TargetAction::Create);
         create.targets.push(ModelChangeTarget {
@@ -713,8 +718,79 @@ mod tests {
         });
         assert_eq!(
             resolve_targets_on_disk(root, &validate_proposed_change(&create).unwrap()).map(|_| ()),
-            Err(ChangeValidationError::DuplicatePath)
+            Err(ChangeValidationError::CanonicalDestinationRejected)
         );
+    }
+
+    #[test]
+    fn every_disk_validation_error_uses_the_filesystem_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("docs/dir.md")).unwrap();
+        std::fs::write(root.join("docs/exists.md"), "x").unwrap();
+        std::fs::write(root.join("docs/a.md"), "x").unwrap();
+        #[allow(unused_mut)]
+        let mut scenarios: Vec<(&str, ProposedChange)> = Vec::new();
+        let single = |path: &str, action| validate_proposed_change(&model(path, action)).unwrap();
+        scenarios.push((
+            "missing edit",
+            single("docs/missing.md", TargetAction::Edit),
+        ));
+        scenarios.push(("edit directory", single("docs/dir.md", TargetAction::Edit)));
+        scenarios.push((
+            "create existing",
+            single("docs/exists.md", TargetAction::Create),
+        ));
+        scenarios.push((
+            "create no parent",
+            single("nodir/new.md", TargetAction::Create),
+        ));
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::write(outside.path().join("o.md"), "x").unwrap();
+            std::os::unix::fs::symlink(outside.path().join("o.md"), root.join("docs/esc.md"))
+                .unwrap();
+            std::fs::hard_link(root.join("docs/a.md"), root.join("docs/hard.md")).unwrap();
+            std::fs::create_dir_all(root.join(".git")).unwrap();
+            std::fs::write(root.join(".git/config"), "x").unwrap();
+            std::fs::create_dir_all(root.join("src")).unwrap();
+            std::os::unix::fs::symlink("../.git/config", root.join("docs/guide.md")).unwrap();
+            std::os::unix::fs::symlink(root.join("src"), root.join("docs/code")).unwrap();
+            std::os::unix::fs::symlink(root.join("docs"), root.join("alias")).unwrap();
+            std::fs::write(root.join("docs/b.md"), "x").unwrap();
+            scenarios.push(("symlink escape", single("docs/esc.md", TargetAction::Edit)));
+            scenarios.push(("hard link", single("docs/hard.md", TargetAction::Edit)));
+            scenarios.push(("git alias", single("docs/guide.md", TargetAction::Edit)));
+            scenarios.push((
+                "scope alias",
+                single("docs/code/run.sh", TargetAction::Create),
+            ));
+            let mut edit_dup = model("docs/b.md", TargetAction::Edit);
+            edit_dup.targets.push(ModelChangeTarget {
+                path: "alias/b.md".into(),
+                action: TargetAction::Edit,
+                instruction: "Second instruction for the same file".into(),
+            });
+            scenarios.push((
+                "edit duplicate",
+                validate_proposed_change(&edit_dup).unwrap(),
+            ));
+            let mut create_dup = model("docs/new.md", TargetAction::Create);
+            create_dup.targets.push(ModelChangeTarget {
+                path: "alias/NEW.md".into(),
+                action: TargetAction::Create,
+                instruction: "Alias of the same new file".into(),
+            });
+            scenarios.push((
+                "create duplicate",
+                validate_proposed_change(&create_dup).unwrap(),
+            ));
+        }
+        for (name, change) in scenarios {
+            let error = resolve_targets_on_disk(root, &change).expect_err(name);
+            assert_eq!(error.code(), FILESYSTEM_CODE, "{name}: {error:?}");
+        }
     }
 
     #[cfg(unix)]
