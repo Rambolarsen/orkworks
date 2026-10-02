@@ -506,9 +506,16 @@ impl PreparedInference {
         }
         let result = runner.run_prepared(id, &mut probe, "", 5, None);
         if !result.success {
+            let exit_detail = result
+                .exit_code
+                .filter(|code| *code != 0)
+                .map(|code| format!(" (CLI exit {code})"))
+                .unwrap_or_default();
             return Err(ProviderOperationError {
                 code: super::classify_invocation_error(&result.stderr),
-                message: "CLI compatibility check failed; check the installed coding tool".into(),
+                message: format!(
+                    "CLI compatibility check failed; check the installed coding tool{exit_detail}"
+                ),
             });
         }
         let version = match self.profile {

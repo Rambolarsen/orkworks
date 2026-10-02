@@ -3784,6 +3784,36 @@ mod tests {
     }
 
     #[test]
+    fn taskmaster_version_probe_failure_reports_exit_code_without_raw_output() {
+        if isolated_cli_config(
+            "providers::tests::taskmaster_version_probe_failure_reports_exit_code_without_raw_output",
+        ) {
+            return;
+        }
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let manager = ProviderManager::for_tests(
+            ProviderSettingsPayload::default(),
+            vec![FakeProvider::new("codex")
+                .stderr("private version diagnostic")
+                .exit_code(17)
+                .with_invocations(calls.clone())],
+        );
+
+        let error = manager
+            .invoke_taskmaster_prompt("codex", "chosen", None, None, "private context".into())
+            .unwrap_err();
+
+        assert_eq!(error.code, ProviderOperationErrorCode::ProviderFailure);
+        assert!(error.message.contains("CLI compatibility check failed"));
+        assert!(error.message.contains("CLI exit 17"));
+        assert!(!error.message.contains("private"));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![(vec!["--version".into()], String::new())]
+        );
+    }
+
+    #[test]
     fn taskmaster_cli_failures_are_redacted_without_fallback_or_peon_mutation() {
         if isolated_cli_config("providers::tests::taskmaster_cli_failures_are_redacted_without_fallback_or_peon_mutation") { return; }
         for id in ["codex", "claude-code"] {
