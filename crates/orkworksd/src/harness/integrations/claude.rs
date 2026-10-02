@@ -285,6 +285,19 @@ fn probe(
     Ok(FragmentState::Drifted)
 }
 
+pub(super) fn prompt_attention_probe(
+    document: &Map<String, Value>,
+    reporter: &Path,
+) -> Result<FragmentState, IntegrationError> {
+    let invocation = EventProfile::Notification.invocation(ReporterPlatform::current(), reporter);
+    event_state(
+        document,
+        EventProfile::Notification,
+        Some(&invocation),
+        EventProfile::Notification.async_spec(),
+    )
+}
+
 fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), IntegrationError> {
     if remove(document)? == FragmentState::Ambiguous {
         return Err(IntegrationError::OwnershipAmbiguous);
@@ -436,6 +449,26 @@ mod tests {
         removed.clear();
 
         assert_eq!(probe(&document, reporter).unwrap(), FragmentState::Drifted);
+    }
+
+    #[test]
+    fn prompt_readiness_ignores_drift_in_unrelated_claude_events() {
+        let reporter = Path::new("/tmp/report-harness-event.sh");
+        let mut document = Map::new();
+        merge(&mut document, reporter).unwrap();
+        document["hooks"]["PostToolUse"] = json!([]);
+
+        assert_eq!(probe(&document, reporter).unwrap(), FragmentState::Drifted);
+        assert_eq!(
+            prompt_attention_probe(&document, reporter).unwrap(),
+            FragmentState::Installed
+        );
+
+        document["hooks"]["Notification"] = json!([]);
+        assert_eq!(
+            prompt_attention_probe(&document, reporter).unwrap(),
+            FragmentState::Absent
+        );
     }
 
     /// The conformance matrix checks probe/remove symmetry for every JSON

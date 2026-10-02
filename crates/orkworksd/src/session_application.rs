@@ -1296,6 +1296,30 @@ impl SessionApplication {
                         .harness_id
                         .as_deref()
                         .or(handle.info.harness.as_deref()),
+                    Some("claude-code") | Some("copilot")
+                ) && crate::runtime::prompt_authority::registry().is_active(session_id)
+                    && handle.info.lifecycle == "alive"
+                    && handle.info.lifecycle_phase == "active" =>
+            {
+                match (
+                    handle.info.observed_status.as_deref(),
+                    handle.info.metadata_source.as_deref(),
+                ) {
+                    (Some(status), Some(source)) => metadata::PeonAttentionPolicy::PreserveHook {
+                        status,
+                        confidence: handle.info.metadata_confidence.unwrap_or(1.0),
+                        source,
+                    },
+                    _ => metadata::PeonAttentionPolicy::NonPrompt,
+                }
+            }
+            Some(handle)
+                if matches!(
+                    handle
+                        .info
+                        .harness_id
+                        .as_deref()
+                        .or(handle.info.harness.as_deref()),
                     Some("codex") | Some("opencode")
                 ) =>
             {
@@ -2261,7 +2285,6 @@ impl SessionApplication {
             Some("copilot") => ("copilot_hook", "sessionStart", "new"),
             _ => return,
         };
-        let _ = self.clear_prompt_authority_tuple(id);
         let _ = self.report_harness_session_with_codex_context(
             id,
             metadata::HarnessSessionReport {
@@ -2284,6 +2307,9 @@ impl SessionApplication {
             .and_then(|resume| resume.harness_session_id)
             .is_some_and(|persisted_id| persisted_id == native_session_id);
         if !persisted_candidate {
+            return;
+        }
+        if self.clear_prompt_authority_tuple(id).is_err() {
             return;
         }
         let Some(commit) = crate::runtime::prompt_authority::registry().complete_reset(id) else {
@@ -2357,6 +2383,14 @@ impl SessionApplication {
         }
         if let Some(observed_at) = queued.observed_at {
             handle.runtime.last_hook_attention_at = Some(observed_at);
+        }
+        if let Some(cwd) = queued.cwd.as_deref() {
+            self.state
+                .peon
+                .reported_cwd
+                .write()
+                .unwrap()
+                .insert(id.to_string(), cwd.to_string());
         }
     }
 
@@ -3598,6 +3632,7 @@ impl SessionApplication {
         status: &str,
         generation: Option<&str>,
         observed_at: Option<&str>,
+        cwd: Option<&str>,
         token: Option<&str>,
     ) -> Result<(), SessionError> {
         let (harness_id, event_name) = match source {
@@ -3685,6 +3720,7 @@ impl SessionApplication {
             native_session_id,
             notification_type.expect("validated prompt notification type"),
             observed_at,
+            cwd,
         ) {
             return Err(SessionError::Accepted);
         }
@@ -3713,6 +3749,14 @@ impl SessionApplication {
         }
         if let Some(observed_at) = observed_at {
             handle.runtime.last_hook_attention_at = Some(observed_at);
+        }
+        if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
+            self.state
+                .peon
+                .reported_cwd
+                .write()
+                .unwrap()
+                .insert(id.to_string(), cwd.to_string());
         }
         Ok(())
     }
@@ -4449,6 +4493,13 @@ async fn resume_session_workflow(
             &startup_id,
             Some(&startup_harness_id),
             &startup_executable,
+            (meta.harness == startup_harness_id)
+                .then(|| {
+                    meta.resume
+                        .as_ref()
+                        .and_then(|resume| resume.harness_session_id.as_deref())
+                })
+                .flatten(),
         ) {
             Ok(()) => {
                 crate::runtime::session_runtime::start_session_runtime(
@@ -4552,6 +4603,7 @@ fn prepare_prompt_authority_generation(
     session_id: &str,
     harness_id: Option<&str>,
     executable: &str,
+    resume_native_session_id: Option<&str>,
 ) -> Result<(), String> {
     let Some(harness_id) = harness_id.filter(|id| matches!(*id, "claude-code" | "copilot")) else {
         crate::runtime::prompt_authority::registry().remove(session_id);
@@ -4565,7 +4617,12 @@ fn prepare_prompt_authority_generation(
     }
     let generation = crate::runtime::terminal_runtime::new_workflow_report_token()
         .map_err(|_| "failed to generate a secure prompt hook launch generation".to_string())?;
-    crate::runtime::prompt_authority::registry().issue(session_id, harness_id, &generation);
+    crate::runtime::prompt_authority::registry().issue_with_native_id(
+        session_id,
+        harness_id,
+        &generation,
+        resume_native_session_id,
+    );
     Ok(())
 }
 
@@ -4897,6 +4954,7 @@ async fn create_session_workflow(
             &startup_id,
             startup_harness_id.as_deref(),
             &startup_executable,
+            None,
         )
         .and_then(|()| Ok(()));
         let start_result = match start_result {
@@ -12049,6 +12107,121 @@ mod tests {
         assert_eq!(stored.needs_user_input, None);
         assert_eq!(stored.detected_question, None);
         assert_eq!(stored.suggested_options, None);
+    }
+
+    #[test]
+    fn active_claude_copilot_prompt_tuple_survives_peon_attention_inference() {
+        for harness in ["claude-code", "copilot"] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = format!("peon-prompt-authority-{harness}");
+            let source = if harness == "claude-code" {
+                "claude_hook"
+            } else {
+                "copilot_hook"
+            };
+            let mut metadata = crate::test_support::test_session_metadata(
+                &id,
+                "Prompt authority",
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.harness = harness.into();
+            metadata.lifecycle_phase = "active".into();
+            metadata.lifecycle = "alive".into();
+            metadata.observed_status = Some("waiting_for_input".into());
+            metadata.attention = Some("needs_you".into());
+            metadata.metadata_source = source.into();
+            metadata.metadata_confidence = 0.98;
+            metadata.needs_user_input = None;
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+
+            let mut handle = attention_test_handle(&id, root.path());
+            handle.info.harness_id = Some(harness.into());
+            handle.info.harness = Some(harness.into());
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.lifecycle = "alive".into();
+            handle.info.observed_status = Some("waiting_for_input".into());
+            handle.info.attention = Some("needs_you".into());
+            handle.info.metadata_source = Some(source.into());
+            handle.info.metadata_confidence = Some(0.98);
+            state.sessions.lock().unwrap().insert(id.clone(), handle);
+
+            let authority = crate::runtime::prompt_authority::registry();
+            authority.issue(&id, harness, "generation-peon");
+            assert_eq!(
+                authority.register_native_id(
+                    &id,
+                    harness,
+                    "generation-peon",
+                    "native-peon",
+                    false,
+                    None,
+                ),
+                crate::runtime::prompt_authority::BindResult::Bound
+            );
+            assert!(authority.activate(&id, harness, "generation-peon", "native-peon"));
+
+            let inference = crate::peon::PeonInference {
+                observed_status: Some("blocked".into()),
+                phase: None,
+                summary: Some("Still waiting for permission".into()),
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: Some("Proceed?".into()),
+                suggested_options: Some(vec!["yes".into()]),
+                blocker_description: Some("Permission dialog is open".into()),
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            let result = SessionApplication::new(state.clone()).persist_peon_observation(
+                &id,
+                Some(&inference),
+                None,
+                Some("Still waiting for permission"),
+                "later",
+            );
+            assert!(result.inference_persisted);
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&id)
+                .unwrap();
+            assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
+            assert_eq!(stored.attention.as_deref(), Some("needs_you"));
+            assert_eq!(stored.metadata_source, source);
+            assert_eq!(
+                stored.summary.as_deref(),
+                Some("Still waiting for permission")
+            );
+            assert_eq!(
+                stored.blocker_description.as_deref(),
+                Some("Permission dialog is open")
+            );
+            assert_eq!(stored.needs_user_input, None);
+            assert_eq!(stored.detected_question, None);
+            assert_eq!(stored.suggested_options, None);
+            authority.remove(&id);
+        }
     }
 
     #[test]

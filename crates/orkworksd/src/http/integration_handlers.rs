@@ -276,12 +276,17 @@ async fn run_integration_action(
 
             match action(harness, &ctx) {
                 Ok(status) => {
-                    if matches!(harness_id, "claude-code" | "copilot")
-                        && (status.registration != IntegrationRegistration::Installed
-                            || status.ownership != IntegrationOwnership::OrkWorks
-                            || status.activation
-                                != crate::harness::integration::IntegrationActivation::Active)
-                    {
+                    let prompt_ready =
+                        harness
+                            .definition
+                            .integration
+                            .as_ref()
+                            .is_some_and(|binding| {
+                                crate::harness::integration::prompt_attention_hook_ready(
+                                    binding, &ctx,
+                                )
+                            });
+                    if matches!(harness_id, "claude-code" | "copilot") && !prompt_ready {
                         revoke_prompt_authority = true;
                     }
                     Json(status).into_response()
@@ -549,15 +554,23 @@ async fn run_integration_key_action(
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
     let mut revoke_harnesses = Vec::new();
+    let mut prompt_ready = false;
     let response =
-        match with_revalidated_integration_key(state, key, expected.as_ref(), action).await {
+        match with_revalidated_integration_key(state, key, expected.as_ref(), |harness, ctx| {
+            let result = action(harness, ctx);
+            prompt_ready = harness
+                .definition
+                .integration
+                .as_ref()
+                .is_some_and(|binding| {
+                    crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
+                });
+            result
+        })
+        .await
+        {
             Ok((group, Ok(status))) => {
-                if matches!(key.adapter_id.as_str(), "claude" | "copilot")
-                    && (status.registration != IntegrationRegistration::Installed
-                        || status.ownership != IntegrationOwnership::OrkWorks
-                        || status.activation
-                            != crate::harness::integration::IntegrationActivation::Active)
-                {
+                if matches!(key.adapter_id.as_str(), "claude" | "copilot") && !prompt_ready {
                     revoke_harnesses.extend(
                         group
                             .consumers
@@ -784,9 +797,18 @@ pub(crate) async fn get_workspace_integrations(
     let mut revoke_harnesses = Vec::new();
     for group in groups {
         let key = group.key.clone();
+        let mut prompt_ready = false;
         let (group, action_result) =
             match with_revalidated_integration_key(&state, &key, None, |harness, ctx| {
-                harness.integration_status(ctx)
+                let status = harness.integration_status(ctx);
+                prompt_ready = harness
+                    .definition
+                    .integration
+                    .as_ref()
+                    .is_some_and(|binding| {
+                        crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
+                    });
+                status
             })
             .await
             {
@@ -795,11 +817,7 @@ pub(crate) async fn get_workspace_integrations(
             };
         let status = action_result
             .unwrap_or_else(|error| grouped_integration_error_status(&group, &error, "retry"));
-        if matches!(key.adapter_id.as_str(), "claude" | "copilot")
-            && (status.registration != IntegrationRegistration::Installed
-                || status.ownership != IntegrationOwnership::OrkWorks
-                || status.activation != crate::harness::integration::IntegrationActivation::Active)
-        {
+        if matches!(key.adapter_id.as_str(), "claude" | "copilot") && !prompt_ready {
             revoke_harnesses.extend(
                 group
                     .consumers

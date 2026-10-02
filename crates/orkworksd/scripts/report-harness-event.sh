@@ -226,7 +226,6 @@ print(json.dumps(capture, separators=(",", ":")))
       printf '%s' "$payload" |
         python3 -c 'import datetime,json,sys; data=json.load(sys.stdin); event=sys.argv[1]; source=data.get("source") if event == "sessionStart" else ""; notification=data.get("notification_type") if event == "notification" else ""; timestamp=data.get("timestamp") if event == "notification" else ""; start_ts=data.get("timestamp") if event == "sessionStart" else "";
 def iso(value):
- if isinstance(value,str): return value
  if isinstance(value,(int,float)) and not isinstance(value,bool): return datetime.datetime.fromtimestamp(value/1000,datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")
  return ""
 print("%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s" % (data.get("cwd") or "", data.get("sessionId") or "", source if source == "new" else "", notification if isinstance(notification,str) else "", iso(timestamp), iso(start_ts)))' "$event" 2>/dev/null
@@ -364,8 +363,9 @@ elif [ "$session_source" = "copilot_hook" ] && [ "$event" = "notification" ]; th
 fi
 if [ "$native_registration_accepted" = "yes" ] && [ "$prompt_notification_allowed" = "yes" ]; then
   attention_payload="$(python3 -c 'import json,sys; d={"status":"waiting_for_input","source":sys.argv[1],"event":sys.argv[2],"notificationType":sys.argv[3],"harnessSessionId":sys.argv[5],"promptHookGeneration":sys.argv[4]};
-if sys.argv[1] == "copilot_hook": d["observedAt"]=sys.argv[6]
-print(json.dumps(d,separators=(",",":")))' "$session_source" "$event" "$prompt_notification_type" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$harness_session_id" "$prompt_observed_at")"
+if sys.argv[1] == "copilot_hook" and sys.argv[6]: d["observedAt"]=sys.argv[6]
+if sys.argv[7]: d["cwd"]=sys.argv[7]
+print(json.dumps(d,separators=(",",":")))' "$session_source" "$event" "$prompt_notification_type" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$harness_session_id" "$prompt_observed_at" "$reported_cwd")"
   attention_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\nheader = \"Content-Type: application/json\"\n"
   attention_curl_exit=0
   attention_http_status=$(printf '%b' "$attention_curl_config" |

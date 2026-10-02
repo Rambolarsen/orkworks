@@ -331,6 +331,25 @@ impl JsonHookHandler {
 }
 
 impl IntegrationHandler for JsonHookHandler {
+    fn prompt_attention_ready(&self, ctx: &IntegrationContext<'_>) -> bool {
+        if !ctx.enabled || !matches!(self.contract.harness_id, "claude-code" | "copilot") {
+            return false;
+        }
+        let Ok((_, document, reporter)) = self.load(ctx) else {
+            return false;
+        };
+        let probe = if self.contract.harness_id == "claude-code" {
+            claude::prompt_attention_probe(&document, &reporter)
+        } else {
+            (self.probe)(&document, &reporter)
+        };
+        probe.is_ok_and(|state| state == FragmentState::Installed)
+            && ctx
+                .reporter_assets
+                .is_current(ReporterPlatform::current().asset_name())
+                .unwrap_or(false)
+    }
+
     fn status(&self, ctx: &IntegrationContext<'_>) -> Result<IntegrationStatus, IntegrationError> {
         let result = self.load(ctx).and_then(|(_, document, reporter)| {
             let mut status = self.status_from_document(ctx, &document, &reporter)?;

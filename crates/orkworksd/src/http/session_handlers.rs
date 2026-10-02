@@ -99,6 +99,8 @@ struct PromptAttentionReportRequest {
     prompt_hook_generation: String,
     #[serde(default)]
     observed_at: Option<String>,
+    #[serde(default)]
+    cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -456,6 +458,7 @@ pub(crate) async fn report_attention_route(
                 &request.status,
                 Some(&request.prompt_hook_generation),
                 request.observed_at.as_deref(),
+                request.cwd.as_deref(),
                 bearer_token(&headers),
             )
             .map(|_| axum::http::StatusCode::OK.into_response())
@@ -679,14 +682,6 @@ async fn report_harness_session_inner(
     } else {
         false
     };
-    if prompt_registration_authorized && req.session_start_event.is_some() {
-        if SessionApplication::new(state.clone())
-            .clear_prompt_authority_tuple(&id)
-            .is_err()
-        {
-            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    }
     let result = match SessionApplication::new(state.clone())
         .report_harness_session_with_codex_context(
             &id,
@@ -1999,6 +1994,28 @@ mod tests {
             Some("waiting_for_input")
         );
 
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let queued_prompt = report_attention_route(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(serde_json::json!({
+                "status":"waiting_for_input",
+                "source":"claude_hook",
+                "event":"Notification",
+                "notificationType":"permission_prompt",
+                "harnessSessionId":"claude-after-clear",
+                "promptHookGeneration":generation,
+                "cwd":"/harness-reported/after-clear"
+            })),
+        )
+        .await;
+        assert_eq!(queued_prompt.status(), axum::http::StatusCode::ACCEPTED);
+
         SessionApplication::new(state.clone()).commit_prompt_identity_reset(&session_id);
         let after_ack = state
             .workspace
@@ -2016,8 +2033,21 @@ mod tests {
                 .and_then(|resume| resume.harness_session_id.as_deref()),
             Some("claude-after-clear")
         );
-        assert_eq!(after_ack.observed_status, None);
-        assert_eq!(after_ack.attention, None);
+        assert_eq!(
+            after_ack.observed_status.as_deref(),
+            Some("waiting_for_input")
+        );
+        assert_eq!(after_ack.attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .get(&session_id)
+                .map(String::as_str),
+            Some("/harness-reported/after-clear")
+        );
         assert!(authority.reserve_reset(&session_id, "claude-code", "/clear"));
         assert_eq!(
             authority.acknowledge_reset(&session_id),
@@ -4107,7 +4137,8 @@ mod tests {
                 "event":"Notification",
                 "notificationType":"permission_prompt",
                 "harnessSessionId":"claude-attention-native",
-                "promptHookGeneration":generation
+                "promptHookGeneration":generation,
+                "cwd":"/harness-reported/claude"
             })),
         )
         .await;
@@ -4131,6 +4162,16 @@ mod tests {
             Some("descriptive summary survives")
         );
         assert_eq!(saved.metadata_source, "peon");
+        assert_eq!(
+            state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .get(&session_id)
+                .map(String::as_str),
+            Some("/harness-reported/claude")
+        );
         assert!(authority.is_active(&session_id));
         assert!(authority.reserve_reset(&session_id, "claude-code", "/clear"));
         assert_eq!(

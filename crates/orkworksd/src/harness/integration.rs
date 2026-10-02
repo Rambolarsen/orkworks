@@ -675,6 +675,10 @@ pub(crate) trait IntegrationHandler: Send + Sync {
     fn launch_enabled(&self, _metadata_root: Option<&Path>) -> Result<bool, IntegrationError> {
         Ok(false)
     }
+
+    fn prompt_attention_ready(&self, _ctx: &IntegrationContext<'_>) -> bool {
+        false
+    }
 }
 
 pub(crate) fn prompt_attention_hook_ready(
@@ -689,11 +693,7 @@ pub(crate) fn prompt_attention_hook_ready(
     {
         return false;
     }
-    handler(binding).status(ctx).is_ok_and(|status| {
-        status.activation == IntegrationActivation::Active
-            && status.registration == IntegrationRegistration::Installed
-            && status.ownership == IntegrationOwnership::OrkWorks
-    })
+    handler(binding).prompt_attention_ready(ctx)
 }
 
 pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationHandler {

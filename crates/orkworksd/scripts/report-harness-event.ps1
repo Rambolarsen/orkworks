@@ -202,16 +202,14 @@ if ($Marker -clike "*:claude-code") {
             if ($Event -eq "sessionStart" -and $data.source -ceq "new") {
                 $sessionStartSource = "new"
                 $sessionStartEvent = "sessionStart"
-                if ($data.timestamp -is [ValueType]) {
+                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool]) {
                     try { $sessionStartObservedAt = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$data.timestamp).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") } catch {}
                 }
             }
             if ($Event -eq "notification" -and $data.notification_type -is [string]) {
                 $promptNotificationType = [string]$data.notification_type
-                if ($data.timestamp -is [ValueType]) {
+                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool]) {
                     try { $promptObservedAt = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$data.timestamp).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") } catch {}
-                } elseif ($data.timestamp -is [string]) {
-                    $promptObservedAt = [string]$data.timestamp
                 }
             }
         }
@@ -333,8 +331,11 @@ if ($nativeRegistrationAccepted -and $promptNotificationAllowed -and $sessionId 
             harnessSessionId = $harnessSessionId
             promptHookGeneration = $env:ORKWORKS_PROMPT_HOOK_GENERATION
         }
-        if ($sessionSource -eq "copilot_hook") {
+        if ($sessionSource -eq "copilot_hook" -and $promptObservedAt) {
             $attention["observedAt"] = $promptObservedAt
+        }
+        if ($reportedCwd) {
+            $attention["cwd"] = $reportedCwd
         }
         $attentionBody = $attention | ConvertTo-Json -Compress
         Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/attention" `

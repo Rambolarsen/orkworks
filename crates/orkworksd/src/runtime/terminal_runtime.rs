@@ -4351,6 +4351,41 @@ mod tests {
     }
 
     #[test]
+    fn resumed_prompt_authority_is_bound_to_the_saved_native_id() {
+        use crate::runtime::prompt_authority::{BindResult, PromptAuthorityRegistry};
+
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id(
+            "resumed-prompt",
+            "copilot",
+            "generation-resume",
+            Some("saved-native-id"),
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "resumed-prompt",
+                "copilot",
+                "generation-resume",
+                "saved-native-id",
+                false,
+                None,
+            ),
+            BindResult::Unchanged
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "resumed-prompt",
+                "copilot",
+                "generation-resume",
+                "unexpected-native-id",
+                false,
+                None,
+            ),
+            BindResult::Rejected
+        );
+    }
+
+    #[test]
     fn prompt_authority_holds_replacement_identity_until_reset_write_acknowledgement() {
         use crate::runtime::prompt_authority::{BindResult, PromptAuthorityRegistry};
 
@@ -4396,6 +4431,7 @@ mod tests {
             "generation-r",
             "native-after",
             "permission_prompt",
+            None,
             None,
         ));
         assert!(!registry.native_id_matches(
@@ -4465,16 +4501,34 @@ mod tests {
             ),
             BindResult::Held
         );
+        let latest_prompt = fresh_timestamp + chrono::Duration::seconds(2);
+        assert!(registry.queue_prompt_wait(
+            "copilot-reset",
+            "copilot",
+            "generation-c",
+            "native-after",
+            "permission_prompt",
+            Some(latest_prompt),
+            Some("/cwd/latest"),
+        ));
+        assert!(!registry.queue_prompt_wait(
+            "copilot-reset",
+            "copilot",
+            "generation-c",
+            "native-after",
+            "permission_prompt",
+            Some(fresh_timestamp + chrono::Duration::seconds(1)),
+            Some("/cwd/stale"),
+        ));
         assert_eq!(
             registry.acknowledge_reset("copilot-reset").as_deref(),
             Some("native-after")
         );
-        assert_eq!(
-            registry
-                .complete_reset("copilot-reset")
-                .map(|commit| commit.native_session_id),
-            Some("native-after".into())
-        );
+        let commit = registry.complete_reset("copilot-reset").unwrap();
+        assert_eq!(commit.native_session_id, "native-after");
+        let queued = commit.queued_prompt_wait.unwrap();
+        assert_eq!(queued.observed_at, Some(latest_prompt));
+        assert_eq!(queued.cwd.as_deref(), Some("/cwd/latest"));
     }
 
     #[test]

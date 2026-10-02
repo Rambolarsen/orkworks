@@ -21,6 +21,7 @@ struct ResetReservation {
 pub(crate) struct QueuedPromptWait {
     pub(crate) notification_type: String,
     pub(crate) observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(crate) cwd: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,12 +51,24 @@ pub(crate) struct PromptAuthorityRegistry {
 }
 
 impl PromptAuthorityRegistry {
+    #[cfg(test)]
     pub(crate) fn issue(&self, session_id: &str, harness_id: &str, generation: &str) {
+        self.issue_with_native_id(session_id, harness_id, generation, None);
+    }
+
+    pub(crate) fn issue_with_native_id(
+        &self,
+        session_id: &str,
+        harness_id: &str,
+        generation: &str,
+        native_session_id: Option<&str>,
+    ) {
         self.sessions.lock().unwrap().insert(
             session_id.to_string(),
             SessionAuthority {
                 harness_id: harness_id.to_string(),
                 generation: generation.to_string(),
+                native_session_id: native_session_id.map(str::to_owned),
                 ..SessionAuthority::default()
             },
         );
@@ -238,6 +251,7 @@ impl PromptAuthorityRegistry {
         native_session_id: &str,
         notification_type: &str,
         observed_at: Option<chrono::DateTime<chrono::Utc>>,
+        cwd: Option<&str>,
     ) -> bool {
         let mut sessions = self.sessions.lock().unwrap();
         let Some(entry) = sessions.get_mut(session_id) else {
@@ -252,9 +266,17 @@ impl PromptAuthorityRegistry {
         if reset.candidate_native_session_id.as_deref() != Some(native_session_id) {
             return false;
         }
+        if let Some(previous) = reset.queued_prompt_wait.as_ref() {
+            match (previous.observed_at, observed_at) {
+                (Some(previous), Some(current)) if current > previous => {}
+                (None, None) => {}
+                _ => return false,
+            }
+        }
         reset.queued_prompt_wait = Some(QueuedPromptWait {
             notification_type: notification_type.to_string(),
             observed_at,
+            cwd: cwd.filter(|cwd| !cwd.is_empty()).map(str::to_owned),
         });
         true
     }
