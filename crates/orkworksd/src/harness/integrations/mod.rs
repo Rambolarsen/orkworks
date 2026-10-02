@@ -341,7 +341,7 @@ impl IntegrationHandler for JsonHookHandler {
         let probe = if self.contract.harness_id == "claude-code" {
             claude::prompt_attention_probe(&document, &reporter)
         } else {
-            (self.probe)(&document, &reporter)
+            copilot::prompt_attention_probe(&document, &reporter)
         };
         probe.is_ok_and(|state| state == FragmentState::Installed)
             && ctx
@@ -503,6 +503,28 @@ pub(crate) fn reporter_invocation_for_platform(
 
 pub(crate) fn reporter_invocation(path: &Path, marker: &str) -> ReporterInvocation {
     reporter_invocation_for_platform(ReporterPlatform::current(), path, marker)
+}
+
+pub(crate) fn event_reporter_invocation_for_platform(
+    platform: ReporterPlatform,
+    path: &Path,
+    marker: &str,
+    event: &str,
+) -> ReporterInvocation {
+    let mut invocation = reporter_invocation_for_platform(platform, path, marker);
+    let flag = match platform {
+        ReporterPlatform::Posix => "--event",
+        ReporterPlatform::WindowsPowerShell => "-Event",
+    };
+    invocation.args.extend([flag.into(), event.into()]);
+    let quoted_event = match platform {
+        ReporterPlatform::Posix => shell_quote(event),
+        ReporterPlatform::WindowsPowerShell => powershell_quote(event),
+    };
+    invocation
+        .shell_command
+        .push_str(&format!(" {flag} {quoted_event}"));
+    invocation
 }
 
 /// Rewrites an absolute reporter-script path into a `$HOME`-relative shell
@@ -2014,8 +2036,23 @@ mod tests {
         assert!(document["hooks"].get("version").is_none());
         assert_eq!(document["unrelated"]["keep"], true);
         let hook = &document["hooks"]["notification"][0];
-        assert!(hook.get("bash").is_some());
-        assert!(hook.get("powershell").is_some());
+        assert!(hook["bash"]
+            .as_str()
+            .unwrap()
+            .contains("--event 'notification'"));
+        assert!(hook["powershell"]
+            .as_str()
+            .unwrap()
+            .contains("-Event 'notification'"));
+        let lifecycle = &document["hooks"]["sessionStart"][0];
+        assert!(lifecycle["bash"]
+            .as_str()
+            .unwrap()
+            .contains("--event 'sessionStart'"));
+        assert!(lifecycle["powershell"]
+            .as_str()
+            .unwrap()
+            .contains("-Event 'sessionStart'"));
 
         fs::write(&target, r#"{"version":2,"unrelated":{"keep":true}}"#).unwrap();
         let before = fs::read_to_string(&target).unwrap();

@@ -3,7 +3,7 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use super::{
-    reconcile_current, reporter_invocation_for_platform, FragmentState, JsonHookHandler,
+    event_reporter_invocation_for_platform, reconcile_current, FragmentState, JsonHookHandler,
     ReporterInvocation, ReporterPlatform, ToolHookContract,
 };
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
@@ -43,12 +43,13 @@ enum AsyncSpec {
     SyncMandatory,
 }
 
-/// The three owned events Claude's installer attaches. The matcher, reporter
+/// The owned events Claude's installer attaches. The matcher, reporter
 /// flag set, and async constraint vary per-event; `EventProfile` keeps the
 /// per-event variation in one place so `marker_state`/`merge`/`probe`/
 /// `remove` never disagree about which event has which contract.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EventProfile {
+    SessionStart,
     Notification,
     PreToolUse,
     PostToolUse,
@@ -57,6 +58,7 @@ enum EventProfile {
 impl EventProfile {
     fn event_name(self) -> &'static str {
         match self {
+            Self::SessionStart => "SessionStart",
             Self::Notification => "Notification",
             Self::PreToolUse => "PreToolUse",
             Self::PostToolUse => "PostToolUse",
@@ -69,7 +71,7 @@ impl EventProfile {
             // they only fire once per agent turn, so the noise cost is
             // negligible and the install cross-handler test does not have to
             // predict Claude's tool-name vocabulary.
-            Self::Notification | Self::PreToolUse => "*",
+            Self::SessionStart | Self::Notification | Self::PreToolUse => "*",
             // PostToolUse goes through every Write/Edit; restricting the
             // matcher to `Write|Edit` keeps Bash/TodoWrite/NotebookEdit from
             // triggering the path-only route on churn that cannot carry a
@@ -80,24 +82,36 @@ impl EventProfile {
 
     fn invocation(self, platform: ReporterPlatform, reporter: &Path) -> ReporterInvocation {
         match self {
-            Self::Notification => attention_invocation_for_platform(platform, reporter, None),
-            Self::PreToolUse => {
-                attention_invocation_for_platform(platform, reporter, Some("working"))
+            Self::SessionStart => event_reporter_invocation_for_platform(
+                platform,
+                reporter,
+                MARKER,
+                self.event_name(),
+            ),
+            Self::Notification => {
+                attention_invocation_for_platform(platform, reporter, self.event_name(), None)
             }
+            Self::PreToolUse => attention_invocation_for_platform(
+                platform,
+                reporter,
+                self.event_name(),
+                Some("working"),
+            ),
             Self::PostToolUse => plan_path_invocation_for_platform(platform, reporter),
         }
     }
 
     fn async_spec(self) -> AsyncSpec {
         match self {
-            Self::Notification => AsyncSpec::Any,
+            Self::SessionStart | Self::Notification => AsyncSpec::Any,
             Self::PreToolUse => AsyncSpec::AsyncMandatory,
             Self::PostToolUse => AsyncSpec::SyncMandatory,
         }
     }
 }
 
-const EVENTS: [EventProfile; 3] = [
+const EVENTS: [EventProfile; 4] = [
+    EventProfile::SessionStart,
     EventProfile::Notification,
     EventProfile::PreToolUse,
     EventProfile::PostToolUse,
@@ -109,9 +123,10 @@ const EVENTS: [EventProfile; 3] = [
 fn attention_invocation_for_platform(
     platform: ReporterPlatform,
     reporter: &Path,
+    event: &str,
     status: Option<&str>,
 ) -> ReporterInvocation {
-    let mut invocation = reporter_invocation_for_platform(platform, reporter, MARKER);
+    let mut invocation = event_reporter_invocation_for_platform(platform, reporter, MARKER, event);
     if let Some(status) = status {
         let flag = match platform {
             ReporterPlatform::Posix => "--status",
@@ -131,7 +146,12 @@ fn plan_path_invocation_for_platform(
     platform: ReporterPlatform,
     reporter: &Path,
 ) -> ReporterInvocation {
-    let mut invocation = reporter_invocation_for_platform(platform, reporter, MARKER);
+    let mut invocation = event_reporter_invocation_for_platform(
+        platform,
+        reporter,
+        MARKER,
+        EventProfile::PostToolUse.event_name(),
+    );
     let flag = match platform {
         ReporterPlatform::Posix => "--report-plan-path",
         ReporterPlatform::WindowsPowerShell => "-ReportPlanPath",
@@ -383,7 +403,16 @@ mod tests {
         merge(&mut document, reporter).unwrap();
 
         let hooks = document["hooks"].as_object().unwrap();
+        let session_start = hooks["SessionStart"].as_array().unwrap();
+        assert_eq!(session_start.len(), 1);
+        let expected = EventProfile::SessionStart.invocation(ReporterPlatform::current(), reporter);
+        assert_eq!(session_start[0]["hooks"][0]["args"], json!(expected.args));
         assert_eq!(hooks["Notification"].as_array().unwrap().len(), 1);
+        let expected = EventProfile::Notification.invocation(ReporterPlatform::current(), reporter);
+        assert_eq!(
+            hooks["Notification"][0]["hooks"][0]["args"],
+            json!(expected.args)
+        );
         let pre_tool = hooks["PreToolUse"].as_array().unwrap();
         assert_eq!(pre_tool.len(), 1);
         assert_eq!(pre_tool[0]["matcher"], "*");
@@ -436,10 +465,9 @@ mod tests {
         );
     }
 
-    /// probe() reports Installed only when all three owned events (Notification,
-    /// PreToolUse, PostToolUse) match the exact installed shape byte-for-byte.
-    /// A missing PostToolUse group, like a missing Notification or PreToolUse
-    /// group, is Drifted — install must converge it.
+    /// probe() reports Installed only when all four owned events (SessionStart,
+    /// Notification, PreToolUse, PostToolUse) match the exact installed shape.
+    /// A missing event is Drifted — install must converge it.
     #[test]
     fn probe_marks_a_missing_post_tool_use_hook_as_drifted() {
         let reporter = Path::new("/tmp/report-harness-event.sh");
@@ -472,7 +500,7 @@ mod tests {
     }
 
     /// The conformance matrix checks probe/remove symmetry for every JSON
-    /// handler. This specializes the same cycle for Claude's three events:
+    /// handler. This specializes the same cycle for Claude's owned events:
     /// install, probe Installed, uninstall (remove + commit), probe Absent,
     /// re-install Installed — exercising the third event through the same
     /// round-trip that the cross-handler conformance test would otherwise
