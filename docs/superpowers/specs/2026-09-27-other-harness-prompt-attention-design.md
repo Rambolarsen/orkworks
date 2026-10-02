@@ -2,9 +2,14 @@
 
 ## Status
 
-Proposed for review through [#643](https://github.com/Rambolarsen/orkworks/issues/643).
-The proposed product rule is recorded in [the MVP spec](../../../specs/orkworks-mvp.md#deterministic-harness-supplied-signals);
-neither proposal is accepted until the review is complete.
+Policy accepted via the review in [PR
+#652](https://github.com/Rambolarsen/orkworks/pull/652) and recorded as
+[ADR 0073](../../adr/0073-other-harness-prompt-attention-authority.md);
+the product rule is authoritative in [the MVP
+spec](../../../specs/orkworks-mvp.md#deterministic-harness-supplied-signals).
+Live payload fixtures and real-prompt checks remain open
+[#643](https://github.com/Rambolarsen/orkworks/issues/643) acceptance work;
+integration coverage stays limited until they are recorded.
 
 ## Scope
 
