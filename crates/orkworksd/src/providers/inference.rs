@@ -133,6 +133,68 @@ pub(super) fn native_cli_failure_summary(
     (code, summary)
 }
 
+pub(super) fn native_cli_failure_details(
+    provider: &str,
+    stderr: &str,
+    stdout: &str,
+    executable_missing: bool,
+    exit_code: Option<i32>,
+) -> (ProviderOperationErrorCode, String) {
+    let (code, summary) = native_cli_failure_summary(provider, stderr, stdout, executable_missing);
+    let mut details = Vec::new();
+    if let Some(exit_code) = exit_code {
+        details.push(format!("CLI exit {exit_code}"));
+    }
+    if provider == "codex" {
+        if let Some((codex_code, status)) = codex_failure_fields(stdout) {
+            if let Some(codex_code) = codex_code {
+                details.push(format!("Codex error {codex_code}"));
+            }
+            if let Some(status) = status {
+                details.push(format!("HTTP {status}"));
+            }
+        }
+    }
+    if details.is_empty() {
+        (code, summary.to_string())
+    } else {
+        (code, format!("{summary} ({})", details.join("; ")))
+    }
+}
+
+fn codex_failure_fields(stdout: &str) -> Option<(Option<&'static str>, Option<u16>)> {
+    for line in stdout.lines() {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if event["type"].as_str() != Some("turn.failed") {
+            continue;
+        }
+
+        let error = &event["error"];
+        let code = match error["code"].as_str() {
+            Some("invalid_api_key") => Some("invalid_api_key"),
+            Some("insufficient_quota") => Some("insufficient_quota"),
+            Some("rate_limit_exceeded") => Some("rate_limit_exceeded"),
+            Some("usage_limit_reached") => Some("usage_limit_reached"),
+            Some("model_not_found") => Some("model_not_found"),
+            Some("context_length_exceeded") => Some("context_length_exceeded"),
+            Some("server_error") => Some("server_error"),
+            Some("service_unavailable") => Some("service_unavailable"),
+            Some("invalid_request_error") => Some("invalid_request_error"),
+            Some("unsupported_parameter") => Some("unsupported_parameter"),
+            _ => None,
+        };
+        let status = ["status_code", "http_status", "status"]
+            .into_iter()
+            .filter_map(|field| error[field].as_u64())
+            .find(|status| (400..=599).contains(status))
+            .and_then(|status| u16::try_from(status).ok());
+        return Some((code, status));
+    }
+    None
+}
+
 fn classify_known_failure_text(
     message: &str,
 ) -> Option<(ProviderOperationErrorCode, &'static str)> {
@@ -926,6 +988,34 @@ mod tests {
 
         assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
         assert_eq!(summary, "provider failure");
+    }
+
+    #[test]
+    fn codex_failure_details_include_only_allowlisted_error_fields_and_exit_status() {
+        let stdout = r#"{"type":"turn.failed","error":{"code":"server_error","status_code":503,"message":"private account user@example.test at /Users/private"}}"#;
+
+        let (code, summary) =
+            super::native_cli_failure_details("codex", "", stdout, false, Some(1));
+
+        assert_eq!(code, ProviderOperationErrorCode::ProviderFailure);
+        assert_eq!(
+            summary,
+            "provider failure (CLI exit 1; Codex error server_error; HTTP 503)"
+        );
+        assert!(!summary.contains("private"));
+        assert!(!summary.contains('@'));
+        assert!(!summary.contains("/Users"));
+    }
+
+    #[test]
+    fn codex_failure_details_ignore_unlisted_codes_and_statuses() {
+        let stdout = r#"{"type":"turn.failed","error":{"code":"user@example.test","status_code":200,"message":"private diagnostic"}}"#;
+
+        let (_, summary) = super::native_cli_failure_details("codex", "", stdout, false, Some(23));
+
+        assert_eq!(summary, "provider failure (CLI exit 23)");
+        assert!(!summary.contains("private"));
+        assert!(!summary.contains('@'));
     }
 
     #[test]

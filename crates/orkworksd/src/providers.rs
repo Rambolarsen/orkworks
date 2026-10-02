@@ -641,6 +641,7 @@ pub struct ProvidersResponse {
 struct InvocationResult {
     launch_failure: bool,
     success: bool,
+    exit_code: Option<i32>,
     stdout: String,
     stderr: String,
 }
@@ -711,6 +712,7 @@ trait ProviderRunner: Send + Sync {
         InvocationResult {
             launch_failure: false,
             success: false,
+            exit_code: None,
             stdout: String::new(),
             stderr: "runner does not support isolated inference".into(),
         }
@@ -733,6 +735,7 @@ trait ProviderRunner: Send + Sync {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "workspace changed before provider dispatch".into(),
             };
@@ -782,6 +785,7 @@ trait ProviderRunner: Send + Sync {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "workspace changed before provider dispatch".into(),
             };
@@ -929,6 +933,18 @@ fn process_cleanup_does_not_join_a_pipe_thread_past_its_deadline() {
     assert!(!join_until(thread, std::time::Instant::now()));
 }
 
+#[cfg(unix)]
+#[test]
+fn process_runner_preserves_the_child_exit_code() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "exit 17"]);
+
+    let result = ProcessRunner.run_prepared("codex", &mut command, "", 2, None);
+
+    assert!(!result.success);
+    assert_eq!(result.exit_code, Some(17));
+}
+
 impl ProviderRunner for ProcessRunner {
     fn run(
         &self,
@@ -959,6 +975,7 @@ impl ProviderRunner for ProcessRunner {
             ProcessOutcome::TimedOut => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "timed out".into(),
             },
@@ -1045,12 +1062,14 @@ impl ProcessRunner {
             Ok(ProcessOutcome::TimedOut) => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: "timed out".into(),
             },
             Err(error) => InvocationResult {
                 launch_failure,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: error.to_string(),
             },
@@ -1157,6 +1176,7 @@ impl ProcessRunner {
                 return Ok(ProcessOutcome::Finished(InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: e.to_string(),
                 }));
@@ -1236,6 +1256,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: e.to_string(),
                     });
@@ -1294,6 +1315,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: e.to_string(),
                     });
@@ -1319,6 +1341,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: message,
                     });
@@ -1342,6 +1365,7 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
+                        exit_code: None,
                         stdout: String::new(),
                         stderr: "provider stdout is not UTF-8".into(),
                     })
@@ -1353,6 +1377,7 @@ impl ProcessRunner {
         ProcessOutcome::Finished(InvocationResult {
             launch_failure: false,
             success: status.success(),
+            exit_code: status.code(),
             stdout,
             stderr: String::from_utf8_lossy(&stderr.unwrap_or_default()).into_owned(),
         })
@@ -1481,6 +1506,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: format!("HttpRunner does not support provider {id}"),
                 }
@@ -1493,6 +1519,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: "no Ollama model selected in Peon settings".to_string(),
                 }
@@ -1530,6 +1557,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: format!(
                         "provider output exceeded {} bytes",
@@ -1541,6 +1569,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: "workspace changed before provider dispatch".into(),
                 };
@@ -1549,6 +1578,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: error.to_string(),
                 };
@@ -1564,6 +1594,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: msg,
                 };
@@ -1572,6 +1603,7 @@ impl HttpRunner {
                 return InvocationResult {
                     launch_failure: false,
                     success: false,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: "Ollama generate request timed out".to_string(),
                 };
@@ -1582,6 +1614,7 @@ impl HttpRunner {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!(
                     "provider output exceeded {} bytes",
@@ -1602,6 +1635,7 @@ impl HttpRunner {
             return InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!(
                     "{prefix}Ollama returned HTTP {}: {}",
@@ -1617,12 +1651,14 @@ impl HttpRunner {
             Ok(gen) => InvocationResult {
                 launch_failure: false,
                 success: true,
+                exit_code: None,
                 stdout: gen.response,
                 stderr: String::new(),
             },
             Err(e) => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!("failed to parse Ollama generate response: {e}"),
             },
@@ -2196,11 +2232,12 @@ impl ProviderManager {
             if !result.success {
                 // Only a fixed category is surfaced: raw CLI diagnostics may
                 // carry account, prompt, provider, or path details.
-                let (code, reason) = inference::native_cli_failure_summary(
+                let (code, reason) = inference::native_cli_failure_details(
                     provider,
                     &result.stderr,
                     &result.stdout,
                     result.launch_failure,
+                    result.exit_code,
                 );
                 return Err(ProviderOperationError {
                     code,
@@ -3497,6 +3534,7 @@ impl ProviderRunner for FakeRunner {
                         return InvocationResult {
                             launch_failure: false,
                             success: false,
+                            exit_code: None,
                             stdout: String::new(),
                             stderr: "timed out".to_string(),
                         };
@@ -3506,6 +3544,7 @@ impl ProviderRunner for FakeRunner {
                 InvocationResult {
                     launch_failure: false,
                     success: spec.exit_code == 0,
+                    exit_code: Some(spec.exit_code),
                     stdout: spec.stdout_val.clone(),
                     stderr: spec.stderr_val.clone(),
                 }
@@ -3513,6 +3552,7 @@ impl ProviderRunner for FakeRunner {
             None => InvocationResult {
                 launch_failure: false,
                 success: false,
+                exit_code: None,
                 stdout: String::new(),
                 stderr: format!("no fake configured for {id}"),
             },
