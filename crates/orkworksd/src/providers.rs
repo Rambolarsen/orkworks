@@ -647,6 +647,7 @@ struct InvocationResult {
 }
 
 const MAX_PROVIDER_OUTPUT_BYTES: usize = 64 * 1024;
+const PROMPT_WRITE_EXIT_GRACE: Duration = Duration::from_millis(250);
 
 fn read_limited(reader: &mut impl Read) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -1264,12 +1265,21 @@ impl ProcessRunner {
                     join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                 }
                 Ok(Err(e)) => {
-                    let exit_code = child
-                        .try_wait()
-                        .ok()
-                        .flatten()
-                        .and_then(|status| status.code())
-                        .filter(|code| *code != 0);
+                    let exit_status_deadline = std::time::Instant::now()
+                        + PROMPT_WRITE_EXIT_GRACE.min(remaining_until(deadline));
+                    let exit_code = loop {
+                        match child.try_wait() {
+                            Ok(Some(status)) => break status.code().filter(|code| *code != 0),
+                            Ok(None) => {
+                                let remaining = remaining_until(exit_status_deadline);
+                                if remaining.is_zero() {
+                                    break None;
+                                }
+                                std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                            }
+                            Err(_) => break None,
+                        }
+                    };
                     terminate_child(&mut child);
                     join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
                     tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
@@ -4260,6 +4270,51 @@ mod tests {
 
         let result = ProcessRunner.run_prepared("codex", &mut command, &prompt, 10, None);
 
+        assert!(!result.success);
+        assert!(result.stderr.contains("Broken pipe"), "{}", result.stderr);
+        assert_eq!(result.exit_code, Some(17));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_waits_briefly_for_exit_after_prompt_write_fails() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let closed_stdin = dir.path().join("stdin-closed");
+        let release_child = dir.path().join("release-child");
+        let script = dir.path().join("provider-closes-stdin-then-exits");
+        std::fs::write(
+            &script,
+            r#"#!/bin/sh
+exec 0<&-
+printf ready > "$1/stdin-closed"
+while [ ! -e "$1/release-child" ]; do sleep 0.01; done
+exit 17
+"#,
+        )
+        .unwrap();
+        make_test_executable(&script);
+
+        let closed_stdin_for_monitor = closed_stdin.clone();
+        let release_child_for_monitor = release_child.clone();
+        let release_thread = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !closed_stdin_for_monitor.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if !closed_stdin_for_monitor.exists() {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            std::fs::write(release_child_for_monitor, b"release").is_ok()
+        });
+
+        let args = vec![dir.path().to_string_lossy().into_owned()];
+        let prompt = "x".repeat(1024 * 1024);
+        let result = ProcessRunner.run("test", script.to_str().unwrap(), &args, &prompt, 10, None);
+
+        assert!(release_thread.join().unwrap(), "child did not close stdin");
         assert!(!result.success);
         assert!(result.stderr.contains("Broken pipe"), "{}", result.stderr);
         assert_eq!(result.exit_code, Some(17));
