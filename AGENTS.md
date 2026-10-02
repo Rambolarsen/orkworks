@@ -37,6 +37,15 @@ commands, provider setup, platform notes, and sidecar behavior, read
 
 All implementation work is tracked as GitHub issues: [https://github.com/Rambolarsen/orkworks/issues](https://github.com/Rambolarsen/orkworks/issues)
 
+### GitHub access
+
+Before any GitHub issue, pull-request, or remote API work, load and follow
+[`troubleshooting-github-connectivity`](skills/troubleshooting-github-connectivity/SKILL.md)
+before the first request; do not wait for `gh` to fail. If shell networking is
+blocked and an authenticated GitHub connector is available, use that
+network-enabled path. Report which access path failed or succeeded, and never
+treat a sandbox block alone as an authentication or permission failure.
+
 - **Prioritize GitHub Copilot harness work first**, then stabilization work, then net-new work in lowest-incomplete-milestone order. Break ties by user impact.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
 - **Keep issues in sync** with the codebase — close when done, update when scope changes.
