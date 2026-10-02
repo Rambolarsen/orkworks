@@ -13,9 +13,13 @@ cat > "$temp_dir/bin/curl" <<'CURL'
 set -euo pipefail
 output_path=""
 request_body=""
+config_stdin=""
 while [ $# -gt 0 ]; do
   if [ "$1" = "--output" ] && [ $# -ge 2 ]; then
     output_path="$2"
+    shift 2
+  elif [ "$1" = "--config" ] && [ "$2" = "-" ]; then
+    config_stdin="$(cat)"
     shift 2
   elif [ "$1" = "-d" ] && [ $# -ge 2 ]; then
     request_body="$2"
@@ -29,6 +33,9 @@ if [ -n "${TEST_RESPONSE_BODY:-}" ] && [ "$output_path" != "/dev/null" ]; then
 fi
 if [ -n "${TEST_CURL_BODIES_FILE:-}" ]; then
   printf '%s\n' "$request_body" >> "$TEST_CURL_BODIES_FILE"
+fi
+if [ -n "${TEST_CURL_CONFIGS_FILE:-}" ]; then
+  printf '%s\n---\n' "$config_stdin" >> "$TEST_CURL_CONFIGS_FILE"
 fi
 printf '%s' "${TEST_HTTP_STATUS:-204}"
 if [ "${TEST_CURL_EXIT:-0}" -ne 0 ]; then
@@ -63,6 +70,7 @@ run_reporter() {
     TEST_HTTP_STATUS="${TEST_HTTP_STATUS:-204}" \
     TEST_CURL_EXIT="${TEST_CURL_EXIT:-0}" \
     TEST_CURL_BODIES_FILE="${TEST_CURL_BODIES_FILE:-}" \
+    TEST_CURL_CONFIGS_FILE="${TEST_CURL_CONFIGS_FILE:-}" \
     bash "$reporter" --marker "orkworks:harness-integration:$reporter_harness" --event "$1"
 }
 
@@ -281,8 +289,9 @@ if [ "$copilot_stderr" != "$expected_errors" ]; then
 fi
 
 request_bodies_file="$temp_dir/prompt-request-bodies.jsonl"
+curl_configs_file="$temp_dir/curl-configs.txt"
 printf '%s' '{"session_id":"claude-session-secret","notification_type":"permission_prompt"}' |
-  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter Notification claude-code
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" TEST_CURL_CONFIGS_FILE="$curl_configs_file" run_reporter Notification claude-code
 python3 - "$request_bodies_file" <<'PY'
 import json
 import pathlib
@@ -292,6 +301,14 @@ bodies = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().spl
 assert len(bodies) == 2, bodies
 assert bodies[1]["harnessSessionId"] == "claude-session-secret", bodies[1]
 assert bodies[1]["promptHookGeneration"] == "generation-secret", bodies[1]
+PY
+python3 - "$curl_configs_file" <<'PY'
+import pathlib
+import sys
+
+configs = pathlib.Path(sys.argv[1]).read_text()
+assert configs.count('Authorization: Bearer report-token-secret') == 2, configs
+assert 'Content-Type: application/json' in configs, configs
 PY
 
 printf 'Codex hook reporter diagnostic tests passed.\n'

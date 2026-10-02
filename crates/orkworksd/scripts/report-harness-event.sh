@@ -366,11 +366,11 @@ if [ "$native_registration_accepted" = "yes" ] && [ "$prompt_notification_allowe
   attention_payload="$(python3 -c 'import json,sys; d={"status":"waiting_for_input","source":sys.argv[1],"event":sys.argv[2],"notificationType":sys.argv[3],"harnessSessionId":sys.argv[5],"promptHookGeneration":sys.argv[4]};
 if sys.argv[1] == "copilot_hook": d["observedAt"]=sys.argv[6]
 print(json.dumps(d,separators=(",",":")))' "$session_source" "$event" "$prompt_notification_type" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$harness_session_id" "$prompt_observed_at")"
+  attention_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\nheader = \"Content-Type: application/json\"\n"
   attention_curl_exit=0
-  attention_http_status=$(reporter_curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
-    -H "Authorization: Bearer $ORKWORKS_REPORT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$attention_payload" --output /dev/null --write-out '%{http_code}') || attention_curl_exit=$?
+  attention_http_status=$(printf '%b' "$attention_curl_config" |
+    reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
+      -d "$attention_payload" --output /dev/null --write-out '%{http_code}') || attention_curl_exit=$?
   if [ "$attention_curl_exit" = "0" ] && {
     [ "$attention_http_status" = "200" ] || [ "$attention_http_status" = "202" ];
   }; then
