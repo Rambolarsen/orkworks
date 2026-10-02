@@ -5,12 +5,14 @@ import {
   getTaskmasterRecommendation,
   getTaskmasterRecommendations,
   type ObservationDiagnostic,
+  type ProposedChange,
   type WorkflowRecommendation,
 } from "../api.ts";
 import {
   formatImpact,
   formatPacketEvidence,
   formatPacketReadiness,
+  formatProposedChange,
   formatRecurrence,
   formatTargetSurface,
   recommendationOrigin,
@@ -54,6 +56,25 @@ function DiagnosticList({ diagnostics }: { diagnostics: ObservationDiagnostic[] 
         <p key={`${diagnostic.code}-${diagnostic.sessionId ?? "workspace"}`}>{diagnostic.message}</p>
       ))}
     </div>
+  );
+}
+
+function ProposedChangeBlock({ change }: { change: ProposedChange }) {
+  const view = formatProposedChange(change);
+  return (
+    <section className="recommendation-proposed-change" aria-label="Proposed change">
+      <strong>Proposed change <span className="recommendation-proposed-change-note">(model-written hypothesis)</span></strong>
+      <p>{view.summary}</p>
+      <ul>
+        {view.targets.map((target, index) => (
+          <li key={`${index}:${target.label}`}>
+            {target.label}: {target.instruction}
+            {target.sensitive && <span className="recommendation-sensitive-badge" title="Can change hooks, permissions, or CI"> Sensitive</span>}
+          </li>
+        ))}
+      </ul>
+      <p>Verify: {view.verification}</p>
+    </section>
   );
 }
 
@@ -109,6 +130,7 @@ function RecommendationCard({
           {recommendation.rollupGeneration === null ? "" : ` · Generation ${recommendation.rollupGeneration}`}
         </p>
       )}
+      {recommendation.proposedChange && <ProposedChangeBlock change={recommendation.proposedChange} />}
       <dl className="recommendation-facts">
         <div><dt>Confidence</dt><dd>{formatImpact(recommendation.confidence)}</dd></div>
         <div><dt>{recommendation.rollupMemberIds.length > 0 ? "Combined evidence" : "Evidence origin"}</dt><dd>{recommendation.evidence.length ? formatRecurrence(recommendation) : "Repository discovery"}</dd></div>

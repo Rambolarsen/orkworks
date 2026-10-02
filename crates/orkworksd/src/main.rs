@@ -527,6 +527,7 @@ pub(crate) mod test_support {
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,
             rolled_up_by: None,
+            proposed_change: None,
         }
     }
     use std::sync::atomic::{AtomicU64, Ordering};

@@ -16,6 +16,9 @@ import {
   filterPanelRecommendations,
   panelEmptyMessage,
   sortedEvidence,
+  proposedChangeReference,
+  formatProposedChange,
+  proposedChangeGuidance,
   type PanelOriginFilter,
 } from "../src/taskmaster.ts";
 
@@ -1008,4 +1011,99 @@ test("Recommendations panel drops the previous workspace's data instead of leavi
   const guardBlock = panel.slice(panel.indexOf("if (!hasWorkspace) {"));
   assert.match(guardBlock, /setRecommendations\(\[\]\)/);
   assert.match(guardBlock, /setDiagnostics\(\[\]\)/);
+});
+
+const proposedChangeFixture = JSON.parse(
+  readFileSync(new URL("./fixtures/rollup-proposed-change.json", import.meta.url), "utf8"),
+);
+
+function rollupRecommendationWithChange(): WorkflowRecommendation {
+  return {
+    ...recommendation,
+    id: `rollup:${"a".repeat(64)}`,
+    rollupMemberIds: ["member-1", "member-2"],
+    rollupMemberDedupeKeys: ["dedupe-1", "dedupe-2"],
+    proposedChange: proposedChangeFixture.plain.change,
+  };
+}
+
+test("proposed change prompt helpers match the shared Rust fixture", () => {
+  const fixture = proposedChangeFixture;
+  assert.deepEqual(proposedChangeReference(fixture.plain.change), fixture.plain.expectedReference);
+  assert.equal(proposedChangeGuidance(fixture.plain.change), fixture.plain.expectedGuidance);
+  assert.ok(proposedChangeGuidance(fixture.sensitive.change).endsWith(fixture.sensitive.expectedGuidanceSuffix));
+});
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+test("proposed change reference counts code points, not UTF-16 units", () => {
+  const base = proposedChangeFixture.plain.change;
+  const intact = "\u{1F600}".repeat(101);
+  assert.equal(proposedChangeReference({ ...base, summary: intact }).summary, intact);
+
+  const truncated = proposedChangeReference({ ...base, summary: "\u{1F600}".repeat(300) }).summary;
+  assert.equal(Array.from(truncated).length, 200);
+  assert.equal(truncated, Array.from(truncated).join(""));
+  assert.doesNotMatch(truncated, LONE_SURROGATE);
+  assert.ok(!truncated.includes("\uFFFD"));
+});
+
+test("rollup fix prompt carries the proposed change inside the delimiters and guidance outside", () => {
+  const prompt = buildFixPromptDraft(rollupRecommendationWithChange());
+  const [before, inside] = prompt.split("<orkworks-untrusted-rollup-reference>");
+  const reference = inside.split("</orkworks-untrusted-rollup-reference>")[0];
+  assert.ok(reference.includes('"proposedChange"'));
+  assert.ok(!before.includes("model-written proposedChange"));
+  const after = prompt.split("</orkworks-untrusted-rollup-reference>")[1];
+  assert.ok(after.includes("Proposed change: the delimited reference data"));
+  assert.ok(after.indexOf("Proposed change:") < after.indexOf("Proactive findings"));
+});
+
+test("rollup fix prompt without a proposed change is unchanged", () => {
+  const prompt = buildFixPromptDraft({ ...rollupRecommendationWithChange(), proposedChange: null });
+  assert.ok(!prompt.includes("Proposed change:"));
+  assert.ok(!prompt.includes('"proposedChange"'));
+});
+
+test("rollup fix prompt emits proposed-change guidance only when the reference retained it", () => {
+  const retained = buildFixPromptDraft(rollupRecommendationWithChange());
+  assert.ok(retained.includes('"proposedChange"'));
+  assert.ok(retained.includes("Proposed change: the delimited reference data"));
+
+  const base = rollupRecommendationWithChange();
+  const dropped = buildFixPromptDraft({
+    ...base,
+    title: "t".repeat(240),
+    summary: "s".repeat(1_000),
+    reason: ["r".repeat(2_000)],
+    workflowImprovement: {
+      ...base.workflowImprovement,
+      proposedImprovement: "p".repeat(2_000),
+      expectedBenefit: "b".repeat(2_000),
+    },
+    rollupMemberIds: Array.from({ length: 8 }, (_, i) => `${i}${"m".repeat(255)}`),
+    repositoryEvidence: Array.from({ length: 16 }, (_, i) => ({
+      path: `docs/${i}.md`,
+      sha256: "0".repeat(64),
+      excerpt: "x".repeat(2_000),
+      observedAt: "2026-09-13T00:00:00Z",
+    })),
+  });
+  assert.ok(dropped.includes('"truncated":true'));
+  assert.ok(!dropped.includes("proposedChange"));
+  assert.ok(!dropped.includes("Proposed change:"));
+});
+
+test("formatProposedChange labels targets and flags sensitive ones as plain text", () => {
+  const view = formatProposedChange({
+    summary: "Pin retries",
+    targets: [
+      { path: ".github/workflows/ci.yml", action: "edit", instruction: "Pin it", sensitive: true },
+      { path: "docs/retry.md", action: "create", instruction: "Add page", sensitive: false },
+    ],
+    verification: "Read the workflow",
+  });
+  assert.deepEqual(view.targets.map((target) => target.label), ["Edit .github/workflows/ci.yml", "Create docs/retry.md"]);
+  assert.deepEqual(view.targets.map((target) => target.sensitive), [true, false]);
+  assert.equal(view.summary, "Pin retries");
 });

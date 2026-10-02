@@ -443,7 +443,7 @@ impl SessionApplication {
         Self::rollup_inputs_match_locked(workspace, workspace_instance, supplied_snapshots)
     }
 
-    fn rollup_inputs_match_locked(
+    pub(crate) fn rollup_inputs_match_locked(
         workspace: &WorkspaceState,
         workspace_instance: u64,
         supplied_snapshots: &[RollupFamilySnapshot],
@@ -687,6 +687,14 @@ impl SessionApplication {
                 first_member.workflow_improvement.expected_benefit.clone();
             parent.workflow_improvement.supersedes_recommendation_id = supersedes_recommendation_id;
             parent.workflow_improvement.dismissal_watermark = None;
+            // The model's change proposal is presentation: refresh it while the
+            // parent is still proposed (including backfilling a v1 parent);
+            // executing parents keep what they had.
+            if existing_parent
+                .is_none_or(|existing| existing.status == RecommendationStatus::Proposed)
+            {
+                parent.proposed_change = Some(cluster.proposed_change.clone());
+            }
 
             for id in parent
                 .rollup_member_ids
@@ -4506,6 +4514,20 @@ fn clear_claude_capacity_after_working(
 
 #[cfg(test)]
 mod tests {
+    fn test_proposed_change() -> crate::taskmaster::proposed_change::ProposedChange {
+        use crate::taskmaster::proposed_change::{ChangeTarget, ProposedChange, TargetAction};
+        ProposedChange {
+            summary: "Document the retry policy".into(),
+            targets: vec![ChangeTarget {
+                path: "RETRY_POLICY.md".into(),
+                action: TargetAction::Create,
+                instruction: "Create the file describing the retry schedule".into(),
+                sensitive: false,
+            }],
+            verification: "Confirm the file exists".into(),
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -10091,6 +10113,7 @@ mod tests {
                     target_surface: crate::taskmaster::TargetSurface::Tooling,
                     title: "Combined setup problems".into(),
                     summary: "Keep the setup reliable".into(),
+                    proposed_change: test_proposed_change(),
                 }],
                 1,
                 &[],
@@ -10195,6 +10218,7 @@ mod tests {
                     target_surface: crate::taskmaster::TargetSurface::Tooling,
                     title: "Combined setup problems".into(),
                     summary: "Keep the setup reliable".into(),
+                    proposed_change: test_proposed_change(),
                 }],
                 1,
                 &[],
@@ -10233,6 +10257,7 @@ mod tests {
                     target_surface: crate::taskmaster::TargetSurface::Tooling,
                     title: "Combined setup problems".into(),
                     summary: "Keep the setup reliable".into(),
+                    proposed_change: test_proposed_change(),
                 }],
                 2,
                 &[],
