@@ -1,11 +1,17 @@
 ---
 name: troubleshooting-github-connectivity
-description: Use when GitHub CLI (`gh`) commands fail due to connectivity or transport problems, especially with stale output, invalid-token messages, or when other sessions can reach GitHub.
+description: Use before GitHub issue, pull-request, or remote API work to select an authorized access path, and when GitHub CLI (`gh`) requests fail due to connectivity or transport problems, especially with stale output, invalid-token messages, or when other sessions can reach GitHub.
 ---
 
 # Troubleshooting GitHub CLI API Connectivity
 
 Distinguish cached output, reachability, authentication, and permissions before changing credentials; cached results and `gh auth status` alone prove neither reachability nor token validity.
+
+## Before the first GitHub request
+
+For routine GitHub work, use the configured GitHub connector when available. Confirm it can read the exact target repository or resource before proceeding. A successful read establishes access only for that identity, host, and resource; it does not establish write permission. A sandbox or shell network block is not an authentication or permission failure. If no authorized connector is available, follow the diagnostic flow below for the intended transport. For mutations, use only an access path authorized for that action and rely on its response to confirm write permission; stop on an explicit permission denial rather than switching identities or transports to bypass it.
+
+This preflight is only a path-selection and target-access check. Do not run failure diagnostics when the selected authorized path can already read the requested target.
 
 When active instructions require a wrapper, use it for every probe; here that is `rtk proxy <command>`. It bypasses RTK output handling, not network restrictions. If required RTK is missing, report it rather than using an unwrapped fallback. Use direct commands only when no wrapper is required.
 
