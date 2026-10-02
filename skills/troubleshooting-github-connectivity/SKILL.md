@@ -1,11 +1,17 @@
 ---
 name: troubleshooting-github-connectivity
-description: Use when GitHub CLI (`gh`) commands fail due to connectivity or transport problems, especially with stale output, invalid-token messages, or when other sessions can reach GitHub.
+description: Use before GitHub issue, pull-request, or remote API work to select an authorized access path, and when GitHub CLI (`gh`) requests fail due to connectivity or transport problems, especially with stale output, invalid-token messages, or when other sessions can reach GitHub.
 ---
 
 # Troubleshooting GitHub CLI API Connectivity
 
 Distinguish cached output, reachability, authentication, and permissions before changing credentials; cached results and `gh auth status` alone prove neither reachability nor token validity.
+
+## Before the first GitHub request
+
+Choose the access path based on the requested operation and actual reachability. Use `gh` when shell networking works and its credentials are authorized for that action. When shell networking is blocked or `gh` is unavailable, use a configured GitHub connector only for operations it authorizes. Confirm the exact target with a read-only request through the selected path; a successful read establishes access only for that identity, host, and resource, not write permission. A sandbox or shell network block is not an authentication or permission failure. For mutations, choose a path known to be authorized for that action when possible. If a write is denied, stop using that path; use another only when it is independently known to be authorized, never to evade the denial.
+
+This preflight is only a path-selection and target-access check. Do not run failure diagnostics when the selected path can already read the requested target.
 
 When active instructions require a wrapper, use it for every probe; here that is `rtk proxy <command>`. It bypasses RTK output handling, not network restrictions. If required RTK is missing, report it rather than using an unwrapped fallback. Use direct commands only when no wrapper is required.
 
