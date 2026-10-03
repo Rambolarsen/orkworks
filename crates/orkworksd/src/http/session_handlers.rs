@@ -4547,6 +4547,430 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn copilot_prompt_report_after_raw_typing_uses_committed_input_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = format!("copilot-raw-input-{}", uuid::Uuid::new_v4().simple());
+        let generation = "e".repeat(64);
+        let token = "f".repeat(64);
+        let mut session = test_session_metadata(
+            &session_id,
+            "Copilot",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "copilot".into();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.metadata_source = "agent".into();
+        session.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("copilot-raw-input-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness = Some("copilot".into());
+        handle.info.harness_id = Some("copilot".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.metadata_source = Some("agent".into());
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(&session_id, token.clone());
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue(&session_id, "copilot", &generation);
+        assert_eq!(
+            authority.register_native_id(
+                &session_id,
+                "copilot",
+                &generation,
+                "copilot-raw-input-native",
+                false,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Bound
+        );
+
+        let event_time = chrono::Utc::now() - chrono::Duration::seconds(5);
+        crate::runtime::terminal_runtime::record_terminal_input(&state, &session_id, "x");
+        assert!(state.sessions.lock().unwrap()[&session_id]
+            .runtime
+            .accepted_input_at
+            .is_some_and(|accepted_at| accepted_at > event_time));
+        assert_eq!(
+            state.sessions.lock().unwrap()[&session_id]
+                .runtime
+                .committed_input_at,
+            None,
+            "raw uncommitted typing must not advance Copilot's stale-report boundary"
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        let response = report_attention_route(
+            State(state.clone()),
+            Path(session_id.clone()),
+            headers,
+            Json(serde_json::json!({
+                "status":"waiting_for_input",
+                "source":"copilot_hook",
+                "event":"notification",
+                "notificationType":"permission_prompt",
+                "harnessSessionId":"copilot-raw-input-native",
+                "promptHookGeneration":generation,
+                "observedAt":event_time.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+            })),
+        )
+        .await;
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(authority.is_active(&session_id));
+        authority.remove(&session_id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&session_id);
+    }
+
+    #[test]
+    fn claude_elicitation_wait_survives_single_unsubmitted_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = format!("claude-elicitation-key-{}", uuid::Uuid::new_v4().simple());
+        let generation = "c".repeat(64);
+        let token = "d".repeat(64);
+        let mut session = test_session_metadata(
+            &session_id,
+            "Claude",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "claude-code".into();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.metadata_source = "agent".into();
+        session.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("claude-elicitation-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.metadata_source = Some("agent".into());
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(&session_id, token.clone());
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue(&session_id, "claude-code", &generation);
+        assert_eq!(
+            authority.register_native_id(
+                &session_id,
+                "claude-code",
+                &generation,
+                "claude-elicitation-native",
+                false,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Bound
+        );
+        crate::session_application::SessionApplication::new(state.clone())
+            .report_prompt_attention(
+                &session_id,
+                "claude_hook",
+                Some("Notification"),
+                Some("elicitation_dialog"),
+                "claude-elicitation-native",
+                "waiting_for_input",
+                Some(&generation),
+                None,
+                None,
+                Some(&token),
+            )
+            .unwrap();
+
+        assert_eq!(
+            state.sessions.lock().unwrap()[&session_id]
+                .runtime
+                .active_prompt_kind,
+            Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation)
+        );
+        crate::runtime::terminal_runtime::record_terminal_input(&state, &session_id, "x");
+
+        let info = state.sessions.lock().unwrap()[&session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(info.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&session_id)
+                .unwrap()
+                .attention
+                .as_deref(),
+            Some("needs_you")
+        );
+        crate::runtime::terminal_runtime::record_terminal_input(&state, &session_id, "\r");
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(
+            sessions[&session_id].info.attention.as_deref(),
+            Some("working")
+        );
+        assert_eq!(sessions[&session_id].runtime.active_prompt_kind, None);
+        drop(sessions);
+        authority.remove(&session_id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&session_id);
+    }
+
+    #[test]
+    fn claude_permission_wait_clears_on_single_key_across_attention_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = format!("claude-permission-key-{}", uuid::Uuid::new_v4().simple());
+        let generation = "e".repeat(64);
+        let token = "f".repeat(64);
+        let mut session = test_session_metadata(
+            &session_id,
+            "Claude",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "claude-code".into();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.metadata_source = "process".into();
+        session.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("claude-permission-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.metadata_source = Some("process".into());
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(&session_id, token.clone());
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue(&session_id, "claude-code", &generation);
+        assert_eq!(
+            authority.register_native_id(
+                &session_id,
+                "claude-code",
+                &generation,
+                "claude-permission-native",
+                false,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Bound
+        );
+        crate::session_application::SessionApplication::new(state.clone())
+            .report_prompt_attention(
+                &session_id,
+                "claude_hook",
+                Some("Notification"),
+                Some("permission_prompt"),
+                "claude-permission-native",
+                "waiting_for_input",
+                Some(&generation),
+                None,
+                None,
+                Some(&token),
+            )
+            .unwrap();
+
+        crate::runtime::terminal_runtime::record_terminal_input(&state, &session_id, "y");
+
+        let info = state.sessions.lock().unwrap()[&session_id].info.clone();
+        assert_eq!(info.attention.as_deref(), Some("working"));
+        assert_eq!(info.observed_status.as_deref(), Some("working"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[&session_id]
+                .runtime
+                .active_prompt_kind,
+            None
+        );
+        authority.remove(&session_id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&session_id);
+    }
+
+    #[test]
+    fn prompt_report_waits_for_revocation_before_persisting_attention() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session_id = format!("copilot-revoke-race-{}", uuid::Uuid::new_v4().simple());
+        let generation = "a".repeat(64);
+        let token = "b".repeat(64);
+        let mut session = test_session_metadata(
+            &session_id,
+            "Copilot",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        session.harness = "copilot".into();
+        session.lifecycle = "alive".into();
+        session.lifecycle_phase = "active".into();
+        session.metadata_source = "agent".into();
+        session.observed_status = Some("working".into());
+        session.attention = Some("working".into());
+        session.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("copilot-revoke-race-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&session);
+        let mut handle = attention_test_handle(&session_id, dir.path());
+        handle.info.harness = Some("copilot".into());
+        handle.info.harness_id = Some("copilot".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.metadata_source = Some("agent".into());
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(&session_id, token.clone());
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue(&session_id, "copilot", &generation);
+        assert_eq!(
+            authority.register_native_id(
+                &session_id,
+                "copilot",
+                &generation,
+                "copilot-revoke-race-native",
+                false,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Bound
+        );
+
+        let report_state = state.clone();
+        let report_session = session_id.clone();
+        let report_generation = generation.clone();
+        let report_token = token.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let transition = crate::runtime::prompt_authority::transition_lock();
+        let transition_guard = transition.lock().unwrap();
+        let reporter = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = crate::session_application::SessionApplication::new(report_state)
+                .report_prompt_attention(
+                    &report_session,
+                    "copilot_hook",
+                    Some("notification"),
+                    Some("permission_prompt"),
+                    "copilot-revoke-race-native",
+                    "waiting_for_input",
+                    Some(&report_generation),
+                    Some("2026-10-03T05:00:00.000000Z"),
+                    None,
+                    Some(&report_token),
+                );
+            result.is_ok()
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let completed_while_revocation_owned_transition = reporter.is_finished();
+        authority.revoke(&session_id, &generation);
+        drop(transition_guard);
+        let report_accepted = reporter.join().unwrap();
+
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&session_id)
+            .unwrap();
+        authority.remove(&session_id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(&session_id);
+        assert!(
+            !completed_while_revocation_owned_transition,
+            "a prompt report must share the transition fence with revocation"
+        );
+        assert!(!report_accepted, "revoked generation must not be accepted");
+        assert_eq!(saved.observed_status.as_deref(), Some("working"));
+        assert_eq!(saved.attention.as_deref(), Some("working"));
+    }
+
+    #[tokio::test]
     async fn generic_attention_cannot_overwrite_active_prompt_authority() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());

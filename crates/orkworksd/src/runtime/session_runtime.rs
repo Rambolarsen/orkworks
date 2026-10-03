@@ -349,6 +349,22 @@ impl ReplayBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimePromptKind {
+    Permission,
+    Elicitation,
+}
+
+impl RuntimePromptKind {
+    pub(crate) fn from_notification_type(notification_type: &str) -> Self {
+        match notification_type {
+            "permission_prompt" => Self::Permission,
+            "elicitation_dialog" | "elicitation_url_dialog" => Self::Elicitation,
+            _ => unreachable!("prompt type is validated before runtime state is updated"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct SessionRuntime {
     pub(crate) runtime_instance_id: String,
@@ -367,6 +383,8 @@ pub(crate) struct SessionRuntime {
     pub(crate) pending_wrap_prefix: Option<String>,
     pub(crate) input_generation: u64,
     pub(crate) accepted_input_at: Option<DateTime<Utc>>,
+    pub(crate) committed_input_at: Option<DateTime<Utc>>,
+    pub(crate) active_prompt_kind: Option<RuntimePromptKind>,
     pub(crate) last_hook_attention_at: Option<DateTime<Utc>>,
     pub(crate) usage_limit_latched_at: Option<DateTime<Utc>>,
     pub(crate) peon_output_revision: u64,
@@ -396,6 +414,8 @@ impl SessionRuntime {
                 pending_wrap_prefix: None,
                 input_generation: 0,
                 accepted_input_at: None,
+                committed_input_at: None,
+                active_prompt_kind: None,
                 last_hook_attention_at: None,
                 usage_limit_latched_at: None,
                 peon_output_revision: 0,
@@ -427,6 +447,8 @@ impl SessionRuntime {
             pending_wrap_prefix: None,
             input_generation: 0,
             accepted_input_at: None,
+            committed_input_at: None,
+            active_prompt_kind: None,
             last_hook_attention_at: None,
             usage_limit_latched_at: None,
             peon_output_revision: 0,

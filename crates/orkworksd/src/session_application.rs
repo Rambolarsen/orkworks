@@ -2389,6 +2389,11 @@ impl SessionApplication {
             handle.info.needs_user_input = None;
             handle.info.detected_question = None;
             handle.info.suggested_options = None;
+            handle.runtime.active_prompt_kind = Some(
+                crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
+                    &queued.notification_type,
+                ),
+            );
         }
         handle.runtime.last_hook_attention_at = queued.observed_at;
         if let Some(cwd) = queued.cwd.as_deref() {
@@ -2451,6 +2456,7 @@ impl SessionApplication {
                 handle.info.needs_user_input = None;
                 handle.info.detected_question = None;
                 handle.info.suggested_options = None;
+                handle.runtime.active_prompt_kind = None;
             }
         }
         Ok(())
@@ -2485,6 +2491,7 @@ impl SessionApplication {
                 handle.info.needs_user_input = None;
                 handle.info.detected_question = None;
                 handle.info.suggested_options = None;
+                handle.runtime.active_prompt_kind = None;
             }
         }
         Ok(())
@@ -3720,6 +3727,9 @@ impl SessionApplication {
             return Err(SessionError::EmptyBadRequest);
         }
 
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
         let workspace = self.state.workspace.lock().unwrap();
         let workspace = workspace.as_ref().ok_or(SessionError::Conflict)?;
         let metadata = workspace
@@ -3758,7 +3768,7 @@ impl SessionApplication {
                 .is_some_and(|previous| timestamp <= previous)
                 || handle
                     .runtime
-                    .accepted_input_at
+                    .committed_input_at
                     .is_some_and(|accepted_at| timestamp <= accepted_at)
         }) {
             return Err(SessionError::EmptyBadRequest);
@@ -3800,6 +3810,11 @@ impl SessionApplication {
             handle.info.needs_user_input = None;
             handle.info.detected_question = None;
             handle.info.suggested_options = None;
+            handle.runtime.active_prompt_kind = Some(
+                crate::runtime::session_runtime::RuntimePromptKind::from_notification_type(
+                    notification_type.expect("validated prompt notification type"),
+                ),
+            );
         }
         if let Some(observed_at) = observed_at {
             handle.runtime.last_hook_attention_at = Some(observed_at);
@@ -4044,6 +4059,7 @@ impl SessionApplication {
                         handle.info.needs_user_input = None;
                         handle.info.detected_question = None;
                         handle.info.suggested_options = None;
+                        handle.runtime.active_prompt_kind = None;
                     }
                 }
             }

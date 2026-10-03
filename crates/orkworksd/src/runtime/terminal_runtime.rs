@@ -859,21 +859,26 @@ fn mark_committed_input_working(
     // `UserPromptSubmit` event after that approval. Treat that exact
     // Codex-sourced prompt as resumed work while preserving the hook deferral
     // for every other active hook.
+    let single_key_policy = match handle.runtime.active_prompt_kind {
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission) => true,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation) => false,
+        None => matches!(
+            (
+                handle.active_work_hook,
+                handle.info.metadata_source.as_deref(),
+            ),
+            (false, Some("agent")) | (true, Some("codex_hook"))
+        ),
+    };
     let single_key_qualifies = printable_keystroke
         && handle.info.attention.as_deref() == Some("needs_you")
-        && match (
-            handle.active_work_hook,
-            handle.info.metadata_source.as_deref(),
-        ) {
-            (false, Some("agent")) | (true, Some("codex_hook")) => true,
-            _ => false,
-        };
+        && single_key_policy;
     let codex_mouse_click_qualifies = mouse_button_event
         && handle.active_work_hook
         && handle.info.attention.as_deref() == Some("needs_you")
         && handle.info.metadata_source.as_deref() == Some("codex_hook");
-    let commit_working =
-        !already_working && (line_completed || single_key_qualifies || codex_mouse_click_qualifies);
+    let committed_input = line_completed || single_key_qualifies || codex_mouse_click_qualifies;
+    let commit_working = !already_working && committed_input;
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
@@ -882,6 +887,10 @@ fn mark_committed_input_working(
     if !commit_working || already_working {
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
+        if committed_input {
+            handle.runtime.committed_input_at = Some(accepted_at);
+            handle.runtime.active_prompt_kind = None;
+        }
         handle.runtime.min_peon_output_revision =
             output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
@@ -908,6 +917,8 @@ fn mark_committed_input_working(
         handle.pending_work_signal = None;
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.committed_input_at = Some(accepted_at);
+        handle.runtime.active_prompt_kind = None;
         handle.runtime.min_peon_output_revision =
             output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
@@ -936,6 +947,8 @@ fn mark_committed_input_working(
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);
+    handle.runtime.committed_input_at = Some(accepted_at);
+    handle.runtime.active_prompt_kind = None;
     handle.runtime.min_peon_output_revision =
         output_boundary.unwrap_or(handle.runtime.peon_output_revision);
     drop(sessions);
