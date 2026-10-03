@@ -9,11 +9,13 @@ pub(crate) enum BindResult {
     Rejected,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ResetReservation {
     acknowledged: bool,
     epoch_committed: bool,
     candidate_native_session_id: Option<String>,
+    retired_native_session_id: Option<String>,
+    superseded: Option<Box<ResetReservation>>,
     created_at: chrono::DateTime<chrono::Utc>,
     queued_prompt_wait: Option<QueuedPromptWait>,
 }
@@ -22,6 +24,7 @@ struct ResetReservation {
 pub(crate) struct QueuedPromptWait {
     pub(crate) notification_type: String,
     pub(crate) observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(crate) receipt_sequence: u64,
     pub(crate) cwd: Option<String>,
 }
 
@@ -123,6 +126,9 @@ impl PromptAuthorityRegistry {
         match entry.native_session_id.as_deref() {
             None if entry.reset.as_ref().is_some_and(|reset| reset.acknowledged) => {
                 if !lifecycle_reset
+                    || entry.reset.as_ref().is_some_and(|reset| {
+                        reset.retired_native_session_id.as_deref() == Some(native_session_id)
+                    })
                     || (entry.harness_id == "copilot"
                         && observed_at.is_none_or(|timestamp| {
                             entry
@@ -200,17 +206,31 @@ impl PromptAuthorityRegistry {
             "copilot" => matches!(command, "/clear" | "/new"),
             _ => false,
         };
+        let superseded = entry.reset.as_ref().filter(|reset| {
+            reset.acknowledged
+                && reset.epoch_committed
+                && reset.candidate_native_session_id.is_none()
+        });
         if entry.revoked
             || entry.harness_id != harness_id
-            || entry.native_session_id.is_none()
+            || (entry.native_session_id.is_none() && superseded.is_none())
             || !accepted_command
             || entry.reset.as_ref().is_some_and(|reset| {
-                !reset.acknowledged || reset.candidate_native_session_id.is_some()
+                !(reset.acknowledged
+                    && reset.epoch_committed
+                    && reset.candidate_native_session_id.is_none())
             })
         {
             return false;
         }
+        let retired_native_session_id = entry
+            .native_session_id
+            .clone()
+            .or_else(|| superseded.and_then(|reset| reset.retired_native_session_id.clone()));
+        let previous = superseded.cloned().map(Box::new);
         entry.reset = Some(ResetReservation {
+            retired_native_session_id,
+            superseded: previous,
             created_at: chrono::Utc::now(),
             ..ResetReservation::default()
         });
@@ -293,6 +313,7 @@ impl PromptAuthorityRegistry {
         native_session_id: &str,
         notification_type: &str,
         observed_at: Option<chrono::DateTime<chrono::Utc>>,
+        receipt_sequence: u64,
         cwd: Option<&str>,
     ) -> bool {
         let mut sessions = self.sessions.lock().unwrap();
@@ -310,14 +331,27 @@ impl PromptAuthorityRegistry {
         }
         if let Some(previous) = reset.queued_prompt_wait.as_ref() {
             match (previous.observed_at, observed_at) {
-                (Some(previous), Some(current)) if current > previous => {}
-                (None, None) => {}
+                (Some(previous), Some(current))
+                    if current > previous
+                        || (current == previous
+                            && receipt_sequence
+                                > reset
+                                    .queued_prompt_wait
+                                    .as_ref()
+                                    .expect("queued prompt exists")
+                                    .receipt_sequence) => {}
+                (None, None)
+                    if reset
+                        .queued_prompt_wait
+                        .as_ref()
+                        .is_some_and(|previous| receipt_sequence > previous.receipt_sequence) => {}
                 _ => return false,
             }
         }
         reset.queued_prompt_wait = Some(QueuedPromptWait {
             notification_type: notification_type.to_string(),
             observed_at,
+            receipt_sequence,
             cwd: cwd.filter(|cwd| !cwd.is_empty()).map(str::to_owned),
         });
         true
@@ -325,7 +359,10 @@ impl PromptAuthorityRegistry {
 
     pub(crate) fn cancel_reset(&self, session_id: &str) {
         if let Some(entry) = self.sessions.lock().unwrap().get_mut(session_id) {
-            entry.reset = None;
+            entry.reset = entry
+                .reset
+                .take()
+                .and_then(|reset| reset.superseded.map(|old| *old));
         }
     }
 
@@ -377,6 +414,14 @@ impl PromptAuthorityRegistry {
             .unwrap()
             .get(session_id)
             .is_some_and(|entry| entry.active && !entry.revoked)
+    }
+
+    pub(crate) fn identity_reset_pending(&self, session_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .is_some_and(|entry| entry.reset.is_some())
     }
 
     pub(crate) fn revoke(&self, session_id: &str, generation: &str) {
@@ -436,6 +481,11 @@ mod tests {
         assert!(registry.acknowledge_reset("session").is_some());
         assert!(registry.complete_reset("session").is_some());
         assert_eq!(registry.epoch("session"), Some(1));
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "old", true, None,),
+            BindResult::Rejected,
+            "a delayed lifecycle event cannot restore the retired identity"
+        );
 
         assert_eq!(
             registry.register_native_id("session", "claude-code", "generation", "new", true, None,),
@@ -451,6 +501,27 @@ mod tests {
         assert!(registry.complete_reset("session").is_some());
         assert_eq!(registry.epoch("session"), Some(1));
         assert!(registry.native_id_matches("session", "claude-code", "generation", "new"));
+    }
+
+    #[test]
+    fn candidate_free_reset_can_be_superseded_and_cancel_restores_reservation() {
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id("session", "claude-code", "generation", Some("old"));
+        assert!(registry.reserve_reset("session", "claude-code", "/clear"));
+        assert!(registry.acknowledge_reset("session").is_some());
+        assert!(registry.complete_reset("session").is_some());
+
+        assert!(registry.reserve_reset("session", "claude-code", "/clear"));
+        registry.cancel_reset("session");
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "old", true, None),
+            BindResult::Rejected,
+            "cancel restores the already-committed candidate-free reset"
+        );
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "new", true, None),
+            BindResult::Held
+        );
     }
 
     #[test]

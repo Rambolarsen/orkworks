@@ -261,6 +261,7 @@ pub(crate) struct AttentionMergeSignal {
     pub(crate) source: String,
     pub(crate) confidence: f64,
     pub(crate) observed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(crate) hook_receipt_sequence: Option<u64>,
     pub(crate) reject_stale_observed_at: bool,
     pub(crate) update_hook_timestamp: bool,
     pub(crate) clear_pending_work_signal: bool,
@@ -1288,6 +1289,31 @@ impl SessionApplication {
             }
         }
 
+        if let Some(handle) = sessions_guard.get_mut(session_id) {
+            if handle.runtime.prompt_tuple_clear_pending {
+                let user_owned = workspace
+                    .metadata
+                    .read_session(session_id)
+                    .is_some_and(|metadata| metadata.metadata_source == "user");
+                if user_owned
+                    || matches!(
+                        workspace.metadata.clear_prompt_authority_tuple(session_id),
+                        metadata::AttentionMergeResult::Accepted
+                            | metadata::AttentionMergeResult::Ignored
+                    )
+                {
+                    handle.runtime.prompt_tuple_clear_pending = false;
+                } else {
+                    return PeonInferencePersistenceResult {
+                        inference_persisted: false,
+                        permanent_hold: false,
+                        label_update: None,
+                        workspace_path,
+                    };
+                }
+            }
+        }
+
         let attention_policy = match sessions_guard.get(session_id) {
             Some(handle)
                 if matches!(
@@ -1376,6 +1402,25 @@ impl SessionApplication {
 
         // The merge enforces the source-priority ladder itself (issue #400);
         // its outcome is the only gate.
+        let prompt_harness = sessions_guard.get(session_id).is_some_and(|handle| {
+            matches!(
+                handle
+                    .info
+                    .harness_id
+                    .as_deref()
+                    .or(handle.info.harness.as_deref()),
+                Some("claude-code" | "copilot")
+            )
+        });
+        let guarded_inference = (prompt_harness
+            && crate::runtime::prompt_authority::registry().identity_reset_pending(session_id)
+            && inference.harness_session_id.is_some())
+        .then(|| {
+            let mut inference = inference.clone();
+            inference.harness_session_id = None;
+            inference
+        });
+        let inference = guarded_inference.as_ref().unwrap_or(inference);
         let merge_result = workspace.metadata.merge_peon_inference_with_history_policy(
             session_id,
             inference,
@@ -1809,6 +1854,9 @@ impl SessionApplication {
         tokio::task::spawn_blocking(move || {
             let state = task_state;
             let id = task_id;
+            let _prompt_transition = crate::runtime::prompt_authority::transition_lock()
+                .lock()
+                .unwrap();
             let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
             let (handle_decision, session_resume, entered_running, entered_terminal) = {
                 let mut sessions = state.sessions.lock().unwrap();
@@ -2252,6 +2300,9 @@ impl SessionApplication {
     }
 
     pub(crate) fn prepare_prompt_identity_reset(&self, id: &str, command: &str) -> bool {
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
         let harness_id = self
             .state
             .workspace
@@ -2270,6 +2321,10 @@ impl SessionApplication {
         let _transition = crate::runtime::prompt_authority::transition_lock()
             .lock()
             .unwrap();
+        self.commit_prompt_identity_reset_under_transition(id);
+    }
+
+    pub(crate) fn commit_prompt_identity_reset_under_transition(&self, id: &str) {
         let Some(candidate) = crate::runtime::prompt_authority::registry().acknowledge_reset(id)
         else {
             return;
@@ -2328,6 +2383,11 @@ impl SessionApplication {
                 )
             ) {
                 return;
+            }
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                if let Some(resume) = handle.info.resume.as_mut() {
+                    resume.harness_session_id = None;
+                }
             }
         }
         if self.clear_prompt_authority_tuple(id).is_err() {
@@ -2396,6 +2456,7 @@ impl SessionApplication {
             );
         }
         handle.runtime.last_hook_attention_at = queued.observed_at;
+        handle.runtime.last_hook_attention_sequence = Some(queued.receipt_sequence);
         if let Some(cwd) = queued.cwd.as_deref() {
             self.state
                 .peon
@@ -2407,6 +2468,9 @@ impl SessionApplication {
     }
 
     pub(crate) fn cancel_prompt_identity_reset(&self, id: &str) {
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
         crate::runtime::prompt_authority::registry().cancel_reset(id);
     }
 
@@ -2422,6 +2486,7 @@ impl SessionApplication {
             return Ok(());
         };
         let mut sessions = self.state.sessions.lock().unwrap();
+        let mut persistence_failed = false;
         for (session_id, handle) in sessions.iter_mut().filter(|(_, handle)| {
             handle.info.harness_id.as_deref() == Some(harness_id)
                 || handle.info.harness.as_deref() == Some(harness_id)
@@ -2436,21 +2501,17 @@ impl SessionApplication {
                 .metadata
                 .read_session(session_id)
                 .is_some_and(|metadata| metadata.metadata_source == "user");
-            if active
-                && !preserve_user_tuple
-                && workspace.metadata.clear_prompt_authority_tuple(session_id)
-                    != metadata::AttentionMergeResult::Accepted
-            {
-                return Err(SessionError::Internal("application operation failed"));
-            }
             crate::runtime::prompt_authority::registry().revoke(session_id, &generation);
-            if active
-                && !preserve_user_tuple
-                && workspace
-                    .metadata
-                    .read_session(session_id)
-                    .is_some_and(|metadata| metadata.metadata_source != "user")
-            {
+            if active && !preserve_user_tuple {
+                let clear_result = workspace.metadata.clear_prompt_authority_tuple(session_id);
+                if !matches!(
+                    clear_result,
+                    metadata::AttentionMergeResult::Accepted
+                        | metadata::AttentionMergeResult::Ignored
+                ) {
+                    handle.runtime.prompt_tuple_clear_pending = true;
+                    persistence_failed = true;
+                }
                 handle.info.observed_status = None;
                 handle.info.attention = None;
                 handle.info.needs_user_input = None;
@@ -2459,7 +2520,11 @@ impl SessionApplication {
                 handle.runtime.active_prompt_kind = None;
             }
         }
-        Ok(())
+        if persistence_failed {
+            Err(SessionError::Internal("application operation failed"))
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) fn clear_prompt_authority_tuple(&self, id: &str) -> Result<(), SessionError> {
@@ -3161,10 +3226,30 @@ impl SessionApplication {
         &self,
         signal: AttentionMergeSignal,
     ) -> Result<metadata::AttentionMergeResult, SessionError> {
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions.get(&signal.session_id);
+
+        if signal.source == "agent"
+            && !signal.activate_work_hook
+            && handle.is_some_and(|handle| {
+                matches!(
+                    handle
+                        .info
+                        .harness_id
+                        .as_deref()
+                        .or(handle.info.harness.as_deref()),
+                    Some("claude-code" | "copilot")
+                )
+            })
+            && crate::runtime::prompt_authority::registry().is_active(&signal.session_id)
+        {
+            return Err(SessionError::EmptyBadRequest);
+        }
 
         if signal.activate_work_hook
             && signal.source == "agent"
@@ -3220,7 +3305,16 @@ impl SessionApplication {
                     handle
                         .runtime
                         .last_hook_attention_at
-                        .is_some_and(|previous| timestamp <= previous)
+                        .is_some_and(|previous| {
+                            timestamp < previous
+                                || (timestamp == previous
+                                    && signal.hook_receipt_sequence.is_none_or(|sequence| {
+                                        handle
+                                            .runtime
+                                            .last_hook_attention_sequence
+                                            .is_none_or(|previous| sequence <= previous)
+                                    }))
+                        })
                         || handle
                             .runtime
                             .accepted_input_at
@@ -3253,6 +3347,7 @@ impl SessionApplication {
                 if signal.update_hook_timestamp {
                     if let Some(observed_at) = signal.observed_at {
                         handle.runtime.last_hook_attention_at = Some(observed_at);
+                        handle.runtime.last_hook_attention_sequence = signal.hook_receipt_sequence;
                     }
                 }
                 if signal.activate_work_hook {
@@ -3321,6 +3416,7 @@ impl SessionApplication {
                 source: "debug".into(),
                 confidence: 0.0,
                 observed_at: None,
+                hook_receipt_sequence: None,
                 reject_stale_observed_at: false,
                 update_hook_timestamp: false,
                 clear_pending_work_signal: false,
@@ -3521,6 +3617,27 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
+        let hook_receipt_sequence = {
+            let _transition = crate::runtime::prompt_authority::transition_lock()
+                .lock()
+                .unwrap();
+            let mut sessions = self.state.sessions.lock().unwrap();
+            sessions.get_mut(id).and_then(|handle| {
+                matches!(
+                    handle
+                        .info
+                        .harness_id
+                        .as_deref()
+                        .or(handle.info.harness.as_deref()),
+                    Some("claude-code" | "copilot")
+                )
+                .then(|| {
+                    handle.runtime.hook_receipt_sequence =
+                        handle.runtime.hook_receipt_sequence.saturating_add(1);
+                    handle.runtime.hook_receipt_sequence
+                })
+            })
+        };
         if crate::runtime::prompt_authority::registry().is_active(id)
             && self
                 .state
@@ -3636,6 +3753,7 @@ impl SessionApplication {
                 source: merge_source,
                 confidence: 1.0,
                 observed_at,
+                hook_receipt_sequence,
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
@@ -3761,11 +3879,21 @@ impl SessionApplication {
                         || handle.info.harness.as_deref() == Some(harness_id))
             })
             .ok_or(SessionError::EmptyBadRequest)?;
+        handle.runtime.hook_receipt_sequence =
+            handle.runtime.hook_receipt_sequence.saturating_add(1);
+        let receipt_sequence = handle.runtime.hook_receipt_sequence;
         if observed_at.is_some_and(|timestamp| {
             handle
                 .runtime
                 .last_hook_attention_at
-                .is_some_and(|previous| timestamp <= previous)
+                .is_some_and(|previous| {
+                    timestamp < previous
+                        || (timestamp == previous
+                            && handle
+                                .runtime
+                                .last_hook_attention_sequence
+                                .is_some_and(|previous| receipt_sequence <= previous))
+                })
                 || handle
                     .runtime
                     .committed_input_at
@@ -3784,6 +3912,7 @@ impl SessionApplication {
             native_session_id,
             notification_type.expect("validated prompt notification type"),
             observed_at,
+            receipt_sequence,
             cwd,
         ) {
             return Err(SessionError::Accepted);
@@ -3818,6 +3947,7 @@ impl SessionApplication {
         }
         if let Some(observed_at) = observed_at {
             handle.runtime.last_hook_attention_at = Some(observed_at);
+            handle.runtime.last_hook_attention_sequence = Some(receipt_sequence);
         }
         if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
             self.state
@@ -4022,6 +4152,7 @@ impl SessionApplication {
             active_harness_ids: canonical_active_harness_ids,
             active_harness_revision: existing.active_harness_revision.saturating_add(1),
         };
+        let mut revocation_persistence_failed = false;
         for disabled_harness in existing.active_harness_ids.iter().filter(|id| {
             matches!(id.as_str(), "claude-code" | "copilot")
                 && !memory.active_harness_ids.contains(id)
@@ -4039,21 +4170,18 @@ impl SessionApplication {
                         .metadata
                         .read_session(session_id)
                         .is_some_and(|metadata| metadata.metadata_source == "user");
-                    if active
-                        && !preserve_user_tuple
-                        && workspace.metadata.clear_prompt_authority_tuple(session_id)
-                            != metadata::AttentionMergeResult::Accepted
-                    {
-                        return Err(SessionError::Internal("application operation failed"));
-                    }
                     crate::runtime::prompt_authority::registry().revoke(session_id, &generation);
-                    if active
-                        && !preserve_user_tuple
-                        && workspace
-                            .metadata
-                            .read_session(session_id)
-                            .is_some_and(|metadata| metadata.metadata_source != "user")
-                    {
+                    if active && !preserve_user_tuple {
+                        let clear_result =
+                            workspace.metadata.clear_prompt_authority_tuple(session_id);
+                        if !matches!(
+                            clear_result,
+                            metadata::AttentionMergeResult::Accepted
+                                | metadata::AttentionMergeResult::Ignored
+                        ) {
+                            handle.runtime.prompt_tuple_clear_pending = true;
+                            revocation_persistence_failed = true;
+                        }
                         handle.info.observed_status = None;
                         handle.info.attention = None;
                         handle.info.needs_user_input = None;
@@ -4065,6 +4193,9 @@ impl SessionApplication {
             }
         }
         workspace.metadata.write_workspace_memory(&memory);
+        if revocation_persistence_failed {
+            return Err(SessionError::Internal("application operation failed"));
+        }
         Ok(memory)
     }
 
@@ -6012,6 +6143,7 @@ mod tests {
                 source: "agent".into(),
                 confidence: 1.0,
                 observed_at: Some(parse_hook_observed_at("2026-09-26T12:00:00.123456Z").unwrap()),
+                hook_receipt_sequence: None,
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
@@ -6070,6 +6202,7 @@ mod tests {
                     observed_at: Some(
                         parse_hook_observed_at("2026-09-26T12:00:00.123456Z").unwrap(),
                     ),
+                    hook_receipt_sequence: None,
                     reject_stale_observed_at: true,
                     update_hook_timestamp: true,
                     clear_pending_work_signal: true,
@@ -8406,6 +8539,179 @@ mod tests {
     }
 
     #[test]
+    fn generic_attention_rechecks_prompt_authority_under_transition_fence() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "generic-attention-prompt-race";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Prompt race",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.harness = "claude-code".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+        meta.metadata_source = "claude_hook".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.observed_status = Some("waiting_for_input".into());
+        handle.info.attention = Some("needs_you".into());
+        handle.info.metadata_source = Some("claude_hook".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(id, "claude-code", "generation", Some("native"));
+
+        let transition = crate::runtime::prompt_authority::transition_lock();
+        let transition_guard = transition.lock().unwrap();
+        let thread_state = state.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let report = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            SessionApplication::new(thread_state).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: "working".into(),
+                message: Some("stale generic report".into()),
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-10-03T05:00:00Z".into(),
+                source: "agent".into(),
+                confidence: 1.0,
+                observed_at: None,
+                hook_receipt_sequence: None,
+                reject_stale_observed_at: false,
+                update_hook_timestamp: false,
+                clear_pending_work_signal: false,
+                require_alive: false,
+                activate_work_hook: false,
+                opencode_authority: None,
+                debug_hint_mutation: None,
+            })
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            !report.is_finished(),
+            "generic attention merge must wait for the authority transition fence"
+        );
+        assert!(authority.activate(id, "claude-code", "generation", "native"));
+        drop(transition_guard);
+
+        assert!(matches!(
+            report.join().unwrap(),
+            Err(SessionError::EmptyBadRequest)
+        ));
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
+        authority.remove(id);
+    }
+
+    #[test]
+    fn equal_time_hook_attention_uses_receive_sequence() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "equal-time-hook-sequence";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Hook sequence",
+            root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.harness = "copilot".into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("copilot".into());
+        handle.info.harness_id = Some("copilot".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let observed_at = parse_hook_observed_at("2026-10-03T05:00:00.000000Z").unwrap();
+        let apply = |status: &str, sequence| {
+            SessionApplication::new(state.clone()).apply_attention_signal(AttentionMergeSignal {
+                session_id: id.into(),
+                observed_status: status.into(),
+                message: None,
+                plan_path: metadata::PlanPathUpdate::Unchanged,
+                timestamp: "2026-10-03T05:00:00Z".into(),
+                source: "agent".into(),
+                confidence: 1.0,
+                observed_at: Some(observed_at),
+                hook_receipt_sequence: Some(sequence),
+                reject_stale_observed_at: true,
+                update_hook_timestamp: true,
+                clear_pending_work_signal: false,
+                require_alive: false,
+                activate_work_hook: false,
+                opencode_authority: None,
+                debug_hint_mutation: None,
+            })
+        };
+
+        assert_eq!(
+            apply("waiting_for_input", 1),
+            Ok(metadata::AttentionMergeResult::Accepted)
+        );
+        assert_eq!(
+            apply("working", 2),
+            Ok(metadata::AttentionMergeResult::Accepted)
+        );
+        assert_eq!(
+            apply("waiting_for_input", 1),
+            Ok(metadata::AttentionMergeResult::Ignored)
+        );
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .observed_status
+                .as_deref(),
+            Some("working")
+        );
+    }
+
+    #[test]
     fn attention_merge_application_mirrors_accepted_hook_and_clears_pending_work() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
@@ -8447,6 +8753,7 @@ mod tests {
                 source: "agent".into(),
                 confidence: 1.0,
                 observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
+                hook_receipt_sequence: None,
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
@@ -8515,6 +8822,7 @@ mod tests {
                 source: "codex_hook".into(),
                 confidence: 1.0,
                 observed_at: None,
+                hook_receipt_sequence: None,
                 reject_stale_observed_at: false,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
@@ -8579,6 +8887,7 @@ mod tests {
                 source: "agent".into(),
                 confidence: 1.0,
                 observed_at: Some(parse_hook_observed_at("2026-01-01T00:00:01.000000Z").unwrap()),
+                hook_receipt_sequence: None,
                 reject_stale_observed_at: true,
                 update_hook_timestamp: true,
                 clear_pending_work_signal: true,
@@ -8653,6 +8962,7 @@ mod tests {
                 source: "debug".into(),
                 confidence: 0.0,
                 observed_at: None,
+                hook_receipt_sequence: None,
                 reject_stale_observed_at: false,
                 update_hook_timestamp: false,
                 clear_pending_work_signal: false,
@@ -8716,6 +9026,7 @@ mod tests {
                         source: "agent".into(),
                         confidence: 1.0,
                         observed_at: None,
+                        hook_receipt_sequence: None,
                         reject_stale_observed_at: false,
                         update_hook_timestamp: false,
                         clear_pending_work_signal: true,
@@ -13104,7 +13415,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_prompt_authority_demotion_keeps_generation_and_live_tuple_retryable() {
+    fn failed_prompt_authority_demotion_revokes_now_and_retries_tuple_clear() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "prompt-authority-revoke-write-fails";
@@ -13179,14 +13490,14 @@ mod tests {
             .metadata
             .read_workspace_memory()
             .unwrap();
-        assert_eq!(active_memory.active_harness_ids, ["claude-code"]);
-        assert!(authority.is_active(id));
+        assert!(active_memory.active_harness_ids.is_empty());
+        assert!(!authority.is_active(id));
 
         let _ = application.revoke_prompt_authority_for_harness("claude-code");
 
         assert!(
-            authority.is_active(id),
-            "failed persistence must leave authority retryable"
+            !authority.is_active(id),
+            "revocation must not wait for persistence"
         );
         let saved = state
             .workspace
@@ -13199,10 +13510,38 @@ mod tests {
             .unwrap();
         assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
         assert_eq!(saved.attention.as_deref(), Some("needs_you"));
-        let sessions = state.sessions.lock().unwrap();
-        assert_eq!(
-            sessions.get(id).unwrap().info.observed_status.as_deref(),
-            Some("waiting_for_input")
+        assert!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .unwrap()
+                .runtime
+                .prompt_tuple_clear_pending
+        );
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        application.persist_peon_observation(id, None, None, None, "now");
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert!(saved.observed_status.is_none());
+        assert!(saved.attention.is_none());
+        assert!(
+            !state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .unwrap()
+                .runtime
+                .prompt_tuple_clear_pending
         );
         authority.remove(id);
     }

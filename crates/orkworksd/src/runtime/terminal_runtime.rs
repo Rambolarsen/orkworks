@@ -4445,6 +4445,7 @@ mod tests {
             "native-after",
             "permission_prompt",
             None,
+            1,
             None,
         ));
         assert!(!registry.native_id_matches(
@@ -4525,7 +4526,18 @@ mod tests {
             "native-after",
             "permission_prompt",
             Some(latest_prompt),
+            1,
             Some("/cwd/latest"),
+        ));
+        assert!(registry.queue_prompt_wait(
+            "copilot-reset",
+            "copilot",
+            "generation-c",
+            "native-after",
+            "elicitation_dialog",
+            Some(latest_prompt),
+            2,
+            Some("/cwd/equal-later"),
         ));
         assert!(!registry.queue_prompt_wait(
             "copilot-reset",
@@ -4534,6 +4546,7 @@ mod tests {
             "native-after",
             "permission_prompt",
             Some(fresh_timestamp + chrono::Duration::seconds(1)),
+            3,
             Some("/cwd/stale"),
         ));
         assert_eq!(
@@ -4547,7 +4560,9 @@ mod tests {
         assert_eq!(commit.native_session_id.as_deref(), Some("native-after"));
         let queued = commit.queued_prompt_wait.unwrap();
         assert_eq!(queued.observed_at, Some(latest_prompt));
-        assert_eq!(queued.cwd.as_deref(), Some("/cwd/latest"));
+        assert_eq!(queued.notification_type, "elicitation_dialog");
+        assert_eq!(queued.receipt_sequence, 2);
+        assert_eq!(queued.cwd.as_deref(), Some("/cwd/equal-later"));
     }
 
     #[test]

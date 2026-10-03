@@ -637,6 +637,11 @@ async fn report_harness_session_inner(
         .session_start_observed_at
         .as_deref()
         .and_then(|raw| crate::workspace_runtime::parse_hook_observed_at(raw).ok());
+    let _prompt_transition = prompt_harness.map(|_| {
+        crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap()
+    });
     let private_lookup_authorized = is_codex_hook
         && bearer_token(&headers).is_some_and(|token| verify_workflow_report_token(&id, token));
     let prompt_registration_authorized = if let Some(expected_harness) = prompt_harness {
@@ -689,7 +694,8 @@ async fn report_harness_session_inner(
                     generation.expect("authorized generation exists"),
                     &native_session_id,
                 ) {
-                    SessionApplication::new(state.clone()).commit_prompt_identity_reset(&id);
+                    SessionApplication::new(state.clone())
+                        .commit_prompt_identity_reset_under_transition(&id);
                 }
                 return axum::http::StatusCode::ACCEPTED.into_response();
             }
@@ -1948,6 +1954,7 @@ mod tests {
         handle.info.harness_id = Some("claude-code".into());
         handle.info.lifecycle = "alive".into();
         handle.info.lifecycle_phase = "active".into();
+        handle.info.resume = session.resume.clone();
         state
             .sessions
             .lock()
@@ -2032,6 +2039,7 @@ mod tests {
         handle.info.harness_id = Some("claude-code".into());
         handle.info.lifecycle = "alive".into();
         handle.info.lifecycle_phase = "active".into();
+        handle.info.resume = session.resume.clone();
         state
             .sessions
             .lock()
@@ -2170,6 +2178,15 @@ mod tests {
             "acknowledgement must retire the old resumable ID before a new lifecycle event arrives"
         );
         assert_eq!(after_reset_ack.observed_status, None);
+        assert_eq!(
+            state.sessions.lock().unwrap()[&session_id]
+                .info
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            None,
+            "the live projection must retire the same native ID"
+        );
         assert_eq!(authority.epoch(&session_id), Some(2));
         let mut headers = HeaderMap::new();
         headers.insert(

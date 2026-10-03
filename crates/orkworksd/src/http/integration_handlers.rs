@@ -595,6 +595,16 @@ async fn run_integration_key_action(
                 .into_response()
             }
             Ok((group, Err(error))) => {
+                if matches!(key.adapter_id.as_str(), "claude" | "copilot") && !prompt_ready {
+                    revoke_harnesses.extend(
+                        group
+                            .consumers
+                            .iter()
+                            .map(|consumer| consumer.harness_id.as_str())
+                            .filter(|id| matches!(*id, "claude-code" | "copilot"))
+                            .map(str::to_owned),
+                    );
+                }
                 let status = grouped_integration_error_status(&group, &error, failure_action);
                 Json(GroupedIntegrationStatus {
                     key: key.clone(),
