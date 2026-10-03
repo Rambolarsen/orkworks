@@ -68,6 +68,16 @@ struct SessionAuthority {
     reset_retry_requested: bool,
 }
 
+fn reset_commit_pending(entry: &SessionAuthority, reset: &ResetReservation) -> bool {
+    reset.acknowledged
+        && (!reset.epoch_committed
+            || reset.queued_prompt_wait.is_some()
+            || reset
+                .candidate_native_session_id
+                .as_ref()
+                .is_some_and(|candidate| entry.native_session_id.as_ref() != Some(candidate)))
+}
+
 /// Process-local prompt authority for Claude Code and GitHub Copilot CLI.
 ///
 /// Authority is deliberately not persisted. A sidecar restart therefore
@@ -258,7 +268,13 @@ impl PromptAuthorityRegistry {
             .native_session_id
             .clone()
             .or_else(|| superseded.and_then(|reset| reset.retired_native_session_id.clone()));
-        let previous = superseded.cloned().map(Box::new);
+        let previous = superseded.cloned().map(|mut reset| {
+            // Cancellation only needs to restore the immediately previous
+            // reservation. Keeping its own predecessor creates an unbounded
+            // chain across repeated candidate-free resets.
+            reset.superseded = None;
+            Box::new(reset)
+        });
         entry.reset = Some(ResetReservation {
             retired_native_session_id,
             superseded: previous,
@@ -534,10 +550,10 @@ impl PromptAuthorityRegistry {
             .unwrap()
             .get(session_id)
             .is_some_and(|entry| {
-                entry.reset.as_ref().is_some_and(|reset| {
-                    reset.acknowledged
-                        && (!reset.epoch_committed || reset.queued_prompt_wait.is_some())
-                })
+                entry
+                    .reset
+                    .as_ref()
+                    .is_some_and(|reset| reset_commit_pending(entry, reset))
             })
     }
 
@@ -546,9 +562,10 @@ impl PromptAuthorityRegistry {
         let Some(entry) = sessions.get_mut(session_id) else {
             return false;
         };
-        let pending = entry.reset.as_ref().is_some_and(|reset| {
-            reset.acknowledged && (!reset.epoch_committed || reset.queued_prompt_wait.is_some())
-        });
+        let pending = entry
+            .reset
+            .as_ref()
+            .is_some_and(|reset| reset_commit_pending(entry, reset));
         if !pending {
             return false;
         }
@@ -565,9 +582,10 @@ impl PromptAuthorityRegistry {
         let Some(entry) = sessions.get_mut(session_id) else {
             return false;
         };
-        let pending = entry.reset.as_ref().is_some_and(|reset| {
-            reset.acknowledged && (!reset.epoch_committed || reset.queued_prompt_wait.is_some())
-        });
+        let pending = entry
+            .reset
+            .as_ref()
+            .is_some_and(|reset| reset_commit_pending(entry, reset));
         if pending && entry.reset_retry_requested {
             entry.reset_retry_requested = false;
             return true;
@@ -809,6 +827,65 @@ mod tests {
         assert!(registry.finish_reset_retry("session"));
         assert!(!registry.finish_reset_retry("session"));
         assert!(registry.schedule_reset_retry("session"));
+    }
+
+    #[test]
+    fn late_candidate_without_queued_prompt_remains_retryable() {
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id("session", "copilot", "generation", Some("old"));
+        assert!(registry.reserve_reset("session", "copilot", "/new"));
+        assert!(registry.acknowledge_reset("session").is_some());
+        assert_eq!(
+            registry
+                .complete_reset("session")
+                .unwrap()
+                .native_session_id,
+            None
+        );
+
+        assert_eq!(
+            registry.register_native_id(
+                "session",
+                "copilot",
+                "generation",
+                "replacement",
+                true,
+                Some(chrono::Utc::now() + chrono::Duration::seconds(1)),
+            ),
+            BindResult::Held
+        );
+        assert!(registry.reset_commit_pending("session"));
+        assert!(registry.schedule_reset_retry("session"));
+        assert!(!registry.schedule_reset_retry("session"));
+        assert!(registry.finish_reset_retry("session"));
+    }
+
+    #[test]
+    fn repeated_candidate_free_resets_keep_rollback_depth_bounded() {
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id("session", "claude-code", "generation", Some("old"));
+
+        for _ in 0..12 {
+            assert!(registry.reserve_reset("session", "claude-code", "/clear"));
+            assert!(registry.acknowledge_reset("session").is_some());
+            assert_eq!(
+                registry
+                    .complete_reset("session")
+                    .unwrap()
+                    .native_session_id,
+                None
+            );
+
+            let sessions = registry.sessions.lock().unwrap();
+            let reset = sessions["session"].reset.as_ref().unwrap();
+            let mut depth = 0;
+            let mut previous = reset.superseded.as_deref();
+            while let Some(snapshot) = previous {
+                depth += 1;
+                previous = snapshot.superseded.as_deref();
+            }
+            assert!(depth <= 1, "rollback chain grew to depth {depth}");
+        }
     }
 
     #[test]

@@ -66,6 +66,14 @@ pub(crate) struct HarnessSessionReportRequest {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct HarnessSessionReportEnvelope {
+    #[serde(flatten)]
+    report: HarnessSessionReportRequest,
+    #[serde(default)]
+    cwd: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct AttentionReportRequest {
     pub(crate) status: String,
     #[serde(default)]
@@ -566,16 +574,26 @@ pub(crate) async fn report_harness_session(
     Path(id): Path<String>,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, HeaderMap::new(), req).await
+    report_harness_session_inner(state, id, HeaderMap::new(), req, None).await
 }
 
+pub(crate) async fn report_harness_session_envelope_with_headers(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(envelope): Json<HarnessSessionReportEnvelope>,
+) -> impl IntoResponse {
+    report_harness_session_inner(state, id, headers, envelope.report, envelope.cwd).await
+}
+
+#[cfg(test)]
 pub(crate) async fn report_harness_session_with_headers(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, headers, req).await
+    report_harness_session_inner(state, id, headers, req, None).await
 }
 
 async fn report_harness_session_inner(
@@ -583,6 +601,7 @@ async fn report_harness_session_inner(
     id: String,
     headers: HeaderMap,
     req: HarnessSessionReportRequest,
+    reported_cwd: Option<String>,
 ) -> axum::response::Response {
     let observation_state = state.clone();
     let is_codex_hook = req.source == "codex_hook";
@@ -690,8 +709,12 @@ async fn report_harness_session_inner(
             lifecycle_observed_at,
         ) {
             crate::runtime::prompt_authority::BindResult::Bound
-            | crate::runtime::prompt_authority::BindResult::Unchanged => true,
+            | crate::runtime::prompt_authority::BindResult::Unchanged => {
+                store_authenticated_reported_cwd(&state, &id, reported_cwd.as_deref());
+                true
+            }
             crate::runtime::prompt_authority::BindResult::Held => {
+                store_authenticated_reported_cwd(&state, &id, reported_cwd.as_deref());
                 if crate::runtime::prompt_authority::registry().acknowledged_candidate_matches(
                     &id,
                     expected_harness,
@@ -816,6 +839,17 @@ async fn report_harness_session_inner(
     }
 }
 
+fn store_authenticated_reported_cwd(state: &AppState, id: &str, cwd: Option<&str>) {
+    if let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) {
+        state
+            .peon
+            .reported_cwd
+            .write()
+            .unwrap()
+            .insert(id.to_string(), cwd.to_string());
+    }
+}
+
 pub(crate) async fn report_harness_session_from_local_relay(
     state: Arc<AppState>,
     id: String,
@@ -836,7 +870,7 @@ pub(crate) async fn report_harness_session_from_local_relay(
     };
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, value);
-    report_harness_session_inner(state, id, headers, report)
+    report_harness_session_inner(state, id, headers, report, None)
         .await
         .status()
 }
@@ -1861,14 +1895,34 @@ mod tests {
         };
 
         for _ in 0..2 {
-            let response = report_harness_session_with_headers(
-                State(state.clone()),
-                Path(session_id.clone()),
-                headers.clone(),
-                Json(report()),
-            )
-            .await
-            .into_response();
+            let response = if state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .contains_key(&session_id)
+            {
+                report_harness_session_with_headers(
+                    State(state.clone()),
+                    Path(session_id.clone()),
+                    headers.clone(),
+                    Json(report()),
+                )
+                .await
+                .into_response()
+            } else {
+                report_harness_session_envelope_with_headers(
+                    State(state.clone()),
+                    Path(session_id.clone()),
+                    headers.clone(),
+                    Json(HarnessSessionReportEnvelope {
+                        report: report(),
+                        cwd: Some("/identity-reported/worktree".into()),
+                    }),
+                )
+                .await
+                .into_response()
+            };
             assert_eq!(response.status(), axum::http::StatusCode::OK);
         }
 
@@ -1899,6 +1953,17 @@ mod tests {
         assert!(
             saved.attention.is_none(),
             "identity registration must not change attention state"
+        );
+        assert_eq!(
+            state
+                .peon
+                .reported_cwd
+                .read()
+                .unwrap()
+                .get(&session_id)
+                .map(String::as_str),
+            Some("/identity-reported/worktree"),
+            "authenticated identity reports preserve harness cwd without an attention event"
         );
 
         let rejected = report_harness_session_with_headers(

@@ -74,6 +74,19 @@ fn stable_hook_scripts_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".orkworks").join("hook-scripts"))
 }
 
+fn revoke_prompt_authority_snapshots<T>(
+    snapshots: Vec<T>,
+    mut revoke: impl FnMut(T) -> bool,
+) -> bool {
+    let mut all_revoked = true;
+    for snapshot in snapshots {
+        if !revoke(snapshot) {
+            all_revoked = false;
+        }
+    }
+    all_revoked
+}
+
 pub(crate) fn reporter_assets() -> Result<ReporterAssetResolver, String> {
     let stable_dir = stable_hook_scripts_dir()
         .ok_or_else(|| "couldn't resolve home directory for the reporter scripts".to_string())?;
@@ -866,20 +879,20 @@ pub(crate) async fn get_workspace_integrations(
     }
     if !revoke_snapshots.is_empty() {
         let application = crate::session_application::SessionApplication::new(state.clone());
-        for snapshot in revoke_snapshots {
-            if application
+        let all_revoked = revoke_prompt_authority_snapshots(revoke_snapshots, |snapshot| {
+            application
                 .revoke_prompt_authority_snapshot(snapshot)
-                .is_err()
-            {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "integration status changed, but prompt authority could not be safely revoked"
-                            .into(),
-                    }),
-                )
-                    .into_response();
-            }
+                .is_ok()
+        });
+        if !all_revoked {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "integration status changed, but prompt authority could not be safely revoked"
+                        .into(),
+                }),
+            )
+                .into_response();
         }
     }
     if let Some(response) = revalidation_error {
@@ -992,6 +1005,18 @@ mod tests {
     use crate::session_application::SessionApplication;
     use crate::test_support::{test_app_state_with_workspace, FakeHome};
     use serde_json::Value;
+
+    #[test]
+    fn grouped_status_revocation_attempts_every_snapshot_after_a_failure() {
+        let mut attempted = Vec::new();
+        let all_revoked = revoke_prompt_authority_snapshots(vec![1, 2, 3], |snapshot| {
+            attempted.push(snapshot);
+            snapshot != 1
+        });
+
+        assert!(!all_revoked);
+        assert_eq!(attempted, vec![1, 2, 3]);
+    }
 
     // Claude's handler is a JsonHookHandler: `require_local_or_ignored_untracked`
     // (harness/integration.rs) refuses to read or write its config file unless

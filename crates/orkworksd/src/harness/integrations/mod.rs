@@ -833,6 +833,10 @@ mod tests {
         assert!(trace.contains("promptHookGeneration"));
         assert!(trace.contains("test-generation"));
         assert!(
+            trace.contains(r#""cwd":"/workspace""#),
+            "identity POST should carry cwd independently of attention; trace:\n{trace}"
+        );
+        assert!(
             !trace.contains("/attention"),
             "Claude notifications without a recognized notification_type remain no-op; registration at {registration}; trace:\n{trace}"
         );
@@ -1050,6 +1054,8 @@ mod tests {
         assert!(script.contains("session_id"));
         assert!(script.contains("/sessions/$sessionId/harness-session"));
         assert!(script.contains("claude_hook"));
+        assert!(script.contains("Test-SafeHookString $data.session_id"));
+        assert!(script.contains("$sessionReport[\"cwd\"] = $reportedCwd"));
     }
 
     #[test]
@@ -1060,9 +1066,7 @@ mod tests {
         assert!(script.contains("codex_hook"));
         assert!(script.contains("sessionStartSource"));
         assert!(script.contains("sessionStartEvent"));
-        assert!(script.contains(
-            "if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id)"
-        ));
+        assert!(script.contains("(Test-SafeHookString $data.session_id)"));
         assert!(!script.contains("codexProcessId"));
         assert!(!script.contains("Find-CodexProcessId"));
         assert!(script.contains("$Event -eq \"SessionStart\" -and $data"));

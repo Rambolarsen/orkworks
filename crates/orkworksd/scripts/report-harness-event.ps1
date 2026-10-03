@@ -91,6 +91,14 @@ function Get-ExactJsonPropertyValue {
     }
     return $null
 }
+function Test-SafeHookString {
+    param($Value)
+    if ($Value -isnot [string]) { return $false }
+    foreach ($character in $Value.ToCharArray()) {
+        if ([char]::IsControl($character)) { return $false }
+    }
+    return $true
+}
 $attentionPostKind = "not_applicable"
 $harnessSessionPostKind = "skipped_no_harness_session_id"
 $nativeRegistrationAccepted = $false
@@ -104,10 +112,10 @@ if ($Marker -clike "*:claude-code") {
         # payload, which is truthy for 2+ elements and stringifies to a
         # non-empty, space-joined garbage value instead of failing safely.
         if ($data -is [System.Management.Automation.PSCustomObject]) {
-            if ($data.session_id -is [string]) {
+            if (Test-SafeHookString $data.session_id) {
                 $harnessSessionId = $data.session_id.Trim()
             }
-            if ($data.cwd) {
+            if ((Test-SafeHookString $data.cwd) -and $data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()
             }
             if ($Event -eq "SessionStart" -and $data.source -ceq "clear") {
@@ -132,7 +140,7 @@ if ($Marker -clike "*:claude-code") {
     }
     try {
         $data = $payload | ConvertFrom-Json
-        if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id) {
+        if ($data -is [System.Management.Automation.PSCustomObject] -and (Test-SafeHookString $data.session_id) -and $data.session_id) {
             $harnessSessionId = ([string]$data.session_id).Trim()
         }
         if ($data -is [System.Management.Automation.PSCustomObject] -and $Event -in @("PreToolUse", "PermissionRequest", "PostToolUse")) {
@@ -193,10 +201,10 @@ if ($Marker -clike "*:claude-code") {
     try {
         $data = $payload | ConvertFrom-Json
         if ($data -is [System.Management.Automation.PSCustomObject]) {
-            if ($data.sessionId -is [string]) {
+            if (Test-SafeHookString $data.sessionId) {
                 $harnessSessionId = $data.sessionId.Trim()
             }
-            if ($data.cwd) {
+            if ((Test-SafeHookString $data.cwd) -and $data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()
             }
             if ($Event -eq "sessionStart" -and $data.source -ceq "new") {
@@ -259,6 +267,9 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
         }
         if ($sessionSource -in @("claude_hook", "copilot_hook")) {
             $sessionReport["promptHookGeneration"] = $env:ORKWORKS_PROMPT_HOOK_GENERATION
+            if ($reportedCwd) {
+                $sessionReport["cwd"] = $reportedCwd
+            }
         }
         if ($sessionStartSource) {
             $sessionReport["sessionStartSource"] = $sessionStartSource

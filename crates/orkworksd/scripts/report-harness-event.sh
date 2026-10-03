@@ -270,11 +270,12 @@ if [ "$codex_capture_only" != "yes" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ 
   { [ "$session_source" = "codex_hook" ] || { [ -n "${ORKWORKS_REPORT_TOKEN:-}" ] && [ -n "${ORKWORKS_PROMPT_HOOK_GENERATION:-}" ]; }; }; then
   escaped_session_id=$(printf '%s' "$harness_session_id" | sed 's/[\\"]/\\&/g')
   if [ "$session_source" = "claude_hook" ] || [ "$session_source" = "copilot_hook" ]; then
-    session_payload="$(python3 -c 'import json,sys; data={"harnessSessionId":sys.argv[1],"source":sys.argv[2],"confidence":0.98,"promptHookGeneration":sys.argv[3]}; event,source,observed_at=sys.argv[4:];
+    session_payload="$(python3 -c 'import json,sys; data={"harnessSessionId":sys.argv[1],"source":sys.argv[2],"confidence":0.98,"promptHookGeneration":sys.argv[3]}; event,source,observed_at,cwd=sys.argv[4:];
 if event and source:
  data["sessionStartEvent"]=event; data["sessionStartSource"]=source
  if source == "new": data["sessionStartObservedAt"]=observed_at
-print(json.dumps(data,separators=(",",":")))' "$harness_session_id" "$session_source" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$session_start_event" "$session_start_source" "$session_start_observed_at")"
+if cwd: data["cwd"]=cwd
+print(json.dumps(data,separators=(",",":")))' "$harness_session_id" "$session_source" "$ORKWORKS_PROMPT_HOOK_GENERATION" "$session_start_event" "$session_start_source" "$session_start_observed_at" "$reported_cwd")"
   elif [ "$session_source" = "codex_hook" ] && [ -n "$hook_fingerprint" ]; then
     escaped_fingerprint=$(printf '%s' "$hook_fingerprint" | sed 's/[\\"]/\\&/g')
     session_payload=$(printf '{"harnessSessionId":"%s","source":"%s","confidence":0.98,"hookFingerprint":"%s"}' "$escaped_session_id" "$session_source" "$escaped_fingerprint")
