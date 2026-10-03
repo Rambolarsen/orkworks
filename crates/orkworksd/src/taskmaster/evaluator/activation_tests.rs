@@ -425,3 +425,161 @@ fn custom_evaluation_recovers_after_reapproval_or_reenable() {
         assert_eq!(fixture.recommendations().len(), 1);
     }
 }
+
+fn run_native_knowledge_evaluation(
+    manual: bool,
+    page_count: usize,
+    citation: &str,
+) -> (
+    Fixture,
+    crate::taskmaster::runtime::TaskmasterRunOutcome,
+    serde_json::Value,
+) {
+    use crate::taskmaster::runtime::{KnowledgeBundle, KnowledgePage};
+    use sha2::Digest;
+
+    let mut fixture = Fixture::new("success");
+    let runtime = TaskmasterRuntime::open(fixture.root.clone());
+    let mut settings = TaskmasterSettings::default();
+    settings.enabled = !manual;
+    settings.selection = Some(
+        serde_json::from_value(json!({
+            "provider":"codex", "model":"gpt-6-luna"
+        }))
+        .unwrap(),
+    );
+    runtime.replace_settings(settings).unwrap();
+    let mut pages = (0..page_count - 1)
+        .map(|index| KnowledgePage {
+            id: format!("a-{index}.md"),
+            title: "Orchards".into(),
+            page_type: "concept".into(),
+            status: "established".into(),
+            content: "Orchards".into(),
+            sha256: hex::encode(sha2::Sha256::digest(b"Orchards")),
+            related_ids: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    pages.push(KnowledgePage {
+        id: "z-verification.md".into(),
+        title: "Verification".into(),
+        page_type: "practice".into(),
+        status: "established".into(),
+        content: "Document verification commands.".into(),
+        sha256: hex::encode(sha2::Sha256::digest(b"Document verification commands.")),
+        related_ids: Vec::new(),
+    });
+    runtime
+        .activate_knowledge(KnowledgeBundle {
+            format_version: 1,
+            version: "fixture".into(),
+            sequence: 1,
+            published_at: "2026-10-03T00:00:00Z".into(),
+            pages,
+        })
+        .unwrap();
+    let result = json!({"proposals":[{
+        "targetSurface":"documentation", "title":"Document verification",
+        "summary":"Experimental improvement",
+        "repositoryFactHashes":[hex::encode(sha2::Sha256::digest(b"Document verification commands."))],
+        "knowledgePageIds":[citation]
+    }]}).to_string();
+    let output = [
+        json!({"type":"thread.started", "thread_id":"fixture"}),
+        json!({"type":"turn.started"}),
+        json!({"type":"item.completed", "item":{"type":"agent_message", "text":result}}),
+        json!({"type":"turn.completed", "usage":{}}),
+    ]
+    .into_iter()
+    .map(|event| event.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+    let invocations = Arc::new(std::sync::Mutex::new(Vec::new()));
+    Arc::get_mut(&mut fixture.state).unwrap().providers =
+        crate::providers::ProviderManager::for_tests(
+            crate::providers::ProviderSettingsPayload::default(),
+            vec![crate::providers::FakeProvider::new("codex")
+                .version("codex-cli 0.160.0")
+                .stdout(&output)
+                .with_invocations(invocations.clone())],
+        );
+    let workspace_path = fixture.dir.path().to_path_buf();
+    let trigger = if manual {
+        TaskmasterRunTrigger::Manual
+    } else {
+        TaskmasterRunTrigger::Background
+    };
+    let lease = runtime.try_analysis_lease().unwrap().unwrap();
+    let id = runtime
+        .queue_run(&workspace_path, trigger, "codex", "gpt-6-luna")
+        .unwrap();
+    run_model_evaluation_at_with_workspace(
+        fixture.state.clone(),
+        fixture.root.clone(),
+        manual.then(|| workspace_path.clone()),
+        Some(lease),
+        Some(ScheduledRun {
+            id,
+            workspace_path: workspace_path.clone(),
+            root: fixture.root.clone(),
+        }),
+    );
+    let outcome = runtime
+        .run_status(Some(&workspace_path))
+        .unwrap()
+        .latest_outcome
+        .unwrap();
+    let calls = invocations.lock().unwrap();
+    let prompt = calls
+        .iter()
+        .find(|(args, _)| args.first().is_some_and(|arg| arg == "exec"))
+        .unwrap_or_else(|| panic!("native inference never dispatched: {outcome:?}"));
+    let prompt = serde_json::from_str(&prompt.1).unwrap();
+    (fixture, outcome, prompt)
+}
+
+#[test]
+fn native_analysis_dispatches_with_ranked_and_truncated_knowledge() {
+    for manual in [false, true] {
+        for page_count in [2, 9] {
+            let (fixture, outcome, prompt) =
+                run_native_knowledge_evaluation(manual, page_count, "z-verification.md");
+            assert_eq!(
+                outcome.state,
+                crate::taskmaster::runtime::TaskmasterRunOutcomeState::Succeeded,
+                "manual={manual}, pages={page_count}: {outcome:?}"
+            );
+            let pages = prompt["knowledgePages"].as_array().unwrap();
+            assert_eq!(pages.len(), page_count.min(8));
+            assert_eq!(pages[0]["id"], "z-verification.md");
+            let recommendations = fixture.recommendations();
+            assert_eq!(recommendations.len(), 1);
+            assert_eq!(
+                recommendations[0].knowledge_evidence[0].page_id,
+                "z-verification.md"
+            );
+            assert_eq!(fixture.remaining(), if manual { 8 } else { 7 });
+        }
+    }
+}
+
+#[test]
+fn native_analysis_rejects_citations_to_knowledge_omitted_from_prompt() {
+    for manual in [false, true] {
+        let (fixture, outcome, prompt) = run_native_knowledge_evaluation(manual, 9, "a-7.md");
+        assert_eq!(
+            outcome.state,
+            crate::taskmaster::runtime::TaskmasterRunOutcomeState::Failed
+        );
+        assert_eq!(
+            outcome.error_summary.as_deref(),
+            Some("Taskmaster provider cited unsupplied knowledge")
+        );
+        assert!(!prompt["knowledgePages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|page| page["id"] == "a-7.md"));
+        assert!(fixture.recommendations().is_empty());
+    }
+}
