@@ -2363,6 +2363,24 @@ impl SessionApplication {
         self.commit_prompt_identity_reset_with_retry(id, true);
     }
 
+    pub(crate) fn commit_prompt_identity_reset_after_input(&self, id: &str) {
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
+        if let Some(input_sequence) = self
+            .state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|handle| handle.runtime.committed_input_sequence)
+        {
+            crate::runtime::prompt_authority::registry()
+                .note_reset_submission_input_sequence(id, input_sequence);
+        }
+        self.commit_prompt_identity_reset_under_transition_with_retry(id, true);
+    }
+
     fn commit_prompt_identity_reset_with_retry(&self, id: &str, schedule_retry: bool) {
         let _transition = crate::runtime::prompt_authority::transition_lock()
             .lock()
@@ -2466,7 +2484,7 @@ impl SessionApplication {
             return;
         };
         if let Some(queued) = commit.queued_prompt_wait {
-            if self.apply_queued_prompt_wait(id, &queued) {
+            if self.apply_queued_prompt_wait(id, &queued, commit.reset_submission_input_sequence) {
                 crate::runtime::prompt_authority::registry()
                     .finish_queued_prompt_wait(id, queued.receipt_sequence);
             } else if schedule_retry {
@@ -2535,6 +2553,7 @@ impl SessionApplication {
         &self,
         id: &str,
         queued: &crate::runtime::prompt_authority::QueuedPromptWait,
+        reset_submission_input_sequence: Option<u64>,
     ) -> bool {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
@@ -2563,7 +2582,10 @@ impl SessionApplication {
         }) else {
             return false;
         };
-        if queued.superseded_by_committed_input(handle.runtime.committed_input_sequence) {
+        if queued.superseded_by_committed_input(
+            handle.runtime.committed_input_sequence,
+            reset_submission_input_sequence,
+        ) {
             return true;
         }
         let authority = crate::runtime::prompt_authority::registry();
@@ -4097,6 +4119,9 @@ impl SessionApplication {
             cwd,
         ) {
             return Err(SessionError::Accepted);
+        }
+        if authority.identity_reset_pending(id) {
+            return Err(SessionError::EmptyBadRequest);
         }
         if native_id != Some(native_session_id)
             || !authority.native_id_matches(id, harness_id, generation, native_session_id)
@@ -14292,6 +14317,137 @@ mod tests {
         assert!(!authority.identity_reset_pending(id));
         assert!(authority.is_active(id));
         authority.remove(id);
+    }
+
+    #[test]
+    fn stale_copilot_prompt_does_not_fall_through_while_a_queued_wait_is_pending() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "copilot-stale-queued-wait";
+        let generation = "stale-queued-wait-generation";
+        let token = "stale-queued-wait-token";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Copilot prompt reset",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "copilot".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.metadata_source = "agent".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("replacement-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("copilot".into());
+        handle.info.harness_id = Some("copilot".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.metadata_source = Some("agent".into());
+        handle.info.resume = metadata.resume.clone();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
+
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(id, "copilot", generation, Some("old-native"));
+        assert!(authority.reserve_reset(id, "copilot", "/new"));
+        let reset_at = chrono::Utc::now() + chrono::Duration::seconds(1);
+        assert_eq!(
+            authority.register_native_id(
+                id,
+                "copilot",
+                generation,
+                "replacement-native",
+                true,
+                Some(reset_at),
+            ),
+            crate::runtime::prompt_authority::BindResult::Held
+        );
+        let newer_prompt_at = reset_at + chrono::Duration::seconds(2);
+        assert!(authority.queue_prompt_wait(
+            id,
+            "copilot",
+            generation,
+            "replacement-native",
+            "elicitation_dialog",
+            Some(newer_prompt_at),
+            1,
+            0,
+            None,
+        ));
+        assert!(authority.acknowledge_reset(id).is_some());
+        assert!(authority.complete_reset(id).is_some());
+
+        // A failed queued wait write leaves the already-committed replacement
+        // identity and reset reservation in place while storage recovers.
+        let sessions_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .merge_prompt_authority_wait(id),
+            metadata::AttentionMergeResult::PersistFailed
+        );
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+
+        let result = SessionApplication::new(state.clone()).report_prompt_attention(
+            id,
+            "copilot_hook",
+            Some("notification"),
+            Some("permission_prompt"),
+            "replacement-native",
+            "waiting_for_input",
+            Some(generation),
+            Some(
+                (newer_prompt_at - chrono::Duration::seconds(1))
+                    .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+                    .as_str(),
+            ),
+            None,
+            Some(token),
+        );
+        assert_eq!(result, Err(SessionError::EmptyBadRequest));
+        assert!(!authority.is_active(id));
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert!(saved.observed_status.is_none());
+        assert!(saved.attention.is_none());
+        authority.remove(id);
+        crate::runtime::terminal_runtime::clear_workflow_report_token(id);
     }
 
     #[test]

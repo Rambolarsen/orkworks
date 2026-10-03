@@ -403,7 +403,7 @@ fn record_input_after_delivery(
             record_peon_input_side_effects(state, id, input, *is_sensitive, *output_boundary);
             if *identity_reset_prepared {
                 crate::session_application::SessionApplication::new(state.clone())
-                    .commit_prompt_identity_reset(id);
+                    .commit_prompt_identity_reset_after_input(id);
             }
         } else if *identity_reset_prepared {
             let application = crate::session_application::SessionApplication::new(state.clone());
@@ -886,10 +886,11 @@ fn mark_committed_input_working(
     let accepted_at = chrono::Utc::now();
     if committed_input {
         // The PTY accepted this input before this function was called. Advance
-        // the in-memory ordering fence even if the attention metadata write
-        // below fails, so a queued pre-input prompt cannot be replayed later.
+        // both in-memory ordering fences before metadata I/O, so a queued or
+        // timestamped pre-input prompt cannot be replayed if persistence fails.
         handle.runtime.committed_input_sequence =
             handle.runtime.committed_input_sequence.saturating_add(1);
+        handle.runtime.committed_input_at = Some(accepted_at);
     }
     if !commit_working || already_working {
         handle.runtime.input_generation = next_generation;
@@ -2493,6 +2494,10 @@ mod tests {
 
         record_terminal_input(&state, id, "respond to the prompt\r");
 
+        assert!(state.sessions.lock().unwrap()[id]
+            .runtime
+            .committed_input_at
+            .is_some());
         assert_eq!(
             state.sessions.lock().unwrap()[id]
                 .runtime
@@ -4601,6 +4606,96 @@ mod tests {
         assert_eq!(queued.notification_type, "elicitation_dialog");
         assert_eq!(queued.receipt_sequence, 2);
         assert_eq!(queued.cwd.as_deref(), Some("/cwd/equal-later"));
+    }
+
+    #[tokio::test]
+    async fn accepted_reset_delivery_does_not_supersede_its_queued_prompt() {
+        let id = "reset-delivery-queued-prompt";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "copilot");
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut metadata = store.read_session(id).unwrap();
+            metadata.harness = "copilot".into();
+            metadata.metadata_source = "peon".into();
+            metadata.resume = Some(crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::Exact,
+                harness_session_id: Some("before-reset".into()),
+                latest_fallback: false,
+                last_seen_at: Some("before".into()),
+            });
+            store.write_session(&metadata);
+        }
+        let resume = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume;
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.info.harness_id = Some("copilot".into());
+            handle.info.harness = Some("copilot".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.resume = resume;
+        }
+        let generation = "reset-delivery-generation";
+        crate::runtime::prompt_authority::registry().issue_with_native_id(
+            id,
+            "copilot",
+            generation,
+            Some("before-reset"),
+        );
+        let pending = capture_pending_terminal_input(&state, id, "/new\r".into());
+        assert!(pending.3);
+        let event_at = chrono::Utc::now() + chrono::Duration::seconds(2);
+        assert_eq!(
+            crate::runtime::prompt_authority::registry().register_native_id(
+                id,
+                "copilot",
+                generation,
+                "after-reset",
+                true,
+                Some(event_at),
+            ),
+            crate::runtime::prompt_authority::BindResult::Held
+        );
+        assert!(
+            crate::runtime::prompt_authority::registry().queue_prompt_wait(
+                id,
+                "copilot",
+                generation,
+                "after-reset",
+                "permission_prompt",
+                Some(event_at + chrono::Duration::seconds(1)),
+                1,
+                0,
+                None,
+            )
+        );
+
+        record_input_after_delivery(&state, id, Some(&pending), &Ok(()));
+
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
+        crate::runtime::prompt_authority::registry().remove(id);
     }
 
     #[test]

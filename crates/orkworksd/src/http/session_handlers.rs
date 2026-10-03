@@ -2242,7 +2242,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn copilot_prompt_queued_before_reset_ack_survives_reset_input_timestamp() {
+    async fn copilot_prompt_queued_before_reset_ack_survives_reset_input_sequence() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = format!("copilot-reset-queued-{}", uuid::Uuid::new_v4().simple());

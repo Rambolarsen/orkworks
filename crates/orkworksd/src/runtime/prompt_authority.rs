@@ -15,6 +15,7 @@ struct ResetReservation {
     epoch_committed: bool,
     candidate_native_session_id: Option<String>,
     retired_native_session_id: Option<String>,
+    reset_submission_input_sequence: Option<u64>,
     superseded: Option<Box<ResetReservation>>,
     created_at: chrono::DateTime<chrono::Utc>,
     queued_prompt_wait: Option<QueuedPromptWait>,
@@ -30,8 +31,20 @@ pub(crate) struct QueuedPromptWait {
 }
 
 impl QueuedPromptWait {
-    pub(crate) fn superseded_by_committed_input(&self, current_sequence: u64) -> bool {
-        current_sequence != self.committed_input_sequence
+    pub(crate) fn superseded_by_committed_input(
+        &self,
+        current_sequence: u64,
+        reset_submission_input_sequence: Option<u64>,
+    ) -> bool {
+        if current_sequence == self.committed_input_sequence {
+            return false;
+        }
+        let reset_input_only_advance =
+            reset_submission_input_sequence.is_some_and(|reset_sequence| {
+                reset_sequence == current_sequence
+                    && self.committed_input_sequence.checked_add(1) == Some(reset_sequence)
+            });
+        !reset_input_only_advance
     }
 }
 
@@ -39,6 +52,7 @@ impl QueuedPromptWait {
 pub(crate) struct ResetCommit {
     pub(crate) native_session_id: Option<String>,
     pub(crate) queued_prompt_wait: Option<QueuedPromptWait>,
+    pub(crate) reset_submission_input_sequence: Option<u64>,
 }
 
 #[derive(Default)]
@@ -272,11 +286,13 @@ impl PromptAuthorityRegistry {
         if !reset.acknowledged {
             return None;
         }
+        let reset_submission_input_sequence = reset.reset_submission_input_sequence;
         if reset.candidate_native_session_id.is_none() {
             if reset.epoch_committed {
                 return Some(ResetCommit {
                     native_session_id: None,
                     queued_prompt_wait: None,
+                    reset_submission_input_sequence,
                 });
             }
             reset.epoch_committed = true;
@@ -286,6 +302,7 @@ impl PromptAuthorityRegistry {
             return Some(ResetCommit {
                 native_session_id: None,
                 queued_prompt_wait: None,
+                reset_submission_input_sequence,
             });
         }
         let candidate = reset.candidate_native_session_id.clone()?;
@@ -302,7 +319,24 @@ impl PromptAuthorityRegistry {
         Some(ResetCommit {
             native_session_id: Some(candidate),
             queued_prompt_wait,
+            reset_submission_input_sequence,
         })
+    }
+
+    pub(crate) fn note_reset_submission_input_sequence(
+        &self,
+        session_id: &str,
+        input_sequence: u64,
+    ) {
+        if let Some(reset) = self
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .and_then(|entry| entry.reset.as_mut())
+        {
+            reset.reset_submission_input_sequence = Some(input_sequence);
+        }
     }
 
     pub(crate) fn reset_acknowledged(&self, session_id: &str) -> bool {
@@ -786,7 +820,9 @@ mod tests {
             committed_input_sequence: 4,
             cwd: None,
         };
-        assert!(!queued.superseded_by_committed_input(4));
-        assert!(queued.superseded_by_committed_input(5));
+        assert!(!queued.superseded_by_committed_input(4, None));
+        assert!(queued.superseded_by_committed_input(5, None));
+        assert!(!queued.superseded_by_committed_input(5, Some(5)));
+        assert!(queued.superseded_by_committed_input(6, Some(5)));
     }
 }
