@@ -110,3 +110,13 @@ test("desktop dev command rebuilds the Rust sidecar before launching", async () 
   assert.match(packageJson.scripts.dev, /build:rust/);
   assert.match(packageJson.scripts.dev, /build:rust.*tsc/);
 });
+
+test("macOS dev launches its branded executable without the pnpm wrapper", () => {
+  const executable = "/tmp/OrkWorks.app/Contents/MacOS/Electron";
+  const config = electronSpawnConfig("/tmp/orkworks/apps/desktop", "http://localhost:5273/", executable);
+  assert.equal(config.command, executable);
+  assert.deepEqual(config.args, ["."]);
+  assert.equal(config.options.cwd, "/tmp/orkworks/apps/desktop");
+  assert.equal(config.options.env.VITE_DEV_SERVER_URL, "http://localhost:5273/");
+  assert.equal(config.options.shell, false);
+});
