@@ -1,6 +1,6 @@
 # Alternate-buffer wheel input survives xterm dampening
 
-- Status: accepted
+- Status: superseded by [ADR 0074](0074-accumulate-alternate-buffer-trackpad-input.md)
 - Deciders: OrkWorks team
 - Date: 2026-09-29
 

@@ -2,6 +2,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalPtySize } from "./terminalSize";
+import { installTerminalWheelHandler } from "./terminalWheel";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
 import { writeTerminalReplay, recordedReplaySize } from "./terminalReplay";
@@ -65,6 +66,8 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     overviewRuler: { width: 8 },
     linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
   });
+
+  installTerminalWheelHandler(term);
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
