@@ -2679,6 +2679,11 @@ impl SessionApplication {
             recommendation_store,
             lease: Some(workspace_lease),
         });
+        self.state
+            .git_context_cache
+            .lock()
+            .expect("Git context cache lock poisoned")
+            .clear();
         self.state.bump_harness_probe_generation();
 
         if let Some(workspace) = workspace.as_ref() {

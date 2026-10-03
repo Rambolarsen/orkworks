@@ -1763,6 +1763,7 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: Mutex::new(HashMap::new()),
             projection_lock: Mutex::new(()),
+            git_context_cache: Default::default(),
             session_pids: Mutex::new(HashMap::new()),
             workspace: Mutex::new(None),
             peon: crate::PeonState {

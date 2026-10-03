@@ -5693,6 +5693,7 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
@@ -6183,6 +6184,7 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -6273,6 +6275,7 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -6374,6 +6377,7 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -6455,6 +6459,7 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(None),
             peon: crate::PeonState {
@@ -7086,6 +7091,7 @@ mod tests {
         let state = Arc::new(crate::AppState {
             sessions: std::sync::Mutex::new(std::collections::HashMap::new()),
             projection_lock: std::sync::Mutex::new(()),
+            git_context_cache: Default::default(),
             session_pids: std::sync::Mutex::new(std::collections::HashMap::new()),
             workspace: std::sync::Mutex::new(Some(WorkspaceState {
                 path: dir.path().to_path_buf(),
