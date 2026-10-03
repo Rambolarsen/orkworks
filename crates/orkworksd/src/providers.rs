@@ -4193,7 +4193,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn process_runner_times_out_with_zero_budget() {
-        let result = ProcessRunner.run("test", "true", &[], "", 0, None);
+        let result = ProcessRunner.run("test", "sleep", &["30".to_string()], "", 0, None);
 
         assert!(!result.success);
         assert_eq!(result.stderr, "timed out");
