@@ -4316,14 +4316,17 @@ impl SessionApplication {
                 "Too many coding tools were selected.",
             ));
         }
-        let _transition = crate::runtime::prompt_authority::transition_lock()
-            .lock()
-            .unwrap();
         let _projection = self
             .state
             .projection_lock
             .lock()
             .expect("projection lock poisoned");
+        // Terminal-input effect callbacks hold `projection_lock` while they
+        // update prompt authority. Keep this order consistent so harness
+        // selection cannot hold the transition lock while waiting for input.
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
         let existing = workspace
@@ -5033,13 +5036,14 @@ fn prepare_prompt_authority_generation(
         crate::runtime::prompt_authority::registry().remove(session_id);
         return Ok(());
     };
-    let _transition = crate::runtime::prompt_authority::transition_lock()
-        .lock()
-        .unwrap();
     let _projection = state
         .projection_lock
         .lock()
         .expect("projection lock poisoned");
+    // Match terminal-input callbacks' projection-then-transition ordering.
+    let _transition = crate::runtime::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
     if !crate::http::integration_handlers::prompt_attention_launch_ready(
         state, harness_id, executable,
     ) {
