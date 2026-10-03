@@ -16,7 +16,7 @@ source = Path(sys.argv[1]).read_text()
 if source.count(guard) != 2:
     raise SystemExit("PowerShell reporter must reject DateTime-parsed string timestamps in both lifecycle and notification events")
 for field, expected in (("session_id", 2), ("sessionId", 1)):
-    if source.count(f"$data.{field} -is [string]") != expected:
+    if source.count(f"Test-SafeHookString $data.{field}") != expected:
         raise SystemExit(f"PowerShell reporter must accept {field} only as a string")
 PY
 
