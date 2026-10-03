@@ -274,23 +274,19 @@ async fn run_integration_action(
                 reporter_assets: &reporter_assets,
             };
 
-            match action(harness, &ctx) {
-                Ok(status) => {
-                    let prompt_ready =
-                        harness
-                            .definition
-                            .integration
-                            .as_ref()
-                            .is_some_and(|binding| {
-                                crate::harness::integration::prompt_attention_hook_ready(
-                                    binding, &ctx,
-                                )
-                            });
-                    if matches!(harness_id, "claude-code" | "copilot") && !prompt_ready {
-                        revoke_prompt_authority = true;
-                    }
-                    Json(status).into_response()
-                }
+            let result = action(harness, &ctx);
+            let prompt_ready = harness
+                .definition
+                .integration
+                .as_ref()
+                .is_some_and(|binding| {
+                    crate::harness::integration::prompt_attention_hook_ready(binding, &ctx)
+                });
+            if matches!(harness_id, "claude-code" | "copilot") && !prompt_ready {
+                revoke_prompt_authority = true;
+            }
+            match result {
+                Ok(status) => Json(status).into_response(),
                 Err(error) => integration_error_response(error),
             }
         },
@@ -301,8 +297,19 @@ async fn run_integration_action(
         Err(response) => response,
     };
     if revoke_prompt_authority {
-        crate::session_application::SessionApplication::new(state.clone())
-            .revoke_prompt_authority_for_harness(harness_id);
+        if crate::session_application::SessionApplication::new(state.clone())
+            .revoke_prompt_authority_for_harness(harness_id)
+            .is_err()
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "integration changed, but prompt authority could not be safely revoked"
+                        .into(),
+                }),
+            )
+                .into_response();
+        }
     }
     response
 }
@@ -601,7 +608,20 @@ async fn run_integration_key_action(
     if !revoke_harnesses.is_empty() {
         let application = crate::session_application::SessionApplication::new(state.clone());
         for harness_id in revoke_harnesses {
-            application.revoke_prompt_authority_for_harness(&harness_id);
+            if application
+                .revoke_prompt_authority_for_harness(&harness_id)
+                .is_err()
+            {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error:
+                            "integration changed, but prompt authority could not be safely revoked"
+                                .into(),
+                    }),
+                )
+                    .into_response();
+            }
         }
     }
     response
@@ -838,7 +858,19 @@ pub(crate) async fn get_workspace_integrations(
         revoke_harnesses.sort();
         revoke_harnesses.dedup();
         for harness_id in revoke_harnesses {
-            application.revoke_prompt_authority_for_harness(&harness_id);
+            if application
+                .revoke_prompt_authority_for_harness(&harness_id)
+                .is_err()
+            {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "integration status changed, but prompt authority could not be safely revoked"
+                            .into(),
+                    }),
+                )
+                    .into_response();
+            }
         }
     }
     Json(result).into_response()

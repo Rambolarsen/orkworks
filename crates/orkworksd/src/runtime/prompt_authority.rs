@@ -12,6 +12,7 @@ pub(crate) enum BindResult {
 #[derive(Default)]
 struct ResetReservation {
     acknowledged: bool,
+    epoch_committed: bool,
     candidate_native_session_id: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
     queued_prompt_wait: Option<QueuedPromptWait>,
@@ -26,7 +27,7 @@ pub(crate) struct QueuedPromptWait {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResetCommit {
-    pub(crate) native_session_id: String,
+    pub(crate) native_session_id: Option<String>,
     pub(crate) queued_prompt_wait: Option<QueuedPromptWait>,
 }
 
@@ -120,6 +121,29 @@ impl PromptAuthorityRegistry {
             return BindResult::Rejected;
         }
         match entry.native_session_id.as_deref() {
+            None if entry.reset.as_ref().is_some_and(|reset| reset.acknowledged) => {
+                if !lifecycle_reset
+                    || (entry.harness_id == "copilot"
+                        && observed_at.is_none_or(|timestamp| {
+                            entry
+                                .reset
+                                .as_ref()
+                                .is_some_and(|reset| timestamp <= reset.created_at)
+                        }))
+                {
+                    return BindResult::Rejected;
+                }
+                let Some(reset) = entry.reset.as_mut() else {
+                    unreachable!();
+                };
+                match reset.candidate_native_session_id.as_deref() {
+                    Some(candidate) if candidate != native_session_id => BindResult::Rejected,
+                    _ => {
+                        reset.candidate_native_session_id = Some(native_session_id.to_string());
+                        BindResult::Held
+                    }
+                }
+            }
             None => {
                 entry.native_session_id = Some(native_session_id.to_string());
                 BindResult::Bound
@@ -193,12 +217,15 @@ impl PromptAuthorityRegistry {
         true
     }
 
-    pub(crate) fn acknowledge_reset(&self, session_id: &str) -> Option<String> {
+    pub(crate) fn acknowledge_reset(&self, session_id: &str) -> Option<Option<String>> {
         let mut sessions = self.sessions.lock().unwrap();
         let entry = sessions.get_mut(session_id)?;
+        if entry.revoked {
+            return None;
+        }
         let reset = entry.reset.as_mut()?;
         reset.acknowledged = true;
-        reset.candidate_native_session_id.clone()
+        Some(reset.candidate_native_session_id.clone())
     }
 
     pub(crate) fn complete_reset(&self, session_id: &str) -> Option<ResetCommit> {
@@ -208,14 +235,29 @@ impl PromptAuthorityRegistry {
         if !reset.acknowledged {
             return None;
         }
+        if reset.candidate_native_session_id.is_none() {
+            if reset.epoch_committed {
+                return None;
+            }
+            reset.epoch_committed = true;
+            entry.epoch = entry.epoch.saturating_add(1);
+            entry.native_session_id = None;
+            entry.active = false;
+            return Some(ResetCommit {
+                native_session_id: None,
+                queued_prompt_wait: None,
+            });
+        }
         let candidate = reset.candidate_native_session_id.take()?;
         let queued_prompt_wait = reset.queued_prompt_wait.take();
         entry.native_session_id = Some(candidate.clone());
-        entry.epoch = entry.epoch.saturating_add(1);
+        if !reset.epoch_committed {
+            entry.epoch = entry.epoch.saturating_add(1);
+        }
         entry.reset = None;
         entry.active = false;
         Some(ResetCommit {
-            native_session_id: candidate,
+            native_session_id: Some(candidate),
             queued_prompt_wait,
         })
     }
@@ -343,6 +385,7 @@ impl PromptAuthorityRegistry {
             if entry.generation == generation {
                 entry.revoked = true;
                 entry.active = false;
+                entry.reset = None;
             }
         }
     }
@@ -373,4 +416,66 @@ impl PromptAuthorityRegistry {
 pub(crate) fn registry() -> &'static PromptAuthorityRegistry {
     static REGISTRY: std::sync::OnceLock<PromptAuthorityRegistry> = std::sync::OnceLock::new();
     REGISTRY.get_or_init(PromptAuthorityRegistry::default)
+}
+
+pub(crate) fn transition_lock() -> &'static Mutex<()> {
+    static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BindResult, PromptAuthorityRegistry};
+
+    #[test]
+    fn acknowledged_reset_without_candidate_commits_and_accepts_late_lifecycle_id() {
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id("session", "claude-code", "generation", Some("old"));
+        assert!(registry.reserve_reset("session", "claude-code", "/clear"));
+
+        assert!(registry.acknowledge_reset("session").is_some());
+        assert!(registry.complete_reset("session").is_some());
+        assert_eq!(registry.epoch("session"), Some(1));
+
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "new", true, None,),
+            BindResult::Held,
+            "the acknowledged reset must retain a slot for its matching lifecycle report"
+        );
+        assert!(registry.acknowledged_candidate_matches(
+            "session",
+            "claude-code",
+            "generation",
+            "new"
+        ));
+        assert!(registry.complete_reset("session").is_some());
+        assert_eq!(registry.epoch("session"), Some(1));
+        assert!(registry.native_id_matches("session", "claude-code", "generation", "new"));
+    }
+
+    #[test]
+    fn revocation_invalidates_acknowledged_and_in_flight_reset_candidates() {
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id("session", "claude-code", "generation", Some("old"));
+        assert!(registry.reserve_reset("session", "claude-code", "/clear"));
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "new", true, None,),
+            BindResult::Held
+        );
+
+        registry.revoke("session", "generation");
+
+        assert!(registry.acknowledge_reset("session").is_none());
+        assert!(registry.complete_reset("session").is_none());
+        assert!(!registry.acknowledged_candidate_matches(
+            "session",
+            "claude-code",
+            "generation",
+            "new"
+        ));
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "new", true, None,),
+            BindResult::Rejected
+        );
+    }
 }

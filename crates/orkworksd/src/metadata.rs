@@ -1813,6 +1813,23 @@ impl MetadataStore {
         AttentionMergeResult::Accepted
     }
 
+    pub fn retire_prompt_authority_native_id(&self, id: &str) -> AttentionMergeResult {
+        let Some(mut meta) = self.read_session(id) else {
+            return AttentionMergeResult::NotFound;
+        };
+        let Some(resume) = meta.resume.as_mut() else {
+            return AttentionMergeResult::Ignored;
+        };
+        if resume.harness_session_id.is_none() {
+            return AttentionMergeResult::Ignored;
+        }
+        resume.harness_session_id = None;
+        if self.try_write_session(&meta).is_err() {
+            return AttentionMergeResult::PersistFailed;
+        }
+        AttentionMergeResult::Accepted
+    }
+
     /// A harness clear is authoritative until it next reports a path. This
     /// prevents terminal-output fallback from immediately restoring it.
     pub fn plan_path_is_explicitly_cleared(&self, id: &str) -> bool {

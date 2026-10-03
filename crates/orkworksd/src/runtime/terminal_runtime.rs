@@ -4441,11 +4441,14 @@ mod tests {
             "native-before",
         ));
         assert_eq!(
-            registry.acknowledge_reset("prompt-reset").as_deref(),
+            registry
+                .acknowledge_reset("prompt-reset")
+                .expect("reset acknowledged")
+                .as_deref(),
             Some("native-after")
         );
         let commit = registry.complete_reset("prompt-reset").unwrap();
-        assert_eq!(commit.native_session_id, "native-after");
+        assert_eq!(commit.native_session_id.as_deref(), Some("native-after"));
         assert_eq!(
             commit.queued_prompt_wait.map(|wait| wait.notification_type),
             Some("permission_prompt".into())
@@ -4521,11 +4524,14 @@ mod tests {
             Some("/cwd/stale"),
         ));
         assert_eq!(
-            registry.acknowledge_reset("copilot-reset").as_deref(),
+            registry
+                .acknowledge_reset("copilot-reset")
+                .expect("reset acknowledged")
+                .as_deref(),
             Some("native-after")
         );
         let commit = registry.complete_reset("copilot-reset").unwrap();
-        assert_eq!(commit.native_session_id, "native-after");
+        assert_eq!(commit.native_session_id.as_deref(), Some("native-after"));
         let queued = commit.queued_prompt_wait.unwrap();
         assert_eq!(queued.observed_at, Some(latest_prompt));
         assert_eq!(queued.cwd.as_deref(), Some("/cwd/latest"));
