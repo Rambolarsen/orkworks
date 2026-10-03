@@ -102,7 +102,8 @@ The session Details Git row shows current uncommitted changes as, for example,
 `3 files · +124 −37`. Compare the working tree against `HEAD`, accounting for
 staged and unstaged changes together without double counting, and include
 non-ignored untracked files. Before the first commit, use an empty-tree
-baseline. Binary files count as changed files but contribute no line totals.
+baseline. Detect renames before counting lines so pure renames contribute no
+line changes. Binary files count as changed files but contribute no line totals.
 Clean repositories show zero line totals; unavailable statistics are omitted,
 never substituted with zero. Refresh through the existing session Git-context
 projection and reuse the diff for sessions sharing a worktree. These totals

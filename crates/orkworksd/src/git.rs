@@ -81,7 +81,10 @@ fn uncommitted_line_changes(repo: &git2::Repository) -> Result<LineChanges, git2
     opts.include_untracked(true)
         .recurse_untracked_dirs(true)
         .show_untracked_content(true);
-    let diff = repo.diff_tree_to_workdir_with_index(tree.as_ref(), Some(&mut opts))?;
+    let mut diff = repo.diff_tree_to_workdir_with_index(tree.as_ref(), Some(&mut opts))?;
+    let mut find = git2::DiffFindOptions::new();
+    find.renames(true).for_untracked(true);
+    diff.find_similar(Some(&mut find))?;
     let stats = diff.stats()?;
     Ok(LineChanges {
         additions: stats.insertions(),
@@ -230,6 +233,34 @@ mod tests {
             projected_git(tmp.path())["lineChanges"],
             serde_json::json!({"additions": 0, "deletions": 0})
         );
+    }
+
+    #[test]
+    fn uncommitted_lines_count_only_content_edits_for_staged_and_unstaged_renames() {
+        for staged in [false, true] {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path();
+            init_repo(dir);
+            let original = "one\ntwo\nthree\nfour\nfive\nsix\n";
+            std::fs::write(dir.join("old.txt"), original).unwrap();
+            git(dir, &["add", "."]);
+            git(dir, &["commit", "-qm", "baseline"]);
+            std::fs::rename(dir.join("old.txt"), dir.join("new.txt")).unwrap();
+            if staged {
+                git(dir, &["add", "-A"]);
+            }
+            assert_eq!(
+                projected_git(dir)["lineChanges"],
+                serde_json::json!({"additions": 0, "deletions": 0}),
+                "pure rename (staged={staged})"
+            );
+            std::fs::write(dir.join("new.txt"), format!("{original}seven\n")).unwrap();
+            assert_eq!(
+                projected_git(dir)["lineChanges"],
+                serde_json::json!({"additions": 1, "deletions": 0}),
+                "rename with content edit (staged={staged})"
+            );
+        }
     }
 
     #[test]

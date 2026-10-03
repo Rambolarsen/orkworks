@@ -43,6 +43,6 @@ Files: `apps/desktop/src/api.ts`, `src/components/SessionDetailPanel.tsx`, `test
 
 - [x] Run Cargo tests, format check, Clippy, desktop build/tests, documentation checks, and `git diff --check`.
 - [x] Request an independent diff-scoped code review with an explicit effort level; address findings with evidence.
-- [ ] Update #723 with approved scope and verification, check active Taskmaster recommendations for an exact match, and open one PR closing #723.
+- [x] Update #723 with approved scope and verification, check active Taskmaster recommendations for an exact match, and open one PR closing #723 (PR #726).
 - [ ] Inventory all PR comments, reviews, and checks; handle actionable feedback and merge only after required checks and review pass under the repository maintainer policy.
 - [ ] Run the guarded `scripts/finish-pr.sh` cleanup for the concrete merged PR and report fleet worktree flags without touching other owners' work.

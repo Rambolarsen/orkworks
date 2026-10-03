@@ -41,3 +41,9 @@ test("Details preserves file count when line statistics are unavailable", () => 
   assert.match(html, /3 files/);
   assert.doesNotMatch(html, /\+0|−0/);
 });
+
+test("Details uses a neutral label when a repository branch cannot be resolved", () => {
+  const html = render({ branch: undefined, repoRoot: "/repo", lineChanges: undefined });
+  assert.match(html, /Git repository/);
+  assert.doesNotMatch(html, /No commits yet/);
+});

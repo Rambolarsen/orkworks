@@ -406,7 +406,7 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
           <div className="detail-fact-git">
             <span className="git-branch-chip">
               <GitBranch size={11} />
-              {active.branch || "No commits yet"}
+              {active.branch || "Git repository"}
             </span>
             {active.isWorktree && <span className="git-worktree-tag">worktree</span>}
             <span className="git-state" data-state={active.dirty ? "dirty" : "clean"}>

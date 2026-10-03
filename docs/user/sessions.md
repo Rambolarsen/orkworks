@@ -32,7 +32,8 @@ branches, manage worktrees, and merge changes.
 In current source builds, the Details Git row shows live uncommitted changes,
 for example **3 files · +124 −37**: changed files, added lines, and removed
 lines. It includes staged edits, unstaged edits, and non-ignored new files.
-Binary files count toward files but contribute no lines. Sessions sharing a
+Pure renames contribute no line changes. Binary files count toward files but
+contribute no lines. Sessions sharing a
 worktree show the same totals; the counter does not identify which agent made
 each edit. Committing or undoing changes updates the counter on the next
 session refresh. Line totals are omitted when they cannot be read.
