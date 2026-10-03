@@ -1251,6 +1251,46 @@ impl SessionApplication {
         timestamp: &str,
         attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
     ) -> PeonInferencePersistenceResult {
+        let pending_clear = self
+            .state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .is_some_and(|handle| handle.runtime.prompt_tuple_clear_pending);
+        let result = self.persist_peon_observation_inner_locked(
+            session_id,
+            inference,
+            provider_observation,
+            history_summary,
+            timestamp,
+            attempt,
+        );
+        let clear_retried = pending_clear
+            && !self
+                .state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(session_id)
+                .is_some_and(|handle| handle.runtime.prompt_tuple_clear_pending);
+        if clear_retried
+            && crate::runtime::prompt_authority::registry().identity_reset_pending(session_id)
+        {
+            self.commit_prompt_identity_reset(session_id);
+        }
+        result
+    }
+
+    fn persist_peon_observation_inner_locked(
+        &self,
+        session_id: &str,
+        inference: Option<&peon::PeonInference>,
+        provider_observation: Option<&crate::providers::ProviderObservation>,
+        history_summary: Option<&str>,
+        timestamp: &str,
+        attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
+    ) -> PeonInferencePersistenceResult {
         let label_epochs = self.state.peon.label_epochs.read().unwrap();
         let captured_label_epoch = label_epochs.get(session_id).copied().unwrap_or(0);
         let workspace_guard = self.state.workspace.lock().unwrap();
@@ -2189,6 +2229,12 @@ impl SessionApplication {
     /// sessions locks are held in that order; the live projection happens
     /// only after persistence succeeds.
     pub(crate) fn apply_idle_timeout(&self, id: &str) {
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
+        if crate::runtime::prompt_authority::registry().is_active(id) {
+            return;
+        }
         let ws_guard = self.state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
             return;
@@ -2343,18 +2389,7 @@ impl SessionApplication {
             _ => return,
         };
         if let Some(native_session_id) = candidate.as_deref() {
-            let _ = self.report_harness_session_with_codex_context(
-                id,
-                metadata::HarnessSessionReport {
-                    harness_session_id: native_session_id.to_string(),
-                    source: source.into(),
-                    confidence: 0.98,
-                },
-                Some(lifecycle_source),
-                Some(event),
-                true,
-            );
-            let persisted_candidate = self
+            let mut persisted_candidate = self
                 .state
                 .workspace
                 .lock()
@@ -2364,6 +2399,29 @@ impl SessionApplication {
                 .and_then(|metadata| metadata.resume)
                 .and_then(|resume| resume.harness_session_id)
                 .is_some_and(|persisted_id| persisted_id == native_session_id);
+            if !persisted_candidate {
+                let _ = self.report_harness_session_with_codex_context(
+                    id,
+                    metadata::HarnessSessionReport {
+                        harness_session_id: native_session_id.to_string(),
+                        source: source.into(),
+                        confidence: 0.98,
+                    },
+                    Some(lifecycle_source),
+                    Some(event),
+                    true,
+                );
+                persisted_candidate = self
+                    .state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(|workspace| workspace.metadata.read_session(id))
+                    .and_then(|metadata| metadata.resume)
+                    .and_then(|resume| resume.harness_session_id)
+                    .is_some_and(|persisted_id| persisted_id == native_session_id);
+            }
             if !persisted_candidate {
                 return;
             }
@@ -2391,13 +2449,26 @@ impl SessionApplication {
             }
         }
         if self.clear_prompt_authority_tuple(id).is_err() {
+            crate::runtime::prompt_authority::registry().deactivate_for_reset(id);
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                handle.runtime.prompt_tuple_clear_pending = true;
+                handle.info.observed_status = None;
+                handle.info.attention = None;
+                handle.info.needs_user_input = None;
+                handle.info.detected_question = None;
+                handle.info.suggested_options = None;
+                handle.runtime.active_prompt_kind = None;
+            }
             return;
         }
         let Some(commit) = crate::runtime::prompt_authority::registry().complete_reset(id) else {
             return;
         };
         if let Some(queued) = commit.queued_prompt_wait {
-            self.apply_queued_prompt_wait(id, &queued);
+            if self.apply_queued_prompt_wait(id, &queued) {
+                crate::runtime::prompt_authority::registry()
+                    .finish_queued_prompt_wait(id, queued.receipt_sequence);
+            }
         }
     }
 
@@ -2405,43 +2476,46 @@ impl SessionApplication {
         &self,
         id: &str,
         queued: &crate::runtime::prompt_authority::QueuedPromptWait,
-    ) {
+    ) -> bool {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
-            return;
+            return false;
         };
         let Some(metadata) = workspace.metadata.read_session(id) else {
-            return;
+            return false;
         };
         let harness_id = metadata.harness;
         let Some((_, generation)) =
             crate::runtime::prompt_authority::registry().generation_for_launch(id)
         else {
-            return;
+            return false;
         };
         let Some(native_id) = metadata
             .resume
             .as_ref()
             .and_then(|resume| resume.harness_session_id.as_deref())
         else {
-            return;
+            return false;
         };
         let preserve_user_tuple = metadata.metadata_source == "user";
         let mut sessions = self.state.sessions.lock().unwrap();
         let Some(handle) = sessions.get_mut(id).filter(|handle| {
             handle.info.lifecycle == "alive" && handle.info.lifecycle_phase == "active"
         }) else {
-            return;
+            return false;
         };
         let authority = crate::runtime::prompt_authority::registry();
-        if !authority.native_id_matches(id, &harness_id, &generation, native_id)
-            || !matches!(
-                workspace.metadata.merge_prompt_authority_wait(id),
-                metadata::AttentionMergeResult::Accepted
-            )
-            || !authority.activate(id, &harness_id, &generation, native_id)
-        {
-            return;
+        if !authority.native_id_matches(id, &harness_id, &generation, native_id) {
+            return false;
+        }
+        match workspace.metadata.merge_prompt_authority_wait(id) {
+            metadata::AttentionMergeResult::Accepted => {}
+            metadata::AttentionMergeResult::Ignored => return true,
+            metadata::AttentionMergeResult::NotFound
+            | metadata::AttentionMergeResult::PersistFailed => return false,
+        }
+        if !authority.activate(id, &harness_id, &generation, native_id) {
+            return false;
         }
         if !preserve_user_tuple {
             handle.info.observed_status = Some("waiting_for_input".into());
@@ -2465,6 +2539,7 @@ impl SessionApplication {
                 .unwrap()
                 .insert(id.to_string(), cwd.to_string());
         }
+        true
     }
 
     pub(crate) fn cancel_prompt_identity_reset(&self, id: &str) {
@@ -3853,21 +3928,12 @@ impl SessionApplication {
         let metadata = workspace
             .metadata
             .read_session(id)
-            .filter(|metadata| {
-                metadata.harness == harness_id
-                    && metadata.lifecycle == "alive"
-                    && metadata
-                        .resume
-                        .as_ref()
-                        .and_then(|resume| resume.harness_session_id.as_deref())
-                        .is_some()
-            })
+            .filter(|metadata| metadata.harness == harness_id && metadata.lifecycle == "alive")
             .ok_or(SessionError::EmptyBadRequest)?;
         let native_id = metadata
             .resume
             .as_ref()
-            .and_then(|resume| resume.harness_session_id.as_deref())
-            .ok_or(SessionError::EmptyBadRequest)?;
+            .and_then(|resume| resume.harness_session_id.as_deref());
         let preserve_user_tuple = metadata.metadata_source == "user";
         let mut sessions = self.state.sessions.lock().unwrap();
         let handle = sessions
@@ -3917,7 +3983,7 @@ impl SessionApplication {
         ) {
             return Err(SessionError::Accepted);
         }
-        if native_id != native_session_id
+        if native_id != Some(native_session_id)
             || !authority.native_id_matches(id, harness_id, generation, native_session_id)
         {
             return Err(SessionError::EmptyBadRequest);
@@ -4826,6 +4892,13 @@ fn prepare_prompt_authority_generation(
         crate::runtime::prompt_authority::registry().remove(session_id);
         return Ok(());
     };
+    let _transition = crate::runtime::prompt_authority::transition_lock()
+        .lock()
+        .unwrap();
+    let _projection = state
+        .projection_lock
+        .lock()
+        .expect("projection lock poisoned");
     if !crate::http::integration_handlers::prompt_attention_launch_ready(
         state, harness_id, executable,
     ) {
@@ -6584,6 +6657,69 @@ mod tests {
                 .as_deref(),
             Some("idle")
         );
+    }
+
+    #[test]
+    fn apply_idle_timeout_preserves_active_prompt_authority_working_state() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "idle-timeout-active-prompt-authority";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Active prompt authority",
+            &root.path().display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        metadata.harness = "claude-code".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.observed_status = Some("working".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.observed_status = Some("working".into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(
+            id,
+            "claude-code",
+            "idle-authority-generation",
+            Some("native"),
+        );
+        assert!(authority.activate(id, "claude-code", "idle-authority-generation", "native"));
+
+        SessionApplication::new(state.clone()).apply_idle_timeout(id);
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.observed_status.as_deref(), Some("working"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("working")
+        );
+        authority.remove(id);
     }
 
     #[test]
@@ -13543,6 +13679,138 @@ mod tests {
                 .runtime
                 .prompt_tuple_clear_pending
         );
+        authority.remove(id);
+    }
+
+    #[test]
+    fn failed_prompt_reset_clear_deactivates_and_retries_queued_wait() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "prompt-reset-clear-write-fails";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Claude prompt reset",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "claude-code".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.metadata_source = "claude_hook".into();
+        metadata.observed_status = Some("working".into());
+        metadata.attention = Some("working".into());
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("replacement-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.metadata_source = Some("claude_hook".into());
+        handle.info.observed_status = Some("working".into());
+        handle.info.attention = Some("working".into());
+        handle.info.resume = metadata.resume.clone();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(
+            id,
+            "claude-code",
+            "reset-failure-generation",
+            Some("old-native"),
+        );
+        assert!(authority.activate(id, "claude-code", "reset-failure-generation", "old-native"));
+        assert!(authority.reserve_reset(id, "claude-code", "/clear"));
+        assert_eq!(
+            authority.register_native_id(
+                id,
+                "claude-code",
+                "reset-failure-generation",
+                "replacement-native",
+                true,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Held
+        );
+        assert!(authority.queue_prompt_wait(
+            id,
+            "claude-code",
+            "reset-failure-generation",
+            "replacement-native",
+            "permission_prompt",
+            None,
+            1,
+            None,
+        ));
+
+        let sessions_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        let application = SessionApplication::new(state.clone());
+        assert!(authority.acknowledge_reset(id).is_some());
+        application.commit_prompt_identity_reset(id);
+
+        assert!(
+            !authority.is_active(id),
+            "failed persistence must demote immediately"
+        );
+        assert!(authority.identity_reset_pending(id));
+        {
+            let sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get(id).unwrap();
+            assert!(handle.runtime.prompt_tuple_clear_pending);
+            assert!(handle.info.attention.is_none());
+        }
+
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        application.persist_peon_observation(id, None, None, None, "later");
+
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
+        assert!(!authority.identity_reset_pending(id));
+        assert!(authority.is_active(id));
+        let sessions = state.sessions.lock().unwrap();
+        assert!(!sessions.get(id).unwrap().runtime.prompt_tuple_clear_pending);
+        assert_eq!(
+            sessions
+                .get(id)
+                .unwrap()
+                .runtime
+                .active_prompt_kind
+                .as_ref(),
+            Some(&crate::runtime::session_runtime::RuntimePromptKind::Permission)
+        );
+        drop(sessions);
         authority.remove(id);
     }
 

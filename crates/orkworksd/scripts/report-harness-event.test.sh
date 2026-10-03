@@ -15,6 +15,9 @@ guard = "$data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and
 source = Path(sys.argv[1]).read_text()
 if source.count(guard) != 2:
     raise SystemExit("PowerShell reporter must reject DateTime-parsed string timestamps in both lifecycle and notification events")
+for field, expected in (("session_id", 2), ("sessionId", 1)):
+    if source.count(f"$data.{field} -is [string]") != expected:
+        raise SystemExit(f"PowerShell reporter must accept {field} only as a string")
 PY
 
 mkdir -p "$temp_dir/bin" "$temp_dir/home"
@@ -305,6 +308,14 @@ printf '%s' '{"session_id":"claude-session-secret","notification_type":"permissi
 printf '%s' '{"sessionId":"copilot-session-secret","notification_type":"permission_prompt","timestamp":"2026-09-01T12:00:00Z"}' |
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
 printf '%s' '{"sessionId":"copilot-session-secret","notification_type":"permission_prompt","timestamp":1788264000000}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
+printf '%s' '{"session_id":123,"source":"clear"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart claude-code
+printf '%s' '{"session_id":123,"notification_type":"permission_prompt"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter Notification claude-code
+printf '%s' '{"sessionId":123,"source":"new","timestamp":1788264000000}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
+printf '%s' '{"sessionId":123,"notification_type":"permission_prompt","timestamp":1788264000000}' |
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
 python3 - "$request_bodies_file" <<'PY'
 import json

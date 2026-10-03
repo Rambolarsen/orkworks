@@ -104,8 +104,8 @@ if ($Marker -clike "*:claude-code") {
         # payload, which is truthy for 2+ elements and stringifies to a
         # non-empty, space-joined garbage value instead of failing safely.
         if ($data -is [System.Management.Automation.PSCustomObject]) {
-            if ($data.session_id) {
-                $harnessSessionId = ([string]$data.session_id).Trim()
+            if ($data.session_id -is [string]) {
+                $harnessSessionId = $data.session_id.Trim()
             }
             if ($data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()
@@ -193,8 +193,8 @@ if ($Marker -clike "*:claude-code") {
     try {
         $data = $payload | ConvertFrom-Json
         if ($data -is [System.Management.Automation.PSCustomObject]) {
-            if ($data.sessionId) {
-                $harnessSessionId = ([string]$data.sessionId).Trim()
+            if ($data.sessionId -is [string]) {
+                $harnessSessionId = $data.sessionId.Trim()
             }
             if ($data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()

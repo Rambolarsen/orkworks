@@ -825,6 +825,7 @@ pub(crate) async fn get_workspace_integrations(
     };
     let mut result = Vec::with_capacity(groups.len());
     let mut revoke_harnesses = Vec::new();
+    let mut revalidation_error = None;
     for group in groups {
         let key = group.key.clone();
         let mut prompt_ready = false;
@@ -843,7 +844,10 @@ pub(crate) async fn get_workspace_integrations(
             .await
             {
                 Ok(result) => result,
-                Err(response) => return response,
+                Err(response) => {
+                    revalidation_error = Some(response);
+                    break;
+                }
             };
         let status = action_result
             .unwrap_or_else(|error| grouped_integration_error_status(&group, &error, "retry"));
@@ -882,6 +886,9 @@ pub(crate) async fn get_workspace_integrations(
                     .into_response();
             }
         }
+    }
+    if let Some(response) = revalidation_error {
+        return response;
     }
     Json(result).into_response()
 }
