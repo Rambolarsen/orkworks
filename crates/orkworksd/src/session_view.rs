@@ -333,6 +333,7 @@ pub(crate) fn project_session_info(
         branch: meta.and_then(|m| m.branch.clone()).or(info.branch),
         dirty: meta.and_then(|m| m.dirty).or(info.dirty),
         changed_files: meta.and_then(|m| m.changed_files).or(info.changed_files),
+        line_changes: info.line_changes,
         is_worktree: meta.and_then(|m| m.is_worktree).or(info.is_worktree),
         conflict_warning: info.conflict_warning,
         recommendation: info.recommendation,
@@ -485,6 +486,7 @@ mod tests {
             branch: None,
             dirty: None,
             changed_files: None,
+            line_changes: None,
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,
@@ -1131,6 +1133,7 @@ mod tests {
             branch: branch.map(Into::into),
             dirty,
             changed_files: 3,
+            line_changes: None,
             is_worktree,
         }
     }

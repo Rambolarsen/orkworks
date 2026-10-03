@@ -121,6 +121,8 @@ pub(crate) struct SessionInfo {
     pub(crate) dirty: Option<bool>,
     #[serde(rename = "changedFiles")]
     pub(crate) changed_files: Option<usize>,
+    #[serde(rename = "lineChanges", skip_serializing_if = "Option::is_none")]
+    pub(crate) line_changes: Option<crate::git::LineChanges>,
     #[serde(rename = "isWorktree")]
     pub(crate) is_worktree: Option<bool>,
     #[serde(rename = "conflictWarning")]
@@ -208,6 +210,7 @@ impl SessionInfo {
             branch: None,
             dirty: None,
             changed_files: None,
+            line_changes: None,
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,
@@ -296,6 +299,7 @@ mod tests {
             branch: None,
             dirty: None,
             changed_files: None,
+            line_changes: None,
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,

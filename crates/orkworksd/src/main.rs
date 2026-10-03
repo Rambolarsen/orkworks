@@ -739,6 +739,7 @@ pub(crate) mod test_support {
             branch: None,
             dirty: None,
             changed_files: None,
+            line_changes: None,
             is_worktree: None,
             conflict_warning: None,
             recommendation: None,
