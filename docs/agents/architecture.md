@@ -538,6 +538,15 @@ Single binary. Top-level modules:
 
 For the current Rust domain model itself, see [domain-entities.md](domain-entities.md).
 
+PTY input runs as one sequential blocking-pool write at a time, while the
+session driver continues draining output and observing the independent stop
+channel. Input and resize remain ordered in the bounded queue. Stopping rejects
+queued input and signals in-flight cancellation; the native writer retains its
+acknowledgement until it actually returns, because async cancellation cannot
+abort a blocking OS write. Taskmaster delivery finalization retains its
+reservation even if the HTTP request is canceled and checks the original
+workspace instance before updating its store. See [ADR 0075](../adr/0075-responsive-pty-input-delivery.md).
+
 The shared provider process runner owns a Windows Job object per invocation
 (`providers/windows_process.rs`). It assigns the suspended child before resuming
 execution, preventing descendants from escaping timeout cleanup. Termination

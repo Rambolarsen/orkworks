@@ -907,7 +907,7 @@ impl SessionApplication {
         prompt_override: Option<String>,
         packet_mutation: Option<CompletionMutationRequest>,
     ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
-        let (prompt, title, _delivery_guard) = {
+        let (prompt, title, delivery_guard, workspace_instance) = {
             let workspace_guard = self.state.workspace.lock().unwrap();
             let workspace = workspace_guard
                 .as_ref()
@@ -963,27 +963,68 @@ impl SessionApplication {
             };
             let delivery_guard =
                 RecommendationDeliveryGuard::new(&workspace.path, &recommendation.id);
-            (prompt, recommendation.title.clone(), delivery_guard)
+            (
+                prompt,
+                recommendation.title.clone(),
+                delivery_guard,
+                workspace.workflow_observations.instance_id(),
+            )
         };
 
+        // HTTP cancellation only stops waiting for the result; it must not
+        // drop the reservation while the writer can still deliver the input.
+        let application = Self::new(self.state.clone());
+        let id = id.to_string();
+        let session_id = session_id.to_string();
+        tokio::spawn(async move {
+            application
+                .deliver_recommendation_input(
+                    id,
+                    session_id,
+                    prompt,
+                    title,
+                    delivery_guard,
+                    workspace_instance,
+                )
+                .await
+        })
+        .await
+        .map_err(|_| RecommendationAcceptError::Conflict)?
+    }
+
+    async fn deliver_recommendation_input(
+        self,
+        id: String,
+        session_id: String,
+        prompt: String,
+        title: String,
+        delivery_guard: RecommendationDeliveryGuard,
+        workspace_instance: u64,
+    ) -> Result<Option<crate::taskmaster::Recommendation>, RecommendationAcceptError> {
+        let _delivery_guard = delivery_guard;
         let delivery = crate::runtime::terminal_runtime::submit_approved_input(
             &self.state,
-            session_id,
+            &session_id,
             prompt,
         )
         .await;
 
-        // The lock acquisitions below finalize a reservation already made
-        // above; if the workspace vanished in between (e.g. a mid-request
-        // workspace switch — rare, and an accepted limitation elsewhere in
-        // this call chain too), the recommendation is left `Executing`
-        // rather than corrupted, and `dismiss` accepts `Executing` as a
-        // manual escape hatch for that case.
+        // A replaced workspace owns another store. Leave the old reservation
+        // for recovery rather than finalizing it against a new instance.
         if delivery.is_err() {
-            if let Some(workspace) = self.state.workspace.lock().unwrap().as_ref() {
+            if let Some(workspace) =
+                self.state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .filter(|workspace| {
+                        workspace.workflow_observations.instance_id() == workspace_instance
+                    })
+            {
                 let _ = workspace
                     .recommendation_store
-                    .cancel_execution(id, chrono::Utc::now().to_rfc3339());
+                    .cancel_execution(&id, chrono::Utc::now().to_rfc3339());
             }
             return Err(RecommendationAcceptError::Conflict);
         }
@@ -991,9 +1032,10 @@ impl SessionApplication {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard
             .as_ref()
+            .filter(|workspace| workspace.workflow_observations.instance_id() == workspace_instance)
             .ok_or(RecommendationAcceptError::Conflict)?;
         workspace.metadata.append_event(
-            session_id,
+            &session_id,
             &metadata::Event {
                 event_type: "taskmaster_fix_requested".into(),
                 timestamp: iso_now(),
@@ -1007,7 +1049,7 @@ impl SessionApplication {
         );
         workspace
             .recommendation_store
-            .complete_execution(id, chrono::Utc::now().to_rfc3339())
+            .complete_execution(&id, chrono::Utc::now().to_rfc3339())
             .map_err(RecommendationAcceptError::Store)
     }
 
@@ -10456,6 +10498,290 @@ mod tests {
             .unwrap()
             .metadata
             .write_session(&metadata);
+    }
+
+    #[cfg(unix)]
+    async fn start_pty_delivery_fixture(
+        state: &Arc<AppState>,
+        root: &std::path::Path,
+        id: &str,
+        body: &str,
+    ) -> tokio::sync::broadcast::Receiver<crate::runtime::session_runtime::RuntimeEvent> {
+        use crate::runtime::session_runtime::{start_session_runtime, SessionRuntime};
+        write_alive_session(state, root, id);
+        let mut handle = attention_test_handle(id, root);
+        handle.info.harness = Some("shell".into());
+        handle.info.harness_id = Some("shell".into());
+        let (runtime, control_rx) = SessionRuntime::live(24, 80);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        handle.runtime = runtime;
+        handle.kill_tx = kill_tx;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        // SIGALRM terminates even a child blocked writing output, so the red
+        // test cannot leave an uninterruptible driver hanging the test suite.
+        let script = format!(
+            "import os, signal, tty, time\n\
+             signal.alarm(8)\n\
+             tty.setraw(0)\n\
+             os.write(1, b'pty-ready\\n')\n{body}"
+        );
+        start_session_runtime(
+            state.clone(),
+            id.into(),
+            harness::CommandSpec {
+                program: "/usr/bin/python3".into(),
+                args: vec!["-u".into(), "-c".into(), script],
+                cwd: root.display().to_string(),
+            },
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            portable_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+        wait_for_pty_delivery_output(&mut events, "pty-ready").await;
+        events
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_pty_delivery_output(
+        events: &mut tokio::sync::broadcast::Receiver<
+            crate::runtime::session_runtime::RuntimeEvent,
+        >,
+        marker: &str,
+    ) {
+        use crate::runtime::session_runtime::RuntimeEvent;
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Output { chunk, .. })
+                        if String::from_utf8_lossy(&chunk).contains(marker) =>
+                    {
+                        break
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("PTY output ended before {marker}: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("PTY output must progress while input is backpressured");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pty_delivery_drains_output_while_writing_large_input() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "pty-pressure";
+        let mut events = start_pty_delivery_fixture(
+            &state,
+            root.path(),
+            id,
+            "os.read(0, 1)\n\
+             data = b'z' * (1024 * 1024)\n\
+             while data:\n    data = data[os.write(1, data):]\n\
+             remaining = 256 * 1024\n\
+             while remaining:\n    remaining -= len(os.read(0, min(remaining, 4096)))\n\
+             os.write(1, b'pressure-delivered\\n')\ntime.sleep(6)\n",
+        )
+        .await;
+        let input_state = state.clone();
+        let request = tokio::spawn(async move {
+            crate::runtime::session_runtime::send_runtime_input(
+                &input_state,
+                id,
+                "x".repeat(256 * 1024 + 1),
+            )
+            .await
+        });
+        wait_for_pty_delivery_output(&mut events, "pressure-delivered").await;
+        assert!(request.await.unwrap().is_ok());
+        SessionApplication::new(state)
+            .delete_session(id)
+            .await
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pty_delivery_stop_releases_failed_handoff_for_one_explicit_retry() {
+        use crate::runtime::session_runtime::RuntimeEvent;
+        use std::time::Duration;
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let recommendation_id = proposed_recommendation_id(&state, "pty-stop");
+        let id = "pty-stalled";
+        let mut events =
+            start_pty_delivery_fixture(&state, root.path(), id, "time.sleep(6)\n").await;
+        let application = SessionApplication::new(state.clone());
+        let request_state = state.clone();
+        let request_id = recommendation_id.clone();
+        let mut request = tokio::spawn(async move {
+            SessionApplication::new(request_state)
+                .accept_recommendation_with_packet(
+                    &request_id,
+                    id,
+                    Some(format!("{}\r", "x".repeat(1024 * 1024))),
+                    None,
+                )
+                .await
+        });
+        // A frontend timeout leaves the actual delivery in flight.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut request)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            application
+                .get_recommendation(&recommendation_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            RecommendationStatus::Executing
+        );
+        assert!(matches!(
+            application
+                .accept_recommendation_with_packet(&recommendation_id, id, None, None,)
+                .await,
+            Err(RecommendationAcceptError::Conflict)
+        ));
+        application.delete_session(id).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if matches!(events.recv().await, Ok(RuntimeEvent::Ended { .. })) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("stop must be processed while the PTY writer is stalled");
+        assert!(tokio::time::timeout(Duration::from_secs(2), request)
+            .await
+            .expect("failed write must acknowledge after child termination")
+            .unwrap()
+            .is_err());
+        let restored = application
+            .get_recommendation(&recommendation_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.status, RecommendationStatus::Proposed);
+        assert!(restored.target_session_id.is_none());
+        let retry_id = "pty-retry";
+        let _retry_events = start_pty_delivery_fixture(
+            &state,
+            root.path(),
+            retry_id,
+            "line = b''\n\
+             while not line.endswith(b'\\r'):\n    line += os.read(0, 4096)\n\
+             time.sleep(6)\n",
+        )
+        .await;
+        let accepted = tokio::time::timeout(
+            Duration::from_secs(2),
+            application.accept_recommendation_with_packet(
+                &recommendation_id,
+                retry_id,
+                Some("Retry the approved fix.\r".into()),
+                None,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+        assert_eq!(accepted.status, RecommendationStatus::Accepted);
+        assert_eq!(accepted.target_session_id.as_deref(), Some(retry_id));
+        let ws = state.workspace.lock().unwrap();
+        let metadata = &ws.as_ref().unwrap().metadata;
+        assert!(!metadata
+            .read_events(id)
+            .iter()
+            .any(|e| e.event_type == "taskmaster_fix_requested"));
+        assert_eq!(
+            metadata
+                .read_events(retry_id)
+                .iter()
+                .filter(|e| e.event_type == "taskmaster_fix_requested")
+                .count(),
+            1
+        );
+        drop(ws);
+        application.delete_session(retry_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_http_cancellation_retains_reservation_until_acknowledgement() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "cancelled-handoff";
+        let recommendation_id = proposed_recommendation_id(&state, "cancelled-handoff");
+        write_alive_session(&state, root.path(), id);
+        let mut handle = attention_test_handle(id, root.path());
+        let (runtime, mut control_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        handle.runtime = runtime;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let request_state = state.clone();
+        let request_id = recommendation_id.clone();
+        let request = tokio::spawn(async move {
+            SessionApplication::new(request_state)
+                .accept_recommendation_with_packet(&request_id, id, None, None)
+                .await
+        });
+        let crate::runtime::session_runtime::RuntimeCommand::Input { accepted, .. } =
+            control_rx.recv().await.unwrap()
+        else {
+            panic!("expected input");
+        };
+        request.abort();
+        let _ = request.await;
+        let application = SessionApplication::new(state.clone());
+        // Even after runtime removal, uncertain delivery must not become
+        // dismissible/recoverable while the actual writer retains its input.
+        state.sessions.lock().unwrap().remove(id);
+        assert!(matches!(
+            application.dismiss_recommendation(&recommendation_id),
+            Err(RecommendationDismissError::Conflict)
+        ));
+        accepted.unwrap().send(Ok(())).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if application
+                    .get_recommendation(&recommendation_id)
+                    .unwrap()
+                    .unwrap()
+                    .status
+                    == RecommendationStatus::Accepted
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("delivery must finalize even after HTTP cancellation");
+        let ws = state.workspace.lock().unwrap();
+        assert_eq!(
+            ws.as_ref()
+                .unwrap()
+                .metadata
+                .read_events(id)
+                .iter()
+                .filter(|e| e.event_type == "taskmaster_fix_requested")
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
