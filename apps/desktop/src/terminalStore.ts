@@ -59,8 +59,9 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     theme: orkworksTerminalTheme,
     allowProposedApi: true,
     scrollback: 2000,
-    scrollSensitivity: 1,
-    fastScrollSensitivity: 10,
+    scrollSensitivity: 0.1,
+    // Preserve xterm's effective 10x Alt-scroll multiplier: 0.1 × 100.
+    fastScrollSensitivity: 100,
     overviewRuler: { width: 8 },
     linkHandler: terminalLinkHandler(window.orkworks.openExternalLink),
   });
