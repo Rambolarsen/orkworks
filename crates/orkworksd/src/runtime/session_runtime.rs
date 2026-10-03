@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, mpsc};
 
@@ -235,6 +235,66 @@ pub(crate) enum RuntimeCommand {
         cols: u16,
     },
     Kill,
+}
+
+// A blocking write owns its acknowledgement until the native operation has
+// returned. Dropping/aborting an async request cannot cancel that operation.
+struct PendingPtyWrite {
+    task: tokio::task::JoinHandle<Box<dyn Write + Send>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl PendingPtyWrite {
+    fn start(
+        mut writer: Box<dyn Write + Send>,
+        data: String,
+        accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+        stop_rx: tokio::sync::watch::Receiver<bool>,
+    ) -> Self {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let write_cancelled = cancelled.clone();
+        let task = tokio::task::spawn_blocking(move || {
+            let result = (|| {
+                let mut remaining = data.as_bytes();
+                while !remaining.is_empty() {
+                    // Admission reads the shared stop state on the blocking
+                    // worker; the async driver's last observation may be stale.
+                    // Release the watch read lock before entering native I/O.
+                    if *stop_rx.borrow() || write_cancelled.load(Ordering::Acquire) {
+                        return Err(());
+                    }
+                    match writer.write(remaining) {
+                        Ok(0) => return Err(()),
+                        Ok(n) => remaining = &remaining[n..],
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                        Err(_) => return Err(()),
+                    }
+                }
+                // portable-pty's native writers are unbuffered. Once the final
+                // write succeeds, the full prompt (including Enter) may already
+                // be executing. A later stop or flush error cannot make retry safe.
+                if let Err(error) = writer.flush() {
+                    tracing::warn!(%error, "PTY flush failed after all input bytes were written");
+                }
+                Ok(())
+            })();
+            if let Some(accepted) = accepted {
+                let _ = accepted.send(result);
+            }
+            writer
+        });
+        Self { task, cancelled }
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+}
+
+impl Drop for PendingPtyWrite {
+    fn drop(&mut self) {
+        self.cancel();
+    }
 }
 
 #[derive(Debug)]
@@ -590,11 +650,13 @@ pub(crate) async fn send_runtime_command(
 ) -> Result<(), ()> {
     let tx = {
         let sessions = state.sessions.lock().unwrap();
-        sessions
-            .get(id)
-            .map(|handle| handle.runtime.control_tx.clone())
-    }
-    .ok_or(())?;
+        let handle = sessions.get(id).ok_or(())?;
+        if matches!(command, RuntimeCommand::Kill) {
+            handle.kill_tx.send_replace(true);
+            return Ok(());
+        }
+        handle.runtime.control_tx.clone()
+    };
     tx.send(command).await.map_err(|_| ())
 }
 
@@ -610,6 +672,13 @@ pub(crate) async fn send_runtime_input(
             .map(|handle| handle.runtime.control_tx.clone())
     }
     .ok_or(())?;
+    send_runtime_input_to_sender(&tx, data).await
+}
+
+pub(crate) async fn send_runtime_input_to_sender(
+    tx: &mpsc::Sender<RuntimeCommand>,
+    data: String,
+) -> Result<(), ()> {
     let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
     tx.send(RuntimeCommand::Input {
         data,
@@ -1099,7 +1168,9 @@ pub(crate) async fn start_session_runtime(
         let report_token_for_driver = report_token.clone();
         let mut codex_report_interval =
             tokio::time::interval(std::time::Duration::from_millis(100));
-        let mut writer = writer;
+        let mut writer = Some(writer);
+        let mut pending_write: Option<PendingPtyWrite> = None;
+        let mut pending_commands = VecDeque::from(pending_commands);
         let mut persist_buffer: Vec<u8> = Vec::new();
         let mut pending_utf8: Vec<u8> = Vec::new();
         let mut pending_persist_batches: VecDeque<Vec<crate::metadata::TerminalOutputRecord>> =
@@ -1107,40 +1178,70 @@ pub(crate) async fn start_session_runtime(
         let mut kill_requested = false;
 
         if let Some(prompt) = initial_prompt {
-            let prompt_bytes = format!("{}\n", prompt).into_bytes();
-            if let Err(e) = writer.write_all(&prompt_bytes) {
-                tracing::warn!(session_id = %driver_id, error = %e, "failed to write initial prompt");
-            }
-        }
-
-        for command in pending_commands {
-            match command {
-                RuntimeCommand::Input { data, accepted } => {
-                    let result = writer
-                        .write_all(data.as_bytes())
-                        .and_then(|_| writer.flush())
-                        .map_err(|_| ());
-                    if let Some(accepted) = accepted {
-                        let _ = accepted.send(result);
-                    }
-                }
-                RuntimeCommand::Resize { rows, cols } => {
-                    let _ = master.lock().unwrap().resize(PtySize {
-                        rows,
-                        cols,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    });
-                }
-                RuntimeCommand::Kill => {
-                    kill_requested = true;
-                    let _ = driver_killer.lock().unwrap().kill();
-                }
-            }
+            pending_commands.push_front(RuntimeCommand::Input {
+                data: format!("{prompt}\n"),
+                accepted: None,
+            });
         }
 
         loop {
+            // Observe stop before dispatching another ordered command, even
+            // when write completion and the watch notification become ready
+            // together. No queued input may start after stopping is requested.
+            if !kill_requested && *kill_rx.borrow() {
+                kill_requested = true;
+                if let Some(write) = &pending_write {
+                    write.cancel();
+                }
+                let _ = driver_killer.lock().unwrap().kill();
+            }
+            if kill_requested {
+                pending_commands.clear();
+                control_rx.close();
+                while control_rx.try_recv().is_ok() {}
+                if let Some(write) = &pending_write {
+                    write.cancel();
+                }
+            } else if pending_write.is_none() {
+                if let Some(command) = pending_commands.pop_front() {
+                    match command {
+                        RuntimeCommand::Input { data, accepted } => {
+                            pending_write = Some(PendingPtyWrite::start(
+                                writer.take().expect("idle PTY writer must be available"),
+                                data,
+                                accepted,
+                                kill_rx.clone(),
+                            ));
+                        }
+                        RuntimeCommand::Resize { rows, cols } => {
+                            let _ = master.lock().unwrap().resize(PtySize {
+                                rows,
+                                cols,
+                                pixel_width: 0,
+                                pixel_height: 0,
+                            });
+                            continue;
+                        }
+                        RuntimeCommand::Kill => {
+                            kill_requested = true;
+                            let _ = driver_killer.lock().unwrap().kill();
+                            continue;
+                        }
+                    }
+                }
+            }
             tokio::select! {
+                result = async { (&mut pending_write.as_mut().expect("pending write").task).await }, if pending_write.is_some() => {
+                    pending_write = None;
+                    match result {
+                        Ok(returned_writer) => writer = Some(returned_writer),
+                        Err(error) => {
+                            tracing::warn!(session_id = %driver_id, %error, "PTY writer task failed");
+                            kill_requested = true;
+                            let _ = driver_killer.lock().unwrap().kill();
+                        }
+                    }
+                }
                 _ = codex_report_interval.tick(), if codex_hook_report_relay.is_some() => {
                     let owns_live_runtime = driver_state
                         .sessions
@@ -1176,6 +1277,7 @@ pub(crate) async fn start_session_runtime(
                     match kill_change {
                         Ok(()) if *kill_rx.borrow() => {
                             kill_requested = true;
+                            if let Some(write) = &pending_write { write.cancel(); }
                             let _ = driver_killer.lock().unwrap().kill();
                         }
                         Ok(()) => {}
@@ -1196,27 +1298,8 @@ pub(crate) async fn start_session_runtime(
                         }
                     }
                 }
-                Some(command) = control_rx.recv() => {
-                    match command {
-                        RuntimeCommand::Input { data, accepted } => {
-                            let result = writer.write_all(data.as_bytes()).and_then(|_| writer.flush()).map_err(|_| ());
-                            if let Some(accepted) = accepted {
-                                let _ = accepted.send(result);
-                            }
-                        }
-                        RuntimeCommand::Resize { rows, cols } => {
-                            let _ = master.lock().unwrap().resize(PtySize {
-                                rows,
-                                cols,
-                                pixel_width: 0,
-                                pixel_height: 0,
-                            });
-                        }
-                        RuntimeCommand::Kill => {
-                            kill_requested = true;
-                            let _ = driver_killer.lock().unwrap().kill();
-                        }
-                    }
+                Some(command) = control_rx.recv(), if pending_write.is_none() && pending_commands.is_empty() && !kill_requested => {
+                    pending_commands.push_back(command);
                 }
                 Some(event) = driver_rx.recv(), if pending_persist_batches.len() < DRIVER_EVENT_BUFFER_CAPACITY => {
                     match event {
@@ -1490,6 +1573,178 @@ mod tests {
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
+
+    struct GatedPtyWriter {
+        delivered: Arc<Mutex<Vec<u8>>>,
+        entered: Option<tokio::sync::oneshot::Sender<()>>,
+        released: std::sync::mpsc::Receiver<()>,
+        gate_on_flush: bool,
+        fail_flush: bool,
+        partial: bool,
+    }
+
+    impl GatedPtyWriter {
+        fn pause(&mut self) -> std::io::Result<()> {
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+                self.released
+                    .recv_timeout(Duration::from_secs(2))
+                    .map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, "writer gate timed out")
+                    })?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Write for GatedPtyWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let count = if self.partial { 1 } else { bytes.len() };
+            self.delivered
+                .lock()
+                .unwrap()
+                .extend_from_slice(&bytes[..count]);
+            if !self.gate_on_flush {
+                self.pause()?;
+            }
+            Ok(count)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.gate_on_flush {
+                self.pause()?;
+            }
+            if self.fail_flush {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "target exited",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_complete_prompt_cannot_become_retryable() {
+        for (gate_on_flush, fail_flush, cancel) in [
+            (false, false, true),
+            (true, false, true),
+            (true, true, false),
+        ] {
+            let delivered = Arc::new(Mutex::new(Vec::new()));
+            let (entered, entered_rx) = tokio::sync::oneshot::channel();
+            let (released, released_rx) = std::sync::mpsc::channel();
+            let (accepted, accepted_rx) = tokio::sync::oneshot::channel();
+            let mut write = PendingPtyWrite::start(
+                Box::new(GatedPtyWriter {
+                    delivered: delivered.clone(),
+                    entered: Some(entered),
+                    released: released_rx,
+                    gate_on_flush,
+                    fail_flush,
+                    partial: false,
+                }),
+                "work\r".into(),
+                Some(accepted),
+                tokio::sync::watch::channel(false).1,
+            );
+            tokio::time::timeout(Duration::from_secs(2), entered_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(*delivered.lock().unwrap(), b"work\r");
+            if cancel {
+                write.cancel();
+            }
+            released.send(()).unwrap();
+            let acknowledgement = tokio::time::timeout(Duration::from_secs(2), accepted_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            (&mut write.task).await.unwrap();
+            assert_eq!(
+                acknowledgement,
+                Ok(()),
+                "complete prompt must retain its reservation"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_cancellation_stops_incomplete_prompt() {
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let (entered, entered_rx) = tokio::sync::oneshot::channel();
+        let (released, released_rx) = std::sync::mpsc::channel();
+        let (accepted, accepted_rx) = tokio::sync::oneshot::channel();
+        let mut write = PendingPtyWrite::start(
+            Box::new(GatedPtyWriter {
+                delivered: delivered.clone(),
+                entered: Some(entered),
+                released: released_rx,
+                gate_on_flush: false,
+                fail_flush: false,
+                partial: true,
+            }),
+            "work\r".into(),
+            Some(accepted),
+            tokio::sync::watch::channel(false).1,
+        );
+        tokio::time::timeout(Duration::from_secs(2), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        write.cancel();
+        released.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), accepted_rx)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(())
+        );
+        (&mut write.task).await.unwrap();
+        assert_eq!(*delivered.lock().unwrap(), b"w");
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_stop_before_writer_dispatch_rejects_input() {
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        stop_tx.send_replace(true);
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let (_, released_rx) = std::sync::mpsc::channel();
+        let (accepted, accepted_rx) = tokio::sync::oneshot::channel();
+        let mut write = PendingPtyWrite::start(
+            Box::new(GatedPtyWriter {
+                delivered: delivered.clone(),
+                entered: None,
+                released: released_rx,
+                gate_on_flush: false,
+                fail_flush: false,
+                partial: false,
+            }),
+            "work\r".into(),
+            Some(accepted),
+            stop_rx,
+        );
+        assert_eq!(accepted_rx.await.unwrap(), Err(()));
+        (&mut write.task).await.unwrap();
+        assert!(delivered.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_stop_is_retained_before_startup_subscribes() {
+        let id = "stop-before-startup";
+        let state = test_state_with_runtime_session(id);
+        assert_eq!(
+            send_runtime_command(&state, id, RuntimeCommand::Kill).await,
+            Ok(())
+        );
+        assert!(*state.sessions.lock().unwrap()[id]
+            .kill_tx
+            .subscribe()
+            .borrow());
+    }
 
     #[test]
     fn decode_output_chunk_preserves_split_utf8_banner_glyph() {
