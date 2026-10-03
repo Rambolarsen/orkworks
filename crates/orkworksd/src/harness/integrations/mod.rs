@@ -1184,6 +1184,7 @@ mod tests {
                 .env("ORKWORKS_TEST_EVENT", event)
                 .env("ORKWORKS_SESSION_ID", "test-session")
                 .env("ORKWORKS_PORT", "1")
+                .env("ORKWORKS_REPORT_TOKEN", "test-report-token")
                 .env("ORKWORKS_PROMPT_HOOK_GENERATION", "test-generation")
                 .stdin(Stdio::piped())
                 .spawn()
