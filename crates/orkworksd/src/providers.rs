@@ -4155,7 +4155,7 @@ mod tests {
         #[cfg(windows)]
         let (command, args) = ("cmd", vec!["/C".to_string(), "exit 0".to_string()]);
 
-        let success = runner.run("test", command, &args, "", 1, None);
+        let success = runner.run("test", command, &args, "", 10, None);
         assert!(success.success);
         assert!(!success.launch_failure);
 
@@ -4197,7 +4197,7 @@ mod tests {
             .unwrap();
             make_test_executable(&script);
 
-            let child_stderr = runner.run("codex", script.to_str().unwrap(), &[], "", 1, None);
+            let child_stderr = runner.run("codex", script.to_str().unwrap(), &[], "", 10, None);
             assert!(!child_stderr.launch_failure);
             let (_, summary) = inference::native_cli_failure_summary(
                 "codex",
@@ -4347,6 +4347,15 @@ exit 17
             "prompt and output used separate timeout budgets: {:?}",
             started.elapsed()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_times_out_with_zero_budget() {
+        let result = ProcessRunner.run("test", "sleep", &["30".to_string()], "", 0, None);
+
+        assert!(!result.success);
+        assert_eq!(result.stderr, "timed out");
     }
 
     #[cfg(unix)]
