@@ -16,6 +16,7 @@ export function prepareMacDevBundle(root) {
     .update("orkworks-dev-bundle-v1\0")
     .update(sourceExecutable)
     .update(sourcePlist)
+    .update(readFileSync(sourceExecutable))
     .digest("hex").slice(0, 16);
   const cacheRoot = join(root, "node_modules/.cache/orkworks-electron");
   const cache = join(cacheRoot, fingerprint);

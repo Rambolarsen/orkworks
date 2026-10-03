@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -36,4 +36,25 @@ test("macOS dev prepares and reuses a signed OrkWorks copy of Electron", { skip:
   const modifiedAt = statSync(plist).mtimeMs;
   assert.equal(prepareMacDevBundle(root), executable);
   assert.equal(statSync(plist).mtimeMs, modifiedAt);
+});
+
+// Architecture reinstalls can replace binaries without changing their path or plist.
+test("macOS dev invalidates the bundle cache when the source executable changes", { skip: process.platform !== "darwin" }, async (t) => {
+  const { prepareMacDevBundle } = await import("../scripts/macDevBundle.mjs");
+  const require = createRequire(import.meta.url);
+  const installedElectron = dirname(require.resolve("electron/package.json"));
+  const root = mkdtempSync(join(tmpdir(), "orkworks-dev-arch-test-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const fixtureElectron = join(root, "node_modules/electron");
+  cpSync(installedElectron, fixtureElectron, { recursive: true, verbatimSymlinks: true });
+  writeFileSync(join(root, "package.json"), "{}");
+  const before = prepareMacDevBundle(root);
+  const sourceExecutable = join(fixtureElectron, "dist/Electron.app/Contents/MacOS/Electron");
+  const sourcePlist = join(fixtureElectron, "dist/Electron.app/Contents/Info.plist");
+  const plist = readFileSync(sourcePlist);
+  // A valid replacement Mach-O proves invalidation with unchanged path/metadata.
+  cpSync("/usr/bin/true", sourceExecutable);
+  assert.deepEqual(readFileSync(sourcePlist), plist);
+  const after = prepareMacDevBundle(root);
+  assert.notEqual(after, before);
 });
