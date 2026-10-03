@@ -77,7 +77,8 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0067](./0067-codex-exact-session-identity-and-resume.md) | Codex exact session identity and resume | superseded by [0068](./0068-codex-subagents-share-owning-session-identity.md) |
 | [0068](./0068-codex-subagents-share-owning-session-identity.md) | Codex subagents share the owning OrkWorks session identity | accepted |
 | [0069](./0069-codex-session-id-hook-report-mailbox.md) | Codex native session IDs use a temporary hook report mailbox when sandboxed networking blocks loopback | accepted |
-| [0070](./0070-alt-buffer-wheel-input-survives-xterm-dampening.md) | Alternate-buffer wheel input survives xterm dampening | accepted |
+| [0070](./0070-alt-buffer-wheel-input-survives-xterm-dampening.md) | Alternate-buffer wheel input survives xterm dampening | superseded by [0074](./0074-accumulate-alternate-buffer-trackpad-input.md) |
 | [0071](./0071-taskmaster-model-refresh-and-run-status.md) | Taskmaster owns model refresh and workspace-scoped analysis status | accepted |
 | [0072](./0072-codex-session-process-isolation.md) | Codex sessions use independent processes | accepted |
 | [0073](./0073-other-harness-prompt-attention-authority.md) | Prompt-attention authority is event-validated for Claude and Copilot; Aider stays on Peon fallback | accepted |
+| [0074](./0074-accumulate-alternate-buffer-trackpad-input.md) | Accumulate alternate-buffer trackpad input | accepted |

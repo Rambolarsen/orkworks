@@ -303,7 +303,7 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - ADR 0060: independent OrkWorks instances each own at most one workspace and sidecar; installation-scoped history is path-only, with no peer registry or cross-instance attention/focus authority. Crash-surviving cleanup and replacement adoption remain blocked on native ownership proof in #545.
 - ADR 0065: hard-wrapped terminal rows are reassembled into logical lines at PTY ingestion, before the shared `output_buffer` (row-local chaining on `SessionRuntime::last_cols`, one held pending row flushed at `handle_runtime_exit`); raw physical rows stay authoritative in terminal history, `scan_buf`, and evidence grounding on `raw_persist_lines`, and read-time snapshot rejoins share the same row-local rule.
 - ADR 0068: Codex CLI subagents remain within the owning OrkWorks session; identity replacement requires an authenticated root `SessionStart(source=clear)` after a recorded reset, and resume remains exact-ID-only.
-- ADR 0070: xterm 6.0.0 forwards nonzero wheel direction without dampening only in the alternate buffer; mouse-report dampening remains active when normal-buffer scrollback is available, and both shipped bundles must retain that boundary.
+- ADR 0074: alternate-buffer pixel wheel input is accumulated per live terminal through xterm's public wheel handler; the first movement is immediate, later events require a rendered line of movement, and normal scrollback and line/page wheel input keep their existing behavior. The xterm 6.0.0 patch remains required in both shipped bundles.
 
 ## Metadata protocol
 
