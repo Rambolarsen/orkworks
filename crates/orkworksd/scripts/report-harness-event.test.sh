@@ -7,6 +7,14 @@ temp_dir="$(mktemp -d)"
 real_python3="$(command -v python3)"
 trap 'rm -rf "$temp_dir"' EXIT
 
+timestamp_guard='$data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]'
+timestamp_guard_count="$(rg -F -c "$timestamp_guard" "$script_dir/report-harness-event.ps1" || true)"
+timestamp_guard_count="${timestamp_guard_count:-0}"
+if [ "$timestamp_guard_count" -ne 2 ]; then
+  printf 'PowerShell reporter must reject DateTime-parsed string timestamps in both lifecycle and notification events\n' >&2
+  exit 1
+fi
+
 mkdir -p "$temp_dir/bin" "$temp_dir/home"
 cat > "$temp_dir/bin/curl" <<'CURL'
 #!/usr/bin/env bash

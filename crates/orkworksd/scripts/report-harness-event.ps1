@@ -202,13 +202,13 @@ if ($Marker -clike "*:claude-code") {
             if ($Event -eq "sessionStart" -and $data.source -ceq "new") {
                 $sessionStartSource = "new"
                 $sessionStartEvent = "sessionStart"
-                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool]) {
+                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]) {
                     try { $sessionStartObservedAt = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$data.timestamp).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") } catch {}
                 }
             }
             if ($Event -eq "notification" -and $data.notification_type -is [string]) {
                 $promptNotificationType = [string]$data.notification_type
-                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool]) {
+                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]) {
                     try { $promptObservedAt = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$data.timestamp).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") } catch {}
                 }
             }
