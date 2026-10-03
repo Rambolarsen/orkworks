@@ -102,3 +102,20 @@ authority rule. Add a conservative resolution path, in this order:
   re-approve hooks via `/hooks` once.
 - If the gate shows the fields are absent, this amendment is withdrawn and the
   issue falls back to documenting the limitation and a user-side workaround.
+
+## Verification update 2026-10-03
+
+The blocking **serial payload capture gate passed** for real automatic and
+manual approval sequences. Matching pre/post tool_use_id and event ordering
+support serial correlation; PermissionRequest has no invocation ID and the
+captures do not prove parallel correlation. The
+[investigation record](https://github.com/Rambolarsen/orkworks/issues/690#issuecomment-5973628408)
+also records native manual pending-to-active evidence and its limits.
+
+Passing the gate does not accept or implement a resolution rule. PostToolUse
+alone cannot avoid false Needs You during long tool execution. The amendment
+remains proposed, with the next behavior decision captured in
+[proposed ADR 0076](./0076-codex-owned-native-approval-observer.md) and its written
+design. PreToolUse and PostToolUse remain capture-only in the current bundle;
+PermissionRequest still uses the accepted mapping until that proposal is
+reviewed and implemented.

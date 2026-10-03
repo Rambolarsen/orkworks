@@ -47,3 +47,11 @@ A separate process may use more resources than Codex's shared daemon.
 
 This decision constrains Codex launch preparation; ADR 0068 remains the
 identity contract and ADR 0069 remains the transport contract.
+
+## Proposed extension 2026-10-03
+
+[ADR 0076](./0076-codex-owned-native-approval-observer.md) proposes a runtime-owned
+private app-server plus remote native terminal for compatible configurations,
+retaining independent execution environments and this ADR's direct launch as
+fallback. It requires written review and lifecycle/configuration verification;
+the accepted startup decision above remains in effect.

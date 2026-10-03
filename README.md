@@ -16,6 +16,13 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Architecture
 
+The proposed [Codex approval attention design](docs/superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
+uses a runtime-owned native server and passive observer with a two-second grace.
+The serial payload gate for [#690](https://github.com/Rambolarsen/orkworks/issues/690)
+has passed; written review and production signal/platform gates remain. This is
+not implemented; [ADR 0076](docs/adr/0076-codex-owned-native-approval-observer.md)
+remains proposed.
+
 The proposed [Coordinator design gate](specs/taskmaster.md#coordinator-design-gate)
 describes a future bounded Taskmaster coordinator using immutable,
 user-approved root plans, broker-enforced child tools, resource ceilings, and
