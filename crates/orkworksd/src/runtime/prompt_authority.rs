@@ -25,7 +25,14 @@ pub(crate) struct QueuedPromptWait {
     pub(crate) notification_type: String,
     pub(crate) observed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub(crate) receipt_sequence: u64,
+    pub(crate) committed_input_sequence: u64,
     pub(crate) cwd: Option<String>,
+}
+
+impl QueuedPromptWait {
+    pub(crate) fn superseded_by_committed_input(&self, current_sequence: u64) -> bool {
+        current_sequence != self.committed_input_sequence
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +50,7 @@ struct SessionAuthority {
     active: bool,
     epoch: u64,
     reset: Option<ResetReservation>,
+    reset_retry_scheduled: bool,
 }
 
 /// Process-local prompt authority for Claude Code and GitHub Copilot CLI.
@@ -129,13 +137,16 @@ impl PromptAuthorityRegistry {
                     entry.native_session_id = Some(native_session_id.to_string());
                     return BindResult::Bound;
                 }
-                if !lifecycle_reset {
-                    return BindResult::Rejected;
-                }
                 let Some(reset) = entry.reset.as_mut() else {
                     unreachable!();
                 };
-                if reset.retired_native_session_id.as_deref() == Some(native_session_id)
+                if reset.retired_native_session_id.as_deref() == Some(native_session_id) {
+                    return BindResult::Rejected;
+                }
+                if reset.candidate_native_session_id.as_deref() == Some(native_session_id) {
+                    return BindResult::Held;
+                }
+                if !lifecycle_reset
                     || (entry.harness_id == "copilot"
                         && observed_at.is_none_or(|timestamp| timestamp <= reset.created_at))
                 {
@@ -365,6 +376,7 @@ impl PromptAuthorityRegistry {
         notification_type: &str,
         observed_at: Option<chrono::DateTime<chrono::Utc>>,
         receipt_sequence: u64,
+        committed_input_sequence: u64,
         cwd: Option<&str>,
     ) -> bool {
         let mut sessions = self.sessions.lock().unwrap();
@@ -403,6 +415,7 @@ impl PromptAuthorityRegistry {
             notification_type: notification_type.to_string(),
             observed_at,
             receipt_sequence,
+            committed_input_sequence,
             cwd: cwd.filter(|cwd| !cwd.is_empty()).map(str::to_owned),
         });
         true
@@ -478,6 +491,40 @@ impl PromptAuthorityRegistry {
             .unwrap()
             .get(session_id)
             .is_some_and(|entry| entry.reset.is_some())
+    }
+
+    pub(crate) fn reset_commit_pending(&self, session_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .is_some_and(|entry| {
+                entry.reset.as_ref().is_some_and(|reset| {
+                    reset.acknowledged
+                        && (!reset.epoch_committed || reset.queued_prompt_wait.is_some())
+                })
+            })
+    }
+
+    pub(crate) fn schedule_reset_retry(&self, session_id: &str) -> bool {
+        let mut sessions = self.sessions.lock().unwrap();
+        let Some(entry) = sessions.get_mut(session_id) else {
+            return false;
+        };
+        let pending = entry.reset.as_ref().is_some_and(|reset| {
+            reset.acknowledged && (!reset.epoch_committed || reset.queued_prompt_wait.is_some())
+        });
+        if !pending || entry.reset_retry_scheduled {
+            return false;
+        }
+        entry.reset_retry_scheduled = true;
+        true
+    }
+
+    pub(crate) fn finish_reset_retry(&self, session_id: &str) {
+        if let Some(entry) = self.sessions.lock().unwrap().get_mut(session_id) {
+            entry.reset_retry_scheduled = false;
+        }
     }
 
     pub(crate) fn revoke(&self, session_id: &str, generation: &str) {
@@ -610,6 +657,36 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_registration_preserves_an_already_held_reset_candidate() {
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id("session", "claude-code", "generation", Some("old"));
+        assert!(registry.reserve_reset("session", "claude-code", "/clear"));
+        assert!(registry.acknowledge_reset("session").is_some());
+        assert!(registry.complete_reset("session").is_some());
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "new", true, None),
+            BindResult::Held
+        );
+
+        assert_eq!(
+            registry.register_native_id("session", "claude-code", "generation", "new", false, None),
+            BindResult::Held,
+            "the same held candidate may be re-reported without lifecycle fields"
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "session",
+                "claude-code",
+                "generation",
+                "other",
+                false,
+                None
+            ),
+            BindResult::Rejected
+        );
+    }
+
+    #[test]
     fn revocation_invalidates_acknowledged_and_in_flight_reset_candidates() {
         let registry = PromptAuthorityRegistry::default();
         registry.issue_with_native_id("session", "claude-code", "generation", Some("old"));
@@ -653,6 +730,7 @@ mod tests {
             "permission_prompt",
             None,
             1,
+            0,
             None,
         ));
 
@@ -667,5 +745,18 @@ mod tests {
         assert!(registry.native_id_matches("session", "claude-code", "generation", "new"));
         assert!(registry.finish_queued_prompt_wait("session", 1));
         assert!(!registry.identity_reset_pending("session"));
+    }
+
+    #[test]
+    fn queued_prompt_wait_detects_user_input_after_receipt() {
+        let queued = super::QueuedPromptWait {
+            notification_type: "permission_prompt".into(),
+            observed_at: None,
+            receipt_sequence: 1,
+            committed_input_sequence: 4,
+            cwd: None,
+        };
+        assert!(!queued.superseded_by_committed_input(4));
+        assert!(queued.superseded_by_committed_input(5));
     }
 }

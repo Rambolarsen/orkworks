@@ -93,6 +93,14 @@ pub(crate) fn workspace_harness_enabled(
         .is_some_and(|memory| memory.active_harness_ids.iter().any(|id| id == harness_id))
 }
 
+fn prompt_harness_for_integration_adapter(adapter_id: &str) -> Option<&'static str> {
+    match adapter_id {
+        "claude" => Some("claude-code"),
+        "copilot" => Some("copilot"),
+        _ => None,
+    }
+}
+
 pub(crate) fn prompt_attention_launch_ready(
     state: &AppState,
     harness_id: &str,
@@ -236,7 +244,7 @@ async fn run_integration_action(
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
-    let mut revoke_prompt_authority = false;
+    let mut revoke_snapshot = None;
     let response = match with_revalidated_integration_target(
         state,
         harness_id,
@@ -283,7 +291,10 @@ async fn run_integration_action(
                     crate::harness::integration::prompt_attention_hook_ready(binding, &ctx)
                 });
             if matches!(harness_id, "claude-code" | "copilot") && !prompt_ready {
-                revoke_prompt_authority = true;
+                revoke_snapshot = Some(
+                    crate::session_application::SessionApplication::new(state.clone())
+                        .snapshot_prompt_authority_for_harness(harness_id, &ws.path),
+                );
             }
             match result {
                 Ok(status) => Json(status).into_response(),
@@ -296,9 +307,9 @@ async fn run_integration_action(
         Ok(response) => response,
         Err(response) => response,
     };
-    if revoke_prompt_authority {
+    if let Some(snapshot) = revoke_snapshot {
         if crate::session_application::SessionApplication::new(state.clone())
-            .revoke_prompt_authority_for_harness(harness_id)
+            .revoke_prompt_authority_snapshot(snapshot)
             .is_err()
         {
             return (
@@ -560,7 +571,7 @@ async fn run_integration_key_action(
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
-    let mut revoke_harnesses = Vec::new();
+    let mut revoke_snapshot = None;
     let mut prompt_ready = false;
     let response =
         match with_revalidated_integration_key(state, key, expected.as_ref(), |harness, ctx| {
@@ -572,39 +583,25 @@ async fn run_integration_key_action(
                 .is_some_and(|binding| {
                     crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
                 });
+            if !prompt_ready {
+                if let Some(harness_id) = prompt_harness_for_integration_adapter(&key.adapter_id) {
+                    revoke_snapshot = Some(
+                        crate::session_application::SessionApplication::new(state.clone())
+                            .snapshot_prompt_authority_for_harness(harness_id, ctx.workspace),
+                    );
+                }
+            }
             result
         })
         .await
         {
-            Ok((group, Ok(status))) => {
-                if matches!(key.adapter_id.as_str(), "claude" | "copilot") && !prompt_ready {
-                    revoke_harnesses.extend(
-                        group
-                            .consumers
-                            .iter()
-                            .map(|consumer| consumer.harness_id.as_str())
-                            .filter(|id| matches!(*id, "claude-code" | "copilot"))
-                            .map(str::to_owned),
-                    );
-                }
-                Json(GroupedIntegrationStatus {
-                    key: key.clone(),
-                    consumers: group.consumers,
-                    status,
-                })
-                .into_response()
-            }
+            Ok((group, Ok(status))) => Json(GroupedIntegrationStatus {
+                key: key.clone(),
+                consumers: group.consumers,
+                status,
+            })
+            .into_response(),
             Ok((group, Err(error))) => {
-                if matches!(key.adapter_id.as_str(), "claude" | "copilot") && !prompt_ready {
-                    revoke_harnesses.extend(
-                        group
-                            .consumers
-                            .iter()
-                            .map(|consumer| consumer.harness_id.as_str())
-                            .filter(|id| matches!(*id, "claude-code" | "copilot"))
-                            .map(str::to_owned),
-                    );
-                }
                 let status = grouped_integration_error_status(&group, &error, failure_action);
                 Json(GroupedIntegrationStatus {
                     key: key.clone(),
@@ -615,23 +612,20 @@ async fn run_integration_key_action(
             }
             Err(response) => response,
         };
-    if !revoke_harnesses.is_empty() {
+    if let Some(snapshot) = revoke_snapshot {
         let application = crate::session_application::SessionApplication::new(state.clone());
-        for harness_id in revoke_harnesses {
-            if application
-                .revoke_prompt_authority_for_harness(&harness_id)
-                .is_err()
-            {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error:
-                            "integration changed, but prompt authority could not be safely revoked"
-                                .into(),
-                    }),
-                )
-                    .into_response();
-            }
+        if application
+            .revoke_prompt_authority_snapshot(snapshot)
+            .is_err()
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "integration changed, but prompt authority could not be safely revoked"
+                        .into(),
+                }),
+            )
+                .into_response();
         }
     }
     response
@@ -824,21 +818,31 @@ pub(crate) async fn get_workspace_integrations(
         }
     };
     let mut result = Vec::with_capacity(groups.len());
-    let mut revoke_harnesses = Vec::new();
+    let mut revoke_snapshots = Vec::new();
     let mut revalidation_error = None;
     for group in groups {
         let key = group.key.clone();
-        let mut prompt_ready = false;
+        let mut revoke_snapshot = None;
         let (group, action_result) =
             match with_revalidated_integration_key(&state, &key, None, |harness, ctx| {
                 let status = harness.integration_status(ctx);
-                prompt_ready = harness
+                let prompt_ready = harness
                     .definition
                     .integration
                     .as_ref()
                     .is_some_and(|binding| {
                         crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
                     });
+                if !prompt_ready {
+                    if let Some(harness_id) =
+                        prompt_harness_for_integration_adapter(&key.adapter_id)
+                    {
+                        revoke_snapshot = Some(
+                            crate::session_application::SessionApplication::new(state.clone())
+                                .snapshot_prompt_authority_for_harness(harness_id, ctx.workspace),
+                        );
+                    }
+                }
                 status
             })
             .await
@@ -851,15 +855,8 @@ pub(crate) async fn get_workspace_integrations(
             };
         let status = action_result
             .unwrap_or_else(|error| grouped_integration_error_status(&group, &error, "retry"));
-        if matches!(key.adapter_id.as_str(), "claude" | "copilot") && !prompt_ready {
-            revoke_harnesses.extend(
-                group
-                    .consumers
-                    .iter()
-                    .map(|consumer| consumer.harness_id.as_str())
-                    .filter(|id| matches!(*id, "claude-code" | "copilot"))
-                    .map(str::to_owned),
-            );
+        if let Some(snapshot) = revoke_snapshot {
+            revoke_snapshots.push(snapshot);
         }
         result.push(GroupedIntegrationStatus {
             key,
@@ -867,13 +864,11 @@ pub(crate) async fn get_workspace_integrations(
             status,
         });
     }
-    if !revoke_harnesses.is_empty() {
+    if !revoke_snapshots.is_empty() {
         let application = crate::session_application::SessionApplication::new(state.clone());
-        revoke_harnesses.sort();
-        revoke_harnesses.dedup();
-        for harness_id in revoke_harnesses {
+        for snapshot in revoke_snapshots {
             if application
-                .revoke_prompt_authority_for_harness(&harness_id)
+                .revoke_prompt_authority_snapshot(snapshot)
                 .is_err()
             {
                 return (

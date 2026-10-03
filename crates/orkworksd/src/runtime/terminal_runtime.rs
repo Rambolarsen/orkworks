@@ -884,6 +884,13 @@ fn mark_committed_input_working(
         return;
     };
     let accepted_at = chrono::Utc::now();
+    if committed_input {
+        // The PTY accepted this input before this function was called. Advance
+        // the in-memory ordering fence even if the attention metadata write
+        // below fails, so a queued pre-input prompt cannot be replayed later.
+        handle.runtime.committed_input_sequence =
+            handle.runtime.committed_input_sequence.saturating_add(1);
+    }
     if !commit_working || already_working {
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
@@ -2467,6 +2474,33 @@ mod tests {
                 from_initial_prompt: false,
             })
         );
+    }
+
+    #[test]
+    fn committed_input_order_advances_when_attention_persistence_fails() {
+        let id = "committed-input-persist-fails";
+        let (state, dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        let sessions_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+
+        record_terminal_input(&state, id, "respond to the prompt\r");
+
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .runtime
+                .committed_input_sequence,
+            1
+        );
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        drop(dir);
     }
 
     #[test]
@@ -4446,6 +4480,7 @@ mod tests {
             "permission_prompt",
             None,
             1,
+            0,
             None,
         ));
         assert!(!registry.native_id_matches(
@@ -4527,6 +4562,7 @@ mod tests {
             "permission_prompt",
             Some(latest_prompt),
             1,
+            0,
             Some("/cwd/latest"),
         ));
         assert!(registry.queue_prompt_wait(
@@ -4537,6 +4573,7 @@ mod tests {
             "elicitation_dialog",
             Some(latest_prompt),
             2,
+            0,
             Some("/cwd/equal-later"),
         ));
         assert!(!registry.queue_prompt_wait(
@@ -4547,6 +4584,7 @@ mod tests {
             "permission_prompt",
             Some(fresh_timestamp + chrono::Duration::seconds(1)),
             3,
+            0,
             Some("/cwd/stale"),
         ));
         assert_eq!(
