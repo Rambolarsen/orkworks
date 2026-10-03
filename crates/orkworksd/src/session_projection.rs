@@ -8,8 +8,66 @@ use crate::session_view::{
 };
 use crate::AppState;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+const GIT_CONTEXT_TTL: Duration = Duration::from_secs(5);
+const MAX_GIT_CONTEXT_ENTRIES: usize = 512;
+
+struct CachedGitContext {
+    scanned_at: Instant,
+    context: git::GitContext,
+}
+
+/// Process-local results shared across projection requests. Callers resolve
+/// worktree roots before lookup; workspace adoption clears all entries.
+#[derive(Default)]
+pub(crate) struct GitContextCache {
+    entries: HashMap<PathBuf, CachedGitContext>,
+}
+
+impl GitContextCache {
+    fn get_or_detect(
+        &mut self,
+        cwd: &Path,
+        now: Instant,
+        detect: impl FnOnce(&Path) -> git::GitContext,
+    ) -> git::GitContext {
+        if let Some(entry) = self.entries.get(cwd) {
+            if now.saturating_duration_since(entry.scanned_at) < GIT_CONTEXT_TTL {
+                return entry.context.clone();
+            }
+        }
+        // Expiry is measured from scan start, not last access: frequent polls
+        // must never extend the freshness window. Prune even unused roots.
+        self.entries
+            .retain(|_, entry| now.saturating_duration_since(entry.scanned_at) < GIT_CONTEXT_TTL);
+        let context = detect(cwd);
+        if self.entries.len() >= MAX_GIT_CONTEXT_ENTRIES {
+            if let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.scanned_at)
+                .map(|(path, _)| path.clone())
+            {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(
+            cwd.to_path_buf(),
+            CachedGitContext {
+                scanned_at: now,
+                context: context.clone(),
+            },
+        );
+        context
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
 
 /// Shared by the live and remembered session-info paths (issue #399): both
 /// resolve the same openable-plan reference from `meta.plan_path` against
@@ -193,7 +251,16 @@ impl SessionProjection {
             &session_pids,
             crate::procfs::live_cwds,
         );
-        enrich_sessions_with_git_context(&mut infos, &effective_cwds, git::detect);
+        {
+            let mut cache = self
+                .state
+                .git_context_cache
+                .lock()
+                .expect("Git context cache lock poisoned");
+            enrich_sessions_with_git_context(&mut infos, &effective_cwds, |cwd| {
+                cache.get_or_detect(cwd, Instant::now(), git::detect)
+            });
+        }
 
         let conflict_warnings = detect_conflicts(&infos, &effective_cwds);
         for info in &mut infos {
@@ -524,6 +591,213 @@ mod tests {
     #[test]
     fn exposes_a_constructor_for_shared_app_state() {
         let _constructor: fn(Arc<AppState>) -> SessionProjection = SessionProjection::new;
+    }
+
+    #[test]
+    fn git_context_cache_survives_separate_projection_requests() {
+        let workspace = tempfile::tempdir().unwrap();
+        let repo_dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(repo_dir.path()).unwrap();
+        let file = repo_dir.path().join("new.txt");
+        std::fs::write(&file, "first\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(workspace.path());
+        let infos = vec![crate::test_support::test_session_info(
+            "one",
+            "One",
+            repo_dir.path().display().to_string(),
+            "running",
+            "now",
+        )];
+        let first = SessionProjection::new(state.clone()).enrich_workspace(infos.clone());
+        assert_eq!(first[0].line_changes.unwrap().additions, 1);
+
+        std::fs::write(&file, "first\nsecond\n").unwrap();
+        let second = SessionProjection::new(state).enrich_workspace(infos);
+        assert_eq!(
+            second[0].line_changes.unwrap().additions,
+            1,
+            "a separate poll must reuse the Git result within its TTL"
+        );
+    }
+
+    #[test]
+    fn git_context_cache_reuses_scans_but_refreshes_at_expiry() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let file = dir.path().join("new.txt");
+        std::fs::write(&file, "first\n").unwrap();
+        let mut cache = super::GitContextCache::default();
+        let now = std::time::Instant::now();
+        let mut calls = 0;
+        let mut detect = |cwd: &std::path::Path| {
+            calls += 1;
+            crate::git::detect(cwd)
+        };
+        let first = cache.get_or_detect(dir.path(), now, &mut detect);
+        assert_eq!(first.line_changes.unwrap().additions, 1);
+        std::fs::write(&file, "first\nsecond\n").unwrap();
+        let reused = cache.get_or_detect(
+            dir.path(),
+            now + std::time::Duration::from_secs(4),
+            &mut detect,
+        );
+        assert_eq!(reused.line_changes.unwrap().additions, 1);
+        let refreshed = cache.get_or_detect(
+            dir.path(),
+            now + std::time::Duration::from_secs(5),
+            &mut detect,
+        );
+        assert_eq!(refreshed.line_changes.unwrap().additions, 2);
+        assert_eq!(refreshed.changed_files, 1);
+        assert!(refreshed.dirty);
+        assert_eq!(calls, 2, "a cache hit must skip the expensive detector");
+    }
+
+    #[test]
+    fn git_context_cache_keeps_distinct_roots_and_evicts_oldest_when_full() {
+        let mut cache = super::GitContextCache::default();
+        let now = std::time::Instant::now();
+        let context = crate::git::GitContext {
+            repo_root: None,
+            branch: None,
+            dirty: false,
+            changed_files: 0,
+            line_changes: None,
+            is_worktree: false,
+        };
+        for i in 0..513 {
+            let path = std::path::PathBuf::from(format!("repo-{i}"));
+            cache.get_or_detect(&path, now + std::time::Duration::from_millis(i), |_| {
+                context.clone()
+            });
+        }
+        assert_eq!(cache.entries.len(), 512);
+        assert!(!cache.entries.contains_key(std::path::Path::new("repo-0")));
+        assert!(cache.entries.contains_key(std::path::Path::new("repo-1")));
+        assert!(cache.entries.contains_key(std::path::Path::new("repo-512")));
+        cache.get_or_detect(
+            std::path::Path::new("fresh"),
+            now + std::time::Duration::from_secs(6),
+            |_| context,
+        );
+        assert_eq!(
+            cache.entries.len(),
+            1,
+            "unused expired roots must be removed"
+        );
+    }
+
+    #[test]
+    fn git_context_cache_shares_subdirectories_without_caching_session_recommendations() {
+        let workspace = tempfile::tempdir().unwrap();
+        let repo_dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(repo_dir.path()).unwrap();
+        let child = repo_dir.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        std::fs::write(child.join("new.txt"), "first\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(workspace.path());
+        let mut infos = vec![crate::test_support::test_session_info(
+            "one",
+            "One",
+            child.display().to_string(),
+            "running",
+            "now",
+        )];
+        let first = SessionProjection::new(state.clone()).enrich_workspace(infos.clone());
+        assert!(first[0].recommendation.is_some());
+        infos.push(crate::test_support::test_session_info(
+            "two",
+            "Two",
+            child.display().to_string(),
+            "running",
+            "now",
+        ));
+        infos.push(crate::test_support::test_session_info(
+            "three",
+            "Three",
+            repo_dir.path().display().to_string(),
+            "running",
+            "now",
+        ));
+        let projected = SessionProjection::new(state.clone()).enrich_workspace(infos);
+        assert_eq!(state.git_context_cache.lock().unwrap().entries.len(), 1);
+        assert_eq!(projected[0].line_changes.unwrap().additions, 1);
+        assert_eq!(projected[2].line_changes.unwrap().additions, 1);
+        assert_ne!(projected[0].recommendation, first[0].recommendation);
+        assert!(projected[0].conflict_warning.is_some());
+        assert!(projected[2].conflict_warning.is_none());
+    }
+
+    #[test]
+    fn git_context_cache_is_cleared_when_a_workspace_is_adopted() {
+        let home = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let next_workspace = tempfile::tempdir().unwrap();
+        let repo_dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(repo_dir.path()).unwrap();
+        let file = repo_dir.path().join("new.txt");
+        std::fs::write(&file, "first\n").unwrap();
+        crate::test_support::with_fake_home(home.path(), || {
+            let state = crate::test_support::test_app_state_with_workspace(workspace.path());
+            let infos = vec![crate::test_support::test_session_info(
+                "one",
+                "One",
+                repo_dir.path().display().to_string(),
+                "running",
+                "now",
+            )];
+            SessionProjection::new(state.clone()).enrich_workspace(infos.clone());
+            std::fs::write(&file, "first\nsecond\n").unwrap();
+            crate::session_application::SessionApplication::new(state.clone())
+                .open_workspace(next_workspace.path().to_path_buf())
+                .unwrap();
+            let projected = SessionProjection::new(state).enrich_workspace(infos);
+            assert_eq!(projected[0].line_changes.unwrap().additions, 2);
+        });
+    }
+
+    #[test]
+    fn git_context_cache_keeps_linked_worktrees_separate() {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let main = root.path().join("main");
+        let linked = root.path().join("linked");
+        let repo = git2::Repository::init(&main).unwrap();
+        let mut index = repo.index().unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let signature = git2::Signature::now("Test", "test@example.invalid").unwrap();
+        repo.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
+            .unwrap();
+        repo.worktree("linked", &linked, None).unwrap();
+        std::fs::write(main.join("new.txt"), "one\n").unwrap();
+        std::fs::write(linked.join("new.txt"), "one\ntwo\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(workspace.path());
+        let infos = vec![
+            crate::test_support::test_session_info(
+                "one",
+                "One",
+                main.display().to_string(),
+                "running",
+                "now",
+            ),
+            crate::test_support::test_session_info(
+                "two",
+                "Two",
+                linked.display().to_string(),
+                "running",
+                "now",
+            ),
+        ];
+        let first = SessionProjection::new(state.clone()).enrich_workspace(infos.clone());
+        assert_eq!(first[0].line_changes.unwrap().additions, 1);
+        assert_eq!(first[1].line_changes.unwrap().additions, 2);
+        assert_eq!(first[0].is_worktree, Some(false));
+        assert_eq!(first[1].is_worktree, Some(true));
+        std::fs::write(main.join("new.txt"), "three\nfour\nfive\n").unwrap();
+        let cached = SessionProjection::new(state.clone()).enrich_workspace(infos);
+        assert_eq!(cached[0].line_changes.unwrap().additions, 1);
+        assert_eq!(cached[1].line_changes.unwrap().additions, 2);
+        assert_eq!(state.git_context_cache.lock().unwrap().entries.len(), 2);
     }
 
     fn registry() -> crate::harness::registry::ResolvedHarnessRegistry {

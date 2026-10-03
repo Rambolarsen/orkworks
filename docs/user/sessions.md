@@ -35,8 +35,9 @@ lines. It includes staged edits, unstaged edits, and non-ignored new files.
 Pure renames contribute no line changes. Binary files count toward files but
 contribute no lines. Sessions sharing a
 worktree show the same totals; the counter does not identify which agent made
-each edit. Committing or undoing changes updates the counter on the next
-session refresh. Line totals are omitted when they cannot be read.
+each edit. Git results are reused for five seconds; committing or undoing
+changes updates the counter on the first session refresh after that window.
+Line totals are omitted when they cannot be read.
 
 ## Scroll a terminal
 
