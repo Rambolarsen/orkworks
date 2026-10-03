@@ -110,7 +110,7 @@ if ($Marker -clike "*:claude-code") {
     } catch {}
     $sessionSource = "claude_hook"
 } elseif ($Marker -clike "*:codex") {
-    if ($Event -in @("PermissionRequest", "PostToolUse")) {
+    if ($Event -in @("PreToolUse", "PermissionRequest", "PostToolUse")) {
         # Always append a current event, even when JSON is malformed or is not
         # an object, so an older event cannot masquerade as this invocation.
         $codexPayloadCapture = @{
@@ -124,7 +124,7 @@ if ($Marker -clike "*:claude-code") {
         if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id) {
             $harnessSessionId = ([string]$data.session_id).Trim()
         }
-        if ($data -is [System.Management.Automation.PSCustomObject] -and $Event -in @("PermissionRequest", "PostToolUse")) {
+        if ($data -is [System.Management.Automation.PSCustomObject] -and $Event -in @("PreToolUse", "PermissionRequest", "PostToolUse")) {
             $payloadKeys = @(
                 $data.PSObject.Properties.Name | Where-Object {
                     $_ -cin $safeCodexPayloadKeys
@@ -159,7 +159,7 @@ if ($Marker -clike "*:claude-code") {
         }
     } catch {}
     $sessionSource = "codex_hook"
-    if ($Event -eq "PostToolUse") {
+    if ($Event -in @("PreToolUse", "PostToolUse")) {
         $codexCaptureOnly = $true
         $attentionPostKind = "skipped_capture_only"
         $harnessSessionPostKind = "skipped_capture_only"
@@ -279,7 +279,7 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
 
 # Keep the same private redacted local diagnostic as the POSIX reporter. Its
 # capture-only exception stores a bounded ordered sequence of at most 16
-# PermissionRequest/PostToolUse records, with allowlisted top-level key names
+# PreToolUse/PermissionRequest/PostToolUse records, with allowlisted top-level key names
 # and only hook_event_name, permission_mode, turn_id, tool_name, and bounded
 # tool_use_id scalar values. Never store tool_input, transcript_path, cwd,
 # session IDs, tokens, arbitrary free text, full payloads, or response bodies.
@@ -328,7 +328,7 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
                 $previous = [System.IO.File]::ReadAllText($diagnosticPath) | ConvertFrom-Json
                 $oldCaptures = $previous.codexPayloadCapture
                 foreach ($old in @($oldCaptures)) {
-                    if ($old.event -notin @("PermissionRequest", "PostToolUse")) {
+                    if ($old.event -notin @("PreToolUse", "PermissionRequest", "PostToolUse")) {
                         continue
                     }
                     $oldKeys = @($old.payloadKeys | Where-Object {
@@ -361,14 +361,14 @@ if ($sessionSource -eq "codex_hook" -and $HOME) {
                 }
             } catch {}
         }
-        if ($Event -in @("PermissionRequest", "PostToolUse")) {
+        if ($Event -in @("PreToolUse", "PermissionRequest", "PostToolUse")) {
             $codexPayloadCapture["attentionPost"] = @{ result = $attentionPostKind }
             $codexPayloadCapture["harnessSessionPost"] = @{ result = $harnessSessionPostKind }
             $captures.Add($codexPayloadCapture)
         }
         $captures = @($captures.ToArray() | Select-Object -Last 16)
         $record = @{
-            event = $(if ($Event -in @("SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop")) { $Event } else { "Unknown" })
+            event = $(if ($Event -in @("SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop")) { $Event } else { "Unknown" })
             harnessSessionIdParsed = [bool]$harnessSessionId
             orkworksSessionIdPresent = [bool]$sessionId
             portPresent = [bool]$port

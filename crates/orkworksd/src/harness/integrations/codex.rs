@@ -16,9 +16,10 @@ use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, In
 /// Windows even in the untracked-and-ignored case that worked before this
 /// change, breaking Windows Codex installs entirely rather than just
 /// falling back for the tracked case.
-const CODEX_EVENTS: [&str; 5] = [
+const CODEX_EVENTS: [&str; 6] = [
     "SessionStart",
     "UserPromptSubmit",
+    "PreToolUse",
     "PermissionRequest",
     "PostToolUse",
     "Stop",
@@ -293,7 +294,7 @@ fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, Integratio
             FragmentState::Installed | FragmentState::Drifted => {
                 // One OrkWorks group per event is the owned shape. Multiple
                 // owned groups for the same event are ambiguous, while one
-                // group on each of the five Codex events is the complete
+                // group on each of the six Codex events is the complete
                 // bundle and must be removable as one unit.
                 if !owned_events.insert(event) {
                     return Ok(FragmentState::Ambiguous);
@@ -405,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_writes_the_codex_five_event_bundle_without_dropping_foreign_hooks() {
+    fn merge_writes_the_codex_six_event_bundle_without_dropping_foreign_hooks() {
         let mut document = Map::new();
         document.insert(
             "hooks".into(),
@@ -424,6 +425,7 @@ mod tests {
         for event in [
             "SessionStart",
             "UserPromptSubmit",
+            "PreToolUse",
             "PermissionRequest",
             "PostToolUse",
             "Stop",
@@ -450,7 +452,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn reporter_captures_redacted_permission_and_post_tool_events_locally() {
+    fn reporter_captures_redacted_pre_permission_and_post_tool_events_locally() {
         let home = tempfile::tempdir().unwrap();
         let diagnostic_path = home
             .path()
@@ -490,6 +492,24 @@ mod tests {
         let mut children = Vec::new();
         for (event, payload) in [
             (
+                "PreToolUse",
+                json!({
+                    "session_id": "private-harness-session-id",
+                    "transcript_path": "/private/transcript.jsonl",
+                    "cwd": "/private/workspace",
+                    "hook_event_name": "PreToolUse",
+                    "permission_mode": "default",
+                    "turn_id": "turn-abc123",
+                    "tool_name": "Bash",
+                    "tool_use_id": "call-123",
+                    "tool_input": { "command": "private-command-text" },
+                    "api_key": "private-api-key-value",
+                    "password": "private-password-value",
+                    "secret": "private-secret-value",
+                    "model": "private-model-name"
+                }),
+            ),
+            (
                 "PermissionRequest",
                 json!({
                     "session_id": "private-harness-session-id",
@@ -499,7 +519,6 @@ mod tests {
                     "permission_mode": "default",
                     "turn_id": "turn-abc123",
                     "tool_name": "Bash",
-                    "tool_use_id": "call-123",
                     "tool_input": { "command": "private-command-text" },
                     "api_key": "private-api-key-value",
                     "password": "private-password-value",
@@ -576,7 +595,7 @@ mod tests {
         let captured = diagnostic_json["codexPayloadCapture"]
             .as_array()
             .expect("capture has a bounded ordered event sequence");
-        assert_eq!(captured.len(), 3);
+        assert_eq!(captured.len(), 4);
         assert_eq!(captured[0]["event"], "PermissionRequest");
         assert_eq!(
             captured[0]["payloadScalars"]["turn_id"],
@@ -587,23 +606,34 @@ mod tests {
             .iter()
             .map(|capture| (capture["event"].as_str().unwrap(), capture))
             .collect::<std::collections::HashMap<_, _>>();
-        for event in ["PermissionRequest", "PostToolUse"] {
+        for event in ["PreToolUse", "PermissionRequest", "PostToolUse"] {
             let entry = by_event[event];
             assert_eq!(entry["payloadScalars"]["hook_event_name"], event);
             assert_eq!(entry["payloadScalars"]["permission_mode"], "default");
             assert_eq!(entry["payloadScalars"]["turn_id"], "turn-abc123");
             assert_eq!(entry["payloadScalars"]["tool_name"], "Bash");
-            assert_eq!(entry["payloadScalars"]["tool_use_id"], "call-123");
+            if event == "PermissionRequest" {
+                assert!(entry["payloadScalars"].get("tool_use_id").is_none());
+                assert!(!entry["payloadKeys"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("tool_use_id")));
+            } else {
+                assert_eq!(entry["payloadScalars"]["tool_use_id"], "call-123");
+            }
             for key in ["hook_event_name", "permission_mode", "turn_id", "tool_name"] {
                 assert!(entry["payloadKeys"]
                     .as_array()
                     .unwrap()
                     .contains(&json!(key)));
             }
-            assert!(entry["payloadKeys"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("tool_use_id")));
+            assert_eq!(
+                entry["payloadKeys"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("tool_use_id")),
+                event != "PermissionRequest"
+            );
             for forbidden_key in ["api_key", "password", "secret"] {
                 assert!(!entry["payloadKeys"]
                     .as_array()
@@ -619,6 +649,21 @@ mod tests {
         assert_eq!(
             post_tool_capture["harnessSessionPost"]["result"],
             "skipped_capture_only"
+        );
+        for event in ["PreToolUse", "PostToolUse"] {
+            assert_eq!(
+                by_event[event]["attentionPost"]["result"],
+                "skipped_capture_only"
+            );
+            assert_eq!(
+                by_event[event]["harnessSessionPost"]["result"],
+                "skipped_capture_only"
+            );
+        }
+        assert_eq!(
+            by_event["PreToolUse"]["payloadScalars"]["tool_use_id"],
+            by_event["PostToolUse"]["payloadScalars"]["tool_use_id"],
+            "pre/post events must retain the invocation key needed for the live sequence check"
         );
         for forbidden in [
             "private-harness-session-id",
@@ -638,11 +683,13 @@ mod tests {
                 "diagnostic leaked {forbidden}"
             );
         }
-        for forbidden_key in ["session_id", "transcript_path", "cwd", "tool_input"] {
-            assert!(!by_event["PermissionRequest"]["payloadKeys"]
-                .as_array()
-                .unwrap()
-                .contains(&json!(forbidden_key)));
+        for event in ["PreToolUse", "PermissionRequest", "PostToolUse"] {
+            for forbidden_key in ["session_id", "transcript_path", "cwd", "tool_input"] {
+                assert!(!by_event[event]["payloadKeys"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(forbidden_key)));
+            }
         }
     }
 
