@@ -10519,8 +10519,8 @@ mod tests {
         handle.runtime = runtime;
         handle.kill_tx = kill_tx;
         state.sessions.lock().unwrap().insert(id.into(), handle);
-        // SIGALRM terminates even a child blocked writing output, so the red
-        // test cannot leave an uninterruptible driver hanging the test suite.
+        // SIGALRM bounds the fixture child's lifetime even when output stalls.
+        // Native writer cancellation remains platform-dependent (ADR 0075).
         let script = format!(
             "import os, signal, tty, time\n\
              signal.alarm(8)\n\
@@ -10612,7 +10612,10 @@ mod tests {
             .unwrap();
     }
 
-    #[cfg(unix)]
+    // Linux can retain a blocked native write after the last slave closes.
+    // Stop still completes, but that unresolved write must keep its reservation
+    // (ADR 0075). macOS returns a verified failed acknowledgement on this path.
+    #[cfg(target_os = "macos")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pty_delivery_stop_releases_failed_handoff_for_one_explicit_retry() {
         use crate::runtime::session_runtime::RuntimeEvent;

@@ -266,15 +266,13 @@ impl PendingPtyWrite {
                         Err(_) => return Err(()),
                     }
                 }
-                if write_cancelled.load(Ordering::Acquire) {
-                    return Err(());
+                // portable-pty's native writers are unbuffered. Once the final
+                // write succeeds, the full prompt (including Enter) may already
+                // be executing. A later stop or flush error cannot make retry safe.
+                if let Err(error) = writer.flush() {
+                    tracing::warn!(%error, "PTY flush failed after all input bytes were written");
                 }
-                writer.flush().map_err(|_| ())?;
-                if write_cancelled.load(Ordering::Acquire) {
-                    Err(())
-                } else {
-                    Ok(())
-                }
+                Ok(())
             })();
             if let Some(accepted) = accepted {
                 let _ = accepted.send(result);
@@ -1562,6 +1560,137 @@ mod tests {
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
+
+    struct GatedPtyWriter {
+        delivered: Arc<Mutex<Vec<u8>>>,
+        entered: Option<tokio::sync::oneshot::Sender<()>>,
+        released: std::sync::mpsc::Receiver<()>,
+        gate_on_flush: bool,
+        fail_flush: bool,
+        partial: bool,
+    }
+
+    impl GatedPtyWriter {
+        fn pause(&mut self) -> std::io::Result<()> {
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+                self.released
+                    .recv_timeout(Duration::from_secs(2))
+                    .map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, "writer gate timed out")
+                    })?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Write for GatedPtyWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let count = if self.partial { 1 } else { bytes.len() };
+            self.delivered
+                .lock()
+                .unwrap()
+                .extend_from_slice(&bytes[..count]);
+            if !self.gate_on_flush {
+                self.pause()?;
+            }
+            Ok(count)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.gate_on_flush {
+                self.pause()?;
+            }
+            if self.fail_flush {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "target exited",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_complete_prompt_cannot_become_retryable() {
+        for (gate_on_flush, fail_flush, cancel) in [
+            (false, false, true),
+            (true, false, true),
+            (true, true, false),
+        ] {
+            let delivered = Arc::new(Mutex::new(Vec::new()));
+            let (entered, entered_rx) = tokio::sync::oneshot::channel();
+            let (released, released_rx) = std::sync::mpsc::channel();
+            let (accepted, accepted_rx) = tokio::sync::oneshot::channel();
+            let mut write = PendingPtyWrite::start(
+                Box::new(GatedPtyWriter {
+                    delivered: delivered.clone(),
+                    entered: Some(entered),
+                    released: released_rx,
+                    gate_on_flush,
+                    fail_flush,
+                    partial: false,
+                }),
+                "work\r".into(),
+                Some(accepted),
+            );
+            tokio::time::timeout(Duration::from_secs(2), entered_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(*delivered.lock().unwrap(), b"work\r");
+            if cancel {
+                write.cancel();
+            }
+            released.send(()).unwrap();
+            let acknowledgement = tokio::time::timeout(Duration::from_secs(2), accepted_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            (&mut write.task).await.unwrap();
+            assert_eq!(
+                acknowledgement,
+                Ok(()),
+                "complete prompt must retain its reservation"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_cancellation_stops_incomplete_prompt() {
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let (entered, entered_rx) = tokio::sync::oneshot::channel();
+        let (released, released_rx) = std::sync::mpsc::channel();
+        let (accepted, accepted_rx) = tokio::sync::oneshot::channel();
+        let mut write = PendingPtyWrite::start(
+            Box::new(GatedPtyWriter {
+                delivered: delivered.clone(),
+                entered: Some(entered),
+                released: released_rx,
+                gate_on_flush: false,
+                fail_flush: false,
+                partial: true,
+            }),
+            "work\r".into(),
+            Some(accepted),
+        );
+        tokio::time::timeout(Duration::from_secs(2), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        write.cancel();
+        released.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), accepted_rx)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(())
+        );
+        (&mut write.task).await.unwrap();
+        assert_eq!(*delivered.lock().unwrap(), b"w");
+    }
 
     #[test]
     fn decode_output_chunk_preserves_split_utf8_banner_glyph() {

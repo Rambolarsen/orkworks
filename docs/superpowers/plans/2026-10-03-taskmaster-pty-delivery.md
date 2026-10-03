@@ -34,3 +34,11 @@ Project blind spot: an HTTP timeout is not a delivery cancellation. The existing
 ## Verification evidence
 
 The real-PTY output and stop regressions failed against the synchronous implementation and passed after the driver change. The HTTP cancellation regression failed before delivery finalization was detached and passed afterward. All 1,596 Rust unit tests and four reporter integration tests passed; three unit tests remain ignored. Rust build/format checks, the docs build, 17 Node checks, reporter shell diagnostics, and branch-policy checks passed. Independent `/code-review medium` found no actionable issues.
+
+## Review follow-up (substantial cycle 1/3)
+
+Current-head Codex review identified that cancellation after the final successful write could report failure despite a submitted prompt. A deterministic gated-writer regression reproduced the failure. Preserve the successful delivery acknowledgement after every byte has been written, including when cancellation races the return or flush; keep cancellation effective while bytes remain. The pinned portable-pty writers issue unbuffered native writes and have no-op flush methods on Unix and Windows. Full verification and fresh current-head reviews follow before merge.
+
+Linux CI exposed a native-write limitation: the stop event completed, but the input syscall remained blocked after the child and last slave closed. Local Linux reproduction confirmed the failed acknowledgement wait rather than a blocked stop. Keep the uncertain reservation, document that stop does not promise immediate retry on Linux, and run the verified stop/failure/retry regression on macOS. Unix output-backpressure and platform-neutral cancellation regressions continue to run on Linux. Revised macOS full-suite verification passed 1,598 unit tests and four reporter integration tests; fresh independent `/code-review medium` found no actionable issues.
+
+Local Linux targeted delivery tests passed (four eligible tests). The broader container run initially exposed invalid Git mount paths, missing orphan reaping, and an existing wrap-ingestion timeout; those checks passed in prior GitHub CI. A corrected container rerun progressed past Git/reaping checks, but the VM stopped before final results. GitHub CI remains the full Linux merge gate.
