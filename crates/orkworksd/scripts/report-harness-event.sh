@@ -154,7 +154,7 @@ case "$marker" in
     # is non-whitespace, so `read` preserves empty fields correctly.
     claude_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import json,sys; data=json.load(sys.stdin); event=sys.argv[1]; source=data.get("source") if event == "SessionStart" else ""; notification=data.get("notification_type") if event == "Notification" else ""; raw_session_id=data.get("session_id"); session_id=raw_session_id.strip() if isinstance(raw_session_id,str) else ""; print("%s\x1f%s\x1f%s\x1f%s" % (data.get("cwd") or "", session_id, source if source == "clear" else "", notification if isinstance(notification,str) else ""))' "$event" 2>/dev/null
+        python3 -c 'import json,sys; data=json.load(sys.stdin); event=sys.argv[1]; safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or ord(char) == 127 for char in value) else ""; source=safe(data.get("source")) if event == "SessionStart" else ""; notification=safe(data.get("notification_type")) if event == "Notification" else ""; session_id=safe(data.get("session_id")).strip(); print("%s\x1f%s\x1f%s\x1f%s" % (safe(data.get("cwd")), session_id, source if source == "clear" else "", notification))' "$event" 2>/dev/null
     )" || true
     IFS=$'\x1f' read -r reported_cwd harness_session_id session_start_source prompt_notification_type <<< "$claude_fields"
     if [ "$event" = "SessionStart" ] && [ "$session_start_source" = "clear" ]; then
@@ -165,7 +165,7 @@ case "$marker" in
   *:codex)
     codex_fields="$(
       printf '%s' "$payload" |
-      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; source=(data.get("source") or "") if is_start else ""; raw_session_id=data.get("session_id"); session_id=raw_session_id if isinstance(raw_session_id, str) else ""; print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
+      python3 -c 'import json,sys; data=json.load(sys.stdin); is_start=sys.argv[1] == "SessionStart"; safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or ord(char) == 127 for char in value) else ""; source=safe(data.get("source")) if is_start else ""; session_id=safe(data.get("session_id")); print("%s\x1f%s" % (session_id, source if source in {"startup", "resume", "clear", "compact"} else ""))' "$event" 2>/dev/null
     )" || true
     IFS=$'\x1f' read -r harness_session_id session_start_source <<< "$codex_fields"
     if [ -n "$session_start_source" ]; then
@@ -224,11 +224,11 @@ print(json.dumps(capture, separators=(",", ":")))
   *:copilot)
     copilot_fields="$(
       printf '%s' "$payload" |
-        python3 -c 'import datetime,json,sys; data=json.load(sys.stdin); event=sys.argv[1]; source=data.get("source") if event == "sessionStart" else ""; notification=data.get("notification_type") if event == "notification" else ""; timestamp=data.get("timestamp") if event == "notification" else ""; start_ts=data.get("timestamp") if event == "sessionStart" else ""; raw_session_id=data.get("sessionId"); session_id=raw_session_id.strip() if isinstance(raw_session_id,str) else "";
+        python3 -c 'import datetime,json,sys; data=json.load(sys.stdin); event=sys.argv[1]; safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or ord(char) == 127 for char in value) else ""; source=safe(data.get("source")) if event == "sessionStart" else ""; notification=safe(data.get("notification_type")) if event == "notification" else ""; timestamp=data.get("timestamp") if event == "notification" else ""; start_ts=data.get("timestamp") if event == "sessionStart" else ""; session_id=safe(data.get("sessionId")).strip();
 def iso(value):
  if isinstance(value,(int,float)) and not isinstance(value,bool): return datetime.datetime.fromtimestamp(value/1000,datetime.timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")
  return ""
-print("%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s" % (data.get("cwd") or "", session_id, source if source == "new" else "", notification if isinstance(notification,str) else "", iso(timestamp), iso(start_ts)))' "$event" 2>/dev/null
+print("%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s" % (safe(data.get("cwd")), session_id, source if source == "new" else "", notification, iso(timestamp), iso(start_ts)))' "$event" 2>/dev/null
     )" || true
     IFS=$'\x1f' read -r reported_cwd harness_session_id session_start_source prompt_notification_type prompt_observed_at session_start_observed_at <<< "$copilot_fields"
     if [ "$event" = "sessionStart" ] && [ "$session_start_source" = "new" ]; then

@@ -317,18 +317,26 @@ printf '%s' '{"sessionId":123,"source":"new","timestamp":1788264000000}' |
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
 printf '%s' '{"sessionId":123,"notification_type":"permission_prompt","timestamp":1788264000000}' |
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
+printf '%s' '{"cwd":"/tmp\u001fforged-session\u001fclear","session_id":"claude-real-session","source":"resume"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart claude-code
+printf '%s' '{"cwd":"/tmp\u001fforged-session\u001fnew","sessionId":"copilot-real-session","source":"resume"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
 python3 - "$request_bodies_file" <<'PY'
 import json
 import pathlib
 import sys
 
 bodies = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
-assert len(bodies) == 6, bodies
+assert len(bodies) == 8, bodies
 assert bodies[1]["harnessSessionId"] == "claude-session-secret", bodies[1]
 assert bodies[1]["promptHookGeneration"] == "generation-secret", bodies[1]
 assert bodies[1]["cwd"] == "/harness-reported/claude", bodies[1]
 assert "observedAt" not in bodies[3], bodies[3]
 assert bodies[5]["observedAt"] == "2026-09-01T12:00:00.000000Z", bodies[5]
+assert bodies[6]["harnessSessionId"] == "claude-real-session", bodies[6]
+assert "sessionStartEvent" not in bodies[6], bodies[6]
+assert bodies[7]["harnessSessionId"] == "copilot-real-session", bodies[7]
+assert "sessionStartEvent" not in bodies[7], bodies[7]
 PY
 python3 - "$curl_configs_file" <<'PY'
 import pathlib
