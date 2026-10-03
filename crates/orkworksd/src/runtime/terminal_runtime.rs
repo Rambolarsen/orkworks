@@ -595,6 +595,44 @@ pub(crate) async fn submit_approved_input(
     result
 }
 
+/// Uses the runtime selected at approval, never a sender resolved after resume.
+pub(crate) async fn submit_approved_input_to_runtime(
+    state: &Arc<AppState>,
+    id: &str,
+    identity: &crate::runtime::session_runtime::RuntimeIdentity,
+    control_tx: &tokio::sync::mpsc::Sender<crate::runtime::session_runtime::RuntimeCommand>,
+    data: String,
+) -> Result<(), ()> {
+    let pending = with_current_runtime_input(state, id, identity, || {
+        capture_pending_terminal_input(state, id, data.clone())
+    })
+    .ok_or(())?;
+    let result =
+        crate::runtime::session_runtime::send_runtime_input_to_sender(control_tx, data).await;
+    with_current_runtime_input(state, id, identity, || {
+        record_input_after_delivery(state, id, Some(&pending), &result);
+    });
+    result
+}
+
+fn with_current_runtime_input<T>(
+    state: &Arc<AppState>,
+    id: &str,
+    identity: &crate::runtime::session_runtime::RuntimeIdentity,
+    apply: impl FnOnce() -> T,
+) -> Option<T> {
+    // Resume admission and workspace replacement share this projection gate.
+    // Keep it across validation and all synchronous effect sinks, never I/O.
+    let _projection = state.projection_lock.lock().unwrap();
+    let owns_runtime = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(id)
+        .is_some_and(|handle| handle.runtime.matches_identity(identity));
+    owns_runtime.then(apply)
+}
+
 /// Test-only convenience wrapper that live-checks sensitivity against the
 /// current output buffer, bypassing the snapshot-before-dispatch that
 /// production callers must use (see `record_peon_input_side_effects`) since
@@ -1288,6 +1326,71 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
+
+    #[test]
+    fn pty_delivery_bookkeeping_finishes_before_resume_replaces_generation() {
+        let id = "bookkeeping-resume";
+        let (state, _root) = prompted_session_state(id);
+        let (identity, replacement) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let original = sessions.get_mut(id).unwrap();
+            original.info.lifecycle_phase = "ended".into();
+            let identity = original.runtime.identity();
+            let (kill_tx, _) = tokio::sync::watch::channel(false);
+            let replacement = crate::SessionHandle {
+                info: original.info.clone(),
+                kill_tx,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(24, 80),
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            };
+            (identity, replacement)
+        };
+        let (entered, entered_rx) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let input_state = state.clone();
+        let input_identity = identity.clone();
+        let input = std::thread::spawn(move || {
+            with_current_runtime_input(&input_state, id, &input_identity, || {
+                entered.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                // The identity validated for accepted-input effects must still
+                // own the session when those synchronous effects are applied.
+                input_state.sessions.lock().unwrap()[id].runtime.identity()
+            })
+        });
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (resumed, resumed_rx) = std::sync::mpsc::channel();
+        let resume_state = state.clone();
+        let generation = identity.run_generation;
+        let resume = std::thread::spawn(move || {
+            let admission = crate::session_application::try_install_claimed_resume_handle(
+                &resume_state,
+                id,
+                replacement,
+                true,
+                Some(generation),
+            )
+            .unwrap();
+            admission.commit();
+            resumed.send(()).unwrap();
+        });
+        let replaced_during_effects = resumed_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        release.send(()).unwrap();
+        let effect_identity = input.join().unwrap().unwrap();
+        resume.join().unwrap();
+        assert!(
+            !replaced_during_effects,
+            "resume replaced the checked runtime during input effects"
+        );
+        assert_eq!(effect_identity, identity);
+        assert!(with_current_runtime_input(&state, id, &identity, || ()).is_none());
+    }
 
     fn prompted_session_state(session_id: &str) -> (Arc<crate::AppState>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

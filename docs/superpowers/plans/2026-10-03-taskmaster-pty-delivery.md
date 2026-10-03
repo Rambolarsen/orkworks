@@ -42,3 +42,32 @@ Current-head Codex review identified that cancellation after the final successfu
 Linux CI exposed a native-write limitation: the stop event completed, but the input syscall remained blocked after the child and last slave closed. Local Linux reproduction confirmed the failed acknowledgement wait rather than a blocked stop. Keep the uncertain reservation, document that stop does not promise immediate retry on Linux, and run the verified stop/failure/retry regression on macOS. Unix output-backpressure and platform-neutral cancellation regressions continue to run on Linux. Revised macOS full-suite verification passed 1,598 unit tests and four reporter integration tests; fresh independent `/code-review medium` found no actionable issues.
 
 Local Linux targeted delivery tests passed (four eligible tests). The broader container run initially exposed invalid Git mount paths, missing orphan reaping, and an existing wrap-ingestion timeout; those checks passed in prior GitHub CI. A corrected container rerun progressed past Git/reaping checks, but the VM stopped before final results. GitHub CI remains the full Linux merge gate.
+
+## Delivery identity follow-up (substantial cycle 2/3)
+
+Copilot identified lookup-by-session-ID dispatch after reservation and loss of finalization across a same-workspace reopen. Capture the original runtime sender and identity at reservation; use the captured sender and gate live input side effects by identity. Bind finalization to workspace path plus a weak advisory-lease reference, preserving same-workspace reopens while rejecting actual replacements without retaining the old lease. Unleased test stores retain instance identity checks. Regressions delay dispatch across runtime replacement and reopen the live workspace before write acknowledgement.
+
+Current-head review cycle 2: verified and fixed stop publication before startup
+subscription and the driver-check/writer-dispatch race. Both regressions failed
+before the fixes and passed after. The blocking writer reads the shared watch
+at admission; a previously admitted native call remains uncertain until return.
+The accepted-input generation-check race also reproduced; input bookkeeping and
+resume admission/rollback now share the existing projection gate, held only
+through synchronous effects and released before awaiting delivery.
+
+Codex original-store suggestion is only applicable while the original advisory
+lease remains active. Same-workspace reopen preserves that lease and is covered
+by the new finalization regression. Finalizing after genuine lease release would
+violate ADR 0052's exclusive metadata ownership and Taskmaster's rejection of
+late/cross-workspace results; ADR 0060's genuine switch closes the old sidecar
+before opening the destination. The reacquired-lease regression verifies late
+results do not mutate the new owner. Missing-target recovery remains the
+documented path for abandoned reservations; no old-store write bypass is added.
+
+Cycle 2 final validation: all 11 delivery regressions and the existing staged
+resume-cancellation regression passed. The final full macOS run passed 1,604
+unit tests (3 ignored) and 4 reporter integration tests. Rust production build,
+format check, diff whitespace check, and documentation build passed. Fresh
+independent `/code-review medium` approved the revised diff with no required
+changes. Its optional startup write logging suggestion does not affect the
+delivery reservation or lifecycle guarantees and is not a merge blocker.

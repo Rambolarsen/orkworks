@@ -249,6 +249,7 @@ impl PendingPtyWrite {
         mut writer: Box<dyn Write + Send>,
         data: String,
         accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+        stop_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Self {
         let cancelled = Arc::new(AtomicBool::new(false));
         let write_cancelled = cancelled.clone();
@@ -256,7 +257,10 @@ impl PendingPtyWrite {
             let result = (|| {
                 let mut remaining = data.as_bytes();
                 while !remaining.is_empty() {
-                    if write_cancelled.load(Ordering::Acquire) {
+                    // Admission reads the shared stop state on the blocking
+                    // worker; the async driver's last observation may be stale.
+                    // Release the watch read lock before entering native I/O.
+                    if *stop_rx.borrow() || write_cancelled.load(Ordering::Acquire) {
                         return Err(());
                     }
                     match writer.write(remaining) {
@@ -648,7 +652,8 @@ pub(crate) async fn send_runtime_command(
         let sessions = state.sessions.lock().unwrap();
         let handle = sessions.get(id).ok_or(())?;
         if matches!(command, RuntimeCommand::Kill) {
-            return handle.kill_tx.send(true).map_err(|_| ());
+            handle.kill_tx.send_replace(true);
+            return Ok(());
         }
         handle.runtime.control_tx.clone()
     };
@@ -667,6 +672,13 @@ pub(crate) async fn send_runtime_input(
             .map(|handle| handle.runtime.control_tx.clone())
     }
     .ok_or(())?;
+    send_runtime_input_to_sender(&tx, data).await
+}
+
+pub(crate) async fn send_runtime_input_to_sender(
+    tx: &mpsc::Sender<RuntimeCommand>,
+    data: String,
+) -> Result<(), ()> {
     let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
     tx.send(RuntimeCommand::Input {
         data,
@@ -1198,6 +1210,7 @@ pub(crate) async fn start_session_runtime(
                                 writer.take().expect("idle PTY writer must be available"),
                                 data,
                                 accepted,
+                                kill_rx.clone(),
                             ));
                         }
                         RuntimeCommand::Resize { rows, cols } => {
@@ -1634,6 +1647,7 @@ mod tests {
                 }),
                 "work\r".into(),
                 Some(accepted),
+                tokio::sync::watch::channel(false).1,
             );
             tokio::time::timeout(Duration::from_secs(2), entered_rx)
                 .await
@@ -1674,6 +1688,7 @@ mod tests {
             }),
             "work\r".into(),
             Some(accepted),
+            tokio::sync::watch::channel(false).1,
         );
         tokio::time::timeout(Duration::from_secs(2), entered_rx)
             .await
@@ -1690,6 +1705,45 @@ mod tests {
         );
         (&mut write.task).await.unwrap();
         assert_eq!(*delivered.lock().unwrap(), b"w");
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_stop_before_writer_dispatch_rejects_input() {
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        stop_tx.send_replace(true);
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let (_, released_rx) = std::sync::mpsc::channel();
+        let (accepted, accepted_rx) = tokio::sync::oneshot::channel();
+        let mut write = PendingPtyWrite::start(
+            Box::new(GatedPtyWriter {
+                delivered: delivered.clone(),
+                entered: None,
+                released: released_rx,
+                gate_on_flush: false,
+                fail_flush: false,
+                partial: false,
+            }),
+            "work\r".into(),
+            Some(accepted),
+            stop_rx,
+        );
+        assert_eq!(accepted_rx.await.unwrap(), Err(()));
+        (&mut write.task).await.unwrap();
+        assert!(delivered.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn pty_delivery_stop_is_retained_before_startup_subscribes() {
+        let id = "stop-before-startup";
+        let state = test_state_with_runtime_session(id);
+        assert_eq!(
+            send_runtime_command(&state, id, RuntimeCommand::Kill).await,
+            Ok(())
+        );
+        assert!(*state.sessions.lock().unwrap()[id]
+            .kill_tx
+            .subscribe()
+            .borrow());
     }
 
     #[test]

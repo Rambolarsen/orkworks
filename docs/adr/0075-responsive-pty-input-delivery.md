@@ -16,7 +16,11 @@ The user approved fixing delivery, stopping, and safe retry in this session.
 Run at most one PTY write at a time on the blocking pool. The session driver
 continues draining output, persisting history, and observing its independent
 stop channel while the write runs. Input and resize commands remain ordered;
-queued input is rejected after stopping. Apply this to initial, startup-buffered,
+queued input is rejected after stopping. Every blocking writer checks the shared
+stop watch at write admission, even if the async driver has not observed the
+notification yet. Admission linearizes at this check; a native call already
+admitted may finish after stop. Do not hold the watch read lock during native
+I/O. Publish stop with `send_replace` so it survives startup without subscribers. Apply this to initial, startup-buffered,
 and live input alike. Keep the existing bounded control queue.
 
 The blocking write owns its delivery acknowledgement until the OS operation
@@ -27,6 +31,21 @@ write succeeds, acknowledge delivery even if stop, child exit, or a flush error
 follows. Those events cannot prove that the complete prompt was not submitted. A frontend timeout cannot release a
 recommendation reservation or authorize duplicate input. The existing delivery
 failure rollback releases it only after the writer has reached a final result.
+Capture the selected runtime identity and control sender during the approval
+reservation. Dispatch through that sender and record live input effects only
+while that generation still owns the session. Hold the existing projection gate
+across identity validation and synchronous input bookkeeping; resume admission
+and rollback take the same gate before replacing a runtime. Release it before
+awaiting PTY delivery. A resumed runtime must never
+receive an old approval.
+
+Bind finalization to the original workspace path and a weak reference to its
+advisory lease. Same-workspace reopens preserve the lease and remain eligible
+for finalization, even though their observation store instance changes. A
+replacement lease or different workspace rejects stale finalization. The weak
+reference must not keep a switched-away workspace locked. Unleased test stores
+use their instance identity as a fallback.
+
 No automatic retry, session creation, or recommendation completion is added.
 
 ## Consequences
