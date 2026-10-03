@@ -51,6 +51,7 @@ struct SessionAuthority {
     epoch: u64,
     reset: Option<ResetReservation>,
     reset_retry_scheduled: bool,
+    reset_retry_requested: bool,
 }
 
 /// Process-local prompt authority for Claude Code and GitHub Copilot CLI.
@@ -514,17 +515,32 @@ impl PromptAuthorityRegistry {
         let pending = entry.reset.as_ref().is_some_and(|reset| {
             reset.acknowledged && (!reset.epoch_committed || reset.queued_prompt_wait.is_some())
         });
-        if !pending || entry.reset_retry_scheduled {
+        if !pending {
+            return false;
+        }
+        if entry.reset_retry_scheduled {
+            entry.reset_retry_requested = true;
             return false;
         }
         entry.reset_retry_scheduled = true;
         true
     }
 
-    pub(crate) fn finish_reset_retry(&self, session_id: &str) {
-        if let Some(entry) = self.sessions.lock().unwrap().get_mut(session_id) {
-            entry.reset_retry_scheduled = false;
+    pub(crate) fn finish_reset_retry(&self, session_id: &str) -> bool {
+        let mut sessions = self.sessions.lock().unwrap();
+        let Some(entry) = sessions.get_mut(session_id) else {
+            return false;
+        };
+        let pending = entry.reset.as_ref().is_some_and(|reset| {
+            reset.acknowledged && (!reset.epoch_committed || reset.queued_prompt_wait.is_some())
+        });
+        if pending && entry.reset_retry_requested {
+            entry.reset_retry_requested = false;
+            return true;
         }
+        entry.reset_retry_scheduled = false;
+        entry.reset_retry_requested = false;
+        false
     }
 
     pub(crate) fn revoke(&self, session_id: &str, generation: &str) {
@@ -745,6 +761,20 @@ mod tests {
         assert!(registry.native_id_matches("session", "claude-code", "generation", "new"));
         assert!(registry.finish_queued_prompt_wait("session", 1));
         assert!(!registry.identity_reset_pending("session"));
+    }
+
+    #[test]
+    fn finished_reset_retry_can_be_reclaimed_while_reset_remains_pending() {
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id("session", "claude-code", "generation", Some("old"));
+        assert!(registry.reserve_reset("session", "claude-code", "/clear"));
+        assert!(registry.acknowledge_reset("session").is_some());
+
+        assert!(registry.schedule_reset_retry("session"));
+        assert!(!registry.schedule_reset_retry("session"));
+        assert!(registry.finish_reset_retry("session"));
+        assert!(!registry.finish_reset_retry("session"));
+        assert!(registry.schedule_reset_retry("session"));
     }
 
     #[test]

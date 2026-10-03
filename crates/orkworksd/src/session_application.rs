@@ -2360,13 +2360,25 @@ impl SessionApplication {
     }
 
     pub(crate) fn commit_prompt_identity_reset(&self, id: &str) {
+        self.commit_prompt_identity_reset_with_retry(id, true);
+    }
+
+    fn commit_prompt_identity_reset_with_retry(&self, id: &str, schedule_retry: bool) {
         let _transition = crate::runtime::prompt_authority::transition_lock()
             .lock()
             .unwrap();
-        self.commit_prompt_identity_reset_under_transition(id);
+        self.commit_prompt_identity_reset_under_transition_with_retry(id, schedule_retry);
     }
 
     pub(crate) fn commit_prompt_identity_reset_under_transition(&self, id: &str) {
+        self.commit_prompt_identity_reset_under_transition_with_retry(id, true);
+    }
+
+    fn commit_prompt_identity_reset_under_transition_with_retry(
+        &self,
+        id: &str,
+        schedule_retry: bool,
+    ) {
         let Some(candidate) = crate::runtime::prompt_authority::registry().acknowledge_reset(id)
         else {
             return;
@@ -2419,7 +2431,7 @@ impl SessionApplication {
                     .is_some_and(|persisted_id| persisted_id == native_session_id);
             }
             if !persisted_candidate {
-                self.mark_prompt_identity_reset_pending(id);
+                self.mark_prompt_identity_reset_pending(id, schedule_retry);
                 return;
             }
         } else {
@@ -2437,7 +2449,7 @@ impl SessionApplication {
                         | metadata::AttentionMergeResult::Ignored
                 )
             ) {
-                self.mark_prompt_identity_reset_pending(id);
+                self.mark_prompt_identity_reset_pending(id, schedule_retry);
                 return;
             }
             if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
@@ -2447,7 +2459,7 @@ impl SessionApplication {
             }
         }
         if self.clear_prompt_authority_tuple(id).is_err() {
-            self.mark_prompt_identity_reset_pending(id);
+            self.mark_prompt_identity_reset_pending(id, schedule_retry);
             return;
         }
         let Some(commit) = crate::runtime::prompt_authority::registry().complete_reset(id) else {
@@ -2457,13 +2469,13 @@ impl SessionApplication {
             if self.apply_queued_prompt_wait(id, &queued) {
                 crate::runtime::prompt_authority::registry()
                     .finish_queued_prompt_wait(id, queued.receipt_sequence);
-            } else {
+            } else if schedule_retry {
                 self.schedule_prompt_identity_reset_retry(id);
             }
         }
     }
 
-    fn mark_prompt_identity_reset_pending(&self, id: &str) {
+    fn mark_prompt_identity_reset_pending(&self, id: &str, schedule_retry: bool) {
         crate::runtime::prompt_authority::registry().deactivate_for_reset(id);
         let preserve_user_tuple = self
             .state
@@ -2484,7 +2496,9 @@ impl SessionApplication {
                 handle.runtime.active_prompt_kind = None;
             }
         }
-        self.schedule_prompt_identity_reset_retry(id);
+        if schedule_retry {
+            self.schedule_prompt_identity_reset_retry(id);
+        }
     }
 
     fn schedule_prompt_identity_reset_retry(&self, id: &str) {
@@ -2499,14 +2513,21 @@ impl SessionApplication {
         let state = self.state.clone();
         let session_id = id.to_string();
         runtime.spawn(async move {
-            for delay_ms in [100, 250, 500, 1_000, 1_000, 1_000, 1_000, 1_000] {
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                if !crate::runtime::prompt_authority::registry().reset_commit_pending(&session_id) {
+            loop {
+                for delay_ms in [100, 250, 500, 1_000, 1_000, 1_000, 1_000, 1_000] {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    if !crate::runtime::prompt_authority::registry()
+                        .reset_commit_pending(&session_id)
+                    {
+                        break;
+                    }
+                    SessionApplication::new(state.clone())
+                        .commit_prompt_identity_reset_with_retry(&session_id, false);
+                }
+                if !crate::runtime::prompt_authority::registry().finish_reset_retry(&session_id) {
                     break;
                 }
-                SessionApplication::new(state.clone()).commit_prompt_identity_reset(&session_id);
             }
-            crate::runtime::prompt_authority::registry().finish_reset_retry(&session_id);
         });
     }
 
