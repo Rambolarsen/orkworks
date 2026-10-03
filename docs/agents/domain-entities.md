@@ -50,6 +50,14 @@ File: `crates/orkworksd/src/metadata.rs`
   3. **Frozen launch-time `cwd`** — the fallback when neither of the above is available.
   Aider, Codex, and OpenCode sessions currently only get tiers 2–3 — Codex's generated/local hooks capture `harness_session_id` and deterministic turn attention but do not report `cwd`; Aider's notifications-command integration reports attention but not `cwd`, and OpenCode's plugin reports session ID plus attention events (idle/permission/busy, issue #104) but not `cwd` (remaining gaps tracked as issues #103/#104).
 - `resume`, `resume_options`, `resumed_from`, `harness_session_id_source/confidence/captured_at`
+- `lineChanges` is an optional **API-only** Git-context projection containing
+  `additions` and `deletions` for live uncommitted text changes against `HEAD`,
+  including staged/unstaged changes and non-ignored new files (empty-tree
+  baseline before the first commit). It is not persisted in `SessionMetadata`.
+  Binary files contribute no lines; failed statistics are omitted rather than
+  presented as zero. Listings reuse Git context per discovered worktree root,
+  including sessions in different subdirectories, and refresh it next listing.
+  These are worktree totals, shared across sessions, not session authorship.
 - `last_user_input`
 
 `normalize_session_metadata` runs on every read to backfill defaults and reconcile `lifecycle`/`lifecycle_phase` drift between old and new records.

@@ -941,6 +941,7 @@ mod tests {
                 branch: Some("test-branch".into()),
                 dirty: true,
                 changed_files: 2,
+                line_changes: None,
                 is_worktree: cwd == std::path::Path::new(separate),
             }
         });
@@ -980,6 +981,7 @@ mod tests {
                 branch: Some(format!("branch-for-{}", cwd.display())),
                 dirty: false,
                 changed_files: 0,
+                line_changes: None,
                 is_worktree: false,
             }
         });
@@ -1012,6 +1014,7 @@ mod tests {
             branch: None,
             dirty: false,
             changed_files: 0,
+            line_changes: None,
             is_worktree: false,
         });
 

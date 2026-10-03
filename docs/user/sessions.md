@@ -29,6 +29,14 @@ The session details keep its working directory and Git context near the
 conversation. OrkWorks shows context; your existing tools still create
 branches, manage worktrees, and merge changes.
 
+In current source builds, the Details Git row shows live uncommitted changes,
+for example **3 files · +124 −37**: changed files, added lines, and removed
+lines. It includes staged edits, unstaged edits, and non-ignored new files.
+Binary files count toward files but contribute no lines. Sessions sharing a
+worktree show the same totals; the counter does not identify which agent made
+each edit. Committing or undoing changes updates the counter on the next
+session refresh. Line totals are omitted when they cannot be read.
+
 ## Scroll a terminal
 
 Use the mouse wheel or scrollbar to look back through terminal history. Some

@@ -466,15 +466,19 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
     let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
     for info in infos.iter_mut() {
         let cwd = cwd_for(info);
+        let git_cwd = git::worktree_root(std::path::Path::new(&cwd))
+            .map(|root| root.display().to_string())
+            .unwrap_or_else(|| cwd.clone());
         let ctx = contexts
-            .entry(cwd.clone())
-            .or_insert_with(|| detect_git(std::path::Path::new(&cwd)));
+            .entry(git_cwd.clone())
+            .or_insert_with(|| detect_git(std::path::Path::new(&git_cwd)));
         let count = cwd_counts.get(&cwd).copied().unwrap_or(1);
         info.recommendation = session_recommendation(ctx, count);
         info.repo_root = ctx.repo_root.clone();
         info.branch = ctx.branch.clone();
         info.dirty = Some(ctx.dirty);
         info.changed_files = Some(ctx.changed_files);
+        info.line_changes = ctx.line_changes;
         info.is_worktree = Some(ctx.is_worktree);
     }
 }

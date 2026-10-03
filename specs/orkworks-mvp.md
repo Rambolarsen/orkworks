@@ -91,11 +91,23 @@ OrkWorks should detect and display Git context for each terminal session:
 - whether the directory is a Git worktree
 - whether the working tree is dirty
 - changed file count
+- live added/removed line counts for uncommitted changes
 - changed files where practical
 - relationship between multiple sessions in the same repo
 - whether multiple sessions are sharing the same working directory
 
 OrkWorks may use this context for recommendations.
+
+The session Details Git row shows current uncommitted changes as, for example,
+`3 files · +124 −37`. Compare the working tree against `HEAD`, accounting for
+staged and unstaged changes together without double counting, and include
+non-ignored untracked files. Before the first commit, use an empty-tree
+baseline. Binary files count as changed files but contribute no line totals.
+Clean repositories show zero line totals; unavailable statistics are omitted,
+never substituted with zero. Refresh through the existing session Git-context
+projection and reuse the diff for sessions sharing a worktree. These totals
+describe the worktree, not edits attributable to one session; sessions sharing
+a worktree show the same totals. No coding-tool status-line parsing is needed.
 
 Example recommendations:
 

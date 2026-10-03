@@ -402,18 +402,21 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
           )}
         </div>
 
-        {active.branch && (
+        {(active.repoRoot || active.branch) && (
           <div className="detail-fact-git">
             <span className="git-branch-chip">
               <GitBranch size={11} />
-              {active.branch}
+              {active.branch || "No commits yet"}
             </span>
             {active.isWorktree && <span className="git-worktree-tag">worktree</span>}
             <span className="git-state" data-state={active.dirty ? "dirty" : "clean"}>
               {active.dirty ? "dirty" : "clean"}
             </span>
-            {active.changedFiles !== undefined && active.changedFiles > 0 && (
-              <span className="git-changed">+{active.changedFiles} files</span>
+            {active.changedFiles != null && (
+              <span className="git-changed" title="Live uncommitted changes in this worktree, including staged edits and new files. Shared by sessions using this worktree.">
+                {`${active.changedFiles} ${active.changedFiles === 1 ? "file" : "files"}`}
+                {active.lineChanges && ` · +${active.lineChanges.additions} −${active.lineChanges.deletions}`}
+              </span>
             )}
           </div>
         )}

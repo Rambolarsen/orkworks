@@ -100,6 +100,7 @@ export interface SessionInfo {
   branch?: string;
   dirty?: boolean;
   changedFiles?: number;
+  lineChanges?: { additions: number; deletions: number };
   isWorktree?: boolean;
   conflictWarning?: string;
   recommendation?: string;
