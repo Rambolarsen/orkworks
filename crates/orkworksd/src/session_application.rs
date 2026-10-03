@@ -2555,6 +2555,123 @@ impl SessionApplication {
         });
     }
 
+    fn schedule_prompt_tuple_clear_retry(&self, id: &str) {
+        let workspace_path = self
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|workspace| workspace.path.clone());
+        let Some(workspace_path) = workspace_path else {
+            return;
+        };
+        let runtime_identity = {
+            let mut sessions = self.state.sessions.lock().unwrap();
+            let Some(handle) = sessions.get_mut(id).filter(|handle| {
+                handle.info.lifecycle == "alive" && handle.info.lifecycle_phase == "active"
+            }) else {
+                return;
+            };
+            if !handle.runtime.prompt_tuple_clear_pending
+                || handle.runtime.prompt_tuple_clear_retry_scheduled
+            {
+                return;
+            }
+            handle.runtime.prompt_tuple_clear_retry_scheduled = true;
+            handle.runtime.identity()
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                if handle.runtime.matches_identity(&runtime_identity) {
+                    handle.runtime.prompt_tuple_clear_retry_scheduled = false;
+                }
+            }
+            return;
+        };
+        let state = self.state.clone();
+        let session_id = id.to_string();
+        runtime.spawn(async move {
+            let mut delay = std::time::Duration::from_millis(250);
+            loop {
+                tokio::time::sleep(delay).await;
+                if !SessionApplication::new(state.clone()).retry_prompt_tuple_clear_once(
+                    &session_id,
+                    &runtime_identity,
+                    &workspace_path,
+                ) {
+                    break;
+                }
+                delay = (delay * 2).min(std::time::Duration::from_secs(5));
+            }
+        });
+    }
+
+    fn retry_prompt_tuple_clear_once(
+        &self,
+        id: &str,
+        runtime_identity: &crate::runtime::session_runtime::RuntimeIdentity,
+        workspace_path: &std::path::Path,
+    ) -> bool {
+        let _transition = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                if handle.runtime.matches_identity(runtime_identity) {
+                    handle.runtime.prompt_tuple_clear_retry_scheduled = false;
+                }
+            }
+            return false;
+        };
+        if workspace.path != workspace_path {
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                if handle.runtime.matches_identity(runtime_identity) {
+                    handle.runtime.prompt_tuple_clear_retry_scheduled = false;
+                }
+            }
+            return false;
+        }
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let Some(handle) = sessions.get_mut(id) else {
+            return false;
+        };
+        if !handle.runtime.matches_identity(runtime_identity)
+            || handle.info.lifecycle != "alive"
+            || handle.info.lifecycle_phase != "active"
+        {
+            if handle.runtime.matches_identity(runtime_identity) {
+                handle.runtime.prompt_tuple_clear_retry_scheduled = false;
+            }
+            return false;
+        }
+        if !handle.runtime.prompt_tuple_clear_pending {
+            handle.runtime.prompt_tuple_clear_retry_scheduled = false;
+            return false;
+        }
+        let user_owned = workspace
+            .metadata
+            .read_session(id)
+            .is_some_and(|metadata| metadata.metadata_source == "user");
+        if !user_owned
+            && !matches!(
+                workspace.metadata.clear_prompt_authority_tuple(id),
+                metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored
+            )
+        {
+            return true;
+        }
+        handle.runtime.prompt_tuple_clear_pending = false;
+        handle.runtime.prompt_tuple_clear_retry_scheduled = false;
+        drop(sessions);
+        drop(workspace_guard);
+        if crate::runtime::prompt_authority::registry().reset_commit_pending(id) {
+            self.commit_prompt_identity_reset_under_transition_with_retry(id, true);
+        }
+        false
+    }
+
     fn apply_queued_prompt_wait(
         &self,
         id: &str,
@@ -2687,11 +2804,11 @@ impl SessionApplication {
         &self,
         snapshot: PromptAuthorityRevokeSnapshot,
     ) -> Result<(), SessionError> {
-        let _transition = crate::runtime::prompt_authority::transition_lock()
+        let transition = crate::runtime::prompt_authority::transition_lock()
             .lock()
             .unwrap();
-        let workspace = self.state.workspace.lock().unwrap();
-        let Some(workspace) = workspace.as_ref() else {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
             return Ok(());
         };
         if workspace.path != snapshot.workspace_path {
@@ -2699,6 +2816,7 @@ impl SessionApplication {
         }
         let mut sessions = self.state.sessions.lock().unwrap();
         let mut persistence_failed = false;
+        let mut retry_ids = Vec::new();
         for (session_id, harness_id, generation) in snapshot.targets {
             let Some(handle) = sessions.get_mut(&session_id).filter(|handle| {
                 handle.info.harness_id.as_deref() == Some(harness_id.as_str())
@@ -2728,6 +2846,7 @@ impl SessionApplication {
                 ) {
                     handle.runtime.prompt_tuple_clear_pending = true;
                     persistence_failed = true;
+                    retry_ids.push(session_id.clone());
                 }
                 handle.info.observed_status = None;
                 handle.info.attention = None;
@@ -2736,6 +2855,12 @@ impl SessionApplication {
                 handle.info.suggested_options = None;
                 handle.runtime.active_prompt_kind = None;
             }
+        }
+        drop(sessions);
+        drop(workspace_guard);
+        drop(transition);
+        for session_id in retry_ids {
+            self.schedule_prompt_tuple_clear_retry(&session_id);
         }
         if persistence_failed {
             Err(SessionError::Internal("application operation failed"))
@@ -3834,45 +3959,75 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
-        let hook_receipt_sequence = {
+        let (protected_prompt_harness, hook_receipt_sequence) = {
             let _transition = crate::runtime::prompt_authority::transition_lock()
                 .lock()
                 .unwrap();
             let mut sessions = self.state.sessions.lock().unwrap();
-            sessions.get_mut(id).and_then(|handle| {
-                matches!(
-                    handle
+            let protected = sessions
+                .get_mut(id)
+                .and_then(|handle| {
+                    let harness = handle
                         .info
                         .harness_id
                         .as_deref()
-                        .or(handle.info.harness.as_deref()),
-                    Some("claude-code" | "copilot")
-                )
-                .then(|| {
-                    handle.runtime.hook_receipt_sequence =
-                        handle.runtime.hook_receipt_sequence.saturating_add(1);
-                    handle.runtime.hook_receipt_sequence
+                        .or(handle.info.harness.as_deref());
+                    let protected = matches!(harness, Some("claude-code" | "copilot"));
+                    let active_work_hook = handle.active_work_hook;
+                    let sequence = if protected {
+                        handle.runtime.hook_receipt_sequence =
+                            handle.runtime.hook_receipt_sequence.saturating_add(1);
+                        Some(handle.runtime.hook_receipt_sequence)
+                    } else {
+                        None
+                    };
+                    Some((
+                        protected,
+                        harness == Some("claude-code"),
+                        active_work_hook,
+                        sequence,
+                    ))
                 })
-            })
+                .unwrap_or((false, false, false, None));
+            drop(sessions);
+            let (protected_prompt_harness, claude_harness, active_work_hook, hook_receipt_sequence) =
+                protected;
+            if protected_prompt_harness {
+                if crate::runtime::prompt_authority::registry().is_active(id) {
+                    return Err(SessionError::EmptyBadRequest);
+                }
+                if claude_harness
+                    && active_work_hook
+                    && signal.source.is_none()
+                    && signal.status == "working"
+                {
+                    let observed_at = signal
+                        .observed_at
+                        .as_deref()
+                        .map(parse_hook_observed_at)
+                        .transpose()
+                        .map_err(|_| SessionError::EmptyBadRequest)?
+                        .ok_or(SessionError::EmptyBadRequest)?;
+                    let accepted_input_at = self
+                        .state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get(id)
+                        .and_then(|handle| handle.runtime.accepted_input_at);
+                    if accepted_input_at.is_some_and(|accepted_at| observed_at <= accepted_at) {
+                        return self
+                            .workspace_exists()
+                            .then_some(())
+                            .ok_or(SessionError::Conflict);
+                    }
+                    clear_claude_capacity_after_working(&self.state, id, observed_at);
+                    return Ok(());
+                }
+            }
+            (protected_prompt_harness, hook_receipt_sequence)
         };
-        if crate::runtime::prompt_authority::registry().is_active(id)
-            && self
-                .state
-                .sessions
-                .lock()
-                .unwrap()
-                .get(id)
-                .is_some_and(|handle| {
-                    matches!(
-                        handle
-                            .info
-                            .harness_id
-                            .as_deref()
-                            .or(handle.info.harness.as_deref()),
-                        Some("claude-code" | "copilot")
-                    )
-                })
-        {
+        if protected_prompt_harness {
             return Err(SessionError::EmptyBadRequest);
         }
         let opencode_hook = signal.source.as_deref() == Some("opencode_hook");
@@ -4322,7 +4477,7 @@ impl SessionApplication {
                 "Too many coding tools were selected.",
             ));
         }
-        let _projection = self
+        let projection = self
             .state
             .projection_lock
             .lock()
@@ -4330,7 +4485,7 @@ impl SessionApplication {
         // Terminal-input effect callbacks hold `projection_lock` while they
         // update prompt authority. Keep this order consistent so harness
         // selection cannot hold the transition lock while waiting for input.
-        let _transition = crate::runtime::prompt_authority::transition_lock()
+        let transition = crate::runtime::prompt_authority::transition_lock()
             .lock()
             .unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
@@ -4348,7 +4503,7 @@ impl SessionApplication {
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
-        let mut canonical_active_harness_ids = Vec::with_capacity(active_harness_ids.len());
+        let mut canonical_active_harness_ids = Vec::with_capacity(MAX_ACTIVE_HARNESS_IDS);
         for id in &active_harness_ids {
             let Some(harness) = registry.get(id) else {
                 return Err(SessionError::BadRequest(
@@ -4369,6 +4524,7 @@ impl SessionApplication {
             active_harness_revision: existing.active_harness_revision.saturating_add(1),
         };
         let mut revocation_persistence_failed = false;
+        let mut retry_ids = Vec::new();
         for disabled_harness in existing.active_harness_ids.iter().filter(|id| {
             matches!(id.as_str(), "claude-code" | "copilot")
                 && !memory.active_harness_ids.contains(id)
@@ -4397,6 +4553,7 @@ impl SessionApplication {
                         ) {
                             handle.runtime.prompt_tuple_clear_pending = true;
                             revocation_persistence_failed = true;
+                            retry_ids.push(session_id.clone());
                         }
                         handle.info.observed_status = None;
                         handle.info.attention = None;
@@ -4409,6 +4566,12 @@ impl SessionApplication {
             }
         }
         workspace.metadata.write_workspace_memory(&memory);
+        drop(workspace_guard);
+        drop(transition);
+        drop(projection);
+        for session_id in retry_ids {
+            self.schedule_prompt_tuple_clear_retry(&session_id);
+        }
         if revocation_persistence_failed {
             return Err(SessionError::Internal("application operation failed"));
         }
@@ -6200,6 +6363,73 @@ mod tests {
             plan_path: metadata::PlanPathUpdate::Unchanged,
             cwd: None,
             hook_fingerprint: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn generic_attention_is_rejected_for_claude_and_copilot_before_activation() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let authority = crate::runtime::prompt_authority::registry();
+
+        for harness in ["claude-code", "copilot"] {
+            let id = format!("generic-attention-{harness}");
+            let mut metadata = crate::test_support::test_session_metadata(
+                &id,
+                "Prompt hook session",
+                &root.path().display().to_string(),
+                "running",
+                "before",
+                "before",
+            );
+            metadata.harness = harness.into();
+            metadata.lifecycle = "alive".into();
+            metadata.lifecycle_phase = "active".into();
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let mut handle = attention_test_handle(&id, root.path());
+            handle.info.harness = Some(harness.into());
+            handle.info.harness_id = Some(harness.into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            state.sessions.lock().unwrap().insert(id.clone(), handle);
+
+            let result = application
+                .report_attention(
+                    &id,
+                    AttentionSignal {
+                        status: "waiting_for_input".into(),
+                        event: None,
+                        source: None,
+                        report_token: None,
+                        observed_at: None,
+                        message: Some("source-less legacy wait".into()),
+                        plan_path: metadata::PlanPathUpdate::Unchanged,
+                        cwd: None,
+                        hook_fingerprint: None,
+                    },
+                )
+                .await;
+
+            assert_eq!(result, Err(SessionError::EmptyBadRequest), "{harness}");
+            let saved = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&id)
+                .unwrap();
+            assert!(saved.observed_status.is_none(), "{harness}");
+            authority.remove(&id);
         }
     }
 
@@ -13768,8 +13998,8 @@ mod tests {
         authority.remove(id);
     }
 
-    #[test]
-    fn failed_prompt_authority_demotion_revokes_now_and_retries_tuple_clear() {
+    #[tokio::test]
+    async fn failed_prompt_authority_demotion_revokes_now_and_retries_tuple_clear_without_peon() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "prompt-authority-revoke-write-fails";
@@ -13875,7 +14105,24 @@ mod tests {
                 .prompt_tuple_clear_pending
         );
         std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
-        application.persist_peon_observation(id, None, None, None, "now");
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let cleared = !state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(id)
+                    .unwrap()
+                    .runtime
+                    .prompt_tuple_clear_pending;
+                if cleared {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("authority retry clears revoked attention without a Peon observation");
         let saved = state
             .workspace
             .lock()

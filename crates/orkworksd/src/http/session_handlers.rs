@@ -836,6 +836,9 @@ async fn report_harness_session_inner(
         metadata::HarnessSessionMergeResult::Invalid => {
             axum::http::StatusCode::BAD_REQUEST.into_response()
         }
+        metadata::HarnessSessionMergeResult::PersistFailed => {
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -1839,6 +1842,48 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn harness_session_report_returns_500_when_native_id_persistence_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&test_session_metadata(
+                "native-id-persist-fail",
+                "OpenCode",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            ));
+            std::fs::create_dir_all(store.sessions_dir().join("native-id-persist-fail.json.tmp"))
+                .unwrap();
+        }
+
+        let response = report_harness_session(
+            State(state),
+            Path("native-id-persist-fail".into()),
+            Json(HarnessSessionReportRequest {
+                harness_session_id: "native-session".into(),
+                source: "opencode_env".into(),
+                confidence: 0.98,
+                hook_fingerprint: None,
+                session_start_source: None,
+                session_start_event: None,
+                prompt_hook_generation: None,
+                session_start_observed_at: None,
+            }),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[tokio::test]
@@ -5920,6 +5965,23 @@ mod tests {
             .info
             .last_output_at = Some("2026-08-01T08:00:02.000000Z".into());
 
+        let metadata_before = {
+            let ws = state.workspace.lock().unwrap();
+            let metadata = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(source_id)
+                .unwrap();
+            (
+                metadata.status,
+                metadata.observed_status,
+                metadata.attention,
+                metadata.peon_last_inference,
+                ws.as_ref().unwrap().metadata.read_events(source_id).len(),
+            )
+        };
+
         let response = report_attention(
             State(state.clone()),
             Path(source_id.into()),
@@ -5938,6 +6000,26 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+        {
+            let ws = state.workspace.lock().unwrap();
+            let metadata = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(source_id)
+                .unwrap();
+            assert_eq!(
+                (
+                    metadata.status,
+                    metadata.observed_status,
+                    metadata.attention,
+                    metadata.peon_last_inference,
+                    ws.as_ref().unwrap().metadata.read_events(source_id).len(),
+                ),
+                metadata_before,
+                "the capacity-only Claude hook must not update session metadata or events"
+            );
+        }
         let sessions = state.sessions.lock().unwrap();
         assert!(!sessions[source_id].capacity.at_usage_limit_latched);
         assert_eq!(

@@ -1200,8 +1200,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             bodies.len(),
-            4,
-            "each reporter posts attention and identity"
+            2,
+            "a malformed lifecycle source can report identity but cannot claim a reset or send prompt attention"
         );
         for body in bodies {
             assert!(body.get("sessionStartSource").is_none(), "{body}");

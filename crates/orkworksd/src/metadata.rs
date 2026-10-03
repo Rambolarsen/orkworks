@@ -1083,6 +1083,7 @@ pub enum HarnessSessionMergeResult {
     IgnoredUnchanged,
     NotFound,
     Invalid,
+    PersistFailed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1598,7 +1599,9 @@ impl MetadataStore {
         {
             if let Some(resume) = meta.resume.as_mut() {
                 resume.last_seen_at = Some(timestamp.to_string());
-                self.write_session(&meta);
+                if self.try_write_session(&meta).is_err() {
+                    return HarnessSessionMergeResult::PersistFailed;
+                }
             }
             return HarnessSessionMergeResult::IgnoredUnchanged;
         }
@@ -1622,7 +1625,9 @@ impl MetadataStore {
         meta.harness_session_id_source = Some(report.source.clone());
         meta.harness_session_id_confidence = Some(report.confidence);
         meta.harness_session_id_captured_at = Some(timestamp.to_string());
-        self.write_session(&meta);
+        if self.try_write_session(&meta).is_err() {
+            return HarnessSessionMergeResult::PersistFailed;
+        }
 
         self.append_event(
             id,
@@ -3790,6 +3795,35 @@ mod tests {
             updated.harness_session_id_captured_at.as_deref(),
             Some("2026-06-26T12:00:00Z")
         );
+    }
+
+    #[test]
+    fn harness_session_report_returns_persist_failed_when_session_write_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        store.write_session(&test_metadata("capture-write-fail"));
+        std::fs::create_dir_all(store.sessions_dir().join("capture-write-fail.json.tmp")).unwrap();
+
+        let result = store.merge_harness_session_report(
+            "capture-write-fail",
+            &HarnessSessionReport {
+                harness_session_id: "native-failed".into(),
+                source: "opencode_env".into(),
+                confidence: 0.98,
+            },
+            "2026-06-26T12:00:00Z",
+        );
+
+        assert_eq!(result, HarnessSessionMergeResult::PersistFailed);
+        assert!(store
+            .read_session("capture-write-fail")
+            .unwrap()
+            .resume
+            .is_none());
+        assert!(!store
+            .read_events("capture-write-fail")
+            .iter()
+            .any(|event| event.event_type == "session.harness_session_captured"));
     }
 
     #[test]
