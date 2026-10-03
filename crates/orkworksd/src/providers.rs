@@ -4055,7 +4055,7 @@ mod tests {
         #[cfg(windows)]
         let (command, args) = ("cmd", vec!["/C".to_string(), "exit 0".to_string()]);
 
-        let success = runner.run("test", command, &args, "", 1, None);
+        let success = runner.run("test", command, &args, "", 10, None);
         assert!(success.success);
         assert!(!success.launch_failure);
 
@@ -4188,6 +4188,15 @@ mod tests {
             "prompt and output used separate timeout budgets: {:?}",
             started.elapsed()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_runner_times_out_with_zero_budget() {
+        let result = ProcessRunner.run("test", "true", &[], "", 0, None);
+
+        assert!(!result.success);
+        assert_eq!(result.stderr, "timed out");
     }
 
     #[cfg(unix)]
