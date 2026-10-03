@@ -2751,7 +2751,7 @@ impl SessionApplication {
         &self,
         request: CreateSessionCommand,
     ) -> Result<SessionInfo, SessionError> {
-        create_session_workflow(self.state.clone(), request).await
+        create_session_workflow(self.state.clone(), request, git::detect).await
     }
 
     pub(crate) async fn resume_session(&self, id: &str) -> Result<SessionInfo, SessionError> {
@@ -4198,6 +4198,7 @@ pub(crate) fn resolve_session_launch(
 async fn create_session_workflow(
     state: Arc<AppState>,
     req: CreateSessionCommand,
+    detect_git: impl Fn(&Path) -> git::GitContext + Send + Sync + 'static,
 ) -> Result<SessionInfo, crate::session_application::SessionError> {
     let id = uuid::Uuid::new_v4().to_string();
     let (workspace_cwd, workspace_metadata_root) = state
@@ -4285,7 +4286,19 @@ async fn create_session_workflow(
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
 
-    let git_ctx = git::detect(&PathBuf::from(&cwd));
+    let detect_git = Arc::new(detect_git);
+    let scan_git = |path: PathBuf| {
+        let detect_git = Arc::clone(&detect_git);
+        async move {
+            tokio::task::spawn_blocking(move || detect_git(&path))
+                .await
+                .map_err(|error| {
+                    tracing::error!(%error, "session creation Git detection task failed");
+                    SessionError::Internal("session Git detection task failed")
+                })
+        }
+    };
+    let git_ctx = scan_git(PathBuf::from(&cwd)).await?;
     let now = iso_now();
     let mut info = SessionInfo {
         id: id.clone(),
@@ -4377,15 +4390,8 @@ async fn create_session_workflow(
     // a chance at seeding the label there. Seed it here instead: the
     // synchronous fallback below (so the title is never blank) plus Peon's
     // topic-inference queue for the real, LLM-phrased topic (ADR 0029).
-    if let (Some(prompt), Some(label_line)) =
-        (initial_prompt.as_deref(), initial_prompt_label.as_ref())
-    {
+    if let Some(label_line) = initial_prompt_label.as_ref() {
         info.label = label_line.clone();
-        crate::runtime::terminal_runtime::queue_initial_prompt_label_hint(
-            &state,
-            &id,
-            prompt.to_string(),
-        );
     }
 
     let (runtime, control_rx) = crate::runtime::session_runtime::SessionRuntime::live(
@@ -4394,6 +4400,23 @@ async fn create_session_workflow(
     );
     let run_generation = runtime.run_generation();
     let output_tx = runtime.output_tx.clone();
+    // All scans precede admission and hold no workspace lock. Normally the
+    // response and durable record share one snapshot. Preserve the existing
+    // persistence destination if the workspace changed during detection,
+    // rescanning that path and revalidating it before any session side effects.
+    let mut metadata_git_cwd = PathBuf::from(&info.cwd);
+    let mut meta_git_ctx = git_ctx;
+    let creation_workspace = loop {
+        let next_cwd = {
+            let workspace = state.workspace.lock().unwrap();
+            match workspace.as_ref() {
+                Some(ws) if ws.path != metadata_git_cwd => ws.path.clone(),
+                _ => break workspace,
+            }
+        };
+        meta_git_ctx = scan_git(next_cwd.clone()).await?;
+        metadata_git_cwd = next_cwd;
+    };
     state.sessions.lock().unwrap().insert(
         id.clone(),
         SessionHandle {
@@ -4415,9 +4438,7 @@ async fn create_session_workflow(
     // output, so the first output cannot be lost between memory and metadata.
     let created_at = iso_now();
     {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            let meta_git_ctx = git::detect(&ws.path);
+        if let Some(ref ws) = *creation_workspace {
             ws.metadata.write_session(&metadata::SessionMetadata {
                 id: id.clone(),
                 label: info.label.clone(),
@@ -4480,6 +4501,15 @@ async fn create_session_workflow(
                 resumed_from: info.resumed_from.clone(),
             });
         }
+    }
+
+    drop(creation_workspace);
+    if let (Some(prompt), Some(_)) = (initial_prompt.as_deref(), initial_prompt_label.as_ref()) {
+        crate::runtime::terminal_runtime::queue_initial_prompt_label_hint(
+            &state,
+            &id,
+            prompt.to_string(),
+        );
     }
 
     // Spawn detached rather than awaiting: awaiting here would delay this
@@ -4595,6 +4625,393 @@ fn clear_claude_capacity_after_working(
 
 #[cfg(test)]
 mod tests {
+    fn git_creation_request(state: &Arc<AppState>) -> CreateSessionCommand {
+        // Exercise admission and persistence without starting a coding tool.
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                document
+                    .overrides
+                    .entry("opencode".into())
+                    .or_default()
+                    .launch = Some(harness::definition::LaunchPatch {
+                    command: Some("orkworks-729-command-that-does-not-exist".into()),
+                    ..Default::default()
+                });
+                Ok(())
+            })
+            .unwrap();
+        CreateSessionCommand {
+            harness_id: Some("opencode".into()),
+            model: None,
+            initial_prompt: Some("Investigate Git scan responsiveness".into()),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn creation_git_scan_keeps_health_requests_responsive() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let request = git_creation_request(&state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let health_url = format!("http://{}/health", listener.local_addr().unwrap());
+        let app = crate::build_router(state.clone());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let started_tx = Mutex::new(Some(started_tx));
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let served_during_scan = Arc::new(AtomicBool::new(false));
+        let observed = served_during_scan.clone();
+        let creation = create_session_workflow(state.clone(), request, move |cwd| {
+            if let Some(started_tx) = started_tx.lock().unwrap().take() {
+                started_tx.send(()).unwrap();
+                // Bound cleanup on the broken synchronous implementation, so
+                // the regression fails instead of deadlocking its test worker.
+                observed.store(
+                    release_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(std::time::Duration::from_secs(2))
+                        .is_ok(),
+                    Ordering::SeqCst,
+                );
+            }
+            git::detect(cwd)
+        });
+        let health = async {
+            started_rx.await.unwrap();
+            assert!(
+                state.workspace.try_lock().is_ok(),
+                "Git scanning must release the workspace lock"
+            );
+            let response = reqwest::get(health_url).await.unwrap();
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            let _ = release_tx.send(());
+        };
+        let (created, ()) = tokio::join!(creation, health);
+        server.abort();
+        assert_eq!(created.unwrap().status, "creating");
+        assert!(
+            served_during_scan.load(Ordering::SeqCst),
+            "health request stalled until the Git scan ended"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn canceling_creation_during_git_scan_leaves_no_session_or_label_work() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let request = git_creation_request(&state);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let started_tx = Mutex::new(Some(started_tx));
+        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+        let finished_tx = Mutex::new(Some(finished_tx));
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let creation = tokio::spawn(create_session_workflow(
+            state.clone(),
+            request,
+            move |cwd| {
+                if let Some(started_tx) = started_tx.lock().unwrap().take() {
+                    started_tx.send(()).unwrap();
+                    let _ = release_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(std::time::Duration::from_secs(2));
+                }
+                let context = git::detect(cwd);
+                if let Some(finished_tx) = finished_tx.lock().unwrap().take() {
+                    let _ = finished_tx.send(());
+                }
+                context
+            },
+        ));
+        started_rx.await.unwrap();
+        creation.abort();
+        let _ = creation.await;
+        let _ = release_tx.send(());
+        finished_rx.await.unwrap();
+        assert!(state.sessions.lock().unwrap().is_empty());
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_all_sessions()
+            .is_empty());
+        assert!(state.peon.label_hint.read().unwrap().is_empty());
+        assert!(state.peon.label_pending.read().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn creation_git_fields_match_listing_and_persisted_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(root.path()).unwrap();
+        std::fs::write(root.path().join(".gitignore"), ".orkworks-test/\n").unwrap();
+        std::fs::write(root.path().join("tracked.txt"), "one\ntwo\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(".gitignore")).unwrap();
+        index.add_path(Path::new("tracked.txt")).unwrap();
+        let tree_id = index.write_tree().unwrap();
+        index.write().unwrap();
+        let signature = git2::Signature::now("Test", "test@example.invalid").unwrap();
+        repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "baseline",
+            &repo.find_tree(tree_id).unwrap(),
+            &[],
+        )
+        .unwrap();
+        std::fs::write(root.path().join("tracked.txt"), "one\nchanged\nextra\n").unwrap();
+        std::fs::write(root.path().join("new.txt"), "new\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let created = SessionApplication::new(state.clone())
+            .create_session(git_creation_request(&state))
+            .await
+            .unwrap();
+        let listed = crate::session_projection::SessionProjection::new(state.clone())
+            .list()
+            .into_iter()
+            .find(|info| info.id == created.id)
+            .unwrap();
+        assert_eq!(created.cwd, root.path().display().to_string());
+        assert_eq!(created.dirty, Some(true));
+        assert_eq!(created.changed_files, Some(2));
+        assert_eq!(
+            created.line_changes,
+            Some(git::LineChanges {
+                additions: 3,
+                deletions: 1
+            })
+        );
+        assert_eq!(created.is_worktree, Some(false));
+        assert_eq!(created.repo_root, listed.repo_root);
+        assert_eq!(created.branch, listed.branch);
+        assert_eq!(created.dirty, listed.dirty);
+        assert_eq!(created.changed_files, listed.changed_files);
+        assert_eq!(created.line_changes, listed.line_changes);
+        assert_eq!(created.is_worktree, listed.is_worktree);
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&created.id)
+            .unwrap();
+        assert_eq!(persisted.cwd, created.cwd);
+        assert_eq!(persisted.repo_root, created.repo_root);
+        assert_eq!(persisted.branch, created.branch);
+        assert_eq!(persisted.dirty, created.dirty);
+        assert_eq!(persisted.changed_files, created.changed_files);
+        assert_eq!(persisted.is_worktree, created.is_worktree);
+    }
+
+    #[tokio::test]
+    async fn creation_git_task_failure_precedes_admission() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let result = create_session_workflow(state.clone(), git_creation_request(&state), |_| {
+            panic!("controlled Git detector failure")
+        })
+        .await;
+        assert_eq!(
+            result.unwrap_err(),
+            SessionError::Internal("session Git detection task failed")
+        );
+        assert!(state.sessions.lock().unwrap().is_empty());
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_all_sessions()
+            .is_empty());
+        assert!(state.peon.label_hint.read().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn creation_rescans_a_changed_persistence_workspace_before_admission() {
+        let old = tempfile::tempdir().unwrap();
+        let new = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(new.path()).unwrap();
+        std::fs::write(repo.path().join("info/exclude"), ".orkworks-test/\n").unwrap();
+        std::fs::write(new.path().join("new.txt"), "new\n").unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(old.path());
+        let replacement = crate::test_support::test_app_state_with_workspace(new.path());
+        let request = git_creation_request(&state);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let started_tx = Mutex::new(Some(started_tx));
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let creation = tokio::spawn(create_session_workflow(
+            state.clone(),
+            request,
+            move |cwd| {
+                if let Some(started_tx) = started_tx.lock().unwrap().take() {
+                    started_tx.send(()).unwrap();
+                    release_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(std::time::Duration::from_secs(2))
+                        .unwrap();
+                }
+                git::detect(cwd)
+            },
+        ));
+        started_rx.await.unwrap();
+        *state.workspace.lock().unwrap() = replacement.workspace.lock().unwrap().take();
+        release_tx.send(()).unwrap();
+        let created = creation.await.unwrap().unwrap();
+        assert_eq!(created.cwd, old.path().display().to_string());
+        assert_eq!(created.repo_root, None);
+        assert_eq!(created.line_changes, None);
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&created.id)
+            .unwrap();
+        assert_eq!(persisted.workspace, new.path().display().to_string());
+        assert_eq!(persisted.cwd, created.cwd);
+        assert_eq!(
+            PathBuf::from(persisted.repo_root.unwrap()),
+            new.path().canonicalize().unwrap()
+        );
+        assert_eq!(persisted.dirty, Some(true));
+        assert_eq!(persisted.changed_files, Some(1));
+    }
+
+    /// Manual measurement, deliberately excluded from routine CI assertions.
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "large-worktree HTTP latency measurement for issue #729"]
+    async fn measure_creation_git_scan_http_latency() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let root = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(root.path()).unwrap();
+        std::fs::write(root.path().join(".gitignore"), ".orkworks-test/\n").unwrap();
+        let content = "a moderately long line for a Git diff fixture\n".repeat(1500);
+        for i in 0..24 {
+            std::fs::write(root.path().join(format!("tracked-{i}.txt")), &content).unwrap();
+        }
+        let mut index = repo.index().unwrap();
+        index
+            .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+            .unwrap();
+        let tree_id = index.write_tree().unwrap();
+        index.write().unwrap();
+        let signature = git2::Signature::now("Test", "test@example.invalid").unwrap();
+        repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "baseline",
+            &repo.find_tree(tree_id).unwrap(),
+            &[],
+        )
+        .unwrap();
+        for i in 0..24 {
+            std::fs::write(
+                root.path().join(format!("tracked-{i}.txt")),
+                format!("{content}extra\n"),
+            )
+            .unwrap();
+        }
+        for i in 0..4096 {
+            std::fs::write(root.path().join(format!("new-{i}.txt")), &content).unwrap();
+        }
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let _ = git_creation_request(&state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let app = crate::build_router(state);
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let finished = Arc::new(AtomicBool::new(false));
+        let observer_finished = finished.clone();
+        let health_url = format!("{base_url}/health");
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let observer = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    let client = reqwest::Client::new();
+                    client
+                        .get(&health_url)
+                        .send()
+                        .await
+                        .unwrap()
+                        .error_for_status()
+                        .unwrap();
+                    ready_tx.send(()).unwrap();
+                    let mut latencies = vec![];
+                    while !observer_finished.load(Ordering::SeqCst) {
+                        let start = std::time::Instant::now();
+                        client
+                            .get(&health_url)
+                            .send()
+                            .await
+                            .unwrap()
+                            .error_for_status()
+                            .unwrap();
+                        latencies.push(start.elapsed().as_secs_f64() * 1000.0);
+                        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+                    }
+                    latencies
+                })
+        });
+        ready_rx.await.unwrap();
+        let client = reqwest::Client::new();
+        let mut create_latencies = vec![];
+        for _ in 0..5 {
+            let start = std::time::Instant::now();
+            let info: serde_json::Value = client
+                .post(format!("{base_url}/sessions"))
+                .json(&serde_json::json!({"harnessId":"opencode"}))
+                .send()
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(info["status"], "creating");
+            assert_eq!(info["changedFiles"], 4120);
+            create_latencies.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        finished.store(true, Ordering::SeqCst);
+        // Keep serving the observer's last request before joining its OS thread.
+        let health_latencies = tokio::task::spawn_blocking(move || observer.join().unwrap())
+            .await
+            .unwrap();
+        server.abort();
+        println!("#729 current-thread HTTP measurement: 24 dirty tracked files + 4096 untracked files, ~265 MiB text");
+        println!("creation_ms={create_latencies:?}");
+        println!(
+            "health_samples={} health_max_ms={:.3}",
+            health_latencies.len(),
+            health_latencies.iter().copied().fold(0.0, f64::max)
+        );
+    }
+
     fn test_proposed_change() -> crate::taskmaster::proposed_change::ProposedChange {
         use crate::taskmaster::proposed_change::{ChangeTarget, ProposedChange, TargetAction};
         ProposedChange {
