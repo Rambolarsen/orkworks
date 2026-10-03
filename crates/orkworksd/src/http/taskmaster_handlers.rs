@@ -619,6 +619,10 @@ mod tests {
 
     #[tokio::test]
     async fn completion_packet_report_requires_a_valid_token_and_payload() {
+        // Report capabilities are process-global; each test owns distinct IDs and tokens.
+        const SESSION_ID: &str = "packet-validation-source";
+        const TOKEN: &str = "packet-validation-token";
+
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         assert_eq!(
@@ -633,27 +637,29 @@ mod tests {
             StatusCode::UNAUTHORIZED
         );
 
-        set_workflow_report_token("packet-source", "packet-token".into());
+        set_workflow_report_token(SESSION_ID, TOKEN.into());
         let response = report_completion_packet(
             State(state),
             Path("missing".into()),
-            authorization("packet-token"),
+            authorization(TOKEN),
             Bytes::from_static(br#"{"notACompletionPacket":true}"#),
         )
         .await;
-        clear_workflow_report_token("packet-source");
+        clear_workflow_report_token(SESSION_ID);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn completion_packet_report_binds_packet_to_the_source_session() {
+        const SESSION_ID: &str = "packet-binding-source";
+        const TOKEN: &str = "packet-binding-token";
+        const FOREIGN_SESSION_ID: &str = "packet-binding-foreign-source";
+        const FOREIGN_TOKEN: &str = "packet-binding-foreign-token";
+
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
-        let recommendation = recommendation_fixture(
-            "packet-report",
-            RecommendationStatus::Proposed,
-            "packet-source",
-        );
+        let recommendation =
+            recommendation_fixture("packet-report", RecommendationStatus::Proposed, SESSION_ID);
         state
             .workspace
             .lock()
@@ -664,30 +670,30 @@ mod tests {
             .put(&recommendation)
             .unwrap();
 
-        set_workflow_report_token("other-source", "other-token".into());
+        set_workflow_report_token(FOREIGN_SESSION_ID, FOREIGN_TOKEN.into());
         let mut packet = crate::taskmaster::completion_tests::test_packet();
-        packet.source_session_id = "packet-source".into();
-        packet.provenance.source_session_id = "packet-source".into();
+        packet.source_session_id = SESSION_ID.into();
+        packet.provenance.source_session_id = SESSION_ID.into();
         packet.evidence_fingerprint = packet.computed_evidence_fingerprint();
         let response = report_completion_packet(
             State(state.clone()),
             Path("packet-report".into()),
-            authorization("other-token"),
+            authorization(FOREIGN_TOKEN),
             Bytes::from(serde_json::to_vec(&packet).unwrap()),
         )
         .await;
-        clear_workflow_report_token("other-source");
+        clear_workflow_report_token(FOREIGN_SESSION_ID);
         assert_eq!(response.status(), StatusCode::CONFLICT);
 
-        set_workflow_report_token("packet-source", "packet-token".into());
+        set_workflow_report_token(SESSION_ID, TOKEN.into());
         let response = report_completion_packet(
             State(state.clone()),
             Path("packet-report".into()),
-            authorization("packet-token"),
+            authorization(TOKEN),
             Bytes::from(serde_json::to_vec(&packet).unwrap()),
         )
         .await;
-        clear_workflow_report_token("packet-source");
+        clear_workflow_report_token(SESSION_ID);
         assert_eq!(response.status(), StatusCode::OK);
         assert!(state
             .workspace
