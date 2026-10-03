@@ -13545,4 +13545,92 @@ mod tests {
         );
         authority.remove(id);
     }
+
+    #[test]
+    fn peon_cannot_restore_retired_prompt_identity_during_reset() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "peon-retired-prompt-identity";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Claude prompt reset",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "claude-code".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: None,
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.resume = metadata.resume.clone();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(id, "claude-code", "generation", Some("retired-native"));
+        assert!(authority.reserve_reset(id, "claude-code", "/clear"));
+        assert!(authority.acknowledge_reset(id).is_some());
+        assert!(authority.complete_reset(id).is_some());
+
+        let inference = peon::PeonInference {
+            observed_status: None,
+            phase: None,
+            summary: Some("Old retained output".into()),
+            next_action: None,
+            needs_user_input: None,
+            detected_question: None,
+            suggested_options: None,
+            blocker_description: None,
+            failed_command: None,
+            failed_test: None,
+            capacity_hints: None,
+            confidence: 0.8,
+            detected_harness: None,
+            detected_model: None,
+            harness_session_id: Some("retired-native".into()),
+            workflow_observations: Vec::new(),
+        };
+        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+            id,
+            Some(&inference),
+            None,
+            Some("Old retained output"),
+            "later",
+        );
+
+        assert!(result.inference_persisted);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap()
+                .resume
+                .and_then(|resume| resume.harness_session_id),
+            None
+        );
+        authority.remove(id);
+    }
 }
