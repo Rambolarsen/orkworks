@@ -74,7 +74,20 @@ fn stable_hook_scripts_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".orkworks").join("hook-scripts"))
 }
 
-fn reporter_assets() -> Result<ReporterAssetResolver, String> {
+fn revoke_prompt_authority_snapshots<T>(
+    snapshots: Vec<T>,
+    mut revoke: impl FnMut(T) -> bool,
+) -> bool {
+    let mut all_revoked = true;
+    for snapshot in snapshots {
+        if !revoke(snapshot) {
+            all_revoked = false;
+        }
+    }
+    all_revoked
+}
+
+pub(crate) fn reporter_assets() -> Result<ReporterAssetResolver, String> {
     let stable_dir = stable_hook_scripts_dir()
         .ok_or_else(|| "couldn't resolve home directory for the reporter scripts".to_string())?;
     Ok(ReporterAssetResolver {
@@ -83,11 +96,64 @@ fn reporter_assets() -> Result<ReporterAssetResolver, String> {
     })
 }
 
-fn workspace_harness_enabled(workspace: &crate::WorkspaceState, harness_id: &str) -> bool {
+pub(crate) fn workspace_harness_enabled(
+    workspace: &crate::WorkspaceState,
+    harness_id: &str,
+) -> bool {
     workspace
         .metadata
         .read_workspace_memory()
         .is_some_and(|memory| memory.active_harness_ids.iter().any(|id| id == harness_id))
+}
+
+fn prompt_harness_for_integration_adapter(adapter_id: &str) -> Option<&'static str> {
+    match adapter_id {
+        "claude" => Some("claude-code"),
+        "copilot" => Some("copilot"),
+        _ => None,
+    }
+}
+
+pub(crate) fn prompt_attention_launch_ready(
+    state: &AppState,
+    harness_id: &str,
+    executable: &str,
+) -> bool {
+    let workspace_guard = state.workspace.lock().unwrap();
+    let Some(workspace) = workspace_guard.as_ref() else {
+        return false;
+    };
+    let registry = state
+        .harness_catalog
+        .read()
+        .expect("harness catalog lock poisoned");
+    let Some(harness) = registry.get(harness_id) else {
+        return false;
+    };
+    let Some(binding) = harness.definition.integration.as_ref() else {
+        return false;
+    };
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let Ok(reporter_assets) = reporter_assets() else {
+        return false;
+    };
+    let orkworks_root = home.join(".orkworks");
+    let detected_tool = crate::harness::integration::DetectedTool {
+        executable: PathBuf::from(executable),
+        version: None,
+        compatible: true,
+    };
+    let ctx = IntegrationContext {
+        workspace: &workspace.path,
+        workspace_metadata: Some(&workspace.metadata),
+        orkworks_root: &orkworks_root,
+        enabled: workspace_harness_enabled(workspace, harness_id),
+        detected_tool: Some(&detected_tool),
+        reporter_assets: &reporter_assets,
+    };
+    crate::harness::integration::prompt_attention_hook_ready(binding, &ctx)
 }
 
 fn integration_error_response(error: IntegrationError) -> axum::response::Response {
@@ -191,50 +257,85 @@ async fn run_integration_action(
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
-    match with_revalidated_integration_target(state, harness_id, |harness, ws, detected_tool| {
-        let reporter_assets = match reporter_assets() {
-            Ok(resolver) => resolver,
-            Err(error) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse { error }),
-                )
-                    .into_response();
+    let mut revoke_snapshot = None;
+    let response = match with_revalidated_integration_target(
+        state,
+        harness_id,
+        |harness, ws, detected_tool| {
+            let reporter_assets = match reporter_assets() {
+                Ok(resolver) => resolver,
+                Err(error) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse { error }),
+                    )
+                        .into_response();
+                }
+            };
+
+            let orkworks_root = match dirs::home_dir() {
+                Some(home) => home.join(".orkworks"),
+                None => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "couldn't resolve home directory".into(),
+                        }),
+                    )
+                        .into_response();
+                }
+            };
+
+            let ctx = IntegrationContext {
+                workspace: &ws.path,
+                workspace_metadata: Some(&ws.metadata),
+                orkworks_root: &orkworks_root,
+                enabled: workspace_harness_enabled(ws, &harness.definition.id),
+                detected_tool,
+                reporter_assets: &reporter_assets,
+            };
+
+            let result = action(harness, &ctx);
+            let prompt_ready = harness
+                .definition
+                .integration
+                .as_ref()
+                .is_some_and(|binding| {
+                    crate::harness::integration::prompt_attention_hook_ready(binding, &ctx)
+                });
+            if matches!(harness_id, "claude-code" | "copilot") && !prompt_ready {
+                revoke_snapshot = Some(
+                    crate::session_application::SessionApplication::new(state.clone())
+                        .snapshot_prompt_authority_for_harness(harness_id, &ws.path),
+                );
             }
-        };
-
-        let orkworks_root = match dirs::home_dir() {
-            Some(home) => home.join(".orkworks"),
-            None => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "couldn't resolve home directory".into(),
-                    }),
-                )
-                    .into_response();
+            match result {
+                Ok(status) => Json(status).into_response(),
+                Err(error) => integration_error_response(error),
             }
-        };
-
-        let ctx = IntegrationContext {
-            workspace: &ws.path,
-            workspace_metadata: Some(&ws.metadata),
-            orkworks_root: &orkworks_root,
-            enabled: workspace_harness_enabled(ws, &harness.definition.id),
-            detected_tool,
-            reporter_assets: &reporter_assets,
-        };
-
-        match action(harness, &ctx) {
-            Ok(status) => Json(status).into_response(),
-            Err(error) => integration_error_response(error),
-        }
-    })
+        },
+    )
     .await
     {
         Ok(response) => response,
         Err(response) => response,
+    };
+    if let Some(snapshot) = revoke_snapshot {
+        if crate::session_application::SessionApplication::new(state.clone())
+            .revoke_prompt_authority_snapshot(snapshot)
+            .is_err()
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "integration changed, but prompt authority could not be safely revoked"
+                        .into(),
+                }),
+            )
+                .into_response();
+        }
     }
+    response
 }
 
 fn active_workspace_snapshot(
@@ -483,24 +584,64 @@ async fn run_integration_key_action(
         &IntegrationContext<'_>,
     ) -> Result<crate::harness::integration::IntegrationStatus, IntegrationError>,
 ) -> axum::response::Response {
-    match with_revalidated_integration_key(state, key, expected.as_ref(), action).await {
-        Ok((group, Ok(status))) => Json(GroupedIntegrationStatus {
-            key: key.clone(),
-            consumers: group.consumers,
-            status,
+    let mut revoke_snapshot = None;
+    let mut prompt_ready = false;
+    let response =
+        match with_revalidated_integration_key(state, key, expected.as_ref(), |harness, ctx| {
+            let result = action(harness, ctx);
+            prompt_ready = harness
+                .definition
+                .integration
+                .as_ref()
+                .is_some_and(|binding| {
+                    crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
+                });
+            if !prompt_ready {
+                if let Some(harness_id) = prompt_harness_for_integration_adapter(&key.adapter_id) {
+                    revoke_snapshot = Some(
+                        crate::session_application::SessionApplication::new(state.clone())
+                            .snapshot_prompt_authority_for_harness(harness_id, ctx.workspace),
+                    );
+                }
+            }
+            result
         })
-        .into_response(),
-        Ok((group, Err(error))) => {
-            let status = grouped_integration_error_status(&group, &error, failure_action);
-            Json(GroupedIntegrationStatus {
+        .await
+        {
+            Ok((group, Ok(status))) => Json(GroupedIntegrationStatus {
                 key: key.clone(),
                 consumers: group.consumers,
                 status,
             })
-            .into_response()
+            .into_response(),
+            Ok((group, Err(error))) => {
+                let status = grouped_integration_error_status(&group, &error, failure_action);
+                Json(GroupedIntegrationStatus {
+                    key: key.clone(),
+                    consumers: group.consumers,
+                    status,
+                })
+                .into_response()
+            }
+            Err(response) => response,
+        };
+    if let Some(snapshot) = revoke_snapshot {
+        let application = crate::session_application::SessionApplication::new(state.clone());
+        if application
+            .revoke_prompt_authority_snapshot(snapshot)
+            .is_err()
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "integration changed, but prompt authority could not be safely revoked"
+                        .into(),
+                }),
+            )
+                .into_response();
         }
-        Err(response) => response,
     }
+    response
 }
 
 fn parse_integration_mutation_request(
@@ -690,24 +831,72 @@ pub(crate) async fn get_workspace_integrations(
         }
     };
     let mut result = Vec::with_capacity(groups.len());
+    let mut revoke_snapshots = Vec::new();
+    let mut revalidation_error = None;
     for group in groups {
         let key = group.key.clone();
+        let mut revoke_snapshot = None;
         let (group, action_result) =
             match with_revalidated_integration_key(&state, &key, None, |harness, ctx| {
-                harness.integration_status(ctx)
+                let status = harness.integration_status(ctx);
+                let prompt_ready = harness
+                    .definition
+                    .integration
+                    .as_ref()
+                    .is_some_and(|binding| {
+                        crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
+                    });
+                if !prompt_ready {
+                    if let Some(harness_id) =
+                        prompt_harness_for_integration_adapter(&key.adapter_id)
+                    {
+                        revoke_snapshot = Some(
+                            crate::session_application::SessionApplication::new(state.clone())
+                                .snapshot_prompt_authority_for_harness(harness_id, ctx.workspace),
+                        );
+                    }
+                }
+                status
             })
             .await
             {
                 Ok(result) => result,
-                Err(response) => return response,
+                Err(response) => {
+                    revalidation_error = Some(response);
+                    break;
+                }
             };
         let status = action_result
             .unwrap_or_else(|error| grouped_integration_error_status(&group, &error, "retry"));
+        if let Some(snapshot) = revoke_snapshot {
+            revoke_snapshots.push(snapshot);
+        }
         result.push(GroupedIntegrationStatus {
             key,
             consumers: group.consumers,
             status,
         });
+    }
+    if !revoke_snapshots.is_empty() {
+        let application = crate::session_application::SessionApplication::new(state.clone());
+        let all_revoked = revoke_prompt_authority_snapshots(revoke_snapshots, |snapshot| {
+            application
+                .revoke_prompt_authority_snapshot(snapshot)
+                .is_ok()
+        });
+        if !all_revoked {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "integration status changed, but prompt authority could not be safely revoked"
+                        .into(),
+                }),
+            )
+                .into_response();
+        }
+    }
+    if let Some(response) = revalidation_error {
+        return response;
     }
     Json(result).into_response()
 }
@@ -816,6 +1005,18 @@ mod tests {
     use crate::session_application::SessionApplication;
     use crate::test_support::{test_app_state_with_workspace, FakeHome};
     use serde_json::Value;
+
+    #[test]
+    fn grouped_status_revocation_attempts_every_snapshot_after_a_failure() {
+        let mut attempted = Vec::new();
+        let all_revoked = revoke_prompt_authority_snapshots(vec![1, 2, 3], |snapshot| {
+            attempted.push(snapshot);
+            snapshot != 1
+        });
+
+        assert!(!all_revoked);
+        assert_eq!(attempted, vec![1, 2, 3]);
+    }
 
     // Claude's handler is a JsonHookHandler: `require_local_or_ignored_untracked`
     // (harness/integration.rs) refuses to read or write its config file unless

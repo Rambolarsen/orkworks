@@ -35,12 +35,27 @@ pub(crate) fn session_env_overrides(
     port: Option<u16>,
     report_token: &str,
 ) -> Vec<(String, String)> {
+    session_env_overrides_with_prompt_generation(session_id, port, report_token, None)
+}
+
+pub(crate) fn session_env_overrides_with_prompt_generation(
+    session_id: &str,
+    port: Option<u16>,
+    report_token: &str,
+    prompt_hook_generation: Option<&str>,
+) -> Vec<(String, String)> {
     let mut env = vec![
         ("ORKWORKS_SESSION_ID".into(), session_id.to_string()),
         ("ORKWORKS_REPORT_TOKEN".into(), report_token.to_string()),
     ];
     if let Some(port) = port {
         env.push(("ORKWORKS_PORT".into(), port.to_string()));
+    }
+    if let Some(generation) = prompt_hook_generation {
+        env.push((
+            "ORKWORKS_PROMPT_HOOK_GENERATION".into(),
+            generation.to_string(),
+        ));
     }
     env
 }
@@ -386,9 +401,14 @@ fn record_input_after_delivery(
     if let Some((input, is_sensitive, output_boundary, identity_reset_prepared)) = pending {
         if result.is_ok() {
             record_peon_input_side_effects(state, id, input, *is_sensitive, *output_boundary);
+            if *identity_reset_prepared {
+                crate::session_application::SessionApplication::new(state.clone())
+                    .commit_prompt_identity_reset_after_input(id);
+            }
         } else if *identity_reset_prepared {
-            crate::session_application::SessionApplication::new(state.clone())
-                .cancel_codex_identity_reset(id);
+            let application = crate::session_application::SessionApplication::new(state.clone());
+            application.cancel_codex_identity_reset(id);
+            application.cancel_prompt_identity_reset(id);
         }
     }
 }
@@ -413,8 +433,11 @@ fn capture_pending_terminal_input(
         let (line, _) = collect_input_line(&mut buffer, &data);
         line.is_some_and(|line| {
             let application = crate::session_application::SessionApplication::new(state.clone());
-            application.is_persisted_harness_label_reset(id, &line)
-                && application.prepare_codex_identity_reset(id)
+            if !application.is_persisted_harness_label_reset(id, &line) {
+                return false;
+            }
+            application.prepare_codex_identity_reset(id)
+                || application.prepare_prompt_identity_reset(id, line.trim())
         })
     };
     (data, is_sensitive, output_boundary, identity_reset_prepared)
@@ -836,29 +859,46 @@ fn mark_committed_input_working(
     // `UserPromptSubmit` event after that approval. Treat that exact
     // Codex-sourced prompt as resumed work while preserving the hook deferral
     // for every other active hook.
+    let single_key_policy = match handle.runtime.active_prompt_kind {
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Permission) => true,
+        Some(crate::runtime::session_runtime::RuntimePromptKind::Elicitation) => false,
+        None => matches!(
+            (
+                handle.active_work_hook,
+                handle.info.metadata_source.as_deref(),
+            ),
+            (false, Some("agent")) | (true, Some("codex_hook"))
+        ),
+    };
     let single_key_qualifies = printable_keystroke
         && handle.info.attention.as_deref() == Some("needs_you")
-        && match (
-            handle.active_work_hook,
-            handle.info.metadata_source.as_deref(),
-        ) {
-            (false, Some("agent")) | (true, Some("codex_hook")) => true,
-            _ => false,
-        };
+        && single_key_policy;
     let codex_mouse_click_qualifies = mouse_button_event
         && handle.active_work_hook
         && handle.info.attention.as_deref() == Some("needs_you")
         && handle.info.metadata_source.as_deref() == Some("codex_hook");
-    let commit_working =
-        !already_working && (line_completed || single_key_qualifies || codex_mouse_click_qualifies);
+    let committed_input = line_completed || single_key_qualifies || codex_mouse_click_qualifies;
+    let commit_working = !already_working && committed_input;
     let Some(next_generation) = handle.runtime.input_generation.checked_add(1) else {
         tracing::warn!(session_id = %id, "input generation overflow");
         return;
     };
     let accepted_at = chrono::Utc::now();
+    if committed_input {
+        // The PTY accepted this input before this function was called. Advance
+        // both in-memory ordering fences before metadata I/O, so a queued or
+        // timestamped pre-input prompt cannot be replayed if persistence fails.
+        handle.runtime.committed_input_sequence =
+            handle.runtime.committed_input_sequence.saturating_add(1);
+        handle.runtime.committed_input_at = Some(accepted_at);
+    }
     if !commit_working || already_working {
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
+        if committed_input {
+            handle.runtime.committed_input_at = Some(accepted_at);
+            handle.runtime.active_prompt_kind = None;
+        }
         handle.runtime.min_peon_output_revision =
             output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
@@ -885,6 +925,8 @@ fn mark_committed_input_working(
         handle.pending_work_signal = None;
         handle.runtime.input_generation = next_generation;
         handle.runtime.accepted_input_at = Some(accepted_at);
+        handle.runtime.committed_input_at = Some(accepted_at);
+        handle.runtime.active_prompt_kind = None;
         handle.runtime.min_peon_output_revision =
             output_boundary.unwrap_or(handle.runtime.peon_output_revision);
         drop(sessions);
@@ -913,6 +955,8 @@ fn mark_committed_input_working(
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);
+    handle.runtime.committed_input_at = Some(accepted_at);
+    handle.runtime.active_prompt_kind = None;
     handle.runtime.min_peon_output_revision =
         output_boundary.unwrap_or(handle.runtime.peon_output_revision);
     drop(sessions);
@@ -932,6 +976,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && !key.starts_with("ELECTRON_")
         && key != "ORKWORKS_OPEN_PLAN_TOKEN"
         && key != "ORKWORKS_CODEX_SESSION_REPORT_DIR"
+        && key != "ORKWORKS_PROMPT_HOOK_GENERATION"
 }
 
 #[cfg(unix)]
@@ -2435,6 +2480,37 @@ mod tests {
     }
 
     #[test]
+    fn committed_input_order_advances_when_attention_persistence_fails() {
+        let id = "committed-input-persist-fails";
+        let (state, dir) = prompted_session_state(id);
+        set_harness(&state, id, "claude-code");
+        let sessions_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+
+        record_terminal_input(&state, id, "respond to the prompt\r");
+
+        assert!(state.sessions.lock().unwrap()[id]
+            .runtime
+            .committed_input_at
+            .is_some());
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .runtime
+                .committed_input_sequence,
+            1
+        );
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        drop(dir);
+    }
+
+    #[test]
     fn each_declared_command_resets_its_own_harness() {
         // Every entry of a harness's declared list resets, not just the first,
         // and each harness's own list applies (ADR 0040).
@@ -2653,6 +2729,30 @@ mod tests {
         )));
     }
 
+    #[test]
+    fn session_env_overrides_forward_only_the_supplied_prompt_hook_generation() {
+        let enabled = session_env_overrides_with_prompt_generation(
+            "session-123",
+            Some(5173),
+            "the-report-token",
+            Some("immutable-generation"),
+        );
+        assert!(enabled.contains(&(
+            "ORKWORKS_PROMPT_HOOK_GENERATION".into(),
+            "immutable-generation".into()
+        )));
+
+        let disabled = session_env_overrides_with_prompt_generation(
+            "session-123",
+            Some(5173),
+            "the-report-token",
+            None,
+        );
+        assert!(!disabled
+            .iter()
+            .any(|(key, _)| key == "ORKWORKS_PROMPT_HOOK_GENERATION"));
+    }
+
     // -- Workflow-observation reporting capability ---------------------------
 
     #[test]
@@ -2834,6 +2934,9 @@ mod tests {
         assert!(!should_forward_terminal_env("ELECTRON_RUN_AS_NODE"));
         assert!(!should_forward_terminal_env(
             "ORKWORKS_CODEX_SESSION_REPORT_DIR"
+        ));
+        assert!(!should_forward_terminal_env(
+            "ORKWORKS_PROMPT_HOOK_GENERATION"
         ));
     }
 
@@ -4256,5 +4359,400 @@ mod tests {
         assert_eq!(line.as_deref(), Some("line one\nline two"));
         assert!(completed);
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn prompt_authority_binds_one_native_id_per_launch_and_revocation_is_final() {
+        use crate::runtime::prompt_authority::{BindResult, PromptAuthorityRegistry};
+
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue("session-123", "claude-code", "generation-a");
+
+        assert_eq!(
+            registry.register_native_id(
+                "session-123",
+                "claude-code",
+                "generation-a",
+                "native-1",
+                false,
+                None,
+            ),
+            BindResult::Bound
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "session-123",
+                "claude-code",
+                "generation-a",
+                "native-1",
+                false,
+                None,
+            ),
+            BindResult::Unchanged
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "session-123",
+                "claude-code",
+                "generation-a",
+                "native-2",
+                false,
+                None,
+            ),
+            BindResult::Rejected
+        );
+
+        registry.revoke("session-123", "generation-a");
+        assert_eq!(
+            registry.register_native_id(
+                "session-123",
+                "claude-code",
+                "generation-a",
+                "native-1",
+                false,
+                None,
+            ),
+            BindResult::Rejected
+        );
+    }
+
+    #[test]
+    fn resumed_prompt_authority_is_bound_to_the_saved_native_id() {
+        use crate::runtime::prompt_authority::{BindResult, PromptAuthorityRegistry};
+
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue_with_native_id(
+            "resumed-prompt",
+            "copilot",
+            "generation-resume",
+            Some("saved-native-id"),
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "resumed-prompt",
+                "copilot",
+                "generation-resume",
+                "saved-native-id",
+                false,
+                None,
+            ),
+            BindResult::Unchanged
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "resumed-prompt",
+                "copilot",
+                "generation-resume",
+                "unexpected-native-id",
+                false,
+                None,
+            ),
+            BindResult::Rejected
+        );
+    }
+
+    #[test]
+    fn prompt_authority_holds_replacement_identity_until_reset_write_acknowledgement() {
+        use crate::runtime::prompt_authority::{BindResult, PromptAuthorityRegistry};
+
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue("prompt-reset", "claude-code", "generation-r");
+        assert_eq!(
+            registry.register_native_id(
+                "prompt-reset",
+                "claude-code",
+                "generation-r",
+                "native-before",
+                false,
+                None,
+            ),
+            BindResult::Bound
+        );
+        assert!(registry.reserve_reset("prompt-reset", "claude-code", "/clear"));
+        assert_eq!(
+            registry.register_native_id(
+                "prompt-reset",
+                "claude-code",
+                "generation-r",
+                "native-after",
+                true,
+                None,
+            ),
+            BindResult::Held
+        );
+        assert_eq!(
+            registry.register_native_id(
+                "prompt-reset",
+                "claude-code",
+                "generation-r",
+                "native-after",
+                false,
+                None,
+            ),
+            BindResult::Held
+        );
+        assert!(registry.queue_prompt_wait(
+            "prompt-reset",
+            "claude-code",
+            "generation-r",
+            "native-after",
+            "permission_prompt",
+            None,
+            1,
+            0,
+            None,
+        ));
+        assert!(!registry.native_id_matches(
+            "prompt-reset",
+            "claude-code",
+            "generation-r",
+            "native-before",
+        ));
+        assert_eq!(
+            registry
+                .acknowledge_reset("prompt-reset")
+                .expect("reset acknowledged")
+                .as_deref(),
+            Some("native-after")
+        );
+        let commit = registry.complete_reset("prompt-reset").unwrap();
+        assert_eq!(commit.native_session_id.as_deref(), Some("native-after"));
+        assert_eq!(
+            commit.queued_prompt_wait.map(|wait| wait.notification_type),
+            Some("permission_prompt".into())
+        );
+        assert!(registry.native_id_matches(
+            "prompt-reset",
+            "claude-code",
+            "generation-r",
+            "native-after",
+        ));
+        assert_eq!(registry.epoch("prompt-reset"), Some(1));
+    }
+
+    #[test]
+    fn copilot_reset_rebind_requires_an_event_timestamp_after_reservation() {
+        use crate::runtime::prompt_authority::{BindResult, PromptAuthorityRegistry};
+
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue("copilot-reset", "copilot", "generation-c");
+        assert_eq!(
+            registry.register_native_id(
+                "copilot-reset",
+                "copilot",
+                "generation-c",
+                "native-before",
+                false,
+                None,
+            ),
+            BindResult::Bound
+        );
+        assert!(registry.reserve_reset("copilot-reset", "copilot", "/new"));
+        let old_timestamp = chrono::Utc::now() - chrono::Duration::seconds(5);
+        assert_eq!(
+            registry.register_native_id(
+                "copilot-reset",
+                "copilot",
+                "generation-c",
+                "native-stale",
+                true,
+                Some(old_timestamp),
+            ),
+            BindResult::Rejected
+        );
+        let fresh_timestamp = chrono::Utc::now() + chrono::Duration::seconds(1);
+        assert_eq!(
+            registry.register_native_id(
+                "copilot-reset",
+                "copilot",
+                "generation-c",
+                "native-after",
+                true,
+                Some(fresh_timestamp),
+            ),
+            BindResult::Held
+        );
+        let latest_prompt = fresh_timestamp + chrono::Duration::seconds(2);
+        assert!(registry.queue_prompt_wait(
+            "copilot-reset",
+            "copilot",
+            "generation-c",
+            "native-after",
+            "permission_prompt",
+            Some(latest_prompt),
+            1,
+            0,
+            Some("/cwd/latest"),
+        ));
+        assert!(registry.queue_prompt_wait(
+            "copilot-reset",
+            "copilot",
+            "generation-c",
+            "native-after",
+            "elicitation_dialog",
+            Some(latest_prompt),
+            2,
+            0,
+            Some("/cwd/equal-later"),
+        ));
+        assert!(!registry.queue_prompt_wait(
+            "copilot-reset",
+            "copilot",
+            "generation-c",
+            "native-after",
+            "permission_prompt",
+            Some(fresh_timestamp + chrono::Duration::seconds(1)),
+            3,
+            0,
+            Some("/cwd/stale"),
+        ));
+        assert_eq!(
+            registry
+                .acknowledge_reset("copilot-reset")
+                .expect("reset acknowledged")
+                .as_deref(),
+            Some("native-after")
+        );
+        let commit = registry.complete_reset("copilot-reset").unwrap();
+        assert_eq!(commit.native_session_id.as_deref(), Some("native-after"));
+        let queued = commit.queued_prompt_wait.unwrap();
+        assert_eq!(queued.observed_at, Some(latest_prompt));
+        assert_eq!(queued.notification_type, "elicitation_dialog");
+        assert_eq!(queued.receipt_sequence, 2);
+        assert_eq!(queued.cwd.as_deref(), Some("/cwd/equal-later"));
+    }
+
+    #[tokio::test]
+    async fn accepted_reset_delivery_does_not_supersede_its_queued_prompt() {
+        let id = "reset-delivery-queued-prompt";
+        let (state, _dir) = prompted_session_state(id);
+        set_harness(&state, id, "copilot");
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut metadata = store.read_session(id).unwrap();
+            metadata.harness = "copilot".into();
+            metadata.metadata_source = "peon".into();
+            metadata.resume = Some(crate::harness::ResumeMemory {
+                state: crate::harness::ResumeState::Available,
+                preferred_strategy: crate::harness::ResumeStrategy::Exact,
+                harness_session_id: Some("before-reset".into()),
+                latest_fallback: false,
+                last_seen_at: Some("before".into()),
+            });
+            store.write_session(&metadata);
+        }
+        let resume = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .resume;
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.info.harness_id = Some("copilot".into());
+            handle.info.harness = Some("copilot".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.resume = resume;
+        }
+        let generation = "reset-delivery-generation";
+        crate::runtime::prompt_authority::registry().issue_with_native_id(
+            id,
+            "copilot",
+            generation,
+            Some("before-reset"),
+        );
+        let pending = capture_pending_terminal_input(&state, id, "/new\r".into());
+        assert!(pending.3);
+        let event_at = chrono::Utc::now() + chrono::Duration::seconds(2);
+        assert_eq!(
+            crate::runtime::prompt_authority::registry().register_native_id(
+                id,
+                "copilot",
+                generation,
+                "after-reset",
+                true,
+                Some(event_at),
+            ),
+            crate::runtime::prompt_authority::BindResult::Held
+        );
+        assert!(
+            crate::runtime::prompt_authority::registry().queue_prompt_wait(
+                id,
+                "copilot",
+                generation,
+                "after-reset",
+                "permission_prompt",
+                Some(event_at + chrono::Duration::seconds(1)),
+                1,
+                0,
+                None,
+            )
+        );
+
+        record_input_after_delivery(&state, id, Some(&pending), &Ok(()));
+
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
+        crate::runtime::prompt_authority::registry().remove(id);
+    }
+
+    #[test]
+    fn canceled_prompt_reset_discards_the_candidate_and_preserves_the_current_id() {
+        use crate::runtime::prompt_authority::{BindResult, PromptAuthorityRegistry};
+
+        let registry = PromptAuthorityRegistry::default();
+        registry.issue("prompt-cancel", "claude-code", "generation-x");
+        assert_eq!(
+            registry.register_native_id(
+                "prompt-cancel",
+                "claude-code",
+                "generation-x",
+                "native-before",
+                false,
+                None,
+            ),
+            BindResult::Bound
+        );
+        assert!(registry.reserve_reset("prompt-cancel", "claude-code", "/clear"));
+        assert_eq!(
+            registry.register_native_id(
+                "prompt-cancel",
+                "claude-code",
+                "generation-x",
+                "native-after",
+                true,
+                None,
+            ),
+            BindResult::Held
+        );
+        registry.cancel_reset("prompt-cancel");
+        assert!(registry.native_id_matches(
+            "prompt-cancel",
+            "claude-code",
+            "generation-x",
+            "native-before",
+        ));
+        assert!(!registry.native_id_matches(
+            "prompt-cancel",
+            "claude-code",
+            "generation-x",
+            "native-after",
+        ));
     }
 }

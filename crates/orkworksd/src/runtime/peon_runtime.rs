@@ -1105,6 +1105,7 @@ where
                     if handle.info.status != "running"
                         || handle.info.lifecycle_phase != "active"
                         || handle.active_work_hook
+                        || crate::runtime::prompt_authority::registry().is_active(id)
                         || !matches!(
                             handle.info.observed_status.as_deref(),
                             None | Some("working")

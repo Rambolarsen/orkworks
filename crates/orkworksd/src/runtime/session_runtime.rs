@@ -5,8 +5,9 @@ use crate::runtime::observed_status::{
 use crate::runtime::terminal_runtime::resolve_windows_program;
 use crate::runtime::terminal_runtime::{
     clear_workflow_report_token_if_matches, make_pty_system, new_workflow_report_token,
-    schedule_session_ending_finalization, session_env_overrides, set_session_status_for_generation,
-    set_workflow_report_token, should_forward_terminal_env, terminal_env_overrides,
+    schedule_session_ending_finalization, session_env_overrides_with_prompt_generation,
+    set_session_status_for_generation, set_workflow_report_token, should_forward_terminal_env,
+    terminal_env_overrides,
 };
 use crate::{harness, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
@@ -348,6 +349,22 @@ impl ReplayBuffer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimePromptKind {
+    Permission,
+    Elicitation,
+}
+
+impl RuntimePromptKind {
+    pub(crate) fn from_notification_type(notification_type: &str) -> Self {
+        match notification_type {
+            "permission_prompt" => Self::Permission,
+            "elicitation_dialog" | "elicitation_url_dialog" => Self::Elicitation,
+            _ => unreachable!("prompt type is validated before runtime state is updated"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct SessionRuntime {
     pub(crate) runtime_instance_id: String,
@@ -366,7 +383,13 @@ pub(crate) struct SessionRuntime {
     pub(crate) pending_wrap_prefix: Option<String>,
     pub(crate) input_generation: u64,
     pub(crate) accepted_input_at: Option<DateTime<Utc>>,
+    pub(crate) committed_input_at: Option<DateTime<Utc>>,
+    pub(crate) committed_input_sequence: u64,
+    pub(crate) active_prompt_kind: Option<RuntimePromptKind>,
     pub(crate) last_hook_attention_at: Option<DateTime<Utc>>,
+    pub(crate) hook_receipt_sequence: u64,
+    pub(crate) last_hook_attention_sequence: Option<u64>,
+    pub(crate) prompt_tuple_clear_pending: bool,
     pub(crate) usage_limit_latched_at: Option<DateTime<Utc>>,
     pub(crate) peon_output_revision: u64,
     pub(crate) min_peon_output_revision: u64,
@@ -395,7 +418,13 @@ impl SessionRuntime {
                 pending_wrap_prefix: None,
                 input_generation: 0,
                 accepted_input_at: None,
+                committed_input_at: None,
+                committed_input_sequence: 0,
+                active_prompt_kind: None,
                 last_hook_attention_at: None,
+                hook_receipt_sequence: 0,
+                last_hook_attention_sequence: None,
+                prompt_tuple_clear_pending: false,
                 usage_limit_latched_at: None,
                 peon_output_revision: 0,
                 min_peon_output_revision: 0,
@@ -426,7 +455,13 @@ impl SessionRuntime {
             pending_wrap_prefix: None,
             input_generation: 0,
             accepted_input_at: None,
+            committed_input_at: None,
+            committed_input_sequence: 0,
+            active_prompt_kind: None,
             last_hook_attention_at: None,
+            hook_receipt_sequence: 0,
+            last_hook_attention_sequence: None,
+            prompt_tuple_clear_pending: false,
             usage_limit_latched_at: None,
             peon_output_revision: 0,
             min_peon_output_revision: 0,
@@ -1031,7 +1066,16 @@ pub(crate) async fn start_session_runtime(
     } else {
         None
     };
-    for (key, value) in session_env_overrides(&id, port, &report_token) {
+    let prompt_generation = super::prompt_authority::registry().generation_for_launch(&id);
+    let prompt_generation_value = prompt_generation
+        .as_ref()
+        .map(|(_, generation)| generation.as_str());
+    for (key, value) in session_env_overrides_with_prompt_generation(
+        &id,
+        port,
+        &report_token,
+        prompt_generation_value,
+    ) {
         cmd.env(&key, &value);
     }
 
@@ -1040,6 +1084,9 @@ pub(crate) async fn start_session_runtime(
         Ok(child) => child,
         Err(error) => {
             clear_workflow_report_token_if_matches(&id, &report_token);
+            if let Some((_, generation)) = &prompt_generation {
+                super::prompt_authority::registry().remove_if_generation(&id, generation);
+            }
             return Err(error.to_string());
         }
     };
