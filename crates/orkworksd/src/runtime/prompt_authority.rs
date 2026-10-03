@@ -13,6 +13,7 @@ pub(crate) enum BindResult {
 struct ResetReservation {
     acknowledged: bool,
     epoch_committed: bool,
+    prompt_tuple_clear_applied: bool,
     candidate_native_session_id: Option<String>,
     retired_native_session_id: Option<String>,
     reset_submission_input_sequence: Option<u64>,
@@ -337,6 +338,30 @@ impl PromptAuthorityRegistry {
             queued_prompt_wait,
             reset_submission_input_sequence,
         })
+    }
+
+    pub(crate) fn reset_prompt_tuple_clear_applied(&self, session_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .and_then(|entry| entry.reset.as_ref())
+            .is_some_and(|reset| reset.prompt_tuple_clear_applied)
+    }
+
+    pub(crate) fn mark_reset_prompt_tuple_clear_applied(&self, session_id: &str) -> bool {
+        let mut sessions = self.sessions.lock().unwrap();
+        let Some(reset) = sessions
+            .get_mut(session_id)
+            .and_then(|entry| entry.reset.as_mut())
+        else {
+            return false;
+        };
+        if !reset.acknowledged {
+            return false;
+        }
+        reset.prompt_tuple_clear_applied = true;
+        true
     }
 
     pub(crate) fn note_reset_submission_input_sequence(

@@ -1136,6 +1136,79 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn report_harness_event_ps1_rejects_array_lifecycle_sources() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let temp = tempfile::tempdir().unwrap();
+        let capture = temp.path().join("requests.jsonl");
+        let wrapper = temp.path().join("run-reporter.ps1");
+        let script_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts/report-harness-event.ps1");
+        std::fs::write(
+            &wrapper,
+            r#"function Invoke-RestMethod {
+    param($Method, $Uri, $Headers, $ContentType, $Body, $TimeoutSec)
+    Add-Content -Path $env:ORKWORKS_REQUEST_CAPTURE -Value $Body
+}
+& $env:ORKWORKS_REPORTER_SCRIPT -Marker $env:ORKWORKS_TEST_MARKER -Event $env:ORKWORKS_TEST_EVENT"#,
+        )
+        .unwrap();
+
+        for (marker, event, payload) in [
+            (
+                "orkworks:harness-integration:v2:claude-code",
+                "SessionStart",
+                br#"{"session_id":"claude-native","source":["clear"]}"#.as_slice(),
+            ),
+            (
+                "orkworks:harness-integration:v2:copilot",
+                "sessionStart",
+                br#"{"sessionId":"copilot-native","source":["new"]}"#.as_slice(),
+            ),
+        ] {
+            let mut child = Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                ])
+                .arg(&wrapper)
+                .env("ORKWORKS_REPORTER_SCRIPT", &script_path)
+                .env("ORKWORKS_REQUEST_CAPTURE", &capture)
+                .env("ORKWORKS_TEST_MARKER", marker)
+                .env("ORKWORKS_TEST_EVENT", event)
+                .env("ORKWORKS_SESSION_ID", "test-session")
+                .env("ORKWORKS_PORT", "1")
+                .env("ORKWORKS_PROMPT_HOOK_GENERATION", "test-generation")
+                .stdin(Stdio::piped())
+                .spawn()
+                .expect("spawn PowerShell hook reporter");
+            child.stdin.take().unwrap().write_all(payload).unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(output.status.success(), "{output:?}");
+        }
+
+        let requests = std::fs::read_to_string(capture).unwrap();
+        let bodies = requests
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            bodies.len(),
+            4,
+            "each reporter posts attention and identity"
+        );
+        for body in bodies {
+            assert!(body.get("sessionStartSource").is_none(), "{body}");
+            assert!(body.get("sessionStartEvent").is_none(), "{body}");
+        }
+    }
+
     #[test]
     fn report_harness_event_ps1_bounds_every_request_with_a_timeout() {
         let script = include_str!("../../../scripts/report-harness-event.ps1");

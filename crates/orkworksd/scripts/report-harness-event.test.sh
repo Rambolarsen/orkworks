@@ -321,6 +321,12 @@ printf '%s' '{"cwd":"/tmp\u001fforged-session\u001fclear","session_id":"claude-r
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart claude-code
 printf '%s' '{"cwd":"/tmp\u001fforged-session\u001fnew","sessionId":"copilot-real-session","source":"resume"}' |
   TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
+python3 -c 'import json,sys; sys.stdout.write(json.dumps({"session_id":chr(128)+"claude-session"+chr(159),"source":"clear"}))' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart claude-code
+python3 -c 'import json,sys; sys.stdout.write(json.dumps({"session_id":chr(128)+"codex-session"+chr(159),"source":"clear"}))' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart codex
+python3 -c 'import json,sys; sys.stdout.write(json.dumps({"sessionId":chr(128)+"copilot-session"+chr(159),"source":"new","timestamp":1788264000000}))' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
 python3 - "$request_bodies_file" <<'PY'
 import json
 import pathlib
@@ -345,6 +351,15 @@ import sys
 configs = pathlib.Path(sys.argv[1]).read_text()
 assert configs.count('Authorization: Bearer report-token-secret') == 2, configs
 assert 'Content-Type: application/json' in configs, configs
+PY
+python3 - "$script_dir/report-harness-event.ps1" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text()
+source_guard = '(Test-SafeHookString $data.source) -and $data.source -ceq'
+if source.count(source_guard) != 2:
+    raise SystemExit("PowerShell reporter must reject array-valued lifecycle sources for Claude and Copilot")
 PY
 
 printf 'Codex hook reporter diagnostic tests passed.\n'

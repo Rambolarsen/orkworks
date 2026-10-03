@@ -2476,11 +2476,17 @@ impl SessionApplication {
                 }
             }
         }
-        if self.clear_prompt_authority_tuple(id).is_err() {
-            self.mark_prompt_identity_reset_pending(id, schedule_retry);
-            return;
+        let authority = crate::runtime::prompt_authority::registry();
+        if !authority.reset_prompt_tuple_clear_applied(id) {
+            if self.clear_prompt_authority_tuple(id).is_err() {
+                self.mark_prompt_identity_reset_pending(id, schedule_retry);
+                return;
+            }
+            if !authority.mark_reset_prompt_tuple_clear_applied(id) {
+                return;
+            }
         }
-        let Some(commit) = crate::runtime::prompt_authority::registry().complete_reset(id) else {
+        let Some(commit) = authority.complete_reset(id) else {
             return;
         };
         if let Some(queued) = commit.queued_prompt_wait {
@@ -14028,7 +14034,7 @@ mod tests {
     }
 
     #[test]
-    fn peon_retries_an_acknowledged_reset_after_a_clear_completes_in_call() {
+    fn late_identity_binding_after_reset_preserves_newer_peon_attention() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let id = "prompt-reset-clear-race";
@@ -14078,8 +14084,44 @@ mod tests {
         assert!(authority.reserve_reset(id, "claude-code", "/clear"));
         assert!(authority.acknowledge_reset(id).is_some());
 
-        SessionApplication::new(state.clone())
-            .persist_peon_observation(id, None, None, None, "later");
+        let application = SessionApplication::new(state.clone());
+        application.commit_prompt_identity_reset(id);
+        assert!(authority.reset_prompt_tuple_clear_applied(id));
+        let mut newer_prompt = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        newer_prompt.metadata_source = "peon".into();
+        newer_prompt.observed_status = Some("waiting_for_input".into());
+        newer_prompt.attention = Some("needs_you".into());
+        newer_prompt.needs_user_input = Some(true);
+        newer_prompt.detected_question = Some("New question?".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&newer_prompt);
+
+        assert_eq!(
+            authority.register_native_id(
+                id,
+                "claude-code",
+                "reset-clear-race-generation",
+                "late-native",
+                true,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Held
+        );
+        application.commit_prompt_identity_reset(id);
 
         let saved = state
             .workspace
@@ -14091,9 +14133,15 @@ mod tests {
             .read_session(id)
             .unwrap();
         assert_eq!(
-            saved.resume.and_then(|resume| resume.harness_session_id),
-            None
+            saved
+                .resume
+                .and_then(|resume| resume.harness_session_id)
+                .as_deref(),
+            Some("late-native")
         );
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
+        assert_eq!(saved.detected_question.as_deref(), Some("New question?"));
         assert!(!authority.reset_commit_pending(id));
         authority.remove(id);
     }

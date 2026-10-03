@@ -118,7 +118,7 @@ if ($Marker -clike "*:claude-code") {
             if ((Test-SafeHookString $data.cwd) -and $data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()
             }
-            if ($Event -eq "SessionStart" -and $data.source -ceq "clear") {
+            if ($Event -eq "SessionStart" -and (Test-SafeHookString $data.source) -and $data.source -ceq "clear") {
                 $sessionStartSource = "clear"
                 $sessionStartEvent = "SessionStart"
             }
@@ -207,7 +207,7 @@ if ($Marker -clike "*:claude-code") {
             if ((Test-SafeHookString $data.cwd) -and $data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()
             }
-            if ($Event -eq "sessionStart" -and $data.source -ceq "new") {
+            if ($Event -eq "sessionStart" -and (Test-SafeHookString $data.source) -and $data.source -ceq "new") {
                 $sessionStartSource = "new"
                 $sessionStartEvent = "sessionStart"
                 if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]) {
