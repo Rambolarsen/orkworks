@@ -592,10 +592,13 @@ fn run_model_evaluation_with_context_and_workspace(
             return;
         }
     };
-    select_relevant_pages(&mut snapshot, &observations, &facts);
+    // Dispatch identity must retain the full durable bundle. Ranking and
+    // bounding pages applies only to the prompt and its citation validation.
+    let mut prompt_snapshot = snapshot.clone();
+    select_relevant_pages(&mut prompt_snapshot, &observations, &facts);
     let rollup_request = build_rollup_request(workspace_instance, &snapshot, &recommendations);
     let prompt = build_taskmaster_prompt(
-        &snapshot,
+        &prompt_snapshot,
         &observations,
         &facts,
         &recommendations,
@@ -717,7 +720,7 @@ fn run_model_evaluation_with_context_and_workspace(
                 match apply_provider_output_with_diagnostic(
                     &state,
                     &runtime,
-                    &snapshot,
+                    &prompt_snapshot,
                     &workspace_path,
                     workspace_instance,
                     &facts,
