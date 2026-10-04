@@ -970,12 +970,37 @@ fn startup_generation_is_ending(state: &AppState, id: &str, generation: RuntimeG
 pub(crate) async fn start_session_runtime(
     state: Arc<AppState>,
     id: String,
+    command: harness::CommandSpec,
+    initial_prompt: Option<String>,
+    control_rx: mpsc::Receiver<RuntimeCommand>,
+    output_tx: broadcast::Sender<RuntimeEvent>,
+    kill_rx: tokio::sync::watch::Receiver<bool>,
+    initial_size: PtySize,
+) -> Result<(), String> {
+    start_session_runtime_inner(
+        state,
+        id,
+        command,
+        initial_prompt,
+        control_rx,
+        output_tx,
+        kill_rx,
+        initial_size,
+        None,
+    )
+    .await
+}
+
+async fn start_session_runtime_inner(
+    state: Arc<AppState>,
+    id: String,
     mut command: harness::CommandSpec,
     initial_prompt: Option<String>,
     mut control_rx: mpsc::Receiver<RuntimeCommand>,
     output_tx: broadcast::Sender<RuntimeEvent>,
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
+    mut exit_observed_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>,
 ) -> Result<(), String> {
     let (run_generation, is_codex_session) = state
         .sessions
@@ -1536,6 +1561,9 @@ pub(crate) async fn start_session_runtime(
                             reader_drain_deadline = None;
                         }
                         DriverEvent::Exited => {
+                            if let Some(tx) = exit_observed_tx.take() {
+                                let _ = tx.send(());
+                            }
                             child_exit = Some(Ok(()));
                             pending_commands.clear();
                             control_rx.close();
@@ -3261,13 +3289,15 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
 
         let descendant_pid_path = dir.path().join("descendant.pid");
         let descendant_release_path = dir.path().join("descendant.release");
+        let descendant_write_path = dir.path().join("descendant.wrote");
         let script_path = dir.path().join("fork-pty-holder.py");
         let pid_file = format!("{:?}", descendant_pid_path.display().to_string());
         let release_file = format!("{:?}", descendant_release_path.display().to_string());
+        let write_file = format!("{:?}", descendant_write_path.display().to_string());
         std::fs::write(
             &script_path,
             format!(
-                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n while not os.path.exists({release_file}): time.sleep(0.001)\n payload = b'x' * 4095 + b'\\n'\n deadline = time.monotonic() + 5\n while time.monotonic() < deadline:\n  try: os.write(1, payload)\n  except OSError:\n   time.sleep(10)\n   break\n os._exit(0)\nwith open({pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nopen({release_file}, 'w').close()\nos._exit(0)\n"
+                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n while not os.path.exists({release_file}): time.sleep(0.001)\n payload = b'x' * 4095 + b'\\n'\n deadline = time.monotonic() + 5\n first_write = True\n while time.monotonic() < deadline:\n  try:\n   os.write(1, payload)\n   if first_write:\n    open({write_file}, 'w').close()\n    first_write = False\n  except OSError:\n   time.sleep(10)\n   break\n os._exit(0)\nwith open({pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nopen({release_file}, 'w').close()\nos._exit(0)\n"
             ),
         )
         .unwrap();
@@ -3353,11 +3383,17 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             "the runtime should allow the configured reader drain grace; descendant_fds={descendant_fds:?}"
         );
         assert!(
-            !state.sessions.lock().unwrap()[session_id]
-                .output_buffer
-                .snapshot()
-                .is_empty(),
-            "the noisy descendant should deliver output before the bounded drain completes"
+            descendant_write_path.exists(),
+            "descendant should write its distinctive payload"
+        );
+        let descendant_payload_ingested = state.sessions.lock().unwrap()[session_id]
+            .output_buffer
+            .snapshot()
+            .into_iter()
+            .any(|line| line.chars().filter(|character| *character == 'x').count() >= 100);
+        assert!(
+            descendant_payload_ingested,
+            "the bounded drain should ingest the descendant's distinctive payload"
         );
     }
 
@@ -3401,7 +3437,8 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             .runtime = runtime;
 
         let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
-        start_session_runtime(
+        let (exit_observed_tx, mut exit_observed_rx) = tokio::sync::mpsc::unbounded_channel();
+        start_session_runtime_inner(
             state.clone(),
             session_id.to_string(),
             command,
@@ -3415,6 +3452,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
                 pixel_width: 0,
                 pixel_height: 0,
             },
+            Some(exit_observed_tx),
         )
         .await
         .unwrap();
@@ -3449,8 +3487,10 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             .filter_map(|entry| std::fs::read_link(entry.path()).ok())
             .any(|path| path.starts_with("/dev/pts/"));
         assert!(descendant_holds_pty);
-        // Let the child waiter publish Exited and the driver enter its drain window.
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::timeout(Duration::from_secs(2), exit_observed_rx.recv())
+            .await
+            .expect("driver should observe direct child exit")
+            .expect("exit observer should remain connected");
         assert_ne!(
             state.sessions.lock().unwrap()[session_id]
                 .info
