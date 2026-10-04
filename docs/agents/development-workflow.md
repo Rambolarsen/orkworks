@@ -112,6 +112,18 @@ silently choosing an interpretation. A source session, stale metadata, or an
 inferred status never authorizes resuming, reopening, or modifying that
 session; follow the task's explicit scope instead.
 
+When a Taskmaster recommendation or rollup reports a repeated obstacle or
+workflow recommendation, treat its `proposedImprovement` as unverified until
+the raw grounding is reproduced from the session's own artifacts and matched
+to a named workflow rule. Evidence made only of page or plan titles, spinner
+frame labels, or user-configured model instructions counts as over-detection
+noise to report through the recommendation-completion summary, not as
+confirmation. A "trial" recommendation that would document an experiment in
+`AGENTS.md` is implemented only when it names the specific behavior, its
+measured recurrence source, and a defined success measure; see the
+[Workflow-improvement trials from Taskmaster] section of the root
+`AGENTS.md` guide.
+
 A PR reference is a required assumption. When a task names or implies a pull
 request ("the PR", "continue the PR", a bare number), state which concrete PR
 you are acting on and resolve it before acting — never assume the current
