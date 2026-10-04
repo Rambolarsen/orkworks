@@ -1,0 +1,18 @@
+[
+  {
+    "id": "model-agents-md",
+    "label": "AGENTS.md",
+    "location": "repository",
+    "type": "model",
+    "sourcePath": "AGENTS.md",
+    "defaultDisabled": false
+  },
+  {
+    "id": "cwd-model-scope-agents-md",
+    "label": "AGENTS.md",
+    "location": "working-directory",
+    "type": "model",
+    "sourcePath": "scope/AGENTS.md",
+    "defaultDisabled": false
+  }
+]

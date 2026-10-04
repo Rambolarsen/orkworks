@@ -1,0 +1,295 @@
+Command Sandboxing (experimental):
+
+  When sandboxing is enabled, shell commands run inside an OS-level sandbox with
+  restricted filesystem and network access, limiting the blast radius of a
+  command the agent runs. Built-in file edits aren't OS-sandboxed, but still
+  follow the same policy on a best-effort basis.
+
+  Command sandboxing is an experimental feature. The `/sandbox` command (and its
+  `enable`/`disable` subcommands) is only registered when experimental features
+  are on, or when a managed policy forces sandboxing on; otherwise it returns
+  "Unknown command". Enable experimental features with the `--experimental` flag
+  or `/settings experimental on` (staff sessions have it available by default).
+
+Underlying technology:
+
+  Sandboxing is powered by Microsoft Execution Containers (MXC), which provides a
+  cross-platform abstraction over each operating system's native isolation
+  primitives. Copilot CLI describes the policy it wants (which paths are
+  readable/writable, whether network is allowed, and so on) and MXC enforces it
+  using the appropriate OS backend for your platform.
+
+  To learn more about MXC, see https://github.com/microsoft/mxc
+
+Disabled vs. enabled:
+
+  Disabled (the default)  Shell commands run directly on your machine with the
+                          same access your user account has. The agent can read,
+                          write, and delete anywhere you can, reach any network
+                          your machine can, and use your credentials without
+                          restriction. No git/`gh` tokens are injected into a
+                          sandbox because there is no sandbox.
+
+  Enabled                 Shell commands are launched inside an MXC sandbox that
+                          enforces your configured policy. Access outside the
+                          allowed paths is blocked, network is constrained to
+                          what the policy permits, and git/`gh` authenticate
+                          through the masking proxy when their auth options are
+                          enabled. Commands that try to
+                          step outside the policy fail rather than affecting the
+                          rest of your system, unless you explicitly bypass the
+                          sandbox for that command. Note that the sandbox still
+                          inherits your shell environment apart from a fixed
+                          blocklist, so other credentials already present in your
+                          environment (for example `AWS_ACCESS_KEY_ID`) remain
+                          visible unless you configure them for masking.
+
+Supported hosts:
+
+  macOS    Uses the MXC Seatbelt backend (`sandbox-exec`).
+  Linux    Uses the MXC bubblewrap backend; requires `bwrap` 0.5.0+ on PATH.
+           Every sandbox also runs in a private network namespace, which
+           requires `slirp4netns`, util-linux 2.35+ (`unshare` with
+           `--map-current-user` and `--keep-caps`, plus `nsenter`),
+           `iptables`, `ip6tables`, both `-restore` binaries, and read/write
+           access to `/dev/net/tun`.
+           Unprivileged hosts normally need the `nf_tables` iptables backend.
+  Windows  Uses MXC ProcessContainer with BaseContainer. Supported versions:
+           https://aka.ms/ghcp-sandbox-os-support
+
+  The host-support check probes for `sandbox-exec` on macOS and a new-enough
+  `bwrap` on Linux; on Windows it requires BaseContainer and a compatible
+  policy. Sandboxing is unavailable on other hosts. On Linux, install `bwrap`
+  if `/sandbox` reports that sandboxing isn't supported. The probe does not
+  check the namespace prerequisites above, so if a sandboxed command fails
+  during startup, install or enable them; MXC names the missing or incompatible
+  prerequisite.
+
+  If sandboxing is already on when you start a session on a host that can't run
+  it — from `--sandbox`, a saved `sandbox.enabled`, or an organization policy —
+  every sandboxed shell command and every sandboxed MCP/LSP server fails.
+  Copilot prints a startup warning saying so. Turn sandboxing off with
+  `/sandbox disable` (or set `sandbox.enabled` to false in `settings.json`) to
+  keep working. To fix the host, install the required Linux tools or update
+  Windows.
+
+  When an organization policy enforces sandboxing, a local
+  `sandbox.enabled: false` is overridden by the managed floor. If the policy
+  leaves `allowBypass` on, you can approve a per-command bypass, or run
+  `/sandbox disable` to turn sandboxing off for the rest of the current session
+  — that choice isn't saved, so a new session starts sandboxed again and
+  `/sandbox enable` restores it sooner. If the policy sets
+  `allowBypass: false`, sandboxing is mandatory, `/sandbox disable` is refused,
+  and a host that can't run the sandbox can't run shell commands at all;
+  contact your administrator, who can deploy the prerequisites or scope the
+  policy.
+
+What you can lock down:
+
+  With sandboxing enabled you (and your organization) can restrict how the agent
+  interacts with your machine along several dimensions:
+
+  Filesystem   Grant read/write only to specific paths, grant read-only access
+               to others, and deny paths outright. By default access is limited
+               to your working directory, PATH directories, the temp directory,
+               and your user profile. Everything else is inaccessible unless you
+               add it to the policy.
+
+  Network      Allow or block outbound network connections, and separately allow
+               or block connections to your local network, so commands can't
+               exfiltrate data or reach internal services you haven't approved.
+
+  Credentials  Authenticate git/`gh` and mask selected environment credentials
+               using a local proxy. Sandboxed tools receive fake values; the
+               proxy supplies real values only in approved HTTPS request headers.
+               Other environment variables and credential files are not covered
+               by masking.
+
+  Subprocesses Choose whether local (stdio) MCP servers and LSP servers are also
+               spawned inside the sandbox so they inherit the same restrictions.
+               Remote (HTTP/SSE) MCP servers are never sandboxed.
+
+  Keychain     On macOS, control whether the system keychain is reachable from
+               inside the sandbox. This option is config-file-only.
+
+  Bypass       Optionally allow (or forbid) a per-command escape hatch that lets
+               a single command opt out of the sandbox when it needs
+               unrestricted access.
+
+Credential masking and the proxy:
+
+  Open `/sandbox` -> Credentials. All options on this tab use the local proxy.
+  Authenticate git and Authenticate gh use credential masking automatically
+  when enabled. Masked environment variables, below those toggles, lets you
+  configure additional environment variable names and injection hosts.
+  Enter names and hosts, never the secret values themselves.
+
+  Masking starts a local proxy in the Copilot host process. You do not need to
+  configure a Remote proxy to use it. Open Network -> Proxy and blocking for
+  Remote proxy, Host rules, and Certificate authority settings. Remote proxy is
+  an optional upstream proxy: when configured, the local proxy connects through it;
+  otherwise, it connects directly to the destination.
+
+  Before launching a sandboxed shell or a sandboxed local MCP/LSP server,
+  Copilot replaces the selected environment values with random per-launch sentinels.
+  Missing or filtered-out variables stay missing. The local proxy verifies the
+  destination's TLS certificate before substituting real credentials into HTTPS
+  request headers sent to each credential's approved hosts. The replacement
+  mapping and real values stay in the host process, not the child environment.
+  Network allow/deny rules still apply; injection hosts do not override them.
+  On Windows, enable Allow local network when using the local proxy, including
+  git/`gh` authentication or masked environment variables without a remote proxy
+  or host rules. Otherwise sandboxed commands cannot reach the local listener.
+
+  Git authentication retains the original HTTPS host, port, and repository path
+  scope. GitHub CLI authentication uses the repository's GitHub account when
+  available and injects only at `github.com`, `api.github.com` and
+  `uploads.github.com`.
+  Both keep the existing command-scoped detection: unrelated shell commands do
+  not get those automatic bindings.
+
+  For another credential, configure its environment name and approved hosts:
+
+    {
+      "sandbox": {
+        "enabled": true,
+        "credentials": {
+          "envVars": {
+            "API_TOKEN": { "injectHosts": ["api.example.com", "*.example.net"] }
+          }
+        }
+      }
+    }
+
+  `API_TOKEN` must exist in the final child environment. Hostnames match exactly;
+  `*.example.net` matches subdomains. A bare `*`, URLs, and ports are not valid
+  injection host rules.
+
+  Only HTTPS request headers are substituted. Plain HTTP, URLs and request
+  bodies are not substituted. Clients that encode or sign the fake value,
+  require HTTP/2, pin certificates, or use client certificates may not work with
+  this masking path. Other copies of a secret in files or unconfigured variables,
+  host-side tools, and remote MCP authentication are outside this protection.
+
+  An approved bypass skips both masking and the local proxy. Bypassed commands
+  use their ordinary environment and may receive real credential values.
+
+Proxy certificate authority:
+
+  HTTPS interception requires clients to trust the proxy certificate authority.
+  Copilot supplies a temporary public certificate bundle to each masked child.
+  Installing the authority in your OS trust store increases compatibility;
+  without it, some tools may not work even though the bundle remains available.
+  Installation also changes trusted roots outside Copilot.
+
+  On supported platforms, interactive sessions offer installation when git/`gh`
+  auth or masked credentials need it. You can continue without installing, and
+  that choice is remembered for later sessions too. Manage it later under
+  `/sandbox` -> Network -> Proxy and blocking -> Certificate authority, or use
+  these explicit commands:
+
+    /sandbox ca install   Install the authority into OS trust.
+    /sandbox ca rotate    Replace it, preserving its installed trust state.
+    /sandbox ca remove    Remove it from OS trust; keep bundle-based use.
+
+  macOS uses the user login Keychain and needs no administrator access, but asks
+  for your login password whenever it changes Keychain trust settings. Windows
+  must use the machine store (Local Machine Root), because a sandboxed child
+  cannot see per-user roots; Copilot elevates to write it, so Windows prompts for
+  administrator approval, and a machine root is trusted by every user on the
+  device. On both, `install`, `remove`, and a `rotate` of an installed authority
+  each raise a system prompt. Linux uses the per-process bundle only.
+  The authority is unique to each Copilot home directory and reused across
+  launches. It is limited to the hosts that receive masked credentials and their
+  subdomains, so its key cannot impersonate an unrelated site; after adding a credential host, run
+  `/sandbox ca rotate` so OS-trust-only tools accept it too. Its private key is
+  never passed to sandboxed children, but any program you run can read it, so
+  protect the Copilot home directory like a password. Restart running sandboxed
+  tools after rotation. Leaf certificates last one day, so long-running masked
+  MCP/LSP children also need to restart for fresh leaves.
+
+Enabling and disabling:
+
+  /sandbox            Show the current status. In interactive mode, opens a
+                      dialog to configure the sandbox policy.
+  /sandbox enable     Turn command sandboxing on.
+  /sandbox disable    Turn command sandboxing off.
+
+  Enabling seeds a sensible starting policy: filesystem access is limited to your
+  working directory, PATH directories, the temp directory, and your user profile;
+  outbound network connections are allowed; git/`gh` authentication uses the
+  masking proxy; and a per-command bypass escape hatch is available.
+
+Configuration:
+
+  Settings are stored in `settings.json` under the `sandbox` key. Edit them there
+  or via the `/sandbox` dialog.
+
+  `enabled`: whether command sandboxing is on.
+
+  `addCurrentWorkingDirectory`: grant read/write access to the current working
+    directory; on by default when enabling.
+
+  `allowDevToolAccess`: auto-grant access to the dev-tool locations builds need;
+    on by default. Read access covers common dev-tool caches, toolchains, and
+    registry/proxy config in their default locations (for example `~/.npmrc`,
+    `~/.m2/settings.xml`), so builds resolve custom registries without your
+    exporting `CARGO_HOME`/`GOPATH`/etc. Read/write access covers shared scratch
+    caches (go-build, ccache, sccache, Gradle), Cargo's registry and git stores,
+    and the Unix `gh` cache at `$XDG_CACHE_HOME/gh` or `~/.cache/gh`. Cargo's
+    installed binaries are read-only; its config and credentials are not granted.
+    A cache you have moved gets the same grants its default location would, and
+    no more. Move it either with an environment variable (`NUGET_PACKAGES`,
+    `GOMODCACHE`, `npm_config_cache`, `GRADLE_USER_HOME`, `CARGO_HOME`, and the
+    like) or in the tool's own config file (NuGet, npm, pnpm, Yarn, Maven, Go,
+    pip, Bundler). Both are read from your own environment and home directory,
+    never from a config file in the repository you are working in.
+
+    Grants are scoped per command: only the ecosystems the command invokes,
+    plus those implied by the build manifests sitting in your working directory
+    (`Cargo.toml`, `go.mod`, `package.json`, `pom.xml`, and the like). A
+    `make` recipe that shells out to `cargo` therefore still gets the Rust
+    caches, and a cwd with no Java manifest keeps `~/.m2` ungranted. Manifests
+    are matched by file name only. Other tool homes found through your
+    environment are granted regardless, but a cache you have moved is granted
+    only to commands that use its own ecosystem.
+
+    The trade-off: sandboxed commands can read those config files — including
+    any registry tokens they hold — and can write to caches shared with your
+    other projects. Dedicated credential stores (`~/.ssh`, `credentials.toml`,
+    and the like) stay excluded either way. Turn this off if you'd rather grant
+    build paths explicitly through `readonlyPaths`/`readwritePaths`.
+
+  `allowBypass`: allow a single command to opt out of the sandbox when it needs
+    unrestricted access (a per-command escape hatch).
+
+  `auth.git` / `auth.gh`: authenticate sandboxed git and `gh` commands through the
+    masking proxy without giving their real credential values to the child.
+    These options do not inject credentials into an approved bypass.
+
+  `credentials.envVars`: map additional environment variable names to
+    `injectHosts` lists, as shown above. Values are replaced in the final child
+    environment; no secrets are stored in this configuration.
+
+  `sandboxMcpServers` / `sandboxLspServers`: whether local (stdio) MCP servers and
+    LSP servers are also spawned inside the sandbox. Remote (HTTP/SSE) MCP servers
+    are never sandboxed.
+
+  `userPolicy.filesystem.readwritePaths` / `readonlyPaths` / `deniedPaths`: extra
+    paths to grant read/write, grant read-only, or deny.
+
+  `userPolicy.network.allowOutbound`: allow outbound network connections.
+
+  `userPolicy.network.allowLocalNetwork`: allow connections to the local network.
+
+  `userPolicy.network.proxy`: optional upstream HTTP(S) proxy used by the local
+    proxy. It is not required to enable credential masking.
+
+  `userPolicy.seatbelt.keychainAccess` (macOS): allow access to the system
+    keychain from inside the sandbox. Edit this only in `settings.json`; it is
+    not exposed by `/sandbox` or `/settings`.
+
+Learn more:
+
+  For details on cloud and local sandboxes, see
+  https://docs.github.com/en/copilot/concepts/about-cloud-and-local-sandboxes

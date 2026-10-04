@@ -1,0 +1,5 @@
+---
+name: orkworks-740-sentinel
+description: Harmless discovery-only fixture for issue 740.
+---
+Use the marker ORK740_SKILL. This fixture grants no tools.
