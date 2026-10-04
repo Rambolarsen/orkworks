@@ -83,3 +83,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0073](./0073-other-harness-prompt-attention-authority.md) | Prompt-attention authority is event-validated for Claude and Copilot; Aider stays on Peon fallback | accepted |
 | [0074](./0074-accumulate-alternate-buffer-trackpad-input.md) | Accumulate alternate-buffer trackpad input | accepted |
 | [0075](./0075-responsive-pty-input-delivery.md) | PTY writes keep the session driver responsive | accepted |
+| [0076](./0076-codex-owned-native-approval-observer.md) | Codex approval status from a runtime-owned native server | proposed |
