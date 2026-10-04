@@ -134,7 +134,8 @@ OrkWorks should not create, delete, merge, rebase, reset, or clean up worktrees 
 The proposed [ordinary-child orchestration extension](taskmaster.md#proposed-ordinary-child-orchestration-extension)
 is a narrow opt-in exception, tracked by
 [#610](https://github.com/Rambolarsen/orkworks/issues/610). Its scope alignment
-is pending written review and is not runtime authorization. One UI-created
+was accepted in PR #747; detailed contract review, capability evidence and
+scoped implementation approval remain required before runtime work. One UI-created
 parent run coordinates separate exactly approved research/execution plans;
 completion of research permits synthesis, not execution launches. An exact
 immutable plan approval is required before provisioning branches/worktrees or

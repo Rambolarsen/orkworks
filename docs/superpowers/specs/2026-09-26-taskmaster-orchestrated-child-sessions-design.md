@@ -1,11 +1,11 @@
 # Taskmaster orchestrated child sessions
 
-- Status: proposed
+- Status: accepted launch scope; detailed contracts and runtime implementation remain gated
 - Date: 2026-09-26
 - Tracking issue: [#610](https://github.com/Rambolarsen/orkworks/issues/610)
 - Supersedes as the launch design: [master-session parallel runner proposal](2026-09-25-master-session-parallel-runner-design.md)
 - Replaces the native-boundary prerequisite for this scope: [native child-launch boundary design](2026-09-25-taskmaster-native-child-launch-boundary-design.md)
-- Proposed lifecycle amendment: [Clarification and research-to-execution](2026-10-04-orchestrator-preparation-design.md) — preserves a live parent’s run planning authority after research and uses separate exact-plan execution grants; not adopted by this baseline yet
+- Adopted lifecycle scope: [Clarification and research-to-execution](2026-10-04-orchestrator-preparation-design.md) — preserves a live parent’s run planning authority after research and uses separate exact-plan execution grants; included in this baseline; detailed contract review remains open
 - Proposed extension: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md) — optional research preparation, role profiles, loaded skills, and assignment evaluation; awaiting written review
 
 ## Purpose
@@ -89,6 +89,12 @@ processes.
 A plan is immutable after approval and contains one or more tasks:
 
 - parent session and workspace identity;
+- the preparation contract's immutable `ParentPlanBinding`: run, parent, plan
+  and revision identities, `runDefinitionDigest`, `bootstrapConfigurationDigest`,
+  preparation revision and exact input-manifest digest; these bindings are
+  part of the approved definition and its digest;
+- exact task configuration/instruction/skill digests and consumed input record
+  identities, versions and digests, with effective coding-tool/model bindings;
 - canonical Git repository root, clean working-tree evidence, and exact base
   commit SHA from which approved worktrees will be created;
 - bounded child task IDs, task descriptions, and initial prompts;
@@ -315,8 +321,13 @@ follow the repository's existing rule: only a clean, quiescent, plan-owned
 worktree may be removed.
 
 The plan definition and its digest are immutable. The digest covers only the
-approved definition (tasks, batches, paths, branches, harness bindings, and
-limits); mutable execution state (plan status, task results, reservations,
+approved definition, including `ParentPlanBinding` (run definition/bootstrap
+configuration, preparation revision and input-manifest digests), task
+configuration/instruction/skill and consumed input bindings, tasks, batches,
+paths, branches, harness/model bindings and limits. Changed bound inputs or
+configuration require a new exact revision and UI approval; changed immutable
+run bootstrap requires a new UI-created run. A launch grant cannot authorize
+changed inputs under an old digest. Mutable execution state (plan status, task results, reservations,
 child IDs, and allocation progress) is stored separately and never changes the
 approved digest.
 
