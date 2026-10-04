@@ -115,7 +115,15 @@ request is idempotent and returns the existing child session. Tasks sharing a
 worktree group may not run concurrently, and a dependent task cannot reuse its predecessor's
 worktree until the predecessor session is terminal and the user confirms that
 no remaining process is using the worktree. This is a user acknowledgement,
-not OS proof. A child session ending is not the task-turn boundary. Initially,
+not OS proof. Every entry point that resumes an orchestration-owned child
+serializes its admission with group handoff and run-capacity admission. The
+current task/session must still own the group and have a live-child slot. A
+durable successor reservation transfers ownership before spawn and permanently
+blocks predecessor resume in that group, even after the successor ends. A resume
+before handoff invalidates the old terminal/quiescence acknowledgement, requiring
+a fresh one after it ends. Resume does not retry a task or restore revoked
+approval; ordinary sessions without lineage retain their existing resume path.
+A child session ending is not the task-turn boundary. Initially,
 the existing Codex `Stop` reporter sends the one-shot receipt to
 `POST /sessions/{child_id}/orchestration/turn-completion`, authenticated with
 that child's `Authorization: Bearer <ORKWORKS_REPORT_TOKEN>`. The sidecar
@@ -170,7 +178,12 @@ completion check atomically. Live child PTYs do not delay it: completion
 revokes that exact plan's server-held execution grant and fences its launches.
 For a successful research stage, the run planning bearer remains valid so the
 same parent automatically synthesizes and proposes execution. Final execution
-completion ends run authority. Child sessions and worktree records remain
+completion ends run authority. After completed research, the version-bound UI
+finish action may complete a research-only run or decline execution, including
+a no-go conclusion, before execution approval and with no execution allocation.
+It revokes all run authority
+and invalidates pending proposals; unsettled reservations/interrupted allocations
+block finish. Completion does not assert quality or user acceptance. Child sessions and worktree records remain
 visible for ordinary management/manual integration. A live child neither
 reopens a completed plan nor frees a run-capacity slot.
 
@@ -249,7 +262,8 @@ Paused plans allow report collection/proposals but deny launches. Successful
 research completion revokes its grant before synthesis; the same parent's
 planning bearer continues to a linked execution proposal requiring its own
 approval. Stage cancellation pauses the run for explicit UI continuation; run
-cancellation/final execution ends run authority. At most one plan revision has
+cancellation/final execution or explicit UI research-only/decline-execution
+finish ends run authority. At most one plan revision has
 a launch grant. Older live children still count toward run capacity. New plans
 have distinct worktree groups, no cross-plan reuse or code transfer.
 

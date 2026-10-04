@@ -515,7 +515,8 @@ are no child sidecars, extra selected workspaces or peer registries. Electron
 main retains the existing UI authority, while the verified parent integration
 receives a volatile run planning bearer. Only a separate server-held exact-plan
 grant permits launch. Research completion revokes its grant and permits the
-same parent to synthesize/propose execution; final execution ends run authority.
+same parent to synthesize/propose execution; final execution or version-bound
+UI research-only/decline-execution finish ends run authority.
 All live prior-plan children and unattached reservations count toward the run
 cap. Events are bounded hints; adapter proof of same-parent continuation is
 required, and a live PTY alone is insufficient.

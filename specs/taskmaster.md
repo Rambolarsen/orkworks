@@ -230,7 +230,11 @@ planning authority continues to synthesis and an execution proposal. Every new e
 completion never transfers approval into that new plan. Only one
 revision holds a launch grant per run. All nonterminal children from every plan
 and unattached reservations consume the run cap, even after a task/plan result.
-Final execution completion or run cancellation revokes run authority; parent
+Final execution completion or run cancellation revokes run authority. After
+completed research, exact version-bound UI finish can complete a research-only
+run or decline execution, including a no-go conclusion; it revokes all authority,
+is allowed only before execution approval, invalidates pending proposals and
+requires settled reservations and no interrupted allocation. This is coordination completion, not result acceptance. Parent
 end and workspace/sidecar changes revoke volatile authority and pause the run.
 Exact-identity UI resume restores fresh authority, with exact-plan reapproval
 before launches and no automatic replacement parent or child relaunch.
@@ -238,7 +242,11 @@ before launches and no automatic replacement parent or child relaunch.
 Independent chains use separate approved worktree groups. Dependent reuse
 within a plan requires a terminal predecessor and explicit user quiescence
 acknowledgement, not OS proof; no cross-plan reuse or automatic integration is
-introduced. Allocation intent and one task reservation are durable before
+introduced. Owned-child resume serializes with successor admission and enforces
+current group ownership and live-child capacity. Successor reservation durably
+transfers ownership and denies predecessor resume thereafter, even once the
+successor ends; a pre-handoff resume invalidates earlier quiescence evidence.
+Resume cannot retry a task or revive a grant. Allocation intent and one task reservation are durable before
 mutation/spawn. Duplicate requests cannot launch twice; ambiguous recovery
 blocks admission rather than guessing or retrying. A failed/blocked task pauses
 launches. Added/retried work requires a new approved revision.

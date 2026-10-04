@@ -141,8 +141,13 @@ and active producer launch generation from the session capability and launch
 records. Client fields must match those values. Check generation before accepting
 or deduplicating a receipt: a pre-resume runtime cannot submit/replay evidence as
 the current producer merely because the stable session ID matches. A user-authorized
-child resume revalidates the role/configuration and records a fresh active runtime
-binding; a new report needs a new immutable version with that binding. Existing
+child resume atomically revalidates the role/configuration, current worktree-group
+ownership and live-child capacity before recording a fresh active runtime
+binding. Successor reservation durably transfers the group and blocks predecessor
+resume thereafter, even after the successor ends. Resume before handoff invalidates
+earlier terminal/quiescence evidence; a fresh acknowledgement is required after
+the resumed child ends. Resume never retries a task or restores a revoked grant; a new report needs a
+new immutable version with that binding. Existing
 report versions retain their original generation as historical evidence, never
 rewritten or silently promoted to the resumed runtime's current delivery.
 
@@ -218,6 +223,10 @@ capability. Research children may remain live; their sessions, worktrees and
 reports remain visible. Completing a plan does not terminate those processes.
 
 ## Same-parent research-to-execution transition
+
+For a research-only goal or no-go conclusion, synthesize the bounded summary
+without inventing execution assignments and show the version-bound UI finish
+choice. The parent planning bearer cannot finish on the user's behalf.
 
 The parent assembles a bounded `ResearchSummary`: findings affecting the
 approach, remaining uncertainty, assignment choices and their reasons, plus
@@ -325,7 +334,13 @@ skill selected for a later plan as loaded in an already-running parent.
    eventual approval creates a different grant; an expired plan bearer/grant is
    never reactivated. A rejected execution proposal supplies no launch grant.
 6. Final execution completion ends the run and revokes the run bearer and all
-   launch grants. Explicit run cancellation, parent ending, workspace change or
+   launch grants. After completed research, an exact version-bound UI finish
+   action can instead complete a research-only run or decline execution, including
+   a no-go conclusion. It atomically invalidates pending proposals and revokes
+   all authority before any execution approval, with no execution allocation;
+   unsettled reservations/interrupted allocations block finish. It does not infer
+   result quality/user acceptance. Explicit run cancellation, parent ending,
+   workspace change or
    sidecar-generation change likewise revokes both. Already-launched children
    retain ordinary session lifecycle and manual-integration records.
 
@@ -362,6 +377,8 @@ end, sidecar restart or workspace change is automatic.
 
 Run states are distinct from baseline plan/task states. Every transition is
 version-checked and maintains run/plan fencing in one serialized mutation.
+`complete` and `cancelled` are absorbing: parent exit, restart or UI resume
+never returns a terminal run to `paused` or restores its authority.
 
 | Run state / event | Next state | Automatic work | Required user authority |
 | --- | --- | --- | --- |
@@ -376,6 +393,7 @@ version-checked and maintains run/plan fencing in one serialized mutation.
 | Summary and execution proposal ready | `awaiting_execution_approval` | Display plan and summary | Exact execution revision approval |
 | Execution approved | `executing` | Request eligible declared tasks; collect results | Existing approved revision and any reuse acknowledgement |
 | Final execution plan complete | `complete` | Revoke run bearer/grants; retain visible results | Manual integration remains separate |
+| Completed research, no execution desired (research-only/no-go/decline) | `complete` | Revoke bearer/grants, invalidate pending proposals, retain summary/children/artifacts; before execution approval, settled reservations and no interrupted allocation required | Exact version-bound UI finish decision |
 | Failure/blocker/conflict/interrupted allocation | `blocked` | Collect outstanding results; explain and draft recovery | Exact recovery revision and any allocation resolution |
 | Proposal rejected | Same approval-wait state | Show rejection; stop repeated unchanged proposals | Changed proposal needs fresh exact approval |
 | Stage plan cancelled | `paused` | Revoke grant; retain reports/children | Explicit continue decision before proposing next stage |
@@ -384,7 +402,10 @@ version-checked and maintains run/plan fencing in one serialized mutation.
 
 `awaiting_execution_approval` can display capacity held by older children.
 Approval does not remove that wait. `complete` does not mean all PTYs ended,
-all worktrees removed, or the user's goal accepted. Evaluation and integration
+all worktrees removed, or the user's goal accepted. Research finish records
+research-only/declined-execution disposition without labeling the run cancelled.
+A terminal run cannot regain planning authority; new work requires a new UI-created
+run. Evaluation and integration
 remain separate contracts.
 
 ## Revision, cancellation and recovery
@@ -582,6 +603,8 @@ live coding-tool probes were run while drafting this document.
 | Material answer missing/stale/terminal-only | Dependent proposal cannot be approved |
 | Parallel question consumes another's result | Explicit dependency/later batch; no concurrent launch |
 | Research approved, execution unspecified | Research only; no execution allocation |
+| Research-only/no-go summary finished through UI | Exact run-version finish becomes `complete`, revokes bearer/grants and invalidates proposals; no execution allocation or result-acceptance claim |
+| Finish races proposal/launch or has unresolved allocation | Serialized current-version fencing; stale finish or unsettled/interrupted allocation denied |
 | Research completes with live children | Revoke research grant; same parent synthesizes; retain full run capacity accounting |
 | Old research grant / old plan bearer presented | No launch or renewal; never revive an expired credential |
 | Run bearer without current exact grant | Planning allowed while active, child launch denied |
@@ -591,7 +614,9 @@ live coding-tool probes were run while drafting this document.
 | Required review conflict / unknown capability | Block ready execution proposal; explain missing evidence |
 | Pending proposal report corrected | New input revision invalidates old proposal; approval fails stale |
 | Correction after execution launched | Visible blocker; keep original assignments, no automatic rewrite/retry |
-| Stable child session ID resumes into a new runtime | Reject old-generation report requests before dedupe; retain old reports with historical generation; new versions bind the authorized current runtime |
+| Stable child session ID resumes into a new runtime | Revalidate group ownership/capacity before spawn; reject old-generation report requests before dedupe; retain historical reports; new versions bind current runtime |
+| Predecessor resume races/follows successor reservation | Serialized ownership transfer; only one current group owner, predecessor resume denied after transfer even if successor ends |
+| Child resumes before acknowledged handoff | Invalidate old terminal/quiescence evidence; next successor needs fresh terminal evidence and user acknowledgement |
 | Forget more than 1,024 runs | Admission continues with constant-size epoch/high-water fencing; retired IDs remain non-recreatable |
 | Exhausted/corrupt admission fence | UI-only quiescent namespace recovery; reject all old-epoch mutations and preserve artifact ownership |
 | Parent receives duplicate events / launch requests | Read current state; one task attempt/reservation |

@@ -49,7 +49,12 @@ Successful research completion revokes that plan's grant and retains the same
 parent's planning bearer for automatic synthesis and an execution proposal.
 Every new execution plan needs its own exact approval; research completion
 never transfers approval into that new plan. Only one plan revision holds a launch grant per run. Final execution
-completion or run cancellation revokes all run authority. Parent end,
+completion or run cancellation revokes all run authority. After completed
+research, an exact version-bound UI finish action may close a research-only
+run or decline execution (including a no-go conclusion) as `complete`,
+revoking bearer/grants without execution allocation. Finish is allowed only
+before execution approval. Unsettled reservations or interrupted allocations block finish; pending proposals are invalidated.
+Completion is coordination disposition, not quality or user acceptance. Parent end,
 workspace change and sidecar replacement revoke volatile authority and pause
 coordination. UI-authorized exact-identity resume creates fresh authority;
 launches require exact-plan reapproval. Between stages, resume restores
@@ -62,7 +67,12 @@ plus unattached reservations, count toward its ceiling. A completed task or
 research plan does not free a live child's slot. Independent chains use
 separate approved worktree groups. Sequential reuse within a plan requires a
 terminal predecessor and explicit user quiescence acknowledgement; this is
-not OS proof. No cross-plan reuse or automatic transfer of code is introduced.
+not OS proof. Every orchestration-owned child resume checks group ownership
+and live-child capacity atomically with successor admission. Durable successor
+reservation transfers the group and permanently denies predecessor resume in
+that group, even after the successor ends; a resume before handoff invalidates
+the old terminal/quiescence evidence. Resume does not retry a task or restore a
+revoked grant. No cross-plan reuse or automatic transfer of code is introduced.
 
 Persist allocation intent and a unique task launch reservation before mutation
 or spawn. Recovery attaches only an exact recorded allocation/child; ambiguous

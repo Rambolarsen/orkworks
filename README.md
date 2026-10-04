@@ -29,7 +29,9 @@ lets a UI-created parent coordinate exactly approved plans through ordinary
 child sessions in the existing workspace sidecar. Independent chains use
 separate approved worktrees; edits remain for manual integration. The same
 parent can prepare an execution proposal after research, but execution needs
-its own exact approval. Orchestration never commits, merges, transfers code or
+its own exact approval. Research-only work can finish without execution;
+sequential worktree reuse keeps one active child per worktree. Orchestration
+never commits, merges, transfers code or
 automatically cleans up worktrees.
 
 This is not implemented. [ADR 0077](docs/adr/0077-taskmaster-orchestrated-child-sessions.md)

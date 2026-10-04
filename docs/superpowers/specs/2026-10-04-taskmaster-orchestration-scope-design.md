@@ -93,9 +93,9 @@ remain historical evidence.
 - [ ] Children reuse the selected workspace's ordinary runtime/store; one instance/lease and one selected terminal remain intact, with backward-compatible ordinary records.
 - [ ] Each task has one attempt; failed/blocked/interrupted work pauses launches and retries/additions require a newly approved revision.
 - [ ] Run capacity counts every nonterminal child across all plans and unattached reservation; completion reports do not release a live slot.
-- [ ] Independent chains have separate plan-owned worktrees; dependent same-plan reuse requires a terminal predecessor and explicit user quiescence acknowledgement, with no cross-plan reuse or automatic integration.
+- [ ] Independent chains have separate plan-owned worktrees; dependent same-plan reuse requires a terminal predecessor and explicit user quiescence acknowledgement, with no cross-plan reuse or automatic integration; resume must respect current group ownership and live-child capacity.
 - [ ] Authenticated turn readiness or explicit UI action/terminal reconciliation gates exact version-bound parent outcomes; reports/exit alone never prove success, quality or user acceptance.
-- [ ] Cancellation/final completion fence grants; parent end/workspace/sidecar change revoke volatile credentials and pause; UI exact-identity resume requires current-plan reapproval before launches.
+- [ ] Cancellation/final completion, including explicit research-only/decline-execution finish, fence all run authority; parent end/workspace/sidecar change revoke volatile credentials and pause; UI exact-identity resume requires current-plan reapproval before launches.
 - [ ] Children/artifacts remain manageable after parent exit or completion; protected ownership/evidence, admission/replay fencing and finite limits survive retention, deletion and recovery.
 - [ ] No orchestration-owned transfer, commit, merge, rebase, push, existing-branch change, branch deletion or automated worktree cleanup; required user escalations remain explicit.
 - [ ] Focused contract, race/recovery, adapter and desktop fixtures cover each scoped unit; review and required CI pass before feature availability is claimed.
@@ -123,7 +123,7 @@ is authorized merely by merging this documentation.
 - [x] Owner accepted the scope/trust changes in ADR 0077 and this alignment on 2026-10-04; PR #747 records the decision.
 - [x] Record the accepted decision on #610, retire #617 with the explicit supersession reason, and synchronize #738 without claiming component completion.
 - [ ] Review #741/#742's immutable bootstrap, configuration and run/grant lifecycle together; retain #740's unverified/no-go entries until exact evidence is available.
-- [ ] Finalize #743/#744 reporting/evaluation and #746 projections before the units consuming them; #745 remains downstream of usage/evaluation.
+- [ ] Finalize #743/#744 reporting/evaluation and #746 projections before the units consuming them; #745's repository-identity portion must be reviewed before worktree/child admission; only learning/history remains downstream of usage/evaluation.
 - [ ] Review and explicitly approve each scoped runtime execution plan with meaningful failing/passing fixtures before code starts.
 
 Documentation verification for this alignment: diff whitespace check,
