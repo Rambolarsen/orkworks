@@ -126,13 +126,24 @@ A version-1 `ResearchReport` contains:
 | --- | --- |
 | `reportId`, `reportVersion` | Stable report identity and positive immutable version |
 | `runId`, `planId`, `planRevision`, `taskId` | Exact approved research assignment |
-| `reservationId`, `childSessionId`, `configurationDigest` | Launched producer binding, derived/validated by the sidecar |
+| `reservationId`, `childSessionId`, `configurationDigest` | Exact launched assignment, derived/validated by the sidecar |
+| `sidecarGeneration`, `launchGeneration` | Sidecar-derived producer runtime identity; a new child runtime/resume gets a new launch generation even when its OrkWorks session ID is unchanged |
 | `questionIds` | Questions assigned to this task, without duplicates |
 | `findings` | Answer, evidence reference IDs, and `established` / `inferred` / `unverified` classification |
 | `uncertainties`, `blockers` | What was not established and why |
 | `evidenceReferences` | Declared file/revision/location or source URL/retrieval time and bounded excerpt digest |
 | `recommendations`, `limitations` | Proposed consequences and coverage limitations |
 | `contentDigest` | Digest of the immutable validated report descriptor |
+
+Report authentication derives the child, reservation, configuration, sidecar
+and active producer launch generation from the session capability and launch
+records. Client fields must match those values. Check generation before accepting
+or deduplicating a receipt: a pre-resume runtime cannot submit/replay evidence as
+the current producer merely because the stable session ID matches. A user-authorized
+child resume revalidates the role/configuration and records a fresh active runtime
+binding; a new report needs a new immutable version with that binding. Existing
+report versions retain their original generation as historical evidence, never
+rewritten or silently promoted to the resumed runtime's current delivery.
 
 A report is an agent claim with provenance, not proof that its recommendations
 are correct. Native tool observations and independent review evidence remain
@@ -212,7 +223,7 @@ Version 1 uses the configuration contract's ID/digest/canonicalization rules.
 
 | Record | Required binding |
 | --- | --- |
-| `OrchestrationRunDefinition` | `schemaVersion`, `runId`, workspace/repository/parent identity, UI-authorized goal and `goalDigest`, `bootstrapConfigurationDigest`, `maxParallelChildren`, `runDefinitionDigest` |
+| `OrchestrationRunDefinition` | `schemaVersion`, `runId`, workspace/repository/parent identity, UI-authorized goal and `goalDigest`, sidecar-assigned `admissionEpoch`/`runSequence`, `bootstrapConfigurationDigest`, `maxParallelChildren`, `runDefinitionDigest` |
 | `OrchestrationRunState` | Run version, closed lifecycle state, input revision/digest, ordered plan references, current plan, current parent runtime generation; mutable evidence separate from the definition |
 | `PreparationRevision` | Run ID, strictly increasing revision, decision, exact question/answer/report/review references and digests, input manifest digest; immutable once referenced by a plan |
 | `ParentPlanBinding` | Run/parent/plan/revision identities, run definition and bootstrap configuration digests, preparation revision/input digest; included in the exact approved plan definition |
@@ -407,12 +418,43 @@ malformed/oversized ownership state fails closed and pauses launches.
 History is repository/workspace-local and protected while children, allocations,
 worktrees or referenced plan evidence remain. Deletion/forget cannot remove a
 report used by a retained proposal or plan; explicit cancellation/rejection and
-reference retirement are required first. An explicit user forget of an otherwise
-eligible run creates a retained ID tombstone preventing old report replay. Cap
-run tombstones at 1,024 per workspace; reject new run admission at exhaustion
-rather than evict a replay fence automatically. Broader retention/export policy
-belongs to #743/#745 and must preserve these references. Numeric limits are
-reviewable defaults, not claims about current storage or tool behavior.
+reference retirement are required first. Forget revokes the eligible run's
+capabilities before removing its unreferenced records.
+
+Use one bounded workspace admission fence instead of accumulating per-run
+tombstones: `schemaVersion`, `workspaceId`, `admissionEpoch` (sidecar-generated
+256-bit random namespace, lowercase 64-character hex), and `highWaterSequence`
+(integer 0 through 2^63−1). Persist this record, at most 4 KiB, under
+`~/.orkworks/taskmaster/admission/<workspace-hash>.json`, outside workspace
+metadata GC. Run IDs are sidecar-assigned `<admissionEpoch>-<runSequence>`;
+the positive sequence is decimal without leading zeros. The run definition and
+all producer bindings retain these values. A parent/child cannot select a run ID
+or recreate a missing record.
+
+Serialize admission with workspace fencing: durably reserve the next sequence
+before creating the run record; a crash may burn a sequence but never reuse it.
+Accept operations only for an existing admitted run with matching capability,
+identity/generation and plan binding. A missing run at or below the high-water
+mark is retired/unavailable, never recreatable through report replay. A future
+sequence without a recorded admission is also invalid. Forget leaves the fence
+unchanged, so forgetting more than 1,024 runs does not permanently block new work.
+
+If the sequence is exhausted or the fence needs recovery, provide an explicit
+Electron-authorized namespace rotation using existing UI authority. It requires
+all runs quiescent (no active plans, nonterminal children, reservations or
+unreconciled allocations), revokes all run/report capabilities and grants, and
+atomically persists a fresh random epoch with sequence zero before admitting
+new runs. Retained old-epoch records remain read-only historical artifacts;
+old-epoch mutations/replays are rejected without storing an unbounded epoch
+list. Worktree/artifact ownership protection is unchanged. Missing or corrupt
+fencing/ownership data pauses admission and exposes this recovery or restoration
+path; OrkWorks does not guess quiescence or rotate automatically. A crash during
+rotation fails closed until durable fence identity is reconciled. No new UI
+token, automatic deletion or same-user OS security guarantee is introduced.
+
+Broader retained-history limits/export policy belong to #743/#745 and must
+preserve references and this admission fence. Numeric limits are reviewable
+defaults, not claims about current storage or tool behavior.
 
 ## Example workflows
 
@@ -459,6 +501,9 @@ live coding-tool probes were run while drafting this document.
 | Required review conflict / unknown capability | Block ready execution proposal; explain missing evidence |
 | Pending proposal report corrected | New input revision invalidates old proposal; approval fails stale |
 | Correction after execution launched | Visible blocker; keep original assignments, no automatic rewrite/retry |
+| Stable child session ID resumes into a new runtime | Reject old-generation report requests before dedupe; retain old reports with historical generation; new versions bind the authorized current runtime |
+| Forget more than 1,024 runs | Admission continues with constant-size epoch/high-water fencing; retired IDs remain non-recreatable |
+| Exhausted/corrupt admission fence | UI-only quiescent namespace recovery; reject all old-epoch mutations and preserve artifact ownership |
 | Parent receives duplicate events / launch requests | Read current state; one task attempt/reservation |
 | Completion/cancellation races launch | Serialized fencing prevents a post-revocation reservation |
 | Parent live but model loop stopped | Show continuation unavailable; no terminal typing or new session |

@@ -727,7 +727,8 @@ the repository's applicable TDD/review/CI requirements.
 | Single terminal, accessibility, reduced motion, secondary details | #746 |
 | Bounded authenticated reports and history; ordinary-session compatibility | #741/#743/#744/#745, then baseline integration |
 
-The component specifications and capability register are queued deliverables;
-this document does not claim they already exist. Start with the independent
-drafting lanes. Review the concrete contracts before code execution planning
-becomes implementation-ready.
+Tasks 1–3 have proposed draft artifacts: the capability register, role
+configuration and preparation lifecycle. Tasks 4–7 remain queued. Existing
+drafts still need written contract review and eligibility evidence; they are not
+completed implementation handoffs. Continue the remaining drafting lanes and
+review the concrete contracts before code execution planning becomes ready.

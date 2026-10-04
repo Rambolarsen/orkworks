@@ -38,7 +38,8 @@ implementation plan must agree before implementation starts.
   concurrency limit. Children do not spawn grandchildren through this workflow.
 - Use recognizable agent portraits and compact skill badges with restrained
   animation. Task clarity and required user attention lead the visual hierarchy.
-- The orchestrator selects loaded skills for each role and task. The user
+- The orchestrator selects skills for each role and task; loading is confirmed
+  separately by adapter delivery evidence. The user
   reviews the workflow rather than manually equipping every child.
 - Role-specific instructions and permissions accompany the assignment. Use
   verified coding-tool controls; OS-enforced confinement is outside this scope.

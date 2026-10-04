@@ -306,12 +306,44 @@ ineligible. Both are visible in approval details.
 | --- | --- |
 | `tools` | Allowlist of adapter-recognized action IDs; unknown or wildcard tool entries rejected |
 | `readPaths`, `writePaths` | Exact file or explicit subtree entries, bound to an approved repository/worktree root; canonical paths shown in approval |
-| `commands` | Exact executable identity, argv, cwd, declared output/effects, and any permitted environment variable names; no wildcard shell string |
+| `commands` | Exact executable identity, argv, cwd, declared output/effects, and a digest-bound `environmentPolicy`; no wildcard shell string or ambient environment inheritance |
 | `externalSources` | Explicit source/host and action policy for search/fetch; redirected destinations must satisfy the same policy |
 | `connectors` | Exact server/connector identity and approved read/action scope; absent means denied, not inherit unrestricted MCP |
 | `coordinationActions` | Only declared parent-plan operations; child reports have assignment-scoped identity, not launch rights |
 | `nativeDelegation` | `denied` in version 1, including skill-triggered or tool-native subagent execution |
 | `accessChanges` | `request-only`; no child modifies approval, permission settings, profile, tool/model choice, or its own effective instructions |
+
+### Command environment policy
+
+Every command-enabled requested/effective profile includes an explicit
+`CommandEnvironmentSnapshot`: `mode` (exactly `explicit`), `nonsecretBindings`
+(name/exact value pairs), `credentialBindings` (name, stable `slotId`,
+`sourceIdentity`, allowed consumer/scope and `rotationPolicyId`), and
+`policyDigest`. Hash its canonical descriptor excluding `policyDigest`; include
+that digest and descriptor in the approved command/profile/configuration.
+A credential slot identifies an approved source and use, never a secret value.
+Secret bytes are resolved at execution and excluded from digests, reports and
+logs; a slot/source/scope/rotation-policy change requires a revised approval.
+Rotation within its explicitly approved policy does not expose secret bytes.
+
+The verified adapter constructs each command environment from this snapshot,
+starting empty. Unlisted ambient variables are removed rather than inherited.
+Required platform variables, working-directory/settings/search-path values and
+behavior-changing bindings must be explicit nonsecret approved values. In
+particular, `BASH_ENV`, `ENV`, `PYTHONPATH`, `NODE_OPTIONS`, `RUSTC_WRAPPER` and
+loader variables cannot arrive through ordinary-session inheritance. If needed,
+they require exact approved values plus content identities/scope for referenced
+startup scripts, modules or executable wrappers. A credential slot cannot be
+used to hide a behavior-changing nonsecret setting. The adapter validates its
+recognized credential-slot semantics; unknown slots are ineligible.
+
+Validate actual environment construction immediately before every command.
+An adapter unable to remove unlisted ambient variables or bind effective values
+cannot offer a command-enabled restricted profile. Exact executable/argv alone
+is insufficient; no prompt-only claim or OS confinement is substituted. This
+narrows coding-tool command execution, while ordinary session creation and the
+baseline's provider-login environment remain unchanged. Parent inference/login
+credentials do not implicitly authorize forwarding them to task commands.
 
 Provider inference traffic inherent in the approved coding tool is described
 in adapter evidence, separate from agent-requested external search, shell
@@ -424,7 +456,7 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 | Skills/rules/inputs | 16 skills, 32 rule/resource snapshots, and 32 input references per configuration; 33 requirement manifests, at most 16 requiredSkillIds and 32 sourceLocations/requirementSources per record, each source location at most 512 bytes; unique IDs within each namespace |
 | Criteria/dimensions | 32 acceptance criteria and 16 rubric dimensions; 2 KiB per description and output-contract text, 4 KiB assignment description |
 | Paths/tools/actions | 64 read paths, 64 write paths, 64 tools, 32 commands, 32 source policies, 16 connectors, 16 coordination actions; path/reference 2 KiB, policy text 2 KiB; dependencies at most 128 unique task IDs |
-| Commands | 64 argv elements, 2 KiB per element, 32 environment variable names; values excluded except bounded nonsecret approved literals |
+| Commands | 64 argv elements, 2 KiB per element, 32 environment bindings per command, 128-byte names, 2 KiB nonsecret values; credential slot/source/scope/policy references at most 512 bytes each; no credential values retained |
 | Supplied instructions | 16 KiB total rendered context, including all selected instruction content; individual skill/rule/template cannot exceed this total |
 | Configuration | 64 KiB serialized descriptor plus its inline snapshots; rendered content counts within that bound |
 | Plan | 128 tasks and 2 MiB total approved definition, inclusive of every configuration; lower existing/upstream limit always wins |
@@ -508,6 +540,7 @@ example, not evidence that such an adapter exists.
 | Missing mandatory skill, conflicting repository rule, oversized context | Reject; no automatic skill removal or truncation |
 | Selected optional skill supplied in startup context | Loaded receipt only after adapter confirms delivery; no native invocation claim |
 | Hook records a terminal mention or unknown tool event | Unknown/reported usage; cannot create a native observed-use record |
+| Unlisted ambient command environment or unbound startup/wrapper value | Strip unlisted variables; command-enabled profile ineligible unless exact effective environment is verified |
 | Edit tool denied, unrestricted shell available | Ineligible for research/review; do not label read-only |
 | Undeclared MCP/server, external redirect or native subagent | Deny; if controls cannot guarantee this, ineligible |
 | Test output needed but write policy empty | Invalid verification configuration; declare generated paths/commands and obtain approval |
