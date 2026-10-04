@@ -48,11 +48,11 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 | Record | Required fields and meaning |
 | --- | --- |
 | `RoleTemplateSnapshot` | `id`, `version` (positive integer), `role`, `instructions`, `instructionsDigest`, `contentDigest`, `provenance` |
-| `SkillSnapshot` | `id`, `version` (nonempty label), `content`, `contentDigest`, `requirement` (`mandatory` or `optional`), `selectionReason`, `requirementSources`, `provenance`; any context-relevant referenced resource is separately snapshotted |
+| `SkillSnapshot` | `id`, `version` (nonempty UTF-8 label, at most 128 bytes), `content`, `contentDigest`, `requirement` (`mandatory` or `optional`), `selectionReason`, `requirementSources`, `provenance`; any context-relevant referenced resource is separately snapshotted |
 | `RuleSnapshot` | `id`, `sourcePath`, `content`, `contentDigest`, `precedence`, `authority` (always `binding`), `provenance`; scoped applicable instruction files are explicit inputs |
 | `RequirementManifest` | `sourceId`, `sourceDigest`, `taskId`, `requiredSkillIds`, `sourceLocations`, `applicabilityReason`; resolved requirement annotations separate from source snapshot content |
 | `CriterionSnapshot` | `id`, `requirement` (`required` or `optional`), `description` |
-| `RubricSnapshot` | `id`, `version`, `dimensions` (ID/description pairs), `evaluatorRole`; rating/calculation belongs to #744 |
+| `RubricSnapshot` | `id`, `version` (positive integer), `dimensions` (ID/description pairs), `evaluatorRole`; rating/calculation belongs to #744 |
 | `AdapterBinding` | `harnessId`, `definitionDigest`, `adapterId`, `adapterVersion`, `executableIdentity`, `toolVersion`, `platform`, `instructionMechanism`, `effectiveSettingsDigest`, `evidenceId`, `evidenceDigest` |
 | `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration`; part of the immutable configuration |
 | `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `rubric`, `harness`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
@@ -460,7 +460,9 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 
 | Subject | Limit / behavior |
 | --- | --- |
-| IDs/digests | 128-byte IDs; 64-character digests; schemaVersion exactly 1; revision/version integers 1 through 2^31−1 |
+| IDs/digests | 128-byte IDs; 64-character digests; `schemaVersion` exactly 1 |
+| Numeric revisions | `RoleTemplateSnapshot.version`, `RubricSnapshot.version`, `planRevision`, and `preparationRevision` are integers 1 through 2^31−1; source revision identities retain their declared string representation |
+| Version labels | `SkillSnapshot.version` is a nonempty UTF-8 string at most 128 bytes, compared byte-for-byte without normalization; `AdapterBinding.adapterVersion` and `toolVersion` are nonempty labels within the 512-byte label bound, not numeric revisions |
 | Labels/reasons | 512 bytes per label; 2 KiB per reason/source reference |
 | Skills/rules/inputs | 16 skills, 32 rule/resource snapshots, and 32 input references per configuration; 33 requirement manifests, at most 16 requiredSkillIds and 32 sourceLocations/requirementSources per record, each source location at most 512 bytes; unique IDs within each namespace |
 | Criteria/dimensions | 32 acceptance criteria and 16 rubric dimensions; 2 KiB per description and output-contract text, 4 KiB assignment description |
@@ -549,6 +551,8 @@ example, not evidence that such an adapter exists.
 | Root/scoped rules larger than former 16 KiB cap | Full applicable bytes admitted only within the new bounds and verified adapter context capacity; never truncated |
 | Whole worktree scope | Explicit `worktree-root` descriptor resolves to that approved canonical root, with normal escape/adapter checks |
 | Empty/optional-only acceptance criteria | Reject approval; at least one required criterion needed |
+| Skill version `v6.3.0` | Accept as a label within 128 UTF-8 bytes; reject empty or oversized labels and non-string versions |
+| Template/rubric numeric version or plan/preparation revision | Reject non-integers and values outside 1 through 2^31−1 |
 | Same logical skill/version, different bytes | Different configuration; old approval cannot launch new bytes |
 | Reordered object keys | Same canonical bytes/digest; duplicate keys rejected |
 | Reordered skills in input | Validate canonical skill ordering before rendering; equivalent sorted definition produces same digest |
