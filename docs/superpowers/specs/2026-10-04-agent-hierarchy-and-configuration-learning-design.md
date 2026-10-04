@@ -1,11 +1,12 @@
 # Agent hierarchy and configuration learning
 
-- Status: proposed; written design awaiting user review
+- Status: proposed; work specification authorized, detailed contracts awaiting review
 - Date: 2026-10-04
 - Tracking issue: [#738](https://github.com/Rambolarsen/orkworks/issues/738)
 - Launch baseline: [Taskmaster orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md)
 - Related learning proposal: [Repo learning loop](2026-06-23-repo-learning-loop-design.md)
 - Existing observation model: [Workflow observation feedback loop](2026-08-14-workflow-observation-feedback-loop-design.md)
+- Work specification plan: `docs/superpowers/plans/2026-10-04-agent-hierarchy-work-specification.md` (repository-only; plans are excluded from the published docs site).
 
 ## Purpose and status
 
@@ -306,6 +307,8 @@ bounded reporting/storage contracts remain prerequisites for the separately
 reviewed implementation plan, not claims of implemented capability.
 
 The visual direction and configuration feedback loop are agreed product scope.
-The proposed numeric/ordinal rubric and repository-scoped history need written
-review with this document. No runtime feature or public installer claim follows
-from saving the proposal.
+The user has authorized progression to scoped work specifications. The proposed
+numeric/ordinal rubric, repository-scoped history, coding-tool support, and
+reporting contracts remain explicit review items in issues #740–#746 and the
+linked work specification plan. No runtime feature or public installer claim
+follows from saving or planning the proposal.
