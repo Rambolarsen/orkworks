@@ -180,7 +180,17 @@ within bounded buffers without treating them as authoritative attention.
 
 Poll at 100 ms with one in-flight observation cycle, two-second RPC timeout,
 1 MiB message limit, and at most 64 loaded IDs. A cycle includes loaded-root
-checks around the exact-thread status read. Reject a cycle older than 300 ms
+checks around the exact-thread status read. Each loaded-root check must prove
+its result is complete within the 64-ID bound, without truncating IDs. For a
+paginated protocol, request limit=64/cursor=null and require a terminal
+nextCursor=null; any continuation, missing/malformed cursor, overflow, partial
+frame, or request failure is ambiguous. This initial implementation does not
+follow continuation pages to regain eligibility. A cursorless result is complete
+only when the exact verified protocol record explicitly guarantees an
+unpaginated full result; absence alone never proves completeness. Both checks
+must independently satisfy the complete-result rule. Test a page containing
+only the root with a continuation cursor: it must never grant singleton or
+clear authority. Reject a cycle older than 300 ms
 from its first request through effect commit. A fresh singleton loaded-root
 result is necessary but not sufficient for safe correlation: concurrent hooks,
 ambiguous pre/post ordering, or an unresolved additional request revoke serial
@@ -196,11 +206,17 @@ generation before the candidate, a matching unambiguous pre/permission chain,
 and a newly observed nonpending-to-pending edge after that candidate, with no
 intervening identity, hook, input, or eligibility revision. A candidate first
 seen while pending may still conservatively display Needs You after grace, but
-only exact serial completion or an existing trusted transition may clear it.
+locks the batch as containing a pre-existing or unattributable wait until an
+existing trusted transition clears it. Exact PostToolUse may retire the new
+candidate's invocation, but cannot clear that batch's attention tuple; it does
+not resolve the older pending state. Native nonpending status likewise cannot
+restore clear authority for the locked batch. No remaining candidate is not
+proof that the anonymous older wait ended.
 A reconnect never reconstructs a missed edge from two disconnected snapshots.
 Pending state that precedes binding/resume has no candidate and cannot activate
 hook authority or be claimed for native clearing. Test resume into a held
-prompt and a new candidate arriving while that old prompt remains open.
+prompt and a new candidate arriving and completing while that old prompt
+remains open; candidate completion must preserve Needs You.
 
 The non-atomic reads do not themselves prove subagent approval aggregation.
 Before shipping native clears, version-specific source or live evidence must
@@ -234,7 +250,7 @@ Do not reuse the unfinished prototype's unsafe assumptions as accepted behavior.
 | Attributable newly observed pending edge transitions to fresh active with no waiting flags | Retire the candidate; clear only its displayed wait to working under all commit fences. |
 | Fresh active[waitingOnUserInput] | Never clear to working; retain conservative wait ownership. This issue adds no independent question detector. |
 | Native idle, notLoaded, systemError, malformed data, or timeout | No native clear. Existing trusted Stop, committed input, and lifecycle handling remain responsible. |
-| Exact PostToolUse in an unambiguous serial pre/permission/post chain | Retire only that invocation's candidate and owned wait; generic or ambiguous completion never clears a wait. |
+| Exact PostToolUse in an unambiguous serial pre/permission/post chain with an eligible batch | Retire only that invocation's candidate and owned wait; generic or ambiguous completion never clears a wait. A batch locked by pre-existing/unattributable pending state retains its attention tuple even when this invocation completes. |
 | Stop, UserPromptSubmit, accepted committed input, reset, revocation, or runtime end | Apply the existing authorized transition and invalidate old reducer effects. |
 
 Hooks remain the reason an approval candidate exists; native status supplies
@@ -308,7 +324,9 @@ Before claiming #690 fixed, require all of the following:
   newer version are not enough. Populate no shipping entry from spike evidence.
 - Bounded fake-protocol tests for oversized frames, malformed/unknown replies,
   timeout, authentication, root-versus-child IDs, loaded-list changes, and the
-  strict observer method allowlist. Prove it cannot answer approvals.
+  strict observer method allowlist. Include incomplete loaded-root pages,
+  continuation/overflow/missing-cursor failures, and pre-existing pending state
+  surviving another candidate's exact completion. Prove it cannot answer approvals.
 - Lifecycle tests for server/TUI failure in either order, cancellation during
   startup, detached terminal, workspace shutdown, two simultaneous sessions
   with distinct capabilities/mailboxes/cwd/model, and exact resume. Compare
