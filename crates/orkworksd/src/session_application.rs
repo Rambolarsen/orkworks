@@ -2540,21 +2540,25 @@ impl SessionApplication {
         let state = self.state.clone();
         let session_id = id.to_string();
         runtime.spawn(async move {
-            let mut delay = std::time::Duration::from_millis(100);
             loop {
-                tokio::time::sleep(delay).await;
-                let authority = crate::runtime::prompt_authority::registry();
-                if !authority.reset_commit_pending(&session_id) {
+                let mut delay = std::time::Duration::from_millis(100);
+                loop {
+                    tokio::time::sleep(delay).await;
+                    let authority = crate::runtime::prompt_authority::registry();
+                    if !authority.reset_commit_pending(&session_id) {
+                        break;
+                    }
+                    SessionApplication::new(state.clone())
+                        .commit_prompt_identity_reset_with_retry(&session_id, false);
+                    if !authority.reset_commit_pending(&session_id) {
+                        break;
+                    }
+                    delay = (delay * 2).min(std::time::Duration::from_secs(5));
+                }
+                if !crate::runtime::prompt_authority::registry().finish_reset_retry(&session_id) {
                     break;
                 }
-                SessionApplication::new(state.clone())
-                    .commit_prompt_identity_reset_with_retry(&session_id, false);
-                if !authority.reset_commit_pending(&session_id) {
-                    break;
-                }
-                delay = (delay * 2).min(std::time::Duration::from_secs(5));
             }
-            crate::runtime::prompt_authority::registry().finish_reset_retry(&session_id);
         });
     }
 
