@@ -1561,9 +1561,6 @@ async fn start_session_runtime_inner(
                             reader_drain_deadline = None;
                         }
                         DriverEvent::Exited => {
-                            if let Some(tx) = exit_observed_tx.take() {
-                                let _ = tx.send(());
-                            }
                             child_exit = Some(Ok(()));
                             pending_commands.clear();
                             control_rx.close();
@@ -1575,6 +1572,9 @@ async fn start_session_runtime_inner(
                                 reader_drain_deadline = Some(
                                     tokio::time::Instant::now() + READER_EXIT_DRAIN_GRACE,
                                 );
+                            }
+                            if let Some(tx) = exit_observed_tx.take() {
+                                let _ = tx.send(());
                             }
                         }
                         DriverEvent::WaitError(error) => {
