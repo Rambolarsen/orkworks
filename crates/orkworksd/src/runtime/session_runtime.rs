@@ -1254,14 +1254,14 @@ pub(crate) async fn start_session_runtime(
             // Observe stop before dispatching another ordered command, even
             // when write completion and the watch notification become ready
             // together. No queued input may start after stopping is requested.
-            if !kill_requested && *kill_rx.borrow() {
+            if child_exit.is_none() && !kill_requested && *kill_rx.borrow() {
                 kill_requested = true;
                 if let Some(write) = &pending_write {
                     write.cancel();
                 }
                 let _ = driver_killer.lock().unwrap().kill();
             }
-            if kill_requested {
+            if child_exit.is_none() && kill_requested {
                 pending_commands.clear();
                 control_rx.close();
                 while control_rx.try_recv().is_ok() {}
@@ -1370,8 +1370,10 @@ pub(crate) async fn start_session_runtime(
                     tokio::time::Instant::now() + READER_EXIT_DRAIN_GRACE
                 })), if reader_drain_deadline.is_some() => {
                     // Descendants can inherit the PTY slave and keep the reader
-                    // open after the direct child exits. Drain briefly, then
-                    // finalize so the session lifecycle remains bounded.
+                    // open after the direct child exits. Close the receiver to
+                    // stop admitting new output, then drain what was already
+                    // queued before finalizing so the lifecycle remains bounded.
+                    driver_rx.close();
                     reader_drain_finished = true;
                     reader_drain_deadline = None;
                 }
@@ -3258,12 +3260,14 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         ingestion_test_workspace(&state, &dir);
 
         let descendant_pid_path = dir.path().join("descendant.pid");
+        let descendant_release_path = dir.path().join("descendant.release");
         let script_path = dir.path().join("fork-pty-holder.py");
         let pid_file = format!("{:?}", descendant_pid_path.display().to_string());
+        let release_file = format!("{:?}", descendant_release_path.display().to_string());
         std::fs::write(
             &script_path,
             format!(
-                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n time.sleep(10)\n os._exit(0)\nwith open({pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done')\nos._exit(0)\n"
+                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n while not os.path.exists({release_file}): time.sleep(0.001)\n payload = b'x' * 4095 + b'\\n'\n deadline = time.monotonic() + 5\n while time.monotonic() < deadline:\n  try: os.write(1, payload)\n  except OSError:\n   time.sleep(10)\n   break\n os._exit(0)\nwith open({pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nopen({release_file}, 'w').close()\nos._exit(0)\n"
             ),
         )
         .unwrap();
@@ -3348,12 +3352,133 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             started_at.elapsed() >= READER_EXIT_DRAIN_GRACE,
             "the runtime should allow the configured reader drain grace; descendant_fds={descendant_fds:?}"
         );
-        assert_eq!(
-            state.sessions.lock().unwrap()[session_id]
+        assert!(
+            !state.sessions.lock().unwrap()[session_id]
                 .output_buffer
-                .snapshot(),
-            vec!["done".to_string()]
+                .snapshot()
+                .is_empty(),
+            "the noisy descendant should deliver output before the bounded drain completes"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn late_kill_request_does_not_relabel_natural_child_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-exit-late-kill";
+        let state = test_state_with_runtime_session(session_id);
+        ingestion_test_workspace(&state, &dir);
+
+        let parent_pid_path = dir.path().join("parent.pid");
+        let descendant_pid_path = dir.path().join("descendant.pid");
+        let descendant_release_path = dir.path().join("descendant.release");
+        let script_path = dir.path().join("fork-pty-holder.py");
+        let parent_pid_file = format!("{:?}", parent_pid_path.display().to_string());
+        let descendant_pid_file = format!("{:?}", descendant_pid_path.display().to_string());
+        let release_file = format!("{:?}", descendant_release_path.display().to_string());
+        std::fs::write(
+            &script_path,
+            format!(
+                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n while not os.path.exists({release_file}): time.sleep(0.001)\n os.write(1, b'late\\n')\n time.sleep(10)\n os._exit(0)\nwith open({parent_pid_file}, 'w') as pid_file:\n pid_file.write(str(os.getpid()))\nwith open({descendant_pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nos._exit(0)\n"
+            ),
+        )
+        .unwrap();
+        let command = harness::CommandSpec {
+            program: "python3".into(),
+            args: vec![script_path.display().to_string()],
+            cwd: dir.path().display().to_string(),
+        };
+
+        let (runtime, control_rx) = SessionRuntime::live(DEFAULT_TERMINAL_ROWS, 80);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime = runtime;
+
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        let parent_pid: i32 = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(pid) = std::fs::read_to_string(&parent_pid_path) {
+                    break pid.trim().parse().unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("fixture should record the direct child's PID");
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while std::path::Path::new(&format!("/proc/{parent_pid}")).exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("direct child should exit while its descendant keeps the PTY open");
+        let descendant_pid: i32 = std::fs::read_to_string(&descendant_pid_path)
+            .expect("fixture should record the PTY-holding descendant")
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(unsafe { libc::kill(descendant_pid, 0) }, 0);
+        let descendant_holds_pty = std::fs::read_dir(format!("/proc/{descendant_pid}/fd"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| std::fs::read_link(entry.path()).ok())
+            .any(|path| path.starts_with("/dev/pts/"));
+        assert!(descendant_holds_pty);
+        // Let the child waiter publish Exited and the driver enter its drain window.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_ne!(
+            state.sessions.lock().unwrap()[session_id]
+                .info
+                .lifecycle_phase,
+            "ended",
+            "the open descendant PTY should keep the session in its exit-drain window"
+        );
+        assert!(
+            kill_tx.send(true).is_ok(),
+            "runtime should still receive the late kill request"
+        );
+        std::fs::write(&descendant_release_path, "").unwrap();
+
+        let ended_status = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match events.recv().await {
+                    Ok(RuntimeEvent::Ended { status }) => break status,
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(error) => panic!("unexpected runtime event error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("runtime should finish draining after a late kill request");
+
+        let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+        assert_eq!(ended_status, "ended");
     }
 
     #[tokio::test]
