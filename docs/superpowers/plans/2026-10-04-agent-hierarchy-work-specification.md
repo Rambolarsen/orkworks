@@ -12,6 +12,25 @@
 
 **Tracking:** [#738](https://github.com/Rambolarsen/orkworks/issues/738); continuing [draft PR #739](https://github.com/Rambolarsen/orkworks/pull/739).
 
+## First specification batch: 2026-10-04
+
+Task 1 has a [capability evidence register](../../validation/agent-role-capabilities.md)
+and Task 2 has a [role configuration draft](../specs/2026-10-04-agent-role-configuration-design.md).
+They are proposed review artifacts, not completed reviewed handoffs. Copilot CLI
+1.0.90 exposes candidate role/tool controls, but exact delivery and enforcement
+profiles remain unverified; no supported launch slice is claimed. The installed
+loader package version also differs from the executable's reported version, so
+launch identity must pin the actual resolved executable chain.
+
+- [x] Investigate sources and produce the first configuration/evidence drafts.
+- [ ] Obtain review of the concrete role contract and capability methodology.
+- [ ] In a separately authorized probe session, establish version-specific
+  delivery/permission fixtures or retain an explicit no-go outcome.
+- [ ] Finalize downstream contract dependencies and reviewed execution handoffs.
+
+Tasks 3–7 remain queued. Code execution planning remains behind the authoritative
+scope alignment, written contract review, and capability evidence gates.
+
 ## Global Constraints
 
 - Product scope is approved for work specification; detailed contracts and execution plans require their own review before code starts.

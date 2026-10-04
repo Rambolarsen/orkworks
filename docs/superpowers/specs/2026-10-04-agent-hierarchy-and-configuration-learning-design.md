@@ -292,6 +292,11 @@ changes, and unchanged launch/dependency/acceptance boundaries. UI validation
 must exercise keyboard/reduced-motion behavior, collapsed blockers, many tasks,
 and finding required user attention quickly in restrained visual mockups.
 
+## Component specification progress
+
+- [Role configuration and coding-tool permissions](2026-10-04-agent-role-configuration-design.md) — proposed immutable contract; support and written review remain gates.
+- [Coding-tool capability register](../../validation/agent-role-capabilities.md) — version-specific delivery/permission evidence; no verified launch slice is claimed.
+
 ## Evidence and unresolved implementation work
 
 The current observation design records workflow friction with source and
