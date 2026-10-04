@@ -72,11 +72,19 @@ Signals that an observation is this noise, not a verified defect:
   detection") grounds trivially: it only proves the session printed text
   containing those words — typically the session's own work discussing
   model detection — of which the obstacle label is itself a plausible span.
-  Such self-echo evidence is low-specificity and a strong noise signal.
-- The evidence names the observer or the recovery path itself — for example
-  "User answered Claude's questions" recorded alongside a Peon-model
-  obstacle: it names Claude while Peon is the observer and documents a Q&A
-  workaround the user undertook, not a product failure.
+  Such self-echo evidence is low-specificity and a strong noise signal, but
+  equality alone is not proof: no application code path emits these
+  phrases, so before dismissing, confirm from the capture context that the
+  phrase came from the session's own work, documentation, or UI chrome
+  rather than from a tool or provider that could plausibly print it as an
+  error.
+- The evidence describes the user's recovery interaction itself rather than
+  a detection failure — for example "User answered Claude's questions"
+  recorded alongside a Peon-model obstacle. Naming a coding tool other than
+  Peon is not, by itself, a noise signal (Peon observes Claude sessions
+  normally); the signal is that the evidence recounts a Q&A workaround the
+  user undertook, not a product failure. Check the session's captured
+  context for an actual detection failure before dismissing.
 - The description names Peon's prompt-example vocabulary rather than a
   concrete failure in the session — including phrasings that drop the
   "Peon" qualifier entirely, such as "Model detection is blocked".
@@ -326,11 +334,16 @@ the first step that resolves the report.
    problem is diagnosed there, not from the observation. If the provider
    state or a live session shows a genuine usage-cap signal (capped status,
    reset hint), follow the capacity guidance above instead.
-3. **Retry the current session once, only if a real inference failure is
-   confirmed.** After verifying the applied provider/model and confirming an
-   actual inference error (not an absence of detected-model metadata — that
-   is not a defect; see the merge rules above), retry the affected session
-   once. Do not loop retries.
+3. **Fix the provider configuration, not the session.** Peon retries failed
+   inference automatically: a task failure, timeout, or transient hold
+   leaves the session's output window eligible (`last_output` and
+   `min_peon_output_revision` unchanged), and the next observation pass
+   rescans the same output — there is no user-facing action that performs a
+   single Peon retry, and re-sending work to the coding tool to force a
+   re-scan can duplicate that work. If the applied provider/model is
+   genuinely misconfigured or failing, correct it in Settings → Model
+   providers and let the automatic retry pick the fix up. Absence of
+   detected-model metadata is not a defect; see the merge rules above.
 4. **Escalate a genuine defect, never a workaround.** If steps 1–3 leave a
    reproducible product failure, take it through the normal issue and
    implementation workflow. Never resume, reopen, or modify another session
