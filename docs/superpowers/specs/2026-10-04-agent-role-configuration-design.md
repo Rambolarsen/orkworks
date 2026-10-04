@@ -241,6 +241,16 @@ usage/evaluation; no role accumulates permanent XP.
 | `verification` | Declared check result, inspected revision, evidence and limitations; missing checks stay unassessed | Declared checks and explicitly approved generated/build/test output; no unrelated product edits or native agent delegation |
 | `remediation` | Resolve exactly the declared finding scope and provide evidence; new findings/access need escalation | Same controls as implementation narrowed to the finding; no additional undeclared repair task |
 
+For a parent proposing parallel work, the orchestrator template's required-skill
+manifest includes `orchestrating-task-graphs`, with its version/content digest
+and selection reason. Include it in the reviewed bootstrap configuration for
+such a parent. Its product-facing instruction composition preserves parent-only
+delegation, ordered batches, exact approval, coding-tool permissions and manual
+integration. Guidance to synthesize reports is coordination; guidance cannot
+grant rights to merge code or perform child implementation/review work.
+A conflicting raw skill instruction must be resolved in a reviewed role-compatible
+version before launch, not treated as broader authority.
+
 Mandatory skills come from the applicable repository instructions and approved
 role template. The orchestrator may add optional task-fit skills and record
 selection reasons. A skill can supply guidance and referenced data; invoking its

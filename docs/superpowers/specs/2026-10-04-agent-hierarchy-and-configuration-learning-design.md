@@ -67,6 +67,35 @@ The execution proposal includes required result-review tasks and all intended
 implementation, verification, and remediation assignments. Small, clear work
 can go directly to this proposal without a research plan.
 
+### Planning parallel work
+
+Use `orchestrating-task-graphs` as a required orchestrator planning skill when
+proposing parallel work. Snapshot its selected version/content in the parent
+configuration; its planning guidance does not grant runtime authority.
+A parent expected to propose parallel work includes this skill in its reviewed
+bootstrap configuration. Missing required content is a configuration blocker,
+not permission to mutate the running parent silently.
+
+Use the skill's independence test: two jobs run in parallel only when neither
+requires the other's result. Add a dependency when one job consumes another's
+output. Declare each job's question/assignment, inputs, expected artifact,
+acceptance criteria, role/configuration, one artifact owner, dependencies and
+agent cap before delegation. Convert the graph into the baseline's explicit
+ordered batches and approved live-child concurrency limit; do not add a general
+DAG scheduler, grandchildren or dynamic tasks through this skill.
+
+Declare independent correctness and completeness review questions for parallel
+outputs, assigning them to review/verification children within the approved
+plan and capacity. Research-report synthesis is coordination by the parent.
+Implementation outputs remain isolated for review and manual user integration;
+the skill's single-owner synthesis guidance does not authorize the orchestrator
+to edit, copy or merge code. One owner per artifact remains binding.
+
+The displayed agent hierarchy communicates delegation. Task dependencies and
+batch/wait labels communicate execution order; a parent-child edge alone does
+not establish a task dependency. Small clear tasks do not gain extra research
+or workers merely because a graph skill is loaded.
+
 Preserve the baseline's explicit batches, dependencies, launch idempotency,
 one attempt per task, and capacity accounting. Independent task chains use
 separate worktrees. Dependent reuse requires the predecessor session to end

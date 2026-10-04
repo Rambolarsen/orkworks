@@ -349,7 +349,7 @@ rtk git commit -m "docs: specify agent role configuration and coding-tool permis
 - [ ] **Step 3: Check the task's full acceptance criteria.**
 
 - [ ] Define assessment inputs and skip criteria: assessment remains coordination; codebase/external investigation is delegated; missing material requirements trigger clarification.
-- [ ] Define bounded research question/task contracts, independent question decomposition, output/evidence references, and allocation within the existing approved concurrency limit.
+- [ ] Define bounded research question/task contracts, independent question decomposition, output/evidence references, and allocation within the existing approved concurrency limit. Bind orchestrating-task-graphs as required planning guidance for parallel plans; define result dependencies, one artifact owner, explicit ordered batches/cap, and independent correctness/completeness review questions without changing runtime authority or manual integration.
 - [ ] Specify exact-plan approval before research launches, subsequent execution approval when assignments were not already fixed, and binding of reviewed research outputs into the next proposal.
 - [ ] Define same-parent multi-plan identity, planning/proposal authority after completion, capability revocation/renewal transport, sidecar-generation checks, and user authority without reusing an expired plan bearer.
 - [ ] Preserve ordered batches, parent-only delegation, one attempt per task, quiescent worktree reuse, manual integration, capacity accounting, and no implied launch authority from research completion.
