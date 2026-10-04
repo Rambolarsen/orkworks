@@ -387,6 +387,15 @@ When Peon reports a provider timeout, use the read-only repository helper
 the applied provider/model in Settings instead. Retry the current session once
 after verification and do not resume or reopen another session as a workaround.
 
+## Serena MCP startup failures
+
+When an agent reports an MCP startup failure that names Serena (for example
+"MCP startup failed due to serena"), use the read-only verification steps in
+[`docs/agents/serena-mcp-startup-troubleshooting.md`](docs/agents/serena-mcp-startup-troubleshooting.md).
+Check the run log under `~/.serena/logs/<date>/` for the underlying traceback
+before changing configuration, and do not treat the generic phrase itself as
+a repository defect. Do not resume or reopen another session as a workaround.
+
 ## Peon model detection observations
 
 When Peon reports a workflow observation or a Taskmaster recommendation about
