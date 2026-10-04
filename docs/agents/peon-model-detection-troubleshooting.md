@@ -333,7 +333,10 @@ the first step that resolves the report.
    rate-limit fragments). If the fingerprints hold, the report is
    documentation noise: do not act on the obstacle, and do not edit
    recommendation or observation files directly — that is what this runbook
-   itself is for.
+   itself is for. If this runbook was entered from a matching Taskmaster
+   recommendation, tie that record off through the sidecar API (accept it
+   from this session if needed, then complete it with the verified noise
+   disposition) before stopping; do not leave it active to resurface.
 2. **Verify the applied provider/model.** Settings → Model providers is
    authoritative for what runs session inference. A suspected inference
    problem is diagnosed there, not from the observation. If the provider

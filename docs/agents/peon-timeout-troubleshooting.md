@@ -41,14 +41,16 @@ checks are skipped; this is expected when the desktop app is not running.
    confirm its configured authentication and model access without pasting
    credentials into a prompt or log.
 4. Apply the verified provider/model and save it. Peon retries failed
-   inference automatically for active sessions — a timed-out attempt leaves
-   the session's output window eligible, and the next observation pass
-   rescans it — so no manual retry is needed; there is no user-facing
-   single-retry action, and re-sending work to the coding tool can duplicate
-   it. Note the automatic retry applies to the active-session observation
-   loop only; a session that has already ended ran a single-shot final scan.
-   If the timeout persists across passes, preserve the helper output and the
-   exact diagnostic message for follow-up.
+   output-observation inference automatically for active sessions — a
+   timed-out attempt leaves the session's output window eligible, and the
+   next observation pass rescans it — so no manual retry is needed; there is
+   no user-facing single-retry action, and re-sending work to the coding
+   tool can duplicate it. One-shot input-label inference (prompt-triggered
+   label requests) and a session's exit final scan are excluded: neither
+   re-runs after a timeout, so a timeout from one of those passes is
+   recorded as lost. The automatic retry applies to the active-session
+   observation loop only. If timeouts persist across passes, preserve the
+   helper output and the exact diagnostic message for follow-up.
 
 `PEON_TIMEOUT` is retained only as a legacy environment variable and does not
 control current session inference. Do not set `PEON_TIMEOUT` as a timeout fix.
