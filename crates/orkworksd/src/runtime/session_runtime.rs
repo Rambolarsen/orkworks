@@ -616,6 +616,10 @@ impl SessionRuntime {
         self.run_generation
     }
 
+    pub(crate) fn commands_closed(&self) -> bool {
+        self.resize_closed || self.control_tx.is_closed()
+    }
+
     pub(crate) fn identity(&self) -> RuntimeIdentity {
         RuntimeIdentity {
             runtime_instance_id: self.runtime_instance_id.clone(),
@@ -3820,7 +3824,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         std::fs::write(
             &script_path,
             format!(
-                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n while not os.path.exists({release_file}): time.sleep(0.001)\n payload = b'x' * 4095 + b'\\n'\n deadline = time.monotonic() + 5\n first_write = True\n while time.monotonic() < deadline:\n  try:\n   os.write(1, payload)\n   if first_write:\n    open({write_file}, 'w').close()\n    first_write = False\n  except OSError:\n   time.sleep(10)\n   break\n os._exit(0)\nwith open({pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nopen({release_file}, 'w').close()\nos._exit(0)\n"
+                "import os, signal, time\nsignal.signal(signal.SIGHUP, signal.SIG_IGN)\nchild_pid = os.fork()\nif child_pid == 0:\n while not os.path.exists({release_file}): time.sleep(0.001)\n payload = b'x' * 4095 + b'\\n'\n deadline = time.monotonic() + 5\n first_write = True\n while time.monotonic() < deadline:\n  try:\n   os.write(1, payload)\n   if first_write:\n    open({write_file}, 'w').close()\n    first_write = False\n  except OSError:\n   time.sleep(10)\n   break\n os._exit(0)\nwith open({pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nopen({release_file}, 'w').close()\nos._exit(0)\n"
             ),
         )
         .unwrap();
@@ -3934,7 +3938,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         std::fs::write(
             &script_path,
             format!(
-                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n with open({descendant_pid_file}, 'w') as pid_file: pid_file.write(str(os.getpid()))\n time.sleep(60)\n os._exit(0)\nos.write(1, b'done\\n')\nos._exit(0)\n"
+                "import os, signal, time\nsignal.signal(signal.SIGHUP, signal.SIG_IGN)\nchild_pid = os.fork()\nif child_pid == 0:\n with open({descendant_pid_file}, 'w') as pid_file: pid_file.write(str(os.getpid()))\n time.sleep(60)\n os._exit(0)\nos.write(1, b'done\\n')\nos._exit(0)\n"
             ),
         )
         .unwrap();
@@ -4069,7 +4073,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         std::fs::write(
             &script_path,
             format!(
-                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n while not os.path.exists({release_file}): time.sleep(0.001)\n os.write(1, b'late\\n')\n time.sleep(10)\n os._exit(0)\nwith open({parent_pid_file}, 'w') as pid_file:\n pid_file.write(str(os.getpid()))\nwith open({descendant_pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nos._exit(0)\n"
+                "import os, signal, time\nsignal.signal(signal.SIGHUP, signal.SIG_IGN)\nchild_pid = os.fork()\nif child_pid == 0:\n while not os.path.exists({release_file}): time.sleep(0.001)\n os.write(1, b'late\\n')\n time.sleep(10)\n os._exit(0)\nwith open({parent_pid_file}, 'w') as pid_file:\n pid_file.write(str(os.getpid()))\nwith open({descendant_pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done\\n')\nos._exit(0)\n"
             ),
         )
         .unwrap();

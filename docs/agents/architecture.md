@@ -540,9 +540,10 @@ For the current Rust domain model itself, see [domain-entities.md](domain-entiti
 
 PTY input runs as one sequential blocking-pool write at a time, while the
 session driver continues draining output and observing the independent stop
-channel. Input and resize remain ordered in the bounded queue. A rejected
-resize leaves the terminal attachment open to receive trailing output and the
-runtime's final `Ended` or `Error` event. Stopping rejects
+channel. Input and resize remain ordered in the bounded queue. A command
+rejected during runtime exit switches the attachment to output-only draining: queued and
+new commands are discarded while trailing output and the runtime's final
+`Ended` or `Error` event continue to reach the renderer. Stopping rejects
 queued input and signals in-flight cancellation; the native writer retains its
 acknowledgement until it actually returns, because async cancellation cannot
 abort a blocking OS write. Taskmaster delivery finalization retains its
