@@ -232,6 +232,12 @@ async fn with_revalidated_integration_target<R>(
         }
     }
 
+    // Serialize the external integration action and its readiness snapshots
+    // against session launch generation issuance and other projections.
+    let _projection = state
+        .projection_lock
+        .lock()
+        .expect("projection lock poisoned");
     let ws_guard = state.workspace.lock().unwrap();
     let Some(ref ws) = *ws_guard else {
         return Err(integration_error_response(IntegrationError::NoWorkspace));
@@ -295,15 +301,24 @@ async fn run_integration_action(
                 reporter_assets: &reporter_assets,
             };
 
+            let prompt_binding = harness.definition.integration.as_ref();
+            let prompt_ready_before = prompt_binding.is_some_and(|binding| {
+                crate::harness::integration::prompt_attention_hook_ready(binding, &ctx)
+            });
+            if matches!(harness_id, "claude-code" | "copilot") && !prompt_ready_before {
+                revoke_snapshot = Some(
+                    crate::session_application::SessionApplication::new(state.clone())
+                        .snapshot_prompt_authority_for_harness(harness_id, &ws.path),
+                );
+            }
             let result = action(harness, &ctx);
-            let prompt_ready = harness
-                .definition
-                .integration
-                .as_ref()
-                .is_some_and(|binding| {
-                    crate::harness::integration::prompt_attention_hook_ready(binding, &ctx)
-                });
-            if matches!(harness_id, "claude-code" | "copilot") && !prompt_ready {
+            let prompt_ready_after = prompt_binding.is_some_and(|binding| {
+                crate::harness::integration::prompt_attention_hook_ready(binding, &ctx)
+            });
+            if matches!(harness_id, "claude-code" | "copilot")
+                && !prompt_ready_after
+                && revoke_snapshot.is_none()
+            {
                 revoke_snapshot = Some(
                     crate::session_application::SessionApplication::new(state.clone())
                         .snapshot_prompt_authority_for_harness(harness_id, &ws.path),
@@ -588,6 +603,22 @@ async fn run_integration_key_action(
     let mut prompt_ready = false;
     let response =
         match with_revalidated_integration_key(state, key, expected.as_ref(), |harness, ctx| {
+            let prompt_ready_before =
+                harness
+                    .definition
+                    .integration
+                    .as_ref()
+                    .is_some_and(|binding| {
+                        crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
+                    });
+            if !prompt_ready_before {
+                if let Some(harness_id) = prompt_harness_for_integration_adapter(&key.adapter_id) {
+                    revoke_snapshot = Some(
+                        crate::session_application::SessionApplication::new(state.clone())
+                            .snapshot_prompt_authority_for_harness(harness_id, ctx.workspace),
+                    );
+                }
+            }
             let result = action(harness, ctx);
             prompt_ready = harness
                 .definition
@@ -596,7 +627,7 @@ async fn run_integration_key_action(
                 .is_some_and(|binding| {
                     crate::harness::integration::prompt_attention_hook_ready(binding, ctx)
                 });
-            if !prompt_ready {
+            if !prompt_ready && revoke_snapshot.is_none() {
                 if let Some(harness_id) = prompt_harness_for_integration_adapter(&key.adapter_id) {
                     revoke_snapshot = Some(
                         crate::session_application::SessionApplication::new(state.clone())
@@ -1350,6 +1381,96 @@ mod tests {
             .unwrap();
         let body: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["registration"], "installed");
+    }
+
+    #[tokio::test]
+    async fn install_revokes_existing_prompt_authority_when_hook_was_not_ready_before_action() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace_with_claude_settings_ignored(dir.path());
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["claude-code".into()])
+            .unwrap();
+        let id = "integration-install-stale-authority";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Claude prompt",
+            &dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "claude-code".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.metadata_source = "claude_hook".into();
+        metadata.observed_status = Some("working".into());
+        metadata.attention = Some("working".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut info = crate::test_support::test_session_info(
+            id,
+            "Claude prompt",
+            dir.path().display().to_string(),
+            "running",
+            "now",
+        );
+        info.harness = Some("claude-code".into());
+        info.harness_id = Some("claude-code".into());
+        info.lifecycle = "alive".into();
+        info.lifecycle_phase = "active".into();
+        info.metadata_source = Some("claude_hook".into());
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.into(),
+            crate::SessionHandle {
+                info,
+                active_work_hook: false,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+            },
+        );
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(
+            id,
+            "claude-code",
+            "stale-install-generation",
+            Some("native"),
+        );
+        assert!(authority.activate(id, "claude-code", "stale-install-generation", "native"));
+
+        let response = install_integration(State(state.clone()), AxumPath("claude-code".into()))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(prompt_attention_launch_ready(
+            &state,
+            "claude-code",
+            "claude"
+        ));
+        assert!(
+            !authority.is_active(id),
+            "repairing an unready hook must revoke sessions whose authority predates repair"
+        );
+        authority.remove(id);
     }
 
     #[tokio::test]

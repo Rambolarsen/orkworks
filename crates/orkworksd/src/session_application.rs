@@ -2482,6 +2482,9 @@ impl SessionApplication {
                 self.mark_prompt_identity_reset_pending(id, schedule_retry);
                 return;
             }
+            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                handle.runtime.prompt_tuple_clear_pending = false;
+            }
             if !authority.mark_reset_prompt_tuple_clear_applied(id) {
                 return;
             }
@@ -2537,21 +2540,21 @@ impl SessionApplication {
         let state = self.state.clone();
         let session_id = id.to_string();
         runtime.spawn(async move {
+            let mut delay = std::time::Duration::from_millis(100);
             loop {
-                for delay_ms in [100, 250, 500, 1_000, 1_000, 1_000, 1_000, 1_000] {
-                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                    if !crate::runtime::prompt_authority::registry()
-                        .reset_commit_pending(&session_id)
-                    {
-                        break;
-                    }
-                    SessionApplication::new(state.clone())
-                        .commit_prompt_identity_reset_with_retry(&session_id, false);
-                }
-                if !crate::runtime::prompt_authority::registry().finish_reset_retry(&session_id) {
+                tokio::time::sleep(delay).await;
+                let authority = crate::runtime::prompt_authority::registry();
+                if !authority.reset_commit_pending(&session_id) {
                     break;
                 }
+                SessionApplication::new(state.clone())
+                    .commit_prompt_identity_reset_with_retry(&session_id, false);
+                if !authority.reset_commit_pending(&session_id) {
+                    break;
+                }
+                delay = (delay * 2).min(std::time::Duration::from_secs(5));
             }
+            crate::runtime::prompt_authority::registry().finish_reset_retry(&session_id);
         });
     }
 
@@ -14917,6 +14920,163 @@ mod tests {
                 .and_then(|resume| resume.harness_session_id),
             None
         );
+        authority.remove(id);
+    }
+
+    #[tokio::test]
+    async fn reset_retry_clears_stale_tuple_pending_before_replaying_queued_prompt() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "prompt-reset-retry-stale-clear";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Claude prompt reset",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.harness = "claude-code".into();
+        metadata.lifecycle = "alive".into();
+        metadata.lifecycle_phase = "active".into();
+        metadata.metadata_source = "claude_hook".into();
+        metadata.observed_status = Some("working".into());
+        metadata.attention = Some("working".into());
+        metadata.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("old-native".into()),
+            latest_fallback: false,
+            last_seen_at: Some("now".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("claude-code".into());
+        handle.info.harness_id = Some("claude-code".into());
+        handle.info.lifecycle = "alive".into();
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.metadata_source = Some("claude_hook".into());
+        handle.info.resume = metadata.resume.clone();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let authority = crate::runtime::prompt_authority::registry();
+        authority.issue_with_native_id(
+            id,
+            "claude-code",
+            "reset-retry-stale-clear-generation",
+            Some("old-native"),
+        );
+        assert!(authority.activate(
+            id,
+            "claude-code",
+            "reset-retry-stale-clear-generation",
+            "old-native"
+        ));
+        assert!(authority.reserve_reset(id, "claude-code", "/clear"));
+        assert_eq!(
+            authority.register_native_id(
+                id,
+                "claude-code",
+                "reset-retry-stale-clear-generation",
+                "replacement-native",
+                true,
+                None,
+            ),
+            crate::runtime::prompt_authority::BindResult::Held
+        );
+        assert!(authority.queue_prompt_wait(
+            id,
+            "claude-code",
+            "reset-retry-stale-clear-generation",
+            "replacement-native",
+            "permission_prompt",
+            None,
+            1,
+            0,
+            None,
+        ));
+        assert!(authority.acknowledge_reset(id).is_some());
+
+        let sessions_dir = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        let application = SessionApplication::new(state.clone());
+        application.commit_prompt_identity_reset(id);
+        assert!(authority.identity_reset_pending(id));
+        assert!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .unwrap()
+                .runtime
+                .prompt_tuple_clear_pending
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(7_000)).await;
+        assert!(authority.identity_reset_pending(id));
+        assert!(!authority.is_active(id));
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(7), async {
+            loop {
+                if !authority.identity_reset_pending(id) && authority.is_active(id) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("reset retry persists the replacement identity and queued prompt");
+
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
+        assert!(
+            !state
+                .sessions
+                .lock()
+                .unwrap()
+                .get(id)
+                .unwrap()
+                .runtime
+                .prompt_tuple_clear_pending,
+            "successful reset retry must consume its stale tuple-clear marker"
+        );
+
+        application.persist_peon_observation(id, None, None, None, "later");
+        let saved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(saved.observed_status.as_deref(), Some("waiting_for_input"));
+        assert_eq!(saved.attention.as_deref(), Some("needs_you"));
         authority.remove(id);
     }
 }
