@@ -1980,28 +1980,27 @@ impl SessionApplication {
             let ws_guard = state.workspace.lock().unwrap();
             if let Some(ref ws) = *ws_guard {
                 if let Some(mut meta) = ws.metadata.read_session(&id) {
-                    // A terminal transition detached while waiting for the
-                    // workspace lock must not overwrite a finalizer that has
-                    // already moved the live handle to `ended`. Persisted
-                    // `ended` alone is not authoritative when a live handle is
-                    // active: it can be stale from an earlier process.
-                    let live_handle_finalized = if is_terminal && meta.lifecycle_phase == "ended" {
-                        match state.sessions.try_lock() {
-                            Ok(sessions) => sessions
-                                .get(&id)
-                                .is_some_and(|handle| handle.info.lifecycle_phase == "ended"),
-                            Err(std::sync::TryLockError::WouldBlock) => false,
-                            Err(std::sync::TryLockError::Poisoned(error)) => error
-                                .into_inner()
-                                .get(&id)
-                                .is_some_and(|handle| handle.info.lifecycle_phase == "ended"),
-                        }
-                    } else {
-                        false
+                    // A transition detached while waiting for the workspace
+                    // lock must not overwrite a live handle that has since
+                    // entered its terminal lifecycle. Persisted `ended` alone
+                    // is not authoritative when a live handle is active: it
+                    // can be stale from an earlier process.
+                    let live_handle_phase = match state.sessions.try_lock() {
+                        Ok(sessions) => sessions
+                            .get(&id)
+                            .map(|handle| handle.info.lifecycle_phase.clone()),
+                        Err(std::sync::TryLockError::WouldBlock) => None,
+                        Err(std::sync::TryLockError::Poisoned(error)) => error
+                            .into_inner()
+                            .get(&id)
+                            .map(|handle| handle.info.lifecycle_phase.clone()),
                     };
                     if (is_terminal
                         && meta.lifecycle_phase == "ended"
-                        && (handle_decision.is_none() || live_handle_finalized))
+                        && (handle_decision.is_none()
+                            || live_handle_phase.as_deref() == Some("ended")))
+                        || (!is_terminal
+                            && matches!(live_handle_phase.as_deref(), Some("ending" | "ended")))
                         || (handle_decision.is_none()
                             && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
                     {
@@ -11294,6 +11293,89 @@ mod tests {
             .unwrap();
         assert_eq!(stored.lifecycle_phase, "ended");
         assert_eq!(stored.status, "ended");
+    }
+
+    #[tokio::test]
+    async fn delayed_nonterminal_transition_cannot_regress_ending_handle() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "delayed-nonterminal-transition";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Delayed transition",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.lifecycle = "alive".into();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let workspace_guard = state.workspace.lock().unwrap();
+        let transition = tokio::spawn({
+            let state = state.clone();
+            async move {
+                SessionApplication::new(state)
+                    .transition_session_status(id, None, "creating")
+                    .await
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if state.sessions.lock().unwrap()[id].info.lifecycle_phase == "creating" {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("nonterminal transition should update the live handle before waiting on metadata");
+
+        let ws = workspace_guard.as_ref().unwrap();
+        let mut ending = ws.metadata.read_session(id).unwrap();
+        ending.status = "running".into();
+        ending.lifecycle_phase = "ending".into();
+        ending.lifecycle = "stopping".into();
+        ending.pending_terminal_status = Some("ended".into());
+        ws.metadata.write_session(&ending);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let info = &mut sessions.get_mut(id).unwrap().info;
+            info.status = "running".into();
+            info.lifecycle_phase = "ending".into();
+            info.lifecycle = "stopping".into();
+        }
+        drop(workspace_guard);
+
+        assert!(
+            !tokio::time::timeout(std::time::Duration::from_secs(1), transition)
+                .await
+                .expect("delayed transition should finish after the workspace lock is released")
+                .unwrap()
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.lifecycle_phase, "ending");
+        assert_eq!(stored.pending_terminal_status.as_deref(), Some("ended"));
     }
 
     #[test]

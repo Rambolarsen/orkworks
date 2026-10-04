@@ -1093,18 +1093,48 @@ pub(crate) async fn handle_runtime_exit(
         // workspace metadata lock. Let the PTY lifecycle finish once that
         // generation is visibly ending; the blocking metadata operation stays
         // detached and completes when the lock becomes available.
-        let transition_started = state
-            .sessions
-            .lock()
-            .unwrap()
-            .get(id)
-            .is_some_and(|handle| {
-                handle.runtime.run_generation() == generation
-                    && handle.info.lifecycle_phase == "ending"
-            });
+        let (transition_started, marked_ending) = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let Some(handle) = sessions
+                .get_mut(id)
+                .filter(|handle| handle.runtime.run_generation() == generation)
+            else {
+                return false;
+            };
+            match handle.info.lifecycle_phase.as_str() {
+                "ending" => (true, false),
+                "ended" => (false, false),
+                _ => {
+                    // The transition can time out before it reaches the session
+                    // lock, for example while another status transition owns the
+                    // global transition mutex. Establish this generation's
+                    // in-memory ending phase here so the finalizer can still run;
+                    // the detached transition will observe it and decline to
+                    // overwrite the final state when it eventually resumes.
+                    handle.info.status = "running".into();
+                    handle.info.lifecycle_phase = "ending".into();
+                    handle.info.lifecycle = "stopping".into();
+                    handle.info.attention = None;
+                    handle.info.connectivity =
+                        Some(crate::session_view::connectivity_for_status("running").to_string());
+                    handle.info.terminal_outcome = None;
+                    handle.info.observed_status = None;
+                    handle.info.last_activity_at = Some(crate::workspace_runtime::iso_now());
+                    (true, true)
+                }
+            }
+        };
         if !transition_started {
-            tracing::warn!(session_id = %id, "session exit status transition exceeded its grace before entering ending");
+            tracing::warn!(session_id = %id, "session exit status transition exceeded its grace without an active generation");
             return false;
+        }
+        if marked_ending {
+            let final_size_state = state.clone();
+            let final_size_id = id.to_string();
+            tokio::task::spawn_blocking(move || {
+                crate::session_application::SessionApplication::new(final_size_state)
+                    .persist_terminal_size(&final_size_id, true);
+            });
         }
         tracing::warn!(session_id = %id, "session exit metadata transition is still waiting; continuing runtime finalization");
     }
@@ -5135,6 +5165,92 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             "ending"
         );
         drop(workspace_guard);
+    }
+
+    #[tokio::test]
+    async fn runtime_exit_enters_ending_when_transition_lock_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "held-exit-transition-lock".to_string();
+        let (runtime, _control_rx) = SessionRuntime::live(24, 80);
+        let generation = runtime.run_generation();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Held transition lock",
+                    "/tmp",
+                    "running",
+                    "t0",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+        let mut metadata = crate::test_support::test_session_metadata(
+            id.clone(),
+            "Held transition lock",
+            dir.path().display().to_string(),
+            "running",
+            "t0",
+            "t0",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let transition_guard = crate::runtime::prompt_authority::transition_lock()
+            .lock()
+            .unwrap();
+        let finalized = tokio::time::timeout(
+            EXIT_STATUS_TRANSITION_GRACE * 2,
+            handle_runtime_exit(&state, &id, generation, "ended"),
+        )
+        .await
+        .expect("runtime exit must remain bounded while the transition lock is held");
+        drop(transition_guard);
+        assert!(
+            finalized,
+            "the current runtime generation must enter finalization"
+        );
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if state.sessions.lock().unwrap()[&id].info.lifecycle_phase == "ended" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("runtime exit should finalize after the transition lock is released");
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(&id)
+            .unwrap();
+        assert_eq!(stored.lifecycle_phase, "ended");
+        assert_eq!(stored.status, "ended");
     }
 
     #[tokio::test]
