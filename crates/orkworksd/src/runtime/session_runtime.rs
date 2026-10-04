@@ -129,6 +129,15 @@ pub(crate) struct PendingWorkSignal {
     banner_grace_ends_at: tokio::time::Instant,
 }
 
+#[derive(Debug, Default)]
+struct TerminalSizePersistQueue {
+    generation: u64,
+    running: bool,
+    waiters: Vec<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+}
+
+type TerminalSizePersistCompletion = tokio::sync::oneshot::Receiver<Result<(), ()>>;
+
 pub(crate) fn arm_pending_work_signal(
     submitted_line: &str,
     now: tokio::time::Instant,
@@ -262,15 +271,9 @@ pub(crate) enum RuntimeCommand {
     Resize {
         rows: u16,
         cols: u16,
-        accepted: Option<tokio::sync::oneshot::Sender<Result<ResizeApplication, ()>>>,
+        accepted: Option<tokio::sync::oneshot::Sender<Result<TerminalSizePersistCompletion, ()>>>,
     },
     Kill,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ResizeApplication {
-    Startup,
-    Live,
 }
 
 fn reject_runtime_command(command: RuntimeCommand) {
@@ -433,6 +436,7 @@ pub(crate) struct SessionRuntime {
     pub(crate) last_rows: u16,
     pub(crate) last_cols: u16,
     resize_closed: bool,
+    terminal_size_persist: Arc<Mutex<TerminalSizePersistQueue>>,
     // Ingestion-time hard-wrap reassembly state (ADR 0065): a chunk-final row
     // that filled the terminal width waits here for its continuation row and
     // is flushed into output_buffer at runtime exit.
@@ -473,6 +477,7 @@ impl SessionRuntime {
                 last_rows: rows,
                 last_cols: cols,
                 resize_closed: false,
+                terminal_size_persist: Arc::new(Mutex::new(TerminalSizePersistQueue::default())),
                 pending_wrap_prefix: None,
                 input_generation: 0,
                 accepted_input_at: None,
@@ -512,6 +517,7 @@ impl SessionRuntime {
             last_rows: rows,
             last_cols: cols,
             resize_closed: false,
+            terminal_size_persist: Arc::new(Mutex::new(TerminalSizePersistQueue::default())),
             pending_wrap_prefix: None,
             input_generation: 0,
             accepted_input_at: None,
@@ -625,6 +631,15 @@ fn should_finalize_driver_exit(
 ) -> bool {
     child_exit
         .is_some_and(|result| result.is_err() || (reader_drain_finished && !reader_events_pending))
+}
+
+fn should_receive_driver_events(
+    pending_persist_batch_count: usize,
+    child_exit_observed: bool,
+    reader_drain_finished: bool,
+) -> bool {
+    pending_persist_batch_count < DRIVER_EVENT_BUFFER_CAPACITY
+        || (child_exit_observed && reader_drain_finished)
 }
 
 fn output_recency_timestamp(data: &[u8], timestamp: String) -> Option<String> {
@@ -807,12 +822,79 @@ fn apply_runtime_size_to_state(state: &Arc<AppState>, id: &str, rows: u16, cols:
 
 // Terminal-size persistence can block on metadata I/O. Keep it off the PTY
 // driver so output ingestion continues even when the workspace is slow.
-fn schedule_terminal_size_persist(state: &Arc<AppState>, id: &str) -> tokio::task::JoinHandle<()> {
-    let state = state.clone();
-    let id = id.to_string();
-    tokio::task::spawn_blocking(move || {
-        crate::session_application::SessionApplication::new(state).persist_terminal_size(&id, false)
-    })
+fn completed_terminal_size_persist() -> TerminalSizePersistCompletion {
+    let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
+    let _ = completed_tx.send(Ok(()));
+    completed_rx
+}
+
+fn schedule_terminal_size_persist(
+    state: &Arc<AppState>,
+    id: &str,
+) -> TerminalSizePersistCompletion {
+    let queue = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(id)
+        .map(|handle| handle.runtime.terminal_size_persist.clone());
+    let Some(queue) = queue else {
+        return completed_terminal_size_persist();
+    };
+
+    let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
+    let start_worker = {
+        let mut queue = queue.lock().unwrap();
+        queue.generation = queue
+            .generation
+            .checked_add(1)
+            .expect("terminal-size persistence generation exhausted");
+        queue.waiters.push(completed_tx);
+        if queue.running {
+            false
+        } else {
+            queue.running = true;
+            true
+        }
+    };
+
+    if start_worker {
+        let state = state.clone();
+        let id = id.to_string();
+        tokio::spawn(async move {
+            loop {
+                let generation = queue.lock().unwrap().generation;
+                let persist_state = state.clone();
+                let persist_id = id.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    crate::session_application::SessionApplication::new(persist_state)
+                        .persist_terminal_size(&persist_id, false);
+                })
+                .await;
+                let persistence_result = match result {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        tracing::warn!(session_id = %id, %error, "terminal-size persistence task failed");
+                        Err(())
+                    }
+                };
+
+                let waiters = {
+                    let mut queue = queue.lock().unwrap();
+                    if queue.generation != generation {
+                        continue;
+                    }
+                    queue.running = false;
+                    std::mem::take(&mut queue.waiters)
+                };
+                for waiter in waiters {
+                    let _ = waiter.send(persistence_result);
+                }
+                break;
+            }
+        });
+    }
+    completed_rx
 }
 
 pub(crate) async fn update_runtime_size(
@@ -837,7 +919,8 @@ pub(crate) async fn update_runtime_size(
     })
     .await
     .map_err(|_| ())?;
-    let _application = accepted_rx.await.map_err(|_| ())??;
+    let persistence = accepted_rx.await.map_err(|_| ())??;
+    persistence.await.map_err(|_| ())??;
     Ok(())
 }
 
@@ -865,11 +948,13 @@ async fn capture_startup_runtime_state(
             })) => {
                 initial_size.rows = rows;
                 initial_size.cols = cols;
-                if apply_runtime_size_to_state(state, session_id, rows, cols) {
-                    drop(schedule_terminal_size_persist(state, session_id));
-                }
+                let persistence = if apply_runtime_size_to_state(state, session_id, rows, cols) {
+                    schedule_terminal_size_persist(state, session_id)
+                } else {
+                    completed_terminal_size_persist()
+                };
                 if let Some(accepted) = accepted {
-                    let _ = accepted.send(Ok(ResizeApplication::Startup));
+                    let _ = accepted.send(Ok(persistence));
                 }
                 break;
             }
@@ -1440,7 +1525,7 @@ async fn start_session_runtime_inner(
                             cols,
                             accepted,
                         } => {
-                            let result = master
+                            let resize_result = master
                                 .lock()
                                 .unwrap()
                                 .resize(PtySize {
@@ -1449,18 +1534,19 @@ async fn start_session_runtime_inner(
                                     pixel_width: 0,
                                     pixel_height: 0,
                                 })
-                                .map(|()| ResizeApplication::Live)
                                 .map_err(|_| ());
-                            if result.is_ok() {
+                            let result = resize_result.map(|()| {
                                 if apply_runtime_size_to_state(
                                     &driver_state,
                                     &driver_id,
                                     rows,
                                     cols,
                                 ) {
-                                    drop(schedule_terminal_size_persist(&driver_state, &driver_id));
+                                    schedule_terminal_size_persist(&driver_state, &driver_id)
+                                } else {
+                                    completed_terminal_size_persist()
                                 }
-                            }
+                            });
                             if let Some(accepted) = accepted {
                                 let _ = accepted.send(result);
                             }
@@ -1559,7 +1645,11 @@ async fn start_session_runtime_inner(
                 Some(command) = control_rx.recv(), if pending_write.is_none() && pending_commands.is_empty() && !kill_requested && child_exit.is_none() => {
                     pending_commands.push_back(command);
                 }
-                Some(event) = driver_rx.recv(), if pending_persist_batches.len() < DRIVER_EVENT_BUFFER_CAPACITY => {
+                Some(event) = driver_rx.recv(), if should_receive_driver_events(
+                    pending_persist_batches.len(),
+                    child_exit.is_some(),
+                    reader_drain_finished,
+                ) => {
                     match event {
                         DriverEvent::Output(data) => {
                             persist_buffer.extend_from_slice(&data);
@@ -1930,10 +2020,12 @@ mod tests {
                 panic!("resize command should be received");
             };
             if apply_runtime_size_to_state(&state, &session_id, rows, cols) {
-                drop(schedule_terminal_size_persist(&state, &session_id));
-            }
-            if let Some(accepted) = accepted {
-                let _ = accepted.send(Ok(ResizeApplication::Startup));
+                let persistence = schedule_terminal_size_persist(&state, &session_id);
+                if let Some(accepted) = accepted {
+                    let _ = accepted.send(Ok(persistence));
+                }
+            } else if let Some(accepted) = accepted {
+                let _ = accepted.send(Ok(completed_terminal_size_persist()));
             }
         })
     }
@@ -4661,20 +4753,93 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         );
 
         let workspace = state.workspace.lock().unwrap();
-        let persist = schedule_terminal_size_persist(&state, &id);
+        let mut persist = schedule_terminal_size_persist(&state, &id);
         assert!(
-            !persist.is_finished(),
+            tokio::time::timeout(Duration::from_millis(20), &mut persist)
+                .await
+                .is_err(),
             "the persistence worker should be blocked on the held workspace lock, not its caller"
         );
         drop(workspace);
         tokio::time::timeout(Duration::from_secs(1), persist)
             .await
             .expect("persistence should finish after releasing the workspace lock")
-            .unwrap();
+            .expect("persistence completion should be reported")
+            .expect("persistence attempt should succeed");
         let workspace = state.workspace.lock().unwrap();
         assert_eq!(
             workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
             Some((210, 55))
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_size_persistence_coalesces_while_workspace_lock_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "coalesced-terminal-size-session".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Coalesced resize",
+                    "/tmp",
+                    "running",
+                    "t0",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: SessionRuntime::detached(55, 210),
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+
+        let workspace = state.workspace.lock().unwrap();
+        let mut completions = Vec::new();
+        for generation in 0..16_u16 {
+            apply_runtime_size_to_state(&state, &id, 55 + generation, 210 + generation);
+            completions.push(schedule_terminal_size_persist(&state, &id));
+        }
+
+        let persistence = state.sessions.lock().unwrap()[&id]
+            .runtime
+            .terminal_size_persist
+            .clone();
+        {
+            let persistence = persistence.lock().unwrap();
+            assert!(persistence.running, "a persistence worker should be active");
+            assert_eq!(persistence.generation, 16);
+            assert_eq!(persistence.waiters.len(), 16);
+        }
+        for completion in &mut completions {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), completion)
+                    .await
+                    .is_err(),
+                "resize acknowledgements should wait while metadata persistence is blocked"
+            );
+        }
+        drop(workspace);
+
+        for completion in completions {
+            tokio::time::timeout(Duration::from_secs(1), completion)
+                .await
+                .expect("coalesced persistence should finish after releasing the lock")
+                .expect("persistence completion should be reported")
+                .expect("persistence attempt should succeed");
+        }
+        let workspace = state.workspace.lock().unwrap();
+        assert_eq!(
+            workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
+            Some((225, 70)),
+            "the coalesced write should persist the newest dimensions"
         );
     }
 
@@ -4714,29 +4879,31 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             },
         );
 
+        let workspace = state.workspace.lock().unwrap();
         let driver = acknowledge_resize_as_startup(state.clone(), id.clone(), control_rx);
-        let result = update_runtime_size(&state, &id, 55, 210).await;
+        let mut resize = tokio::spawn({
+            let state = state.clone();
+            let id = id.clone();
+            async move { update_runtime_size(&state, &id, 55, 210).await }
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut resize)
+                .await
+                .is_err(),
+            "resize should not be acknowledged to its caller before dimensions are persisted"
+        );
+        drop(workspace);
+        let result = tokio::time::timeout(Duration::from_secs(1), &mut resize)
+            .await
+            .expect("resize should finish once persistence can acquire the workspace lock")
+            .unwrap();
         driver.await.unwrap();
         assert_eq!(result, Ok(()));
-
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                let persisted = state
-                    .workspace
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .unwrap()
-                    .metadata
-                    .read_terminal_size(&id);
-                if persisted == Some((210, 55)) {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .expect("startup resize should persist in the background");
+        let workspace = state.workspace.lock().unwrap();
+        assert_eq!(
+            workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
+            Some((210, 55))
+        );
     }
 
     #[tokio::test]
@@ -4923,8 +5090,8 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
                 .unwrap()
                 .runtime
                 .resize_closed = true;
-            drop(schedule_terminal_size_persist(&driver_state, &driver_id));
-            let _ = accepted.send(Ok(ResizeApplication::Live));
+            let persistence = schedule_terminal_size_persist(&driver_state, &driver_id);
+            let _ = accepted.send(Ok(persistence));
         });
 
         let result = update_runtime_size(&state, &id, 55, 210).await;
@@ -5538,6 +5705,25 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             Some(&child_exit),
             true,
             !rx.is_empty()
+        ));
+    }
+
+    #[test]
+    fn child_exit_drain_keeps_receiving_queued_output_when_persist_backlog_is_full() {
+        assert!(!should_receive_driver_events(
+            DRIVER_EVENT_BUFFER_CAPACITY,
+            true,
+            false,
+        ));
+        assert!(should_receive_driver_events(
+            DRIVER_EVENT_BUFFER_CAPACITY,
+            true,
+            true,
+        ));
+        assert!(!should_receive_driver_events(
+            DRIVER_EVENT_BUFFER_CAPACITY,
+            false,
+            true,
         ));
     }
 
