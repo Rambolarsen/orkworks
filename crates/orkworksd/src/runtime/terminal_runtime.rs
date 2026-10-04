@@ -350,10 +350,18 @@ fn spawn_command_future(
             crate::runtime::session_runtime::send_runtime_input(&state, &id, data).await
         })),
         TerminalAction::Resize { rows, cols } => Some(Box::pin(async move {
-            crate::runtime::session_runtime::apply_runtime_size_without_waiting_for_persistence(
+            if crate::runtime::session_runtime::apply_runtime_size_without_waiting_for_persistence(
                 &state, &id, rows, cols,
             )
             .await
+            .is_err()
+            {
+                // Exit can reject an acknowledged resize before the runtime
+                // finishes draining PTY output. Keep the attachment consuming
+                // output and the final Ended/Error event instead of disconnecting.
+                tracing::debug!(session_id = %id, rows, cols, "terminal resize rejected; preserving attachment");
+            }
+            Ok(())
         })),
         TerminalAction::Kill => Some(Box::pin(async move {
             crate::runtime::session_runtime::send_runtime_command(
@@ -1388,6 +1396,142 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
+
+    #[tokio::test]
+    async fn rejected_resize_preserves_trailing_output_and_terminal_event() {
+        use crate::runtime::session_runtime::{RuntimeCommand, RuntimeEvent, SessionRuntime};
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message as ClientMessage;
+
+        for terminal_event in [
+            RuntimeEvent::Ended {
+                status: "ended".into(),
+            },
+            RuntimeEvent::Error {
+                code: "pty-error".into(),
+                message: "wait failed".into(),
+            },
+        ] {
+            let id = "resize-during-exit";
+            let (state, _root) = prompted_session_state(id);
+            let (runtime, mut commands) = SessionRuntime::live(24, 80);
+            let output = runtime.output_tx.clone();
+            state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .unwrap();
+            let addr = listener.local_addr().unwrap();
+            let router = crate::build_router(state.clone());
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let (mut socket, _) =
+                tokio_tungstenite::connect_async(format!("ws://{addr}/sessions/{id}/terminal"))
+                    .await
+                    .unwrap();
+
+            // Establish the attachment and consume replay before the exit race.
+            for expected in ["replay-start", "replay-end"] {
+                let message = socket.next().await.unwrap().unwrap();
+                let payload: serde_json::Value =
+                    serde_json::from_str(message.to_text().unwrap()).unwrap();
+                assert_eq!(payload["type"], expected);
+            }
+            output
+                .send(RuntimeEvent::Output {
+                    cursor: 0,
+                    chunk: b"initial output".to_vec(),
+                })
+                .unwrap();
+            assert_eq!(
+                socket.next().await.unwrap().unwrap(),
+                ClientMessage::Binary(b"initial output".to_vec())
+            );
+            socket
+                .send(ClientMessage::Text(
+                    r#"{"type":"resize","rows":30,"cols":100}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let command = tokio::time::timeout(Duration::from_secs(2), commands.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let RuntimeCommand::Resize {
+                accepted: Some(accepted),
+                ..
+            } = command
+            else {
+                panic!("expected acknowledged resize");
+            };
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get_mut(id)
+                .unwrap()
+                .info
+                .lifecycle_phase = "ending".into();
+            accepted.send(Err(())).unwrap();
+
+            // A second panel resize proves the rejection was consumed without
+            // closing the socket, before any trailing output can mask the race.
+            socket
+                .send(ClientMessage::Text(
+                    r#"{"type":"resize","rows":31,"cols":101}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let next_command = tokio::time::timeout(Duration::from_secs(2), commands.recv())
+                .await
+                .expect("resize rejection must preserve the attachment")
+                .expect("terminal command channel must remain open");
+            assert!(matches!(next_command, RuntimeCommand::Resize { .. }));
+
+            output
+                .send(RuntimeEvent::Output {
+                    cursor: 1,
+                    chunk: b"final output".to_vec(),
+                })
+                .unwrap();
+            output.send(terminal_event.clone()).unwrap();
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(2), socket.next())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap(),
+                ClientMessage::Binary(b"final output".to_vec())
+            );
+            let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let payload: serde_json::Value =
+                serde_json::from_str(message.to_text().unwrap()).unwrap();
+            match terminal_event {
+                RuntimeEvent::Ended { .. } => {
+                    assert_eq!(
+                        payload,
+                        serde_json::json!({"type":"ended","status":"ended"})
+                    );
+                }
+                RuntimeEvent::Error { .. } => {
+                    assert_eq!(
+                        payload,
+                        serde_json::json!({
+                            "type":"error", "code":"pty-error", "message":"wait failed"
+                        })
+                    );
+                }
+                _ => unreachable!(),
+            }
+            drop(next_command);
+            server.abort();
+            let _ = server.await;
+        }
+    }
 
     #[test]
     fn pty_delivery_bookkeeping_finishes_before_resume_replaces_generation() {

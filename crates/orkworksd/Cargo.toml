@@ -30,6 +30,10 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 tempfile = "3"
 
+[dev-dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio-tungstenite = "0.24"
+
 [target.'cfg(windows)'.dependencies]
 # ReplaceFileW preserves Windows replacement semantics for existing targets;
 # MoveFileExW publishes new targets without clobbering a raced creation.
