@@ -5228,7 +5228,6 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         )
         .await
         .expect("runtime exit must remain bounded while the transition lock is held");
-        drop(transition_guard);
         assert!(
             finalized,
             "the current runtime generation must enter finalization"
@@ -5244,20 +5243,10 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         })
         .await
         .is_ok();
-        assert!(
-            finalized_after_release,
-            "runtime exit should finalize after the transition lock is released; live={:?}, metadata={:?}",
-            state.sessions.lock().unwrap()[&id].info.lifecycle_phase,
-            state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(&id)
-                .map(|stored| (stored.lifecycle_phase, stored.pending_terminal_status))
-        );
+        let live_phase = state.sessions.lock().unwrap()[&id]
+            .info
+            .lifecycle_phase
+            .clone();
         let stored = state
             .workspace
             .lock()
@@ -5267,9 +5256,17 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             .metadata
             .read_session(&id)
             .unwrap();
-        assert_eq!(stored.lifecycle_phase, "ended");
-        assert_eq!(stored.status, "ended");
+        let stored_phase = stored.lifecycle_phase.clone();
+        let stored_status = stored.status.clone();
         let final_snapshot = stored.final_observed_status_snapshot.unwrap();
+        drop(transition_guard);
+
+        assert!(
+            finalized_after_release,
+            "runtime exit should finalize while the transition lock remains held; live={live_phase:?}, metadata={stored_phase:?}"
+        );
+        assert_eq!(stored_phase, "ended");
+        assert_eq!(stored_status, "ended");
         assert_eq!(final_snapshot.value.as_deref(), Some("working"));
         assert_eq!(final_snapshot.source, "peon");
         assert_eq!(final_snapshot.confidence, Some(0.8));

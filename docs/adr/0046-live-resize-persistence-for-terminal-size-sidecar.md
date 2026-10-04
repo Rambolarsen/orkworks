@@ -26,17 +26,21 @@ exact garbled-replay failure ADR 0033 was written to prevent.
 ## Decision
 
 - `update_runtime_size` (`runtime/session_runtime.rs`) persists the PTY size
-  best-effort on every *changed* live resize, in addition to the
-  authoritative write at the terminal-status transition. Only the newest
-  `cols × rows` is kept — the file remains a snapshot of the last known
-  grid, not a resize history.
+  best-effort after a successful live resize when the requested grid differs
+  from the known durable grid, in addition to the authoritative write at the
+  terminal-status transition. This includes a successful same-size resize when
+  the current grid has not yet been persisted (for example, the initial PTY
+  size). A same-size resize can skip persistence once that grid is already
+  durable. Only the newest `cols × rows` is kept — the file remains a snapshot
+  of the last known grid, not a resize history.
 - All writes serialize through `TERMINAL_SIZE_WRITE_LOCK`
   (`session_application.rs`), and `persist_terminal_size` takes an
   `authoritative` flag: the terminal-status transition writes through the
   `ending`/`ended` phases, while live-resize writes back off during those
   phases so a straggling resize cannot overwrite the authoritative grid.
-- Unchanged sizes skip the persistence write entirely (`changed` check
-  before spawning the blocking write task).
+- A same-size request skips persistence only when the requested grid is already
+  durable; otherwise a successful resize persists it (`changed`/durability
+  checks before spawning the blocking write task).
 - Everything else from ADR 0033 is unchanged: the file format (`120x40`
   plain text), `MetadataStore`'s read/clear semantics (missing, malformed,
   or zero-valued content reads back as `None`), clearing on resume, the
@@ -55,10 +59,10 @@ exact garbled-replay failure ADR 0033 was written to prevent.
   than the grid at death — but the last-known grid is strictly better than
   no grid, and the authoritative terminal-status write still wins whenever
   the transition is reached.
-- Live resizes now incur a file write per changed size. The write is
-  serialized, skips unchanged sizes, and runs on a blocking task off the
-  async runtime; terminal replay at session end remains the authoritative
-  value.
+- Live resizes incur a file write when they change the durable grid or make an
+  initially undurable grid durable. The write is serialized, skips already
+  durable same-size requests, and runs on a blocking task off the async
+  runtime; terminal replay at session end remains the authoritative value.
 - ADR 0033's "written a single time per session run" claim is no longer
   true; the root `AGENTS.md` metadata-protocol description of this file
   (authoritative at terminal status, best-effort on every live resize,

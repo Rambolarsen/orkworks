@@ -1084,6 +1084,20 @@ fn fallback_final_snapshot(
 ) -> metadata::ObservedStatusSnapshotMetadata {
     meta.ending_observed_status_snapshot
         .clone()
+        .or_else(|| {
+            if meta.lifecycle_phase != "ended" {
+                meta.observed_status
+                    .clone()
+                    .map(|value| metadata::ObservedStatusSnapshotMetadata {
+                        value: Some(value),
+                        source: meta.metadata_source.clone(),
+                        confidence: Some(meta.metadata_confidence),
+                        observed_at: Some(observed_at.to_string()),
+                    })
+            } else {
+                None
+            }
+        })
         .or_else(|| meta.final_observed_status_snapshot.clone())
         .unwrap_or_else(|| {
             metadata::canonical_null_snapshot("recovery", Some(observed_at.to_string()))
