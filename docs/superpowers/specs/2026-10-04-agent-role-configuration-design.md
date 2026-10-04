@@ -48,14 +48,15 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 | Record | Required fields and meaning |
 | --- | --- |
 | `RoleTemplateSnapshot` | `id`, `version` (positive integer), `role`, `instructions`, `instructionsDigest`, `contentDigest`, `provenance` |
-| `SkillSnapshot` | `id`, `version` (nonempty UTF-8 label, at most 128 bytes), `content`, `contentDigest`, `requirement` (`mandatory` or `optional`), `selectionReason`, `requirementSources`, `provenance`; any context-relevant referenced resource is separately snapshotted |
+| `SkillSnapshot` | `id`, `version` (nonempty UTF-8 label, at most 128 bytes), `content`, `contentDigest`, `requirement` (`mandatory` or `optional`), `selectionReason`, `requirementSources`, `resourceIds`, `provenance`; referenced instruction resources use the separate records below |
+| `SkillResourceSnapshot` | `id`, `skillId`, `sourceReference`, `content`, `contentDigest`, `provenance`; an instruction resource owned by exactly one selected skill, with no independent rule authority |
 | `RuleSnapshot` | `id`, `sourcePath`, `content`, `contentDigest`, `precedence`, `authority` (always `binding`), `provenance`; scoped applicable instruction files are explicit inputs |
 | `RequirementManifest` | `sourceId`, `sourceDigest`, `taskId`, `requiredSkillIds`, `sourceLocations`, `applicabilityReason`; resolved requirement annotations separate from source snapshot content |
 | `CriterionSnapshot` | `id`, `requirement` (`required` or `optional`), `description` |
 | `RubricSnapshot` | `id`, `version` (positive integer), `dimensions` (ID/description pairs), `evaluatorRole`; rating/calculation belongs to #744 |
 | `AdapterBinding` | `harnessId`, `definitionDigest`, `adapterId`, `adapterVersion`, `executableIdentity`, `toolVersion`, `platform`, `instructionMechanism`, `effectiveSettingsDigest`, `evidenceId`, `evidenceDigest` |
 | `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration`; part of the immutable configuration |
-| `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `rubric`, `harness`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
+| `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`, `capabilityEvidence`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
 
 `configurationId` is stable only within the immutable plan revision. A changed
 configuration gets a new ID and digest. Repository/workspace/plan/task identities
@@ -117,6 +118,34 @@ Each root/child assignment contains 1–32 criterion snapshots, including at lea
 one `required` criterion. Optional-only or empty sets fail validation before
 approval; optional criteria cannot become a zero-denominator completeness rubric.
 
+### Referenced skill instruction resources
+
+Both child and bootstrap configurations contain `skillResources`, an inline
+array of `SkillResourceSnapshot` records (empty when none are needed).
+`SkillSnapshot.resourceIds` names that skill's complete context-relevant
+resource closure, including transitive references, sorted by resource ID.
+Every resource has one selected `skillId`; its ID must occur exactly once in
+that skill's list. Reject dangling, duplicate, unowned or cross-skill references.
+The same source needed by two skills gets distinct owner-bound resource IDs.
+Resolve the declared closure before approval; cycles are visited once, and an
+unresolved reference or excess closure blocks approval. A runtime reference
+cannot fetch additional instruction bytes or broaden access without a revised
+configuration. Non-instruction code/data inputs use the declared assignment
+input/permission contract and cannot serve as hidden instruction resources.
+
+`sourceReference` identifies the reviewed locator relative to the skill source
+or an explicitly approved source URI; `provenance` retains its resolved source
+identity. These references do not grant permission to read or fetch a source.
+`content` is the exact retained UTF-8 instruction text; `contentDigest` hashes
+those exact bytes without a prefix or normalization, as for skill content.
+Resources inherit the containing skill's composition position and conflict
+checks; they cannot become binding repository rules by being placed in `rules`.
+Render a skill followed by its resources in resource-ID order. Include every
+resource descriptor and byte in canonical configuration/bootstrap serialization,
+rendered-context and inclusive descriptor limits, source drift revalidation,
+delivery receipts and protected snapshot retention. A changed resource byte or
+source binding changes the configuration digest and needs new approval.
+
 ### Canonicalization
 
 1. Validate the complete descriptor and each referenced snapshot. Hash snapshot
@@ -128,11 +157,12 @@ approval; optional criteria cannot become a zero-denominator completeness rubric
 2. Build the definition object without `configurationDigest`. No bearer tokens,
    launch reservations, child IDs, timestamps of execution, telemetry, evaluator
    outcomes, or mutable support state are included.
-3. Normalize only collections declared as sets (skills by ID; tool/action and
+3. Normalize only collections declared as sets (skills and skillResources by ID,
+   each skill resourceIds list by ID; tool/action and
    permission path entries by their full validated identity) before rendering.
    Reject duplicate entries. Preserve meaningful instruction precedence,
    command argv, criteria and dependency ordering; do not silently reorder them.
-   Snapshot `contentDigest` for skills/rules is the digest of exact content bytes;
+   Snapshot `contentDigest` for skills/rules/resources is the digest of exact content bytes;
    a role template's `contentDigest` hashes its canonical descriptor excluding
    that field. Profile digests hash their normalized canonical profile bytes.
 4. Serialize recursively: object keys sorted by UTF-8 byte order; arrays retain
@@ -151,7 +181,8 @@ approval; optional criteria cannot become a zero-denominator completeness rubric
 `OrchestratorBootstrapConfiguration` uses `schemaVersion` (1), `bootstrapId`,
 `repositoryId`, `workspaceId`, `parentSessionId`, `runId`, `rootAssignmentId`,
 `goalDigest`, `roleTemplate`, `taskCategory`, `assignment`, `rules`,
-`requirementManifests`, `skills`, `rubric`, `harness`, `model`, `permissions`,
+`requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`,
+`capabilityEvidence`, `model`, `permissions`,
 `renderedInstructions`, `renderedInstructionsDigest`, and
 `bootstrapConfigurationDigest`. It has no future plan/task revision or bearer.
 The assignment describes the immutable user goal and coordination outputs,
@@ -202,7 +233,8 @@ order, with labeled section boundaries and content identities:
 3. Assignment inputs, scope, dependencies, acceptance criteria, output contract,
    rubric, and access-escalation/reporting requirements.
 4. Mandatory skills, then optional skills, each ordered by ID; referenced
-   instruction resources are included in the same snapshot manifest.
+   instruction resources come from the explicit `skillResources` array and are
+   rendered immediately after their owning skill.
 
 Every `RuleSnapshot` is binding; advisory research/context belongs in assignment
 inputs, not a downgraded rule snapshot. `authority` must equal `binding`. Discover
@@ -395,6 +427,53 @@ instruction mechanism, effective settings digest, role, and profile digest.
 reproducible bounded capability fixture for the relevant combination. `limited`,
 `unverified`, and `unsupported` combinations cannot launch restricted roles.
 
+### Immutable capability evidence snapshot
+
+`capabilityEvidence` is one inline `CapabilityEvidenceSnapshot`, separate from
+mutable delivery/usage observations. Required fields are `schemaVersion` (1),
+`evidenceId`, `harnessId`, `definitionDigest`, `adapterId`, `adapterVersion`,
+`executableIdentity`, `toolVersion`, `platform`, `instructionMechanism`,
+`effectiveSettingsDigest`, `role`, `requestedProfileDigest`,
+`effectiveProfileDigest`, `decision` (`verified`, `limited`, `unverified`, or
+`unsupported`), `checks`, `references`, `assessedAt` (UTC), `assessorIdentity`,
+and `evidenceDigest`. The executable/settings fields use exactly the same
+representations as `AdapterBinding`; profile digests use the canonical normalized
+requested/effective permission profiles defined above. `evidenceId` equals the
+binding's `evidenceId`, and every shared key plus the role/profile digests must
+match the configuration. Do not include a configuration digest in this snapshot:
+that would create a circular hash dependency.
+
+Each check contains `surface`, `result` (`passed`, `failed`, `unverified`, or
+`not-applicable`), `reason`, and unique `referenceIds`. Required unique surfaces
+are `instructions`, `skills`, `tools`, `commands`, `filesystem`, `network`,
+`connectors`, `delegation`, `startup`, and `model-policy`. A passed check requires
+retained reproducible fixture evidence and a primary reference. Not-applicable
+requires a source-backed reason and fixture confirming the surface is absent or
+denied; it is not a way to omit an untested control. `verified` requires all
+surfaces passed or legitimately not-applicable; failed/unverified coverage cannot
+be authenticated as verified merely by hashing it. Native usage observation is
+optional and separate from the mandatory skill-delivery check.
+
+Each reference contains `id`, `kind` (`primary-reference` or `fixture`),
+`sourceReference`, and `contentDigest` (SHA-256 of exact retained artifact bytes).
+Checks may only name references in this snapshot. Artifact content is retained
+locally and protected with the referencing evidence/configuration; URLs or file
+names alone are insufficient. No secrets, hidden reasoning or full production
+transcripts are retained. The capability register is source evidence for a
+future unverified snapshot; it is not itself a verified permission fixture.
+
+Reject unknown fields, duplicate surfaces/references and dangling reference IDs.
+Sort checks by surface, references by ID and referenceIds by ID; use the same
+recursive canonical JSON serializer defined above. Exclude only evidenceDigest
+and hash `orkworks.capability-evidence.v1\n` (one literal LF) plus those bytes.
+`AdapterBinding.evidenceDigest` must equal the recomputed snapshot digest.
+Include the complete snapshot in the approved configuration/bootstrap digest.
+At approval and launch/resume, recompute the digest, check exact binding/profile
+coverage, verify retained reference content and current evidence eligibility.
+Changed evidence yields a new ID/digest and proposal, never an in-place patch.
+Revocation/invalidation is separate mutable support state checked on every
+launch; the immutable historical verified decision cannot override it.
+
 Evidence inventories all applicable startup configuration, tool allow/deny
 behavior, shell effects, filesystem access, network actions, connectors, native
 subagents, and permission-changing controls. A flag's existence proves only that
@@ -461,10 +540,11 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 | Subject | Limit / behavior |
 | --- | --- |
 | IDs/digests | 128-byte IDs; 64-character digests; `schemaVersion` exactly 1 |
+| Generation identities | `adapterGeneration` is a nonempty ASCII ID within 128 bytes; runtime `launchGeneration` follows the preparation contract's opaque generation encoding, never a JSON numeric counter |
 | Numeric revisions | `RoleTemplateSnapshot.version`, `RubricSnapshot.version`, `planRevision`, and `preparationRevision` are integers 1 through 2^31−1; source revision identities retain their declared string representation |
 | Version labels | `SkillSnapshot.version` is a nonempty UTF-8 string at most 128 bytes, compared byte-for-byte without normalization; `AdapterBinding.adapterVersion` and `toolVersion` are nonempty labels within the 512-byte label bound, not numeric revisions |
 | Labels/reasons | 512 bytes per label; 2 KiB per reason/source reference |
-| Skills/rules/inputs | 16 skills, 32 rule/resource snapshots, and 32 input references per configuration; 33 requirement manifests, at most 16 requiredSkillIds and 32 sourceLocations/requirementSources per record, each source location at most 512 bytes; unique IDs within each namespace |
+| Skills/rules/inputs | 16 skills, 32 rule/resource snapshots combined (including skillResources), at most 32 resourceIds per skill, and 32 input references per configuration; 33 requirement manifests, at most 16 requiredSkillIds and 32 sourceLocations/requirementSources per record, each source location at most 512 bytes; unique IDs within each namespace |
 | Criteria/dimensions | 32 acceptance criteria and 16 rubric dimensions; 2 KiB per description and output-contract text, 4 KiB assignment description |
 | Paths/tools/actions | 64 read paths, 64 write paths, 64 tools, 32 commands, 32 source policies, 16 connectors, 16 coordination actions; path/reference 2 KiB, policy text 2 KiB; dependencies at most 128 unique task IDs |
 | Commands | 64 argv elements, 2 KiB per element, 32 environment bindings per command, 128-byte names, 2 KiB nonsecret values; credential slot/source/scope/policy references at most 512 bytes each; no credential values retained |
@@ -472,7 +552,7 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 | Configuration | 1 MiB serialized descriptor plus its inline snapshots; rendered content counts within that bound |
 | Plan | 128 tasks and 2 MiB total approved definition, inclusive of every configuration; lower existing/upstream limit always wins |
 | Template catalog | 64 role-template versions per workspace, including pinned historical versions; 1 MiB total |
-| Evidence references | 16 per configuration, each at most 2 KiB; no raw event transcripts |
+| Capability evidence | One inline snapshot, at most 64 KiB included in the 1 MiB configuration; ten surface checks, 16 references, 2 KiB per reason/source reference; fixture artifacts at most 64 KiB each / 1 MiB total per snapshot, retained separately; no raw production transcripts |
 | Blocker/delivery records | At most 16 KiB per record, 16 evidence references and 16 skill delivery entries; idempotency/rate/aggregate retention belong to #742/#743 |
 | Admission | Reject oversized/unsupported input before writing or launching; never truncate mandatory content or evict referenced snapshots |
 
@@ -553,6 +633,8 @@ example, not evidence that such an adapter exists.
 | Empty/optional-only acceptance criteria | Reject approval; at least one required criterion needed |
 | Skill version `v6.3.0` | Accept as a label within 128 UTF-8 bytes; reject empty or oversized labels and non-string versions |
 | Template/rubric numeric version or plan/preparation revision | Reject non-integers and values outside 1 through 2^31−1 |
+| Referenced resource missing, changed or placed in rules | Reject missing/invalid closure or drift; preserve skill ownership and include exact resource bytes in digest/delivery |
+| Evidence digest valid but fixture missing, binding different or revoked | Reject approval/launch; a matching hash alone cannot establish verified eligibility |
 | Same logical skill/version, different bytes | Different configuration; old approval cannot launch new bytes |
 | Reordered object keys | Same canonical bytes/digest; duplicate keys rejected |
 | Reordered skills in input | Validate canonical skill ordering before rendering; equivalent sorted definition produces same digest |

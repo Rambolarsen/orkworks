@@ -434,6 +434,7 @@ replace old approval evidence to make room.
 | Item | Limit |
 | --- | --- |
 | IDs / digests | Role contract: 128-byte ASCII IDs / lowercase 64-character SHA-256 |
+| Wire counters / generations | Exact encodings below; validate before digesting or comparing |
 | Run definition | 16 KiB excluding the separately retained bootstrap, at most 16 plans per run |
 | Bootstrap | Role contract's 1 MiB inclusive snapshot/content limit (256 KiB rendered context) |
 | Run child ceiling | UI-selected integer 1–16; each plan's ceiling is no greater |
@@ -452,6 +453,48 @@ replace old approval evidence to make room.
 | Event waits | One outstanding wait per run bearer; maximum 30 seconds, at most 60 requests per rolling minute |
 | Run preparation/report metadata | 32 MiB aggregate per run, excluding separately bounded baseline plans/configurations and ordinary terminal history |
 
+### Exact wire counters and generation identities
+
+These encodings apply to every request, response, durable record, capability
+binding and event in this proposed preparation protocol. `schemaVersion` is the
+JSON integer 1. Numeric counters use plain decimal JSON integer tokens, without
+fraction/exponent or leading zeros: `reportVersion` is 1–8; `planRevision` and
+`preparationRevision` and `inputRevision` are 1–64; `runVersion`, `taskVersion`, `expectedRunVersion`, `expectedTaskVersion`
+and clarification answer/request version counters are 1 through 2^31−1.
+`eventCursor` is 0 through 2^31−1; zero means before the first event. Counts,
+batch indices and capacity values are nonnegative integers within their stated
+collection/capacity limits. Reject negative, out-of-range, fractional, string
+or otherwise invalid counter values before persistence/digest/idempotency checks.
+A consumer must not coerce or round a value into the valid range.
+
+`sidecarGeneration` and `launchGeneration` are opaque sidecar-issued 256-bit
+random identities encoded as lowercase 64-character hexadecimal strings, never
+JSON numbers. A new sidecar lifetime gets a fresh sidecar identity; every new or
+resumed runtime gets a fresh launch identity. Parent runtime generation uses
+that same launch encoding. Compare exact strings, including in grants and child
+report bindings. Adapter capability generation is the role contract's bounded
+ASCII identity and is not a runtime counter.
+
+The admission fence's `highWaterSequence` and each run's `runSequence` use
+canonical decimal strings, not JSON numbers. High-water accepts `"0"` through
+`"9223372036854775807"`; run sequence accepts `"1"` through that maximum. No
+sign, whitespace, exponent or leading zero is allowed except the single `"0"`.
+Validate decimal length/value losslessly (BigInt or checked integer parsing),
+never via JavaScript Number. Keep this exact string in canonical digest bytes
+and `<admissionEpoch>-<runSequence>` IDs. Admission epoch remains a 64-character
+hex identity. This replaces the formerly ambiguous numeric fence representation.
+
+Every counter increments with checked arithmetic. At its maximum, reject the
+next mutation and pause affected launches/event automation with a visible
+exhaustion blocker; never wrap, reset or reuse a version/cursor. Retained results
+and authoritative reads remain available. Recovery requires explicit UI-owned
+new-run/revision decisions within existing gates; sequence exhaustion uses the
+quiescent namespace rotation below. The 256-event ring's retention window does
+not reset its monotonic cursor. Cross-language implementation fixtures must
+cover minima/maxima, 2^53+1 input, decimal-string admission sequence maxima,
+opaque generations and overflow without truncation. No runtime fixture is run
+by writing this specification.
+
 Persist preparation identities, reports and run/plan references; never bearers or
 active grants. Event cursor gaps return `refresh_required` and the current run
 version; read authoritative state instead of inventing missed events. A duplicate
@@ -468,7 +511,7 @@ capabilities before removing its unreferenced records.
 Use one bounded workspace admission fence instead of accumulating per-run
 tombstones: `schemaVersion`, `workspaceId`, `admissionEpoch` (sidecar-generated
 256-bit random namespace, lowercase 64-character hex), and `highWaterSequence`
-(integer 0 through 2^63−1). Persist this record, at most 4 KiB, under
+(canonical decimal string `"0"` through `"9223372036854775807"`). Persist this record, at most 4 KiB, under
 `~/.orkworks/taskmaster/admission/<workspace-hash>.json`, outside workspace
 metadata GC. Run IDs are sidecar-assigned `<admissionEpoch>-<runSequence>`;
 the positive sequence is decimal without leading zeros. The run definition and
@@ -487,7 +530,7 @@ If the sequence is exhausted or the fence needs recovery, provide an explicit
 Electron-authorized namespace rotation using existing UI authority. It requires
 all runs quiescent (no active plans, nonterminal children, reservations or
 unreconciled allocations), revokes all run/report capabilities and grants, and
-atomically persists a fresh random epoch with sequence zero before admitting
+atomically persists a fresh random epoch with sequence `"0"` before admitting
 new runs. Retained old-epoch records remain read-only historical artifacts;
 old-epoch mutations/replays are rejected without storing an unbounded epoch
 list. Worktree/artifact ownership protection is unchanged. Missing or corrupt
@@ -533,6 +576,7 @@ live coding-tool probes were run while drafting this document.
 
 | Case | Required result |
 | --- | --- |
+| Counter outside range / numeric admission sequence / malformed generation | Reject before digesting or stale-write comparison; never round or wrap |
 | Clear small task | Direct execution proposal; no ceremonial research |
 | Material answer missing/stale/terminal-only | Dependent proposal cannot be approved |
 | Parallel question consumes another's result | Explicit dependency/later batch; no concurrent launch |
