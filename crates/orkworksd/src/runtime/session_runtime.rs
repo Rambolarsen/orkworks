@@ -1594,9 +1594,10 @@ pub(crate) async fn start_session_runtime(
                         for line in reassembled {
                             handle.runtime.peon_output_revision = handle.output_buffer.push(line);
                         }
-                        handle
-                            .capacity
-                            .record_output(1, trailing.text().len() as u64);
+                        // The bytes were already counted when their PTY read
+                        // chunks updated `scan_buf`; finalization adds only
+                        // the newly persisted physical row.
+                        handle.capacity.record_output(1, 0);
                     }
                     drop(sessions);
                     final_persist_batches.push_back(vec![trailing]);
@@ -3238,6 +3239,11 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
                 .iter()
                 .zip(expected_raw.bytes())
                 .position(|(actual, expected)| *actual != expected),
+        );
+        assert_eq!(
+            handle.capacity.scan_bytes_seen,
+            expected_raw.len() as u64,
+            "finalizing an unterminated row must not count bytes already scanned during PTY reads twice",
         );
         drop(sessions);
         let _ = kill_tx.send(true);
