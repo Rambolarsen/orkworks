@@ -669,8 +669,9 @@ bounded descriptors, permission reasons, and actual delivery/evaluation evidence
 it never grants permissions or decides adapter eligibility.
 
 This draft supplies the contract for their written review. It does not mark
-those consumers reviewed or implemented. Before a runtime plan can be written:
-reconcile #610 and authoritative scope/ADRs, review this contract and #740's
+those consumers reviewed or implemented. #610's authoritative scope/ADR
+alignment is accepted in PR #747. Before a runtime plan can be written,
+review this contract and #740's
 capability evidence, and establish a verified initial role/tool/profile slice.
 The current no-go result is valid research, but cannot be converted into
 permission-free fallback implementation. Keep #740/#741 open until their reviewed

@@ -17,9 +17,8 @@ collects available reports, synthesizes the research summary, proposes the
 execution plan, and requests ready declared tasks after approval. There is no
 mandatory pause/resume action between successful research and plan preparation.
 
-Automation does not remove exact-plan approval. Research and execution remain
-separately approved when execution assignments were not fixed in the research
-plan. The parent delegates investigation, implementation, verification, and
+Automation does not remove exact-plan approval. Research and every new execution plan require separate exact approval;
+research completion never transfers approval into an execution plan. The parent delegates investigation, implementation, verification, and
 review. It never integrates child code. Plan revision approval, dependent
 worktree quiescence acknowledgement, and manual integration remain user actions.
 
@@ -28,8 +27,8 @@ capability lifetime: run planning authority survives research-plan completion;
 that plan's execution authorization does not. It does not silently reuse the
 baseline's expired plan bearer. The [#610 scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
 and [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) now
-carry the proposed amendment into authoritative routing. Written scope,
-detailed contract and adapter evidence gates still remain open.
+carry the accepted lifecycle scope into authoritative routing. Scope acceptance
+is recorded on PR #747; detailed contract and adapter evidence gates remain open.
 This document does not authorize runtime implementation or claim adapter support.
 
 ### Established source facts and unresolved eligibility
@@ -39,7 +38,7 @@ This document does not authorize runtime implementation or claim adapter support
 | `crates/orkworksd/src/taskmaster/coordinator.rs:1` | Data-only coordinator records, no runtime authority | New run/grant records need a reviewed runtime plan |
 | `crates/orkworksd/src/taskmaster/coordinator_store.rs:1` | Durable records, no runtime authority | Persisting a plan does not authorize a child |
 | `crates/orkworksd/src/session_application.rs:4856`, `:4966`, `:5029` | Resume workflow retains the OrkWorks session ID and creates a new runtime | Same visible parent can resume; new runtime needs fresh authority |
-| Historical September launch baseline | Completion revoked one plan-bound parent bearer | Replaced in the current proposed baseline by the explicit run/grant amendment below; written acceptance remains pending |
+| Historical September launch baseline | Completion revoked one plan-bound parent bearer | Replaced by the run/grant scope accepted in PR #747; detailed lifecycle contract review remains open |
 | Capability evidence register | Exact role/delivery combinations remain unverified | No eligible automated parent is claimed yet |
 
 A live PTY is not evidence that a parent can receive reports and act on them.
@@ -606,9 +605,9 @@ live coding-tool probes were run while drafting this document.
 ## Execution plan and implementation gate
 
 Keep #742 open: this is a concrete proposed contract, not a reviewed executable
-handoff. Before code planning, obtain written acceptance of the proposed
-[#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md) and
-authoritative spec/ADR routing; finalize #741's run bootstrap/plan bindings;
+handoff. The [#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
+and authoritative spec/ADR scope routing were accepted in PR #747. Before code
+planning, finalize and review #741's run bootstrap/plan bindings;
 verify #740's parent role, skill delivery, event continuation and exact resume
 capabilities or retain explicit no-go combinations. Review the run/grant,
 identity, capacity, correction, recovery and numeric-bound contracts together.

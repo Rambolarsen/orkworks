@@ -28,7 +28,7 @@ launch identity must pin the actual resolved executable chain.
   delivery/permission fixtures or retain an explicit no-go outcome.
 - [ ] Finalize downstream contract dependencies and reviewed execution handoffs.
 
-Task 3 now has a [preparation lifecycle draft](../specs/2026-10-04-orchestrator-preparation-design.md): the user chose a continuously running parent with automatic execution-plan preparation. Run planning authority, exact-plan grants, event continuation and run-wide capacity are proposed contracts awaiting review. Tasks 4–7 remain queued. Code execution planning remains behind the authoritative scope alignment, written contract review, and capability evidence gates.
+Task 3 now has a [preparation lifecycle draft](../specs/2026-10-04-orchestrator-preparation-design.md): the user chose a continuously running parent with automatic execution-plan preparation. Run planning authority, exact-plan grants, event continuation and run-wide capacity are proposed contracts awaiting review. Tasks 4–7 remain queued. Authoritative scope alignment is accepted in PR #747. Code execution planning remains behind written contract review and capability evidence gates.
 
 ## Work-picking priority
 
@@ -117,6 +117,12 @@ reviewed specification deliverables.
 | Spec: assignment quality and completeness evaluation | [#744](https://github.com/Rambolarsen/orkworks/issues/744) | #741 | `docs/superpowers/specs/2026-10-04-assignment-evaluation-design.md` |
 | Spec: repository-scoped configuration learning and skill improvements | [#745](https://github.com/Rambolarsen/orkworks/issues/745) | #741, #743, #744 | `docs/superpowers/specs/2026-10-04-configuration-learning-design.md` |
 | Spec: agent hierarchy interaction and visual presentation | [#746](https://github.com/Rambolarsen/orkworks/issues/746) | Draft independently; finalize projection after #741, #743, #744 | `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md` |
+
+#745's repository-identity-across-worktrees portion is an early reviewed
+input to #741 and baseline worktree/child admission; draft it with #741 before
+baseline unit 4. It does not depend on usage/evaluation history. The remaining
+learning/cohort/history contract still consumes #743/#744 downstream. Unresolved
+repository identity blocks launch; it cannot wait for the complete learning unit.
 
 Parallel drafting lanes:
 

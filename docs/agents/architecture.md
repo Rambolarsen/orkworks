@@ -532,8 +532,8 @@ crash-surviving orchestration process ownership are not claimed. ADR 0060's
 independent-instance cleanup/replacement proof remains unchanged.
 
 The [baseline handoff](../superpowers/plans/2026-09-26-taskmaster-orchestrated-child-sessions.md)
-splits later work into reviewable units. Scope review, component review and
-version-specific coding-tool permission/delivery/event evidence must pass
+splits later work into reviewable units. Scope is accepted in PR #747;
+component review and version-specific coding-tool permission/delivery/event evidence must pass
 before scoped execution plans authorize code.
 
 ## Rust sidecar (`crates/orkworksd/src/`)
