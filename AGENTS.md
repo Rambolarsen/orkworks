@@ -384,8 +384,10 @@ When Peon reports a provider timeout, use the read-only repository helper
 `bash scripts/peon-timeout-diagnostics.sh` and follow
 [`docs/agents/peon-timeout-troubleshooting.md`](docs/agents/peon-timeout-troubleshooting.md).
 `PEON_TIMEOUT` is legacy and does not control current session inference; check
-the applied provider/model in Settings instead. Retry the current session once
-after verification and do not resume or reopen another session as a workaround.
+the applied provider/model in Settings instead. Peon retries failed inference
+automatically for active sessions on the next observation pass — there is no
+user-facing single-retry action, so do not re-send work to the coding tool to
+force one — and do not resume or reopen another session as a workaround.
 
 ## Peon model detection observations
 

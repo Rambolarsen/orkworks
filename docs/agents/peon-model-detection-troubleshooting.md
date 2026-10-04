@@ -307,6 +307,11 @@ directly.
 2. Determine first whether the report is noise. If it is, documenting the
    known limitation in repository tooling or documentation is a valid
    resolution; do not modify recommendation or observation files directly.
+   Tie off the matching recommendation through the sidecar API instead of
+   leaving it active — accept it from this session if needed, then complete
+   it with a summary stating the verified noise disposition (see the
+   Taskmaster recommendation tie-off rule in AGENTS.md) — so later
+   evaluations do not resurface resolved work.
    If investigation instead finds a real, reproducible defect, follow the
    normal issue and implementation workflow — the documentation-only path
    applies to confirmed noise, not to a genuine regression.
@@ -335,15 +340,18 @@ the first step that resolves the report.
    state or a live session shows a genuine usage-cap signal (capped status,
    reset hint), follow the capacity guidance above instead.
 3. **Fix the provider configuration, not the session.** Peon retries failed
-   inference automatically: a task failure, timeout, or transient hold
-   leaves the session's output window eligible (`last_output` and
-   `min_peon_output_revision` unchanged), and the next observation pass
-   rescans the same output — there is no user-facing action that performs a
+   inference automatically for active sessions: a task failure, timeout, or
+   transient hold leaves the session's output window eligible (`last_output`
+   and `min_peon_output_revision` unchanged), and the next observation pass
+   rescans the same output. There is no user-facing action that performs a
    single Peon retry, and re-sending work to the coding tool to force a
    re-scan can duplicate that work. If the applied provider/model is
    genuinely misconfigured or failing, correct it in Settings → Model
-   providers and let the automatic retry pick the fix up. Absence of
-   detected-model metadata is not a defect; see the merge rules above.
+   providers and let the automatic retry pick the fix up. This retry applies
+   to the active-session observation loop only: the final scan when a
+   session exits is single-shot, so a ended session's last scan does not
+   re-run — the observation stands as recorded. Absence of detected-model
+   metadata is not a defect; see the merge rules above.
 4. **Escalate a genuine defect, never a workaround.** If steps 1–3 leave a
    reproducible product failure, take it through the normal issue and
    implementation workflow. Never resume, reopen, or modify another session
