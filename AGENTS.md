@@ -50,7 +50,8 @@ read access does not establish write permission. Report which access path
 failed or succeeded, and never treat a sandbox block alone as an authentication
 or permission failure.
 
-- **Prioritize GitHub Copilot harness work first**, then stabilization work, then net-new work in lowest-incomplete-milestone order. Break ties by user impact.
+- **Prioritize the agent hierarchy, orchestrator preparation, and configuration-learning initiative and directly related bugs first** (#738, #740–#746 and their tracked prerequisites, including #610 scope alignment). Within this focus, address related bugs/stabilization and ready prerequisites before dependent feature work; break ties by user impact. A related issue must name the affected contract/component and link to this initiative rather than merely sharing a broad Taskmaster label.
+- When no actionable work remains in that focus, prioritize GitHub Copilot harness work, then stabilization, then net-new work in lowest-incomplete-milestone order. Priority never bypasses spec review, capability evidence, issue dependencies or implementation approval gates.
 - **Add future work** as new issues. Break down into scoped, deliverable-sized issues with checkbox acceptance criteria.
 - **Keep issues in sync** with the codebase — close when done, update when scope changes.
 - If the issue board is inaccessible, do not guess at priorities. Stop and inform the user that issue board access is required before picking or closing work.
