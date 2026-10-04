@@ -114,11 +114,15 @@ session; follow the task's explicit scope instead.
 
 When a Taskmaster recommendation or rollup reports a repeated obstacle or
 workflow recommendation, treat its `proposedImprovement` as unverified until
-the raw grounding is reproduced from the session's own artifacts and matched
-to a named workflow rule. Evidence made only of page or plan titles, spinner
-frame labels, or user-configured model instructions counts as over-detection
-noise to report through the recommendation-completion summary, not as
-confirmation. A "trial" recommendation that would document an experiment in
+the raw grounding is reproduced from the session's own artifacts and the
+described gap is verified against it — a grounded `missing_context` or
+`assumption` recommendation may target repository context that does not
+exist yet, so the gate is a verified gap, not a pre-existing named rule.
+Evidence made only of page or plan titles, spinner frame labels, or
+user-configured model instructions — with no concrete artifact matching
+the described problem area — counts as over-detection noise to report
+through the recommendation-completion summary, not as confirmation.
+A "trial" recommendation that would document an experiment in
 `AGENTS.md` is implemented only when it names the specific behavior, its
 measured recurrence source, and a defined success measure; see the
 [Workflow-improvement trials from Taskmaster] section of the root
