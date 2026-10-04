@@ -316,6 +316,15 @@ details; selecting a skill exposes its description, version, usage evidence,
 and relevant history. Permissions and detailed scores belong in details and
 run summaries, with the overall evaluation result on the agent.
 
+Skill badges show a progression from outlined (planned/selected) to filled
+(confirmed loaded), followed by a brief highlight when usage is recorded.
+Delivery unconfirmed keeps an outline and an accessible unconfirmed label;
+selection or usage reports cannot manufacture a confirmed-loaded receipt.
+A usage report can highlight an outlined badge while delivery remains unconfirmed;
+the two evidence states remain explicit in details. Missing usage evidence does
+not mean unused. Skill descriptions, versions, selection reasons and evidence
+remain available in details.
+
 Recorded skill usage gives its badge a brief, soft highlight. Deduplicate event
 replays and keep bursts calm; the animation is supplementary feedback, not a
 reward or quality assertion. Distinguish reported and observed usage in the

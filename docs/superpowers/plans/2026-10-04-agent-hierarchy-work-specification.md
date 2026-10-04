@@ -657,7 +657,7 @@ rtk git commit -m "docs: specify repository-scoped configuration learning and sk
 - [ ] **Step 3: Check the task's full acceptance criteria.**
 
 - [ ] Define root/child and planned/live/remembered states using supported OrkWorks identities; do not create separately controlled nodes for uncorrelated coding-tool-native subagents.
-- [ ] Specify node content priority: portrait, role, short task, ordinary status and skill badges; distinguish selected/loaded/unknown delivery using the evidence contract.
+- [ ] Specify node content priority: portrait, role, short task, ordinary status and skill badges. Planned/selected badges are outlined, confirmed-loaded badges filled, recorded usage briefly highlighted, and unconfirmed delivery outlined with an accessible label. Preserve independent reported/observed usage evidence; neither selection nor a usage report proves loading, and missing usage is not unused.
 - [ ] Define stable ordering/positions, automatic collapse after completed result summaries are viewed, manual reopening without repeated recollapse, focus/selection preservation, collapsed blocker and required-user-attention rollup, and explicit dependency/wait labels distinct from parentage.
 - [ ] Preserve one selected terminal and existing lifecycle/unread/attention semantics, selection restoration, ordinary-session fallback, and workspace-switch stale-result fencing.
 - [ ] Define keyboard navigation, focus behavior, screen-reader names/structure, non-color status communication, reduced-motion behavior, and labels accessible without hover.
