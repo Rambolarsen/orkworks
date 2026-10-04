@@ -24,6 +24,7 @@ const DEFAULT_REPLAY_CAPACITY: usize = 256;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
 const CONTROL_CHANNEL_CAPACITY: usize = 64;
+const READER_EXIT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 pub(crate) const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const MAX_PARTIAL_PERSIST_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
@@ -555,8 +556,18 @@ impl SessionRuntime {
 
 enum DriverEvent {
     Output(Vec<u8>),
+    ReaderClosed,
     Exited,
     WaitError(String),
+}
+
+fn should_finalize_driver_exit(
+    child_exit: Option<&Result<(), String>>,
+    reader_drain_finished: bool,
+    reader_events_pending: bool,
+) -> bool {
+    child_exit
+        .is_some_and(|result| result.is_err() || (reader_drain_finished && !reader_events_pending))
 }
 
 fn output_recency_timestamp(data: &[u8], timestamp: String) -> Option<String> {
@@ -1182,6 +1193,7 @@ pub(crate) async fn start_session_runtime(
                 }
             }
         }
+        let _ = reader_tx.blocking_send(DriverEvent::ReaderClosed);
     });
 
     let wait_tx = driver_tx.clone();
@@ -1226,6 +1238,10 @@ pub(crate) async fn start_session_runtime(
         let mut pending_persist_batches: VecDeque<Vec<crate::metadata::TerminalOutputRecord>> =
             VecDeque::new();
         let mut kill_requested = false;
+        let mut reader_closed = false;
+        let mut reader_drain_finished = false;
+        let mut reader_drain_deadline = None;
+        let mut child_exit: Option<Result<(), String>> = None;
 
         if let Some(prompt) = initial_prompt {
             pending_commands.push_front(RuntimeCommand::Input {
@@ -1252,7 +1268,7 @@ pub(crate) async fn start_session_runtime(
                 if let Some(write) = &pending_write {
                     write.cancel();
                 }
-            } else if pending_write.is_none() {
+            } else if pending_write.is_none() && child_exit.is_none() {
                 if let Some(command) = pending_commands.pop_front() {
                     match command {
                         RuntimeCommand::Input { data, accepted } => {
@@ -1286,9 +1302,11 @@ pub(crate) async fn start_session_runtime(
                     match result {
                         Ok(returned_writer) => writer = Some(returned_writer),
                         Err(error) => {
-                            tracing::warn!(session_id = %driver_id, %error, "PTY writer task failed");
-                            kill_requested = true;
-                            let _ = driver_killer.lock().unwrap().kill();
+                            if child_exit.is_none() {
+                                tracing::warn!(session_id = %driver_id, %error, "PTY writer task failed");
+                                kill_requested = true;
+                                let _ = driver_killer.lock().unwrap().kill();
+                            }
                         }
                     }
                 }
@@ -1323,7 +1341,7 @@ pub(crate) async fn start_session_runtime(
                         }
                     }
                 }
-                kill_change = kill_rx.changed() => {
+                kill_change = kill_rx.changed(), if child_exit.is_none() => {
                     match kill_change {
                         Ok(()) if *kill_rx.borrow() => {
                             kill_requested = true;
@@ -1348,7 +1366,16 @@ pub(crate) async fn start_session_runtime(
                         }
                     }
                 }
-                Some(command) = control_rx.recv(), if pending_write.is_none() && pending_commands.is_empty() && !kill_requested => {
+                _ = tokio::time::sleep_until(reader_drain_deadline.unwrap_or_else(|| {
+                    tokio::time::Instant::now() + READER_EXIT_DRAIN_GRACE
+                })), if reader_drain_deadline.is_some() => {
+                    // Descendants can inherit the PTY slave and keep the reader
+                    // open after the direct child exits. Drain briefly, then
+                    // finalize so the session lifecycle remains bounded.
+                    reader_drain_finished = true;
+                    reader_drain_deadline = None;
+                }
+                Some(command) = control_rx.recv(), if pending_write.is_none() && pending_commands.is_empty() && !kill_requested && child_exit.is_none() => {
                     pending_commands.push_back(command);
                 }
                 Some(event) = driver_rx.recv(), if pending_persist_batches.len() < DRIVER_EVENT_BUFFER_CAPACITY => {
@@ -1501,105 +1528,121 @@ pub(crate) async fn start_session_runtime(
                                 }
                             }
                         }
+                        DriverEvent::ReaderClosed => {
+                            reader_closed = true;
+                            reader_drain_finished = true;
+                            reader_drain_deadline = None;
+                        }
                         DriverEvent::Exited => {
-                            let _ = drain_codex_reports_before_exit(
-                                driver_state.clone(),
-                                codex_hook_report_relay.as_ref(),
-                                &driver_id,
-                                &report_token_for_driver,
-                                run_generation,
-                            )
-                            .await;
-                            let mut final_persist_batches = pending_persist_batches;
-                            if !persist_buffer.is_empty() {
-                                final_persist_batches
-                                    .push_back(vec![crate::metadata::TerminalOutputRecord::raw(
-                                        String::from_utf8_lossy(&persist_buffer).into_owned(),
-                                        "",
-                                    )]);
+                            child_exit = Some(Ok(()));
+                            pending_commands.clear();
+                            control_rx.close();
+                            while control_rx.try_recv().is_ok() {}
+                            if let Some(write) = &pending_write {
+                                write.cancel();
                             }
-
-                            let status = if kill_requested { "killed" } else { "ended" };
-                            if !handle_runtime_exit(
-                                &driver_state,
-                                &driver_id,
-                                run_generation,
-                                status,
-                            )
-                            .await
-                            {
-                                drop(persist_tx);
-                                break;
+                            if !reader_closed {
+                                reader_drain_deadline = Some(
+                                    tokio::time::Instant::now() + READER_EXIT_DRAIN_GRACE,
+                                );
                             }
-                            let _ = driver_output_tx.send(RuntimeEvent::Ended { status: status.to_string() });
-
-                            let trim_state = driver_state.clone();
-                            let trim_id = driver_id.clone();
-                            tokio::spawn(async move {
-                                while let Some(lines) = final_persist_batches.pop_front() {
-                                    let _ = persist_tx.send(lines).await;
-                                }
-                                drop(persist_tx);
-                                let _ = persist_writer.await;
-                                let _ = tokio::task::spawn_blocking(move || {
-                                    crate::session_application::SessionApplication::new(trim_state)
-                                        .trim_terminal_output(&trim_id);
-                                })
-                                .await;
-                            });
-                            break;
                         }
                         DriverEvent::WaitError(error) => {
-                            let _ = drain_codex_reports_before_exit(
-                                driver_state.clone(),
-                                codex_hook_report_relay.as_ref(),
-                                &driver_id,
-                                &report_token_for_driver,
-                                run_generation,
-                            )
-                            .await;
-                            let mut final_persist_batches = pending_persist_batches;
-                            if !persist_buffer.is_empty() {
-                                final_persist_batches
-                                    .push_back(vec![crate::metadata::TerminalOutputRecord::raw(
-                                        String::from_utf8_lossy(&persist_buffer).into_owned(),
-                                        "",
-                                    )]);
+                            child_exit = Some(Err(error));
+                            pending_commands.clear();
+                            control_rx.close();
+                            while control_rx.try_recv().is_ok() {}
+                            if let Some(write) = &pending_write {
+                                write.cancel();
                             }
-                            if !handle_runtime_exit(
-                                &driver_state,
-                                &driver_id,
-                                run_generation,
-                                "error",
-                            )
-                            .await
-                            {
-                                drop(persist_tx);
-                                break;
-                            }
-                            let _ = driver_output_tx.send(RuntimeEvent::Error {
-                                code: "pty_wait_failed".into(),
-                                message: error,
-                            });
-                            let trim_state = driver_state.clone();
-                            let trim_id = driver_id.clone();
-                            tokio::spawn(async move {
-                                while let Some(lines) = final_persist_batches.pop_front() {
-                                    let _ = persist_tx.send(lines).await;
-                                }
-                                drop(persist_tx);
-                                let _ = persist_writer.await;
-                                let _ = tokio::task::spawn_blocking(move || {
-                                    crate::session_application::SessionApplication::new(trim_state)
-                                        .trim_terminal_output(&trim_id);
-                                })
-                                .await;
-                            });
-                            break;
                         }
                     }
+
                 }
                 else => break,
+            }
+
+            if should_finalize_driver_exit(
+                child_exit.as_ref(),
+                reader_drain_finished,
+                !driver_rx.is_empty(),
+            ) {
+                let exit = child_exit.take().expect("child exit should be present");
+                let _ = drain_codex_reports_before_exit(
+                    driver_state.clone(),
+                    codex_hook_report_relay.as_ref(),
+                    &driver_id,
+                    &report_token_for_driver,
+                    run_generation,
+                )
+                .await;
+
+                let mut final_persist_batches = pending_persist_batches;
+                if !persist_buffer.is_empty() {
+                    let trailing = crate::metadata::TerminalOutputRecord::raw(
+                        String::from_utf8_lossy(&persist_buffer).into_owned(),
+                        "",
+                    );
+                    let rows = [trailing.text().trim().to_string()];
+                    let mut sessions = driver_state.sessions.lock().unwrap();
+                    if let Some(handle) = sessions.get_mut(&driver_id) {
+                        let reassembled = peon::rejoin_hard_wrapped_rows_streaming(
+                            &mut handle.runtime.pending_wrap_prefix,
+                            &rows,
+                            handle.runtime.last_cols,
+                        );
+                        for line in reassembled {
+                            handle.runtime.peon_output_revision = handle.output_buffer.push(line);
+                        }
+                        handle
+                            .capacity
+                            .record_output(1, trailing.text().len() as u64);
+                    }
+                    drop(sessions);
+                    final_persist_batches.push_back(vec![trailing]);
+                }
+
+                let is_error = exit.is_err();
+                let status = if is_error {
+                    "error"
+                } else if kill_requested {
+                    "killed"
+                } else {
+                    "ended"
+                };
+                if !handle_runtime_exit(&driver_state, &driver_id, run_generation, status).await {
+                    drop(persist_tx);
+                    break;
+                }
+                match exit {
+                    Ok(()) => {
+                        let _ = driver_output_tx.send(RuntimeEvent::Ended {
+                            status: status.to_string(),
+                        });
+                    }
+                    Err(error) => {
+                        let _ = driver_output_tx.send(RuntimeEvent::Error {
+                            code: "pty_wait_failed".into(),
+                            message: error,
+                        });
+                    }
+                }
+
+                let trim_state = driver_state.clone();
+                let trim_id = driver_id.clone();
+                tokio::spawn(async move {
+                    while let Some(lines) = final_persist_batches.pop_front() {
+                        let _ = persist_tx.send(lines).await;
+                    }
+                    drop(persist_tx);
+                    let _ = persist_writer.await;
+                    let _ = tokio::task::spawn_blocking(move || {
+                        crate::session_application::SessionApplication::new(trim_state)
+                            .trim_terminal_output(&trim_id);
+                    })
+                    .await;
+                });
+                break;
             }
         }
     });
@@ -3114,7 +3157,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let cols: u16 = 511;
         let row_count = 16;
         let script = format!(
-            "awk 'BEGIN{{s=\"\";for(i=0;i<{cols};i++)s=s \"a\";for(i=0;i<{row_count};i++)print s;print \"tail\"}}'"
+            "awk 'BEGIN{{s=\"\";for(i=0;i<{cols};i++)s=s \"a\";for(i=0;i<{row_count};i++)print s}}';printf tail"
         );
         let command = harness::CommandSpec {
             program: "/bin/sh".into(),
@@ -3149,27 +3192,162 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         .await
         .unwrap();
 
-        let expected = format!("{}tail", "a".repeat(cols as usize * row_count));
+        let row = "a".repeat(cols as usize);
+        let expected = format!("{}tail", row.repeat(row_count));
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                let done = {
+                let ended = {
                     let sessions = state.sessions.lock().unwrap();
-                    sessions[session_id].output_buffer.snapshot() == vec![expected.clone()]
+                    sessions[session_id].info.lifecycle_phase == "ended"
                 };
-                if done {
+                if ended {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         })
         .await
-        .expect("the full logical line should appear as one buffer entry within 10s");
+        .expect("the short-lived fixture should end within 10s");
 
-        let snapshot = state.sessions.lock().unwrap()[session_id]
-            .output_buffer
-            .snapshot();
-        assert_eq!(snapshot, vec![expected]);
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions[session_id];
+        let snapshot = handle.output_buffer.snapshot();
+        assert!(
+            snapshot == vec![expected.clone()],
+            "logical output differed after exit: expected_chars={}, actual_line_chars={:?}",
+            expected.chars().count(),
+            snapshot
+                .iter()
+                .map(|line| line.chars().count())
+                .collect::<Vec<_>>(),
+        );
+        let actual_raw: Vec<u8> = handle
+            .runtime
+            .replay
+            .snapshot()
+            .into_iter()
+            .flat_map(|(_, chunk)| chunk)
+            .collect();
+        let expected_raw = format!("{}tail", format!("{row}\r\n").repeat(row_count));
+        assert!(
+            actual_raw == expected_raw.as_bytes(),
+            "raw replay differed after exit: expected_bytes={}, actual_bytes={}, first_mismatch={:?}",
+            expected_raw.len(),
+            actual_raw.len(),
+            actual_raw
+                .iter()
+                .zip(expected_raw.bytes())
+                .position(|(actual, expected)| *actual != expected),
+        );
+        drop(sessions);
         let _ = kill_tx.send(true);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn child_exit_bounds_drain_when_descendant_keeps_pty_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-exit-descendant-pty";
+        let state = test_state_with_runtime_session(session_id);
+        ingestion_test_workspace(&state, &dir);
+
+        let descendant_pid_path = dir.path().join("descendant.pid");
+        let script_path = dir.path().join("fork-pty-holder.py");
+        let pid_file = format!("{:?}", descendant_pid_path.display().to_string());
+        std::fs::write(
+            &script_path,
+            format!(
+                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n time.sleep(10)\n os._exit(0)\nwith open({pid_file}, 'w') as pid_file:\n pid_file.write(str(child_pid))\nos.write(1, b'done')\nos._exit(0)\n"
+            ),
+        )
+        .unwrap();
+        let command = harness::CommandSpec {
+            program: "python3".into(),
+            args: vec![script_path.display().to_string()],
+            cwd: dir.path().display().to_string(),
+        };
+
+        let (runtime, control_rx) = SessionRuntime::live(DEFAULT_TERMINAL_ROWS, 80);
+        let output_tx = runtime.output_tx.clone();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime = runtime;
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let started_at = tokio::time::Instant::now();
+        start_session_runtime(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        let ended = tokio::time::timeout(READER_EXIT_DRAIN_GRACE + Duration::from_secs(2), async {
+            loop {
+                if state.sessions.lock().unwrap()[session_id]
+                    .info
+                    .lifecycle_phase
+                    == "ended"
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+
+        let descendant_pid: i32 = std::fs::read_to_string(&descendant_pid_path)
+            .expect("fixture should record the PTY-holding descendant")
+            .trim()
+            .parse()
+            .unwrap();
+        let descendant_kept_running = unsafe { libc::kill(descendant_pid, 0) } == 0;
+        let descendant_fds = std::fs::read_dir(format!("/proc/{descendant_pid}/fd"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| std::fs::read_link(entry.path()).ok())
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        let descendant_holds_pty = descendant_fds.iter().any(|fd| fd.starts_with("/dev/pts/"));
+        if descendant_kept_running {
+            let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+        }
+
+        ended.expect("session exit should remain bounded while a descendant holds the PTY");
+        assert!(
+            descendant_kept_running,
+            "descendant should still hold the PTY at exit"
+        );
+        assert!(
+            descendant_holds_pty,
+            "descendant should retain a PTY descriptor at exit; descendant_fds={descendant_fds:?}"
+        );
+        assert!(
+            started_at.elapsed() >= READER_EXIT_DRAIN_GRACE,
+            "the runtime should allow the configured reader drain grace; descendant_fds={descendant_fds:?}"
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id]
+                .output_buffer
+                .snapshot(),
+            vec!["done".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -4552,6 +4730,29 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         );
 
         assert!(matches!(rx.try_recv(), Ok(DriverEvent::Output(_))));
+    }
+
+    #[test]
+    fn child_exit_drain_waits_for_queued_reader_output() {
+        let (tx, mut rx) = make_driver_event_channel();
+        let child_exit = Ok(());
+
+        for _ in 0..DRIVER_EVENT_BUFFER_CAPACITY {
+            tx.try_send(DriverEvent::Output(vec![1]))
+                .expect("reader output should fill the bounded driver queue");
+        }
+
+        assert!(
+            !should_finalize_driver_exit(Some(&child_exit), true, !rx.is_empty()),
+            "the drain deadline must not skip reader output already queued under backpressure"
+        );
+
+        while rx.try_recv().is_ok() {}
+        assert!(should_finalize_driver_exit(
+            Some(&child_exit),
+            true,
+            !rx.is_empty()
+        ));
     }
 
     #[test]
