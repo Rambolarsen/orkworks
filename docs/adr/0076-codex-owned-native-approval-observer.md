@@ -19,12 +19,14 @@ execution credentials and native approval control, not borrow a shared daemon.
 
 ## Decision (proposed)
 
-For feature-probed, configuration-compatible Codex launches, own one private
+For feature-probed, configuration-compatible Codex launches with an exact
+version/platform entry backed by completed native protocol verification, own one private
 app-server and remote native TUI within the session runtime. Use authenticated
 loopback WebSocket with a fresh memory-only token; tool execution inherits the
 session reporting environment, while only the TUI and passive observer receive
 the native connection secret. The TUI remains the sole approval controller.
-Unsupported configurations retain the existing isolated direct launch.
+Unsupported configurations or unverified versions/platforms retain the existing
+isolated direct launch. Help compatibility alone never authorizes native clears.
 
 Pair validated PermissionRequest with a two-second grace and continuous,
 bounded, exact-root native observation. Show Needs You after grace when pending

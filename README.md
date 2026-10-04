@@ -21,7 +21,8 @@ uses a runtime-owned native server and passive observer with a two-second grace.
 The serial payload gate for [#690](https://github.com/Rambolarsen/orkworks/issues/690)
 has passed; written review and production signal/platform gates remain. This is
 not implemented; [ADR 0076](docs/adr/0076-codex-owned-native-approval-observer.md)
-remains proposed.
+remains proposed. Native attention will require an exact verified Codex
+version/platform entry; unverified combinations retain direct launch.
 
 The proposed [Coordinator design gate](specs/taskmaster.md#coordinator-design-gate)
 describes a future bounded Taskmaster coordinator using immutable,

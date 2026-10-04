@@ -79,8 +79,24 @@ service. No non-loopback listener, global daemon mutation, or cross-session
 reuse is permitted. Authentication and port-race behavior need live tests;
 the successful Unix-socket diagnostics did not verify this transport.
 
-Eligibility is feature-probed on the actual configured executable with bounded
-help output and deadlines, not assumed from the harness ID or version string.
+Native eligibility requires both bounded feature probes and an explicit,
+reviewed compatibility record for the actual configured executable's exact
+Codex version, host OS/architecture, and expected app-server protocol/status shape.
+Probe --version on that same resolved executable with a three-second deadline
+and 64 KiB per stream; missing, failed, truncated, or noncanonical version output
+selects unchanged direct launch. No >= minimum-version rule, unchanged help
+flags, or newer patch release automatically inherits verified status semantics.
+
+Keep compatibility records in the compiled native adapter, with version,
+platform, protocol expectations, and links to completed verification evidence.
+Before adding an entry, pass the production gates below for that version and
+platform, including slow-auto and root/subagent semantics. Codex 0.160.0 is an
+investigation candidate only; the current captures do not authorize a shipping
+entry. At startup require the exact version/platform entry and feature support;
+a protocol-shape mismatch disables native assistance and conservatively retains
+waiting. Versions/platforms outside the table take direct launch. Bind probe
+results to the same executable identity and runtime generation used for both
+owned children, reusing the project's generation-aware probe invalidation.
 Initially support canonical built-in launch and exact resume, plus the shared
 -c/--config and --enable/--disable options with tested execution parity. The
 current built-in Codex launch has empty args; build_launch renders a model only
@@ -285,6 +301,11 @@ Before claiming #690 fixed, require all of the following:
   questions, denied/cancelled/error/idle paths, stale RPCs, reset, revocation,
   source-priority races, competing identical-value writes, ownership-token
   invalidation, and observer loss/reconnect.
+- Compatibility tests proving exact verified version/platform entries are
+  required: absent/unparsable version, unverified older/newer/patch versions,
+  unsupported platform, executable identity changes, and unexpected protocol
+  shapes cannot enable native suppression or clearing. Same CLI flags on a
+  newer version are not enough. Populate no shipping entry from spike evidence.
 - Bounded fake-protocol tests for oversized frames, malformed/unknown replies,
   timeout, authentication, root-versus-child IDs, loaded-list changes, and the
   strict observer method allowlist. Prove it cannot answer approvals.
