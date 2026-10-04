@@ -1,7 +1,7 @@
 ---
 type: Troubleshooting Guide
 title: Peon model detection troubleshooting
-description: How to interpret Peon model-detection observations and model metadata without chasing self-referential noise.
+description: How to interpret Peon model-detection and capacity/cap observations, recover safely, and avoid chasing self-referential noise.
 tags: [peon, troubleshooting, providers, diagnostics, taskmaster]
 status: stable
 ---
@@ -63,6 +63,20 @@ exact fingerprint cluster as motivating noise.
 
 Signals that an observation is this noise, not a verified defect:
 
+- The evidence field is itself the obstacle's own label or a fragment of it,
+  rather than anything captured from the session. Grounding requires a
+  verbatim substring of the captured terminal output, so evidence equal to
+  the description ("Peon" in an observation described as "Peon model
+  detection") or the description minus its qualifier ("model detection
+  failed" in a "Peon model detection failed" obstacle) grounds trivially: it
+  only proves the session printed text containing those words — typically the
+  session's own work discussing model detection — of which it is a
+  plausible span. Such self-echo evidence is low-specificity and a strong
+  noise signal.
+- The evidence names the observer or the recovery path itself — for example
+  "User answered Claude's questions" recorded alongside a Peon-model
+  obstacle: it names Claude while Peon is the observer and documents a Q&A
+  workaround the user undertook, not a product failure.
 - The description names Peon's prompt-example vocabulary rather than a
   concrete failure in the session — including phrasings that drop the
   "Peon" qualifier entirely, such as "Model detection is blocked".
@@ -294,3 +308,34 @@ directly.
    provider timeouts. Keep the two diagnoses separate.
 4. Do not resume, reopen, or modify another session to work around the issue,
    and do not loop retries.
+
+## Recovery path
+
+The recovery path for this noise family is deliberately short, because most
+reports resolve without any recovery at all. Follow it in order and stop at
+the first step that resolves the report.
+
+1. **Triage, do not act.** Check the signals above (model-detection
+   indicators, generic or self-echo evidence, capacity/cap paraphrases,
+   rate-limit fragments). If the fingerprints hold, the report is
+   documentation noise: do not act on the obstacle, and do not edit
+   recommendation or observation files directly — that is what this runbook
+   itself is for.
+2. **Verify the applied provider/model.** Settings → Model providers is
+   authoritative for what runs session inference. A suspected inference
+   problem is diagnosed there, not from the observation. If the provider
+   state or a live session shows a genuine usage-cap signal (capped status,
+   reset hint), follow the capacity guidance above instead.
+3. **Retry the current session once, only if a real inference failure is
+   confirmed.** After verifying the applied provider/model and confirming an
+   actual inference error (not an absence of detected-model metadata — that
+   is not a defect; see the merge rules above), retry the affected session
+   once. Do not loop retries.
+4. **Escalate a genuine defect, never a workaround.** If steps 1–3 leave a
+   reproducible product failure, take it through the normal issue and
+   implementation workflow. Never resume, reopen, or modify another session
+   as a workaround: that path is the exact friction this runbook exists to
+   prevent.
+
+Unverified ideas for further recovery steps are not listed here; adding them
+requires evidence from later affected workflows, not hypothesis.
