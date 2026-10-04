@@ -23,3 +23,12 @@
      diffs — prefer splitting the PR over escalating the review. Summarize the
      findings and how each was addressed (fixed, or noted as intentional) — or
      state why this PR is exempt (e.g. docs-only). -->
+
+## Review comments
+
+<!-- Record how review comments were handled so reviewers and future
+     readers can follow the outcome: fixed, or intentionally left with a
+     one-line reason. -->
+
+- Fixed:
+- Left (why):
