@@ -1127,7 +1127,17 @@ pub(crate) async fn handle_runtime_exit(
     };
     crate::session_application::SessionApplication::new(state.clone())
         .clear_ended_session_tracking_for_runtime(id, &runtime_identity);
-    flush_output_recency(state, id).await;
+    if tokio::time::timeout(
+        EXIT_STATUS_TRANSITION_GRACE,
+        flush_output_recency(state, id),
+    )
+    .await
+    .is_err()
+    {
+        // The persistence task is detached by timeout and will finish when
+        // the workspace lock is released; do not hold runtime shutdown open.
+        tracing::warn!(session_id = %id, "output-recency persistence is still waiting; continuing runtime finalization");
+    }
     schedule_session_ending_finalization(
         state.clone(),
         id.to_string(),
@@ -5076,11 +5086,18 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
     }
 
     #[tokio::test]
-    async fn runtime_exit_finishes_after_ending_transition_even_when_metadata_lock_is_held() {
+    async fn runtime_exit_finishes_with_pending_output_recency_when_metadata_lock_is_held() {
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let id = "held-exit-workspace-lock".to_string();
-        let (runtime, _control_rx) = SessionRuntime::live(24, 80);
+        let (mut runtime, _control_rx) = SessionRuntime::live(24, 80);
+        let now = tokio::time::Instant::now();
+        assert!(runtime
+            .record_output_recency("first-output".into(), now)
+            .is_some());
+        assert!(runtime
+            .record_output_recency("pending-output".into(), now + Duration::from_secs(1))
+            .is_none());
         let generation = runtime.run_generation();
         let (kill_tx, _) = tokio::sync::watch::channel(false);
         state.sessions.lock().unwrap().insert(
@@ -5107,7 +5124,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
 
         let workspace_guard = state.workspace.lock().unwrap();
         let finalized = tokio::time::timeout(
-            EXIT_STATUS_TRANSITION_GRACE + Duration::from_millis(100),
+            EXIT_STATUS_TRANSITION_GRACE * 2 + Duration::from_millis(100),
             handle_runtime_exit(&state, &id, generation, "ended"),
         )
         .await
