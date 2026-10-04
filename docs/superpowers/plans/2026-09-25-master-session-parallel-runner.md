@@ -10,6 +10,15 @@
 
 **Spec:** [`docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md`](../specs/2026-09-25-master-session-parallel-runner-design.md), with the Coordinator contract in [`docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`](../specs/2026-09-24-taskmaster-bounded-coordinator-design.md).
 
+## Historical plan — do not execute
+
+This confined-runner plan is superseded as the proposed runtime direction by
+[ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) and the
+[ordinary-child scoped handoff](2026-09-26-taskmaster-orchestrated-child-sessions.md).
+Keep its native checkpoint as historical evidence. Replacement scope is
+accepted in PR #747; contract/capability/implementation gates remain open. No
+task below authorizes new runtime work or relaxes existing cleanup ownership.
+
 ## Global Constraints
 
 - The user approves one exact immutable plan revision before any child worktree or child session is created.

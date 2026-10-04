@@ -28,7 +28,7 @@ launch identity must pin the actual resolved executable chain.
   delivery/permission fixtures or retain an explicit no-go outcome.
 - [ ] Finalize downstream contract dependencies and reviewed execution handoffs.
 
-Task 3 now has a [preparation lifecycle draft](../specs/2026-10-04-orchestrator-preparation-design.md): the user chose a continuously running parent with automatic execution-plan preparation. Run planning authority, exact-plan grants, event continuation and run-wide capacity are proposed contracts awaiting review. Tasks 4–7 remain queued. Code execution planning remains behind the authoritative scope alignment, written contract review, and capability evidence gates.
+Task 3 now has a [preparation lifecycle draft](../specs/2026-10-04-orchestrator-preparation-design.md): the user chose a continuously running parent with automatic execution-plan preparation. Run planning authority, exact-plan grants, event continuation and run-wide capacity are proposed contracts awaiting review. Tasks 4–7 remain queued. Authoritative scope alignment is accepted in PR #747. Code execution planning remains behind written contract review and capability evidence gates.
 
 ## Work-picking priority
 
@@ -81,9 +81,9 @@ unsupported outcomes remain valid findings and must block eligibility.
 **What is the biggest missing dependency?** The coordinator foundation is
 explicitly data-only: `taskmaster/coordinator.rs` and `coordinator_store.rs`
 state that runtime authority is absent. #604/#606 are closed foundation work;
-#610 still describes the older brokered/confined runner. The newer launch
-proposal and its implementation plan remain proposed. Scope alignment is a
-prerequisite, not an already completed launch capability.
+#610 now tracks the accepted ordinary-child scope alignment in PR #747.
+Detailed component contracts, exact capability evidence and scoped runtime
+implementation plans remain prerequisites; launch capability is not implemented.
 
 A further lifecycle gap is concrete: the launch proposal revokes the plan
 capability on completion, while the new preparation flow can finish research
@@ -93,9 +93,11 @@ to retain the same live parent: the draft separates a run planning bearer from
 server-held exact-plan grants and requires verified event continuation. No
 expired plan bearer is reused; prior-plan children still count against the run cap.
 
-The existing baseline plan also proposes an ADR 0066 filename, but ADR 0066 now
-records hook-owned prompt attention. Scope alignment must allocate an unused
-ADR number and correct those references rather than overwrite that record.
+The existing baseline plan's stale ADR 0066 reference has been replaced by
+accepted [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md).
+The [#610 alignment draft](../specs/2026-10-04-taskmaster-orchestration-scope-design.md)
+reconciles ordinary-child scope and run/grant authority; written scope acceptance
+is recorded on PR #747, #610 criteria are aligned and #617 is retired. ADR 0066 stays hook-owned attention.
 
 Resolved scope: coding-tool controls are sufficient for this product slice;
 recursive delegation, native confinement, automatic retries/integration, and
@@ -115,6 +117,12 @@ reviewed specification deliverables.
 | Spec: assignment quality and completeness evaluation | [#744](https://github.com/Rambolarsen/orkworks/issues/744) | #741 | `docs/superpowers/specs/2026-10-04-assignment-evaluation-design.md` |
 | Spec: repository-scoped configuration learning and skill improvements | [#745](https://github.com/Rambolarsen/orkworks/issues/745) | #741, #743, #744 | `docs/superpowers/specs/2026-10-04-configuration-learning-design.md` |
 | Spec: agent hierarchy interaction and visual presentation | [#746](https://github.com/Rambolarsen/orkworks/issues/746) | Draft independently; finalize projection after #741, #743, #744 | `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md` |
+
+#745's repository-identity-across-worktrees portion is an early reviewed
+input to #741 and baseline worktree/child admission; draft it with #741 before
+baseline unit 4. It does not depend on usage/evaluation history. The remaining
+learning/cohort/history contract still consumes #743/#744 downstream. Unresolved
+repository identity blocks launch; it cannot wait for the complete learning unit.
 
 Parallel drafting lanes:
 
@@ -147,19 +155,22 @@ Preserve the historical confinement validation record.
 #610's old acceptance criteria, #617's native-boundary scope, and accepted
 session/workspace decisions.
 
-**Produces:** A consistent authoritative product/ADR boundary for ordinary
-orchestrated children, a non-colliding architecture-decision record, and a
-reviewed baseline plan with scoped runtime issues.
+**Produces:** An accepted product/ADR boundary for ordinary
+orchestrated children, non-colliding ADR 0077, and a baseline handoff split into
+runtime planning units. The [alignment draft](../specs/2026-10-04-taskmaster-orchestration-scope-design.md)
+was accepted on 2026-10-04 for PR #747 after documentation validation.
+Live issue disposition is aligned; capability evidence and reviewed executable
+plans/implementation issues remain separate gates.
 
-- [ ] Compare the launch proposal with every conflicting root/spec/ADR statement;
+- [x] Compare the launch proposal with every conflicting root/spec/ADR statement;
   classify amendments versus supersessions under the ADR change sequence.
-- [ ] Write the actual scoped documentation changes and update the baseline
+- [x] Write the actual scoped documentation changes and update the baseline
   plan's stale ADR reference using the next unoccupied index entry.
-- [ ] Update #610's criteria after the scope decision is accepted. Resolve
+- [x] Update #610's criteria after the scope decision is accepted. Resolve
   #617's status explicitly against the ordinary-session design; do not silently
   retain native confinement as this slice's launch prerequisite.
-- [ ] Run documentation drift/link/build checks and obtain written review.
-- [ ] Break the baseline runtime into independently testable PR-sized execution
+- [x] Run documentation drift/link/build checks and obtain written review.
+- [x] Break the baseline runtime into independently testable PR-sized execution
   work before coding; keep this extension's modules out of unrelated runtime PRs.
 
 ## Task 1: Research: verify coding-tool role profiles and skill delivery

@@ -1,6 +1,14 @@
 # Master-session parallel runner
 
-- Status: proposed
+> Historical proposal, superseded as the orchestration direction by accepted
+> [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) and the
+> [scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md).
+> Replacement scope was accepted in PR #747; runtime gates remain open.
+> Requirements below describe the old
+> confined/brokered design, not executable authority for ordinary children.
+
+
+- Status: superseded as proposed runtime direction; replacement scope accepted, runtime gated
 - Date: 2026-09-25
 - Tracking issue: [#610](https://github.com/Rambolarsen/orkworks/issues/610)
 - Related design: [bounded Taskmaster coordinator](2026-09-24-taskmaster-bounded-coordinator-design.md)

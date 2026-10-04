@@ -320,7 +320,7 @@ The detailed paths, bounds, lifecycle, authentication, and ADR reference are in 
 - Priority: user > agent > peon > backend_inference > process > unknown > debug.
 - Peon reads terminal output and writes inferred metadata; it never types into terminals.
 - Within one independent instance, detached runtimes keep draining terminal output, persisting history, and feeding Peon while `orkworksd` remains alive; losing a renderer terminal attachment alone must not end a session. A workspace switch closes that instance's runtime before opening another workspace; it does not create a peer-runtime registry.
-- Taskmaster proposes cross-session transitions, but ordinary v1 recommendations require explicit user approval for every action. `improve_workflow` may display without approval, but cannot focus a terminal, edit a file, or start a session; a user may dismiss it or accept it to send a scoped fix prompt to their active session. The proposed master-session runner is a separately gated exception: it cannot launch children or create worktrees until the user approves one exact plan revision and its reviewed implementation plan is approved. Child edits stay in separate worktrees for manual user integration; cleanup is allowed only for clean, quiescent, plan-owned worktrees.
+- Taskmaster proposes cross-session transitions, but ordinary v1 recommendations require explicit user approval for every action. `improve_workflow` may display without approval, but cannot focus a terminal, edit a file, or start a session; a user may dismiss it or accept it to send a scoped fix prompt to their active session. The proposed ordinary-child orchestration extension is separately gated: its UI-created run can prepare proposals, but each exact plan revision needs user approval before any plan-owned branch/worktree or child is created. Research completion retains planning authority, not execution approval; final completion revokes run authority. Child edits stay in approved worktrees for manual integration. The initial slice has no automated cleanup; any later separately reviewed removal must be clean, quiescent and plan-owned. Scope is accepted; detailed contract review, verified coding-tool profiles and scoped implementation-plan approval remain required; see [orchestration architecture](docs/agents/architecture.md#proposed-ordinary-child-orchestration).
 The current metadata paths and behavior are also summarized below for quick
 operational reference; the architecture concept remains authoritative for the
 full protocol detail.
@@ -347,8 +347,8 @@ full protocol detail.
 
 ## Key conventions from specs
 
-- MVP does not own Git workflow, worktree management, merging, or arbitrary task decomposition, except for the separately gated master-session runner's approved-plan worktree provisioning and clean-worktree cleanup
-- Taskmaster may recommend session transitions but must not start sessions without explicit user approval in v1; the proposed runner requires one explicit approval of the complete immutable plan before child launch
+- MVP does not own Git workflow, worktree management, merging or arbitrary task decomposition, except for the separately gated proposed ordinary-child orchestration extension's exact-plan worktree provisioning; the initial slice has no automated cleanup
+- Taskmaster v1 transitions require explicit user approval; the proposed orchestrator separates run planning authority from each exact approved plan's launch grant and has accepted scope but requires detailed contract, capability and implementation-plan gates before runtime work
 - If asked to implement something listed as a non-goal in the specs, decline and explain which non-goal applies. Do not implement it even partially.
 - Harness voice is pass-through only — OrkWorks never captures/proxies/stores audio for native voice
 - Store metadata source and confidence where possible

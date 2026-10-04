@@ -163,8 +163,9 @@ probe execution plan or runtime adapter is approved. A separate authorized
 probe session can produce bounded fixtures and a supported slice or retain
 no-go findings. The native OS boundary issue #617 is not a prerequisite added
 by this evidence draft. No runtime implementation plan can claim an eligible
-role until the necessary tool/version/profile evidence and #610 scope review
-are complete. #740 remains open for probe evidence and reviewed handoff.
+role until the necessary tool/version/profile evidence and reviewed handoff
+are complete. #610 scope acceptance is recorded in PR #747; it supplies no
+capability evidence. #740 remains open for probe evidence and reviewed handoff.
 
 ## Issue #740 follow-up: retained evidence and scoped handoff
 

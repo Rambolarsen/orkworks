@@ -8,6 +8,14 @@
 - Existing observation model: [Workflow observation feedback loop](2026-08-14-workflow-observation-feedback-loop-design.md)
 - Work specification plan: `docs/superpowers/plans/2026-10-04-agent-hierarchy-work-specification.md` (repository-only; plans are excluded from the published docs site).
 
+## Scope alignment routing
+
+The [#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md) and
+[ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) carry the
+ordinary-child/run-grant direction into the proposed authoritative extension.
+Scope acceptance is recorded on PR #747; the detailed #740–#746
+evidence/contract gates remain open. This is neither runtime implementation nor a supported tool profile.
+
 ## Purpose and status
 
 Make an orchestrated workflow visible as a hierarchy of agents. Each agent has
@@ -21,8 +29,8 @@ and proposes concrete evaluation defaults for written review. It extends the
 2026-09-26 launch proposal and preserves its approval, batch and worktree
 contracts. The preparation contract proposes run-level planning authority
 across completed research plans, separately gated execution grants and run-wide
-capacity accounting. These explicit amendments require baseline/authority
-alignment; all designs remain proposed.
+capacity accounting. Baseline/authority scope alignment is accepted in PR #747; the detailed
+component designs remain proposed.
 Neither this document nor its tracking issue authorizes runtime work. The
 authoritative specifications, architecture decisions, tracking issues, and
 implementation plan must agree before implementation starts.

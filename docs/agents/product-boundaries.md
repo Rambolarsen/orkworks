@@ -16,15 +16,23 @@ harnesses, models, reviews, capacity, and Git context. OrkWorks observes and
 recommends before it controls: it does not replace Claude Code, Codex,
 OpenCode, Gemini CLI, or Aider.
 
-The MVP does not own Git workflow, worktree management, merging, or arbitrary
-task decomposition. The separately gated master-session runner is a narrow
-exception: one complete immutable plan requires explicit user approval before
-it can start child sessions or provision worktrees. Child edits remain isolated
-for manual user integration; cleanup is limited to clean, quiescent worktrees
-created by that plan. It never commits, merges, copies changes, or deletes
-branches. Ordinary Taskmaster recommendations keep their existing per-action
-approval requirements. If a requested change is a specified non-goal, decline
-it and identify the applicable non-goal; do not implement it partially.
+The MVP does not own Git workflow, worktree management, merging or arbitrary
+task decomposition. The proposed [ordinary-child orchestration extension](../../specs/taskmaster.md#proposed-ordinary-child-orchestration-extension)
+is a narrow exception: a UI-created run coordinates exactly approved plans
+through ordinary child sessions, with separate worktrees for independent
+chains. Research completion preserves planning authority, never execution
+approval. Sequential reuse within a plan requires a terminal predecessor and
+explicit user quiescence acknowledgement. Edits remain for manual integration.
+The initial slice has no automated cleanup; any later separately reviewed
+removal requires a clean, quiescent, plan-owned worktree. Orchestration never
+commits, merges, transfers edits or deletes branches.
+
+Scope is accepted; detailed contracts, coding-tool capability evidence and
+scoped implementation approval remain open under [#610](https://github.com/Rambolarsen/orkworks/issues/610).
+Ordinary Taskmaster recommendations retain per-action approval. If a request
+is a specified non-goal, decline it and identify that non-goal; do not implement
+it partially. The proposed exception provides no native confinement or new
+independent-instance cleanup/replacement authority.
 
 Harness voice support is pass-through only. OrkWorks never captures, proxies,
 or stores native-voice audio. Preserve metadata source and confidence wherever

@@ -501,6 +501,42 @@ complete new graph. The API exposes `rolled_up`, optional observation
 for audit while only active parents and unparented proposed exact families
 appear in the normal actionable list.
 
+## Proposed ordinary-child orchestration
+
+[ADR 0077](../adr/0077-taskmaster-orchestrated-child-sessions.md) and the
+[#610 scope alignment](../superpowers/specs/2026-10-04-taskmaster-orchestration-scope-design.md)
+describe a proposed replacement for the confined master-runner architecture.
+The current coordinator records/store are data-only; no orchestration launch,
+run/grant, skill-usage or hierarchy runtime is implemented by these documents.
+
+Children would reuse the parent's selected-workspace sidecar, metadata store
+and ordinary PTY lifecycle, with approved worktree launch directories. There
+are no child sidecars, extra selected workspaces or peer registries. Electron
+main retains the existing UI authority, while the verified parent integration
+receives a volatile run planning bearer. Only a separate server-held exact-plan
+grant permits launch. Research completion revokes its grant and permits the
+same parent to synthesize/propose execution; final execution or version-bound
+UI research-only/decline-execution finish ends run authority.
+All live prior-plan children and unattached reservations count toward the run
+cap. Events are bounded hints; adapter proof of same-parent continuation is
+required, and a live PTY alone is insufficient.
+
+Allocation intent/reservations are durable before mutation/spawn. Turn readiness
+and an explicit version-bound parent result coordinate declared dependencies;
+they do not prove quality or user acceptance. Recovery never relaunches a child.
+Parent end, workspace changes and sidecar replacement fence volatile authority;
+exact UI resume and plan reapproval precede further launches. Children remain
+manageable through ordinary controls and edits stay for manual integration.
+The initial slice does not automate cleanup. Same-user API/environment replay
+and ordinary host access remain limitations; native confinement and
+crash-surviving orchestration process ownership are not claimed. ADR 0060's
+independent-instance cleanup/replacement proof remains unchanged.
+
+The [baseline handoff](../superpowers/plans/2026-09-26-taskmaster-orchestrated-child-sessions.md)
+splits later work into reviewable units. Scope is accepted in PR #747;
+component review and version-specific coding-tool permission/delivery/event evidence must pass
+before scoped execution plans authorize code.
+
 ## Rust sidecar (`crates/orkworksd/src/`)
 
 Single binary. Top-level modules:

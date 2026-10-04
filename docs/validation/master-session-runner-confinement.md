@@ -1,6 +1,18 @@
 # Master-session runner native confinement gate
 
-**Status: closed to launch. No OS/harness combination is currently proven
+**Scope: historical confined-runner qualification, not an ordinary-child
+eligibility register.** Accepted [ADR 0077](../adr/0077-taskmaster-orchestrated-child-sessions.md)
+and the [#610 alignment](../superpowers/specs/2026-10-04-taskmaster-orchestration-scope-design.md)
+retire this architecture as the target under the accepted scope in PR #747.
+Preserve all
+findings below: removing this launch prerequisite does not verify coding-tool
+permissions/delivery, enable launches or satisfy ADR 0060's separate
+independent-instance cleanup/replacement ownership proof. The disposition
+of #617 is retirement as superseded after scope acceptance, not implementation
+success. Detailed contracts, coding-tool capability evidence and scoped runtime
+implementation approval remain open.
+
+**Status for the historical confined architecture: closed to launch. No OS/harness combination is currently proven
 eligible.** This is a no-go due to missing production-backed enforcement and
 native evidence; it is not a report that the operating systems' candidate
 primitives failed native tests.

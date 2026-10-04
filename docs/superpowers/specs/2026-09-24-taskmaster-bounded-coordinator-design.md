@@ -1,6 +1,14 @@
 # Taskmaster Bounded Coordinator Design
 
-- Status: proposed Coordinator design gate
+> Historical proposal, superseded as the orchestration direction by accepted
+> [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) and the
+> [scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md).
+> Replacement scope was accepted in PR #747; runtime gates remain open.
+> Requirements below describe the old
+> confined/brokered design, not executable authority for ordinary children.
+
+
+- Status: superseded as proposed runtime direction; replacement scope accepted, runtime gated
 - Date: 2026-09-24
 - Tracking issue: [#604](https://github.com/Rambolarsen/orkworks/issues/604)
 - Related ADR: [0064](../../adr/0064-bounded-taskmaster-coordinator.md)
