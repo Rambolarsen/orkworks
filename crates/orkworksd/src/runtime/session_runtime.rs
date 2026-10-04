@@ -5563,7 +5563,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             1,
             "test pipe should be created",
         );
-        let reader = unsafe { std::fs::File::from_raw_handle(read_handle) };
+        let mut reader = unsafe { std::fs::File::from_raw_handle(read_handle) };
         let _writer = unsafe { OwnedHandle::from_raw_handle(write_handle) };
         let reader_thread_id = Arc::new(AtomicU32::new(0));
         let reader_thread_id_task = reader_thread_id.clone();
