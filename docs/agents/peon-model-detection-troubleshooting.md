@@ -63,16 +63,16 @@ exact fingerprint cluster as motivating noise.
 
 Signals that an observation is this noise, not a verified defect:
 
-- The evidence field is itself the obstacle's own label or a fragment of it,
-  rather than anything captured from the session. Grounding requires a
+- The evidence field is itself the obstacle's own label or a restatement of
+  it, rather than anything captured from the session. Grounding requires a
   verbatim substring of the captured terminal output, so evidence equal to
   the description ("Peon" in an observation described as "Peon model
-  detection") or the description minus its qualifier ("model detection
-  failed" in a "Peon model detection failed" obstacle) grounds trivially: it
-  only proves the session printed text containing those words — typically the
-  session's own work discussing model detection — of which it is a
-  plausible span. Such self-echo evidence is low-specificity and a strong
-  noise signal.
+  detection") or a trivial extension of it ("Peon model detection failed"
+  recorded as the evidence of an obstacle described as "Peon model
+  detection") grounds trivially: it only proves the session printed text
+  containing those words — typically the session's own work discussing
+  model detection — of which the obstacle label is itself a plausible span.
+  Such self-echo evidence is low-specificity and a strong noise signal.
 - The evidence names the observer or the recovery path itself — for example
   "User answered Claude's questions" recorded alongside a Peon-model
   obstacle: it names Claude while Peon is the observer and documents a Q&A
