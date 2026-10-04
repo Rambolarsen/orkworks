@@ -18,6 +18,19 @@ Evidence levels used below:
 - **Local**: repository source with an absolute path and line number.
 - **UNVERIFIED**: no allowed evidence establishes the behavior; treat as unavailable.
 
+## Automated parent continuation: additional evidence requirement
+
+The user chose to keep the orchestrator running after research. The proposed
+[preparation lifecycle](../superpowers/specs/2026-10-04-orchestrator-preparation-design.md)
+requires a verified coordination event/tool channel that delivers reports,
+approvals, blockers and capacity changes to the same waiting parent agent.
+A live PTY, hook registration or native resume recipe alone does not establish
+that the model loop continues. This capability is **UNVERIFIED** for the current
+Copilot candidate; no live event-continuation probe has been run. A separately
+authorized adapter probe must verify the declared wait/return mechanism,
+duplicate/gap handling, parent runtime identity, revocation and absence of
+terminal typing or replacement-session fallback. The no-go status remains.
+
 ## What the installed CLI establishes
 
 The exact installed CLI reports `GitHub Copilot CLI 1.0.90.` Its help exposes `--agent`, `--available-tools`, `--excluded-tools`, `--deny-tool`, `--allow-tool`, `--disable-mcp-server`, `--disable-builtin-mcps`, `--add-dir`, `--plugin-dir`, `--additional-mcp-config`, `--allow-url`/`--deny-url`, `--allow-all-paths`, `--allow-all`, `--no-custom-instructions`, `--no-auto-update`, `--fleet`, and `--experimental`. Help says `--available-tools` limits what is available to the model, `--deny-tool` denies use without prompting, and `--agent` selects a custom agent. These are recorded observations from read-only `copilot --version`, `copilot --help`, and `copilot --experimental --help` in this investigation; the same option definitions appear in the [official CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#command-line-options) (Official-docs). The release tag does not authenticate local executable bytes or publish a role-control contract; local hashes below bind this investigation.

@@ -63,12 +63,13 @@ are those supplied by the approved baseline, never guessed from a display name.
 The repository identity across worktrees remains a reviewed #745 input; an
 unresolved repository binding prevents comparison and launch.
 
-`assignmentKind` is `orchestrator` or `child`. `assignment` includes a short
+`assignmentKind` is `child` for the plan-bound `AssignmentConfiguration`. The
+parent uses the separate run bootstrap and plan binding below. `assignment` includes a short
 label, description, input references/content digests, expected output contract,
 criteria, dependencies, and approved worktree-group/base/scope bindings. A child
-has the baseline task identity; a parent has the baseline orchestrator identity
-and the root assignment for the current plan. Preparation identity and same-parent
-renewal across plans are specified by #742, not inferred here.
+has the baseline task identity. The parent has one immutable run assignment
+across its research and execution plans; per-plan identity is coordination data,
+not a replacement startup instruction set. The [preparation contract](2026-10-04-orchestrator-preparation-design.md) defines the proposed authority lifecycle.
 
 `AdapterBinding.executableIdentity` records canonical executable path and the
 content identity of the executable/runtime package actually invoked. Interpreter
@@ -141,13 +142,41 @@ observations separately, never pooling unknown into a known-model cohort.
    stream. Include this digest and the referenced snapshots in the immutable
    plan definition, so the existing exact-plan approval covers them.
 
-The orchestrator's proposed configuration is also approved with the plan before
-child coordination begins. Bootstrap instructions/profile for initial parent
-creation must be pinned at the UI-authorized creation boundary. A proposed plan
-cannot silently change an already running parent's instructions or permissions;
-any such change requires user-authorized relaunch/resume under a new snapshot.
-The #742 lifecycle must explain its authority transport. No child receives
-orchestrator coordination rights merely by specifying a role name.
+### Run-bound orchestrator bootstrap
+
+`OrchestratorBootstrapConfiguration` uses `schemaVersion` (1), `bootstrapId`,
+`repositoryId`, `workspaceId`, `parentSessionId`, `runId`, `rootAssignmentId`,
+`goalDigest`, `roleTemplate`, `taskCategory`, `assignment`, `rules`,
+`requirementManifests`, `skills`, `rubric`, `harness`, `model`, `permissions`,
+`renderedInstructions`, `renderedInstructionsDigest`, and
+`bootstrapConfigurationDigest`. It has no future plan/task revision or bearer.
+The assignment describes the immutable user goal and coordination outputs,
+including clarification, research synthesis and preparation of execution.
+Its requirement manifests use `rootAssignmentId` as their `taskId`; it cannot
+be mistaken for a launchable child task. Role must be `orchestrator`.
+
+Apply the composition, byte/digest and bounds rules above, excluding the
+bootstrap digest field before canonical serialization. Hash
+`orkworks.orchestrator-bootstrap.v1\n` (one literal LF after `v1`) plus those
+canonical bytes. The run definition binds this digest; the UI approves the
+bootstrap, goal and run ceiling at parent creation. A child configuration keeps
+the assignment prefix and exact plan/task bindings above.
+
+Each `ParentPlanBinding` includes `runId`, `parentSessionId`, `planId`,
+`planRevision`, `runDefinitionDigest`, `bootstrapConfigurationDigest`,
+`preparationRevision`, and `inputDigest`. It is part of that plan's immutable
+approved definition. It reuses the original startup bytes, permission profile,
+skills and model policy; reports and approved tasks are dynamic coordination
+inputs, not system-prompt/configuration replacement. Both the 2 MiB plan limit
+and retained bootstrap validation apply to its referenced snapshots.
+
+An already running parent cannot change its instructions, loaded skills or
+permissions through a new binding. A change fences/cancels that run and requires UI-authorized creation of a new
+run under a reviewed bootstrap; no old plan approval transfers. Exact resume
+of the current run requires unchanged verified bytes/settings, exact delivery
+and fresh runtime identity. No child receives coordination rights merely from a role name.
+The preparation contract's run bearer is planning authority; a matching current
+exact-plan execution grant is separately required to launch a declared child.
 
 ### Instruction-byte fixture
 
@@ -345,7 +374,9 @@ Skill state projections belong to #743 and must retain that distinction.
 2. Show role, task, selected mandatory/optional skills, instruction mechanism,
    coding tool/model policy, exact paths/actions, effective permissions, support
    limitations, and configuration digest with the plan proposal.
-3. Accept only Electron-authorized approval of the exact immutable plan revision
+3. Parent creation first requires Electron-authorized approval of the immutable
+   bootstrap/goal/run ceiling; later plans bind the unchanged bootstrap.
+   Accept only Electron-authorized approval of the exact immutable plan revision
    and its configuration references. An agent report or terminal text cannot
    approve any snapshot. Do not create a worktree or launch a research child
    earlier.

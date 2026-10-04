@@ -28,8 +28,7 @@ launch identity must pin the actual resolved executable chain.
   delivery/permission fixtures or retain an explicit no-go outcome.
 - [ ] Finalize downstream contract dependencies and reviewed execution handoffs.
 
-Tasks 3–7 remain queued. Code execution planning remains behind the authoritative
-scope alignment, written contract review, and capability evidence gates.
+Task 3 now has a [preparation lifecycle draft](../specs/2026-10-04-orchestrator-preparation-design.md): the user chose a continuously running parent with automatic execution-plan preparation. Run planning authority, exact-plan grants, event continuation and run-wide capacity are proposed contracts awaiting review. Tasks 4–7 remain queued. Code execution planning remains behind the authoritative scope alignment, written contract review, and capability evidence gates.
 
 ## Global Constraints
 
@@ -79,7 +78,10 @@ prerequisite, not an already completed launch capability.
 A further lifecycle gap is concrete: the launch proposal revokes the plan
 capability on completion, while the new preparation flow can finish research
 before its execution assignments are known. Package #742 must define same-parent
-multi-plan authority/renewal before that transition is implemented.
+multi-plan authority before that transition is implemented. The user chose
+to retain the same live parent: the draft separates a run planning bearer from
+server-held exact-plan grants and requires verified event continuation. No
+expired plan bearer is reused; prior-plan children still count against the run cap.
 
 The existing baseline plan also proposes an ADR 0066 filename, but ADR 0066 now
 records hook-owned prompt attention. Scope alignment must allocate an unused
@@ -351,7 +353,7 @@ rtk git commit -m "docs: specify agent role configuration and coding-tool permis
 - [ ] Define assessment inputs and skip criteria: assessment remains coordination; codebase/external investigation is delegated; missing material requirements trigger clarification.
 - [ ] Define bounded research question/task contracts, independent question decomposition, output/evidence references, and allocation within the existing approved concurrency limit. Bind orchestrating-task-graphs as required planning guidance for parallel plans; define result dependencies, one artifact owner, explicit ordered batches/cap, and independent correctness/completeness review questions without changing runtime authority or manual integration.
 - [ ] Specify exact-plan approval before research launches, subsequent execution approval when assignments were not already fixed, and binding of reviewed research outputs into the next proposal.
-- [ ] Define same-parent multi-plan identity, planning/proposal authority after completion, capability revocation/renewal transport, sidecar-generation checks, and user authority without reusing an expired plan bearer.
+- [ ] Define same-parent multi-plan identity with a continuously running orchestrator, automatic report collection/synthesis/execution proposal, verified event continuation, run-bound planning authority, separate server-held exact-plan grants, generation fencing and final revocation. Count prior-plan live children/reservations against the run ceiling; never reuse an expired plan bearer or infer execution approval from research completion.
 - [ ] Preserve ordered batches, parent-only delegation, one attempt per task, quiescent worktree reuse, manual integration, capacity accounting, and no implied launch authority from research completion.
 - [ ] Define cancellation, missing/conflicting research, late reports, restart/resume, rejected execution proposals, and changed scope without automatic relaunch or retries.
 - [ ] Provide an explicit lifecycle/transition table and examples for a small direct task, research followed by revised execution, and a material clarification blocker. Show a short research summary alongside execution approval with sources/evidence in details.

@@ -18,8 +18,11 @@ reviewable skill improvements.
 
 This document records the product direction agreed in the design conversation
 and proposes concrete evaluation defaults for written review. It extends the
-2026-09-26 launch proposal; it does not supersede its session, approval,
-batch, concurrency, or worktree contracts. Both designs remain proposed.
+2026-09-26 launch proposal and preserves its approval, batch and worktree
+contracts. The preparation contract proposes run-level planning authority
+across completed research plans, separately gated execution grants and run-wide
+capacity accounting. These explicit amendments require baseline/authority
+alignment; all designs remain proposed.
 Neither this document nor its tracking issue authorizes runtime work. The
 authoritative specifications, architecture decisions, tracking issues, and
 implementation plan must agree before implementation starts.
@@ -61,6 +64,14 @@ After research, the orchestrator proposes the execution plan using the findings.
 Show a short research summary alongside the execution proposal: findings that
 affect the approach, remaining uncertainty, and the resulting assignment choices.
 Supporting sources and evidence remain available in research-agent details.
+Keep the same orchestrator running: it automatically collects reports, prepares
+the summary and proposes execution without a mandatory pause/resume step.
+Verified same-parent event delivery is required; a live terminal alone does not
+prove automated continuation. Research completion revokes that plan’s execution
+grant while preserving run-bound planning authority. A fresh execution grant
+requires approval of its exact proposal; final completion revokes run authority.
+Count older research children against the run-wide live-child ceiling until
+their sessions end. The [preparation contract](2026-10-04-orchestrator-preparation-design.md) defines this proposed capability amendment.
 This is a separate approval when the execution assignments were not already
 fixed in an approved plan. Completing research does not authorize execution.
 The execution proposal includes required result-review tasks and all intended
@@ -369,6 +380,7 @@ and finding required user attention quickly in restrained visual mockups.
 ## Component specification progress
 
 - [Role configuration and coding-tool permissions](2026-10-04-agent-role-configuration-design.md) — proposed immutable contract; support and written review remain gates.
+- [Clarification and preparation lifecycle](2026-10-04-orchestrator-preparation-design.md) — same live parent, automatic proposal preparation, separate exact-plan execution grants; proposed contract awaiting review.
 - [Coding-tool capability register](../../validation/agent-role-capabilities.md) — version-specific delivery/permission evidence; no verified launch slice is claimed.
 
 ## Evidence and unresolved implementation work
