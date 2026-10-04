@@ -58,6 +58,9 @@ child or plan-owned worktree starts. Reports identify sources, findings,
 uncertainty, and recommendations; the orchestrator synthesizes those reports.
 
 After research, the orchestrator proposes the execution plan using the findings.
+Show a short research summary alongside the execution proposal: findings that
+affect the approach, remaining uncertainty, and the resulting assignment choices.
+Supporting sources and evidence remain available in research-agent details.
 This is a separate approval when the execution assignments were not already
 fixed in an approved plan. Completing research does not authorize execution.
 The execution proposal includes required result-review tasks and all intended
@@ -176,8 +179,21 @@ needs evaluation. Review children evaluate assigned results; the orchestrator
 collects reports and applies the declared coordination rules without doing
 the review itself.
 
+Show one overall evaluation result on each agent: **Meets requirements**,
+**Needs rework**, or **Unassessed**. Opening it reveals completeness, quality,
+reviewer findings, and supporting evidence. These labels summarize an evaluation;
+they do not mean user acceptance or authorize integration.
+
+Derive the result from current, non-conflicting evidence. A known unsatisfied
+required criterion or quality below the declared standard means Needs rework,
+even if other details remain unassessed. If no failure is established but required
+evidence is missing, stale, or disputed, show Unassessed. Meets requirements
+requires every required criterion satisfied and quality meeting the declared
+standard. Preserve blockers/cancellation/interruption as separate run statuses;
+they do not automatically assign a poor evaluation.
+
 Acceptance criteria and a role-appropriate quality rubric are part of the
-approved task definition. The following are proposed first-version defaults:
+approved task definition. The following are proposed score-detail defaults:
 
 - Completeness: record each required criterion as satisfied, unsatisfied, or
   unassessed. When all are assessed, compute the satisfied count divided by
@@ -220,6 +236,20 @@ the denominator. Do not equate use frequency with quality or automatically
 assign every loaded skill the task's quality score. Multiple skills, prompts,
 models, permissions, and task difficulty can explain a result.
 
+Use a learning loop of run, independent evaluation, comparison with similar work,
+and improvement of a later configuration. A single run can raise a suggestion;
+repeated comparable evidence supports changing optional skills, role instructions,
+or task scope. Neither frequency of use alone nor unknown usage establishes
+that a skill helps or should be removed. Repeated established non-use can suggest
+a future trial without an optional skill; mandatory skills remain included.
+Numeric evidence thresholds and comparison eligibility are specified by #745.
+
+Remember rejected suggestions and suppress equivalent repeats until materially
+new relevant evidence appears. New evidence must be visible with the renewed
+suggestion; a rerun of the same analysis or passage of time alone is insufficient.
+Rejection is not permanent skill retirement and does not invalidate historical
+results. The exact equivalence/evidence-change contract belongs to #745.
+
 The orchestrator uses task fit and mandatory rules first, then relevant history
 to select optional skills and role settings. It records reasons for changed
 choices. Learning can suggest a different skill combination, narrower task,
@@ -246,16 +276,22 @@ role visual while accessible text distinguishes individual agents. Parent-child
 lines show delegation. Dependencies and waiting reasons use explicit labels;
 a line between agents never implies a dependency that the plan does not declare.
 
-Keep positions stable as status changes. Collapse completed groups and allow
-the user to expand them. Keep blockers and required user decisions discoverable
-when children are collapsed. Selecting an agent opens its normal terminal and
+Keep positions stable as status changes. Automatically collapse a completed
+group after its current result summaries have been viewed. The user can reopen
+it; do not repeatedly recollapse that same viewed result. Active work stays
+expanded by default. Preserve selection and keyboard focus rather than hiding
+the actively inspected child. Completion/collapse does not release live-session
+capacity or change task outcomes. Keep blockers and required user decisions
+discoverable when children are collapsed. Selecting an agent opens its normal terminal and
 details; selecting a skill exposes its description, version, usage evidence,
 and relevant history. Permissions and detailed scores belong in details and
-run summaries, with a compact evaluated/unassessed indication on the agent.
+run summaries, with the overall evaluation result on the agent.
 
-Use brief, restrained feedback for a spawn, status transition, recorded skill
-use, or evaluated result. Distinguish reported and observed usage in the
-accessible label and details. Animation is supplementary; respect reduced
+Recorded skill usage gives its badge a brief, soft highlight. Deduplicate event
+replays and keep bursts calm; the animation is supplementary feedback, not a
+reward or quality assertion. Distinguish reported and observed usage in the
+accessible label and details. Reduced-motion mode uses a static indicator.
+Other spawn/status/result feedback remains brief and restrained. Animation is supplementary; respect reduced
 motion, support keyboard navigation, and communicate status without color
 alone. Decorative skill icons have names available without hover.
 

@@ -354,7 +354,7 @@ rtk git commit -m "docs: specify agent role configuration and coding-tool permis
 - [ ] Define same-parent multi-plan identity, planning/proposal authority after completion, capability revocation/renewal transport, sidecar-generation checks, and user authority without reusing an expired plan bearer.
 - [ ] Preserve ordered batches, parent-only delegation, one attempt per task, quiescent worktree reuse, manual integration, capacity accounting, and no implied launch authority from research completion.
 - [ ] Define cancellation, missing/conflicting research, late reports, restart/resume, rejected execution proposals, and changed scope without automatic relaunch or retries.
-- [ ] Provide an explicit lifecycle/transition table and examples for a small direct task, research followed by revised execution, and a material clarification blocker.
+- [ ] Provide an explicit lifecycle/transition table and examples for a small direct task, research followed by revised execution, and a material clarification blocker. Show a short research summary alongside execution approval with sources/evidence in details.
 
 - [ ] **Step 4: Review through the consuming interfaces.** Check the artifact
   against the source design and dependency contracts; include concrete
@@ -502,7 +502,7 @@ rtk git commit -m "docs: specify skill delivery and usage evidence protocol"
 - [ ] **Step 3: Check the task's full acceptance criteria.**
 
 - [ ] Define approved acceptance criteria and a versioned role-specific quality rubric, criteria identities, evaluation record, reviewer identity, artifact/result subject, and configuration binding.
-- [ ] Resolve the draft defaults explicitly: completeness satisfied/required percentage only when all required criteria are assessed; quality 0 unusable, 1 major rework, 2 limited rework, 3 meets standard; otherwise unassessed.
+- [ ] Define one overall result (Meets requirements, Needs rework, Unassessed), with current evidence and missing/stale/conflicting states; completeness and quality stay in details. Resolve score details: completeness satisfied/required percentage only when all required criteria are assessed; quality 0 unusable, 1 major rework, 2 limited rework, 3 meets standard; otherwise unassessed.
 - [ ] Define required-criterion and quality-failure behavior, partial output, blockers, cancellation/interruption, missing evidence, and available cost/time fields without inventing a universal agent ability.
 - [ ] Use independent declared reviewer/verification children or explicit user review. Worker self-assessments stay separate; reviewer evaluation cannot be self-awarded.
 - [ ] Bind evaluations to the inspected result revision; stale or changed subjects cannot claim current review. Preserve credible conflicting evaluations and escalate instead of averaging them.
@@ -582,7 +582,7 @@ rtk git commit -m "docs: specify assignment quality and completeness evaluation"
 - [ ] Define inclusion/exclusion for stale, invalidated, blocked, interrupted, conflicting, and sparse evidence; skill/template updates do not rewrite historical scores.
 - [ ] Specify a bounded local summary/read interface for the orchestrator and explainable selection reasons; mandatory repository skills and task fit remain binding.
 - [ ] Changes only appear in a later proposed configuration and approval. Learning does not mutate active prompts, grant permissions, launch agents, or autonomously edit skills.
-- [ ] Define recurrence thresholds, draft artifact/target selection, promotion approval, rejection/dismissal memory, and compatibility with existing improve_workflow recommendations without duplicating their mutation path.
+- [ ] Define recurrence thresholds, draft artifact/target selection, promotion approval, and compatibility with existing improve_workflow recommendations without duplicating their mutation path. Single runs may suggest; repeated comparable evidence supports future configuration changes. Suppress equivalent rejected suggestions until materially new relevant evidence appears and show that evidence when resurfacing.
 - [ ] Specify numerical history/aggregate retention limits, forgetting and workspace deletion, missing-history fallback, and examples for configuration selection versus a proposed skill update.
 
 - [ ] **Step 4: Review through the consuming interfaces.** Check the artifact
@@ -658,10 +658,10 @@ rtk git commit -m "docs: specify repository-scoped configuration learning and sk
 
 - [ ] Define root/child and planned/live/remembered states using supported OrkWorks identities; do not create separately controlled nodes for uncorrelated coding-tool-native subagents.
 - [ ] Specify node content priority: portrait, role, short task, ordinary status and skill badges; distinguish selected/loaded/unknown delivery using the evidence contract.
-- [ ] Define stable ordering/positions, collapse/expand, collapsed blocker and required-user-attention rollup, and explicit dependency/wait labels distinct from parentage.
+- [ ] Define stable ordering/positions, automatic collapse after completed result summaries are viewed, manual reopening without repeated recollapse, focus/selection preservation, collapsed blocker and required-user-attention rollup, and explicit dependency/wait labels distinct from parentage.
 - [ ] Preserve one selected terminal and existing lifecycle/unread/attention semantics, selection restoration, ordinary-session fallback, and workspace-switch stale-result fencing.
 - [ ] Define keyboard navigation, focus behavior, screen-reader names/structure, non-color status communication, reduced-motion behavior, and labels accessible without hover.
-- [ ] Provide restrained low/high-density mockups and cases for many tasks, long labels/skill sets, unknown telemetry, failed children, completed groups, and missing parents; scores/permission details stay secondary.
+- [ ] Provide restrained low/high-density mockups and cases for many tasks, long labels/skill sets, unknown telemetry, failed children, completed groups, and missing parents. Show one overall result with scores/permission details secondary; recorded usage gives a brief soft skill-badge highlight with source labels, replay deduplication, and a static reduced-motion indicator.
 - [ ] Define renderer projection/interface fixtures with contract-owner agreement and a usability check centered on finding blockers/required actions. Preserve Electron-main authority and independent preload/renderer types.
 
 - [ ] **Step 4: Review through the consuming interfaces.** Check the artifact
