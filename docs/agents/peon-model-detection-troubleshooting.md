@@ -1,7 +1,7 @@
 ---
 type: Troubleshooting Guide
 title: Peon model detection troubleshooting
-description: How to interpret Peon model-detection observations and model metadata without chasing self-referential noise.
+description: How to interpret Peon model-detection and capacity/cap observations, recover safely, and avoid chasing self-referential noise.
 tags: [peon, troubleshooting, providers, diagnostics, taskmaster]
 status: stable
 ---
@@ -63,6 +63,28 @@ exact fingerprint cluster as motivating noise.
 
 Signals that an observation is this noise, not a verified defect:
 
+- The evidence field is itself the obstacle's own label or a restatement of
+  it, rather than anything captured from the session. Grounding requires a
+  verbatim substring of the captured terminal output, so evidence equal to
+  the description ("Peon" in an observation described as "Peon model
+  detection") or a trivial extension of it ("Peon model detection failed"
+  recorded as the evidence of an obstacle described as "Peon model
+  detection") grounds trivially: it only proves the session printed text
+  containing those words — typically the session's own work discussing
+  model detection — of which the obstacle label is itself a plausible span.
+  Such self-echo evidence is low-specificity and a strong noise signal, but
+  equality alone is not proof: no application code path emits these
+  phrases, so before dismissing, confirm from the capture context that the
+  phrase came from the session's own work, documentation, or UI chrome
+  rather than from a tool or provider that could plausibly print it as an
+  error.
+- The evidence describes the user's recovery interaction itself rather than
+  a detection failure — for example "User answered Claude's questions"
+  recorded alongside a Peon-model obstacle. Naming a coding tool other than
+  Peon is not, by itself, a noise signal (Peon observes Claude sessions
+  normally); the signal is that the evidence recounts a Q&A workaround the
+  user undertook, not a product failure. Check the session's captured
+  context for an actual detection failure before dismissing.
 - The description names Peon's prompt-example vocabulary rather than a
   concrete failure in the session — including phrasings that drop the
   "Peon" qualifier entirely, such as "Model detection is blocked".
@@ -285,6 +307,11 @@ directly.
 2. Determine first whether the report is noise. If it is, documenting the
    known limitation in repository tooling or documentation is a valid
    resolution; do not modify recommendation or observation files directly.
+   Tie off the matching recommendation through the sidecar API instead of
+   leaving it active — accept it from this session if needed, then complete
+   it with a summary stating the verified noise disposition (see the
+   Taskmaster recommendation tie-off rule in AGENTS.md) — so later
+   evaluations do not resurface resolved work.
    If investigation instead finds a real, reproducible defect, follow the
    normal issue and implementation workflow — the documentation-only path
    applies to confirmed noise, not to a genuine regression.
@@ -294,3 +321,45 @@ directly.
    provider timeouts. Keep the two diagnoses separate.
 4. Do not resume, reopen, or modify another session to work around the issue,
    and do not loop retries.
+
+## Recovery path
+
+The recovery path for this noise family is deliberately short, because most
+reports resolve without any recovery at all. Follow it in order and stop at
+the first step that resolves the report.
+
+1. **Triage, do not act.** Check the signals above (model-detection
+   indicators, generic or self-echo evidence, capacity/cap paraphrases,
+   rate-limit fragments). If the fingerprints hold, the report is
+   documentation noise: do not act on the obstacle, and do not edit
+   recommendation or observation files directly — that is what this runbook
+   itself is for. If this runbook was entered from a matching Taskmaster
+   recommendation, tie that record off through the sidecar API (accept it
+   from this session if needed, then complete it with the verified noise
+   disposition) before stopping; do not leave it active to resurface.
+2. **Verify the applied provider/model.** Settings → Model providers is
+   authoritative for what runs session inference. A suspected inference
+   problem is diagnosed there, not from the observation. If the provider
+   state or a live session shows a genuine usage-cap signal (capped status,
+   reset hint), follow the capacity guidance above instead.
+3. **Fix the provider configuration, not the session.** Peon retries failed
+   inference automatically for active sessions: a task failure, timeout, or
+   transient hold leaves the session's output window eligible (`last_output`
+   and `min_peon_output_revision` unchanged), and the next observation pass
+   rescans the same output. There is no user-facing action that performs a
+   single Peon retry, and re-sending work to the coding tool to force a
+   re-scan can duplicate that work. If the applied provider/model is
+   genuinely misconfigured or failing, correct it in Settings → Model
+   providers and let the automatic retry pick the fix up. This retry applies
+   to the active-session observation loop only: the final scan when a
+   session exits is single-shot, so a ended session's last scan does not
+   re-run — the observation stands as recorded. Absence of detected-model
+   metadata is not a defect; see the merge rules above.
+4. **Escalate a genuine defect, never a workaround.** If steps 1–3 leave a
+   reproducible product failure, take it through the normal issue and
+   implementation workflow. Never resume, reopen, or modify another session
+   as a workaround: that path is the exact friction this runbook exists to
+   prevent.
+
+Unverified ideas for further recovery steps are not listed here; adding them
+requires evidence from later affected workflows, not hypothesis.
