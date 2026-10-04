@@ -5,6 +5,7 @@
 - Tracking issue: [#610](https://github.com/Rambolarsen/orkworks/issues/610)
 - Supersedes as the launch design: [master-session parallel runner proposal](2026-09-25-master-session-parallel-runner-design.md)
 - Replaces the native-boundary prerequisite for this scope: [native child-launch boundary design](2026-09-25-taskmaster-native-child-launch-boundary-design.md)
+- Proposed extension: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md) — optional research preparation, role profiles, loaded skills, and assignment evaluation; awaiting written review
 
 ## Purpose
 
