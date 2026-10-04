@@ -1,9 +1,17 @@
 # ADR 0064: Bounded Taskmaster coordinator uses approved root plans
 
-- Status: proposed
+- Status: superseded by [ADR 0077](0077-taskmaster-orchestrated-child-sessions.md) as the proposed runtime direction; replacement written review pending
 - Deciders: OrkWorks maintainers
 - Date: 2026-09-24
 - Tracking issue: [#604](https://github.com/Rambolarsen/orkworks/issues/604)
+
+## Historical scope
+
+The broker/lease/confinement runtime below is retained as design history.
+[ADR 0077](0077-taskmaster-orchestrated-child-sessions.md) proposes ordinary
+sessions with a run planning bearer and exact-plan launch grants instead.
+Neither architecture is runtime authorization. Existing data-only coordinator
+records remain implemented; their approvals do not become orchestration grants.
 
 ## Context
 

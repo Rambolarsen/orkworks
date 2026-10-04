@@ -118,7 +118,23 @@ superseded as implementation authority but retained, including its 2026-09-15
 evidence amendment, as the historical record of the rejected multi-sidecar
 proposal and the incomplete ownership evidence that still motivates #545.
 
-## Amendment — 2026-09-25: bounded master-plan child runtimes
+## Proposed orchestration replacement — 2026-10-04
+
+[ADR 0077](0077-taskmaster-orchestrated-child-sessions.md) replaces only the
+two historical 2026-09-25 runner amendments below as the proposed orchestration
+direction. Its written scope review is pending; it does not supersede this
+ADR's accepted independent-instance, path-history, lease or cleanup/replacement
+ownership decision. Children would be ordinary PTY sessions in the parent's
+selected-workspace sidecar and metadata store, launched in approved worktrees;
+there would be no dedicated child sidecar or peer association. A launch
+directory is not a second selected workspace or native confinement.
+
+The old runner's absence-of-proof findings remain valid for its retired
+architecture. They do not establish tool-profile eligibility for the replacement,
+and retiring #617 does not satisfy the independent-instance native ownership
+prerequisite above. No orchestration runtime is implemented by this amendment.
+
+## Historical amendment — 2026-09-25: bounded master-plan child runtimes
 
 This amendment records the narrow parent/child control-plane exception in the
 [master-session parallel runner design](../superpowers/specs/2026-09-25-master-session-parallel-runner-design.md).
@@ -141,7 +157,7 @@ Unsupported or ambiguous ownership fails closed. This amendment does not
 authorize multi-workspace metadata ownership, a peer-instance registry,
 cross-workspace focus, or general workflow control.
 
-## Amendment — 2026-09-25: native child-launch gate remains closed
+## Historical amendment — 2026-09-25: native child-launch gate remains closed
 
 The [native confinement validation record](../validation/master-session-runner-confinement.md)
 documents the Taskmaster runner's current qualification status. No

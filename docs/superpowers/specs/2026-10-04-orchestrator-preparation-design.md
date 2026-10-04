@@ -26,8 +26,10 @@ worktree quiescence acknowledgement, and manual integration remain user actions.
 This contract proposes a specific amendment to the baseline's one-plan parent
 capability lifetime: run planning authority survives research-plan completion;
 that plan's execution authorization does not. It does not silently reuse the
-baseline's expired plan bearer. Both contracts remain proposed until their
-authoritative specs/ADRs and #610 agree and their written review gates pass.
+baseline's expired plan bearer. The [#610 scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
+and [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) now
+carry the proposed amendment into authoritative routing. Written scope,
+detailed contract and adapter evidence gates still remain open.
 This document does not authorize runtime implementation or claim adapter support.
 
 ### Established source facts and unresolved eligibility
@@ -37,7 +39,7 @@ This document does not authorize runtime implementation or claim adapter support
 | `crates/orkworksd/src/taskmaster/coordinator.rs:1` | Data-only coordinator records, no runtime authority | New run/grant records need a reviewed runtime plan |
 | `crates/orkworksd/src/taskmaster/coordinator_store.rs:1` | Durable records, no runtime authority | Persisting a plan does not authorize a child |
 | `crates/orkworksd/src/session_application.rs:4856`, `:4966`, `:5029` | Resume workflow retains the OrkWorks session ID and creates a new runtime | Same visible parent can resume; new runtime needs fresh authority |
-| Launch baseline, Approved plan / Session creation and ownership | Completion revokes a parent capability bound to one plan | Continuity requires the explicit amendment below |
+| Historical September launch baseline | Completion revoked one plan-bound parent bearer | Replaced in the current proposed baseline by the explicit run/grant amendment below; written acceptance remains pending |
 | Capability evidence register | Exact role/delivery combinations remain unverified | No eligible automated parent is claimed yet |
 
 A live PTY is not evidence that a parent can receive reports and act on them.
@@ -604,8 +606,9 @@ live coding-tool probes were run while drafting this document.
 ## Execution plan and implementation gate
 
 Keep #742 open: this is a concrete proposed contract, not a reviewed executable
-handoff. Before code planning, reconcile the proposed capability amendment with
-#610 and authoritative specs/ADRs; finalize #741's run bootstrap/plan bindings;
+handoff. Before code planning, obtain written acceptance of the proposed
+[#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md) and
+authoritative spec/ADR routing; finalize #741's run bootstrap/plan bindings;
 verify #740's parent role, skill delivery, event continuation and exact resume
 capabilities or retain explicit no-go combinations. Review the run/grant,
 identity, capacity, correction, recovery and numeric-bound contracts together.

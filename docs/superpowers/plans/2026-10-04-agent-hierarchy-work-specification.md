@@ -93,9 +93,11 @@ to retain the same live parent: the draft separates a run planning bearer from
 server-held exact-plan grants and requires verified event continuation. No
 expired plan bearer is reused; prior-plan children still count against the run cap.
 
-The existing baseline plan also proposes an ADR 0066 filename, but ADR 0066 now
-records hook-owned prompt attention. Scope alignment must allocate an unused
-ADR number and correct those references rather than overwrite that record.
+The existing baseline plan's stale ADR 0066 reference has been replaced by
+proposed [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md).
+The [#610 alignment draft](../specs/2026-10-04-taskmaster-orchestration-scope-design.md)
+reconciles ordinary-child scope and run/grant authority; written scope acceptance
+and live issue disposition remain pending. ADR 0066 stays hook-owned attention.
 
 Resolved scope: coding-tool controls are sufficient for this product slice;
 recursive delegation, native confinement, automatic retries/integration, and
@@ -147,9 +149,12 @@ Preserve the historical confinement validation record.
 #610's old acceptance criteria, #617's native-boundary scope, and accepted
 session/workspace decisions.
 
-**Produces:** A consistent authoritative product/ADR boundary for ordinary
-orchestrated children, a non-colliding architecture-decision record, and a
-reviewed baseline plan with scoped runtime issues.
+**Produces:** A proposed consistent product/ADR boundary for ordinary
+orchestrated children, non-colliding ADR 0077, and a baseline handoff split into
+runtime planning units. The [alignment draft](../specs/2026-10-04-taskmaster-orchestration-scope-design.md)
+is ready for written review after documentation validation. Scope acceptance,
+live issue disposition, capability evidence and reviewed executable plans/
+implementation issues remain separate gates.
 
 - [ ] Compare the launch proposal with every conflicting root/spec/ADR statement;
   classify amendments versus supersessions under the ADR change sequence.

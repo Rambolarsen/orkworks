@@ -186,134 +186,102 @@ Taskmaster v1 does not:
 - replace Peon session observation
 - parse all raw terminal output independently of Peon
 - run an unrestricted autonomous multi-agent swarm
-- create or clean up Git worktrees outside the separately gated master-session runner
+- create or clean up Git worktrees outside the separately gated proposed ordinary-child orchestration extension
 - send review findings into a running terminal automatically
 - keep chaining sessions indefinitely
 
 ## Coordinator design gate
 
-Coordinator implementation is explicitly deferred behind the Coordinator design
-gate tracked by [issue #604](https://github.com/Rambolarsen/orkworks/issues/604)
-and [ADR 0064](../docs/adr/0064-bounded-taskmaster-coordinator.md). This
-section records the proposed boundary; it does not expand v1 scope or
-authorize coordinator code. Approval of the design gate authorizes only a
-separate implementation plan and its review; it does not authorize child APIs
-or runtime launches.
+The data-only coordinator foundation from
+[#604](https://github.com/Rambolarsen/orkworks/issues/604) and
+[#606](https://github.com/Rambolarsen/orkworks/issues/606) is implemented.
+It persists definitions and approvals without runtime authority. The former
+brokered coordinator and confined runner are historical proposals, retained in
+[ADR 0064](../docs/adr/0064-bounded-taskmaster-coordinator.md) and the
+[old runner design](../docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md).
 
-This gate is separate from rollout Phase 2, the deterministic evaluator.
-Only if a later, separately reviewed implementation plan is approved may a
-future coordinator execute a user-approved, immutable root-plan revision
-represented as a bounded DAG of child tasks. A plan declares
-parentage, explicit required/optional nodes (including delegation slots), issue
-and success criteria, workspace/path scope, role, initial tools and maximum
-capability envelope, dependencies, model constraints, retry limits, normalized
-execution budgets, and concurrency ceilings. Approval includes the effective
-prompt/context template, deterministic derivation rules and exact inputs,
-server-rendered bytes and digest; parent edits require a new revision and
-renewed approval. Approval binds to one OrkWorks instance,
-workspace, plan revision, evidence fingerprint, expiry, and revocation
-generation.
+### Proposed ordinary-child orchestration extension
 
-The server issues an opaque coordinator capability and per-child lease
-capabilities bound to canonical plan/evidence digests, approval identity, and
-the workspace. A parent may revoke a child's tools; any runtime grant must fit
-the intersection of the active parent lease, the target node's pre-approved maximum
-envelope, and an unconsumed predeclared grant slot, without exceeding scoped
-authority, budget, retries, or concurrency. A child may request
-missing capabilities through a structured, server-validated insufficiency
-report; requests outside that envelope require a new plan revision and renewed
-user approval. Server-enforced hard denials apply to every role and arbitrary
-command path. Every child invocation crosses a server-owned broker checking
-executable identity, arguments, canonical cwd, allowlisted environment,
-declared resource effects, live lease, capability revision, ceilings, and hard
-denials. Children have no direct shell/process or tool access outside this
-broker; commands and descendants require enforceable resource confinement.
-Child prose and asserted effects confer no authority. If enforcement cannot be
-guaranteed, the invocation fails closed. Children may edit files and run bounded
-commands in their assigned scope, but they never receive Git mutation, merge approval,
-credentials, permission changes, destructive actions, scope expansion, provider
-substitution, or implicit delegation.
+[ADR 0077](../docs/adr/0077-taskmaster-orchestrated-child-sessions.md) and
+[#610 scope alignment](../docs/superpowers/specs/2026-10-04-taskmaster-orchestration-scope-design.md)
+record the replacement direction. This section is a proposed extension to the
+accepted v1 recommendation contract; written scope review, detailed component
+review, capability evidence and scoped execution-plan approval remain required.
+It enables no runtime API and does not change v1's per-action approvals.
 
-Each attempt must declare finite wall-clock, aggregate CPU, memory,
-process-count, output-byte, token, cost, and tool-invocation ceilings in addition
-to its normalized execution-unit reservation. Unsupported ceilings make a
-provider/platform ineligible. A lost or uncertain launch response retains its
-budget and concurrency reservation as `orphaned`; there is no refund, retry,
-or replacement until explicit reconciliation proves non-start or termination.
-Only proven non-start permits a refund; started work consumes its unit.
+A user explicitly creates an orchestrator run with an immutable reviewed
+bootstrap, goal and live-child ceiling. The parent coordinates; investigation,
+implementation, review and verification are delegated to ordinary sessions in
+the existing selected-workspace sidecar and metadata store. One terminal is
+selected. No child sidecars or cross-instance authority are introduced.
 
-Plan revisions are immutable. Graph cycles, duplicate logical spawns, invalid
-dependencies, stale or late results, and ambiguous crash recovery fail closed.
-Dependent nodes launch only after required dependencies have machine-validated
-terminal success. Completion evaluates exactly the declared required set,
-including required delegation-slot nodes and their transitive dependencies;
-unused optional slots do not block completion. Launched optional work must be
-quiescent before plan completion. `ready_for_user_review` is nonterminal. Failure,
-cancellation, conflict, or orphaning blocks descendants and escalates to the
-parent. All write/write and write/read overlaps are rejected unless an approved
-exclusive resource lease serializes the accesses, including verification.
+Each exact immutable plan revision declares tasks, prompts/configuration and
+input digests, harness/model identities, ordered batches, dependencies, the
+clean repository/base revision, worktree paths/branches and concurrency cap.
+Electron-main approval is required before any plan-owned branch, worktree or
+child is created. A run planning bearer cannot approve work; launches require
+the separate server-held grant for that exact revision and fresh revalidation.
+The [preparation contract](../docs/superpowers/specs/2026-10-04-orchestrator-preparation-design.md)
+governs run/grant identity, numeric bounds, admission fencing and recovery.
 
-Every attempt binds server-observed input/output workspace revisions and
-change subjects, including scoped hashes and write attribution. Result
-acceptance atomically revalidates these against current content, dependencies,
-and lease state; stale or conflicting evidence cannot advance graph state.
-Only server-attested broker/verifier receipts with observed command identity,
-result, and scope-bound output hashes prove success; child-authored claims
-and hashes remain context only.
+Successful research ends that plan's launch grant while the same parent's
+planning authority continues to synthesis and an execution proposal. Every new execution plan needs its own exact-plan approval; research
+completion never transfers approval into that new plan. Only one
+revision holds a launch grant per run. All nonterminal children from every plan
+and unattached reservations consume the run cap, even after a task/plan result.
+Final execution completion or run cancellation revokes run authority; parent
+end and workspace/sidecar changes revoke volatile authority and pause the run.
+Exact-identity UI resume restores fresh authority, with exact-plan reapproval
+before launches and no automatic replacement parent or child relaunch.
 
-`paused -> active` requires fresh user approval of the same immutable revision,
-bound to the current server-observed workspace subject, expiry, and revocation
-generation, with capability rotation. A changed evidence subject, scope, or
-budget requires a new revision. Pause quiesces tools; cancellation, expiry,
-and revocation fence mutations, revoke tool channels, and require process-tree
-termination within a mandatory finite approved deadline. Unproven termination
-becomes `orphaned`/`recovery_required`, retaining reservations and conflicting
-locks without refund or relaunch until explicit reconciliation.
+Independent chains use separate approved worktree groups. Dependent reuse
+within a plan requires a terminal predecessor and explicit user quiescence
+acknowledgement, not OS proof; no cross-plan reuse or automatic integration is
+introduced. Allocation intent and one task reservation are durable before
+mutation/spawn. Duplicate requests cannot launch twice; ambiguous recovery
+blocks admission rather than guessing or retrying. A failed/blocked task pauses
+launches. Added/retried work requires a new approved revision.
 
-Launches, grants, retries, cancellations, reports, and recovery are
-authenticated, version-checked, strict, and idempotent, with durable launch
-acknowledgements and crash-safe orphan handling. The coordinator must preserve
-lineage and redacted evidence and cannot infer user approval from silence or
-from `ready_for_user_review`. The design's
-[hard portable limits](../docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md#hard-portable-limits)
-bound graph count/depth, fields, prompt/context, command requests, evidence,
-reports/output, and retained audit/lineage/idempotency records before mutation.
-Eviction redacts payloads and retains bounded tombstones; immutable plan,
-approval, and lineage digests survive in a bounded registry. Pinned recovery
-evidence and registry exhaustion block admission instead of discarding proof
-or expanding storage. These are proposed documentation defaults, not runtime
-implementation claims.
+An authenticated turn receipt, the explicit UI ready-for-review action, or
+terminal reconciliation permits an exact version-bound parent result. Only
+that explicit coordination result advances declared dependencies. Process exit,
+terminal text, hooks and research reports alone do not prove success; a parent
+result is neither independent quality review nor user acceptance. Missing,
+stale, conflicting or oversized evidence cannot advance undeclared work.
 
-Product and architecture decisions, credentials or permissions, destructive
-actions, Git mutation or merge approval, scope/authority expansion, conflicting
-high-confidence results, and unrecoverable blockers remain mandatory user
-escalations. The full proposed design is in
-[`docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md`](../docs/superpowers/specs/2026-09-24-taskmaster-bounded-coordinator-design.md).
+The [role contract](../docs/superpowers/specs/2026-10-04-agent-role-configuration-design.md)
+requires version-specific evidence for coding-tool permissions and content
+delivery under [#740](https://github.com/Rambolarsen/orkworks/issues/740).
+Unverified profiles block launch without silently widening access. Automatic
+parent continuation needs a verified machine-readable event/wait channel; a
+live PTY is insufficient. Roles, skills and scoring do not grant authority.
+Collection, persistence, replay, retention and deletion must obey the reviewed
+finite contracts and preserve referenced ownership/evidence; exhausted bounds
+block admission instead of dropping recovery proof.
 
-### Master-session parallel runner extension
+This is a workflow/coding-tool boundary, not native confinement or OS process
+authentication. Ordinary host permissions and logins remain; same-user
+processes may inspect/replay environment bearers and may directly call the
+unauthenticated ordinary `POST /sessions` route. The UI token remains in
+Electron main and the sidecar, withheld from renderer and coding-tool
+environments. Native confinement, credential isolation, hard resource budgets,
+recursive delegation and automatic integration are outside this slice.
+ADR 0060's independent-instance cleanup/replacement proof remains unchanged.
 
-The reviewed [master-session parallel runner design](../docs/superpowers/specs/2026-09-25-master-session-parallel-runner-design.md)
-narrows this coordinator path to ordered parallel batches of required,
-independent children. It is not a general DAG, dynamic delegation, or a
-shared-worktree execution system. One explicit user approval binds the exact
-plan and clean workspace evidence before any child launch or worktree
-provisioning. Runtime authority remains deferred until the separate
-implementation plan is reviewed and approved and the platform confinement
-prerequisites are proven.
+Worktrees and children remain for ordinary management/manual integration after
+plan completion, cancellation or parent exit. Orchestration never transfers
+edits, commits, merges, rebases, pushes, changes existing branches or deletes
+branches. The initial slice does not automatically clean up worktrees; any
+later separately reviewed removal must be clean, quiescent and plan-owned.
+Product/architecture decisions, ambiguous requirements, credentials/permissions,
+destructive actions, Git mutation or merge approval, conflicting high-confidence
+results and high-risk acceptance remain mandatory user escalations.
 
-Each child edits only its assigned plan-owned worktree. Results are reported
-to the master, but the runner does not transfer or integrate child changes.
-Each worktree is attached to a unique plan-owned branch that remains after
-worktree cleanup. The user manually integrates or discards wanted edits.
-Each child has one attempt; a rerun requires a new approved plan revision. The
-runner does not produce a combined code draft or verify user-integrated code.
-Cleanup requires a recorded, authenticated post-run disposition
-(`accept_success`, `reject`, `abandon`, or `discard`, as permitted by the
-lifecycle), quiescence proof, and a fresh clean ownership check; dirty or
-uncertain worktrees remain for the user. Branches and commits are preserved.
-Skills may guide plan preparation and hooks may report lifecycle observations,
-but neither grants approval,
-starts children, or proves success.
+The [ordinary-child baseline](../docs/superpowers/specs/2026-09-26-taskmaster-orchestrated-child-sessions-design.md),
+[hierarchy work specification](../docs/superpowers/plans/2026-10-04-agent-hierarchy-work-specification.md)
+and [scoped baseline handoff](../docs/superpowers/plans/2026-09-26-taskmaster-orchestrated-child-sessions.md)
+define the review sequence. Documentation alignment is not launch eligibility
+or approval of runtime implementation.
 
 ## Inputs
 
@@ -557,9 +525,10 @@ single-active-context and explicit-approval rules. The authenticated
 `completion-packet` report only updates an existing recommendation; it cannot
 start a session, focus a terminal, edit files, mutate Git, or delegate work.
 
-Recursive coordination and child-session orchestration remain explicitly
-deferred behind the proposed [Coordinator design gate](#coordinator-design-gate)
-and [ADR 0064](../docs/adr/0064-bounded-taskmaster-coordinator.md). Written
+Recursive coordination is outside the proposed ordinary-child slice.
+Child-session orchestration remains deferred behind the
+[Coordinator design gate](#coordinator-design-gate) and proposed
+[ADR 0077](../docs/adr/0077-taskmaster-orchestrated-child-sessions.md). Written
 acceptance of that design authorizes only a separate implementation plan and
 its review; coordinator implementation still requires that plan's approval.
 

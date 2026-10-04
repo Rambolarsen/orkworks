@@ -131,18 +131,24 @@ This looks like a risky implementation task. A separate worktree may be safer.
 The user, repo skill, harness, or existing workflow decides whether to create a worktree.
 
 OrkWorks should not create, delete, merge, rebase, reset, or clean up worktrees in the MVP.
-The separately reviewed master-session runner design is a narrow, opt-in
-exception to that MVP boundary. If its implementation plan is separately
-approved, OrkWorks may provision one worktree per approved child and remove
-only clean, quiescent worktrees created by that plan after a recorded,
-authenticated post-run disposition (`accept_success`, `reject`, `abandon`, or
-`discard`, as permitted by the lifecycle). The user manually integrates or
-discards child edits first. The runner never copies changes, commits, merges,
-rebases, pushes, changes existing branches, or deletes branches. Worktree
-allocation creates a unique plan-owned branch per linked worktree and preserves
-it after safe worktree cleanup. Each child has one attempt, and rerunning it
-requires a new approved plan. The runner does not combine child code or verify
-the user's integrated result. Dirty or uncertain worktrees remain for the user.
+The proposed [ordinary-child orchestration extension](taskmaster.md#proposed-ordinary-child-orchestration-extension)
+is a narrow opt-in exception, tracked by
+[#610](https://github.com/Rambolarsen/orkworks/issues/610). Its scope alignment
+is pending written review and is not runtime authorization. One UI-created
+parent run coordinates separate exactly approved research/execution plans;
+completion of research permits synthesis, not execution launches. An exact
+immutable plan approval is required before provisioning branches/worktrees or
+launching declared children through the existing sidecar. Independent chains
+use separate worktrees; sequential reuse within one plan requires an ended
+predecessor and the user's explicit quiescence acknowledgement.
+
+Each child task has one attempt. OrkWorks does not transfer code, commit, merge,
+rebase, push, change existing branches or delete branches. Child edits remain
+for manual integration. The initial slice has no automated worktree cleanup;
+any later separately reviewed removal requires a clean, quiescent, plan-owned
+worktree and preserves branches/commits. Coding-tool profile/delivery evidence,
+detailed contract review and scoped implementation approval remain prerequisites;
+native confinement is not claimed or required by this proposed slice.
 
 ## Repo Skills Boundary
 
@@ -984,11 +990,12 @@ The MVP is not:
 - a universal billing tracker
 - a replacement for OpenCode, Claude Code, Codex CLI, Antigravity CLI, or Aider
 
-The separately gated master-session runner is limited to one immutable,
-explicitly approved plan with independent parallel batches. It does not make
-the MVP a general-purpose multi-agent planner or Git worktree manager; its
-scope remains subject to the runner design, its reviewed implementation plan,
-and the hard limits above.
+The separately gated ordinary-child orchestration extension is limited to
+UI-created runs with explicit exact-plan approvals, ordered batches, declared
+dependencies and bounded live-child capacity. It does not make the MVP a
+general-purpose multi-agent planner or Git worktree manager. Its proposed
+scope, detailed contracts, capability evidence and scoped implementation plans
+must pass their review gates before runtime work.
 
 Gemini CLI is retired for new sessions because its individual Code Assist tier
 is no longer supported. Its legacy `gemini` harness definition remains readable
