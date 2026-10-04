@@ -1,6 +1,6 @@
 # ADR 0064: Bounded Taskmaster coordinator uses approved root plans
 
-- Status: superseded by [ADR 0077](0077-taskmaster-orchestrated-child-sessions.md) as the proposed runtime direction; replacement written review pending
+- Status: superseded by [ADR 0077](0077-taskmaster-orchestrated-child-sessions.md) as the accepted replacement scope; runtime implementation remains gated
 - Deciders: OrkWorks maintainers
 - Date: 2026-09-24
 - Tracking issue: [#604](https://github.com/Rambolarsen/orkworks/issues/604)

@@ -118,11 +118,11 @@ superseded as implementation authority but retained, including its 2026-09-15
 evidence amendment, as the historical record of the rejected multi-sidecar
 proposal and the incomplete ownership evidence that still motivates #545.
 
-## Proposed orchestration replacement — 2026-10-04
+## Accepted orchestration scope replacement — 2026-10-04
 
 [ADR 0077](0077-taskmaster-orchestrated-child-sessions.md) replaces only the
-two historical 2026-09-25 runner amendments below as the proposed orchestration
-direction. Its written scope review is pending; it does not supersede this
+two historical 2026-09-25 runner amendments below as the accepted orchestration
+scope. Written acceptance is recorded in PR #747; it does not supersede this
 ADR's accepted independent-instance, path-history, lease or cleanup/replacement
 ownership decision. Children would be ordinary PTY sessions in the parent's
 selected-workspace sidecar and metadata store, launched in approved worktrees;

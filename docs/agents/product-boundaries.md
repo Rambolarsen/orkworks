@@ -27,7 +27,7 @@ The initial slice has no automated cleanup; any later separately reviewed
 removal requires a clean, quiescent, plan-owned worktree. Orchestration never
 commits, merges, transfers edits or deletes branches.
 
-Written scope review, detailed contracts, coding-tool capability evidence and
+Scope is accepted; detailed contracts, coding-tool capability evidence and
 scoped implementation approval remain open under [#610](https://github.com/Rambolarsen/orkworks/issues/610).
 Ordinary Taskmaster recommendations retain per-action approval. If a request
 is a specified non-goal, decline it and identify that non-goal; do not implement

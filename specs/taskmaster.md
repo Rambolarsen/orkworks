@@ -205,8 +205,9 @@ brokered coordinator and confined runner are historical proposals, retained in
 [ADR 0077](../docs/adr/0077-taskmaster-orchestrated-child-sessions.md) and
 [#610 scope alignment](../docs/superpowers/specs/2026-10-04-taskmaster-orchestration-scope-design.md)
 record the replacement direction. This section is a proposed extension to the
-accepted v1 recommendation contract; written scope review, detailed component
-review, capability evidence and scoped execution-plan approval remain required.
+accepted v1 recommendation contract. Its product/architecture scope is accepted;
+detailed component review, capability evidence and scoped execution-plan
+approval remain required.
 It enables no runtime API and does not change v1's per-action approvals.
 
 A user explicitly creates an orchestrator run with an immutable reviewed

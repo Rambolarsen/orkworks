@@ -34,7 +34,7 @@ automatically cleans up worktrees.
 
 This is not implemented. [ADR 0077](docs/adr/0077-taskmaster-orchestrated-child-sessions.md)
 and [#610 scope alignment](docs/superpowers/specs/2026-10-04-taskmaster-orchestration-scope-design.md)
-remain proposed for written review. Detailed contracts, exact coding-tool
+record the accepted scope. Detailed contracts, exact coding-tool
 permission/content-delivery evidence and scoped execution-plan approval are
 still required. The old confined-runner design is historical; the replacement
 does not claim OS confinement or crash-surviving process ownership. Existing

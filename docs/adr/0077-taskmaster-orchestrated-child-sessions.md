@@ -1,6 +1,6 @@
 # ADR 0077: Orchestrated children use the ordinary session runtime
 
-- Status: proposed; written scope review pending
+- Status: accepted scope; runtime implementation remains gated
 - Deciders: owner
 - Date: 2026-10-04
 - Tracking: [#610](https://github.com/Rambolarsen/orkworks/issues/610), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738)
@@ -19,7 +19,8 @@ and [hierarchy direction](../superpowers/specs/2026-10-04-agent-hierarchy-and-co
 instead use existing coding-tool sessions. The user authorized specification
 work, including a continuously running parent that prepares execution after
 research. Detailed contracts, tool eligibility and runtime implementation
-approval remain open. This ADR records the proposed replacement consistently;
+approval remain open. The owner accepted this replacement scope on 2026-10-04 and authorized
+merging [PR #747](https://github.com/Rambolarsen/orkworks/pull/747). This ADR records the replacement consistently;
 it does not mark those gates passed.
 
 ## Decision
@@ -113,7 +114,8 @@ separate. Concurrency, approval, persistence and recovery still need meaningful
 cross-component fixtures; documentation changes do not enable endpoints.
 
 The [scope alignment](../superpowers/specs/2026-10-04-taskmaster-orchestration-scope-design.md)
-records the decision matrix and staged issue disposition. Acceptance of this
-ADR must be recorded through written review before replacing #610's live
-criteria and closing obsolete #617. Then finalize component contracts and
+records the decision matrix and accepted issue disposition. The owner's
+written scope acceptance is recorded on PR #747; #610's live
+criteria are aligned and obsolete #617 is closed as superseded, not implemented.
+Finalize component contracts and
 capability evidence and review each scoped execution plan before code starts.

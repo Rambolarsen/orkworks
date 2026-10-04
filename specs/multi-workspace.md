@@ -111,7 +111,7 @@ most one selected workspace and metadata lease. Child changes remain for manual
 integration and the initial slice has no automated worktree cleanup.
 
 [ADR 0077](../docs/adr/0077-taskmaster-orchestrated-child-sessions.md) replaces
-the historical dedicated-child-runtime proposal, pending written scope review.
+the historical dedicated-child-runtime proposal under the accepted scope.
 Native confinement is not claimed by the replacement. This does not weaken
 the independent-instance cleanup/replacement ownership proof below; scope
 alignment neither provides that evidence nor enables orchestration launches.

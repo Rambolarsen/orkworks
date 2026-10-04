@@ -71,7 +71,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0061](./0061-pinned-workspace-history.md) | Pinned and enumerable installation-scoped workspace history | accepted |
 | [0062](./0062-guided-completion-packets.md) | Guided completion packets stay recommendation projections | accepted |
 | [0063](./0063-codex-native-session-labels.md) | Codex native session names enrich automatic session labels | accepted |
-| [0064](./0064-bounded-taskmaster-coordinator.md) | Bounded Taskmaster coordinator uses approved root plans | superseded by proposed [0077](./0077-taskmaster-orchestrated-child-sessions.md) |
+| [0064](./0064-bounded-taskmaster-coordinator.md) | Bounded Taskmaster coordinator uses approved root plans | superseded by [0077](./0077-taskmaster-orchestrated-child-sessions.md) |
 | [0065](./0065-ingestion-time-hard-wrap-reassembly.md) | Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer | accepted |
 | [0066](./0066-hook-owned-prompt-attention.md) | Hook-owned prompt attention for Codex and OpenCode | accepted |
 | [0067](./0067-codex-exact-session-identity-and-resume.md) | Codex exact session identity and resume | superseded by [0068](./0068-codex-subagents-share-owning-session-identity.md) |
@@ -84,4 +84,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0074](./0074-accumulate-alternate-buffer-trackpad-input.md) | Accumulate alternate-buffer trackpad input | accepted |
 | [0075](./0075-responsive-pty-input-delivery.md) | PTY writes keep the session driver responsive | accepted |
 | [0076](./0076-codex-owned-native-approval-observer.md) | Codex approval status from a runtime-owned native server | proposed |
-| [0077](./0077-taskmaster-orchestrated-child-sessions.md) | Orchestrated children use the ordinary session runtime | proposed; written scope review pending |
+| [0077](./0077-taskmaster-orchestrated-child-sessions.md) | Orchestrated children use the ordinary session runtime | accepted scope; runtime gated |

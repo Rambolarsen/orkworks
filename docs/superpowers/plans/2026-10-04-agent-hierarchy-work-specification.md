@@ -94,10 +94,10 @@ server-held exact-plan grants and requires verified event continuation. No
 expired plan bearer is reused; prior-plan children still count against the run cap.
 
 The existing baseline plan's stale ADR 0066 reference has been replaced by
-proposed [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md).
+accepted [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md).
 The [#610 alignment draft](../specs/2026-10-04-taskmaster-orchestration-scope-design.md)
 reconciles ordinary-child scope and run/grant authority; written scope acceptance
-and live issue disposition remain pending. ADR 0066 stays hook-owned attention.
+is recorded on PR #747, #610 criteria are aligned and #617 is retired. ADR 0066 stays hook-owned attention.
 
 Resolved scope: coding-tool controls are sufficient for this product slice;
 recursive delegation, native confinement, automatic retries/integration, and
@@ -149,22 +149,22 @@ Preserve the historical confinement validation record.
 #610's old acceptance criteria, #617's native-boundary scope, and accepted
 session/workspace decisions.
 
-**Produces:** A proposed consistent product/ADR boundary for ordinary
+**Produces:** An accepted product/ADR boundary for ordinary
 orchestrated children, non-colliding ADR 0077, and a baseline handoff split into
 runtime planning units. The [alignment draft](../specs/2026-10-04-taskmaster-orchestration-scope-design.md)
-is ready for written review after documentation validation. Scope acceptance,
-live issue disposition, capability evidence and reviewed executable plans/
-implementation issues remain separate gates.
+was accepted on 2026-10-04 for PR #747 after documentation validation.
+Live issue disposition is aligned; capability evidence and reviewed executable
+plans/implementation issues remain separate gates.
 
-- [ ] Compare the launch proposal with every conflicting root/spec/ADR statement;
+- [x] Compare the launch proposal with every conflicting root/spec/ADR statement;
   classify amendments versus supersessions under the ADR change sequence.
-- [ ] Write the actual scoped documentation changes and update the baseline
+- [x] Write the actual scoped documentation changes and update the baseline
   plan's stale ADR reference using the next unoccupied index entry.
-- [ ] Update #610's criteria after the scope decision is accepted. Resolve
+- [x] Update #610's criteria after the scope decision is accepted. Resolve
   #617's status explicitly against the ordinary-session design; do not silently
   retain native confinement as this slice's launch prerequisite.
-- [ ] Run documentation drift/link/build checks and obtain written review.
-- [ ] Break the baseline runtime into independently testable PR-sized execution
+- [x] Run documentation drift/link/build checks and obtain written review.
+- [x] Break the baseline runtime into independently testable PR-sized execution
   work before coding; keep this extension's modules out of unrelated runtime PRs.
 
 ## Task 1: Research: verify coding-tool role profiles and skill delivery

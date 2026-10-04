@@ -27,10 +27,10 @@ runtime, a child-specific process supervisor, or an OS sandbox.
 
 ## Scope alignment and current lifecycle
 
-The proposed [#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
+The accepted [#610 alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
 and [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) route
 this ordinary-session design consistently through the authoritative specs.
-Written scope acceptance, detailed contracts and adapter evidence remain open.
+Scope is accepted; detailed contracts and adapter evidence remain open.
 The preparation contract's run planning bearer/server-held exact-plan grants
 replace the earlier single-plan parent bearer. Its run bootstrap/input bindings,
 event continuation, run-wide capacity and recovery rules apply below.
@@ -261,7 +261,7 @@ setting only a validated approved worktree directory and persisting parent,
 run, plan, task and reservation lineage. Children remain in the active
 workspace's metadata store and PTY lifecycle; no dedicated child sidecar or
 extra selected workspace is adopted. This replaces ADR 0060's historical
-runner amendments through proposed ADR 0077 and preserves its accepted
+runner amendments through accepted ADR 0077 and preserves its accepted
 independent-instance ownership and cleanup/replacement proof.
 
 Run/grant/capacity and plan mutations serialize together, so revocation,

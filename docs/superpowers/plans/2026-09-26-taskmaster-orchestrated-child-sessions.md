@@ -27,9 +27,9 @@ This replaces the September plan's stale one-plan-bearer execution sequence.
 The old confined-runner [plan](2026-09-25-master-session-parallel-runner.md)
 and [native validation](../../validation/master-session-runner-confinement.md)
 remain historical. ADR 0066 is already hook-owned prompt attention; the new
-proposed orchestration decision is [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md).
+accepted scope decision is [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md).
 
-- Scope review is pending. Merging documentation does not accept component contracts or authorize runtime code.
+- Scope was accepted on 2026-10-04 for PR #747. Component contracts and runtime code remain separately gated.
 - Parent-only delegation; explicit ordered batches/dependencies; one attempt per task; no recursive child control or automatic retries.
 - Exact-plan UI approval precedes every plan-owned branch/worktree/child. A run bearer alone cannot launch.
 - Same live parent prepares execution after research; research grant ends, planning continues, every new execution plan requires its own exact approval.
@@ -54,13 +54,13 @@ proposed orchestration decision is [ADR 0077](../../adr/0077-taskmaster-orchestr
 
 **Interfaces:**
 - Consumes: user-authorized specification direction, #610/#617's older criteria, accepted workspace/session ownership decisions, proposed #741/#742 contracts and #740 evidence register.
-- Produces: a proposed consistent scope decision and staged issue criteria; written acceptance is distinct from runtime approval.
+- Produces: an accepted scope decision and aligned issue criteria; scope acceptance is distinct from runtime approval.
 
-- [ ] Compare each conflicting statement with its Decision/Consequences; preserve accepted independent-instance ownership, supersede proposed broker architecture and only ADR 0060's conflicting runner amendments.
-- [ ] Align the run planning bearer/exact-plan grant lifetime, research-to-execution transition and run-wide child capacity; retire the old one-plan authority instructions.
-- [ ] Preserve the old no-go evidence as historical, allocate ADR 0077 without overwriting 0066, and stage #610/#617 disposition in the scope artifact until acceptance.
-- [ ] Validate the concrete draft with `rtk git diff --check`, `rtk proxy bash scripts/doc-check.sh` and `rtk proxy pnpm --dir docs docs:build`; inspect output.
-- [ ] Obtain written scope acceptance; then update #610's criteria and retire #617 as superseded, without closing #610 or claiming eligibility.
+- [x] Compare each conflicting statement with its Decision/Consequences; preserve accepted independent-instance ownership, supersede proposed broker architecture and only ADR 0060's conflicting runner amendments.
+- [x] Align the run planning bearer/exact-plan grant lifetime, research-to-execution transition and run-wide child capacity; retire the old one-plan authority instructions.
+- [x] Preserve the old no-go evidence as historical, allocate ADR 0077 without overwriting 0066, and stage #610/#617 disposition in the scope artifact until acceptance.
+- [x] Validate the concrete draft with `rtk git diff --check`, `rtk proxy bash scripts/doc-check.sh` and `rtk proxy pnpm --dir docs docs:build`; inspect output.
+- [x] Obtain written scope acceptance; then update #610's criteria and retire #617 as superseded, without closing #610 or claiming eligibility.
 
 ## Runtime planning boundaries
 

@@ -1,9 +1,9 @@
 # Taskmaster ordinary-child orchestration scope alignment
 
-- Status: proposed documentation alignment; written scope review pending
+- Status: accepted scope on 2026-10-04; runtime implementation remains gated
 - Date: 2026-10-04
 - Tracking: [#610](https://github.com/Rambolarsen/orkworks/issues/610), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738)
-- Decision: proposed [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md)
+- Decision: accepted [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md)
 - Sources: [ordinary-child baseline](2026-09-26-taskmaster-orchestrated-child-sessions-design.md), [hierarchy direction](2026-10-04-agent-hierarchy-and-configuration-learning-design.md), [role configuration](2026-10-04-agent-role-configuration-design.md), [preparation lifecycle](2026-10-04-orchestrator-preparation-design.md)
 
 ## Scope and authority
@@ -16,8 +16,10 @@ This is authorization to prepare reviewable documentation, not approval of
 detailed contracts, proof of tool support or permission to implement runtime code.
 
 The accepted v1 recommendation behavior remains authoritative and unchanged.
-The orchestration extension in `specs/taskmaster.md`, ADR 0077 and the component
-designs stays proposed. Historical proposals are marked superseded as the
+The owner accepted this scope and authorized merging PR #747 on 2026-10-04
+(“lets merge”), after the concrete draft and its separate runtime gates were
+presented. ADR 0077 records the accepted architecture boundary; the runtime
+extension and detailed component contracts remain gated. Historical proposals are marked superseded as the
 target direction, not replaced by an implemented or accepted runtime. Approval
 of this written alignment records the product/architecture scope decision;
 runtime still needs component review, capability evidence and scoped plan approval.
@@ -29,7 +31,7 @@ requirements are merely wording differences or decisions that need supersession.
 Reading ADR 0060's Decision and Consequences shows that its accepted one-instance,
 one-workspace lease and cleanup/replacement proof still apply. Only its
 2026-09-25 dedicated-child-runtime amendments conflict. Preserve the accepted
-ADR and label those amendments historical, with the proposed replacement link.
+ADR and label those amendments historical, with the replacement link.
 ADR 0064's broker, grant slots, hard budgets and native success receipts are a
 different proposed runtime architecture; supersede that proposal through a
 new ADR rather than describing an intentional trust change as a clarification.
@@ -76,13 +78,12 @@ OS process origin. Exact coding-tool controls need verified adapters, with
 unsupported combinations unavailable. No native confinement is claimed.
 ADR 0060's separate independent-instance cleanup/replacement proof stays binding.
 
-## Staged issue disposition after written acceptance
+## Accepted issue disposition
 
-Do not close #610: its runtime is still absent. Keep the old live issue body
-until this written scope decision is accepted. Then replace its title/scope
-with ordinary-child orchestration and the following unchecked criteria;
-link the merged alignment, ADR 0077 and scoped handoff. Preserve prior comments
-as historical evidence rather than deleting them.
+Keep #610 open: its runtime is still absent. Following written acceptance,
+its title/scope now use ordinary-child orchestration and the following unchecked
+criteria, linked to PR #747, ADR 0077 and the scoped handoff. Prior comments
+remain historical evidence.
 
 - [ ] UI-created run binds immutable reviewed bootstrap, goal, repository/workspace identity and run cap; ordinary session creation remains ordinary-only.
 - [ ] Every exact plan binds tasks/configurations/input digests, tool/model identities, clean base, exact branches/paths, ordered batches/dependencies and plan cap; only Electron-authorized exact approval creates its launch grant.
@@ -99,7 +100,7 @@ as historical evidence rather than deleting them.
 - [ ] No orchestration-owned transfer, commit, merge, rebase, push, existing-branch change, branch deletion or automated worktree cleanup; required user escalations remain explicit.
 - [ ] Focused contract, race/recovery, adapter and desktop fixtures cover each scoped unit; review and required CI pass before feature availability is claimed.
 
-Retire [#617](https://github.com/Rambolarsen/orkworks/issues/617) after written
+[#617](https://github.com/Rambolarsen/orkworks/issues/617) is retired after written
 scope acceptance, with reason **superseded prerequisite, not implemented**.
 Its production native confinement boundary is outside this ordinary-session
 slice. Preserve the [validation record](../../validation/master-session-runner-confinement.md)
@@ -119,8 +120,8 @@ unit boundaries and acceptance evidence, not executable runtime instructions. Fi
 issues/plans linked to #610 and #738. No new implementation issue or child launch
 is authorized merely by merging this documentation.
 
-- [ ] Owner reviews the scope/trust changes and accepts or requests corrections to ADR 0077 and this alignment.
-- [ ] Record the accepted decision on #610, retire #617 with the explicit supersession reason, and synchronize #738 without claiming component completion.
+- [x] Owner accepted the scope/trust changes in ADR 0077 and this alignment on 2026-10-04; PR #747 records the decision.
+- [x] Record the accepted decision on #610, retire #617 with the explicit supersession reason, and synchronize #738 without claiming component completion.
 - [ ] Review #741/#742's immutable bootstrap, configuration and run/grant lifecycle together; retain #740's unverified/no-go entries until exact evidence is available.
 - [ ] Finalize #743/#744 reporting/evaluation and #746 projections before the units consuming them; #745 remains downstream of usage/evaluation.
 - [ ] Review and explicitly approve each scoped runtime execution plan with meaningful failing/passing fixtures before code starts.

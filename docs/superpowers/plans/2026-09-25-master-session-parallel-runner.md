@@ -15,8 +15,8 @@
 This confined-runner plan is superseded as the proposed runtime direction by
 [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md) and the
 [ordinary-child scoped handoff](2026-09-26-taskmaster-orchestrated-child-sessions.md).
-Keep its native checkpoint as historical evidence. Written scope review and
-the replacement's contract/capability/implementation gates remain open; no
+Keep its native checkpoint as historical evidence. Replacement scope is
+accepted in PR #747; contract/capability/implementation gates remain open. No
 task below authorizes new runtime work or relaxes existing cleanup ownership.
 
 ## Global Constraints
