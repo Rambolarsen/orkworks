@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Marker = "",
-    [string]$Status = "waiting_for_input",
+    [string]$Status = "",
     [string]$HookFingerprint = "",
     [string]$Event = "",
     # Plan-path mode (ADR 0038): set by Claude's installed PostToolUse
@@ -69,7 +69,10 @@ $reportedCwd = ""
 $harnessSessionId = ""
 $sessionStartSource = ""
 $sessionStartEvent = ""
+$sessionStartObservedAt = ""
 $sessionSource = ""
+$promptNotificationType = ""
+$promptObservedAt = ""
 $codexAttention = $false
 $codexCaptureOnly = $false
 $codexPayloadCapture = $null
@@ -88,8 +91,17 @@ function Get-ExactJsonPropertyValue {
     }
     return $null
 }
+function Test-SafeHookString {
+    param($Value)
+    if ($Value -isnot [string]) { return $false }
+    foreach ($character in $Value.ToCharArray()) {
+        if ([char]::IsControl($character)) { return $false }
+    }
+    return $true
+}
 $attentionPostKind = "not_applicable"
 $harnessSessionPostKind = "skipped_no_harness_session_id"
+$nativeRegistrationAccepted = $false
 
 if ($Marker -clike "*:claude-code") {
     try {
@@ -100,11 +112,18 @@ if ($Marker -clike "*:claude-code") {
         # payload, which is truthy for 2+ elements and stringifies to a
         # non-empty, space-joined garbage value instead of failing safely.
         if ($data -is [System.Management.Automation.PSCustomObject]) {
-            if ($data.session_id) {
-                $harnessSessionId = ([string]$data.session_id).Trim()
+            if (Test-SafeHookString $data.session_id) {
+                $harnessSessionId = $data.session_id.Trim()
             }
-            if ($data.cwd) {
+            if ((Test-SafeHookString $data.cwd) -and $data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()
+            }
+            if ($Event -eq "SessionStart" -and (Test-SafeHookString $data.source) -and $data.source -ceq "clear") {
+                $sessionStartSource = "clear"
+                $sessionStartEvent = "SessionStart"
+            }
+            if ($Event -eq "Notification" -and $data.notification_type -is [string]) {
+                $promptNotificationType = [string]$data.notification_type
             }
         }
     } catch {}
@@ -121,7 +140,7 @@ if ($Marker -clike "*:claude-code") {
     }
     try {
         $data = $payload | ConvertFrom-Json
-        if ($data -is [System.Management.Automation.PSCustomObject] -and $data.session_id -is [string] -and $data.session_id) {
+        if ($data -is [System.Management.Automation.PSCustomObject] -and (Test-SafeHookString $data.session_id) -and $data.session_id) {
             $harnessSessionId = ([string]$data.session_id).Trim()
         }
         if ($data -is [System.Management.Automation.PSCustomObject] -and $Event -in @("PreToolUse", "PermissionRequest", "PostToolUse")) {
@@ -182,11 +201,24 @@ if ($Marker -clike "*:claude-code") {
     try {
         $data = $payload | ConvertFrom-Json
         if ($data -is [System.Management.Automation.PSCustomObject]) {
-            if ($data.sessionId) {
-                $harnessSessionId = ([string]$data.sessionId).Trim()
+            if (Test-SafeHookString $data.sessionId) {
+                $harnessSessionId = $data.sessionId.Trim()
             }
-            if ($data.cwd) {
+            if ((Test-SafeHookString $data.cwd) -and $data.cwd) {
                 $reportedCwd = ([string]$data.cwd).Trim()
+            }
+            if ($Event -eq "sessionStart" -and (Test-SafeHookString $data.source) -and $data.source -ceq "new") {
+                $sessionStartSource = "new"
+                $sessionStartEvent = "sessionStart"
+                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]) {
+                    try { $sessionStartObservedAt = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$data.timestamp).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") } catch {}
+                }
+            }
+            if ($Event -eq "notification" -and $data.notification_type -is [string]) {
+                $promptNotificationType = [string]$data.notification_type
+                if ($data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]) {
+                    try { $promptObservedAt = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$data.timestamp).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") } catch {}
+                }
             }
         }
     } catch {}
@@ -201,7 +233,7 @@ if ($Marker -clike "*:claude-code") {
 # Codex's SessionStart event captures identity only. Turn events carry their
 # explicit normalized status and provenance so the sidecar can validate the
 # deterministic signal without trusting mutable payload text.
-if (-not $codexCaptureOnly -and $sessionId -and $port -and ($sessionSource -ne "codex_hook" -or $codexAttention)) {
+if (-not $codexCaptureOnly -and $sessionId -and $port -and $sessionSource -eq "codex_hook" -and $codexAttention) {
     try {
         $observedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
         $attention = @{ status = $Status; observedAt = $observedAt }
@@ -226,15 +258,25 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and ($sessionSource -ne "
     $attentionPostKind = "skipped_missing_environment"
 }
 
-if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -and $sessionSource) {
+if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -and $sessionSource -and `
+    ($sessionSource -eq "codex_hook" -or ($env:ORKWORKS_REPORT_TOKEN -and $env:ORKWORKS_PROMPT_HOOK_GENERATION))) {
     try {
         $sessionReport = @{ harnessSessionId = $harnessSessionId; source = $sessionSource; confidence = 0.98 }
         if ($sessionSource -eq "codex_hook" -and $HookFingerprint) {
             $sessionReport["hookFingerprint"] = $HookFingerprint
         }
-        if ($sessionSource -eq "codex_hook" -and $sessionStartSource) {
+        if ($sessionSource -in @("claude_hook", "copilot_hook")) {
+            $sessionReport["promptHookGeneration"] = $env:ORKWORKS_PROMPT_HOOK_GENERATION
+            if ($reportedCwd) {
+                $sessionReport["cwd"] = $reportedCwd
+            }
+        }
+        if ($sessionStartSource) {
             $sessionReport["sessionStartSource"] = $sessionStartSource
             $sessionReport["sessionStartEvent"] = $sessionStartEvent
+            if ($sessionSource -eq "copilot_hook") {
+                $sessionReport["sessionStartObservedAt"] = $sessionStartObservedAt
+            }
         }
         $sessionBody = $sessionReport | ConvertTo-Json -Compress
         $reportSpooled = $false
@@ -265,6 +307,9 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
             Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
                 -Headers $sessionHeaders -ContentType "application/json" -Body $sessionBody -TimeoutSec 5 | Out-Null
         }
+        if ($sessionSource -in @("claude_hook", "copilot_hook")) {
+            $nativeRegistrationAccepted = $true
+        }
         $harnessSessionPostKind = if ($reportSpooled) { "enqueued" } else { "posted" }
     } catch {
         $harnessSessionPostKind = "failed"
@@ -274,6 +319,42 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $harnessSessionId -an
         $harnessSessionPostKind = "skipped_no_harness_session_id"
     } else {
         $harnessSessionPostKind = "skipped_missing_environment"
+    }
+} elseif ($sessionSource -in @("claude_hook", "copilot_hook") -and -not $codexCaptureOnly) {
+    $harnessSessionPostKind = if (-not $harnessSessionId) { "skipped_no_harness_session_id" } else { "skipped_missing_authority_environment" }
+}
+
+# The shared prompt mapping only opens Needs You for reviewed prompt
+# notifications. Registration above must have succeeded for this invocation.
+$promptNotificationAllowed = $false
+if ($sessionSource -eq "claude_hook" -and $Event -eq "Notification" -and $promptNotificationType -in @("permission_prompt", "elicitation_dialog", "elicitation_url_dialog")) {
+    $promptNotificationAllowed = $true
+} elseif ($sessionSource -eq "copilot_hook" -and $Event -eq "notification" -and $promptNotificationType -in @("permission_prompt", "elicitation_dialog")) {
+    $promptNotificationAllowed = $true
+}
+if ($nativeRegistrationAccepted -and $promptNotificationAllowed -and $sessionId -and $port) {
+    try {
+        $attention = @{
+            status = "waiting_for_input"
+            source = $sessionSource
+            event = $Event
+            notificationType = $promptNotificationType
+            harnessSessionId = $harnessSessionId
+            promptHookGeneration = $env:ORKWORKS_PROMPT_HOOK_GENERATION
+        }
+        if ($sessionSource -eq "copilot_hook" -and $promptObservedAt) {
+            $attention["observedAt"] = $promptObservedAt
+        }
+        if ($reportedCwd) {
+            $attention["cwd"] = $reportedCwd
+        }
+        $attentionBody = $attention | ConvertTo-Json -Compress
+        Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/attention" `
+            -Headers @{ Authorization = "Bearer $($env:ORKWORKS_REPORT_TOKEN)" } `
+            -ContentType "application/json" -Body $attentionBody -TimeoutSec 5 | Out-Null
+        $attentionPostKind = "posted"
+    } catch {
+        $attentionPostKind = "failed"
     }
 }
 

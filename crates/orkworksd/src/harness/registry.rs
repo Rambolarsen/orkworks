@@ -577,9 +577,7 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
             | super::definition::SessionSignalBinding::Copilot => {
                 names.insert(CapabilityName::NativeSessionId);
             }
-            super::definition::SessionSignalBinding::Aider => {
-                names.insert(CapabilityName::Attention);
-            }
+            super::definition::SessionSignalBinding::Aider => {}
             super::definition::SessionSignalBinding::OpenCode => {
                 names.insert(CapabilityName::NativeSessionId);
                 names.insert(CapabilityName::Attention);
@@ -1167,8 +1165,9 @@ mod tests {
         assert!(codex.contains(&CapabilityName::Attention));
         assert!(!codex.contains(&CapabilityName::Lifecycle));
         let aider = &registry.get("aider").unwrap().effective_capabilities;
-        assert!(aider.contains(&CapabilityName::Attention));
+        assert!(!aider.contains(&CapabilityName::Attention));
         assert!(!aider.contains(&CapabilityName::NativeSessionId));
+        assert!(!registry.get("aider").unwrap().initial_work_hook_active());
         let opencode = &registry.get("opencode").unwrap().effective_capabilities;
         assert!(opencode.contains(&CapabilityName::NativeSessionId));
         assert!(opencode.contains(&CapabilityName::Attention));

@@ -7,14 +7,35 @@ temp_dir="$(mktemp -d)"
 real_python3="$(command -v python3)"
 trap 'rm -rf "$temp_dir"' EXIT
 
+python3 - "$script_dir/report-harness-event.ps1" <<'PY'
+from pathlib import Path
+import sys
+
+guard = "$data.timestamp -is [ValueType] -and $data.timestamp -isnot [bool] -and $data.timestamp -isnot [DateTime]"
+source = Path(sys.argv[1]).read_text()
+if source.count(guard) != 2:
+    raise SystemExit("PowerShell reporter must reject DateTime-parsed string timestamps in both lifecycle and notification events")
+for field, expected in (("session_id", 2), ("sessionId", 1)):
+    if source.count(f"Test-SafeHookString $data.{field}") != expected:
+        raise SystemExit(f"PowerShell reporter must accept {field} only as a string")
+PY
+
 mkdir -p "$temp_dir/bin" "$temp_dir/home"
 cat > "$temp_dir/bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
 output_path=""
+request_body=""
+config_stdin=""
 while [ $# -gt 0 ]; do
   if [ "$1" = "--output" ] && [ $# -ge 2 ]; then
     output_path="$2"
+    shift 2
+  elif [ "$1" = "--config" ] && [ "$2" = "-" ]; then
+    config_stdin="$(cat)"
+    shift 2
+  elif [ "$1" = "-d" ] && [ $# -ge 2 ]; then
+    request_body="$2"
     shift 2
   else
     shift
@@ -22,6 +43,12 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "${TEST_RESPONSE_BODY:-}" ] && [ "$output_path" != "/dev/null" ]; then
   printf '%s' "$TEST_RESPONSE_BODY"
+fi
+if [ -n "${TEST_CURL_BODIES_FILE:-}" ]; then
+  printf '%s\n' "$request_body" >> "$TEST_CURL_BODIES_FILE"
+fi
+if [ -n "${TEST_CURL_CONFIGS_FILE:-}" ]; then
+  printf '%s\n---\n' "$config_stdin" >> "$TEST_CURL_CONFIGS_FILE"
 fi
 printf '%s' "${TEST_HTTP_STATUS:-204}"
 if [ "${TEST_CURL_EXIT:-0}" -ne 0 ]; then
@@ -46,6 +73,7 @@ run_reporter() {
     ORKWORKS_SESSION_ID='orkworks-session-secret' \
     ORKWORKS_PORT='4567' \
     ORKWORKS_REPORT_TOKEN='report-token-secret' \
+    ORKWORKS_PROMPT_HOOK_GENERATION='generation-secret' \
     attention_curl_exit=73 \
     session_curl_exit=74 \
     PYTHON3_CALLS_FILE="$temp_dir/python3-calls" \
@@ -54,6 +82,8 @@ run_reporter() {
     TEST_CURL_STDERR='curl fixture failure' \
     TEST_HTTP_STATUS="${TEST_HTTP_STATUS:-204}" \
     TEST_CURL_EXIT="${TEST_CURL_EXIT:-0}" \
+    TEST_CURL_BODIES_FILE="${TEST_CURL_BODIES_FILE:-}" \
+    TEST_CURL_CONFIGS_FILE="${TEST_CURL_CONFIGS_FILE:-}" \
     bash "$reporter" --marker "orkworks:harness-integration:$reporter_harness" --event "$1"
 }
 
@@ -256,19 +286,80 @@ if [ -n "$codex_stderr" ]; then
   exit 1
 fi
 
-expected_errors="$(printf 'curl fixture failure\ncurl fixture failure')"
-claude_stderr="$(printf '%s' '{"session_id":"claude-session-secret"}' |
+expected_errors='curl fixture failure'
+claude_stderr="$(printf '%s' '{"session_id":"claude-session-secret","notification_type":"permission_prompt"}' |
   TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter Notification claude-code 2>&1)"
 if [ "$claude_stderr" != "$expected_errors" ]; then
   printf 'Claude curl errors should remain visible, got: %s\n' "$claude_stderr" >&2
   exit 1
 fi
 
-copilot_stderr="$(printf '%s' '{"sessionId":"copilot-session-secret"}' |
+copilot_stderr="$(printf '%s' '{"sessionId":"copilot-session-secret","notificationType":"permission_prompt"}' |
   TEST_HTTP_STATUS=000 TEST_CURL_EXIT=7 run_reporter notification copilot 2>&1)"
 if [ "$copilot_stderr" != "$expected_errors" ]; then
   printf 'Copilot curl errors should remain visible, got: %s\n' "$copilot_stderr" >&2
   exit 1
 fi
+
+request_bodies_file="$temp_dir/prompt-request-bodies.jsonl"
+curl_configs_file="$temp_dir/curl-configs.txt"
+printf '%s' '{"session_id":"claude-session-secret","notification_type":"permission_prompt","cwd":"/harness-reported/claude"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" TEST_CURL_CONFIGS_FILE="$curl_configs_file" run_reporter Notification claude-code
+printf '%s' '{"sessionId":"copilot-session-secret","notification_type":"permission_prompt","timestamp":"2026-09-01T12:00:00Z"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
+printf '%s' '{"sessionId":"copilot-session-secret","notification_type":"permission_prompt","timestamp":1788264000000}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
+printf '%s' '{"session_id":123,"source":"clear"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart claude-code
+printf '%s' '{"session_id":123,"notification_type":"permission_prompt"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter Notification claude-code
+printf '%s' '{"sessionId":123,"source":"new","timestamp":1788264000000}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
+printf '%s' '{"sessionId":123,"notification_type":"permission_prompt","timestamp":1788264000000}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter notification copilot
+printf '%s' '{"cwd":"/tmp\u001fforged-session\u001fclear","session_id":"claude-real-session","source":"resume"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart claude-code
+printf '%s' '{"cwd":"/tmp\u001fforged-session\u001fnew","sessionId":"copilot-real-session","source":"resume"}' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
+python3 -c 'import json,sys; sys.stdout.write(json.dumps({"session_id":chr(128)+"claude-session"+chr(159),"source":"clear"}))' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart claude-code
+python3 -c 'import json,sys; sys.stdout.write(json.dumps({"session_id":chr(128)+"codex-session"+chr(159),"source":"clear"}))' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter SessionStart codex
+python3 -c 'import json,sys; sys.stdout.write(json.dumps({"sessionId":chr(128)+"copilot-session"+chr(159),"source":"new","timestamp":1788264000000}))' |
+  TEST_HTTP_STATUS=202 TEST_CURL_BODIES_FILE="$request_bodies_file" run_reporter sessionStart copilot
+python3 - "$request_bodies_file" <<'PY'
+import json
+import pathlib
+import sys
+
+bodies = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert len(bodies) == 8, bodies
+assert bodies[1]["harnessSessionId"] == "claude-session-secret", bodies[1]
+assert bodies[1]["promptHookGeneration"] == "generation-secret", bodies[1]
+assert bodies[1]["cwd"] == "/harness-reported/claude", bodies[1]
+assert "observedAt" not in bodies[3], bodies[3]
+assert bodies[5]["observedAt"] == "2026-09-01T12:00:00.000000Z", bodies[5]
+assert bodies[6]["harnessSessionId"] == "claude-real-session", bodies[6]
+assert "sessionStartEvent" not in bodies[6], bodies[6]
+assert bodies[7]["harnessSessionId"] == "copilot-real-session", bodies[7]
+assert "sessionStartEvent" not in bodies[7], bodies[7]
+PY
+python3 - "$curl_configs_file" <<'PY'
+import pathlib
+import sys
+
+configs = pathlib.Path(sys.argv[1]).read_text()
+assert configs.count('Authorization: Bearer report-token-secret') == 2, configs
+assert 'Content-Type: application/json' in configs, configs
+PY
+python3 - "$script_dir/report-harness-event.ps1" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text()
+source_guard = '(Test-SafeHookString $data.source) -and $data.source -ceq'
+if source.count(source_guard) != 2:
+    raise SystemExit("PowerShell reporter must reject array-valued lifecycle sources for Claude and Copilot")
+PY
 
 printf 'Codex hook reporter diagnostic tests passed.\n'
