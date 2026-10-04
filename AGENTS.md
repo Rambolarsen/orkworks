@@ -384,8 +384,21 @@ When Peon reports a provider timeout, use the read-only repository helper
 `bash scripts/peon-timeout-diagnostics.sh` and follow
 [`docs/agents/peon-timeout-troubleshooting.md`](docs/agents/peon-timeout-troubleshooting.md).
 `PEON_TIMEOUT` is legacy and does not control current session inference; check
-the applied provider/model in Settings instead. Retry the current session once
-after verification and do not resume or reopen another session as a workaround.
+the applied provider/model in Settings instead. Peon automatically retries
+failed output-observation inference for active sessions on the next
+observation pass; one-shot input-label inference and a session's exit final
+scan do not re-run — there is no user-facing single-retry action, so do not
+re-send work to the coding tool to force one — and do not resume or reopen
+another session as a workaround.
+
+## Serena MCP startup failures
+
+When an agent reports an MCP startup failure that names Serena (for example
+"MCP startup failed due to serena"), use the read-only verification steps in
+[`docs/agents/serena-mcp-startup-troubleshooting.md`](docs/agents/serena-mcp-startup-troubleshooting.md).
+Check the run log under `~/.serena/logs/<date>/` for the underlying traceback
+before changing configuration, and do not treat the generic phrase itself as
+a repository defect. Do not resume or reopen another session as a workaround.
 
 ## Peon model detection observations
 
@@ -413,6 +426,40 @@ on the providers API and new-session dialog — which can also reflect a
 capped configured state rather than the live scan; a grounded workflow
 observation of this kind can still corroborate a real cap. Do not resume
 or reopen another session as a workaround.
+
+When Peon or a Taskmaster rollup repeats a workflow recommendation (or
+reports the same obstacle more than twice in one session), treat the
+recommendation's `proposedImprovement` as unverified: reproduce the raw
+grounding from the session's own artifacts (terminal replay, real
+configuration files, or issue text) and verify the described gap against it
+before acting on the recommendation — a grounded `missing_context` or
+`assumption` recommendation may target repository context that does not
+exist yet, so the gate is a verified gap, not a pre-existing named rule.
+Repeated evidence that consists of page or plan titles, spinner frame
+labels, or user-configured model instructions — with no concrete artifact
+matching the described problem area — counts as an over-detection
+recurrence to report, not as confirmation of the recommendation.
+A confirmed-noise determination is reported through the
+recommendation-completion summary with that evidence; the completion
+request follows [Taskmaster recommendation tie-off](#taskmaster-recommendation-tie-off)
+above and the [`working-on-recommendation`](skills/working-on-recommendation/SKILL.md)
+skill. A specific counter-proposal (for example, a named runbook gap) may
+be raised separately in the existing improvement issues; it is not an
+instruction to edit AGENTS.md or other repo-level files during the
+current task.
+
+### Workflow-improvement trials from Taskmaster
+
+A "trial" recommendation whose change would document an experiment in
+`AGENTS.md` must name what is being trialled: it must point at an
+identified recurring behavior and name the observed artifacts it grounds
+in. Adding a trial note to `AGENTS.md` — a file loaded into every agent's
+context — based only on repeated Peon detections of spinner or page-title
+text is not a trial; it is noise amplification. Only accept a trial
+recommendation for `AGENTS.md` when it identifies a specific behavior, a
+measured recurrence source, and a defined success measure. Repeated
+recommendations of this shape with title-like evidence are reported as
+over-detection recurrences per the section above, not implemented.
 
 ## MCP configuration
 

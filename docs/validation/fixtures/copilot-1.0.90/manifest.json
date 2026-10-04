@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Read-only help and non-model discovery evidence; no delivery or enforcement qualification. Not a CapabilityEvidenceSnapshot.",
+  "capturedAt": "2026-10-04T20:27:52.531075+00:00",
+  "toolVersion": "1.0.90",
+  "platform": {
+    "system": "Darwin",
+    "release": "25.6.0",
+    "machine": "arm64"
+  },
+  "repositoryBase": "a2ed1abf6cb4f0e94e8d14a659cf5af8de935989",
+  "capturePolicy": {
+    "stdout": "exact bytes",
+    "stderr": "Not retained; invocations emitted a Node NO_COLOR/FORCE_COLOR warning. No stderr content is used as capability evidence.",
+    "ambientConfiguration": "Default ambient environment for help. Discovery changed only COPILOT_HOME and cwd; inherited settings/environment sources were not fully inventoried and no isolation is claimed.",
+    "limits": {
+      "artifactBytes": 131072
+    },
+    "experimentalHelp": {
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "--experimental",
+        "--help"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks",
+      "exitCode": 0,
+      "retainedPath": "help.txt",
+      "sha256": "e4580412ee7799fe9bdf2e165cb97231b0a006999aae2d334ee77987d007fd8a"
+    }
+  },
+  "executableFiles": [
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/npm-loader.js",
+      "sha256": "8ba289084c305e25ea9ae09da860c31614c7eb32f6e7ec099aa71f74f2d4f130"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/package.json",
+      "sha256": "aa9b3831c5bf16cec0b9f1a235c01f9952036462e081f0b22d288bced9a769da"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+      "sha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "version.txt",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "--version"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks",
+      "exitCode": 0,
+      "bytes": 70,
+      "sha256": "6445baec47dece4c622cbb73727d8fda288430f323a7ea8873d125a47632e3c9"
+    },
+    {
+      "path": "help.txt",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "--help"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks",
+      "exitCode": 0,
+      "bytes": 13883,
+      "sha256": "e4580412ee7799fe9bdf2e165cb97231b0a006999aae2d334ee77987d007fd8a"
+    },
+    {
+      "path": "permissions.txt",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "help",
+        "permissions"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks",
+      "exitCode": 0,
+      "bytes": 4714,
+      "sha256": "b11bef78152a4c48ff0ac50b86cd3c5d559093be63b03561916bb45ceaf0efa4"
+    },
+    {
+      "path": "sandbox.txt",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "help",
+        "sandbox"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks",
+      "exitCode": 0,
+      "bytes": 16211,
+      "sha256": "9bd59e8a43b7749cf9f24d03012c488f72e7556ed30ca03a62d251e9f056a73d"
+    },
+    {
+      "path": "skill-discovery.json",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "env",
+        "COPILOT_HOME=/private/tmp/orkworks-740-inspection/synthetic-copilot-home",
+        "copilot",
+        "skill",
+        "list",
+        "--json"
+      ],
+      "cwd": "/private/tmp/orkworks-740-inspection/synthetic-repo",
+      "exitCode": 0,
+      "bytes": 1243,
+      "sha256": "f46e76babe123706dd3bb480a7ce23a86195f26d42d69a5d6f1b62b715d5d024"
+    },
+    {
+      "path": "instruction-discovery.json",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "env",
+        "COPILOT_HOME=/private/tmp/orkworks-740-inspection/synthetic-copilot-home",
+        "copilot",
+        "instruction",
+        "list",
+        "--json"
+      ],
+      "cwd": "/private/tmp/orkworks-740-inspection/synthetic-repo",
+      "exitCode": 0,
+      "bytes": 178,
+      "sha256": "c32c97950963d9bc95eb85cd3831d6d5d3609704d14aff6cb037bcbc58b34088"
+    },
+    {
+      "path": "scoped-instruction-discovery.json",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "env",
+        "COPILOT_HOME=/private/tmp/orkworks-740-inspection/synthetic-copilot-home",
+        "copilot",
+        "instruction",
+        "list",
+        "--json"
+      ],
+      "cwd": "/private/tmp/orkworks-740-inspection/synthetic-repo/scope",
+      "exitCode": 0,
+      "bytes": 376,
+      "sha256": "3f8acb7fe7a0ce42d52852a720f57660bc4f941a14ddbe84d188e10b590c45ee"
+    },
+    {
+      "path": "root-rule.txt",
+      "kind": "synthetic-input",
+      "fixturePath": "AGENTS.md",
+      "bytes": 95,
+      "sha256": "f42cb3cd34319150175c1668370d804b3a05544371162d3a0284c3f14b9b3e6d"
+    },
+    {
+      "path": "scoped-rule.txt",
+      "kind": "synthetic-input",
+      "fixturePath": "scope/AGENTS.md",
+      "bytes": 69,
+      "sha256": "311160b7cdddb94e983185d7e6841ec2aed57c035bab89682fde78ea2d36450c"
+    },
+    {
+      "path": "sentinel-skill.txt",
+      "kind": "synthetic-input",
+      "fixturePath": ".agents/skills/orkworks-740-sentinel/SKILL.md",
+      "bytes": 155,
+      "sha256": "360a734add98c6c9deecd57dc21ae6d3f4b2fe237dbe30ff160f5ef44e1ac154"
+    }
+  ]
+}

@@ -37,7 +37,7 @@ The exact installed CLI reports `GitHub Copilot CLI 1.0.90.` Its help exposes `-
 
 `copilot help permissions` on the installed version describes `--available-tools` as hiding all other tools from the model and `--deny-tool` as a permission denial that is not promptable; deny rules take precedence over grants. Its documented permission patterns include shell, file write (excluding shell effects), URL, and named MCP servers. Its help does not list a separate read(path) permission pattern. It describes path verification as CWD plus descendants and temp-dir by default, with `--allow-all-paths` disabling that check. Installed help also exposes `--disallow-temp-dir` to prevent automatic system-temp access. Relative write rules match trailing components; absolute write rules scope one location. Shell patterns match a command stem/subcommand and do not establish exact argv/effect confinement. Reproduce the local observations with the commands below; related current docs are [tool permissions](https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/allowing-tools) and [CLI tool permission patterns](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#tool-permission-patterns). (V1.0.90 + Official-docs.)
 
-The v1.0.90 `copilot help sandbox` describes shell command sandboxing as experimental, disabled by default, and managed through `/sandbox enable` or the sandbox settings. In that help, disabled sandbox means shell commands run with the user's access; enabled sandbox can restrict files/network, but a default-allowed bypass can rerun a blocked command outside the sandbox. The exact `copilot --help` and `copilot --experimental --help` output did **not** list a `--sandbox` option. Current docs mention `--sandbox`, `failIfUnavailable`, and stronger enterprise policies, but those details are not established by this installed binary's help. Mark launch-flag support and managed fail-closed policy as **UNVERIFIED for 1.0.90**. See installed `copilot help sandbox` and the current [CLI sandbox reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#command-sandboxing-experimental). Do not assume the current docs page applies unchanged to this exact release.
+The v1.0.90 `copilot help sandbox` describes shell command sandboxing as experimental, disabled by default, and managed through `/sandbox enable` or the sandbox settings. In that help, disabled sandbox means shell commands run with the user's access; enabled sandbox can restrict files/network, but a default-allowed bypass can rerun a blocked command outside the sandbox. The exact `copilot --help` and `copilot --experimental --help` output did **not** list a `--sandbox` option. The retained help also describes managed sandbox floors and `allowBypass: false`; that is documented support, not an exercised policy. Current docs mention `--sandbox` and administrator-only `failIfUnavailable`; launch-flag support and actual managed fail-closed behavior remain **UNVERIFIED for 1.0.90**. See installed `copilot help sandbox` and the current [CLI sandbox reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#command-sandboxing-experimental). Do not assume the current docs page applies unchanged to this exact release.
 
 ## Supported / limited / unsupported matrix
 
@@ -71,7 +71,7 @@ The v1.0.90 `copilot help sandbox` describes shell command sandboxing as experim
 
 ## Local OrkWorks evidence boundary
 
-The local APM config targets Copilot and pins plugin/skill dependencies ([APM targets and pinned dependencies](https://github.com/Rambolarsen/orkworks/blob/16e4eac313ad112ba2958ceebd07ab9b16d7a3e3/apm.yml#L8-L28)); the APM guide says install populates `.agents/skills/` and Copilot hooks (`docs/agents/apm.md:11`). Yet the installed `copilot skill list --json` in this checkout returned only the two built-in skills, and this checkout had no `.agents/` directory. This establishes **discovery result in this checkout only**, not absence from every runtime installation.
+The local APM config targets Copilot and pins plugin/skill dependencies ([APM targets and pinned dependencies](https://github.com/Rambolarsen/orkworks/blob/16e4eac313ad112ba2958ceebd07ab9b16d7a3e3/apm.yml#L8-L28)); the APM guide says install populates `.agents/skills/` and Copilot hooks (`docs/agents/apm.md:11`). Yet the installed `copilot skill list --json` in this checkout returned only the two built-in skills, and the earlier investigated checkout had no `.agents/` directory. That historical observation establishes **discovery result in that checkout only**, not absence from every runtime installation.
 
 The repo's Copilot integration contract is explicitly about CLI v1.0.90 hooks, session ID/resume, and attention signals, with the row marked feature-probed but limited because its hook schema is not version-bound (`docs/agents/harness-integration-contracts.md:30`). It is **not evidence that OrkWorks supplies role agent prompts, skills, or permission restrictions**. Root AGENTS says Copilot loads nested AGENTS files ([root instruction-scoping contract](https://github.com/Rambolarsen/orkworks/blob/16e4eac313ad112ba2958ceebd07ab9b16d7a3e3/AGENTS.md#L170-L178)); the CLI `instruction list` confirmed files discovered in this checkout. Neither proves that each planned role receives the right content or that tools are restricted.
 
@@ -166,3 +166,87 @@ by this evidence draft. No runtime implementation plan can claim an eligible
 role until the necessary tool/version/profile evidence and reviewed handoff
 are complete. #610 scope acceptance is recorded in PR #747; it supplies no
 capability evidence. #740 remains open for probe evidence and reviewed handoff.
+
+## Issue #740 follow-up: retained evidence and scoped handoff
+
+The refreshed version and executable-chain hashes match the earlier observation.
+[Retained manifest](fixtures/copilot-1.0.90/manifest.json) binds exact commands,
+cwd, platform, exit codes, stdout bytes and SHA-256 values. It is an inspection
+packet, **not** a verified `CapabilityEvidenceSnapshot` or permission fixture.
+Normal and experimental help were byte-identical. Node color warnings on stderr
+were excluded; no stderr claim is used. No inference/model process was started.
+
+| Retained evidence | Established fact | Still unknown |
+| --- | --- | --- |
+| [Version](fixtures/copilot-1.0.90/version.txt), [CLI help](fixtures/copilot-1.0.90/help.txt) | Version 1.0.90; the documented parser/help controls are present | Actual effective startup/tool/model composition |
+| [Permission help](fixtures/copilot-1.0.90/permissions.txt) | Tool visibility and approval are separate; write rules exclude shell effects; default paths include cwd descendants and temp | Exact read-scope, argv/effect and denial coverage |
+| [Sandbox help](fixtures/copilot-1.0.90/sandbox.txt) | Local help describes managed floors and inherited shell environments with a fixed blocklist | Effective immutable policy and #741's empty-start command environment |
+| [Skill discovery](fixtures/copilot-1.0.90/skill-discovery.json) | The synthetic project sentinel is discovered/enabled in `.agents/skills`; two built-in skills also remain discovered with temporary `COPILOT_HOME` | Selected content delivery, skill invocation, tool widening or adherence |
+| [Root discovery](fixtures/copilot-1.0.90/instruction-discovery.json), [scoped discovery](fixtures/copilot-1.0.90/scoped-instruction-discovery.json) | Root AGENTS is discovered; scoped cwd additionally discovers `scope/AGENTS.md` | Actual inheritance/content delivery when running a role or changing cwd |
+
+The manifest retains the harmless input files as well. Discovery changed only
+cwd and `COPILOT_HOME`; ambient sources were not exhaustively inventoried. The
+temporary settings directory does not establish configuration or OS isolation.
+The fixture qualifies discovery in this exact synthetic layout, not production
+role delivery. This also prevents the earlier missing-generated-skills
+observation from being read as evidence that `.agents/skills` is unsupported.
+
+### Contract review findings
+
+1. **Read scope needs its own proof.** #741 requires declared file/subtree/root
+   reads and rejection of symlink escape. The installed permission help lists no
+   separate read-path pattern. A no-shell role may still read undeclared files
+   through `view`, `grep` or `glob`. Tool filtering alone is insufficient. The
+   first proposed probe explicitly requests the whole synthetic worktree root;
+   it cannot certify a narrower artifact-only profile.
+2. **Command environment is a distinct eligibility gate.** #741's
+   [command environment policy](../superpowers/specs/2026-10-04-agent-role-configuration-design.md#command-environment-policy)
+   requires empty-start allowlisted bindings before every task command. Retained
+   sandbox help describes inheritance apart from a fixed blocklist; local CLI
+   help's `--secret-env-vars` is another removal list. Neither proves the
+   required contract. Command-enabled roles remain unverified without exact
+   executable/argv/effects and environment evidence. No OS-confinement or broker
+   requirement is added to overcome the gap.
+3. **Content delivery and usage stay independent.** Synthetic discovery and a
+   model repeating a marker cannot confirm selected skill bytes were supplied.
+   A version-bound content transport/receipt must identify mandatory rules,
+   selected skills and referenced resources. Supplied startup content can
+   qualify delivery without asserting native invocation; missing native usage
+   coverage stays unknown. Existing session hooks are not that receipt.
+4. **Continuation is independently unverified.** Exact native resume or an open
+   PTY does not prove a report/approval/capacity event resumes the same model
+   loop. The proposed parent also needs a coordination-only tool profile;
+   a no-shell review/read profile cannot qualify it.
+
+These findings constrain the evidence methodology; they do not amend #741 or
+#742, relax requested permissions, or establish impossibility. The current
+`HarnessDefinition` and integration/launch/resume seams do not implement these
+role/profile or delivery contracts. Other coding-tool integrations provide
+session signals and owned reporter installation, not substitutes for role
+capability evidence.
+
+### Acceptance coverage and consumer handoff
+
+| #740 criterion | Current disposition |
+| --- | --- |
+| Exact versions, primary references, bounded fixtures | Retained local help/version/discovery; runtime controls remain unverified |
+| Role/native/startup rules and selected skill delivery | Candidate routes documented; transport-backed content receipt remains open |
+| Six roles' tools/commands/files/network/connectors/bypasses | Audited surfaces and role matrix retained; no complete profile fixture |
+| Unsupported eligibility, no silent widening/fallback | All six profiles unavailable; absence of evidence is not impossibility |
+| Reported/observed/unknown usage coverage | Native invocation observer unverified; discovery not promoted to usage |
+| Initial slice or explicit no-go | Current no-go retained; smallest proposed experiment is a synthetic local-only review profile |
+| Same-parent continuation | Requires its own schema/event/runtime/generation fixture; no live probe |
+| Reviewed specification/research execution handoff | Concrete [probe plan](../superpowers/plans/2026-10-04-copilot-role-capability-probes.md) prepared for written review and separate probe-session authorization |
+
+The probe plan maps all ten mandatory #741 evidence surfaces, optional native
+usage, exact resume and mandatory parent continuation. It stops at absent
+measurement, unexpected access, unknown startup composition or ambiguous
+results. First-batch success would qualify only the exact reviewed synthetic
+profile, never all six roles or a production runtime launch.
+
+#741 consumes exact content/profile/settings identities and the unchanged
+no-go; #742 consumes the separate continuation/resume gate; #743 consumes
+source/coverage distinctions for discovery, delivery and usage. #740 stays
+open until the remaining written review, necessary capability evidence and
+reviewed handoff are resolved. No runtime implementation or live capability
+probe is authorized by this document.

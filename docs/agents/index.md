@@ -46,3 +46,6 @@ needed.
 - [Peon model detection troubleshooting](peon-model-detection-troubleshooting.md) —
   Interpreting Peon model-detection and capacity/cap observations and
   separating self-referential noise from real defects.
+- [Serena MCP startup troubleshooting](serena-mcp-startup-troubleshooting.md) —
+  Diagnosing MCP startup failures caused by Serena and restoring a healthy
+  `.serena/project.yml`.
