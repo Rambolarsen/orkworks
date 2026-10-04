@@ -795,6 +795,26 @@ pub(crate) async fn send_runtime_input_to_sender(
     accepted_rx.await.map_err(|_| ())?
 }
 
+fn apply_runtime_size_to_state(state: &Arc<AppState>, id: &str, rows: u16, cols: u16) -> bool {
+    let mut sessions = state.sessions.lock().unwrap();
+    sessions.get_mut(id).is_some_and(|handle| {
+        let changed = handle.runtime.last_rows != rows || handle.runtime.last_cols != cols;
+        handle.runtime.last_rows = rows;
+        handle.runtime.last_cols = cols;
+        changed
+    })
+}
+
+// Terminal-size persistence can block on metadata I/O. Keep it off the PTY
+// driver so output ingestion continues even when the workspace is slow.
+fn schedule_terminal_size_persist(state: &Arc<AppState>, id: &str) -> tokio::task::JoinHandle<()> {
+    let state = state.clone();
+    let id = id.to_string();
+    tokio::task::spawn_blocking(move || {
+        crate::session_application::SessionApplication::new(state).persist_terminal_size(&id, false)
+    })
+}
+
 pub(crate) async fn update_runtime_size(
     state: &Arc<AppState>,
     id: &str,
@@ -817,39 +837,13 @@ pub(crate) async fn update_runtime_size(
     })
     .await
     .map_err(|_| ())?;
-    let application = accepted_rx.await.map_err(|_| ())??;
-    if application == ResizeApplication::Live {
-        return Ok(());
-    }
-    let changed = {
-        let mut sessions = state.sessions.lock().unwrap();
-        let handle = sessions.get_mut(id).ok_or(())?;
-        let changed = handle.runtime.last_rows != rows || handle.runtime.last_cols != cols;
-        handle.runtime.last_rows = rows;
-        handle.runtime.last_cols = cols;
-        changed
-    };
-    // Best-effort persist on every live resize, not just at the terminal-status
-    // transition: if the daemon restarts mid-session, orphan reconciliation
-    // (metadata.rs::reconcile_orphaned_session) never reaches that transition and
-    // has no in-memory runtime to read a size from, so historical replay would
-    // otherwise always fall back to fit-to-container for these sessions. Fitting
-    // to whatever width the panel happens to have at replay time misplaces any
-    // absolute-column cursor addressing the original PTY width baked into the
-    // recorded bytes, which is what produced the garbled replay this fixes.
-    if changed {
-        let state = state.clone();
-        let id = id.to_string();
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::session_application::SessionApplication::new(state)
-                .persist_terminal_size(&id, false)
-        })
-        .await;
-    }
+    let _application = accepted_rx.await.map_err(|_| ())??;
     Ok(())
 }
 
 async fn capture_startup_runtime_state(
+    state: &Arc<AppState>,
+    session_id: &str,
     control_rx: &mut mpsc::Receiver<RuntimeCommand>,
     mut initial_size: PtySize,
 ) -> (PtySize, Vec<RuntimeCommand>) {
@@ -871,6 +865,9 @@ async fn capture_startup_runtime_state(
             })) => {
                 initial_size.rows = rows;
                 initial_size.cols = cols;
+                if apply_runtime_size_to_state(state, session_id, rows, cols) {
+                    drop(schedule_terminal_size_persist(state, session_id));
+                }
                 if let Some(accepted) = accepted {
                     let _ = accepted.send(Ok(ResizeApplication::Startup));
                 }
@@ -1127,7 +1124,7 @@ async fn start_session_runtime_inner(
         }
     }
     let (initial_size, pending_commands) =
-        capture_startup_runtime_state(&mut control_rx, initial_size).await;
+        capture_startup_runtime_state(&state, &id, &mut control_rx, initial_size).await;
     let pty_sys = make_pty_system();
     let pair = pty_sys.openpty(initial_size).map_err(|e| e.to_string())?;
 
@@ -1455,24 +1452,13 @@ async fn start_session_runtime_inner(
                                 .map(|()| ResizeApplication::Live)
                                 .map_err(|_| ());
                             if result.is_ok() {
-                                let changed = {
-                                    let mut sessions = driver_state.sessions.lock().unwrap();
-                                    sessions.get_mut(&driver_id).is_some_and(|handle| {
-                                        let changed = handle.runtime.last_rows != rows
-                                            || handle.runtime.last_cols != cols;
-                                        handle.runtime.last_rows = rows;
-                                        handle.runtime.last_cols = cols;
-                                        changed
-                                    })
-                                };
-                                if changed {
-                                    let state = driver_state.clone();
-                                    let id = driver_id.clone();
-                                    let _ = tokio::task::spawn_blocking(move || {
-                                        crate::session_application::SessionApplication::new(state)
-                                            .persist_terminal_size(&id, false)
-                                    })
-                                    .await;
+                                if apply_runtime_size_to_state(
+                                    &driver_state,
+                                    &driver_id,
+                                    rows,
+                                    cols,
+                                ) {
+                                    drop(schedule_terminal_size_persist(&driver_state, &driver_id));
                                 }
                             }
                             if let Some(accepted) = accepted {
@@ -1930,12 +1916,22 @@ mod tests {
     use std::time::Duration;
 
     fn acknowledge_resize_as_startup(
+        state: Arc<AppState>,
+        session_id: String,
         mut control_rx: mpsc::Receiver<RuntimeCommand>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let Some(RuntimeCommand::Resize { accepted, .. }) = control_rx.recv().await else {
+            let Some(RuntimeCommand::Resize {
+                rows,
+                cols,
+                accepted,
+            }) = control_rx.recv().await
+            else {
                 panic!("resize command should be received");
             };
+            if apply_runtime_size_to_state(&state, &session_id, rows, cols) {
+                drop(schedule_terminal_size_persist(&state, &session_id));
+            }
             if let Some(accepted) = accepted {
                 let _ = accepted.send(Ok(ResizeApplication::Startup));
             }
@@ -2698,6 +2694,8 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
 
     #[tokio::test]
     async fn startup_buffer_caps_input_bytes() {
+        let session_id = "startup-buffer-cap";
+        let state = test_state_with_runtime_session(session_id);
         let (tx, mut rx) = mpsc::channel(3);
         let chunk = "x".repeat(STARTUP_PENDING_INPUT_BYTES / 2);
         for _ in 0..3 {
@@ -2711,6 +2709,8 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         drop(tx);
 
         let (_, pending) = capture_startup_runtime_state(
+            &state,
+            session_id,
             &mut rx,
             PtySize {
                 rows: DEFAULT_TERMINAL_ROWS,
@@ -2722,6 +2722,52 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         .await;
 
         assert_eq!(pending.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn startup_resize_updates_shared_width_before_acknowledging() {
+        let session_id = "startup-resize-ack-order";
+        let state = test_state_with_runtime_session(session_id);
+        let (runtime, mut control_rx) = SessionRuntime::live(24, 80);
+        let control_tx = runtime.control_tx.clone();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime = runtime;
+        let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+        control_tx
+            .send(RuntimeCommand::Resize {
+                rows: 55,
+                cols: 210,
+                accepted: Some(accepted_tx),
+            })
+            .await
+            .unwrap();
+
+        let (initial_size, _) = capture_startup_runtime_state(
+            &state,
+            session_id,
+            &mut control_rx,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await;
+        assert_eq!((initial_size.rows, initial_size.cols), (55, 210));
+        accepted_rx.await.unwrap().unwrap();
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id]
+                .runtime
+                .last_size(),
+            (55, 210),
+            "output reassembly must see the startup width before the resize acknowledgment"
+        );
     }
 
     #[test]
@@ -4587,6 +4633,52 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
     }
 
     #[tokio::test]
+    async fn terminal_size_persistence_is_scheduled_without_waiting_for_workspace_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "background-terminal-size-session".to_string();
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Background resize",
+                    "/tmp",
+                    "running",
+                    "t0",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: SessionRuntime::detached(55, 210),
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+
+        let workspace = state.workspace.lock().unwrap();
+        let persist = schedule_terminal_size_persist(&state, &id);
+        assert!(
+            !persist.is_finished(),
+            "the persistence worker should be blocked on the held workspace lock, not its caller"
+        );
+        drop(workspace);
+        tokio::time::timeout(Duration::from_secs(1), persist)
+            .await
+            .expect("persistence should finish after releasing the workspace lock")
+            .unwrap();
+        let workspace = state.workspace.lock().unwrap();
+        assert_eq!(
+            workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
+            Some((210, 55))
+        );
+    }
+
+    #[tokio::test]
     async fn update_runtime_size_persists_terminal_size_for_orphan_recovery() {
         // If the daemon restarts mid-session, orphan reconciliation
         // (metadata::reconcile_orphaned_session) has no in-memory runtime handle
@@ -4622,14 +4714,29 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             },
         );
 
-        let driver = acknowledge_resize_as_startup(control_rx);
+        let driver = acknowledge_resize_as_startup(state.clone(), id.clone(), control_rx);
         let result = update_runtime_size(&state, &id, 55, 210).await;
         driver.await.unwrap();
         assert_eq!(result, Ok(()));
 
-        let ws_guard = state.workspace.lock().unwrap();
-        let ws = ws_guard.as_ref().unwrap();
-        assert_eq!(ws.metadata.read_terminal_size(&id), Some((210, 55)));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let persisted = state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_terminal_size(&id);
+                if persisted == Some((210, 55)) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("startup resize should persist in the background");
     }
 
     #[tokio::test]
@@ -4672,7 +4779,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             },
         );
 
-        let driver = acknowledge_resize_as_startup(control_rx);
+        let driver = acknowledge_resize_as_startup(state.clone(), id.clone(), control_rx);
         let result = update_runtime_size(&state, &id, 55, 210).await;
         driver.await.unwrap();
         assert_eq!(result, Ok(()));
@@ -4712,7 +4819,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             },
         );
 
-        let driver = acknowledge_resize_as_startup(control_rx);
+        let driver = acknowledge_resize_as_startup(state.clone(), id.clone(), control_rx);
         let result = update_runtime_size(&state, &id, 55, 210).await;
         driver.await.unwrap();
         assert_eq!(result, Ok(()));
@@ -4807,15 +4914,16 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             else {
                 panic!("resize command should be received");
             };
-            {
-                let mut sessions = driver_state.sessions.lock().unwrap();
-                let runtime = &mut sessions.get_mut(&driver_id).unwrap().runtime;
-                runtime.last_rows = rows;
-                runtime.last_cols = cols;
-                runtime.resize_closed = true;
-            }
-            crate::session_application::SessionApplication::new(driver_state.clone())
-                .persist_terminal_size(&driver_id, false);
+            apply_runtime_size_to_state(&driver_state, &driver_id, rows, cols);
+            driver_state
+                .sessions
+                .lock()
+                .unwrap()
+                .get_mut(&driver_id)
+                .unwrap()
+                .runtime
+                .resize_closed = true;
+            drop(schedule_terminal_size_persist(&driver_state, &driver_id));
             let _ = accepted.send(Ok(ResizeApplication::Live));
         });
 
@@ -4827,11 +4935,24 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             (55, 210),
             "an already-applied resize remains authoritative when child exit is observed before the caller resumes",
         );
-        let workspace = state.workspace.lock().unwrap();
-        assert_eq!(
-            workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
-            Some((210, 55))
-        );
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let persisted = state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_terminal_size(&id);
+                if persisted == Some((210, 55)) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("applied live resize should persist asynchronously");
     }
 
     #[tokio::test]
