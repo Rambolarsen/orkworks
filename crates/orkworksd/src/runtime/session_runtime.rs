@@ -14,9 +14,18 @@ use chrono::{DateTime, Utc};
 use portable_pty::{CommandBuilder, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+#[cfg(windows)]
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, mpsc};
+#[cfg(windows)]
+use windows_sys::Win32::System::{
+    Threading::{GetCurrentThreadId, OpenThread, THREAD_TERMINATE},
+    IO::CancelSynchronousIo,
+};
 
 pub(crate) const DEFAULT_TERMINAL_ROWS: u16 = 24;
 pub(crate) const DEFAULT_TERMINAL_COLS: u16 = 80;
@@ -25,12 +34,30 @@ const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
 const CONTROL_CHANNEL_CAPACITY: usize = 64;
 const READER_EXIT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
+#[cfg(windows)]
+const WINDOWS_READER_CANCEL_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
 pub(crate) const STARTUP_PENDING_INPUT_BYTES: usize = 64 * 1024;
 const MAX_PARTIAL_PERSIST_BYTES: usize = 64 * 1024;
 const INITIAL_RESIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 pub(crate) const STARTUP_ATTENTION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 const WORK_SIGNAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 const OUTPUT_RECENCY_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg(windows)]
+fn cancel_synchronous_reader(thread_id: u32) -> Option<std::io::Error> {
+    if thread_id == 0 {
+        return None;
+    }
+    // CancelSynchronousIo requires THREAD_TERMINATE access to the target
+    // thread. The handle is local to this bounded cancellation attempt.
+    let thread = unsafe { OpenThread(THREAD_TERMINATE, 0, thread_id) };
+    if thread.is_null() {
+        return Some(std::io::Error::last_os_error());
+    }
+    let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
+    (unsafe { CancelSynchronousIo(thread.as_raw_handle()) } == 0)
+        .then(std::io::Error::last_os_error)
+}
 
 pub(crate) type RuntimeGeneration = u64;
 
@@ -235,8 +262,35 @@ pub(crate) enum RuntimeCommand {
     Resize {
         rows: u16,
         cols: u16,
+        accepted: Option<tokio::sync::oneshot::Sender<Result<ResizeApplication, ()>>>,
     },
     Kill,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResizeApplication {
+    Startup,
+    Live,
+}
+
+fn reject_runtime_command(command: RuntimeCommand) {
+    match command {
+        RuntimeCommand::Input {
+            accepted: Some(accepted),
+            ..
+        } => {
+            let _ = accepted.send(Err(()));
+        }
+        RuntimeCommand::Resize {
+            accepted: Some(accepted),
+            ..
+        } => {
+            let _ = accepted.send(Err(()));
+        }
+        RuntimeCommand::Input { accepted: None, .. }
+        | RuntimeCommand::Resize { accepted: None, .. }
+        | RuntimeCommand::Kill => {}
+    }
 }
 
 // A blocking write owns its acknowledgement until the native operation has
@@ -378,6 +432,7 @@ pub(crate) struct SessionRuntime {
     pub(crate) attached_generation: Option<u64>,
     pub(crate) last_rows: u16,
     pub(crate) last_cols: u16,
+    resize_closed: bool,
     // Ingestion-time hard-wrap reassembly state (ADR 0065): a chunk-final row
     // that filled the terminal width waits here for its continuation row and
     // is flushed into output_buffer at runtime exit.
@@ -417,6 +472,7 @@ impl SessionRuntime {
                 attached_generation: None,
                 last_rows: rows,
                 last_cols: cols,
+                resize_closed: false,
                 pending_wrap_prefix: None,
                 input_generation: 0,
                 accepted_input_at: None,
@@ -455,6 +511,7 @@ impl SessionRuntime {
             attached_generation: None,
             last_rows: rows,
             last_cols: cols,
+            resize_closed: false,
             pending_wrap_prefix: None,
             input_generation: 0,
             accepted_input_at: None,
@@ -744,13 +801,33 @@ pub(crate) async fn update_runtime_size(
     rows: u16,
     cols: u16,
 ) -> Result<(), ()> {
-    let (tx, changed) = {
+    let tx = {
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(id).ok_or(())?;
+        if handle.runtime.resize_closed {
+            return Err(());
+        }
+        handle.runtime.control_tx.clone()
+    };
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    tx.send(RuntimeCommand::Resize {
+        rows,
+        cols,
+        accepted: Some(accepted_tx),
+    })
+    .await
+    .map_err(|_| ())?;
+    let application = accepted_rx.await.map_err(|_| ())??;
+    if application == ResizeApplication::Live {
+        return Ok(());
+    }
+    let changed = {
         let mut sessions = state.sessions.lock().unwrap();
         let handle = sessions.get_mut(id).ok_or(())?;
         let changed = handle.runtime.last_rows != rows || handle.runtime.last_cols != cols;
         handle.runtime.last_rows = rows;
         handle.runtime.last_cols = cols;
-        (handle.runtime.control_tx.clone(), changed)
+        changed
     };
     // Best-effort persist on every live resize, not just at the terminal-status
     // transition: if the daemon restarts mid-session, orphan reconciliation
@@ -769,9 +846,7 @@ pub(crate) async fn update_runtime_size(
         })
         .await;
     }
-    tx.send(RuntimeCommand::Resize { rows, cols })
-        .await
-        .map_err(|_| ())
+    Ok(())
 }
 
 async fn capture_startup_runtime_state(
@@ -789,9 +864,16 @@ async fn capture_startup_runtime_state(
         }
 
         match tokio::time::timeout(remaining, control_rx.recv()).await {
-            Ok(Some(RuntimeCommand::Resize { rows, cols })) => {
+            Ok(Some(RuntimeCommand::Resize {
+                rows,
+                cols,
+                accepted,
+            })) => {
                 initial_size.rows = rows;
                 initial_size.cols = cols;
+                if let Some(accepted) = accepted {
+                    let _ = accepted.send(Ok(ResizeApplication::Startup));
+                }
                 break;
             }
             Ok(Some(command)) => {
@@ -1199,9 +1281,53 @@ async fn start_session_runtime_inner(
 
     let reader_id = id.clone();
     let reader_tx = driver_tx.clone();
-    tokio::task::spawn_blocking(move || {
+    let reader_cancel = Arc::new(AtomicBool::new(false));
+    let reader_cancel_task = reader_cancel.clone();
+    #[cfg(windows)]
+    let reader_thread_id = Arc::new(AtomicU32::new(0));
+    #[cfg(windows)]
+    let reader_thread_id_task = reader_thread_id.clone();
+    #[cfg(windows)]
+    let reader_finished = Arc::new(AtomicBool::new(false));
+    #[cfg(windows)]
+    let reader_finished_task = reader_finished.clone();
+    #[cfg(unix)]
+    let reader_pty_fd = master.lock().unwrap().as_raw_fd();
+    let reader_task = tokio::task::spawn_blocking(move || {
+        #[cfg(windows)]
+        reader_thread_id_task.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
         let mut buf = [0u8; 4096];
         loop {
+            if reader_cancel_task.load(Ordering::Acquire) {
+                break;
+            }
+            #[cfg(unix)]
+            {
+                let Some(fd) = reader_pty_fd else {
+                    tracing::warn!(session_id = %reader_id, "PTY reader has no pollable descriptor");
+                    break;
+                };
+                let mut descriptor = libc::pollfd {
+                    fd,
+                    events: libc::POLLIN | libc::POLLHUP,
+                    revents: 0,
+                };
+                let ready = unsafe { libc::poll(&mut descriptor, 1, 100) };
+                if ready < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    tracing::warn!(session_id = %reader_id, error = %error, "PTY poll error");
+                    break;
+                }
+                if ready == 0 {
+                    continue;
+                }
+                if descriptor.revents & libc::POLLNVAL != 0 {
+                    break;
+                }
+            }
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
@@ -1213,12 +1339,16 @@ async fn start_session_runtime_inner(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(session_id = %reader_id, error = %e, "PTY read error");
+                    if !reader_cancel_task.load(Ordering::Acquire) {
+                        tracing::warn!(session_id = %reader_id, error = %e, "PTY read error");
+                    }
                     break;
                 }
             }
         }
         let _ = reader_tx.blocking_send(DriverEvent::ReaderClosed);
+        #[cfg(windows)]
+        reader_finished_task.store(true, Ordering::Release);
     });
 
     let wait_tx = driver_tx.clone();
@@ -1287,9 +1417,13 @@ async fn start_session_runtime_inner(
                 let _ = driver_killer.lock().unwrap().kill();
             }
             if child_exit.is_none() && kill_requested {
-                pending_commands.clear();
+                while let Some(command) = pending_commands.pop_front() {
+                    reject_runtime_command(command);
+                }
                 control_rx.close();
-                while control_rx.try_recv().is_ok() {}
+                while let Ok(command) = control_rx.try_recv() {
+                    reject_runtime_command(command);
+                }
                 if let Some(write) = &pending_write {
                     write.cancel();
                 }
@@ -1304,13 +1438,46 @@ async fn start_session_runtime_inner(
                                 kill_rx.clone(),
                             ));
                         }
-                        RuntimeCommand::Resize { rows, cols } => {
-                            let _ = master.lock().unwrap().resize(PtySize {
-                                rows,
-                                cols,
-                                pixel_width: 0,
-                                pixel_height: 0,
-                            });
+                        RuntimeCommand::Resize {
+                            rows,
+                            cols,
+                            accepted,
+                        } => {
+                            let result = master
+                                .lock()
+                                .unwrap()
+                                .resize(PtySize {
+                                    rows,
+                                    cols,
+                                    pixel_width: 0,
+                                    pixel_height: 0,
+                                })
+                                .map(|()| ResizeApplication::Live)
+                                .map_err(|_| ());
+                            if result.is_ok() {
+                                let changed = {
+                                    let mut sessions = driver_state.sessions.lock().unwrap();
+                                    sessions.get_mut(&driver_id).is_some_and(|handle| {
+                                        let changed = handle.runtime.last_rows != rows
+                                            || handle.runtime.last_cols != cols;
+                                        handle.runtime.last_rows = rows;
+                                        handle.runtime.last_cols = cols;
+                                        changed
+                                    })
+                                };
+                                if changed {
+                                    let state = driver_state.clone();
+                                    let id = driver_id.clone();
+                                    let _ = tokio::task::spawn_blocking(move || {
+                                        crate::session_application::SessionApplication::new(state)
+                                            .persist_terminal_size(&id, false)
+                                    })
+                                    .await;
+                                }
+                            }
+                            if let Some(accepted) = accepted {
+                                let _ = accepted.send(result);
+                            }
                             continue;
                         }
                         RuntimeCommand::Kill => {
@@ -1399,6 +1566,7 @@ async fn start_session_runtime_inner(
                     // stop admitting new output, then drain what was already
                     // queued before finalizing so the lifecycle remains bounded.
                     driver_rx.close();
+                    reader_cancel.store(true, Ordering::Release);
                     reader_drain_finished = true;
                     reader_drain_deadline = None;
                 }
@@ -1562,9 +1730,21 @@ async fn start_session_runtime_inner(
                         }
                         DriverEvent::Exited => {
                             child_exit = Some(Ok(()));
-                            pending_commands.clear();
+                            if let Some(handle) = driver_state
+                                .sessions
+                                .lock()
+                                .unwrap()
+                                .get_mut(&driver_id)
+                            {
+                                handle.runtime.resize_closed = true;
+                            }
+                            while let Some(command) = pending_commands.pop_front() {
+                                reject_runtime_command(command);
+                            }
                             control_rx.close();
-                            while control_rx.try_recv().is_ok() {}
+                            while let Ok(command) = control_rx.try_recv() {
+                                reject_runtime_command(command);
+                            }
                             if let Some(write) = &pending_write {
                                 write.cancel();
                             }
@@ -1579,9 +1759,21 @@ async fn start_session_runtime_inner(
                         }
                         DriverEvent::WaitError(error) => {
                             child_exit = Some(Err(error));
-                            pending_commands.clear();
+                            if let Some(handle) = driver_state
+                                .sessions
+                                .lock()
+                                .unwrap()
+                                .get_mut(&driver_id)
+                            {
+                                handle.runtime.resize_closed = true;
+                            }
+                            while let Some(command) = pending_commands.pop_front() {
+                                reject_runtime_command(command);
+                            }
                             control_rx.close();
-                            while control_rx.try_recv().is_ok() {}
+                            while let Ok(command) = control_rx.try_recv() {
+                                reject_runtime_command(command);
+                            }
                             if let Some(write) = &pending_write {
                                 write.cancel();
                             }
@@ -1597,6 +1789,45 @@ async fn start_session_runtime_inner(
                 reader_drain_finished,
                 !driver_rx.is_empty(),
             ) {
+                driver_rx.close();
+                reader_cancel.store(true, Ordering::Release);
+                #[cfg(unix)]
+                if let Err(error) = reader_task.await {
+                    tracing::warn!(session_id = %driver_id, %error, "PTY reader task failed to join");
+                }
+                #[cfg(windows)]
+                {
+                    let cancel_deadline = tokio::time::Instant::now() + WINDOWS_READER_CANCEL_GRACE;
+                    let mut last_cancel_error = None;
+                    while !reader_finished.load(Ordering::Acquire)
+                        && tokio::time::Instant::now() < cancel_deadline
+                    {
+                        if let Some(error) =
+                            cancel_synchronous_reader(reader_thread_id.load(Ordering::Acquire))
+                        {
+                            last_cancel_error = Some(error);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                    if reader_finished.load(Ordering::Acquire) {
+                        if let Err(error) = reader_task.await {
+                            tracing::warn!(session_id = %driver_id, %error, "PTY reader task failed to join");
+                        }
+                    } else {
+                        tracing::error!(
+                            session_id = %driver_id,
+                            cancel_error = ?last_cancel_error,
+                            "Windows PTY reader did not stop within its cancellation grace"
+                        );
+                        drop(reader_task);
+                    }
+                }
+                #[cfg(all(not(unix), not(windows)))]
+                if reader_closed {
+                    if let Err(error) = reader_task.await {
+                        tracing::warn!(session_id = %driver_id, %error, "PTY reader task failed to join");
+                    }
+                }
                 let exit = child_exit.take().expect("child exit should be present");
                 let _ = drain_codex_reports_before_exit(
                     driver_state.clone(),
@@ -1697,6 +1928,19 @@ mod tests {
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
+
+    fn acknowledge_resize_as_startup(
+        mut control_rx: mpsc::Receiver<RuntimeCommand>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let Some(RuntimeCommand::Resize { accepted, .. }) = control_rx.recv().await else {
+                panic!("resize command should be received");
+            };
+            if let Some(accepted) = accepted {
+                let _ = accepted.send(Ok(ResizeApplication::Startup));
+            }
+        })
+    }
 
     struct GatedPtyWriter {
         delivered: Arc<Mutex<Vec<u8>>>,
@@ -3399,6 +3643,137 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    async fn child_exit_cancels_reader_when_silent_descendant_keeps_pty_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_id = "runtime-exit-silent-descendant-pty";
+        let state = test_state_with_runtime_session(session_id);
+        ingestion_test_workspace(&state, &dir);
+
+        let descendant_pid_path = dir.path().join("descendant.pid");
+        let script_path = dir.path().join("fork-silent-pty-holder.py");
+        let descendant_pid_file = format!("{:?}", descendant_pid_path.display().to_string());
+        std::fs::write(
+            &script_path,
+            format!(
+                "import os, signal, time\nchild_pid = os.fork()\nif child_pid == 0:\n signal.signal(signal.SIGHUP, signal.SIG_IGN)\n with open({descendant_pid_file}, 'w') as pid_file: pid_file.write(str(os.getpid()))\n time.sleep(60)\n os._exit(0)\nos.write(1, b'done\\n')\nos._exit(0)\n"
+            ),
+        )
+        .unwrap();
+        let command = harness::CommandSpec {
+            program: "python3".into(),
+            args: vec![script_path.display().to_string()],
+            cwd: dir.path().display().to_string(),
+        };
+
+        let (runtime, control_rx) = SessionRuntime::live(DEFAULT_TERMINAL_ROWS, 80);
+        let output_tx = runtime.output_tx.clone();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .unwrap()
+            .runtime = runtime;
+
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let (exit_observed_tx, mut exit_observed_rx) = tokio::sync::mpsc::unbounded_channel();
+        start_session_runtime_inner(
+            state.clone(),
+            session_id.to_string(),
+            command,
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            Some(exit_observed_tx),
+        )
+        .await
+        .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), exit_observed_rx.recv())
+            .await
+            .expect("driver should observe direct child exit")
+            .expect("exit observer should remain connected");
+        assert_eq!(
+            update_runtime_size(&state, session_id, 55, 210).await,
+            Err(()),
+            "resizes after child exit must be rejected during reader drain"
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id]
+                .runtime
+                .last_size(),
+            (DEFAULT_TERMINAL_ROWS, 80),
+            "rejected exit-drain resize must preserve the width used for reassembly"
+        );
+        let workspace = state.workspace.lock().unwrap();
+        assert_eq!(
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_terminal_size(session_id),
+            None,
+            "rejected exit-drain resize must not persist an unapplied PTY size"
+        );
+        drop(workspace);
+
+        let ended = tokio::time::timeout(READER_EXIT_DRAIN_GRACE + Duration::from_secs(2), async {
+            loop {
+                if state.sessions.lock().unwrap()[session_id]
+                    .info
+                    .lifecycle_phase
+                    == "ended"
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+
+        let descendant_pid: i32 = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(pid) = std::fs::read_to_string(&descendant_pid_path) {
+                    break pid.trim().parse().unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("silent PTY-holding descendant should record its pid");
+        let descendant_kept_running = unsafe { libc::kill(descendant_pid, 0) } == 0;
+        let descendant_fds = std::fs::read_dir(format!("/proc/{descendant_pid}/fd"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| std::fs::read_link(entry.path()).ok())
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        let descendant_holds_pty = descendant_fds.iter().any(|fd| fd.starts_with("/dev/pts/"));
+        if descendant_kept_running {
+            let _ = unsafe { libc::kill(descendant_pid, libc::SIGKILL) };
+        }
+
+        ended.expect("reader cancellation should let session exit finish within its drain bound");
+        assert!(
+            descendant_kept_running,
+            "descendant should remain alive and silent during drain"
+        );
+        assert!(
+            descendant_holds_pty,
+            "silent descendant should retain the slave PTY; descendant_fds={descendant_fds:?}"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
     async fn late_kill_request_does_not_relabel_natural_child_exit() {
         let dir = tempfile::tempdir().unwrap();
         let session_id = "runtime-exit-late-kill";
@@ -4223,7 +4598,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let id = "resize-session".to_string();
 
-        let (runtime, _control_rx) = SessionRuntime::live(24, 80);
+        let (runtime, control_rx) = SessionRuntime::live(24, 80);
         let (kill_tx, _) = tokio::sync::watch::channel(false);
         state.sessions.lock().unwrap().insert(
             id.clone(),
@@ -4247,7 +4622,9 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             },
         );
 
+        let driver = acknowledge_resize_as_startup(control_rx);
         let result = update_runtime_size(&state, &id, 55, 210).await;
+        driver.await.unwrap();
         assert_eq!(result, Ok(()));
 
         let ws_guard = state.workspace.lock().unwrap();
@@ -4277,7 +4654,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let mut info =
             crate::test_support::test_session_info(id.clone(), "Ending", "/tmp", "ended", "t0");
         info.lifecycle_phase = "ending".into();
-        let (runtime, _control_rx) = SessionRuntime::live(30, 100);
+        let (runtime, control_rx) = SessionRuntime::live(30, 100);
         let (kill_tx, _) = tokio::sync::watch::channel(false);
         state.sessions.lock().unwrap().insert(
             id.clone(),
@@ -4295,7 +4672,9 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             },
         );
 
+        let driver = acknowledge_resize_as_startup(control_rx);
         let result = update_runtime_size(&state, &id, 55, 210).await;
+        driver.await.unwrap();
         assert_eq!(result, Ok(()));
 
         let ws_guard = state.workspace.lock().unwrap();
@@ -4309,7 +4688,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let id = "unchanged-session".to_string();
 
-        let (runtime, _control_rx) = SessionRuntime::live(55, 210);
+        let (runtime, control_rx) = SessionRuntime::live(55, 210);
         let (kill_tx, _) = tokio::sync::watch::channel(false);
         state.sessions.lock().unwrap().insert(
             id.clone(),
@@ -4333,12 +4712,126 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             },
         );
 
+        let driver = acknowledge_resize_as_startup(control_rx);
         let result = update_runtime_size(&state, &id, 55, 210).await;
+        driver.await.unwrap();
         assert_eq!(result, Ok(()));
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         assert_eq!(ws.metadata.read_terminal_size(&id), None);
+    }
+
+    #[tokio::test]
+    async fn update_runtime_size_does_not_commit_when_driver_has_closed_control_channel() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "closed-resize-session".to_string();
+
+        let (mut runtime, control_rx) = SessionRuntime::live(24, 80);
+        runtime.resize_closed = true;
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Closed resize",
+                    "/tmp",
+                    "running",
+                    "t0",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+        drop(control_rx);
+
+        let result = update_runtime_size(&state, &id, 55, 210).await;
+        assert_eq!(result, Err(()));
+        assert_eq!(
+            state.sessions.lock().unwrap()[&id].runtime.last_size(),
+            (24, 80),
+            "a rejected resize must not change the width used for output reassembly",
+        );
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(ws.metadata.read_terminal_size(&id), None);
+    }
+
+    #[tokio::test]
+    async fn update_runtime_size_commits_a_resize_applied_before_exit_was_observed() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "applied-resize-before-exit-session".to_string();
+
+        let (runtime, mut control_rx) = SessionRuntime::live(24, 80);
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info: crate::test_support::test_session_info(
+                    id.clone(),
+                    "Applied resize",
+                    "/tmp",
+                    "running",
+                    "t0",
+                ),
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+
+        let driver_state = state.clone();
+        let driver_id = id.clone();
+        let driver = tokio::spawn(async move {
+            let Some(RuntimeCommand::Resize {
+                rows,
+                cols,
+                accepted: Some(accepted),
+            }) = control_rx.recv().await
+            else {
+                panic!("resize command should be received");
+            };
+            {
+                let mut sessions = driver_state.sessions.lock().unwrap();
+                let runtime = &mut sessions.get_mut(&driver_id).unwrap().runtime;
+                runtime.last_rows = rows;
+                runtime.last_cols = cols;
+                runtime.resize_closed = true;
+            }
+            crate::session_application::SessionApplication::new(driver_state.clone())
+                .persist_terminal_size(&driver_id, false);
+            let _ = accepted.send(Ok(ResizeApplication::Live));
+        });
+
+        let result = update_runtime_size(&state, &id, 55, 210).await;
+        driver.await.unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            state.sessions.lock().unwrap()[&id].runtime.last_size(),
+            (55, 210),
+            "an already-applied resize remains authoritative when child exit is observed before the caller resumes",
+        );
+        let workspace = state.workspace.lock().unwrap();
+        assert_eq!(
+            workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
+            Some((210, 55))
+        );
     }
 
     #[tokio::test]
@@ -4398,6 +4891,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             .send(RuntimeCommand::Resize {
                 rows: 40,
                 cols: 120,
+                accepted: None,
             })
             .await
             .unwrap();
@@ -5054,5 +5548,50 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             vec![format!("�{}", "x".repeat(MAX_PARTIAL_PERSIST_BYTES - 3))],
         );
         assert_eq!(String::from_utf8(buffer).unwrap(), "€");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn cancel_synchronous_reader_interrupts_a_blocked_pipe_read() {
+        use std::os::windows::io::{FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::{Foundation::HANDLE, System::Pipes::CreatePipe};
+
+        let mut read_handle: HANDLE = std::ptr::null_mut();
+        let mut write_handle: HANDLE = std::ptr::null_mut();
+        assert_eq!(
+            unsafe { CreatePipe(&mut read_handle, &mut write_handle, std::ptr::null(), 0,) },
+            1,
+            "test pipe should be created",
+        );
+        let reader = unsafe { std::fs::File::from_raw_handle(read_handle) };
+        let _writer = unsafe { OwnedHandle::from_raw_handle(write_handle) };
+        let reader_thread_id = Arc::new(AtomicU32::new(0));
+        let reader_thread_id_task = reader_thread_id.clone();
+        let reader_finished = Arc::new(AtomicBool::new(false));
+        let reader_finished_task = reader_finished.clone();
+        let reader_task = tokio::task::spawn_blocking(move || {
+            reader_thread_id_task.store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+            let mut byte = [0u8; 1];
+            let result = reader.read(&mut byte);
+            reader_finished_task.store(true, Ordering::Release);
+            result
+        });
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while reader_thread_id.load(Ordering::Acquire) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("reader worker should publish its Windows thread id");
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !reader_finished.load(Ordering::Acquire) {
+                let _ = cancel_synchronous_reader(reader_thread_id.load(Ordering::Acquire));
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("CancelSynchronousIo should interrupt the blocked pipe read");
+        assert!(reader_task.await.unwrap().is_err());
     }
 }
