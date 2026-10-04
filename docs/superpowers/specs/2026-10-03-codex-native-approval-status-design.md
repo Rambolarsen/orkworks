@@ -81,21 +81,26 @@ the successful Unix-socket diagnostics did not verify this transport.
 
 Eligibility is feature-probed on the actual configured executable with bounded
 help output and deadlines, not assumed from the harness ID or version string.
-Initially support canonical built-in launch and exact resume, including the
-existing selected-model augmentation and shared -c/--config and --enable/
---disable options. Convert the selected model to an equivalent server config
-value with a proper TOML string encoder. Preserve option order and precedence.
-The TUI receives its remote connection options and exact resume ID; the server
-receives execution configuration. Test the resulting effective config, not
-only the generated argument strings.
+Initially support canonical built-in launch and exact resume, plus the shared
+-c/--config and --enable/--disable options with tested execution parity. The
+current built-in Codex launch has empty args; build_launch renders a model only
+where its declared template contains a placeholder. A selected model stored in
+OrkWorks session metadata is therefore not an existing Codex launch override.
+The native path must not synthesize a server model setting from that metadata.
+Preserve the effective model from Codex's existing configuration in both paths;
+changing selected-model behavior is outside #690. Preserve option order and
+precedence. The TUI receives its remote connection options and exact resume ID;
+the server receives execution configuration. Test the resulting effective
+config, including a selected metadata model with unchanged built-in arguments,
+not only the generated argument strings.
 
 The accepted argument parser is an explicit allowlist, not a test for unknown
 spelling. Its only initial routes are: canonical empty new-session arguments
-and the exact resume subcommand/validated ID go to the remote TUI; selected
--m/--model becomes the equivalent server model config; -c/--config entries
-and --enable/--disable retain their original order on both server and TUI.
-The model conversion participates in that same precedence order. Native remote
-and authentication arguments are generated solely by this runtime owner.
+and the exact resume subcommand/validated ID go to the remote TUI; -c/--config
+entries and --enable/--disable retain their original order on both server and
+TUI. Native remote and authentication arguments are generated solely by this
+runtime owner. Supplied -m/--model is initially unmapped and takes direct launch;
+never derive such an argument from the session's selected-model metadata.
 Every supplied argument must have an explicit tested destination and equivalent
 semantics. Reject partial parsing, extra positional arguments, missing values,
 and argument terminators with unmapped trailing content. Recognized but unmapped
@@ -103,6 +108,19 @@ options, including --ask-for-approval/-a and --sandbox/-s, take the unchanged
 direct launch, just like unknown options. They are not silently ignored or
 translated by guesswork; default/config-file approval and sandbox values must
 still match under the effective-config tests.
+
+Run native eligibility against the original resolved CommandSpec before
+codex_launch::isolate_session augments direct-launch arguments. If eligibility
+selects direct launch, invoke that existing isolation helper unchanged: its
+bounded probe failure still aborts startup, and advertised --no-daemon is
+inserted once before spawn. The native path uses the explicit private server
+and remote endpoint instead of the shared daemon; it never receives a
+sidecar-injected --no-daemon argument from direct-launch preparation. A supplied
+--no-daemon is an unmapped user option and goes through direct fallback; do not
+strip it or mistake it for an owned augmentation. Cover this branch ordering
+for both canonical new launch and exact resume in the future argument tests,
+including a CLI whose help advertises --no-daemon. Native eligibility must
+remain reachable for those stock commands.
 
 Any unmapped option, custom wrapper/program change, explicit remote endpoint,
 profile whose execution config cannot be transferred exactly, or unsupported
