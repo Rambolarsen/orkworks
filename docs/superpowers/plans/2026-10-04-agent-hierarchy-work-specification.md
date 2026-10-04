@@ -81,9 +81,9 @@ unsupported outcomes remain valid findings and must block eligibility.
 **What is the biggest missing dependency?** The coordinator foundation is
 explicitly data-only: `taskmaster/coordinator.rs` and `coordinator_store.rs`
 state that runtime authority is absent. #604/#606 are closed foundation work;
-#610 still describes the older brokered/confined runner. The newer launch
-proposal and its implementation plan remain proposed. Scope alignment is a
-prerequisite, not an already completed launch capability.
+#610 now tracks the accepted ordinary-child scope alignment in PR #747.
+Detailed component contracts, exact capability evidence and scoped runtime
+implementation plans remain prerequisites; launch capability is not implemented.
 
 A further lifecycle gap is concrete: the launch proposal revokes the plan
 capability on completion, while the new preparation flow can finish research
