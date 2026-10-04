@@ -350,7 +350,10 @@ fn spawn_command_future(
             crate::runtime::session_runtime::send_runtime_input(&state, &id, data).await
         })),
         TerminalAction::Resize { rows, cols } => Some(Box::pin(async move {
-            crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).await
+            crate::runtime::session_runtime::apply_runtime_size_without_waiting_for_persistence(
+                &state, &id, rows, cols,
+            )
+            .await
         })),
         TerminalAction::Kill => Some(Box::pin(async move {
             crate::runtime::session_runtime::send_runtime_command(
