@@ -2138,6 +2138,20 @@ impl SessionApplication {
     /// must write after the runtime enters `ending` or `ended`; live-resize
     /// writes back off during those phases.
     pub(crate) fn persist_terminal_size(&self, id: &str, authoritative: bool) {
+        let _ = self.persist_terminal_size_with_snapshot(id, authoritative);
+    }
+
+    /// Persists the current PTY grid and returns the confirmed durable grid.
+    ///
+    /// The return value lets the runtime skip already-durable same-size writes.
+    /// The authoritative finalizer uses the same write lock before publishing
+    /// the ended metadata and event, so a historical replay cannot observe the
+    /// terminal state before its final grid is available.
+    pub(crate) fn persist_terminal_size_with_snapshot(
+        &self,
+        id: &str,
+        authoritative: bool,
+    ) -> Option<(u16, u16)> {
         let _write_guard = TERMINAL_SIZE_WRITE_LOCK.lock().unwrap();
         let snapshot = {
             let sessions = self.state.sessions.lock().unwrap();
@@ -2150,14 +2164,15 @@ impl SessionApplication {
             })
         };
         let Some((is_terminal, cols, rows)) = snapshot else {
-            return;
+            return None;
         };
         if is_terminal && !authoritative {
-            return;
+            return None;
         }
-        if let Some(ref ws) = *self.state.workspace.lock().unwrap() {
-            ws.metadata.write_terminal_size(id, cols, rows);
-        }
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let ws = workspace_guard.as_ref()?;
+        ws.metadata.write_terminal_size(id, cols, rows);
+        (ws.metadata.read_terminal_size(id) == Some((cols, rows))).then_some((cols, rows))
     }
 
     /// Persists output recency without allowing delayed writes to move the
@@ -3214,6 +3229,11 @@ impl SessionApplication {
                 return false;
             }
         }
+
+        // Make the final replay grid durable before writing the ended session
+        // record and event. This work stays on the finalizer task, not the PTY
+        // driver, and serializes with deferred live-resize writes.
+        self.persist_terminal_size(id, true);
 
         let now = iso_now();
         let mut final_status: Option<String> = None;
@@ -7897,6 +7917,21 @@ mod tests {
             .metadata
             .read_session(id)
             .unwrap();
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_terminal_size(id),
+            Some((
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+            )),
+            "the final terminal grid must be durable before the session is published as ended"
+        );
         assert_eq!(stored.pending_terminal_status, None);
         assert_eq!(stored.final_observed_status_snapshot, Some(snapshot));
     }

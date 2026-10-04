@@ -151,14 +151,60 @@ pub(crate) struct PendingWorkSignal {
     banner_grace_ends_at: tokio::time::Instant,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
+struct TerminalSizePersistState {
+    generation: u64,
+    result: Option<Result<(), ()>>,
+}
+
+#[derive(Debug)]
 struct TerminalSizePersistQueue {
     generation: u64,
     running: bool,
-    waiters: Vec<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+    target_size: Option<(u16, u16)>,
+    durable_size: Option<(u16, u16)>,
+    completion: tokio::sync::watch::Sender<TerminalSizePersistState>,
 }
 
-type TerminalSizePersistCompletion = tokio::sync::oneshot::Receiver<Result<(), ()>>;
+impl Default for TerminalSizePersistQueue {
+    fn default() -> Self {
+        let (completion, _receiver) = tokio::sync::watch::channel(TerminalSizePersistState {
+            generation: 0,
+            result: None,
+        });
+        Self {
+            generation: 0,
+            running: false,
+            target_size: None,
+            durable_size: None,
+            completion,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TerminalSizePersistCompletion {
+    #[allow(dead_code)]
+    target_generation: u64,
+    #[allow(dead_code)]
+    receiver: tokio::sync::watch::Receiver<TerminalSizePersistState>,
+}
+
+impl TerminalSizePersistCompletion {
+    #[cfg(test)]
+    async fn wait(&mut self) -> Result<(), ()> {
+        loop {
+            let state = *self.receiver.borrow();
+            if state.generation >= self.target_generation {
+                if let Some(result) = state.result {
+                    return result;
+                }
+            }
+            self.receiver.changed().await.map_err(|_| ())?;
+        }
+    }
+}
 
 pub(crate) fn arm_pending_work_signal(
     submitted_line: &str,
@@ -849,14 +895,22 @@ fn apply_runtime_size_to_state(state: &Arc<AppState>, id: &str, rows: u16, cols:
 // Terminal-size persistence can block on metadata I/O. Keep it off the PTY
 // driver so output ingestion continues even when the workspace is slow.
 fn completed_terminal_size_persist() -> TerminalSizePersistCompletion {
-    let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
-    let _ = completed_tx.send(Ok(()));
-    completed_rx
+    let (completion, receiver) = tokio::sync::watch::channel(TerminalSizePersistState {
+        generation: 0,
+        result: Some(Ok(())),
+    });
+    drop(completion);
+    TerminalSizePersistCompletion {
+        target_generation: 0,
+        receiver,
+    }
 }
 
 fn schedule_terminal_size_persist(
     state: &Arc<AppState>,
     id: &str,
+    rows: u16,
+    cols: u16,
 ) -> TerminalSizePersistCompletion {
     let queue = state
         .sessions
@@ -868,19 +922,24 @@ fn schedule_terminal_size_persist(
         return completed_terminal_size_persist();
     };
 
-    let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
-    let start_worker = {
+    let (generation, completion_receiver, start_worker) = {
         let mut queue = queue.lock().unwrap();
-        queue.generation = queue
-            .generation
-            .checked_add(1)
-            .expect("terminal-size persistence generation exhausted");
-        queue.waiters.push(completed_tx);
-        if queue.running {
-            false
+        let size = (cols, rows);
+        if queue.durable_size == Some(size) && (!queue.running || queue.target_size == Some(size)) {
+            return completed_terminal_size_persist();
+        }
+
+        if queue.running && queue.target_size == Some(size) {
+            (queue.generation, queue.completion.subscribe(), false)
         } else {
+            queue.generation = queue
+                .generation
+                .checked_add(1)
+                .expect("terminal-size persistence generation exhausted");
+            queue.target_size = Some(size);
+            let start_worker = !queue.running;
             queue.running = true;
-            true
+            (queue.generation, queue.completion.subscribe(), start_worker)
         }
     };
 
@@ -894,33 +953,38 @@ fn schedule_terminal_size_persist(
                 let persist_id = id.clone();
                 let result = tokio::task::spawn_blocking(move || {
                     crate::session_application::SessionApplication::new(persist_state)
-                        .persist_terminal_size(&persist_id, false);
+                        .persist_terminal_size_with_snapshot(&persist_id, false)
                 })
                 .await;
-                let persistence_result = match result {
-                    Ok(()) => Ok(()),
+                let (persistence_result, persisted_size) = match result {
+                    Ok(Some(size)) => (Ok(()), Some(size)),
+                    Ok(None) => (Ok(()), None),
                     Err(error) => {
                         tracing::warn!(session_id = %id, %error, "terminal-size persistence task failed");
-                        Err(())
+                        (Err(()), None)
                     }
                 };
 
-                let waiters = {
-                    let mut queue = queue.lock().unwrap();
-                    if queue.generation != generation {
-                        continue;
-                    }
-                    queue.running = false;
-                    std::mem::take(&mut queue.waiters)
-                };
-                for waiter in waiters {
-                    let _ = waiter.send(persistence_result);
+                let mut queue = queue.lock().unwrap();
+                if queue.generation != generation {
+                    continue;
                 }
+                queue.running = false;
+                if let Some(size) = persisted_size {
+                    queue.durable_size = Some(size);
+                }
+                queue.completion.send_replace(TerminalSizePersistState {
+                    generation,
+                    result: Some(persistence_result),
+                });
                 break;
             }
         });
     }
-    completed_rx
+    TerminalSizePersistCompletion {
+        target_generation: generation,
+        receiver: completion_receiver,
+    }
 }
 
 #[cfg(test)]
@@ -946,8 +1010,8 @@ pub(crate) async fn update_runtime_size(
     })
     .await
     .map_err(|_| ())?;
-    let persistence = accepted_rx.await.map_err(|_| ())??;
-    persistence.await.map_err(|_| ())??;
+    let mut persistence = accepted_rx.await.map_err(|_| ())??;
+    persistence.wait().await?;
     Ok(())
 }
 
@@ -976,12 +1040,7 @@ pub(crate) async fn apply_runtime_size_without_waiting_for_persistence(
     })
     .await
     .map_err(|_| ())?;
-    let persistence = accepted_rx.await.map_err(|_| ())??;
-    tokio::spawn(async move {
-        if persistence.await.unwrap_or(Err(())).is_err() {
-            tracing::warn!("terminal-size metadata persistence failed after resize");
-        }
-    });
+    let _persistence = accepted_rx.await.map_err(|_| ())??;
     Ok(())
 }
 
@@ -1010,7 +1069,7 @@ async fn capture_startup_runtime_state(
                 initial_size.rows = rows;
                 initial_size.cols = cols;
                 apply_runtime_size_to_state(state, session_id, rows, cols);
-                let persistence = schedule_terminal_size_persist(state, session_id);
+                let persistence = schedule_terminal_size_persist(state, session_id, rows, cols);
                 if let Some(accepted) = accepted {
                     let _ = accepted.send(Ok(persistence));
                 }
@@ -1648,7 +1707,12 @@ async fn start_session_runtime_inner(
                                 .map_err(|_| ());
                             let result = resize_result.map(|()| {
                                 apply_runtime_size_to_state(&driver_state, &driver_id, rows, cols);
-                                schedule_terminal_size_persist(&driver_state, &driver_id)
+                                schedule_terminal_size_persist(
+                                    &driver_state,
+                                    &driver_id,
+                                    rows,
+                                    cols,
+                                )
                             });
                             if let Some(accepted) = accepted {
                                 let _ = accepted.send(result);
@@ -2100,7 +2164,7 @@ mod tests {
                 panic!("resize command should be received");
             };
             apply_runtime_size_to_state(&state, &session_id, rows, cols);
-            let persistence = schedule_terminal_size_persist(&state, &session_id);
+            let persistence = schedule_terminal_size_persist(&state, &session_id, rows, cols);
             if let Some(accepted) = accepted {
                 let _ = accepted.send(Ok(persistence));
             }
@@ -4830,18 +4894,17 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         );
 
         let workspace = state.workspace.lock().unwrap();
-        let mut persist = schedule_terminal_size_persist(&state, &id);
+        let mut persist = schedule_terminal_size_persist(&state, &id, 55, 210);
         assert!(
-            tokio::time::timeout(Duration::from_millis(20), &mut persist)
+            tokio::time::timeout(Duration::from_millis(20), persist.wait())
                 .await
                 .is_err(),
             "the persistence worker should be blocked on the held workspace lock, not its caller"
         );
         drop(workspace);
-        tokio::time::timeout(Duration::from_secs(1), persist)
+        tokio::time::timeout(Duration::from_secs(1), persist.wait())
             .await
             .expect("persistence should finish after releasing the workspace lock")
-            .expect("persistence completion should be reported")
             .expect("persistence attempt should succeed");
         let workspace = state.workspace.lock().unwrap();
         assert_eq!(
@@ -4882,7 +4945,12 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         let mut completions = Vec::new();
         for generation in 0..16_u16 {
             apply_runtime_size_to_state(&state, &id, 55 + generation, 210 + generation);
-            completions.push(schedule_terminal_size_persist(&state, &id));
+            completions.push(schedule_terminal_size_persist(
+                &state,
+                &id,
+                55 + generation,
+                210 + generation,
+            ));
         }
 
         let persistence = state.sessions.lock().unwrap()[&id]
@@ -4893,11 +4961,12 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             let persistence = persistence.lock().unwrap();
             assert!(persistence.running, "a persistence worker should be active");
             assert_eq!(persistence.generation, 16);
-            assert_eq!(persistence.waiters.len(), 16);
+            assert_eq!(persistence.target_size, Some((225, 70)));
+            assert_eq!(persistence.durable_size, None);
         }
         for completion in &mut completions {
             assert!(
-                tokio::time::timeout(Duration::from_millis(20), completion)
+                tokio::time::timeout(Duration::from_millis(20), completion.wait())
                     .await
                     .is_err(),
                 "resize acknowledgements should wait while metadata persistence is blocked"
@@ -4906,10 +4975,10 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         drop(workspace);
 
         for completion in completions {
-            tokio::time::timeout(Duration::from_secs(1), completion)
+            let mut completion = completion;
+            tokio::time::timeout(Duration::from_secs(1), completion.wait())
                 .await
                 .expect("coalesced persistence should finish after releasing the lock")
-                .expect("persistence completion should be reported")
                 .expect("persistence attempt should succeed");
         }
         let workspace = state.workspace.lock().unwrap();
@@ -4917,6 +4986,23 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             workspace.as_ref().unwrap().metadata.read_terminal_size(&id),
             Some((225, 70)),
             "the coalesced write should persist the newest dimensions"
+        );
+        drop(workspace);
+
+        let persistence = state.sessions.lock().unwrap()[&id]
+            .runtime
+            .terminal_size_persist
+            .clone();
+        let generation_before_same_size = persistence.lock().unwrap().generation;
+        let mut already_durable = schedule_terminal_size_persist(&state, &id, 70, 225);
+        tokio::time::timeout(Duration::from_millis(20), already_durable.wait())
+            .await
+            .expect("already-durable same-size persistence should complete immediately")
+            .expect("already-durable same-size persistence should succeed");
+        assert_eq!(
+            persistence.lock().unwrap().generation,
+            generation_before_same_size,
+            "an already-durable same-size resize should not schedule another write"
         );
     }
 
@@ -5111,6 +5197,19 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         .await
         .expect("terminal resize should not wait for metadata persistence")
         .expect("PTY resize should be acknowledged");
+        let persistence_queue = state.sessions.lock().unwrap()[&id]
+            .runtime
+            .terminal_size_persist
+            .clone();
+        assert_eq!(
+            persistence_queue
+                .lock()
+                .unwrap()
+                .completion
+                .receiver_count(),
+            0,
+            "the terminal socket path should not retain one persistence waiter per resize"
+        );
         drop(workspace_guard);
         driver.await.unwrap();
     }
@@ -5366,7 +5465,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
                 .unwrap()
                 .runtime
                 .resize_closed = true;
-            let persistence = schedule_terminal_size_persist(&driver_state, &driver_id);
+            let persistence = schedule_terminal_size_persist(&driver_state, &driver_id, rows, cols);
             let _ = accepted.send(Ok(persistence));
         });
 
