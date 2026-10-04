@@ -1894,7 +1894,13 @@ impl SessionApplication {
                 .lock()
                 .unwrap();
             let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
-            let (handle_decision, session_resume, entered_running, entered_terminal) = {
+            let (
+                handle_decision,
+                session_resume,
+                entered_running,
+                entered_terminal,
+                already_ending,
+            ) = {
                 let mut sessions = state.sessions.lock().unwrap();
                 if expected_generation.is_some_and(|expected| {
                     !sessions
@@ -1911,12 +1917,11 @@ impl SessionApplication {
                     }
                     let entered_running =
                         !is_terminal && status == "running" && handle.info.status != "running";
-                    if is_terminal
-                        && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                    {
+                    let already_ending = is_terminal && handle.info.lifecycle_phase == "ending";
+                    if is_terminal && handle.info.lifecycle_phase == "ended" {
                         return false;
                     }
-                    if is_terminal {
+                    if is_terminal && !already_ending {
                         handle.info.status = "running".to_string();
                         handle.info.lifecycle_phase = "ending".to_string();
                         handle.info.lifecycle = "stopping".to_string();
@@ -1924,7 +1929,7 @@ impl SessionApplication {
                         handle.info.connectivity =
                             Some(connectivity_for_status("running").to_string());
                         handle.info.terminal_outcome = None;
-                    } else {
+                    } else if !is_terminal {
                         handle.info.status = status.clone();
                         handle.info.lifecycle_phase = if status == "creating" {
                             "creating".to_string()
@@ -1950,9 +1955,10 @@ impl SessionApplication {
                         (handle.info.resume.clone(), handle.info.resumed_from.clone()),
                         entered_running,
                         is_terminal,
+                        already_ending,
                     )
                 } else {
-                    (None, (None, None), false, false)
+                    (None, (None, None), false, false, false)
                 }
             };
             if entered_terminal {
@@ -1996,9 +2002,12 @@ impl SessionApplication {
                             .map(|handle| handle.info.lifecycle_phase.clone()),
                     };
                     if (is_terminal
-                        && meta.lifecycle_phase == "ended"
-                        && (handle_decision.is_none()
-                            || live_handle_phase.as_deref() == Some("ended")))
+                        && already_ending
+                        && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
+                        || (is_terminal
+                            && meta.lifecycle_phase == "ended"
+                            && (handle_decision.is_none()
+                                || live_handle_phase.as_deref() == Some("ended")))
                         || (!is_terminal
                             && matches!(live_handle_phase.as_deref(), Some("ending" | "ended")))
                         || (handle_decision.is_none()
@@ -11209,6 +11218,66 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn delayed_terminal_transition_persists_metadata_after_runtime_fallback_marks_ending() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "fallback-ending-transition";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Fallback ending transition",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.observed_status = Some("working".into());
+        metadata.metadata_source = "peon".into();
+        metadata.metadata_confidence = 0.8;
+        metadata.final_observed_status_snapshot = None;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let mut handle = attention_test_handle(id, root.path());
+        let generation = handle.runtime.run_generation();
+        handle.info.status = "running".into();
+        handle.info.lifecycle_phase = "ending".into();
+        handle.info.lifecycle = "stopping".into();
+        handle.info.observed_status = None;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        assert!(
+            SessionApplication::new(state.clone())
+                .transition_session_status(id, Some(generation), "ended")
+                .await,
+            "the delayed transition must persist metadata after the runtime fallback marks the live handle ending"
+        );
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.lifecycle_phase, "ending");
+        assert_eq!(stored.pending_terminal_status.as_deref(), Some("ended"));
+        let ending_snapshot = stored.ending_observed_status_snapshot.unwrap();
+        assert_eq!(ending_snapshot.value.as_deref(), Some("working"));
+        assert_eq!(ending_snapshot.source, "peon");
+        assert_eq!(ending_snapshot.confidence, Some(0.8));
     }
 
     #[tokio::test]

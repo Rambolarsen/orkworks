@@ -1109,8 +1109,8 @@ pub(crate) async fn handle_runtime_exit(
                     // lock, for example while another status transition owns the
                     // global transition mutex. Establish this generation's
                     // in-memory ending phase here so the finalizer can still run;
-                    // the detached transition will observe it and decline to
-                    // overwrite the final state when it eventually resumes.
+                    // when the detached transition resumes, it can persist the
+                    // terminal metadata without moving this handle out of ending.
                     handle.info.status = "running".into();
                     handle.info.lifecycle_phase = "ending".into();
                     handle.info.lifecycle = "stopping".into();
@@ -5206,6 +5206,10 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         );
         metadata.lifecycle_phase = "active".into();
         metadata.lifecycle = "alive".into();
+        metadata.observed_status = Some("working".into());
+        metadata.metadata_source = "peon".into();
+        metadata.metadata_confidence = 0.8;
+        metadata.final_observed_status_snapshot = None;
         state
             .workspace
             .lock()
@@ -5230,7 +5234,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             "the current runtime generation must enter finalization"
         );
 
-        tokio::time::timeout(Duration::from_secs(2), async {
+        let finalized_after_release = tokio::time::timeout(Duration::from_secs(2), async {
             loop {
                 if state.sessions.lock().unwrap()[&id].info.lifecycle_phase == "ended" {
                     break;
@@ -5239,7 +5243,21 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             }
         })
         .await
-        .expect("runtime exit should finalize after the transition lock is released");
+        .is_ok();
+        assert!(
+            finalized_after_release,
+            "runtime exit should finalize after the transition lock is released; live={:?}, metadata={:?}",
+            state.sessions.lock().unwrap()[&id].info.lifecycle_phase,
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(&id)
+                .map(|stored| (stored.lifecycle_phase, stored.pending_terminal_status))
+        );
         let stored = state
             .workspace
             .lock()
@@ -5251,6 +5269,10 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             .unwrap();
         assert_eq!(stored.lifecycle_phase, "ended");
         assert_eq!(stored.status, "ended");
+        let final_snapshot = stored.final_observed_status_snapshot.unwrap();
+        assert_eq!(final_snapshot.value.as_deref(), Some("working"));
+        assert_eq!(final_snapshot.source, "peon");
+        assert_eq!(final_snapshot.confidence, Some(0.8));
     }
 
     #[tokio::test]
