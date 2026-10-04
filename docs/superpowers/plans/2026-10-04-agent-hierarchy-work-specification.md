@@ -30,6 +30,16 @@ launch identity must pin the actual resolved executable chain.
 
 Task 3 now has a [preparation lifecycle draft](../specs/2026-10-04-orchestrator-preparation-design.md): the user chose a continuously running parent with automatic execution-plan preparation. Run planning authority, exact-plan grants, event continuation and run-wide capacity are proposed contracts awaiting review. Tasks 4–7 remain queued. Code execution planning remains behind the authoritative scope alignment, written contract review, and capability evidence gates.
 
+## Work-picking priority
+
+The user made this initiative and directly related bugs the first priority when
+picking work. Follow the root `AGENTS.md` priority and its
+[development workflow reference](../../agents/development-workflow.md#issue-prioritization-and-scope).
+Within this focus, address related bugs/stabilization and ready prerequisites
+before dependent feature work. Link related issues to #738 and name the affected
+contract/component. Existing spec, capability, approval and dependency gates
+still apply; priority is not runtime authorization.
+
 ## Global Constraints
 
 - Product scope is approved for work specification; detailed contracts and execution plans require their own review before code starts.

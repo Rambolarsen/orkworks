@@ -234,7 +234,12 @@ standard. Preserve blockers/cancellation/interruption as separate run statuses;
 they do not automatically assign a poor evaluation.
 
 Acceptance criteria and a role-appropriate quality rubric are part of the
-approved task definition. The following are proposed score-detail defaults:
+approved task definition. New root/child configurations require at least one
+required criterion; empty or optional-only sets fail approval validation. A
+legacy/malformed evaluation with no required criteria has no completeness
+percentage and cannot yield Meets requirements. Keep it Unassessed unless
+another known failure establishes Needs rework; never calculate `0 / 0`.
+The following are proposed score-detail defaults:
 
 - Completeness: record each required criterion as satisfied, unsatisfied, or
   unassessed. When all are assessed, compute the satisfied count divided by

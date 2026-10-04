@@ -15,14 +15,24 @@ those rules.
 ## Issue prioritization and scope
 
 All implementation work is tracked in the
-[GitHub issue board](https://github.com/Rambolarsen/orkworks/issues). Prioritize
-actionable GitHub Copilot harness work first, including resume, model
-selection, capacity signals, native voice, session-ID capture, and
-attention/integration coverage (issues #323–#327). Once none is actionable,
-prioritize stabilization work: user-visible bugs, regressions, failing tests,
-and correctness or data-integrity bugs. Then select net-new work from the
-lowest incomplete milestone, breaking ties by user impact, especially current
-usability and data correctness.
+[GitHub issue board](https://github.com/Rambolarsen/orkworks/issues). The current
+user-directed priority is the agent hierarchy, orchestrator preparation and
+configuration-learning initiative: [#738](https://github.com/Rambolarsen/orkworks/issues/738),
+#740–#746 and their tracked prerequisites, including #610 scope alignment.
+Directly related bugs and stabilization are part of this focus. Pick related
+bugs/stabilization and ready prerequisites before dependent feature work, then
+break ties by user impact. A related issue identifies the affected contract or
+component and links to this initiative; a broad Taskmaster label alone is not
+sufficient. This priority does not authorize blocked runtime work: spec review,
+capability evidence, dependencies and implementation approval remain binding.
+
+When no work in that focus is actionable, prioritize GitHub Copilot harness
+work, including resume, model selection, capacity signals, native voice,
+session-ID capture and attention/integration coverage. Once none is actionable,
+prioritize stabilization: user-visible bugs, regressions, failing tests, and
+correctness or data-integrity bugs. Then select net-new work from the lowest
+incomplete milestone, breaking ties by user impact, especially current usability
+and data correctness.
 
 Create future work as scoped, deliverable-sized issues with checkbox acceptance
 criteria. Keep issues synchronized with the codebase by closing completed work

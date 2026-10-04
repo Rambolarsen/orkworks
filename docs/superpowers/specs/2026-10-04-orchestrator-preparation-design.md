@@ -145,6 +145,47 @@ binding; a new report needs a new immutable version with that binding. Existing
 report versions retain their original generation as historical evidence, never
 rewritten or silently promoted to the resumed runtime's current delivery.
 
+### Authenticated report submission
+
+The proposed `submitResearchReport` child tool uses
+`POST /sessions/{childSessionId}/orchestration/research-reports` on the existing
+local sidecar channel. The request carries `schemaVersion` (1),
+`expectedTaskVersion` and the immutable report descriptor, at most 32 KiB
+including the envelope. It uses `Authorization: Bearer` with a distinct
+OS-random `ResearchReportCapability`, injected through the verified child's
+startup environment/tool integration, never model prompts or renderer state.
+The parent's run bearer and ordinary workflow-report token are not accepted as
+child report authentication. No second UI token is introduced.
+
+Before child start the sidecar binds this volatile capability to workspace,
+admission epoch/run, parent, exact approved plan/revision/task/reservation,
+child session, configuration, sidecar and producer launch generations. It
+allows only submission/reading of that assignment's report receipts and bounded
+current report/task-version metadata. It grants no launch, approval, terminal
+control, external-source or unrelated-session action. The adapter exposes only
+this scoped tool; read-only researchers do not gain shell execution to report.
+These credentials are same-user workflow associations, not OS process proof.
+
+Validate authentication and current generation before schema/version/idempotency
+checks and persistence. IDs/digests/source scope must match the stored assignment;
+producer identity is sidecar-derived, never trusted from body fields. Responses:
+`201` stores a new receipt; `200` returns an identical stored receipt; `400` invalid
+schema; `401` absent/revoked capability; `403` cross-assignment/scope access;
+`409` stale generation/task version or conflicting report ID/version; `413`
+oversize; `429` rate limited. Bounded responses provide current authorized
+metadata where needed; retries do not alter task outcomes or version counts.
+
+Revoke this capability when that child runtime ends/resumes, on sidecar/workspace
+change, run cancellation/final completion or namespace rotation. A live child
+may report while its stage plan is paused/complete and the run remains active;
+a report still cannot restore a launch grant. On an explicit verified child
+resume, issue a fresh generation-bound capability, retain historical reports,
+and require new versions for current delivery. After final run completion,
+corrections require a separate Electron-authorized user-provenance record;
+they cannot impersonate a child or reopen the run. Report acceptance emits a
+bounded run event for automatic parent collection. Apply the stated report/rate/
+aggregate limits before persistence and serialize with runtime/run revocation.
+
 A report is an agent claim with provenance, not proof that its recommendations
 are correct. Native tool observations and independent review evidence remain
 separate. No full prompts, credentials, hidden reasoning, or complete transcripts
@@ -367,7 +408,10 @@ it cannot repeatedly resubmit the identical rejected digest or treat elapsed
 time as approval. Required new research is another exact approved bounded plan.
 There is no automatic retry/review loop or new undeclared remediation task.
 
-On parent death/restart, discard all volatile capabilities and grants. Startup
+On parent death, revoke the parent run bearer/grants; existing live children
+may still submit reports through their unchanged scoped capabilities while the
+run is paused. Sidecar/workspace change discards every volatile capability and
+grant. Startup
 reconciliation attaches exact recorded children to reservations or records
 `launch_interrupted`; it never relaunches children. The UI may resume the same
 OrkWorks parent ID with verified exact native identity, a new runtime generation
@@ -391,7 +435,7 @@ replace old approval evidence to make room.
 | --- | --- |
 | IDs / digests | Role contract: 128-byte ASCII IDs / lowercase 64-character SHA-256 |
 | Run definition | 16 KiB excluding the separately retained bootstrap, at most 16 plans per run |
-| Bootstrap | Role contract's 64 KiB inclusive snapshot/content limit |
+| Bootstrap | Role contract's 1 MiB inclusive snapshot/content limit (256 KiB rendered context) |
 | Run child ceiling | UI-selected integer 1–16; each plan's ceiling is no greater |
 | Plan revisions | At most 64 per plan; baseline 128 tasks / 2 MiB total definition limit |
 | Preparation revisions / clarifications | At most 64 revisions and 32 question/answer pairs per run |
@@ -497,6 +541,7 @@ live coding-tool probes were run while drafting this document.
 | Old research grant / old plan bearer presented | No launch or renewal; never revive an expired credential |
 | Run bearer without current exact grant | Planning allowed while active, child launch denied |
 | Approve execution with old child filling run ceiling | Grant exists, launch waits; no implicit termination or slot release |
+| Unauthenticated/cross-child report / parent run bearer used for ingestion | Reject; only the exact generation-bound child report capability can submit |
 | Report event without task-turn receipt | Store report, do not infer task result or advance dependency |
 | Required review conflict / unknown capability | Block ready execution proposal; explain missing evidence |
 | Pending proposal report corrected | New input revision invalidates old proposal; approval fails stale |

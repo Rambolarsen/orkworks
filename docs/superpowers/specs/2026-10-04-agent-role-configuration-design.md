@@ -113,6 +113,10 @@ is allowed only if unknown visibility was part of approval; under pinned it
 blocks verified delivery. Evaluations/learning retain approved binding and
 observations separately, never pooling unknown into a known-model cohort.
 
+Each root/child assignment contains 1–32 criterion snapshots, including at least
+one `required` criterion. Optional-only or empty sets fail validation before
+approval; optional criteria cannot become a zero-denominator completeness rubric.
+
 ### Canonicalization
 
 1. Validate the complete descriptor and each referenced snapshot. Hash snapshot
@@ -352,7 +356,12 @@ control the provider's internal infrastructure. Inherited ordinary-session
 credentials remain governed by the baseline; they do not grant connector or
 agent-requested network actions in the effective profile.
 
-Repository path descriptors are root-relative, use `/`, and reject absolute,
+Permission path entries are tagged descriptors: `{ "kind": "worktree-root" }`
+means the entire exact approved worktree/repository root and has no `path` field;
+`{ "kind": "file" | "subtree", "path": "..." }` names a descendant.
+Reject unknown fields/kinds. Show the canonical absolute bound root in approval;
+the root descriptor cannot mean another worktree, a home directory or the
+filesystem root. Descendant paths are root-relative, use `/`, and reject absolute,
 empty, `.`/`..`, NUL, and drive-qualified components. Canonical launch paths are
 resolved against the approved exact worktree root and recorded separately.
 Reject symlink/reparse-point escape from the approved scope, including a missing
@@ -457,13 +466,21 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 | Criteria/dimensions | 32 acceptance criteria and 16 rubric dimensions; 2 KiB per description and output-contract text, 4 KiB assignment description |
 | Paths/tools/actions | 64 read paths, 64 write paths, 64 tools, 32 commands, 32 source policies, 16 connectors, 16 coordination actions; path/reference 2 KiB, policy text 2 KiB; dependencies at most 128 unique task IDs |
 | Commands | 64 argv elements, 2 KiB per element, 32 environment bindings per command, 128-byte names, 2 KiB nonsecret values; credential slot/source/scope/policy references at most 512 bytes each; no credential values retained |
-| Supplied instructions | 16 KiB total rendered context, including all selected instruction content; individual skill/rule/template cannot exceed this total |
-| Configuration | 64 KiB serialized descriptor plus its inline snapshots; rendered content counts within that bound |
+| Supplied instructions | 256 KiB total rendered context, including all selected instruction content; individual skill/rule/template cannot exceed this total |
+| Configuration | 1 MiB serialized descriptor plus its inline snapshots; rendered content counts within that bound |
 | Plan | 128 tasks and 2 MiB total approved definition, inclusive of every configuration; lower existing/upstream limit always wins |
 | Template catalog | 64 role-template versions per workspace, including pinned historical versions; 1 MiB total |
 | Evidence references | 16 per configuration, each at most 2 KiB; no raw event transcripts |
 | Blocker/delivery records | At most 16 KiB per record, 16 evidence references and 16 skill delivery entries; idempotency/rate/aggregate retention belong to #742/#743 |
 | Admission | Reject oversized/unsupported input before writing or launching; never truncate mandatory content or evict referenced snapshots |
+
+The 256 KiB rendered-context ceiling accommodates the checked-in mandatory
+rules: at reviewed commit `e111fd6c`, root `AGENTS.md` is 48,894 bytes, desktop
+rules 3,248 and sidecar rules 2,698 (54,840 combined), before role/assignment/skill
+content. Include every applicable byte; never truncate rules to fit. A complete
+configuration includes snapshots and rendered bytes within its 1 MiB cap.
+The 2 MiB plan ceiling still applies to all configurations together, so the
+maximum task count is not a promise that every maximum-sized descriptor fits.
 
 These are record/admission bounds, not coding-tool context guarantees or runtime
 resource ceilings. A tool with a lower verified startup/context limit lowers
@@ -529,6 +546,9 @@ example, not evidence that such an adapter exists.
 
 | Case | Required outcome |
 | --- | --- |
+| Root/scoped rules larger than former 16 KiB cap | Full applicable bytes admitted only within the new bounds and verified adapter context capacity; never truncated |
+| Whole worktree scope | Explicit `worktree-root` descriptor resolves to that approved canonical root, with normal escape/adapter checks |
+| Empty/optional-only acceptance criteria | Reject approval; at least one required criterion needed |
 | Same logical skill/version, different bytes | Different configuration; old approval cannot launch new bytes |
 | Reordered object keys | Same canonical bytes/digest; duplicate keys rejected |
 | Reordered skills in input | Validate canonical skill ordering before rendering; equivalent sorted definition produces same digest |
