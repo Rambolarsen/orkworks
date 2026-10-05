@@ -46,6 +46,13 @@ impl Client {
         token: &str,
         record: CompatibilityRecord,
     ) -> Result<Self, NativeError> {
+        // Pinned 0.160 initialize_processor exempts only these upstream
+        // backend identities from global originator/UA and implicit gateway
+        // login mutation. Do not use a custom originating client name here.
+        let passive_name = match record.protocol {
+            "v2-thread-status-0.160" => "codex_app_server_daemon",
+            _ => return Err(NativeError::Shape),
+        };
         // Endpoint is created by our private loopback-port owner, never by user input.
         let request = auth_request(endpoint, token)?;
         let config = WebSocketConfig {
@@ -56,7 +63,7 @@ impl Client {
         tokio::time::timeout(TIMEOUT,async {
             let (socket,_)=tokio_tungstenite::connect_async_with_config(request,Some(config),false).await.map_err(wire_error)?;
             let mut client=Self {socket,next_id:1};
-            let result=client.request("initialize",json!({"clientInfo":{"name":"orkworks_passive_observer","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":false}})).await?;
+            let result=client.request("initialize",json!({"clientInfo":{"name":passive_name,"version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":false}})).await?;
             let object=result.as_object().ok_or(NativeError::Shape)?;
             if object.len()!=4 || object.get("platformOs").and_then(Value::as_str)!=Some(record.os) || object.get("platformFamily").and_then(Value::as_str)!=Some("unix") || !object.get("codexHome").and_then(Value::as_str).is_some_and(|p|std::path::Path::new(p).is_absolute()) || !object.get("userAgent").and_then(Value::as_str).is_some_and(|v|v==record.user_agent_prefix || v.strip_prefix(record.user_agent_prefix).is_some_and(|tail|tail.starts_with(' '))) { return Err(NativeError::Shape); }
             client.socket.send(Message::Text(json!({"method":"initialized"}).to_string())).await.map_err(wire_error)?;
@@ -278,6 +285,16 @@ mod tests {
                 }
                 let result = match method {
                     "initialize" => {
+                        if fault == "passive-init" {
+                            assert_eq!(
+                                request["params"]["clientInfo"]["name"],
+                                "codex_app_server_daemon"
+                            );
+                            assert_eq!(
+                                request["params"]["capabilities"],
+                                json!({"experimentalApi":false})
+                            );
+                        }
                         json!({"userAgent":"fixture/0.160.0","codexHome":"/fixture","platformFamily":"unix","platformOs":std::env::consts::OS})
                     }
                     "thread/loaded/list" => {
@@ -370,6 +387,17 @@ mod tests {
         drop(client);
         task.abort();
     }
+    #[tokio::test]
+    async fn passive_initialize_uses_pinned_non_originating_identity_without_capabilities() {
+        let (endpoint, task) = fixture("passive-init").await;
+        let client = Client::connect(&endpoint, "fixture-secret", record()).await;
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn approval_request_receives_no_application_reply_before_observer_closes() {
         let (endpoint, task) = fixture("request").await;

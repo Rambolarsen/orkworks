@@ -1152,8 +1152,15 @@ struct SummaryCheckpointCacheEntry {
     latest: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SessionWriteToken {
+    session: String,
+    write: crate::runtime::observed_status::AttentionWriteToken,
+}
+
 pub struct MetadataStore {
     root: PathBuf,
+    session_writes: Mutex<HashMap<String, crate::runtime::observed_status::AttentionOwner>>,
     summary_checkpoints: Mutex<HashMap<String, SummaryCheckpointCacheEntry>>,
     #[cfg(test)]
     after_event_write: Mutex<Option<Box<dyn Fn(&Path) + Send>>>,
@@ -1163,6 +1170,7 @@ impl MetadataStore {
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
+            session_writes: Mutex::new(HashMap::new()),
             summary_checkpoints: Mutex::new(HashMap::new()),
             #[cfg(test)]
             after_event_write: Mutex::new(None),
@@ -1285,6 +1293,67 @@ impl MetadataStore {
     /// the same directory and renamed into place, so a process killed
     /// mid-write leaves the previous valid file, never a truncated one.
     pub fn try_write_session(&self, meta: &SessionMetadata) -> std::io::Result<()> {
+        self.try_write_session_owned(meta).map(|_| ())
+    }
+
+    pub(crate) fn try_write_session_owned(
+        &self,
+        meta: &SessionMetadata,
+    ) -> std::io::Result<Option<SessionWriteToken>> {
+        let mut revisions = self.session_writes.lock().unwrap();
+        self.write_session_file(meta)?;
+        Ok(revisions
+            .entry(meta.id.clone())
+            .or_default()
+            .accepted_write()
+            .map(|write| SessionWriteToken {
+                session: meta.id.clone(),
+                write,
+            }))
+    }
+
+    /// Serializes the ownership check and replacement with every cooperating
+    /// store writer. Direct agent JSON writes are NOT serialized by this lock;
+    /// native clears remain separately disabled in production for that reason.
+    #[cfg(test)]
+    pub(crate) fn try_write_session_if_owned(
+        &self,
+        meta: &SessionMetadata,
+        token: &SessionWriteToken,
+    ) -> std::io::Result<bool> {
+        self.try_write_session_if_owned_when(meta, token, || true)
+    }
+
+    pub(crate) fn try_write_session_if_owned_when(
+        &self,
+        meta: &SessionMetadata,
+        token: &SessionWriteToken,
+        ready: impl FnOnce() -> bool,
+    ) -> std::io::Result<bool> {
+        let mut revisions = self.session_writes.lock().unwrap();
+        let Some(owner) = revisions.get_mut(&meta.id) else {
+            return Ok(false);
+        };
+        if token.session != meta.id || !owner.owns(&token.write) {
+            return Ok(false);
+        }
+        let path = self.sessions_dir().join(format!("{}.json", meta.id));
+        let json = serde_json::to_string_pretty(meta)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let tmp = tmp_write_path(&path);
+        fs::write(&tmp, json)?;
+        // Recheck the monotonic observation deadline after serialization and
+        // staging I/O, immediately before the atomic replacement.
+        if !ready() {
+            fs::remove_file(tmp)?;
+            return Ok(false);
+        }
+        fs::rename(tmp, path)?;
+        owner.accepted_write();
+        Ok(true)
+    }
+
+    fn write_session_file(&self, meta: &SessionMetadata) -> std::io::Result<()> {
         let dir = self.sessions_dir();
         fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.json", meta.id));
@@ -1308,6 +1377,10 @@ impl MetadataStore {
     }
 
     pub fn delete_session(&self, id: &str) -> std::io::Result<()> {
+        let mut revisions = self.session_writes.lock().unwrap();
+        if let Some(owner) = revisions.get_mut(id) {
+            owner.accepted_write();
+        }
         let path = self.sessions_dir().join(format!("{}.json", id));
         for target in [path.clone(), corrupt_session_path(&path)] {
             match fs::remove_file(&target) {
@@ -2420,6 +2493,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn conditional_attention_write_checks_freshness_after_staging_before_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = crate::test_support::test_session_metadata(
+            "freshness",
+            "native",
+            "/tmp",
+            "running",
+            "now",
+            "now",
+        );
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        meta.attention = Some("needs_you".into());
+        let token = store.try_write_session_owned(&meta).unwrap().unwrap();
+        meta.attention = Some("working".into());
+        let staged = store.sessions_dir().join("freshness.json.tmp");
+        assert!(!store
+            .try_write_session_if_owned_when(&meta, &token, || {
+                assert!(staged.exists());
+                false
+            })
+            .unwrap());
+        assert_eq!(
+            store
+                .read_session("freshness")
+                .unwrap()
+                .attention
+                .as_deref(),
+            Some("needs_you")
+        );
+        assert!(!staged.exists());
+        assert!(store
+            .try_write_session_if_owned_when(&meta, &token, || true)
+            .unwrap());
+    }
+
+    #[test]
     fn legacy_label_provenance_is_not_automatic_for_native_replacement() {
         assert!(!LabelSource::Legacy.is_automatic());
         assert!(LabelSource::Placeholder.is_automatic());
@@ -2481,6 +2592,82 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(legacy.recommendation_id, None);
+    }
+
+    #[test]
+    fn identical_store_write_revokes_conditional_attention_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("owner-identical");
+        meta.observed_status = Some("waiting_for_input".into());
+        meta.attention = Some("needs_you".into());
+        meta.metadata_source = "codex_hook".into();
+        let token = store.try_write_session_owned(&meta).unwrap().unwrap();
+        store.try_write_session(&meta).unwrap();
+        let mut clear = meta.clone();
+        clear.observed_status = Some("working".into());
+        clear.attention = Some("working".into());
+        assert!(!store.try_write_session_if_owned(&clear, &token).unwrap());
+        assert_eq!(
+            store.read_session(&meta.id).unwrap().attention.as_deref(),
+            Some("needs_you")
+        );
+    }
+
+    #[test]
+    fn user_source_write_revokes_conditional_attention_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("owner-user");
+        let token = store.try_write_session_owned(&meta).unwrap().unwrap();
+        meta.metadata_source = "user".into();
+        store.try_write_session(&meta).unwrap();
+        let mut stale = meta.clone();
+        stale.metadata_source = "codex_hook".into();
+        assert!(!store.try_write_session_if_owned(&stale, &token).unwrap());
+        assert_eq!(
+            store.read_session(&meta.id).unwrap().metadata_source,
+            "user"
+        );
+    }
+
+    #[test]
+    fn failed_conditional_write_keeps_original_ownership_retryable() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let mut meta = test_metadata("owner-retry");
+        let token = store.try_write_session_owned(&meta).unwrap().unwrap();
+        // Replace sessions directory temporarily; this exercises real file I/O
+        // failure without accepting a competing record mutation.
+        let moved = dir.path().join("held-sessions");
+        std::fs::rename(store.sessions_dir(), &moved).unwrap();
+        std::fs::write(store.sessions_dir(), b"block creation").unwrap();
+        meta.attention = Some("working".into());
+        assert!(store.try_write_session_if_owned(&meta, &token).is_err());
+        std::fs::remove_file(store.sessions_dir()).unwrap();
+        std::fs::rename(moved, store.sessions_dir()).unwrap();
+        assert!(store.try_write_session_if_owned(&meta, &token).unwrap());
+        assert!(!store.try_write_session_if_owned(&meta, &token).unwrap());
+        assert_eq!(
+            store.read_session(&meta.id).unwrap().attention.as_deref(),
+            Some("working")
+        );
+    }
+
+    #[test]
+    fn replacement_store_and_deleted_session_reject_old_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("owner-reset");
+        let token = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let replacement = MetadataStore::new(dir.path());
+        replacement.try_write_session(&meta).unwrap();
+        assert!(!replacement
+            .try_write_session_if_owned(&meta, &token)
+            .unwrap());
+        store.delete_session(&meta.id).unwrap();
+        store.try_write_session(&meta).unwrap();
+        assert!(!store.try_write_session_if_owned(&meta, &token).unwrap());
     }
 
     #[test]

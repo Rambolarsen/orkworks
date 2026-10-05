@@ -1,4 +1,5 @@
 pub(crate) mod codex_approval;
+pub(crate) mod codex_approval_application;
 pub(crate) mod codex_hook_report_relay;
 pub(crate) mod codex_launch;
 pub(crate) mod codex_native;

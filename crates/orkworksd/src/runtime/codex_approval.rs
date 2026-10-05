@@ -16,7 +16,7 @@ pub(crate) struct Fence {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CandidateId(u64);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub(crate) enum HookEvent {
     PreToolUse,
     PermissionRequest,
@@ -88,6 +88,7 @@ pub(crate) struct ApprovalReducer {
     next_candidate: u64,
     exhausted: bool,
     issued: Option<Effect>,
+    pending_clear: Option<Effect>,
 }
 
 impl ApprovalReducer {
@@ -104,6 +105,7 @@ impl ApprovalReducer {
             next_candidate: 0,
             exhausted: false,
             issued: None,
+            pending_clear: None,
         }
     }
 
@@ -114,6 +116,9 @@ impl ApprovalReducer {
         now: Instant,
     ) -> Vec<Effect> {
         self.issued = None;
+        if self.pending_clear.is_some() {
+            self.lock();
+        }
         if matches!(event, HookEvent::Stop | HookEvent::UserPromptSubmit) {
             self.reset();
             return Vec::new();
@@ -164,6 +169,12 @@ impl ApprovalReducer {
         self.last_observation_start = Some(started_at);
         let previous = self.observation.map(|o| o.status);
         self.observation = Some(Observation { status, started_at });
+        if let Some(effect) = self.pending_clear {
+            if status == NativeStatus::Active && !self.locked {
+                return self.issue(effect);
+            }
+            self.lock();
+        }
         match status {
             NativeStatus::ApprovalPending => {
                 if !self.locked {
@@ -225,6 +236,9 @@ impl ApprovalReducer {
             }
             self.lock();
         }
+        if let Some(effect) = self.pending_clear {
+            return self.issue(effect);
+        }
         self.display_due(now)
     }
 
@@ -255,6 +269,46 @@ impl ApprovalReducer {
         self.issued.as_ref() == Some(effect)
     }
 
+    /// Acknowledge only after the attention owner persisted this exact effect.
+    pub(crate) fn acknowledge_show(&mut self, effect: &Effect) -> bool {
+        if !self.accepts(effect) {
+            return false;
+        }
+        let Effect::ShowWait { candidate, fence } = *effect else {
+            return false;
+        };
+        if fence != self.fence {
+            return false;
+        }
+        let Some(wait) = self
+            .wait
+            .as_mut()
+            .filter(|wait| wait.candidate == candidate)
+        else {
+            return false;
+        };
+        wait.shown = true;
+        true
+    }
+
+    /// A failed conditional clear retains the original proof for a safe retry.
+    pub(crate) fn acknowledge_clear(&mut self, effect: &Effect) -> bool {
+        if !self.accepts(effect) || self.pending_clear.as_ref() != Some(effect) {
+            return false;
+        }
+        self.pending_clear = None;
+        self.wait = None;
+        self.issued = None;
+        true
+    }
+
+    pub(crate) fn clear_is_fresh(&self, now: Instant) -> bool {
+        !self.locked
+            && self
+                .observation
+                .is_some_and(|o| Self::fresh(o.started_at, now))
+    }
+
     fn reset(&mut self) {
         self.records.clear();
         self.latest_pre = None;
@@ -264,11 +318,13 @@ impl ApprovalReducer {
         self.wait = None;
         self.locked = self.exhausted;
         self.issued = None;
+        self.pending_clear = None;
         // Candidate identity never repeats, including after an identity reset.
     }
 
     fn lock(&mut self) {
         self.locked = true;
+        self.pending_clear = None;
         for record in &mut self.records {
             if let Some(candidate) = &mut record.candidate {
                 candidate.eligible = false;
@@ -451,11 +507,16 @@ impl ApprovalReducer {
         if wait.candidate != candidate.id {
             return None;
         }
-        self.wait = None;
-        wait.shown.then_some(Effect::ClearWait {
+        if !wait.shown {
+            self.wait = None;
+            return None;
+        }
+        let effect = Effect::ClearWait {
             candidate: wait.candidate,
             fence: self.fence,
-        })
+        };
+        self.pending_clear = Some(effect);
+        Some(effect)
     }
 
     fn display_due(&mut self, now: Instant) -> Vec<Effect> {
@@ -475,9 +536,6 @@ impl ApprovalReducer {
             });
         if active_without_flags {
             return Vec::new();
-        }
-        if let Some(wait) = &mut self.wait {
-            wait.shown = true;
         }
         self.issue(Effect::ShowWait {
             candidate: wait.candidate,
@@ -520,6 +578,7 @@ mod tests {
             matches!(effects.as_slice(), [Effect::ShowWait { .. }]),
             "{effects:?}"
         );
+        assert!(reducer.acknowledge_show(&effects[0]));
         effects[0]
     }
     fn assert_clear(effects: Vec<Effect>, shown: Effect) -> Effect {
@@ -562,6 +621,7 @@ mod tests {
         let at = t + Duration::from_millis(3100);
         let cleared = assert_clear(r.observe(NativeStatus::Active, true, at, at), shown);
         assert!(r.accepts(&cleared));
+        assert!(r.acknowledge_clear(&cleared));
         assert!(r.observe(NativeStatus::Active, true, at, at).is_empty());
         assert!(!r.accepts(&cleared));
         assert!(r
@@ -734,10 +794,9 @@ mod tests {
             } else {
                 at
             };
-            assert!(matches!(
-                r.observe(status, true, started, at).as_slice(),
-                [Effect::ShowWait { .. }]
-            ));
+            let shown = r.observe(status, true, started, at);
+            assert!(matches!(shown.as_slice(), [Effect::ShowWait { .. }]));
+            assert!(r.acknowledge_show(&shown[0]));
             assert!(r
                 .hook(HookEvent::PostToolUse, Some("tool-1"), at)
                 .is_empty());
@@ -907,11 +966,9 @@ mod tests {
         let t = Instant::now();
         let mut r = serial(t);
         let at = t + Duration::from_secs(3);
-        assert!(matches!(
-            r.observe(NativeStatus::ApprovalPending, false, at, at)
-                .as_slice(),
-            [Effect::ShowWait { .. }]
-        ));
+        let shown = r.observe(NativeStatus::ApprovalPending, false, at, at);
+        assert!(matches!(shown.as_slice(), [Effect::ShowWait { .. }]));
+        assert!(r.acknowledge_show(&shown[0]));
         assert!(r.observe(NativeStatus::Active, true, at, at).is_empty());
         assert!(r
             .hook(HookEvent::PostToolUse, Some("tool-1"), at)
@@ -1070,7 +1127,8 @@ mod tests {
             if native_resolution {
                 let shown = show(&mut r, t + Duration::from_secs(3));
                 let at = t + Duration::from_millis(3100);
-                assert_clear(r.observe(NativeStatus::Active, true, at, at), shown);
+                let cleared = assert_clear(r.observe(NativeStatus::Active, true, at, at), shown);
+                assert!(r.acknowledge_clear(&cleared));
             } else {
                 assert!(r
                     .hook(
@@ -1089,10 +1147,9 @@ mod tests {
                     at + Duration::from_secs(1)
                 )
                 .is_empty());
-            assert!(matches!(
-                r.tick(at + Duration::from_secs(2)).as_slice(),
-                [Effect::ShowWait { .. }]
-            ));
+            let shown = r.tick(at + Duration::from_secs(2));
+            assert!(matches!(shown.as_slice(), [Effect::ShowWait { .. }]));
+            assert!(r.acknowledge_show(&shown[0]));
             let later = at + Duration::from_secs(3);
             assert!(r
                 .observe(NativeStatus::Active, true, later, later)
@@ -1101,6 +1158,104 @@ mod tests {
                 .hook(HookEvent::PostToolUse, Some("tool-1"), later)
                 .is_empty());
         }
+    }
+
+    #[test]
+    fn failed_show_retries_same_candidate_at_original_deadline() {
+        let t = Instant::now();
+        let mut r = serial(t);
+        let at = t + Duration::from_millis(2002);
+        let first = r.observe(NativeStatus::ApprovalPending, true, at, at);
+        assert!(matches!(first.as_slice(), [Effect::ShowWait { .. }]));
+        // Persistence failed: no acknowledgement or new permission event.
+        let next = at + Duration::from_millis(100);
+        assert_eq!(
+            r.observe(NativeStatus::ApprovalPending, true, next, next),
+            first
+        );
+    }
+
+    #[test]
+    fn failed_clear_retries_original_resolution_on_fresh_active() {
+        let t = Instant::now();
+        let mut r = serial(t);
+        show(&mut r, t + Duration::from_secs(3));
+        let at = t + Duration::from_millis(3100);
+        let first = r.observe(NativeStatus::Active, true, at, at);
+        assert!(matches!(first.as_slice(), [Effect::ClearWait { .. }]));
+        // Persistence failed: the visible owner wait still exists.
+        let next = at + Duration::from_millis(100);
+        assert_eq!(r.observe(NativeStatus::Active, true, next, next), first);
+    }
+
+    #[test]
+    fn failed_clear_proof_cannot_survive_intervening_events() {
+        for boundary in 0..10 {
+            let t = Instant::now();
+            let mut r = serial(t);
+            show(&mut r, t + Duration::from_secs(3));
+            let at = t + Duration::from_millis(3100);
+            let clear = r.observe(NativeStatus::Active, true, at, at)[0];
+            let next = at + Duration::from_millis(100);
+            match boundary {
+                0 => {
+                    r.hook(HookEvent::PreToolUse, Some("tool-1"), next);
+                }
+                1 => {
+                    r.hook(HookEvent::PermissionRequest, Some("tool-1"), next);
+                }
+                2 => {
+                    r.hook(HookEvent::PostToolUse, Some("tool-1"), next);
+                }
+                3 => {
+                    r.observe(NativeStatus::UserInputPending, true, next, next);
+                }
+                4 => {
+                    r.observe(NativeStatus::ApprovalPending, true, next, next);
+                }
+                5 => {
+                    r.observe(NativeStatus::Unavailable, true, next, next);
+                }
+                6 => r.disconnected(),
+                7 => {
+                    r.tick(next + Duration::from_secs(1));
+                }
+                8 => r.invalidate(Fence {
+                    input_revision: 1,
+                    ..Fence::default()
+                }),
+                _ => {
+                    r.observe(NativeStatus::Active, false, next, next);
+                }
+            }
+            assert!(!r.accepts(&clear), "boundary {boundary}");
+            assert!(!r.acknowledge_clear(&clear), "boundary {boundary}");
+            let later = next + Duration::from_secs(2);
+            assert!(
+                r.observe(NativeStatus::Active, true, later, later)
+                    .is_empty(),
+                "boundary {boundary}"
+            );
+        }
+    }
+
+    #[test]
+    fn acknowledgements_reject_wrong_effect_and_old_generation() {
+        let t = Instant::now();
+        let mut r = serial(t);
+        let at = t + Duration::from_secs(3);
+        let shown = r.observe(NativeStatus::ApprovalPending, true, at, at)[0];
+        assert!(!r.acknowledge_clear(&shown));
+        assert!(r.acknowledge_show(&shown));
+        let next = at + Duration::from_millis(100);
+        let clear = r.observe(NativeStatus::Active, true, next, next)[0];
+        assert!(!r.acknowledge_show(&clear));
+        r.invalidate(Fence {
+            runtime_generation: 1,
+            ..Fence::default()
+        });
+        assert!(!r.acknowledge_clear(&clear));
+        assert!(!r.acknowledge_show(&shown));
     }
 
     #[test]

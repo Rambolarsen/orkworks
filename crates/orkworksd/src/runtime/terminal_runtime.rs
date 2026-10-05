@@ -111,6 +111,14 @@ pub(crate) fn set_workflow_report_token(session_id: &str, token: String) {
     );
 }
 
+#[cfg(test)]
+pub(crate) fn has_workflow_report_capability(session_id: &str) -> bool {
+    report_capabilities()
+        .lock()
+        .unwrap()
+        .contains_key(session_id)
+}
+
 /// Removes `session_id`'s reporting capability, so a token issued to a
 /// now-dead session can never authenticate a later request even if an
 /// attacker captured it beforehand.
@@ -923,6 +931,7 @@ fn mark_committed_input_working(
         // explicit here; workspace-backed sessions take the atomic path below.
         crate::runtime::observed_status::apply_process_transition_to_handle(
             &mut handle.info,
+            &mut handle.runtime.attention_owner,
             &fields,
         );
         handle.pending_work_signal = None;
@@ -954,7 +963,11 @@ fn mark_committed_input_working(
         tracing::warn!(session_id = %id, "failed to persist input attention transition");
         return;
     }
-    crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
+    crate::runtime::observed_status::apply_process_transition_to_handle(
+        &mut handle.info,
+        &mut handle.runtime.attention_owner,
+        &fields,
+    );
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);

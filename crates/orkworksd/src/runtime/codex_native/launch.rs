@@ -474,7 +474,7 @@ async fn start_with_port_hook<F: FnMut(&str)>(
         plan.revalidate()?;
         drop(reservation);
         port_released(&endpoint);
-        let server = OwnedProcess::spawn(command)?;
+        let mut server = OwnedProcess::spawn(command)?;
         let readiness = async {
             loop {
                 if !server.is_alive() {
@@ -493,7 +493,11 @@ async fn start_with_port_hook<F: FnMut(&str)>(
         };
         match tokio::time::timeout_at(deadline, readiness).await {
             Ok(Ok(observer)) => {
-                plan.revalidate()?;
+                if let Err(error) = plan.revalidate() {
+                    drop(observer);
+                    server.shutdown().await;
+                    return Err(error);
+                }
                 return Ok(OwnedNativeRuntime {
                     plan,
                     server,
@@ -505,8 +509,11 @@ async fn start_with_port_hook<F: FnMut(&str)>(
                     backoff: Duration::from_millis(250),
                 });
             }
-            Ok(Err(_)) => drop(server),
-            Err(_) => return Err(NativeError::Timeout),
+            Ok(Err(_)) => server.shutdown().await,
+            Err(_) => {
+                server.shutdown().await;
+                return Err(NativeError::Timeout);
+            }
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(NativeError::Timeout);
@@ -515,17 +522,39 @@ async fn start_with_port_hook<F: FnMut(&str)>(
     Err(NativeError::Unavailable)
 }
 #[cfg(all(test, unix))]
-mod tests {
+pub(super) mod tests {
     use super::*;
-    fn fixture_plan(dir: &Path, cache: &VersionProbeCache, resume: bool) -> NativeLaunchPlan {
+    pub(crate) fn fixture_plan(
+        dir: &Path,
+        cache: &VersionProbeCache,
+        resume: bool,
+    ) -> NativeLaunchPlan {
         let executable = dir.join("codex");
         std::fs::write(&executable,r#"#!/bin/sh
+case " $* " in
+ *" --remote "*)
+  printf '%s\n' "$@" > "$FIXTURE_DIR/tui-args"
+  echo $$ > "$FIXTURE_DIR/tui-pid"
+  if [ -n "${ORKWORKS_CODEX_NATIVE_AUTH-}" ]; then echo present; else echo absent; fi > "$FIXTURE_DIR/tui-auth-presence"
+  echo fake-tui-ready
+  if [ "${FIXTURE_TUI_EXIT-}" = yes ]; then exit 0; fi
+  while :; do sleep 1; done
+  ;;
+esac
 printf '%s\n' "$@" > "$FIXTURE_DIR/args"
 pwd > "$FIXTURE_DIR/cwd"
-printf '%s\n' "$ORKWORKS_REPORT_TOKEN" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" "$CODEX_HOME" "${ORKWORKS_CODEX_NATIVE_AUTH-absent}" > "$FIXTURE_DIR/env"
+if [ "${FIXTURE_REDACT_REPORT-}" = yes ]; then
+ printf '%s\n' present "$ORKWORKS_CODEX_SESSION_REPORT_DIR" "$CODEX_HOME" "${ORKWORKS_CODEX_NATIVE_AUTH-absent}" > "$FIXTURE_DIR/env"
+else
+ printf '%s\n' "$ORKWORKS_REPORT_TOKEN" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" "$CODEX_HOME" "${ORKWORKS_CODEX_NATIVE_AUTH-absent}" > "$FIXTURE_DIR/env"
+fi
 echo $$ > "$FIXTURE_DIR/pid"
 if [ "$FIXTURE_MODE" = fail ]; then exit 1; fi
 if [ "$FIXTURE_MODE" = hang ]; then exec sleep 30; fi
+if [ "$FIXTURE_MODE" = refuse ]; then
+ trap 'echo stopped > "$FIXTURE_DIR/shutdown-ack"; exit 0' TERM
+ while :; do sleep 0.05; done
+fi
 while [ "$#" -gt 0 ]; do
  case "$1" in --listen) export FIXTURE_LISTEN="$2"; shift;; --ws-token-sha256) export FIXTURE_DIGEST="$2"; shift;; esac
  shift
@@ -567,7 +596,7 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
             },
         }
     }
-    fn fixture_env(dir: &Path, mode: &str) -> Vec<(String, String)> {
+    pub(crate) fn fixture_env(dir: &Path, mode: &str) -> Vec<(String, String)> {
         [
             ("PATH", "/usr/bin:/bin".into()),
             ("FIXTURE_DIR", dir.display().to_string()),
@@ -588,6 +617,20 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
         .map(|(k, v)| (k.into(), v))
         .collect()
     }
+    #[tokio::test]
+    async fn failed_readiness_acknowledges_owned_shutdown_before_returning() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VersionProbeCache::new();
+        let result = fixture_plan(dir.path(), &cache, false)
+            .start(&fixture_env(dir.path(), "refuse"))
+            .await;
+        assert!(result.is_err());
+        assert!(
+            dir.path().join("shutdown-ack").exists(),
+            "startup returned before graceful owner shutdown acknowledgement"
+        );
+    }
+
     #[tokio::test]
     async fn native_server_fixture() {
         let Ok(endpoint) = std::env::var("FIXTURE_LISTEN") else {

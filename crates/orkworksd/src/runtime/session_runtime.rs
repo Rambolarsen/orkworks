@@ -496,6 +496,8 @@ pub(crate) struct SessionRuntime {
     pub(crate) runtime_instance_id: String,
     run_generation: RuntimeGeneration,
     startup_spawned: bool,
+    pub(crate) native_approval: Option<super::codex_approval_application::NativeApprovalState>,
+    pub(crate) attention_owner: super::observed_status::AttentionOwner,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) output_tx: broadcast::Sender<RuntimeEvent>,
     pub(crate) replay: ReplayBuffer,
@@ -537,6 +539,8 @@ impl SessionRuntime {
                 runtime_instance_id: uuid::Uuid::new_v4().to_string(),
                 run_generation: next_runtime_generation(),
                 startup_spawned: false,
+                attention_owner: super::observed_status::AttentionOwner::default(),
+                native_approval: None,
                 control_tx,
                 output_tx,
                 replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -577,6 +581,8 @@ impl SessionRuntime {
             runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             run_generation: next_runtime_generation(),
             startup_spawned: false,
+            attention_owner: super::observed_status::AttentionOwner::default(),
+            native_approval: None,
             control_tx,
             output_tx,
             replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -1174,6 +1180,7 @@ pub(crate) async fn handle_runtime_exit(
                     // in-memory ending phase here so the finalizer can still run;
                     // when the detached transition resumes, it can persist the
                     // terminal metadata without moving this handle out of ending.
+                    handle.runtime.attention_owner.accepted_write();
                     handle.info.status = "running".into();
                     handle.info.lifecycle_phase = "ending".into();
                     handle.info.lifecycle = "stopping".into();
@@ -1307,14 +1314,118 @@ fn abort_post_spawn_startup(
 }
 
 fn startup_generation_is_ending(state: &AppState, id: &str, generation: RuntimeGeneration) -> bool {
-    state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(id)
-        .is_some_and(|handle| {
-            handle.runtime.run_generation() == generation && handle.info.lifecycle_phase == "ending"
-        })
+    state.sessions.lock().unwrap().get(id).is_none_or(|handle| {
+        handle.runtime.run_generation() != generation
+            || matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+    })
+}
+
+struct NativeObserverControl {
+    stop: tokio::sync::watch::Sender<bool>,
+    failed: tokio::sync::watch::Receiver<bool>,
+    task: Option<tokio::task::JoinHandle<()>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl NativeObserverControl {
+    fn start(
+        state: Arc<AppState>,
+        id: String,
+        generation: u64,
+        mut native: super::codex_native::OwnedNativeRuntime,
+    ) -> Self {
+        let (stop, mut stop_rx) = tokio::sync::watch::channel(false);
+        let (failed_tx, failed) = tokio::sync::watch::channel(false);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancellation = cancelled.clone();
+        let task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
+            loop {
+                tokio::select! { biased;
+                    _ = stop_rx.changed() => break,
+                    _ = interval.tick() => {}
+                }
+                if *stop_rx.borrow() {
+                    break;
+                }
+                if !native.is_alive() {
+                    let _ = failed_tx.send(true);
+                    break;
+                }
+                let capture_state = state.clone();
+                let capture_id = id.clone();
+                let capture_cancelled = cancellation.clone();
+                let snapshot = tokio::select! { biased;
+                    _ = stop_rx.changed() => break,
+                    snapshot = tokio::task::spawn_blocking(move || {
+                        if capture_state.workspace.lock().unwrap().is_none()
+                            || startup_generation_is_ending(&capture_state, &capture_id, generation) {
+                            return Err(());
+                        }
+                        Ok(super::codex_approval_application::begin_observation(&capture_state, &capture_id, generation, &capture_cancelled))
+                    }) => snapshot.unwrap_or(Err(())),
+                };
+                let snapshot = match snapshot {
+                    Ok(Some(snapshot)) => snapshot,
+                    Ok(None) => continue,
+                    Err(()) => {
+                        let _ = failed_tx.send(true);
+                        break;
+                    }
+                };
+                // Fence and independent hook revision were captured BEFORE
+                // the first awaited RPC; PTY input/output never awaits it.
+                let result = tokio::select! { biased;
+                    _ = stop_rx.changed() => break,
+                    result = native.observe(&snapshot.root) => result,
+                };
+                if *stop_rx.borrow() {
+                    break;
+                }
+                let apply_state = state.clone();
+                let apply_id = id.clone();
+                let apply_cancelled = cancellation.clone();
+                let _ = tokio::select! { biased;
+                    _ = stop_rx.changed() => break,
+                    result = tokio::task::spawn_blocking(move || super::codex_approval_application::finish_observation(&apply_state, &apply_id, snapshot, result, &apply_cancelled)) => result,
+                };
+            }
+            native.shutdown().await;
+        });
+        Self {
+            stop,
+            failed,
+            task: Some(task),
+            cancelled,
+        }
+    }
+
+    async fn shutdown(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+        let _ = self.stop.send(true);
+        if let Some(mut task) = self.task.take() {
+            if tokio::time::timeout(std::time::Duration::from_secs(3), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
+        }
+    }
+}
+impl Drop for NativeObserverControl {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Release);
+        let _ = self.stop.send(true);
+    }
+}
+
+async fn stop_native_startup(native: &mut Option<super::codex_native::OwnedNativeRuntime>) {
+    if let Some(native) = native.as_mut() {
+        native.shutdown().await;
+    }
+    *native = None;
 }
 
 pub(crate) async fn start_session_runtime(
@@ -1337,6 +1448,8 @@ pub(crate) async fn start_session_runtime(
         kill_rx,
         initial_size,
         None,
+        #[cfg(test)]
+        None,
     )
     .await
 }
@@ -1351,6 +1464,10 @@ async fn start_session_runtime_inner(
     mut kill_rx: tokio::sync::watch::Receiver<bool>,
     initial_size: PtySize,
     mut exit_observed_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>,
+    #[cfg(test)] _native_fixture: Option<(
+        super::codex_native::NativeLaunchPlan,
+        Vec<(String, String)>,
+    )>,
 ) -> Result<(), String> {
     let (run_generation, is_codex_session) = state
         .sessions
@@ -1365,7 +1482,23 @@ async fn start_session_runtime_inner(
             )
         })
         .ok_or_else(|| "session runtime handle is not installed".to_string())?;
-    if is_codex_session {
+    if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+        return Err("session runtime was deleted during startup".into());
+    }
+    let native_plan = if is_codex_session {
+        super::codex_native::eligible(&command, &state.integration_probe_cache).await?
+    } else {
+        None
+    };
+    #[cfg(test)]
+    let (native_plan, fixture_env) = match _native_fixture {
+        Some((plan, environment)) => (Some(plan), environment),
+        None => (native_plan, Vec::new()),
+    };
+    if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+        return Err("session runtime was deleted during startup".into());
+    }
+    if is_codex_session && native_plan.is_none() {
         if let Err(error) = super::codex_launch::isolate_session(&mut command).await {
             // Deletion signals cancellation before its asynchronous status
             // transition. Preserve that intent even if the probe fails first.
@@ -1396,6 +1529,9 @@ async fn start_session_runtime_inner(
     }
     let (initial_size, pending_commands) =
         capture_startup_runtime_state(&state, &id, &mut control_rx, initial_size).await;
+    if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+        return Err("session runtime was deleted during startup".into());
+    }
     let pty_sys = make_pty_system();
     let pair = pty_sys.openpty(initial_size).map_err(|e| e.to_string())?;
 
@@ -1409,19 +1545,26 @@ async fn start_session_runtime_inner(
     #[cfg(not(windows))]
     let program = command.program.clone();
 
+    let mut execution_env = Vec::new();
     let mut cmd = CommandBuilder::new(&program);
     cmd.args(&command.args);
     cmd.cwd(&command.cwd);
     for (key, value) in std::env::vars() {
         if should_forward_terminal_env(&key) {
             cmd.env(&key, &value);
+            if !key.to_ascii_uppercase().starts_with("ORKWORKS_") {
+                execution_env.push((key, value));
+            }
         } else {
             cmd.env_remove(&key);
         }
     }
     for (key, value) in terminal_env_overrides() {
         cmd.env(&key, &value);
+        execution_env.push((key, value));
     }
+    #[cfg(test)]
+    execution_env.extend(fixture_env);
     let port = match state.bound_port.load(std::sync::atomic::Ordering::Relaxed) {
         0 => None,
         value => Some(value),
@@ -1442,6 +1585,10 @@ async fn start_session_runtime_inner(
         match super::codex_hook_report_relay::CodexHookReportRelay::new() {
             Ok(relay) => {
                 cmd.env("ORKWORKS_CODEX_SESSION_REPORT_DIR", relay.mailbox_path());
+                execution_env.push((
+                    "ORKWORKS_CODEX_SESSION_REPORT_DIR".into(),
+                    relay.mailbox_path().to_string_lossy().into_owned(),
+                ));
                 Some(relay)
             }
             Err(error) => {
@@ -1466,12 +1613,60 @@ async fn start_session_runtime_inner(
         prompt_generation_value,
     ) {
         cmd.env(&key, &value);
+        execution_env.push((key, value));
     }
 
     set_workflow_report_token(&id, report_token.clone());
+    let mut native = if let Some(plan) = native_plan {
+        if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+            clear_workflow_report_token_if_matches(&id, &report_token);
+            return Err("session runtime was replaced before native startup".into());
+        }
+        execution_env.push(("ORKWORKS_CODEX_NATIVE_APPROVAL".into(), "1".into()));
+        let mut owned = match plan.start(&execution_env).await {
+            Ok(owned) => owned,
+            Err(error) => {
+                clear_workflow_report_token_if_matches(&id, &report_token);
+                return Err(error);
+            }
+        };
+        if *kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation) {
+            owned.shutdown().await;
+            clear_workflow_report_token_if_matches(&id, &report_token);
+            return Err("session runtime was deleted during native startup".into());
+        }
+        cmd = CommandBuilder::new(owned.resolved_executable());
+        cmd.args(owned.tui_args());
+        cmd.cwd(&command.cwd);
+        cmd.env_clear();
+        for (key, value) in &execution_env {
+            cmd.env(key, value);
+        }
+        let (key, value) = owned.tui_environment();
+        cmd.env(key, value);
+        Some(owned)
+    } else {
+        None
+    };
+    if native.is_some()
+        && (*kill_rx.borrow() || startup_generation_is_ending(&state, &id, run_generation))
+    {
+        stop_native_startup(&mut native).await;
+        clear_workflow_report_token_if_matches(&id, &report_token);
+        return Err("session runtime was replaced before native PTY spawn".into());
+    }
+    // Revalidate at the actual native PTY spawn, after every awaited step.
+    if let Some(owned) = native.as_ref() {
+        if let Err(error) = owned.revalidate_tui_executable() {
+            stop_native_startup(&mut native).await;
+            clear_workflow_report_token_if_matches(&id, &report_token);
+            return Err(error);
+        }
+    }
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(child) => child,
         Err(error) => {
+            stop_native_startup(&mut native).await;
             clear_workflow_report_token_if_matches(&id, &report_token);
             if let Some((_, generation)) = &prompt_generation {
                 super::prompt_authority::registry().remove_if_generation(&id, generation);
@@ -1492,6 +1687,7 @@ async fn start_session_runtime_inner(
         .map(|handle| handle.runtime.mark_startup_spawned())
         .is_some();
     if !owns_spawned_generation {
+        stop_native_startup(&mut native).await;
         let _ = child.kill();
         let _ = child.wait();
         clear_workflow_report_token_if_matches(&id, &report_token);
@@ -1507,12 +1703,14 @@ async fn start_session_runtime_inner(
     // The PTY has spawned, so the lifecycle is alive before either background
     // task can observe and classify its first output chunk.
     if startup_generation_is_ending(&state, &id, run_generation) {
+        stop_native_startup(&mut native).await;
         abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was deleted during startup".into());
     }
     #[cfg(test)]
     wait_at_startup_ending_check(&id).await;
     if !set_session_status_for_generation(&state, &id, run_generation, "running").await {
+        stop_native_startup(&mut native).await;
         let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
         return Err("session runtime was replaced during startup".into());
     }
@@ -1520,6 +1718,7 @@ async fn start_session_runtime_inner(
     let mut reader = match pair.master.try_clone_reader() {
         Ok(reader) => reader,
         Err(error) => {
+            stop_native_startup(&mut native).await;
             let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
             return Err(error.to_string());
         }
@@ -1538,6 +1737,7 @@ async fn start_session_runtime_inner(
     let writer = match pair.master.take_writer() {
         Ok(writer) => writer,
         Err(error) => {
+            stop_native_startup(&mut native).await;
             let _ = abort_post_spawn_startup(&state, &id, run_generation, child.as_mut());
             return Err(error.to_string());
         }
@@ -1632,11 +1832,27 @@ async fn start_session_runtime_inner(
         }
     });
 
+    let native_observer = native.map(|owned| {
+        if let Some(handle) = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .filter(|h| h.runtime.run_generation() == run_generation)
+        {
+            handle.runtime.native_approval = Some(
+                super::codex_approval_application::NativeApprovalState::new(run_generation),
+            );
+        }
+        NativeObserverControl::start(state.clone(), id.clone(), run_generation, owned)
+    });
     let driver_state = state.clone();
     let driver_id = id.clone();
     let driver_output_tx = output_tx.clone();
     let driver_killer = killer.clone();
     tokio::spawn(async move {
+        let mut native_observer = native_observer;
+        let mut native_failure_handled = false;
         let codex_hook_report_relay = codex_hook_report_relay;
         let report_token_for_driver = report_token.clone();
         let mut codex_report_interval =
@@ -1732,6 +1948,11 @@ async fn start_session_runtime_inner(
                 }
             }
             tokio::select! {
+                _ = async { native_observer.as_mut().expect("native owner").failed.changed().await }, if native_observer.is_some() && !native_failure_handled => {
+                    native_failure_handled = true;
+                    kill_requested = true;
+                    let _ = driver_killer.lock().unwrap().kill();
+                }
                 result = async { (&mut pending_write.as_mut().expect("pending write").task).await }, if pending_write.is_some() => {
                     pending_write = None;
                     match result {
@@ -1934,6 +2155,7 @@ async fn start_session_runtime_inner(
                                         );
                                         apply_process_transition_to_handle(
                                             &mut handle.info,
+                    &mut handle.runtime.attention_owner,
                                             &fields,
                                         );
                                         promoted_working = true;
@@ -2051,6 +2273,9 @@ async fn start_session_runtime_inner(
                     if let Err(error) = reader_task.await {
                         tracing::warn!(session_id = %driver_id, %error, "PTY reader task failed to join");
                     }
+                }
+                if let Some(observer) = native_observer.as_mut() {
+                    observer.shutdown().await;
                 }
                 let exit = child_exit.take().expect("child exit should be present");
                 let _ = drain_codex_reports_before_exit(
@@ -2345,6 +2570,201 @@ mod tests {
             .kill_tx
             .subscribe()
             .borrow());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn owned_native_lifecycle_exit_detach_server_failure_and_workspace_shutdown() {
+        for scenario in 0..4 {
+            let dir = tempfile::tempdir().unwrap();
+            let id = format!("native-lifecycle-{}", uuid::Uuid::new_v4());
+            let state = test_state_with_runtime_session(&id);
+            *state.workspace.lock().unwrap() =
+                crate::test_support::test_app_state_with_workspace(dir.path())
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .take();
+            let (runtime, control_rx) = SessionRuntime::live(24, 80);
+            let output = runtime.output_tx.clone();
+            let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+            {
+                let mut sessions = state.sessions.lock().unwrap();
+                let handle = sessions.get_mut(&id).unwrap();
+                handle.info.harness = Some("codex".into());
+                handle.runtime = runtime;
+                handle.kill_tx = kill_tx;
+            }
+            let (plan, mut environment) = super::super::codex_native::fixture_plan_and_env(
+                dir.path(),
+                &state.integration_probe_cache,
+                true,
+            );
+            if scenario == 0 {
+                environment.push(("FIXTURE_TUI_EXIT".into(), "yes".into()));
+            }
+            start_session_runtime_inner(
+                state.clone(),
+                id.clone(),
+                crate::harness::CommandSpec {
+                    program: "/bin/echo".into(),
+                    args: vec!["direct-fallback".into()],
+                    cwd: dir.path().to_string_lossy().into_owned(),
+                },
+                None,
+                control_rx,
+                output,
+                kill_rx,
+                PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                None,
+                Some((plan, environment)),
+            )
+            .await
+            .unwrap();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !dir.path().join("tui-auth-presence").exists()
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert!(
+                dir.path().join("tui-auth-presence").exists(),
+                "native TUI was not launched"
+            );
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("tui-auth-presence")).unwrap(),
+                "present\n"
+            );
+            let args = std::fs::read_to_string(dir.path().join("tui-args")).unwrap();
+            assert!(args.contains("resume\nsaved-id\n"));
+            assert!(!args.contains("--no-daemon"));
+            let server_pid: i32 = std::fs::read_to_string(dir.path().join("pid"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            let tui_pid: i32 = std::fs::read_to_string(dir.path().join("tui-pid"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            match scenario {
+                1 => {
+                    let claim = claim_attachment(&state, &id).unwrap();
+                    release_attachment(&state, &id, claim.generation);
+                    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+                    assert_eq!(unsafe { libc::kill(tui_pid, 0) }, 0, "detach killed TUI");
+                    assert_eq!(
+                        unsafe { libc::kill(server_pid, 0) },
+                        0,
+                        "detach killed server"
+                    );
+                    send_runtime_command(&state, &id, RuntimeCommand::Kill)
+                        .await
+                        .unwrap();
+                }
+                2 => unsafe {
+                    libc::kill(server_pid, libc::SIGTERM);
+                },
+                3 => {
+                    state.workspace.lock().unwrap().take();
+                }
+                _ => {}
+            }
+            while unsafe { libc::kill(server_pid, 0) } == 0
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert_ne!(
+                unsafe { libc::kill(server_pid, 0) },
+                0,
+                "server survived scenario {scenario}"
+            );
+            while unsafe { libc::kill(tui_pid, 0) } == 0 && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert_ne!(
+                unsafe { libc::kill(tui_pid, 0) },
+                0,
+                "TUI survived scenario {scenario}"
+            );
+            while super::super::terminal_runtime::has_workflow_report_capability(&id)
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert!(!super::super::terminal_runtime::has_workflow_report_capability(&id));
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn owned_native_cancel_during_readiness_cleans_up_without_tui_or_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = format!("native-cancel-{}", uuid::Uuid::new_v4());
+        let state = test_state_with_runtime_session(&id);
+        let (runtime, control_rx) = SessionRuntime::live(24, 80);
+        let output = runtime.output_tx.clone();
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(&id).unwrap();
+            handle.info.harness = Some("codex".into());
+            handle.runtime = runtime;
+            handle.kill_tx = kill_tx.clone();
+        }
+        let (plan, mut environment) = super::super::codex_native::fixture_plan_and_env(
+            dir.path(),
+            &state.integration_probe_cache,
+            false,
+        );
+        environment.push(("FIXTURE_MODE".into(), "hang".into()));
+        let run = tokio::spawn(start_session_runtime_inner(
+            state.clone(),
+            id.clone(),
+            crate::harness::CommandSpec {
+                program: "/bin/echo".into(),
+                args: vec!["direct-fallback".into()],
+                cwd: dir.path().to_string_lossy().into_owned(),
+            },
+            None,
+            control_rx,
+            output,
+            kill_rx,
+            PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            None,
+            Some((plan, environment)),
+        ));
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
+        while !dir.path().join("pid").exists() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let pid: i32 = std::fs::read_to_string(dir.path().join("pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(super::super::terminal_runtime::has_workflow_report_capability(&id));
+        kill_tx.send_replace(true);
+        assert!(tokio::time::timeout_at(deadline, run)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0);
+        assert!(!dir.path().join("tui-pid").exists());
+        assert!(!super::super::terminal_runtime::has_workflow_report_capability(&id));
     }
 
     #[test]
@@ -3975,6 +4395,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
                 pixel_height: 0,
             },
             Some(exit_observed_tx),
+            None,
         )
         .await
         .unwrap();
@@ -4111,6 +4532,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
                 pixel_height: 0,
             },
             Some(exit_observed_tx),
+            None,
         )
         .await
         .unwrap();

@@ -400,3 +400,16 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, unix))]
+pub(crate) fn fixture_plan_and_env(
+    dir: &Path,
+    cache: &VersionProbeCache,
+    resume: bool,
+) -> (NativeLaunchPlan, Vec<(String, String)>) {
+    let plan = launch::tests::fixture_plan(dir, cache, resume);
+    let mut env = launch::tests::fixture_env(dir, "serve");
+    env.retain(|(key, _)| !key.to_ascii_uppercase().starts_with("ORKWORKS_"));
+    env.push(("FIXTURE_REDACT_REPORT".into(), "yes".into()));
+    (plan, env)
+}

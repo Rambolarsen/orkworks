@@ -1473,6 +1473,7 @@ impl SessionApplication {
                         sessions_guard.get_mut(session_id),
                         workspace.metadata.read_session(session_id),
                     ) {
+                        handle.runtime.attention_owner.accepted_write();
                         handle.info.observed_status = stored.observed_status;
                         handle.info.attention = stored.attention;
                         handle.info.needs_user_input = stored.needs_user_input;
@@ -1921,6 +1922,9 @@ impl SessionApplication {
                     if is_terminal && handle.info.lifecycle_phase == "ended" {
                         return false;
                     }
+                    if is_terminal {
+                        handle.runtime.attention_owner.accepted_write();
+                    }
                     if is_terminal && !already_ending {
                         handle.info.status = "running".to_string();
                         handle.info.lifecycle_phase = "ending".to_string();
@@ -2329,6 +2333,7 @@ impl SessionApplication {
         if let Some(handle) = sessions.get_mut(id) {
             crate::runtime::observed_status::apply_process_transition_to_handle(
                 &mut handle.info,
+                &mut handle.runtime.attention_owner,
                 &fields,
             );
         }
@@ -2408,6 +2413,16 @@ impl SessionApplication {
             return false;
         };
         crate::codex_session_store::block_native_label_refresh(id, &native_session_id);
+        if let Some(tracker) = self
+            .state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(id)
+            .and_then(|handle| handle.runtime.native_approval.as_mut())
+        {
+            tracker.invalidate();
+        }
         true
     }
 
@@ -2591,6 +2606,7 @@ impl SessionApplication {
         if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
             if !preserve_user_tuple {
                 handle.runtime.prompt_tuple_clear_pending = true;
+                handle.runtime.attention_owner.accepted_write();
                 handle.info.observed_status = None;
                 handle.info.attention = None;
                 handle.info.needs_user_input = None;
@@ -2809,6 +2825,7 @@ impl SessionApplication {
         }
         handle.pending_work_signal = None;
         if !preserve_user_tuple {
+            handle.runtime.attention_owner.accepted_write();
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("needs_you".into());
             handle.info.needs_user_input = None;
@@ -2931,6 +2948,7 @@ impl SessionApplication {
                     persistence_failed = true;
                     retry_ids.push(session_id.clone());
                 }
+                handle.runtime.attention_owner.accepted_write();
                 handle.info.observed_status = None;
                 handle.info.attention = None;
                 handle.info.needs_user_input = None;
@@ -2976,6 +2994,7 @@ impl SessionApplication {
             .is_some_and(|metadata| metadata.metadata_source != "user")
         {
             if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+                handle.runtime.attention_owner.accepted_write();
                 handle.info.observed_status = None;
                 handle.info.attention = None;
                 handle.info.needs_user_input = None;
@@ -3294,6 +3313,7 @@ impl SessionApplication {
             {
                 return false;
             }
+            handle.runtime.attention_owner.accepted_write();
             handle.info.status = pending.clone();
             handle.info.lifecycle_phase = "ended".into();
             handle.info.lifecycle = "dead".into();
@@ -3714,7 +3734,7 @@ impl SessionApplication {
             match workspace.metadata.read_session(&signal.session_id) {
                 None => return Err(SessionError::NotFound),
                 Some(meta) if meta.lifecycle != "alive" => {
-                    return Err(SessionError::EmptyBadRequest)
+                    return Err(SessionError::EmptyBadRequest);
                 }
                 Some(_) => {}
             }
@@ -3774,6 +3794,7 @@ impl SessionApplication {
             if let Some(handle) = sessions.get_mut(&signal.session_id) {
                 apply_live_attention_fields(
                     &mut handle.info,
+                    &mut handle.runtime.attention_owner,
                     &signal.observed_status,
                     signal.message.as_deref(),
                     &signal.source,
@@ -3787,6 +3808,7 @@ impl SessionApplication {
                 }
                 if signal.activate_work_hook {
                     handle.active_work_hook = true;
+                    handle.runtime.attention_owner.accepted_write();
                     handle.info.needs_user_input = None;
                     handle.info.detected_question = None;
                     handle.info.suggested_options = None;
@@ -4395,6 +4417,7 @@ impl SessionApplication {
         }
         handle.pending_work_signal = None;
         if !preserve_user_tuple {
+            handle.runtime.attention_owner.accepted_write();
             handle.info.observed_status = Some("waiting_for_input".into());
             handle.info.attention = Some("needs_you".into());
             handle.info.needs_user_input = None;
@@ -4648,6 +4671,7 @@ impl SessionApplication {
                             revocation_persistence_failed = true;
                             retry_ids.push(session_id.clone());
                         }
+                        handle.runtime.attention_owner.accepted_write();
                         handle.info.observed_status = None;
                         handle.info.attention = None;
                         handle.info.needs_user_input = None;
@@ -6171,7 +6195,9 @@ mod tests {
             .await
             .unwrap();
         server.abort();
-        println!("#729 current-thread HTTP measurement: 24 dirty tracked files + 4096 untracked files, ~265 MiB text");
+        println!(
+            "#729 current-thread HTTP measurement: 24 dirty tracked files + 4096 untracked files, ~265 MiB text"
+        );
         println!("creation_ms={create_latencies:?}");
         println!(
             "health_samples={} health_max_ms={:.3}",
@@ -11016,7 +11042,10 @@ mod tests {
         }) else {
             panic!("expected terminal input");
         };
-        assert_eq!(data, "Please review the plan or specification at specs/plan.md. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
+        assert_eq!(
+            data,
+            "Please review the plan or specification at specs/plan.md. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r"
+        );
         assert!(state
             .workspace
             .lock()
@@ -12756,7 +12785,7 @@ mod tests {
                     Ok(RuntimeEvent::Output { chunk, .. })
                         if String::from_utf8_lossy(&chunk).contains(marker) =>
                     {
-                        break
+                        break;
                     }
                     Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(error) => panic!("PTY output ended before {marker}: {error}"),
