@@ -1,0 +1,128 @@
+{
+  "methods": {
+    "initializeAndValidate": {
+      "rpcMethod": "session.tools.initializeAndValidate",
+      "description": "Resolves, builds, and validates the runtime tool list for the session.",
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Target session identifier"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": false,
+        "description": "Identifies the target session."
+      },
+      "result": {
+        "$ref": "#/definitions/ToolsInitializeAndValidateResult",
+        "description": "Resolve, build, and validate the runtime tool list for this session. Subagent sessions and consumer flows that need an initialized tool set before `send` invoke this. Default base-class implementation is a no-op for sessions that don't support tool validation."
+      },
+      "stability": "experimental"
+    },
+    "getCurrentMetadata": {
+      "rpcMethod": "session.tools.getCurrentMetadata",
+      "description": "Returns lightweight metadata for the session's currently initialized tools.",
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Target session identifier"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": false,
+        "description": "Identifies the target session."
+      },
+      "result": {
+        "$ref": "#/definitions/ToolsGetCurrentMetadataResult",
+        "description": "Current lightweight tool metadata snapshot for the session."
+      },
+      "stability": "experimental"
+    }
+  },
+  "definitions": {
+    "ToolsInitializeAndValidateResult": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "description": "Resolve, build, and validate the runtime tool list for this session. Subagent sessions and consumer flows that need an initialized tool set before `send` invoke this. Default base-class implementation is a no-op for sessions that don't support tool validation.",
+      "title": "ToolsInitializeAndValidateResult"
+    },
+    "ToolsGetCurrentMetadataResult": {
+      "type": "object",
+      "properties": {
+        "tools": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/CurrentToolMetadata",
+                "description": "Lightweight metadata for a currently initialized session tool"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Current tool metadata, or null when tools have not been initialized yet"
+        }
+      },
+      "required": [
+        "tools"
+      ],
+      "additionalProperties": false,
+      "description": "Current lightweight tool metadata snapshot for the session.",
+      "title": "ToolsGetCurrentMetadataResult"
+    },
+    "CurrentToolMetadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Model-facing tool name"
+        },
+        "namespacedName": {
+          "type": "string",
+          "description": "Optional MCP/config namespaced tool name"
+        },
+        "mcpServerName": {
+          "type": "string",
+          "description": "MCP server name for MCP-backed tools"
+        },
+        "mcpToolName": {
+          "type": "string",
+          "description": "Raw MCP tool name for MCP-backed tools"
+        },
+        "description": {
+          "type": "string",
+          "description": "Tool description"
+        },
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": {
+            "x-opaque-json": true
+          },
+          "description": "JSON Schema for tool input"
+        },
+        "deferLoading": {
+          "type": "boolean",
+          "description": "Whether the tool is loaded on demand via tool search"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "additionalProperties": false,
+      "description": "Lightweight metadata for a currently initialized session tool",
+      "title": "CurrentToolMetadata"
+    }
+  }
+}

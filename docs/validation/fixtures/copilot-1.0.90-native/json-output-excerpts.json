@@ -1,0 +1,27 @@
+[
+  {
+    "purpose": "JSON output writer exclusion set and write path",
+    "startUtf8Byte": 4731793,
+    "text": "var YLr=new Set([\"session.idle\",\"session.title_changed\",\"session.usage_info\",\"session.truncation\",\"session.snapshot_rewind\",\"session.shutdown\",\"session.model_change\",\"session.mode_changed\",\"session.autopilot_objective_changed\",\"session.permissions_changed\",\"session.plan_changed\",\"session.workspace_file_changed\",\"session.context_changed\",\"session.compaction_start\",\"session.compaction_complete\",\"pending_messages.modified\",\"assistant.streaming_delta\",\"assistant.usage\",\"assistant.intent\",\"permission.requested\",\"permission.completed\",\"user_input.requested\",\"user_input.completed\",\"elicitation.requested\",\"elicitation.completed\",\"auto_mode_switch.requested\",\"auto_mode_switch.completed\",\"hook.start\",\"hook.end\",\"hook.progress\",\"system.message\",\"skill.invoked\",\"skill.invoked_ref\",\"skill.context_delivered\",\"skill.context_delivered_ref\",\"sandbox.decision\"]);function jWt(e,t){if(wP(e)||YLr.has(e.type))return;let n=b.processSecretFilterFilter(JSON.stringify(e)).value;t.write(n+`\n`)}"
+  },
+  {
+    "purpose": "xt=oe===\"json\"",
+    "startUtf8Byte": 4957469,
+    "text": "xt=oe===\"json\",_t=Ee.on(\"*\",Rt=>{if(wP(Rt))return;if(Rt.type===\"session.error\"&&(xt||process.stderr.write(`\n${s$r(Rt.data)}\n`),E.debug(`session.error event received: errorType=${Rt.data.errorType}, message=${Rt.data.message}`)),!Je&&a$r(Rt)&&(Je=!0,E.debug(`hasError set to true due to terminal ${Rt.type} event`)),xt&&M2r(e,re??!1,Rt,process.stdout)"
+  },
+  {
+    "purpose": "xt&&M2r(e,re??!1,Rt,process.stdout)",
+    "startUtf8Byte": 4957784,
+    "text": "xt&&M2r(e,re??!1,Rt,process.stdout),!xt&&Nt&&!re){let Jn=Tye(Nt,Rt);if(Jn){let lr=KD.formatTimingBreakdown(Jn);process.stdout.write(`\n${lr}\n\n`)}else Rt.type===\"assistant.usage\"?Rt.data.duration!==void 0&&Nt.recordModelCall(0,Rt.data.duration):Rt.type===\"tool.execution_start\"?Nt.recordToolStart(0,Rt.data.toolCallId,Date.parse(Rt.timestamp)):Rt.type="
+  },
+  {
+    "purpose": "function M2r(",
+    "startUtf8Byte": 4934800,
+    "text": "function M2r(e,t,n,r){P2r(e,t)&&jWt(n,r)}function O2r(e){return b.extensionSessionServiceList(e).filter(({status:t})=>t!==\"running\").map(({id:t,source:n,status:r,logPath:o})=>({id:t,source:n,status:r,...o===void 0?{}:{logPath:o}}))}var D2r=b.toolAskUser2AutopilotResponse(),N2r=b.toolTaskCompleteName(),L2r=3e4,B2r=3e4,Sjt=500,_jt=500,G4e=1500,F2r=Sj"
+  },
+  {
+    "purpose": "tools=this.nativeDomain(\"session.tools.\")",
+    "startUtf8Byte": 1398443,
+    "text": "tools=this.nativeDomain(\"session.tools.\")([\"execute\",\"getBuiltinDescriptors\",\"taskCompleteEventData\",\"handlePendingToolCall\",\"initializeAndValidate\",\"getCurrentMetadata\",\"updateSubagentSettings\"]);getSessionDatabase(){return this.sessionFs.sessionDatabase}commands=this.nativeDomain(\"session.commands.\")([\"list\",\"invoke\",\"handlePendingCommand\",\"execu"
+  }
+]

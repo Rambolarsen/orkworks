@@ -1,0 +1,27 @@
+[
+  {
+    "purpose": "function Qa(",
+    "startUtf8Byte": 118343,
+    "text": "function Qa(e,t){return await gr(e)?Promise.all(t.map(i=>te.default.access(ze.default.join(e,i),te.default.constants.R_OK).then(()=>!0,()=>!1))).then(i=>i.every(Boolean)):!1}async function Ja(e,t){let i=t.maxAttempts??3,r=ze.default.join(t.targetDir,t.version),s;for(let n=1;n<=i;n++){let o=ze.default.join(t.targetDir,`.extracting-${t.version}-${t.pid}-${Date.now()}-${n}`);try{await te.default.mkdir(o,{recursive:!0}),await lf(e,o,{requireEntryPoint:\"index.js\",requiredPaths:t.requiredPaths}),await Do(o,r,a=>Qa(a,t.requiredPaths??[]));return}catch(a){s=a,await te.default.rm(o,{recursive:!0,force:!0}).catch(()=>{}),n<i&&(console.warn(`Package extraction attempt ${n}/${i} failed, retrying:`,a),aw"
+  },
+  {
+    "purpose": "function eh(",
+    "startUtf8Byte": 119129,
+    "text": "function eh(e,t,i,r,s){let n=e.slice(2),o=c=>c===\"--version\"||c===\"-v\",a=n.length===1&&o(n[0]),h=n.length===2&&n.includes(\"--no-auto-update\")&&n.some(o);return t!==i||!a&&!h?void 0:`GitHub Copilot CLI ${r}.\n${s?To:\"Run 'copilot update' to check for updates.\"}\n`}var cf=process.env.COPILOT_PKG_CACHE_HOME?_.default.join(process.env.COPILOT_PKG_CACHE_HOME,\"pkg\"):process.env.COPILOT_CACHE_HOME?_.default.join(process.env.COPILOT_CACHE_HOME,\"pkg\"):_.default.join(Wi(),\"pkg\"),st=_.default.join(cf,\"darwin-arm64\"),Gt=_.default.join(st,\"1.0.90\"),Vi=[\"index.js\",\"app.js\",_.default.join(\"prebuilds\",\"darwin-arm64\",\"runtime.node\")];async function ih(e){return await nt(_.default.join(e,mt))&&await nt(_.defaul"
+  },
+  {
+    "purpose": "var cf=",
+    "startUtf8Byte": 119391,
+    "text": "var cf=process.env.COPILOT_PKG_CACHE_HOME?_.default.join(process.env.COPILOT_PKG_CACHE_HOME,\"pkg\"):process.env.COPILOT_CACHE_HOME?_.default.join(process.env.COPILOT_CACHE_HOME,\"pkg\"):_.default.join(Wi(),\"pkg\"),st=_.default.join(cf,\"darwin-arm64\"),Gt=_.default.join(st,\"1.0.90\"),Vi=[\"index.js\",\"app.js\",_.default.join(\"prebuilds\",\"darwin-arm64\",\"runtime.node\")];async function ih(e){return await nt(_.default.join(e,mt))&&await nt(_.default.join(e,Vi[0]))&&await nt(_.default.join(e,Vi[1]))&&await nt(_.default.join(e,Vi[2]))}async function uf(){if(await ih(Gt))return;let e=Hi.getRawAsset(\"copilot.tgz\"),t=Buffer.from(e);await Ge.default.mkdir(st,{recursive:!0}),await Ja(t,{targetDir:st,version:\"1.0"
+  },
+  {
+    "purpose": "COPILOT_CLI_DIST_DIR",
+    "startUtf8Byte": 121721,
+    "text": "COPILOT_CLI_DIST_DIR;if(n&&!i){let u=_.default.join(n,\"index.js\");await nt(u)?(r=u,s=!0):process.stderr.write(`Warning: COPILOT_CLI_DIST_DIR (${n}) does not contain a readable index.js; ignoring\n`)}let o=process.env.COPILOT_CLI_VERSION,a=No(o);a&&process.stderr.write(`${a}${Gi.default.EOL}`);let h=ko({packageIdentity:t,buildVersion:\"1.0.90\",cliVersionOverride:o}),l=!1;if(!r&&i?(r=await ff(i),l=r!==void 0,r||process.stderr.write(`Warning: preferred version ${i} not found in package cache, using built-in version\n`)):!r&&ks()&&!h?r=await df():r||(r=await pf()),!l&&!s&&(h||r===void 0)){try{await uf()}catch(u){console.error(\"Failed to extract bundled package:\",u),process.exit(1)}r=_.default.join("
+  },
+  {
+    "purpose": "COPILOT_CLI_RESOLVED_DIST_DIR",
+    "startUtf8Byte": 122667,
+    "text": "COPILOT_CLI_RESOLVED_DIST_DIR=_.default.dirname(r),await import(th.default.pathToFileURL(r).toString())}catch(u){console.error(\"Failed to load package index:\",r,u),process.exit(1)}}mf().catch(()=>{});\n"
+  }
+]

@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-05",
+  "issue": 740,
+  "kind": "static-source-inspection-not-runtime-events",
+  "platform": "Darwin 25.6.0 arm64",
+  "cwd": "<repository-root>",
+  "exitCode": 0,
+  "environmentPresenceOnly": {
+    "COPILOT_HOME": false,
+    "COPILOT_CACHE_HOME": false,
+    "COPILOT_PKG_CACHE_HOME": false,
+    "COPILOT_CLI_DIST_DIR": false,
+    "COPILOT_CLI_VERSION": false,
+    "COPILOT_CLI_RESOLVED_DIST_DIR": false
+  },
+  "artifacts": [
+    {
+      "path": ".gitattributes",
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4608,
+      "sha256": "4ba5e5f92d3baf5156eea84edf28c5d76984a64ca1cd9ef4ed01dc74d1f4002b"
+    },
+    {
+      "path": "events-selected.schema.json",
+      "bytes": 30183,
+      "sha256": "8bc6ad3dc02386317be8f2c1a4c25e7232973d15f05c36fe144381e78c3a3594"
+    },
+    {
+      "path": "inspect-runtime.py",
+      "bytes": 6916,
+      "sha256": "008d98dce197c8cf979181ff6e6d216fd187d33787c49d24d7a8789d053cb28b"
+    },
+    {
+      "path": "json-output-excerpts.json",
+      "bytes": 3019,
+      "sha256": "bd4fddad60de98f3a4134d9986bcecfd74552b9ff5b820e66813bec3d59e5c8a"
+    },
+    {
+      "path": "package-comparison.json",
+      "bytes": 2854,
+      "sha256": "69933a5e00887ca2020dbbff29c4ba1819866145c3eeef2b92a25f0cd42dfb98"
+    },
+    {
+      "path": "runtime-identity.json",
+      "bytes": 1773,
+      "sha256": "712b5f13cd9b2e005ad40cdd066bbb6a37355374377ac4943e71e441d52dd151"
+    },
+    {
+      "path": "sea-loader-excerpts.json",
+      "bytes": 3510,
+      "sha256": "c73343b8ccc2d3d0e3f9130c34bc35a85559cea4169e76bd23e00b7bbb9ccf1b"
+    },
+    {
+      "path": "test-runtime-identity.py",
+      "bytes": 1961,
+      "sha256": "04ed7214928b127dabed716c9f938421654fe7b69eb2123d5cf7c4afddda7e48"
+    },
+    {
+      "path": "tools-selected.schema.json",
+      "bytes": 4302,
+      "sha256": "d20444640a950119a64c9e5d1a00e702c164ebf8da9ad17f8016a568af6d0bf7"
+    }
+  ],
+  "normalizedArgv": [
+    "python3",
+    "docs/validation/fixtures/copilot-1.0.90-native/inspect-runtime.py",
+    "--native",
+    "<installed-native-executable>",
+    "--cache",
+    "<existing-1.0.90-cache>",
+    "--output",
+    "<observer-output-directory>"
+  ],
+  "pathRendering": "Portable equivalent of observed invocation: script path names the byte-identical retained copy; host-specific paths replaced by observer placeholders. Not raw argv capture."
+}
