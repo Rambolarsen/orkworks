@@ -1,0 +1,183 @@
+{
+  "kind": "schema-projection-not-a-complete-schema",
+  "sessionOpenOptionNames": [
+    "sessionId",
+    "name",
+    "model",
+    "reasoningEffort",
+    "reasoningSummary",
+    "verbosity",
+    "clientName",
+    "authClientIdMetadataUrl",
+    "clientKind",
+    "lspClientName",
+    "integrationId",
+    "expAssignments",
+    "enableManagedSettings",
+    "managedSettings",
+    "enableFileChangeTracking",
+    "featureFlags",
+    "isExperimentalMode",
+    "authInfo",
+    "provider",
+    "capi",
+    "providers",
+    "models",
+    "workingDirectory",
+    "additionalDirectories",
+    "workingDirectoryContext",
+    "remoteSteerable",
+    "remoteExporting",
+    "remoteDefaultedOn",
+    "detachedFromSpawningParentSessionId",
+    "detachedFromSpawningParentEngagementId",
+    "availableTools",
+    "excludedTools",
+    "includedBuiltinAgents",
+    "excludedBuiltinAgents",
+    "enableScriptSafety",
+    "shell",
+    "shellInitProfile",
+    "shellProcessFlags",
+    "sandboxConfig",
+    "sandboxConfigSource",
+    "logInteractiveShells",
+    "envValueMode",
+    "disabledMcpServers",
+    "managedMcpServers",
+    "allowAllMcpServerInstructions",
+    "skillDirectories",
+    "ignoredSkillsLocations",
+    "enableSkills",
+    "hasSkillProvider",
+    "includedBuiltinSkills",
+    "disabledSkills",
+    "installedPlugins",
+    "customAgentsLocalOnly",
+    "skipCustomInstructions",
+    "refreshCustomInstructions",
+    "disabledInstructionSources",
+    "coauthorEnabled",
+    "trajectoryFile",
+    "enableStreaming",
+    "enableCitations",
+    "copilotUrl",
+    "askUserDisabled",
+    "continueOnAutoMode",
+    "runningInInteractiveMode",
+    "enableOnDemandInstructionDiscovery",
+    "maxInlineBinaryBytes",
+    "modelCapabilitiesOverrides",
+    "sessionLimits",
+    "agentContext",
+    "eventsLogDirectory",
+    "eventsLogIncludesSubagents",
+    "configDir",
+    "additionalContentExclusionPolicies",
+    "memory",
+    "sessionCapabilities"
+  ],
+  "selectedSessionOpenOptions": {
+    "reasoningSummary": {
+      "$ref": "#/definitions/SessionOpenOptionsReasoningSummary",
+      "description": "Initial reasoning summary mode for supported model clients."
+    },
+    "trajectoryFile": {
+      "type": "string",
+      "description": "Optional trajectory output file path."
+    },
+    "eventsLogDirectory": {
+      "type": "string",
+      "description": "Override directory for session event logs."
+    },
+    "eventsLogIncludesSubagents": {
+      "type": "boolean",
+      "description": "Whether subagent callback events should be forwarded into the session event log sink."
+    }
+  },
+  "eventLogRead": {
+    "rpcMethod": "session.eventLog.read",
+    "description": "Reads a batch of session events from a cursor, optionally waiting for new events. Supports tail-first reads via `direction: backward`.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Target session identifier"
+        },
+        "cursor": {
+          "type": "string",
+          "description": "Opaque cursor returned by a previous read. Omit on the first call to start from the beginning of the session's persisted history."
+        },
+        "max": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "description": "Maximum number of events to return in this batch (1–1000, default 200)."
+        },
+        "waitMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000,
+          "format": "duration",
+          "description": "Milliseconds to wait for new events when the cursor is at the tail of history. 0 (default) returns immediately even if no events are available. Capped at 30000ms. Ephemeral events that arrive during the wait are delivered in this batch but are NOT replayable on a subsequent read (use a non-zero waitMs in your next call to capture future ephemerals as they happen). This applies to forward reads only: a backward read always returns immediately and ignores `waitMs`, because backward paging covers persisted history only while new events append at the tail (the opposite end from a backward page), so no blocking or ephemeral delivery can occur."
+        },
+        "types": {
+          "$ref": "#/definitions/EventLogTypes",
+          "description": "Either '*' to receive all event types, or a non-empty list of event types to receive"
+        },
+        "agentScope": {
+          "$ref": "#/definitions/EventsAgentScope",
+          "description": "Agent-scope filter: 'primary' returns only main-agent events plus events whose type starts with 'subagent.' (matching the typed-subscription default behavior); 'all' returns events from all agents (matching wildcard-subscription behavior). Default is 'all' to preserve wildcard semantics for catch-up callers."
+        },
+        "agentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Optional non-empty list of subagent identifiers. When provided, only events owned by one of these agents are returned; ownership recognizes the event envelope's agentId plus legacy data.agentId and data.parentToolCallId markers. This filter takes precedence over agentScope."
+        },
+        "direction": {
+          "$ref": "#/definitions/EventsReadDirection",
+          "description": "Direction to page through the session's persisted event history. 'forward' (default) pages from the cursor toward newer events (or from the start of history when no cursor is given). 'backward' enables tail-first reads: with no cursor it returns the NEWEST `max` events, and the returned cursor pages toward OLDER events on subsequent backward reads. Events within a returned batch are always in chronological (oldest-to-newest) order, even for a backward read. Backward reads cover PERSISTED history only; ephemeral events are never returned by a backward read. `direction` selects the INITIAL read only: the returned cursor is self-describing, so a continuation read pages in the cursor's own direction regardless of the `direction` passed alongside it — a forward cursor always pages forward and a backward cursor always pages backward. Pass the direction that matches the cursor to avoid confusion."
+        },
+        "includeEphemeral": {
+          "type": "boolean",
+          "description": "When false, skip ephemeral events entirely and return only durable (persisted) events. History-backfill callers that discard ephemerals anyway should set this so the read is bounded by the durable log length instead of racing the ephemeral ring on a busy session. Defaults to true (ephemerals are interleaved with durable events in creation order). Ignored by backward reads, which always cover persisted history only."
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "additionalProperties": false,
+      "description": "Cursor, batch size, and optional long-poll/filter parameters for reading session events.",
+      "title": "EventLogReadRequest",
+      "stability": "experimental"
+    },
+    "result": {
+      "$ref": "#/definitions/EventsReadResult",
+      "description": "Batch of session events returned by a read, with cursor and continuation metadata."
+    },
+    "stability": "experimental"
+  },
+  "userSettingsGetResult": {
+    "type": "object",
+    "properties": {
+      "settings": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/definitions/UserSettingMetadata",
+          "description": "A single user setting's effective value alongside its default, so consumers can render settings left at their default."
+        },
+        "description": "Every known user setting keyed by setting name, each with its effective value, default, and whether it is at the default."
+      }
+    },
+    "required": [
+      "settings"
+    ],
+    "additionalProperties": false,
+    "description": "Per-key metadata for every known user setting (settings.json overlaid with the legacy config.json, config.json wins), including settings left at their default. Excludes repository- and enterprise-managed overrides.",
+    "title": "UserSettingsGetResult"
+  }
+}

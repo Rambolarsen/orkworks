@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-05",
+  "issue": 740,
+  "kind": "static-capture-control-leads-not-runtime-evidence",
+  "artifacts": [
+    {
+      "path": ".gitattributes",
+      "bytes": 39,
+      "sha256": "569ffee022ef07042faa95619835c53c8dbc964a2410184c1e58380d69fb7be4"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3620,
+      "sha256": "3c0ec37c77b0244926b235ed4404f62c56f63e73ac90339cadc0d9533ba0ce05"
+    },
+    {
+      "path": "api-observations.json",
+      "bytes": 8212,
+      "sha256": "46b00fc7c09b00a4ba10c596cdcb7ce3f44661383ad8821db5a7d257b1a777de"
+    },
+    {
+      "path": "capture-settings.json",
+      "bytes": 1990,
+      "sha256": "d5d6e981ad4ab7d400429c0ae76bc92877356839eee1c8ac3c0a8cd168d760e1"
+    },
+    {
+      "path": "config-help.txt",
+      "bytes": 16970,
+      "sha256": "d3f0a3610ae16c384f5740b3fee1f231421c358afdc867d64043beb34f207458"
+    },
+    {
+      "path": "inspect-capture.py",
+      "bytes": 3669,
+      "sha256": "c36ff5d2edef4834aeb86bb4066ecf834daeb70eaa0311d43972cfaa95c12dbf"
+    },
+    {
+      "path": "model-call-data.schema.json",
+      "bytes": 8273,
+      "sha256": "c79a36fe7f17ae64a357930c0a8d7ff0442d7a11b412e98923f7b811eda3d00d"
+    }
+  ],
+  "commands": [
+    {
+      "normalizedArgv": [
+        "python3",
+        "docs/validation/fixtures/copilot-1.0.90-capture/inspect-capture.py",
+        "--runtime",
+        "<existing-1.0.90-cache>/prebuilds/darwin-arm64/runtime.node",
+        "--events",
+        "<pinned-schema-directory>/session-events.schema.json",
+        "--api",
+        "<pinned-schema-directory>/api.schema.json",
+        "--output",
+        "<observer-output-directory>"
+      ],
+      "cwd": "<repository-root>",
+      "exitCode": 0
+    },
+    {
+      "normalizedArgv": [
+        "env",
+        "COPILOT_HOME=<temporary-settings-directory>",
+        "copilot",
+        "--no-auto-update",
+        "help",
+        "config"
+      ],
+      "cwd": "<temporary-fixture-root>",
+      "exitCode": 0,
+      "stdout": "config-help.txt"
+    }
+  ],
+  "pathRendering": "Portable equivalent of observed arguments; host-specific paths normalized. Not raw argv capture."
+}

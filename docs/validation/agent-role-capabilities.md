@@ -293,3 +293,17 @@ request/generation binding; it is not yet a complete effective inventory.
 OTel capture safety and any alternative observer remain unverified. No live
 probe ran, no SDK integration is proposed, all six roles remain unavailable,
 and #740 remains open.
+
+## Selective capture follow-up — 2026-10-05
+
+[Native selective-capture research](copilot-selective-capture-research.md)
+retains compiled 1.0.90 settings descriptions and canonical keys for separate
+prompt, response/reasoning, tool-argument, tool-output, policy-detail and identity
+capture. This is a narrower candidate than the documented broad content flag,
+not demonstrated configuration or a safe transport. Effective precedence,
+reasoning exclusion across later inputs and every persistence/export path, and
+complete request-bound tool definitions still require evidence. The retained
+model-call schemas carry turn/final-result metadata, not those content receipts;
+logical dispatch may include several provider attempts. Read-time event filters
+and observer cursor waiting establish neither pre-storage exclusion nor parent
+model continuation. All six profiles and live-batch gates remain unchanged.

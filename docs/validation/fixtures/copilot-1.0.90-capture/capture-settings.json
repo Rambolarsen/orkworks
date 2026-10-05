@@ -1,0 +1,60 @@
+{
+  "sourceSha256": "ad89ad135478cd2b19a5b99bb19064d0be281961cab0506f3767f39234d4c591",
+  "catalogStartByte": 69298825,
+  "entries": [
+    {
+      "path": "telemetry.capture.identity",
+      "leafKind": "boolean",
+      "description": "Include the authenticated Copilot account, local operating-system account, and machine name as OpenTelemetry user.name, process.user.name, and host.name. These identifying values are off by default."
+    },
+    {
+      "path": "telemetry.capture.prompts",
+      "leafKind": "boolean",
+      "description": "Include prompt and other model-input content in OpenTelemetry."
+    },
+    {
+      "path": "telemetry.capture.responses",
+      "leafKind": "boolean",
+      "description": "Include assistant response and reasoning content in OpenTelemetry."
+    },
+    {
+      "path": "telemetry.capture.toolArguments",
+      "leafKind": "boolean",
+      "description": "Include raw tool arguments, definitions, and identifying tool metadata in OpenTelemetry."
+    },
+    {
+      "path": "telemetry.capture.toolOutput",
+      "leafKind": "boolean",
+      "description": "Include tool results and execution error details in OpenTelemetry."
+    },
+    {
+      "path": "telemetry.capture.policyDetail",
+      "leafKind": "boolean",
+      "description": "Include expanded sandbox filesystem policy paths and comparable unbounded policy details in OpenTelemetry."
+    },
+    {
+      "path": "telemetry.captureContent",
+      "leafKind": "boolean",
+      "description": "Legacy shorthand that enables all five OpenTelemetry content classes, but never user.name, process.user.name, or host.name."
+    }
+  ],
+  "canonicalKeysStartByte": 77099388,
+  "canonicalKeys": {
+    "canonicalKeys": [
+      "capture",
+      "captureContent"
+    ],
+    "nested": {
+      "capture": {
+        "canonicalKeys": [
+          "identity",
+          "prompts",
+          "responses",
+          "toolArguments",
+          "toolOutput",
+          "policyDetail"
+        ]
+      }
+    }
+  }
+}
