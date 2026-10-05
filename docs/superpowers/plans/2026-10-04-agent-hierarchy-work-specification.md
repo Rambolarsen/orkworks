@@ -115,6 +115,17 @@ Written contract review, filesystem/platform evidence and executable code
 planning remain open. It does not complete #745's downstream learning/history
 scope or satisfy baseline unit 4's reviewed identity prerequisite yet.
 
+## Application-shell prerequisite: #755
+
+The [proposed shell/navigation contract](../specs/2026-10-05-application-shell-navigation-design.md)
+and six synthetic mockups are drafted for written review. #755 precedes final
+shell-dependent #746 placement/navigation acceptance. It compares central tree
+and timeline views, removes panel dragging/tab management, defines compact
+session switching and central Review/Terminal returns, and stages required
+ADR 0011 supersession / ADR 0013 amendment and layout migration.
+No shell direction, replacement library or runtime execution plan is accepted
+by this link. Existing #746 evidence/identity contracts remain separately gated.
+
 ## Work packages and dependency order
 
 | Package | Tracker | Drafting inputs / final dependencies | Deliverable |

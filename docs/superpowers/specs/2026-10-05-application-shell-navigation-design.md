@@ -1,0 +1,445 @@
+# Application shell and workflow navigation
+
+- Status: proposed; shell direction, defaults and authoritative amendments require written owner review
+- Date: 2026-10-05
+- Tracking: [#755](https://github.com/Rambolarsen/orkworks/issues/755), prerequisite of [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738)
+- Baseline inspected: `d48cc2159219c09b2575b8f25a45cb58bc68f23b`
+- Inputs: [hierarchy interaction](2026-10-04-agent-hierarchy-ui-design.md), [product direction](2026-10-04-agent-hierarchy-and-configuration-learning-design.md), [accepted orchestration scope](2026-10-04-taskmaster-orchestration-scope-design.md)
+
+## Purpose, scope and decisions for review
+
+Replace panel tabs and drag-and-drop arrangement with a predictable shell for
+observing sessions and moving deliberately between work and its overview.
+Keep Sessions compact. Put the tree or branching workflow timeline in the
+central area in place of the terminal. Lead with agent tasks and progress;
+Git references belong in inspected details.
+
+The owner selected #755 for specification work on 2026-10-05. The proposed
+direction is a compact session sidebar, one central surface, and one optional
+contextual inspector. This document and its synthetic drawings are review
+artifacts. They do not implement navigation, accept a replacement layout
+library, qualify coding-tool profiles, or authorize orchestration launches.
+
+The owner chose **restore the last central view** during drafting on 2026-10-05.
+Always validate the remembered target before restoring it. Remaining proposed
+defaults requiring approval: use the branching timeline for workflow stages
+with a tree presentation available; keep the inspector closed until requested;
+open an explicitly selected session in Terminal. Startup preference acceptance
+does not by itself accept the remaining shell or authoritative amendments.
+
+Preserve one selected terminal and one central context. Ordinary sessions work
+without any orchestration extension. No editor, tiled terminal, native subagent
+controller, Git mutation, automatic retry, autonomous integration, or peer
+instance dashboard is introduced.
+
+## Investigated current behavior
+
+| Source | Implemented behavior | Required change in the proposal |
+| --- | --- | --- |
+| `apps/desktop/src/components/DockviewApp.tsx` | Sessions left; Detail below Sessions; Terminal center; Capacity and Recommendations right; reusable Review in Terminal's group | Replace movable panel groups with fixed regions and explicit central navigation |
+| `apps/desktop/src/App.tsx` | Selecting an actual session activates Terminal and acknowledges only that session; Review activates a reusable document panel | Retain explicit session selection; separate workflow inspection from terminal selection |
+| `apps/desktop/src/App.tsx` menu-command handler | Sessions shortcut reveals/focuses the list, then hides it when already focused; other panel commands toggle panels | Preserve the Sessions shortcut contract; map other saved commands explicitly rather than silently dropping them |
+| `apps/desktop/electron/menuTemplate.ts` | Saved accelerators, native menu roles, shortcut-capture suppression, per-panel View checkboxes | Retain user accelerators and capture suppression; replace panel toggles with surface/inspector commands |
+| `apps/desktop/electron/layoutMemory.ts` | Installation-level `layout.json`; arbitrary JSON accepted, Dockview deserializes in renderer | Treat legacy docking data as presentation only; create bounded versioned shell preferences through Electron |
+| `apps/desktop/src/workspaceSessionController.ts` | Workspace/foreground generations fence asynchronous work; remembered selection restores only a matching non-dead session | Revalidate every remembered destination; preserve existing session restoration and lifetime rules |
+| [Session Plan Review](../../../specs/session-plan-review.md) | One selected-session Markdown artifact; reading is separate from the explicitly approved fixed review prompt | Keep one Review surface, exact document target, refresh/error handling and separate Send review prompt action |
+| [ADR 0011](../../adr/0011-dockview-panel-layout.md) | Accepted movable panels and terminal tab support | Requires supersession before implementing a deliberate fixed-layout divergence |
+| [ADR 0013](../../adr/0013-single-active-context-primitive.md) | Singular active terminal, Sessions as multi-view, Details bound to focused session | Preserve one active context; review an amendment allowing an alternative workflow overview and its inspected-task details |
+
+### Uncertainty and blind-spot checkpoint
+
+**What am I least confident about?** Whether a shell redraw could silently
+change terminal selection, unread acknowledgement or process lifetime. The
+selection handler acknowledges a real session and foregrounds its terminal;
+#746 requires inspection to do neither. Treat these as separate transitions,
+using canonical session IDs. Surface hiding detaches presentation only;
+[ADR 0022](../../adr/0022-session-runtime-owned-pty-lifetime.md) keeps PTY lifetime
+in the sidecar. A future integration fixture must verify output drains while
+Workflow or Review is visible.
+
+**What might the project be missing?** “Restore layout” currently means an
+installation-wide docking arrangement, whereas restoring a task or document
+would be workspace-specific and generation-sensitive. Never replay an old
+run action or infer a session from a layout. Also, ordinary Review reads a
+selected session's artifact; approving an orchestrated exact plan is a different
+authority path. Share visual space only, not tokens, approval semantics or
+implicit submission. Native window dragging remains necessary even though
+panel dragging is removed.
+
+Investigated facts above come from the source and existing contracts. Remaining
+risks: upstream #743/#744 projections are unfinished; timeline timestamps may be
+absent; vendor references do not prove OrkWorks capability; the owner has not
+accepted shell defaults or a library choice. The proposal retains unknown states
+and isolates runtime planning behind those gates.
+
+## Dated reference comparison
+
+Sources were read on 2026-10-05. These are bounded design references, not
+claims about the latest installed products or adapter eligibility.
+
+| Reference / evidence boundary | Relevant documented pattern | OrkWorks interpretation |
+| --- | --- | --- |
+| [Cursor 2.0 release, 2025-10-29](https://cursor.com/changelog/2-0) | Sidebar for agents/plans; easier review of an agent's changes | Use a compact work index and explicit review access; retain OrkWorks' coding-tool hosting boundary |
+| [Claude Code desktop redesign, 2026-04-14](https://claude.com/blog/claude-code-desktop-redesign) | Active/recent-session sidebar, selectable information density and review access | Borrow session switching and progressive detail. The announcement gives a dated release, no desktop build number; no installed-build parity is claimed |
+| [Copilot CLI 1.0.90 retained help](../../validation/fixtures/copilot-1.0.90/help.txt), [capture manifest](../../validation/fixtures/copilot-1.0.90/manifest.json), [release](https://github.com/github/copilot-cli/releases/tag/v1.0.90) | Captured help supports interactive mode and explicit session resume selection | Preserve deliberate exact-session navigation. This packet contains no captured interactive UI, so it establishes no sidebar/timeline layout for 1.0.90 |
+
+The [current Copilot command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)
+describes a timeline, task details and session browsing. It is a dated reading of
+rolling documentation, not version-bound 1.0.90 evidence. Its task navigation
+suggests progressive disclosure; this inference does not qualify native subagent
+control or exact resume in OrkWorks.
+
+Vendor drag/tile/editor features are outside this proposal's requirements.
+OrkWorks is observing the underlying coding tool, not reproducing its agent
+conversation, editing or integration product.
+
+## Approaches and recommendation
+
+| Approach | Benefit | Tradeoff |
+| --- | --- | --- |
+| A — compact sidebar, central surfaces, contextual inspector (recommended) | Predictable session switching; ample workflow/terminal space; one clear inspection target | Requires explicit return destinations and inspector binding |
+| B — sidebar-led navigation with an expanded hierarchy beside Terminal | Hierarchy remains visible while working | Reintroduces the intrusive sidebar the owner rejected; leaves little room for tasks/skills |
+| C — overview-first full-width canvas with a session picker only | Largest graph area; few permanent regions | Ordinary sessions and attention switching become less discoverable; adds navigation for frequent terminal use |
+
+Choose A. Its sidebar carries session-level awareness; the central workflow
+overview carries declared task/stage relationships. This is a product layout
+decision, not a decision to replace Dockview with a particular dependency.
+
+## Shell regions and responsive defaults
+
+At a logical content width of at least 1180 CSS px, use a 240px Sessions
+sidebar (resizable 200–320px), the remaining central area, and an optional
+320px inspector (resizable 280–420px). Central content gets at least 560px.
+Clamp widths before opening the inspector; if they cannot fit, use compact
+behavior. Sizes are proposed defaults, not fixed text sizes or minimum window
+dimensions. Native app chrome is outside these measurements.
+
+At 860–1179px, keep Sessions at its bounded width when it fits and replace
+central content temporarily with the requested inspector detail page. Below
+860px, show one content region: Sessions and inspection open temporary pages
+with labeled return destinations. Do not place another session's detail page
+over a visible terminal. At 200% text zoom, apply the same rules to effective
+logical width; labels wrap and actions remain reachable. The native window
+remains resizable and draggable.
+
+The app header preserves workspace switch, connection status, native controls
+and Settings. A content header shows the exact context title/breadcrumb and
+actions: Sessions, Workflow when available, Details, Actions with current
+counts, Capacity. These open destinations; they are not persistent panel tabs.
+No floating, docking, view reordering or document-tab strip exists. Resize
+handles adjust fixed regions only and have keyboard-operable separator controls.
+
+Details, Recommendations and Capacity share the optional inspector; only one
+is visible there. Capacity and recommendations keep explicit workspace/tool
+scope labels and their existing unavailable/disabled states. A utility's return
+action restores the prior valid detail subject, never a stale session. Closing
+an inspector restores focus to its invoker without changing selection.
+
+Required-action counts remain visible when Sessions/inspector are hidden. Keep
+session attention counts separate from proposed run decisions and recommendation
+counts; do not sum the same obligation twice or label historical attention as
+live. Unknown/partial data displays “Actions unavailable” or a labeled partial
+count, never an invented zero. New attention updates counts without switching
+views or focus. Ordinary status comes from canonical SessionInfo.
+
+## Central destinations and state ownership
+
+Logical UI state, not an accepted IPC schema:
+
+- Workspace identity and runtime generation fence all ephemeral state.
+- `activeSessionId` remains the sole ordinary terminal selection.
+- `surface` is Terminal, Workflow, Review, or a temporary compact page.
+- Workflow has an exact run ID and inspected run/plan/revision/task reference,
+  stable disclosure/focus/scroll anchors and presentation choice.
+- Review has the exact selected session and current validated artifact identity,
+  plus a bounded return descriptor. It never stores prompt content or grants.
+- Inspector is closed, context details, workspace recommendations, or capacity;
+  context details derive from the current surface's subject.
+- Navigation remembers at most one valid return descriptor per central surface,
+  not an unbounded browser history. Lost targets fall back visibly.
+
+| Trigger | Destination / selection | Details, focus and unread |
+| --- | --- | --- |
+| Select actual session in Sessions | Terminal for that exact ID; ordinary dead-session history remains available | Bind Details to that session; acknowledge only through existing explicit selection semantics; retain list focus until Enter/Focus terminal |
+| Open Workflow from selected child/root | Owning exact run's overview; active terminal ID stays latent | Reveal that node; bind inspector to overview inspection; focus overview heading/previous anchor |
+| Open Workflow without a validated owning run | No inferred graph; explain “Workflow unavailable for this session” | Preserve current context; ordinary session commands stay usable |
+| Inspect planned/live workflow node or Show next action | Same Workflow, exact inspected target | No session selection, unread acknowledgement, resume or launch; focus inspected node/details command |
+| Open terminal/history from node | Terminal for validated actual session ID | Select explicitly, acknowledge only that session, focus terminal/history; record owning run return |
+| Back to workflow from Terminal | Exact current session's owning run, if still valid | Restore overview anchors; unrelated cached run is never displayed as its workflow |
+| Review plan from session detail | One Review surface for selected session's readable Markdown artifact | Current selected session remains exact; focus document heading; store Terminal return |
+| Review associated artifact from workflow task | First explicitly select its exact ordinary session, then open Review | This action acknowledges that session as explicit selection; record exact Workflow return; planned nodes without an associated session have no ordinary Review action |
+| Close Review / Back to terminal | Same selected session's Terminal/history if valid | Restore document invoker/terminal focus, no second selection or prompt submission |
+| Back to workflow from Review | Recorded exact run/task, if still valid | Restore overview focus; otherwise show why return is unavailable and offer selected Terminal |
+| Open Details / Actions / Capacity | Wide: contextual inspector; compact: temporary page | Announce scope, preserve central return; never change active session merely to inspect |
+| New session successfully created | Terminal for newly created exact session | Existing creation authority and failure handling retained; never interpret it as a run/child creation |
+| Workspace starts switching or backend generation changes | Clear/fence old ephemera and gate commands through existing lifecycle | No late old overview/document/detail can paint the new workspace; no silent launch/resume |
+
+When reviewing another task's ordinary artifact, label the action with that
+session and the consequence: “Review R2 plan — switch session”. Distinguish it
+from “Review exact proposal”, which opens the run's version-bound approval
+details without selecting an ordinary session or sending a review prompt.
+
+The terminal is hidden while Workflow/Review/compact pages are central. Its PTY
+continues under sidecar ownership; renderer attachment can detach without
+ending the process. Reattach the exact selected runtime according to the
+existing terminal contract, preserve output/history, refit to the current
+viewport, and never send input while focus belongs to navigation/document UI.
+Changing presentation must not create another terminal runtime.
+
+Terminal Details always describes its selected session. Workflow Details
+describes the inspected task/run only while the overview is visible. Review
+Details describes its selected session/artifact. The inspector clears or
+rebinds synchronously on a destination change before fetching details.
+
+Recommendations retain existing approval/fix behavior. An action that targets
+a different actual session must make that exact selection explicit before
+confirmation; never inject into the latent terminal because a workflow node
+was inspected. Capacity inspection sends no input. Run approval/cancel/finish
+uses separately reviewed #610/#742 Electron-owned commands and exact subject
+versions. Reading Review or a summary is not approval, viewed-result acceptance
+or review-prompt submission.
+
+## Tree versus branching timeline
+
+Both presentations use the same validated #746 ownership, stable task keys,
+declared order, attention/evidence and accessible linear outline. Session
+switching is never driven by node selection alone. No graph editing or drag
+gestures create tasks.
+
+The tree emphasizes direct parentage: one orchestrator root, non-agent plan
+headings, direct declared task children. It is easier to scan short runs and
+offers the clearest keyboard/screen-reader structure. It requires expanding
+stages to compare how work evolved.
+
+The branching timeline emphasizes declared stage progression: the orchestrator
+is the continuing trunk; research, implementation, review and verification
+paths attach as direct tasks under their exact plan headings. Dependencies
+are separately labeled “Waits for I1”, never encoded as child delegation.
+Use stage order rather than a duration scale unless authoritative timestamps
+are available. Missing time is labeled unavailable. Earlier paths/results
+retain exact plan/result identities as later proposals appear. Dashed planned
+cards read “Not started · approval required”; drawing them grants nothing.
+
+Proposed default: timeline for an available run, with a labeled Tree/Timeline
+presentation selector inside Workflow. It changes presentation only; keep
+inspection, selected terminal, focus anchors and disclosure semantics. Under
+narrow width/zoom, render an ordered outline with plan/time labels instead of
+compressing a branching canvas. Preserve the explicit outline alternative on
+wide screens for keyboard/assistive users.
+
+For absent orchestration records, keep the ordinary session terminal and
+switcher; there is no fabricated run trunk. For incomplete/corrupt lineage,
+show the unavailable state and allow ordinary session switching. The entire
+workflow feature remains separately gated by #610 and its projections.
+
+## Review, attention and lifecycle details
+
+Review reuses the selected-session artifact validation, unreadable/missing
+messages and refresh behavior. One document is visible; no browser/file editor
+or additional document tabs. Opening another session closes/replaces the old
+document subject. A changed artifact invalidates pending prompt/approval
+bindings and is displayed as changed, not as an approved snapshot. The fixed
+Send review prompt action retains native confirmation and sidecar revalidation;
+reading or refreshing cannot send it.
+
+Attention navigation is two-step when coming from Workflow: Show next action
+inspects/reveals the exact target, then Open terminal/history or Review proposal
+opens the required context. Sessions remains a direct exact-session switcher.
+Collapsed stages retain required-action rollups. Late attention does not expand
+an unrelated document or focus the terminal automatically. Existing explicit
+acknowledgement and alive-versus-remembered behavior remain authoritative.
+
+If the selected session is forgotten, clear it through the ordinary lifecycle
+path and show the no-selection state. If an inspected node disappears, focus
+its retained stage/root or the overview heading with an explanation. If the
+parent is missing, preserve surviving child navigation and ordinary management.
+Ending a run, hiding a panel or resetting shell presentation never kills a
+session. Backend unavailable and workspace conflict use existing retry/control
+gates; the shell adds no fallback sidecar or replacement session.
+
+## Keyboard, accessibility and motion
+
+Retain saved existing hotkey chords; revalidate duplicates/reserved/native
+chords during the separately reviewed settings migration. No new global
+accelerator is assigned in this specification. Workflow and Review commands
+are reachable through labeled buttons and the View menu; new customizable
+commands, if desired, require explicit settings scope approval.
+
+| Existing command identity | Proposed meaning |
+| --- | --- |
+| New session | Existing ordinary creation dialog |
+| Sessions | Reveal/focus Sessions; hide only when already focused; narrow page closes to exact invoker on repeated command |
+| Detail | Toggle current-subject Details; never expose unrelated inspection beside Terminal |
+| Terminal | Show/focus the exact selected Terminal/history; repeating keeps it visible rather than hiding the sole central surface |
+| Capacity / Recommendations | Open/focus respective inspector/page; repeating that active utility closes it and restores focus |
+| Reset Layout | Reset region widths, visibility and presentation defaults; no session lifecycle or workspace operation |
+
+Use semantic buttons, landmarks, headings and a Sessions listbox. Sessions
+Up/Down retains existing explicit selection behavior; Enter focuses its
+terminal. In Workflow, arrows traverse the outline/disclosures, Enter inspects,
+and Open terminal is a separately named button. Preserve #746's rule that
+inspection/focused descendants prevent an otherwise surprising collapse.
+
+Tab enters/leaves region controls in logical order. Compact pages trap no
+focus outside a true modal; Escape closes only the owned temporary page and
+returns to its invoker. Global Escape/arrow handling never consumes xterm input.
+Review Escape applies only with focus in the document/navigation surface, not
+the terminal. On target loss, focus the nearest valid heading and announce why.
+
+All status/action meaning has visible text. Skill delivery and usage keep
+separate labels, accessible overflow and unknown states. No hover-only action,
+color-only line meaning, autoplay graph motion or rapidly repeating highlight.
+Reduced motion removes transitions while retaining event labels. Text zoom
+does not shrink labels, overlap controls or conceal required actions. Screen
+reader announcements report meaningful state changes, not every PTY line.
+
+## Saved layout migration and library decision
+
+Do not feed legacy Dockview JSON into the new fixed shell. Proposed
+installation-level `shell-layout.json` version 1 stores bounded region widths,
+Sessions visibility, density and tree/timeline preference only; it contains no
+session/run IDs, workspace paths, document content, tokens or grants. Target
+byte limit: 16 KiB. Validate exact field vocabulary, numeric limits and finite
+values. Unknown/corrupt/future versions use defaults in memory and surface a
+diagnostic; preserve original bytes. Never overwrite an unreadable/future file
+until an explicit reset/rebuild choice is confirmed.
+
+Keep existing `layout.json` untouched for downgrade safety. First valid use of
+the new shell starts from fixed defaults and says “Your saved panel arrangement
+is retained; this version uses a fixed layout.” Do not guess widths from
+arbitrary dock positions or restore hidden central panels. New writes use
+Electron-owned bounded validation and atomic same-directory replacement; a
+failed save leaves the current UI usable, preserves the last valid record and
+reports failure. Reset Layout changes presentation; it does not delete the
+legacy record or unrelated app settings/hotkeys.
+
+Per-workspace remembered navigation needs a separate bounded record using the
+existing canonical workspace key, at most 20 remembered workspace entries and
+64 KiB total. Store last surface, selected session ID, optional run ID and
+overview anchors only. Revalidate after ready restoration; never persist runtime
+generation authority, action versions, artifacts/prompts, credentials or
+approval state. Review restores only after the same selected session currently
+exposes a readable validated artifact; otherwise fall back to Terminal with a
+reason. Missing overview/selected session falls back to the existing valid
+selection or an empty terminal state, without automatic resume. Workspace
+deletion forgets its navigation record; each independent instance has no peer
+discovery/focus authority. Persistence failure cannot gate ordinary sessions.
+
+Proposed startup default is last valid central view. First use/no remembered
+view opens Terminal for the existing valid selection, or the ordinary empty
+state. Never start a run or session to fill a remembered view. Do not persist a
+workspace's navigation under another workspace during a switch.
+
+Before choosing a layout library, evaluate whether Dockview can deliver fixed
+regions with no visible tab strip, drag/float/dock affordance, hidden required
+context, or second terminal, while retaining accessibility/zoom guarantees.
+Compare a small fixed React/CSS/resizing implementation only if that requirement
+cannot be met cleanly. The outcome belongs in the accepted replacement ADR and
+its executable plan; this document introduces no dependency change.
+
+## Authoritative amendment sequence
+
+The following proposed text is staged for written review. Existing accepted
+specs/ADRs continue to describe current product behavior until acceptance; this
+PR does not mark them superseded or claim a shipped shell.
+
+1. On acceptance, create the next available ADR superseding ADR 0011's movable
+   panels/tabbed Terminal requirement. Record fixed regions, explicit central
+   navigation, retained resize behavior, migration and the separately decided
+   library. Keep ADR 0011 as historical; update its status/link and ADR index.
+2. Amend ADR 0013 in a dated section: “A session remains the terminal context.
+   The compact Sessions index provides session-level awareness; an explicitly
+   opened central workflow overview provides declared task/stage awareness in
+   place of Terminal. Only one central context is visible. Details follows the
+   visible context: selected session in Terminal, exact inspected task/run in
+   Workflow, selected-session artifact in Review. Inspection never selects a
+   terminal or grants runtime authority.” Its single-context decision stands.
+3. Amend [MVP shell scope](../../../specs/orkworks-mvp.md#electron-desktop-shell):
+   replace VS Code-like three-column/mandatory-right-sidebar wording with
+   compact Sessions, one central Terminal/Review/eligible Workflow surface and
+   an optional contextual inspector; preserve native window and Electron
+   security/lifetime rules. Update selected-session association and hotkey
+   behavior descriptions where they currently require tabs/panel hiding.
+4. Amend [Session Plan Review](../../../specs/session-plan-review.md) so Review
+   plan opens the single reusable central Review surface with explicit return
+   navigation, retaining artifact/path constraints and prompt confirmation.
+5. Reconcile #746 and the [hierarchy product direction](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
+   with the accepted shell, replacing provisional placement/mockups and binding
+   keyboard, compact behavior and inspection to these transitions. Update
+   [architecture](../../agents/architecture.md#dockview-panel-layout),
+   [product boundaries](../../agents/product-boundaries.md#single-active-context-ux-invariant),
+   root guide pointers and docs landing claims when their described behavior
+   actually changes. Do not advertise an installer feature from a proposed spec.
+
+## Mockups and bounded walkthrough
+
+All labels, statuses, records and terminal text are synthetic. The same run is
+used for tree/timeline comparison. Lines show parent-owned workflow paths;
+dependencies are textual. No rendered line is a measured duration or Git graph.
+
+### Low-density tree
+
+![Fixed shell with compact Sessions, central tree for research and planned execution, and task inspection separate from the retained terminal selection.](../../validation/assets/shell-navigation-tree.svg)
+
+### Low-density branching timeline
+
+![The same run in a central stage timeline, with retained research results and an execution proposal awaiting exact approval.](../../validation/assets/shell-navigation-timeline.svg)
+
+### High-density timeline
+
+![Busy workflow with retained earlier stage, explicit task dependencies, action count and secondary skill/result details.](../../validation/assets/shell-navigation-dense.svg)
+
+### Terminal and session-bound details
+
+![One terminal, compact session switcher, Back to workflow and Review plan actions, with Details bound to the visible session.](../../validation/assets/shell-navigation-terminal.svg)
+
+### Central Review and workspace actions
+
+![One Review document replacing Terminal, explicit return actions, separate confirmed review-prompt submission, and a workspace-scoped Recommendations inspector.](../../validation/assets/shell-navigation-review.svg)
+
+### Narrow window / effective zoom width
+
+![Narrow single-surface workflow outline, with Sessions and Details opening temporary pages and required-action navigation remaining visible.](../../validation/assets/shell-navigation-narrow.svg)
+
+| Task | Walkthrough / acceptance oracle |
+| --- | --- |
+| Find required attention | Actions count remains visible; Show next action reveals/inspects R2; Open terminal explicitly selects R2 and acknowledges only it |
+| Switch agents | Compact actual-session row opens its exact terminal; Enter focuses xterm; workflow inspection does not alter that selection |
+| Inspect planned verification | V1 details show not started and dependency/approval state; there is no fabricated terminal or launch button |
+| Understand research → execution | Earlier research stage retains results; new proposal reads Awaiting approval; inspection grants nothing |
+| Review a plan | Review plan selects one validated artifact; Back to terminal restores the exact session; Send review prompt remains separately confirmed |
+| Return after changing sessions | Workflow resolves from the newly selected session's ownership; unrelated old run/details cannot appear beside its terminal |
+| Find recommendations/capacity | Explicit inspector/page scope labels; details restores to the current context; no recommendation sends into an inspected-only node |
+| Use narrow width/200% zoom | Central outline stays readable, temporary pages have return actions, all attention/status/skill details remain reachable |
+| Reset old layout | Fixed presentation resets; legacy JSON, hotkeys, session processes and metadata remain intact |
+
+This walkthrough is an expert contract/artifact check, not a measured usability
+study or a shipped accessibility result. Future runtime acceptance requires
+real keyboard, assistive-technology, zoom and PTY lifecycle tests.
+
+## Validation cases and implementation handoff
+
+Before an executable runtime plan, cover: inspection without selection/unread
+effects; explicit session selection and terminal focus; stale workspace/run/
+artifact/generation replies; unavailable ownership; planned nodes; forgotten
+targets; parent loss; collapse with focused descendants; Review target drift;
+same-session terminal reattachment; detached output drain; inspector scope
+changes; hotkey migration/capture; width/zoom transitions; malformed/future
+layout records; atomic-save failure; exact approval with no renderer authority;
+and ordinary sessions with no orchestration projections.
+
+After written shell acceptance and authoritative reconciliation, use
+writing-plans to produce reviewed executable units for (1) pure navigation and
+subject-binding reducer, (2) Electron preferences/migration and existing hotkey
+mapping, (3) fixed shell/single-terminal/Review integration and accessibility,
+and (4) #746 overview projection integration after #741/#743/#744 agreement.
+Map them to concrete source/test files and scoped issues only after that plan
+is reviewed. Do not start these units or create speculative implementation
+issues from this proposed document. Keep ordinary shell work separable from
+orchestration availability; approval IPC remains the #610/#742 owner's unit.
+
+Documentation checks for this deliverable: diff whitespace, doc drift,
+VitePress build/dead links, SVG XML plus rendered clipping/contrast/label
+inspection, and a requirement-by-requirement self-review. Keep #755 and #746
+open for written acceptance, amendments and reviewed execution handoff. No
+runtime or coding-tool capability claim follows from those checks.
