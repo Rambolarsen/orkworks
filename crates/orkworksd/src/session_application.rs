@@ -1894,7 +1894,13 @@ impl SessionApplication {
                 .lock()
                 .unwrap();
             let is_terminal = matches!(status.as_str(), "killed" | "ended" | "error");
-            let (handle_decision, session_resume, entered_running, entered_terminal) = {
+            let (
+                handle_decision,
+                session_resume,
+                entered_running,
+                entered_terminal,
+                already_ending,
+            ) = {
                 let mut sessions = state.sessions.lock().unwrap();
                 if expected_generation.is_some_and(|expected| {
                     !sessions
@@ -1911,12 +1917,11 @@ impl SessionApplication {
                     }
                     let entered_running =
                         !is_terminal && status == "running" && handle.info.status != "running";
-                    if is_terminal
-                        && matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
-                    {
+                    let already_ending = is_terminal && handle.info.lifecycle_phase == "ending";
+                    if is_terminal && handle.info.lifecycle_phase == "ended" {
                         return false;
                     }
-                    if is_terminal {
+                    if is_terminal && !already_ending {
                         handle.info.status = "running".to_string();
                         handle.info.lifecycle_phase = "ending".to_string();
                         handle.info.lifecycle = "stopping".to_string();
@@ -1924,7 +1929,7 @@ impl SessionApplication {
                         handle.info.connectivity =
                             Some(connectivity_for_status("running").to_string());
                         handle.info.terminal_outcome = None;
-                    } else {
+                    } else if !is_terminal {
                         handle.info.status = status.clone();
                         handle.info.lifecycle_phase = if status == "creating" {
                             "creating".to_string()
@@ -1950,9 +1955,10 @@ impl SessionApplication {
                         (handle.info.resume.clone(), handle.info.resumed_from.clone()),
                         entered_running,
                         is_terminal,
+                        already_ending,
                     )
                 } else {
-                    (None, (None, None), false, false)
+                    (None, (None, None), false, false, false)
                 }
             };
             if entered_terminal {
@@ -1977,74 +1983,129 @@ impl SessionApplication {
             }
             let now = iso_now();
             let mut applied = handle_decision.unwrap_or(false);
-            let ws_guard = state.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                if let Some(mut meta) = ws.metadata.read_session(&id) {
-                    // With no in-memory handle, the persisted lifecycle is the guard authority.
-                    if handle_decision.is_none()
-                        && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended")
-                    {
-                        return false;
-                    }
-                    applied = true;
-                    if is_terminal {
-                        meta.status = "running".to_string();
-                        meta.lifecycle_phase = "ending".to_string();
-                        meta.lifecycle = "stopping".to_string();
-                        meta.attention = None;
-                        meta.connectivity = connectivity_for_status("running").to_string();
-                        meta.terminal_outcome = None;
-                        meta.pending_terminal_status = Some(status.clone());
-                        meta.ending_observed_status_snapshot =
-                            Some(metadata::ObservedStatusSnapshotMetadata {
-                                value: meta.observed_status.clone(),
-                                source: meta.metadata_source.clone(),
-                                confidence: Some(meta.metadata_confidence),
-                                observed_at: Some(now.clone()),
-                            });
-                    } else {
-                        meta.status = status.clone();
-                        meta.lifecycle_phase = if status == "creating" {
-                            "creating".to_string()
-                        } else {
-                            "active".to_string()
+            loop {
+                let ws_guard = state.workspace.lock().unwrap();
+                if let Some(ref ws) = *ws_guard {
+                    if let Some(mut meta) = ws.metadata.read_session(&id) {
+                        // A transition detached while waiting for the workspace
+                        // lock must not overwrite a live handle that has since
+                        // entered its terminal lifecycle. Persisted `ended` alone
+                        // is not authoritative when a live handle is active: it
+                        // can be stale from an earlier process. Once the live
+                        // generation is ending, preserve a durable terminal status even
+                        // before the finalizer updates its live phase. If the
+                        // session map is temporarily busy, release the workspace lock
+                        // and retry rather than treating contention as no handle.
+                        let live_handle_phase = match state.sessions.try_lock() {
+                            Ok(sessions) => {
+                                let handle = sessions.get(&id);
+                                if expected_generation.is_some_and(|expected| {
+                                    !handle.is_some_and(|handle| {
+                                        handle.runtime.run_generation() == expected
+                                    })
+                                }) {
+                                    return false;
+                                }
+                                handle.map(|handle| handle.info.lifecycle_phase.clone())
+                            }
+                            Err(std::sync::TryLockError::WouldBlock) => {
+                                drop(ws_guard);
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                                continue;
+                            }
+                            Err(std::sync::TryLockError::Poisoned(error)) => {
+                                let sessions = error.into_inner();
+                                let handle = sessions.get(&id);
+                                if expected_generation.is_some_and(|expected| {
+                                    !handle.is_some_and(|handle| {
+                                        handle.runtime.run_generation() == expected
+                                    })
+                                }) {
+                                    return false;
+                                }
+                                handle.map(|handle| handle.info.lifecycle_phase.clone())
+                            }
                         };
-                        meta.lifecycle = if status == "creating" {
-                            "creating"
-                        } else {
-                            "alive"
+                        if (is_terminal
+                            && already_ending
+                            && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
+                            || (is_terminal
+                                && meta.lifecycle_phase == "ended"
+                                && (handle_decision.is_none()
+                                    || live_handle_phase.as_deref() == Some("ended")
+                                    || (live_handle_phase.as_deref() == Some("ending")
+                                        && matches!(
+                                            meta.status.as_str(),
+                                            "killed" | "ended" | "error"
+                                        ))))
+                            || (!is_terminal
+                                && matches!(live_handle_phase.as_deref(), Some("ending" | "ended")))
+                            || (handle_decision.is_none()
+                                && matches!(meta.lifecycle_phase.as_str(), "ending" | "ended"))
+                        {
+                            return false;
                         }
-                        .to_string();
-                        meta.connectivity = connectivity_for_status(&status).to_string();
-                        meta.terminal_outcome = terminal_outcome_for_status(&status);
+                        applied = true;
+                        if is_terminal {
+                            meta.status = "running".to_string();
+                            meta.lifecycle_phase = "ending".to_string();
+                            meta.lifecycle = "stopping".to_string();
+                            meta.attention = None;
+                            meta.connectivity = connectivity_for_status("running").to_string();
+                            meta.terminal_outcome = None;
+                            meta.pending_terminal_status = Some(status.clone());
+                            meta.ending_observed_status_snapshot =
+                                Some(metadata::ObservedStatusSnapshotMetadata {
+                                    value: meta.observed_status.clone(),
+                                    source: meta.metadata_source.clone(),
+                                    confidence: Some(meta.metadata_confidence),
+                                    observed_at: Some(now.clone()),
+                                });
+                        } else {
+                            meta.status = status.clone();
+                            meta.lifecycle_phase = if status == "creating" {
+                                "creating".to_string()
+                            } else {
+                                "active".to_string()
+                            };
+                            meta.lifecycle = if status == "creating" {
+                                "creating"
+                            } else {
+                                "alive"
+                            }
+                            .to_string();
+                            meta.connectivity = connectivity_for_status(&status).to_string();
+                            meta.terminal_outcome = terminal_outcome_for_status(&status);
+                        }
+                        meta.last_activity = now.clone();
+                        if is_terminal {
+                            meta.observed_status = None;
+                        }
+                        if session_resume.0.is_some() {
+                            meta.resume = session_resume.0;
+                        }
+                        if session_resume.1.is_some() {
+                            meta.resumed_from = session_resume.1;
+                        }
+                        ws.metadata.write_session(&meta);
                     }
-                    meta.last_activity = now.clone();
-                    if is_terminal {
-                        meta.observed_status = None;
+                    if applied {
+                        ws.metadata.append_event(
+                            &id,
+                            &metadata::Event {
+                                event_type: "session.status".into(),
+                                timestamp: now,
+                                status,
+                                observed_status: None,
+                                confidence: None,
+                                summary: None,
+                                source: None,
+                                recommendation_id: None,
+                            },
+                        );
                     }
-                    if session_resume.0.is_some() {
-                        meta.resume = session_resume.0;
-                    }
-                    if session_resume.1.is_some() {
-                        meta.resumed_from = session_resume.1;
-                    }
-                    ws.metadata.write_session(&meta);
                 }
-                if applied {
-                    ws.metadata.append_event(
-                        &id,
-                        &metadata::Event {
-                            event_type: "session.status".into(),
-                            timestamp: now,
-                            status,
-                            observed_status: None,
-                            confidence: None,
-                            summary: None,
-                            source: None,
-                            recommendation_id: None,
-                        },
-                    );
-                }
+                break;
             }
             applied
         })
@@ -2084,6 +2145,20 @@ impl SessionApplication {
     /// must write after the runtime enters `ending` or `ended`; live-resize
     /// writes back off during those phases.
     pub(crate) fn persist_terminal_size(&self, id: &str, authoritative: bool) {
+        let _ = self.persist_terminal_size_with_snapshot(id, authoritative);
+    }
+
+    /// Persists the current PTY grid and returns the confirmed durable grid.
+    ///
+    /// The return value lets the runtime skip already-durable same-size writes.
+    /// The authoritative finalizer uses the same write lock before publishing
+    /// the ended metadata and event, so a historical replay cannot observe the
+    /// terminal state before its final grid is available.
+    pub(crate) fn persist_terminal_size_with_snapshot(
+        &self,
+        id: &str,
+        authoritative: bool,
+    ) -> Option<(u16, u16)> {
         let _write_guard = TERMINAL_SIZE_WRITE_LOCK.lock().unwrap();
         let snapshot = {
             let sessions = self.state.sessions.lock().unwrap();
@@ -2096,14 +2171,15 @@ impl SessionApplication {
             })
         };
         let Some((is_terminal, cols, rows)) = snapshot else {
-            return;
+            return None;
         };
         if is_terminal && !authoritative {
-            return;
+            return None;
         }
-        if let Some(ref ws) = *self.state.workspace.lock().unwrap() {
-            ws.metadata.write_terminal_size(id, cols, rows);
-        }
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let ws = workspace_guard.as_ref()?;
+        ws.metadata.write_terminal_size(id, cols, rows);
+        (ws.metadata.read_terminal_size(id) == Some((cols, rows))).then_some((cols, rows))
     }
 
     /// Persists output recency without allowing delayed writes to move the
@@ -3160,6 +3236,11 @@ impl SessionApplication {
                 return false;
             }
         }
+
+        // Make the final replay grid durable before writing the ended session
+        // record and event. This work stays on the finalizer task, not the PTY
+        // driver, and serializes with deferred live-resize writes.
+        self.persist_terminal_size(id, true);
 
         let now = iso_now();
         let mut final_status: Option<String> = None;
@@ -7843,6 +7924,21 @@ mod tests {
             .metadata
             .read_session(id)
             .unwrap();
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_terminal_size(id),
+            Some((
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+            )),
+            "the final terminal grid must be durable before the session is published as ended"
+        );
         assert_eq!(stored.pending_terminal_status, None);
         assert_eq!(stored.final_observed_status_snapshot, Some(snapshot));
     }
@@ -11189,6 +11285,249 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn delayed_terminal_transition_persists_metadata_after_runtime_fallback_marks_ending() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "fallback-ending-transition";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Fallback ending transition",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.observed_status = Some("working".into());
+        metadata.metadata_source = "peon".into();
+        metadata.metadata_confidence = 0.8;
+        metadata.final_observed_status_snapshot = None;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let mut handle = attention_test_handle(id, root.path());
+        let generation = handle.runtime.run_generation();
+        handle.info.status = "running".into();
+        handle.info.lifecycle_phase = "ending".into();
+        handle.info.lifecycle = "stopping".into();
+        handle.info.observed_status = None;
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        assert!(
+            SessionApplication::new(state.clone())
+                .transition_session_status(id, Some(generation), "ended")
+                .await,
+            "the delayed transition must persist metadata after the runtime fallback marks the live handle ending"
+        );
+
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.lifecycle_phase, "ending");
+        assert_eq!(stored.pending_terminal_status.as_deref(), Some("ended"));
+        let ending_snapshot = stored.ending_observed_status_snapshot.unwrap();
+        assert_eq!(ending_snapshot.value.as_deref(), Some("working"));
+        assert_eq!(ending_snapshot.source, "peon");
+        assert_eq!(ending_snapshot.confidence, Some(0.8));
+    }
+
+    #[tokio::test]
+    async fn delayed_terminal_transition_cannot_regress_finalized_metadata() {
+        // Finalization persists ended before updating the live handle. Cover
+        // both sides of that gap while the original transition is delayed.
+        for final_live_phase in ["ending", "ended"] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = "delayed-terminal-transition";
+            let mut metadata = crate::test_support::test_session_metadata(
+                id,
+                "Delayed transition",
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.lifecycle_phase = "active".into();
+            metadata.lifecycle = "alive".into();
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let mut handle = attention_test_handle(id, root.path());
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.lifecycle = "alive".into();
+            state.sessions.lock().unwrap().insert(id.into(), handle);
+
+            let workspace_guard = state.workspace.lock().unwrap();
+            let transition = tokio::spawn({
+                let state = state.clone();
+                async move {
+                    SessionApplication::new(state)
+                        .transition_session_status(id, None, "ended")
+                        .await
+                }
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                loop {
+                    if state.sessions.lock().unwrap()[id].info.lifecycle_phase == "ending" {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("terminal transition should enter ending before waiting on metadata");
+
+            let ws = workspace_guard.as_ref().unwrap();
+            let mut finalized = ws.metadata.read_session(id).unwrap();
+            finalized.status = "ended".into();
+            finalized.lifecycle_phase = "ended".into();
+            finalized.lifecycle = "dead".into();
+            finalized.pending_terminal_status = None;
+            ws.metadata.write_session(&finalized);
+            let mut sessions_guard = state.sessions.lock().unwrap();
+            sessions_guard.get_mut(id).unwrap().info.lifecycle_phase = final_live_phase.into();
+            drop(workspace_guard);
+
+            // Keep the live state locked long enough for the detached transition to
+            // encounter WouldBlock. It must release the workspace lock and retry,
+            // rather than treating temporary contention as a missing live handle.
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            let stored_while_sessions_locked = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored_while_sessions_locked.lifecycle_phase, "ended");
+            drop(sessions_guard);
+
+            assert!(
+                !tokio::time::timeout(std::time::Duration::from_secs(1), transition)
+                    .await
+                    .expect(
+                        "detached transition should finish after the workspace lock is released"
+                    )
+                    .unwrap()
+            );
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored.lifecycle_phase, "ended");
+            assert_eq!(stored.status, "ended");
+        }
+    }
+
+    #[tokio::test]
+    async fn delayed_nonterminal_transition_cannot_regress_ending_handle() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "delayed-nonterminal-transition";
+        let mut metadata = crate::test_support::test_session_metadata(
+            id,
+            "Delayed transition",
+            &root.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.lifecycle_phase = "active".into();
+        handle.info.lifecycle = "alive".into();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let workspace_guard = state.workspace.lock().unwrap();
+        let transition = tokio::spawn({
+            let state = state.clone();
+            async move {
+                SessionApplication::new(state)
+                    .transition_session_status(id, None, "creating")
+                    .await
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if state.sessions.lock().unwrap()[id].info.lifecycle_phase == "creating" {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("nonterminal transition should update the live handle before waiting on metadata");
+
+        let ws = workspace_guard.as_ref().unwrap();
+        let mut ending = ws.metadata.read_session(id).unwrap();
+        ending.status = "running".into();
+        ending.lifecycle_phase = "ending".into();
+        ending.lifecycle = "stopping".into();
+        ending.pending_terminal_status = Some("ended".into());
+        ws.metadata.write_session(&ending);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let info = &mut sessions.get_mut(id).unwrap().info;
+            info.status = "running".into();
+            info.lifecycle_phase = "ending".into();
+            info.lifecycle = "stopping".into();
+        }
+        drop(workspace_guard);
+
+        assert!(
+            !tokio::time::timeout(std::time::Duration::from_secs(1), transition)
+                .await
+                .expect("delayed transition should finish after the workspace lock is released")
+                .unwrap()
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.lifecycle_phase, "ending");
+        assert_eq!(stored.pending_terminal_status.as_deref(), Some("ended"));
     }
 
     #[test]

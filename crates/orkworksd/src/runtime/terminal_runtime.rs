@@ -350,7 +350,10 @@ fn spawn_command_future(
             crate::runtime::session_runtime::send_runtime_input(&state, &id, data).await
         })),
         TerminalAction::Resize { rows, cols } => Some(Box::pin(async move {
-            crate::runtime::session_runtime::update_runtime_size(&state, &id, rows, cols).await
+            crate::runtime::session_runtime::apply_runtime_size_without_waiting_for_persistence(
+                &state, &id, rows, cols,
+            )
+            .await
         })),
         TerminalAction::Kill => Some(Box::pin(async move {
             crate::runtime::session_runtime::send_runtime_command(
@@ -1081,6 +1084,20 @@ fn fallback_final_snapshot(
 ) -> metadata::ObservedStatusSnapshotMetadata {
     meta.ending_observed_status_snapshot
         .clone()
+        .or_else(|| {
+            if meta.lifecycle_phase != "ended" {
+                meta.observed_status
+                    .clone()
+                    .map(|value| metadata::ObservedStatusSnapshotMetadata {
+                        value: Some(value),
+                        source: meta.metadata_source.clone(),
+                        confidence: Some(meta.metadata_confidence),
+                        observed_at: Some(observed_at.to_string()),
+                    })
+            } else {
+                None
+            }
+        })
         .or_else(|| meta.final_observed_status_snapshot.clone())
         .unwrap_or_else(|| {
             metadata::canonical_null_snapshot("recovery", Some(observed_at.to_string()))
@@ -1244,6 +1261,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
     let mut pending_command: Option<PendingCommandFuture> = None;
     let mut pending_input: Option<(String, bool, u64, bool)> = None;
     let mut queue = PendingActionQueue::default();
+    let mut draining = false;
 
     loop {
         tokio::select! {
@@ -1255,13 +1273,23 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             }, if pending_command.is_some() => {
                 if result.is_err() {
                     // This future has already been polled to completion —
-                    // clear it before breaking so the post-loop drain below
-                    // doesn't re-poll an already-resolved future (a panic
-                    // for a compiler-generated async-block state machine).
+                    // clear it before switching to output-only draining.
+                    // Rejected commands can precede trailing output and the
+                    // final runtime event. Discard queued actions and reject
+                    // new ones without closing this attachment prematurely.
                     record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
                     pending_command = None;
                     pending_input = None;
-                    break;
+                    let runtime_exiting = state.sessions.lock().unwrap().get(&id).is_some_and(|handle| {
+                        handle.runtime.commands_closed()
+                            || matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
+                    });
+                    if !runtime_exiting {
+                        break;
+                    }
+                    queue = PendingActionQueue::default();
+                    draining = true;
+                    continue;
                 }
                 record_input_after_delivery(&state, &id, pending_input.as_ref(), &result);
                 pending_input = None;
@@ -1309,7 +1337,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             }
             msg = ws.recv() => {
                 match msg {
-                    Some(Ok(Message::Text(text))) => {
+                    Some(Ok(Message::Text(text))) if !draining => {
                         let val: serde_json::Value = match serde_json::from_str(&text) {
                             Ok(v) => v,
                             Err(_) => continue,
@@ -1340,6 +1368,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                             pending_command = spawn_command_future(state.clone(), id.clone(), action);
                         }
                     }
+                    Some(Ok(Message::Text(_))) => {}
                     Some(Ok(Message::Close(_))) | None => break,
                     _ => break,
                 }
@@ -1371,6 +1400,162 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU16;
     use std::sync::{Arc, Mutex, RwLock};
+
+    #[tokio::test]
+    async fn rejected_resize_preserves_trailing_output_and_terminal_event() {
+        use crate::runtime::session_runtime::{RuntimeCommand, RuntimeEvent, SessionRuntime};
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message as ClientMessage;
+
+        for terminal_event in [
+            RuntimeEvent::Ended {
+                status: "ended".into(),
+            },
+            RuntimeEvent::Error {
+                code: "pty-error".into(),
+                message: "wait failed".into(),
+            },
+        ] {
+            let id = "resize-during-exit";
+            let (state, _root) = prompted_session_state(id);
+            let (runtime, mut commands) = SessionRuntime::live(24, 80);
+            let output = runtime.output_tx.clone();
+            state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .unwrap();
+            let addr = listener.local_addr().unwrap();
+            let router = crate::build_router(state.clone());
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let (mut socket, _) =
+                tokio_tungstenite::connect_async(format!("ws://{addr}/sessions/{id}/terminal"))
+                    .await
+                    .unwrap();
+
+            // Establish the attachment and consume replay before the exit race.
+            for expected in ["replay-start", "replay-end"] {
+                let message = socket.next().await.unwrap().unwrap();
+                let payload: serde_json::Value =
+                    serde_json::from_str(message.to_text().unwrap()).unwrap();
+                assert_eq!(payload["type"], expected);
+            }
+            output
+                .send(RuntimeEvent::Output {
+                    cursor: 0,
+                    chunk: b"initial output".to_vec(),
+                })
+                .unwrap();
+            assert_eq!(
+                socket.next().await.unwrap().unwrap(),
+                ClientMessage::Binary(b"initial output".to_vec())
+            );
+            socket
+                .send(ClientMessage::Text(
+                    r#"{"type":"resize","rows":30,"cols":100}"#.into(),
+                ))
+                .await
+                .unwrap();
+            let command = tokio::time::timeout(Duration::from_secs(2), commands.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let RuntimeCommand::Resize {
+                accepted: Some(accepted),
+                ..
+            } = command
+            else {
+                panic!("expected acknowledged resize");
+            };
+
+            // Queue input and kill while resize is pending. The overflow
+            // notification is a barrier proving the socket consumed both.
+            for action in [
+                serde_json::json!({"type":"input", "data":"queued input"}),
+                serde_json::json!({"type":"kill"}),
+                serde_json::json!({"type":"input", "data":"x".repeat(QUEUED_INPUT_CAP_BYTES + 1)}),
+            ] {
+                socket
+                    .send(ClientMessage::Text(action.to_string()))
+                    .await
+                    .unwrap();
+            }
+            let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let payload: serde_json::Value =
+                serde_json::from_str(message.to_text().unwrap()).unwrap();
+            assert_eq!(payload["type"], "input-dropped");
+
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get_mut(id)
+                .unwrap()
+                .info
+                .lifecycle_phase = "ending".into();
+            accepted.send(Err(())).unwrap();
+
+            socket
+                .send(ClientMessage::Text(
+                    r#"{"type":"input","data":"input during drain"}"#.into(),
+                ))
+                .await
+                .unwrap();
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), commands.recv())
+                    .await
+                    .is_err(),
+                "rejected resize must discard queued commands while draining output"
+            );
+
+            output
+                .send(RuntimeEvent::Output {
+                    cursor: 1,
+                    chunk: b"final output".to_vec(),
+                })
+                .unwrap();
+            output.send(terminal_event.clone()).unwrap();
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(2), socket.next())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap(),
+                ClientMessage::Binary(b"final output".to_vec())
+            );
+            let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let payload: serde_json::Value =
+                serde_json::from_str(message.to_text().unwrap()).unwrap();
+            match terminal_event {
+                RuntimeEvent::Ended { .. } => {
+                    assert_eq!(
+                        payload,
+                        serde_json::json!({"type":"ended","status":"ended"})
+                    );
+                }
+                RuntimeEvent::Error { .. } => {
+                    assert_eq!(
+                        payload,
+                        serde_json::json!({
+                            "type":"error", "code":"pty-error", "message":"wait failed"
+                        })
+                    );
+                }
+                _ => unreachable!(),
+            }
+            server.abort();
+            let _ = server.await;
+        }
+    }
 
     #[test]
     fn pty_delivery_bookkeeping_finishes_before_resume_replaces_generation() {
