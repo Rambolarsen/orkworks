@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1040" viewBox="0 0 1440 1040" role="img" aria-labelledby="title desc">
+<title id="title">Concept A: central workflow tree</title><desc id="desc">Compact session switcher; central run tree replaces terminal. Research R1 is inspected, Research R2 needs input, and verification awaits batch two. Explicit Open terminal and Return to terminal controls. All values synthetic.</desc>
+<style>text{font-family:system-ui,-apple-system,Segoe UI,sans-serif}</style>
+<rect x="0" y="0" width="1440" height="1040" rx="0" fill="#11161c"/>
+<text x="24" y="33" font-size="19" fill="#8fd3a3" font-weight="600">OrkWorks</text>
+<text x="157" y="33" font-size="14" fill="#a7b5c2">example-repository</text>
+<text x="986" y="33" font-size="12" fill="#edc78b" font-weight="600">PROVISIONAL CONCEPT · SYNTHETIC DATA</text>
+<path d="M0 52 H1440" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="24" y="72" width="208" height="884" rx="8" fill="#171e26"/>
+<rect x="252" y="72" width="844" height="884" rx="8" fill="#171e26"/>
+<rect x="1116" y="72" width="300" height="884" rx="8" fill="#171e26"/>
+<text x="40" y="103" font-size="16" fill="#e5ecf1" font-weight="600">Sessions</text>
+<text x="40" y="128" font-size="12" fill="#a7b5c2">Compact switcher</text>
+<text x="268" y="103" font-size="17" fill="#e5ecf1" font-weight="600">Central tree · investigate startup</text>
+<text x="1134" y="103" font-size="16" fill="#e5ecf1" font-weight="600">Inspecting task</text>
+<path d="M24 145 H232" stroke="#303d49" stroke-width="2" fill="none"/>
+<path d="M252 121 H1096" stroke="#303d49" stroke-width="2" fill="none"/>
+<path d="M1116 121 H1416" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="36" y="161" width="184" height="70" rx="5" fill="#22312d" stroke="#8fd3a3"/>
+<text x="46" y="185" font-size="13" fill="#e5ecf1" font-weight="600">Orchestrator</text>
+<text x="46" y="206" font-size="12" fill="#a7b5c2">Working</text>
+<text x="46" y="222" font-size="11" fill="#8fd3a3">Terminal retained</text>
+<rect x="36" y="246" width="184" height="70" rx="5" fill="#171e26"/>
+<text x="46" y="270" font-size="13" fill="#e5ecf1" font-weight="600">Research R1</text>
+<text x="46" y="295" font-size="12" fill="#a7b5c2">Working</text>
+<rect x="36" y="331" width="184" height="70" rx="5" fill="#171e26"/>
+<text x="46" y="355" font-size="13" fill="#e5ecf1" font-weight="600">Research R2</text>
+<text x="46" y="380" font-size="12" fill="#edc78b">Needs You</text>
+<path d="M40 435 H216" stroke="#303d49" stroke-width="2" fill="none"/>
+<text x="40" y="463" font-size="13" fill="#e5ecf1" font-weight="600">Ordinary session</text>
+<text x="40" y="486" font-size="12" fill="#a7b5c2">Working</text>
+<text x="40" y="885" font-size="12" fill="#a7b5c2">Select a session to</text>
+<text x="40" y="905" font-size="12" fill="#a7b5c2">open its terminal.</text>
+<text x="24" y="989" font-size="14" fill="#e5ecf1" font-weight="600">One central surface: overview replaces the terminal. Panel layout and global navigation await #755.</text>
+<text x="24" y="1015" font-size="13" fill="#a7b5c2">Agent tasks and progress lead; Git references appear in inspected details. No drag-and-drop rearrangement.</text>
+<rect x="836" y="82" width="244" height="32" rx="5" fill="#222c36" stroke="#303d49"/>
+<text x="848" y="103" font-size="12" fill="#e5ecf1" font-weight="600">Return to terminal · Orchestrator</text>
+<rect x="278" y="143" width="792" height="119" rx="8" fill="#1c2925" stroke="#8fd3a3"/>
+<rect x="300" y="162" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="306" y="169" width="16" height="16" rx="4" fill="#7ba184"/>
+<rect x="309" y="173" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="316" y="173" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M310 182 H318" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="314.0" y="168" font-size="9" fill="#8fd3a3">◆</text>
+<text x="342" y="179" font-size="18" fill="#e5ecf1" font-weight="600">Orchestrator · investigate startup behavior</text>
+<text x="300" y="211" font-size="14" fill="#8fd3a3">Research plan · revision 1 · approved</text>
+<text x="300" y="239" font-size="13" fill="#edc78b">1 needs you · 1 task waiting · 2 live / cap 2</text>
+<text x="300" y="294" font-size="13" fill="#a7b5c2" font-weight="600">⌄ Research stage · direct children</text>
+<path d="M309 314 V795 M309 384 H332 M309 552 H332 M309 724 H332" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="334" y="318" width="730" height="148" rx="8" fill="#22312d" stroke="#8fd3a3"/>
+<rect x="350" y="335" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="356" y="342" width="16" height="16" rx="4" fill="#7ba184"/>
+<rect x="359" y="346" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="366" y="346" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M360 355 H368" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="364.0" y="341" font-size="9" fill="#8fd3a3">⌕</text>
+<text x="390" y="352" font-size="16" fill="#e5ecf1" font-weight="600">R1 · Compare startup contracts</text>
+<text x="390" y="382" font-size="13" fill="#8fd3a3">Working · inspecting</text>
+<rect x="390" y="402" width="99.89999999999999" height="22" rx="5" fill="#263e31" stroke="#8fd3a3"/>
+<text x="397" y="417" font-size="11" fill="#8fd3a3">✓ brainstorming</text>
+<rect x="498.9" y="402" width="125.1" height="22" rx="5" fill="#263e31" stroke="#8fd3a3"/>
+<text x="505.9" y="417" font-size="11" fill="#8fd3a3">✓ using-superpowers</text>
+<text x="390" y="451" font-size="12" fill="#a7b5c2">Loaded · usage unknown     Overall result: Unassessed</text>
+<rect x="334" y="486" width="730" height="144" rx="8" fill="#171e26" stroke="#303d49"/>
+<rect x="350" y="503" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="356" y="510" width="16" height="16" rx="4" fill="#7ba184"/>
+<rect x="359" y="514" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="366" y="514" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M360 523 H368" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="364.0" y="509" font-size="9" fill="#8fd3a3">⌕</text>
+<text x="390" y="520" font-size="16" fill="#e5ecf1" font-weight="600">R2 · Inspect retained evidence</text>
+<text x="390" y="550" font-size="13" fill="#edc78b">Needs You · clarify source scope</text>
+<rect x="390" y="570" width="171" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="397" y="585" font-size="11" fill="#a7b5c2">systematic-debugging</text>
+<text x="580" y="585" font-size="12" fill="#a7b5c2">Delivery unconfirmed · usage unknown</text>
+<text x="390" y="614" font-size="12" fill="#a7b5c2">Inspecting this task does not acknowledge its session.</text>
+<rect x="334" y="650" width="730" height="145" rx="8" fill="#171e26" stroke="#303d49"/>
+<rect x="350" y="667" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="356" y="674" width="16" height="16" rx="4" fill="#7ba184"/>
+<rect x="359" y="678" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="366" y="678" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M360 687 H368" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="364.0" y="673" font-size="9" fill="#8fd3a3">V</text>
+<text x="390" y="684" font-size="16" fill="#e5ecf1" font-weight="600">V1 · Verify source comparison</text>
+<text x="390" y="714" font-size="13" fill="#a7b5c2">Planned · waiting for R1 + R2 / batch 2</text>
+<rect x="390" y="734" width="109" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="397" y="749" font-size="11" fill="#a7b5c2">verification</text>
+<text x="516" y="749" font-size="12" fill="#a7b5c2">Selected · not started</text>
+<text x="390" y="778" font-size="12" fill="#a7b5c2">No terminal until an exact child session is bound.</text>
+<rect x="300" y="822" width="333" height="32" rx="5" fill="#29382e" stroke="#8fd3a3"/>
+<text x="312" y="843" font-size="12" fill="#8fd3a3" font-weight="600">Show next action → Research R2</text>
+<text x="300" y="886" font-size="12" fill="#a7b5c2">Delegation lines show ownership. Wait labels show dependencies.</text>
+<text x="300" y="911" font-size="12" fill="#a7b5c2">The retained orchestrator terminal continues while the overview is shown.</text>
+<rect x="1134" y="141" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="1140" y="148" width="16" height="16" rx="4" fill="#7ba184"/>
+<rect x="1143" y="152" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="1150" y="152" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M1144 161 H1152" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="1148.0" y="147" font-size="9" fill="#8fd3a3">⌕</text>
+<text x="1173" y="161" font-size="13" fill="#8fd3a3" font-weight="600">Research</text>
+<text x="1134" y="200" font-size="16" fill="#e5ecf1" font-weight="600">R1 · Compare startup</text>
+<text x="1134" y="223" font-size="16" fill="#e5ecf1" font-weight="600">contracts</text>
+<text x="1134" y="258" font-size="13" fill="#a7b5c2">Working</text>
+<text x="1134" y="295" font-size="13" fill="#a7b5c2" font-weight="600">Skills</text>
+<rect x="1134" y="309" width="215" height="22" rx="5" fill="#263e31" stroke="#8fd3a3"/>
+<text x="1141" y="324" font-size="11" fill="#8fd3a3">✓ brainstorming</text>
+<text x="1134" y="360" font-size="13" fill="#8fd3a3">Loaded</text>
+<text x="1134" y="384" font-size="13" fill="#a7b5c2">Usage unknown</text>
+<rect x="1134" y="431" width="264" height="32" rx="5" fill="#222c36" stroke="#303d49"/>
+<text x="1146" y="452" font-size="12" fill="#e5ecf1" font-weight="600">Inspect all skills and evidence →</text>
+<text x="1134" y="499" font-size="13" fill="#a7b5c2" font-weight="600">Overall result</text>
+<text x="1134" y="524" font-size="15" fill="#e5ecf1" font-weight="600">Unassessed</text>
+<text x="1134" y="567" font-size="12" fill="#a7b5c2" font-weight="600">Git details · exact assignment</text>
+<text x="1134" y="591" font-size="12" fill="#e5ecf1">Branch: research-startup</text>
+<text x="1134" y="614" font-size="12" fill="#e5ecf1">Worktree: ../example-research</text>
+<text x="1134" y="651" font-size="12" fill="#a7b5c2">Permissions, coding tool and</text>
+<text x="1134" y="671" font-size="12" fill="#a7b5c2">score evidence stay in details.</text>
+<rect x="1134" y="884" width="264" height="32" rx="5" fill="#29382e" stroke="#8fd3a3"/>
+<text x="1146" y="905" font-size="12" fill="#8fd3a3" font-weight="600">Open terminal · Research R1</text>
+</svg>
