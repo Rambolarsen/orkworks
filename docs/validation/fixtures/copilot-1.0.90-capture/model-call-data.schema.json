@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/ModelCallStartData"
+    },
+    {
+      "$ref": "#/definitions/ModelCallFinishedData"
+    },
+    {
+      "$ref": "#/definitions/ModelCallFinalResultData"
+    }
+  ],
+  "definitions": {
+    "ModelCallStartData": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "description": "Identifier of the assistant turn that initiated the model call"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier used for this API call, when known"
+        },
+        "previousResponseId": {
+          "type": "string",
+          "description": "Previous response or interaction identifier included in the model request, when present",
+          "visibility": "internal"
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this concrete model call.",
+          "stability": "experimental"
+        },
+        "parentToolCallId": {
+          "type": "string",
+          "description": "Parent task tool call ID when this model call belongs to a sub-agent"
+        }
+      },
+      "required": [
+        "turnId"
+      ],
+      "additionalProperties": false,
+      "description": "Model API dispatch metadata for internal telemetry",
+      "title": "ModelCallStartData"
+    },
+    "FusionAttribution": {
+      "type": "object",
+      "properties": {
+        "hasUserSteering": {
+          "type": "boolean",
+          "description": "Whether this model request consumed a user steering message rather than only internal Fusion work."
+        },
+        "fusionId": {
+          "type": "string",
+          "description": "Stable identifier for the HydraFusion turn that produced the event."
+        },
+        "commitId": {
+          "type": "string",
+          "description": "Idempotency identifier for the authoritative commit, when the event belongs to the selected output."
+        },
+        "syntheticModel": {
+          "type": "string",
+          "description": "Synthetic HydraFusion model selected for the session."
+        },
+        "policy": {
+          "type": "string",
+          "description": "HydraFusion routing policy used for the turn."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "HydraFusion orchestration pattern selected for the turn."
+        },
+        "phaseId": {
+          "type": "string",
+          "description": "Identifier of the concrete phase that produced the event."
+        },
+        "phaseKind": {
+          "type": "string",
+          "description": "Kind of concrete phase that produced the event."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to the concrete phase."
+        },
+        "sourceModel": {
+          "type": "string",
+          "description": "Concrete model that produced the attributed event."
+        },
+        "conversationScope": {
+          "type": "string",
+          "description": "Conversation scope in which the concrete phase executed."
+        },
+        "sourcePhaseId": {
+          "type": "string",
+          "description": "Phase whose output supplied the authoritative content, when different from the executing phase."
+        }
+      },
+      "required": [
+        "fusionId",
+        "syntheticModel",
+        "policy",
+        "pattern"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental attribution linking an ordinary event to the HydraFusion turn, phase, and concrete source that produced it.",
+      "title": "FusionAttribution",
+      "stability": "experimental"
+    },
+    "ModelCallFinishedData": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "description": "Agent-loop iteration within the interaction that initiated the model dispatch"
+        },
+        "interactionId": {
+          "type": "string",
+          "description": "Identifier of the user interaction that owns the model dispatch, matching assistant.turn_start.interactionId when available"
+        },
+        "dispatchDurationMs": {
+          "type": "number",
+          "minimum": 0,
+          "format": "duration",
+          "description": "Monotonic elapsed time spent in the logical model dispatch, including any internal transport reconnect or fallback and excluding orchestrator retry backoff, tool execution, confirmations, and post-response processing"
+        },
+        "outcome": {
+          "$ref": "#/definitions/ModelCallFinishedOutcome",
+          "description": "Final outcome after post-response acceptance processing"
+        },
+        "containsBuiltInFileEditRequest": {
+          "type": "boolean",
+          "description": "Whether an accepted successful response requested the exact name and command semantics of a built-in file edit tool, including an external tool explicitly replacing that built-in name. Absent when the logical dispatch did not produce an accepted response."
+        },
+        "editClassifierVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the built-in file-edit semantic classifier used for this event"
+        }
+      },
+      "required": [
+        "turnId",
+        "dispatchDurationMs",
+        "outcome",
+        "editClassifierVersion"
+      ],
+      "additionalProperties": false,
+      "description": "Final lifecycle outcome for one logical model dispatch. A logical dispatch may include internal reconnect or fallback work, so event count is not provider HTTP-request count.",
+      "title": "ModelCallFinishedData"
+    },
+    "ModelCallFinishedOutcome": {
+      "type": "string",
+      "enum": [
+        "success",
+        "error",
+        "cancelled",
+        "rejected"
+      ],
+      "description": "Final outcome of one logical model dispatch after response acceptance processing",
+      "title": "ModelCallFinishedOutcome",
+      "x-enumDescriptions": {
+        "success": "The provider response was accepted for continued agent processing.",
+        "error": "The dispatch ended with a provider or transport error.",
+        "cancelled": "The dispatch was cancelled before an accepted response was produced.",
+        "rejected": "The provider response was rejected during post-response acceptance processing."
+      }
+    },
+    "ModelCallFinalResultData": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Model identifier used by the final attempt"
+        },
+        "isByok": {
+          "type": "boolean",
+          "description": "Whether the final attempt used a bring-your-own-key provider"
+        },
+        "result": {
+          "$ref": "#/definitions/ModelCallFinalResult",
+          "description": "Bounded result of the final attempt"
+        }
+      },
+      "required": [
+        "model",
+        "result"
+      ],
+      "additionalProperties": false,
+      "description": "Internal telemetry result for one logical model operation after all orchestrator-owned retries settle",
+      "title": "ModelCallFinalResultData"
+    },
+    "ModelCallFinalResult": {
+      "type": "string",
+      "enum": [
+        "success",
+        "http_400",
+        "http_413",
+        "http_429",
+        "http_4xx",
+        "http_5xx",
+        "transport_error",
+        "other_error"
+      ],
+      "description": "Final bounded result of one logical model operation after its internal retry loop settles",
+      "title": "ModelCallFinalResult",
+      "x-enumDescriptions": {
+        "success": "The final attempt succeeded.",
+        "http_400": "The final attempt failed with HTTP 400.",
+        "http_413": "The final attempt failed with HTTP 413.",
+        "http_429": "The final attempt failed with HTTP 429.",
+        "http_4xx": "The final attempt failed with another HTTP 4xx status.",
+        "http_5xx": "The final attempt failed with an HTTP 5xx status.",
+        "transport_error": "The final attempt failed in the request transport.",
+        "other_error": "The final attempt failed without another bounded classification."
+      }
+    }
+  }
+}
