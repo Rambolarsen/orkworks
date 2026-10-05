@@ -1,6 +1,7 @@
 pub(crate) mod codex_approval;
 pub(crate) mod codex_hook_report_relay;
 pub(crate) mod codex_launch;
+pub(crate) mod codex_native;
 pub(crate) mod observed_status;
 pub(crate) mod peon_runtime;
 pub(crate) mod prompt_authority;
