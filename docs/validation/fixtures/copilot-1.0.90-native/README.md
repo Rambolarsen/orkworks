@@ -75,3 +75,13 @@ rtk proxy python3 docs/validation/fixtures/copilot-1.0.90-native/test-runtime-id
 The test was observed failing for both optimized modes before the fix, then
 passing in all three modes. A valid native/cache reproduction under `-O`
 still produces the same five retained artifacts.
+
+## Checkout byte preservation
+
+Packet attributes mark every retained file `-text`, including the attributes
+file itself, Markdown and Python sources. A disposable `checkout-index` with
+`core.autocrlf=true` changed four hashed artifacts before this correction;
+afterward all artifact hashes/sizes match the staged bytes. The initial
+help/discovery packet has the same protection, and the transport packet already
+protects all of its hashed TXT/JSON outputs. This is checkout byte preservation,
+not a Windows runtime capability result.

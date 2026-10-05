@@ -84,9 +84,16 @@ or a copy of the full schema.
 | `system.message` | Content, system/developer role, optional interaction ID and structured blocks | Emission, complete rule/resource coverage and delivery timing unobserved |
 | `skill.invoked` | Skill path/content and optional model, source, trigger, allowed-tools metadata | Invocation alone cannot establish all resource bytes or later model input |
 | `skill.context_delivered` | Exact model-facing wrapper and source; optional interaction ID | Internal/experimental; absent from ordinary JSON stdout |
-| `skill.context_delivered_ref` / `skill.invoked_ref` | Same-session reference to earlier inline content by UTF-8 SHA-256; wrapper prefix/suffix; invocation ref also checks UTF-16 length | Requires the earlier inline body, reconstruction and correlation; dangling references cannot pass |
+| `skill.context_delivered_ref` / `skill.invoked_ref` | Schema descriptions specify same-session UTF-8 SHA-256 lookup, wrapper prefix/suffix and invocation UTF-16 length validation | Observer must resolve the earlier body and validate reconstruction/correlation; native resolver enforcement remains unverified |
 | `session.skills_loaded` | Resolved name/path/source/enabled metadata | Discovery metadata, not content delivery |
 | `session.tools_updated` | Ephemeral notification with model ID only | No tool inventory; missed ephemeral events are not replayable |
+
+The reference fields themselves are a string and a nonnegative integer, not
+JSON Schema constraints enforcing same-session lookup, digest/length matching
+or dangling-reference rejection. Those behaviors are described in prose. No
+resolver implementation or live negative case was inspected; native enforcement
+remains unverified. A future observer must validate them independently and
+reject unresolved/malformed references before claiming a content receipt.
 
 Event envelopes carry UUID, timestamp, preceding event ID and optional subagent
 ID. They do not uniformly carry session or required interaction identity.
