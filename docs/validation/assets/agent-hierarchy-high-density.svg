@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="830" viewBox="0 0 1200 830" role="img" aria-labelledby="title desc">
+<title id="title">High-density proposed agent hierarchy</title><desc id="desc">Selected Research R1 stays visible in its expanded group. A separate collapsed run retains actions. Root counts retain required actions. A missing parent has a surviving failed child. A completed group remains reopenable. Reported skill use does not confirm delivery.</desc>
+<style>text{font-family:system-ui,-apple-system,Segoe UI,sans-serif} .mono{font-family:ui-monospace,SFMono-Regular,monospace}</style>
+<rect x="0" y="0" width="1200" height="830" rx="0" fill="#11161c"/>
+<text x="24" y="29" font-size="18" font-weight="600" fill="#8fd3a3">OrkWorks</text>
+<text x="150" y="29" font-size="13" font-weight="400" fill="#a7b5c2">example-repository</text>
+<text x="774" y="29" font-size="11" font-weight="600" fill="#edc78b">PROPOSED INTERFACE · SYNTHETIC DATA</text>
+<path d="M0 45 L1200 45" stroke="#2b3643" fill="none"/>
+<rect x="14" y="60" width="354" height="695" rx="0" fill="#171e26"/>
+<rect x="382" y="60" width="489" height="695" rx="0" fill="#171e26"/>
+<rect x="885" y="60" width="301" height="695" rx="0" fill="#171e26"/>
+<text x="30" y="87" font-size="14" font-weight="600" fill="#e5ecf1">Sessions</text>
+<text x="340" y="87" font-size="20" font-weight="400" fill="#a7b5c2">+</text>
+<text x="398" y="87" font-size="14" font-weight="600" fill="#e5ecf1">Terminal · Research R1</text>
+<text x="901" y="87" font-size="14" font-weight="600" fill="#e5ecf1">Agent details</text>
+<path d="M14 102 L368 102" stroke="#2b3643" fill="none"/>
+<path d="M382 102 L871 102" stroke="#2b3643" fill="none"/>
+<path d="M885 102 L1186 102" stroke="#2b3643" fill="none"/>
+<text x="24" y="786" font-size="14" font-weight="600" fill="#e5ecf1">High density · selected group stays expanded; collapsed actions and unknown evidence remain explicit</text>
+<text x="24" y="810" font-size="12" font-weight="400" fill="#a7b5c2">One selected terminal. Role portraits are illustrative; task/status text carries meaning.</text>
+<text x="30" y="123" font-size="10" fill="#a7b5c2">AGENT WORKFLOWS</text>
+<text x="27" y="156" font-size="19" fill="#a7b5c2">⌄</text>
+<rect x="44" y="137" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<text x="51" y="156" font-size="14" fill="#8fd3a3">◆</text>
+<text x="83" y="148" font-size="11" fill="#a7b5c2">Orchestrator</text>
+<text x="83" y="167" font-size="13" font-weight="600" fill="#e5ecf1">Investigate startup behavior</text>
+<text x="83" y="187" font-size="11" fill="#8fd3a3">Research · 2 live / cap 2</text>
+<text x="32" y="211" font-size="11" fill="#a7b5c2">Expanded to keep selected child visible</text>
+<rect x="29" y="226" width="323" height="108" rx="7" fill="#22312d" stroke="#8fd3a3"/>
+<path d="M56 236 V321 M56 251 H69" stroke="#2b3643" fill="none"/>
+<rect x="73" y="234" width="26" height="26" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<text x="80" y="253" font-size="13" fill="#8fd3a3">⌕</text>
+<text x="110" y="244" font-size="11" fill="#a7b5c2">Research</text>
+<text x="110" y="263" font-size="12" font-weight="600" fill="#e5ecf1">R1 · Compare cross-platform startup…</text>
+<text x="110" y="283" font-size="11" fill="#a7b5c2">Working · selected</text>
+<rect x="110" y="296" width="68" height="21" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="116" y="310" font-size="10.5" fill="#a7b5c2">debugging</text>
+<rect x="185" y="296" width="43" height="21" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="191" y="310" font-size="10.5" fill="#a7b5c2">rules</text>
+<rect x="235" y="296" width="38" height="21" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="241" y="310" font-size="10.5" fill="#a7b5c2">plan</text>
+<text x="282" y="310" font-size="10.5" fill="#a7b5c2">+13 skills</text>
+<text x="110" y="329" font-size="10" fill="#a7b5c2">Delivery unconfirmed · reported use</text>
+<text x="32" y="358" font-size="11" fill="#a7b5c2">More rows below · 128 tasks in this plan</text>
+<path d="M29 376 H351" stroke="#2b3643"/>
+<text x="27" y="409" font-size="19" fill="#a7b5c2">›</text>
+<rect x="44" y="390" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<text x="51" y="409" font-size="14" fill="#8fd3a3">◆</text>
+<text x="83" y="401" font-size="11" fill="#a7b5c2">Orchestrator · collapsed</text>
+<text x="83" y="420" font-size="13" font-weight="600" fill="#e5ecf1">Prepare execution proposal</text>
+<text x="83" y="440" font-size="11" fill="#edc78b">Paused · awaiting exact approval</text>
+<text x="32" y="464" font-size="11" fill="#edc78b">2 need you · 1 blocked · 1 new result</text>
+<rect x="30" y="479" width="322" height="28" rx="5" fill="#29382e" stroke="#8fd3a3"/>
+<text x="43" y="498" font-size="11" font-weight="600" fill="#8fd3a3">Show next action → hidden task R2</text>
+<path d="M29 526 H351" stroke="#2b3643"/>
+<text x="27" y="557" font-size="19" fill="#a7b5c2">⌄</text>
+<rect x="44" y="538" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<text x="51" y="557" font-size="14" fill="#8fd3a3">◆</text>
+<text x="83" y="549" font-size="11" fill="#a7b5c2">Orchestrator</text>
+<text x="83" y="568" font-size="13" font-weight="600" fill="#e5ecf1">Parent session unavailable</text>
+<text x="83" y="588" font-size="11" fill="#a7b5c2">Paused · remembered child retained</text>
+<text x="32" y="612" font-size="11" fill="#edc78b">1 unresolved result decision</text>
+<text x="72" y="639" font-size="11" fill="#f0a4a4">Review Q1 · Session ended with error</text>
+<text x="72" y="660" font-size="11" fill="#a7b5c2">Open saved history · Unassessed</text>
+<path d="M29 679 H351" stroke="#2b3643"/>
+<text x="30" y="705" font-size="11" fill="#a7b5c2">› Earlier · Completed source comparison</text>
+<text x="45" y="730" font-size="11" fill="#8fd3a3">Meets requirements · reopen details</text>
+<text x="400" y="131" font-size="12" font-weight="400" fill="#8fd3a3" class="mono">$ synthetic research session</text>
+<text x="400" y="154" font-size="12" font-weight="400" fill="#a7b5c2" class="mono"></text>
+<text x="400" y="177" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Reviewing declared source references…</text>
+<text x="400" y="200" font-size="12" font-weight="400" fill="#a7b5c2" class="mono"></text>
+<text x="400" y="223" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Result notes stay in this session.</text>
+<text x="400" y="246" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Other children run independently.</text>
+<text x="400" y="269" font-size="12" font-weight="400" fill="#a7b5c2" class="mono"></text>
+<text x="400" y="292" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Selecting a planned task opens details;</text>
+<text x="400" y="315" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">it does not start a terminal.</text>
+<text x="400" y="716" font-size="12" font-weight="400" fill="#8fd3a3">Selected: Research R1</text>
+<text x="400" y="738" font-size="10" font-weight="400" fill="#a7b5c2">No second terminal or composite transcript</text>
+<text x="901" y="128" font-size="11" font-weight="600" fill="#8fd3a3">RESEARCH R1</text>
+<text x="901" y="153" font-size="16" font-weight="600" fill="#e5ecf1">Compare cross-platform</text>
+<text x="901" y="177" font-size="16" font-weight="600" fill="#e5ecf1">startup and permission</text>
+<text x="901" y="201" font-size="16" font-weight="600" fill="#e5ecf1">evidence for declared sources</text>
+<text x="901" y="248" font-size="11" font-weight="600" fill="#a7b5c2">Skills · 16 selected</text>
+<rect x="901" y="266" width="126.0" height="21" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="907" y="280" font-size="10.5" font-weight="400" fill="#a7b5c2">systematic-debugging</text>
+<text x="901" y="307" font-size="12" font-weight="400" fill="#a7b5c2">Delivery unconfirmed</text>
+<text x="901" y="331" font-size="12" font-weight="400" fill="#edc78b">Reported use · agent report</text>
+<text x="901" y="353" font-size="11" font-weight="400" fill="#a7b5c2">Observed use: unknown</text>
+<text x="901" y="378" font-size="11" font-weight="400" fill="#e5ecf1">Usage does not confirm loading.</text>
+<rect x="901" y="400" width="267" height="30" rx="5" fill="#222c36" stroke="#2b3643"/>
+<text x="914" y="420" font-size="11" font-weight="400" fill="#e5ecf1">Inspect all 16 skills and evidence →</text>
+<text x="901" y="467" font-size="11" font-weight="600" fill="#a7b5c2">Overall result</text>
+<text x="901" y="491" font-size="14" font-weight="600" fill="#e5ecf1">Unassessed</text>
+<text x="901" y="520" font-size="11" font-weight="400" fill="#a7b5c2">Current result not independently</text>
+<text x="901" y="539" font-size="11" font-weight="400" fill="#a7b5c2">evaluated. Scores live in details.</text>
+<text x="901" y="591" font-size="11" font-weight="400" fill="#a7b5c2">Details also expose full labels,</text>
+<text x="901" y="611" font-size="11" font-weight="400" fill="#a7b5c2">versions, dependencies, coding tool</text>
+<text x="901" y="631" font-size="11" font-weight="400" fill="#a7b5c2">and requested/effective permissions.</text>
+<text x="901" y="683" font-size="10" font-weight="400" fill="#a7b5c2">Reduced motion: static usage label.</text>
+<text x="901" y="704" font-size="10" font-weight="400" fill="#a7b5c2">No scores or portraits grant approval.</text>
+</svg>
