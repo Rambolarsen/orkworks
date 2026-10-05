@@ -230,10 +230,10 @@ capability evidence.
 | #740 criterion | Current disposition |
 | --- | --- |
 | Exact versions, primary references, bounded fixtures | Retained local help/version/discovery; runtime controls remain unverified |
-| Role/native/startup rules and selected skill delivery | Candidate routes documented; transport-backed content receipt remains open |
+| Role/native/startup rules and selected skill delivery | Native OTel capture candidate inspected in the [transport research](copilot-role-observation-transport.md); actual schema/sample, complete content receipt and safe capture remain open |
 | Six roles' tools/commands/files/network/connectors/bypasses | Audited surfaces and role matrix retained; no complete profile fixture |
 | Unsupported eligibility, no silent widening/fallback | All six profiles unavailable; absence of evidence is not impossibility |
-| Reported/observed/unknown usage coverage | Native invocation observer unverified; discovery not promoted to usage |
+| Reported/observed/unknown usage coverage | Companion content-bearing invocation schema retained as a version-mismatched lead; native 1.0.90 emission/coverage remains unverified and discovery is not usage |
 | Initial slice or explicit no-go | Current no-go retained; smallest proposed experiment is a synthetic local-only review profile |
 | Same-parent continuation | Requires its own schema/event/runtime/generation fixture; no live probe |
 | Reviewed specification/research execution handoff | Concrete [probe plan](../superpowers/plans/2026-10-04-copilot-role-capability-probes.md) prepared for written review and separate probe-session authorization |
@@ -250,3 +250,25 @@ source/coverage distinctions for discovery, delivery and usage. #740 stays
 open until the remaining written review, necessary capability evidence and
 reviewed handoff are resolved. No runtime implementation or live capability
 probe is authorized by this document.
+
+
+## Observation transport follow-up — 2026-10-05
+
+The [transport research](copilot-role-observation-transport.md) identifies a
+concrete native candidate: installed Copilot 1.0.90 monitoring help advertises
+local OTel JSON-lines capture of system instructions and tool definitions.
+The [new inspection packet](fixtures/copilot-1.0.90-transport/manifest.json)
+retains update-disabled version/help outputs and labelled companion schema/source
+excerpts. The native executable/loader hashes match the earlier packet, while
+both companion npm manifests report 1.0.28. Their `system.message`,
+`skill.invoked`, file-exporter shape and global built-in `tools.list` catalogue
+cannot certify the running native release or a session's effective inventory.
+
+No runtime stream or content receipt was captured. Exact schema/sample,
+capture safety before storage, rule/skill/resource byte identity, session/turn
+correlation and complete model-facing tool coverage remain qualification gates.
+In particular, coupled response capture and an invocation-only tool snapshot
+need investigation; post-capture redaction or one observed tool is insufficient.
+The probe plan now links these concrete checks without marking transport or
+role qualification complete. All six profiles remain unverified/no-go, and
+#740 remains open for the necessary evidence and reviewed consumer handoff.

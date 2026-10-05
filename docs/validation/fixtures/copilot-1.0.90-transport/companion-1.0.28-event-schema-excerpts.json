@@ -1,0 +1,238 @@
+{
+  "skill.invoked": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when the event was created"
+      },
+      "parentId": {
+        "anyOf": [
+          {
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+      },
+      "ephemeral": {
+        "type": "boolean",
+        "description": "When true, the event is transient and not persisted to the session event log on disk"
+      },
+      "type": {
+        "type": "string",
+        "const": "skill.invoked"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the invoked skill"
+          },
+          "path": {
+            "type": "string",
+            "description": "File path to the SKILL.md definition"
+          },
+          "content": {
+            "type": "string",
+            "description": "Full content of the skill file, injected into the conversation for the model"
+          },
+          "allowedTools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tool names that should be auto-approved when this skill is active"
+          },
+          "pluginName": {
+            "type": "string",
+            "description": "Name of the plugin this skill originated from, when applicable"
+          },
+          "pluginVersion": {
+            "type": "string",
+            "description": "Version of the plugin this skill originated from, when applicable"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the skill from its SKILL.md frontmatter"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "content"
+        ],
+        "additionalProperties": false,
+        "description": "Skill invocation details including content, allowed tools, and plugin metadata",
+        "title": "SkillInvokedData"
+      }
+    },
+    "required": [
+      "id",
+      "timestamp",
+      "parentId",
+      "type",
+      "data"
+    ],
+    "additionalProperties": false,
+    "title": "SkillInvokedEvent"
+  },
+  "system.message": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when the event was created"
+      },
+      "parentId": {
+        "anyOf": [
+          {
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+      },
+      "ephemeral": {
+        "type": "boolean",
+        "description": "When true, the event is transient and not persisted to the session event log on disk"
+      },
+      "type": {
+        "type": "string",
+        "const": "system.message"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "The system or developer prompt text"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "system",
+              "developer"
+            ],
+            "description": "Message role: \"system\" for system prompts, \"developer\" for developer-injected instructions",
+            "title": "SystemMessageRole"
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional name identifier for the message source"
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "promptVersion": {
+                "type": "string",
+                "description": "Version identifier of the prompt template used"
+              },
+              "variables": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Template variables used when constructing the prompt"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Metadata about the prompt template and its construction",
+            "title": "SystemMessageMetadata"
+          }
+        },
+        "required": [
+          "content",
+          "role"
+        ],
+        "additionalProperties": false,
+        "description": "System or developer message content with role and optional template metadata",
+        "title": "SystemMessageData"
+      }
+    },
+    "required": [
+      "id",
+      "timestamp",
+      "parentId",
+      "type",
+      "data"
+    ],
+    "additionalProperties": false,
+    "title": "SystemMessageEvent"
+  },
+  "session.tools_updated": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when the event was created"
+      },
+      "parentId": {
+        "anyOf": [
+          {
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+      },
+      "ephemeral": {
+        "type": "boolean",
+        "const": true
+      },
+      "type": {
+        "type": "string",
+        "const": "session.tools_updated"
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "additionalProperties": false,
+        "title": "ToolsUpdatedData"
+      }
+    },
+    "required": [
+      "id",
+      "timestamp",
+      "parentId",
+      "ephemeral",
+      "type",
+      "data"
+    ],
+    "additionalProperties": false,
+    "title": "ToolsUpdatedEvent"
+  }
+}

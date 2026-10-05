@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Non-model observation-transport research. No runtime event sample, content-delivery receipt, effective permission fixture or CapabilityEvidenceSnapshot.",
+  "capturedAt": "2026-10-05T15:31:37.735484+00:00",
+  "toolVersion": "1.0.90",
+  "noAutoUpdate": true,
+  "platform": {
+    "system": "Darwin",
+    "release": "25.6.0",
+    "machine": "arm64"
+  },
+  "repositoryBase": "d48cc2159219c09b2575b8f25a45cb58bc68f23b",
+  "companionPackageVersions": {
+    "package.json": "1.0.28",
+    "node_modules/@github/copilot-darwin-arm64/package.json": "1.0.28"
+  },
+  "capturePolicy": {
+    "stdout": "exact bytes for cli-stdout",
+    "stderr": "Not retained; no stderr claim used.",
+    "ambientConfiguration": "Help/version only, inherited environment not inventoried. No telemetry was enabled.",
+    "limits": {
+      "artifactBytes": 131072,
+      "batchBytes": 2097152
+    }
+  },
+  "sourceFiles": [
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/npm-loader.js",
+      "bytes": 852,
+      "sha256": "8ba289084c305e25ea9ae09da860c31614c7eb32f6e7ec099aa71f74f2d4f130"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/package.json",
+      "bytes": 1949,
+      "sha256": "aa9b3831c5bf16cec0b9f1a235c01f9952036462e081f0b22d288bced9a769da"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+      "bytes": 158652784,
+      "sha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/package.json",
+      "bytes": 584,
+      "sha256": "d86242fd55a84e6c389bea02a0b426e9d7e1c5140d37a57e57226b875c864efe"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/app.js",
+      "bytes": 14132710,
+      "sha256": "3fb55ec69fa62017684043d16c233623a87a4c60773bb3c3d4657b1dc18c31a4"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/schemas/session-events.schema.json",
+      "bytes": 261665,
+      "sha256": "e9aaf4e14d66ce9e0f51b11130f3c979b244ec60a9ea862777f42b5301faebaf"
+    },
+    {
+      "path": "/opt/homebrew/lib/node_modules/@github/copilot/schemas/api.schema.json",
+      "bytes": 134516,
+      "sha256": "581d447b6627cd0603ab1093133ec6a969a4ebf31ff3924f8fac2122fc52d652"
+    }
+  ],
+  "primaryReferences": [
+    {
+      "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#opentelemetry-monitoring",
+      "inspectedAt": "2026-10-05",
+      "sourceCommit": "9c7da1a58938cb45da17789618a85b7d9d26eb43",
+      "sourcePath": "content/copilot/reference/copilot-cli-reference/cli-command-reference.md",
+      "sourceBlob": "e94fc720ef2251a7d78bff3283bd03d1019db7c6",
+      "binding": "Current vendor docs/source pointer; not matched to executable release, not a retained runtime schema."
+    },
+    {
+      "url": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server",
+      "inspectedAt": "2026-10-05",
+      "sourceCommit": "03c86b4126bc8fbd15e099a69fae484f9aea5316",
+      "binding": "Current vendor docs; not version-bound runtime evidence."
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "version.txt",
+      "bytes": 70,
+      "sha256": "6445baec47dece4c622cbb73727d8fda288430f323a7ea8873d125a47632e3c9",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "--no-auto-update",
+        "--version"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks-copilot-role-transport",
+      "exitCode": 0
+    },
+    {
+      "path": "monitoring.txt",
+      "bytes": 12156,
+      "sha256": "29203f654654a3015956159c8f378f70c92c42caab0e5bdf2853e79ddcab9423",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "--no-auto-update",
+        "help",
+        "monitoring"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks-copilot-role-transport",
+      "exitCode": 0
+    },
+    {
+      "path": "logging.txt",
+      "bytes": 503,
+      "sha256": "4bab5cd251115dc0545122b9e1466ebba2b1d0ce27ea36dc417ac3ae92fdff02",
+      "kind": "cli-stdout",
+      "argv": [
+        "rtk",
+        "proxy",
+        "copilot",
+        "--no-auto-update",
+        "help",
+        "logging"
+      ],
+      "cwd": "/Users/froomiebot/workspace/orkworks-copilot-role-transport",
+      "exitCode": 0
+    },
+    {
+      "path": "companion-1.0.28-event-schema-excerpts.json",
+      "bytes": 6745,
+      "sha256": "3d6cf4931e0ae6d62955588ca8bad531b5e8513618f9afc358c5fcef710a44f0",
+      "kind": "derived-schema-excerpt",
+      "sourcePath": "/opt/homebrew/lib/node_modules/@github/copilot/schemas/session-events.schema.json",
+      "extraction": "Exact three event variants selected by properties.type.const; JSON reserialized, not original file bytes.",
+      "runtimeVersionBinding": "UNVERIFIED: npm package reports 1.0.28, executable reports 1.0.90"
+    },
+    {
+      "path": "companion-1.0.28-tools-list-schema.json",
+      "bytes": 1748,
+      "sha256": "ebfeaf09e67e9755751cb8f14106c7c3979b7b16f2d5b70214a6f332e394b49d",
+      "kind": "derived-schema-excerpt",
+      "sourcePath": "/opt/homebrew/lib/node_modules/@github/copilot/schemas/api.schema.json",
+      "extraction": "server.tools.list subtree, JSON reserialized",
+      "runtimeVersionBinding": "UNVERIFIED: server built-in catalogue, not session-effective inventory"
+    },
+    {
+      "path": "companion-1.0.28-file-exporter-excerpt.txt",
+      "bytes": 1173,
+      "sha256": "fb5d091e875548c0073090aee5db496b752557c64ec27da77bcdb642465793a2",
+      "kind": "derived-source-excerpt",
+      "sourcePath": "/opt/homebrew/lib/node_modules/@github/copilot/app.js",
+      "extraction": "Character range from function CLs( through before var x$n=; one LF appended.",
+      "runtimeVersionBinding": "UNVERIFIED: companion JavaScript is not proven to implement the native 1.0.90 exporter"
+    }
+  ]
+}
