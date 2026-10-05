@@ -318,7 +318,15 @@ must retain its provenance and remove it from active selection evidence.
 
 ## Hierarchy UI
 
-The existing Sessions surface presents the parent and its declared children.
+**Placement revised by the user, 2026-10-05.** Explore a central tree or
+branching timeline in place of the terminal while viewing the workflow, with
+a compact session switcher. The earlier Sessions-embedded proposal is no longer
+the target. [#755](https://github.com/Rambolarsen/orkworks/issues/755) establishes
+the future shell direction before [#746's UI contract](2026-10-04-agent-hierarchy-ui-design.md)
+can be finalized. No tab-based or draggable-panel layout is selected by this
+product proposal.
+
+The central overview presents the parent and its declared children.
 Planned tasks use a visibly planned state; a spawned child becomes an agent
 node with its own ordinary session identity. Native coding-tool subagents are
 not represented as separately controlled OrkWorks children without their own
@@ -336,8 +344,12 @@ it; do not repeatedly recollapse that same viewed result. Active work stays
 expanded by default. Preserve selection and keyboard focus rather than hiding
 the actively inspected child. Completion/collapse does not release live-session
 capacity or change task outcomes. Keep blockers and required user decisions
-discoverable when children are collapsed. Selecting an agent opens its normal terminal and
-details; selecting a skill exposes its description, version, usage evidence,
+discoverable when children are collapsed. Overview inspection exposes a node's
+details without selecting a terminal; an explicit Open terminal action replaces
+the overview with that agent's normal terminal and session-bound details.
+Return navigation, focus restoration and the evolving plan-stage presentation
+remain proposals for the shell/UI written review. Inspecting a skill exposes
+its description, version, usage evidence,
 and relevant history. Permissions and detailed scores belong in details and
 run summaries, with the overall evaluation result on the agent.
 

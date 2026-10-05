@@ -1,101 +1,152 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="830" viewBox="0 0 1200 830" role="img" aria-labelledby="title desc">
-<title id="title">High-density proposed agent hierarchy</title><desc id="desc">Selected Research R1 stays visible in its expanded group. A separate collapsed run retains actions. Root counts retain required actions. A missing parent has a surviving failed child. A completed group remains reopenable. Reported skill use does not confirm delivery.</desc>
-<style>text{font-family:system-ui,-apple-system,Segoe UI,sans-serif} .mono{font-family:ui-monospace,SFMono-Regular,monospace}</style>
-<rect x="0" y="0" width="1200" height="830" rx="0" fill="#11161c"/>
-<text x="24" y="29" font-size="18" font-weight="600" fill="#8fd3a3">OrkWorks</text>
-<text x="150" y="29" font-size="13" font-weight="400" fill="#a7b5c2">example-repository</text>
-<text x="774" y="29" font-size="11" font-weight="600" fill="#edc78b">PROPOSED INTERFACE · SYNTHETIC DATA</text>
-<path d="M0 45 L1200 45" stroke="#2b3643" fill="none"/>
-<rect x="14" y="60" width="354" height="695" rx="0" fill="#171e26"/>
-<rect x="382" y="60" width="489" height="695" rx="0" fill="#171e26"/>
-<rect x="885" y="60" width="301" height="695" rx="0" fill="#171e26"/>
-<text x="30" y="87" font-size="14" font-weight="600" fill="#e5ecf1">Sessions</text>
-<text x="340" y="87" font-size="20" font-weight="400" fill="#a7b5c2">+</text>
-<text x="398" y="87" font-size="14" font-weight="600" fill="#e5ecf1">Terminal · Research R1</text>
-<text x="901" y="87" font-size="14" font-weight="600" fill="#e5ecf1">Agent details</text>
-<path d="M14 102 L368 102" stroke="#2b3643" fill="none"/>
-<path d="M382 102 L871 102" stroke="#2b3643" fill="none"/>
-<path d="M885 102 L1186 102" stroke="#2b3643" fill="none"/>
-<text x="24" y="786" font-size="14" font-weight="600" fill="#e5ecf1">High density · selected group stays expanded; collapsed actions and unknown evidence remain explicit</text>
-<text x="24" y="810" font-size="12" font-weight="400" fill="#a7b5c2">One selected terminal. Role portraits are illustrative; task/status text carries meaning.</text>
-<text x="30" y="123" font-size="10" fill="#a7b5c2">AGENT WORKFLOWS</text>
-<text x="27" y="156" font-size="19" fill="#a7b5c2">⌄</text>
-<rect x="44" y="137" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
-<text x="51" y="156" font-size="14" fill="#8fd3a3">◆</text>
-<text x="83" y="148" font-size="11" fill="#a7b5c2">Orchestrator</text>
-<text x="83" y="167" font-size="13" font-weight="600" fill="#e5ecf1">Investigate startup behavior</text>
-<text x="83" y="187" font-size="11" fill="#8fd3a3">Research · 2 live / cap 2</text>
-<text x="32" y="211" font-size="11" fill="#a7b5c2">Expanded to keep selected child visible</text>
-<rect x="29" y="226" width="323" height="108" rx="7" fill="#22312d" stroke="#8fd3a3"/>
-<path d="M56 236 V321 M56 251 H69" stroke="#2b3643" fill="none"/>
-<rect x="73" y="234" width="26" height="26" rx="7" fill="#263b32" stroke="#8fd3a3"/>
-<text x="80" y="253" font-size="13" fill="#8fd3a3">⌕</text>
-<text x="110" y="244" font-size="11" fill="#a7b5c2">Research</text>
-<text x="110" y="263" font-size="12" font-weight="600" fill="#e5ecf1">R1 · Compare cross-platform startup…</text>
-<text x="110" y="283" font-size="11" fill="#a7b5c2">Working · selected</text>
-<rect x="110" y="296" width="68" height="21" rx="5" fill="#171e26" stroke="#647486"/>
-<text x="116" y="310" font-size="10.5" fill="#a7b5c2">debugging</text>
-<rect x="185" y="296" width="43" height="21" rx="5" fill="#171e26" stroke="#647486"/>
-<text x="191" y="310" font-size="10.5" fill="#a7b5c2">rules</text>
-<rect x="235" y="296" width="38" height="21" rx="5" fill="#171e26" stroke="#647486"/>
-<text x="241" y="310" font-size="10.5" fill="#a7b5c2">plan</text>
-<text x="282" y="310" font-size="10.5" fill="#a7b5c2">+13 skills</text>
-<text x="110" y="329" font-size="10" fill="#a7b5c2">Delivery unconfirmed · reported use</text>
-<text x="32" y="358" font-size="11" fill="#a7b5c2">More rows below · 128 tasks in this plan</text>
-<path d="M29 376 H351" stroke="#2b3643"/>
-<text x="27" y="409" font-size="19" fill="#a7b5c2">›</text>
-<rect x="44" y="390" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
-<text x="51" y="409" font-size="14" fill="#8fd3a3">◆</text>
-<text x="83" y="401" font-size="11" fill="#a7b5c2">Orchestrator · collapsed</text>
-<text x="83" y="420" font-size="13" font-weight="600" fill="#e5ecf1">Prepare execution proposal</text>
-<text x="83" y="440" font-size="11" fill="#edc78b">Paused · awaiting exact approval</text>
-<text x="32" y="464" font-size="11" fill="#edc78b">2 need you · 1 blocked · 1 new result</text>
-<rect x="30" y="479" width="322" height="28" rx="5" fill="#29382e" stroke="#8fd3a3"/>
-<text x="43" y="498" font-size="11" font-weight="600" fill="#8fd3a3">Show next action → hidden task R2</text>
-<path d="M29 526 H351" stroke="#2b3643"/>
-<text x="27" y="557" font-size="19" fill="#a7b5c2">⌄</text>
-<rect x="44" y="538" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
-<text x="51" y="557" font-size="14" fill="#8fd3a3">◆</text>
-<text x="83" y="549" font-size="11" fill="#a7b5c2">Orchestrator</text>
-<text x="83" y="568" font-size="13" font-weight="600" fill="#e5ecf1">Parent session unavailable</text>
-<text x="83" y="588" font-size="11" fill="#a7b5c2">Paused · remembered child retained</text>
-<text x="32" y="612" font-size="11" fill="#edc78b">1 unresolved result decision</text>
-<text x="72" y="639" font-size="11" fill="#f0a4a4">Review Q1 · Session ended with error</text>
-<text x="72" y="660" font-size="11" fill="#a7b5c2">Open saved history · Unassessed</text>
-<path d="M29 679 H351" stroke="#2b3643"/>
-<text x="30" y="705" font-size="11" fill="#a7b5c2">› Earlier · Completed source comparison</text>
-<text x="45" y="730" font-size="11" fill="#8fd3a3">Meets requirements · reopen details</text>
-<text x="400" y="131" font-size="12" font-weight="400" fill="#8fd3a3" class="mono">$ synthetic research session</text>
-<text x="400" y="154" font-size="12" font-weight="400" fill="#a7b5c2" class="mono"></text>
-<text x="400" y="177" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Reviewing declared source references…</text>
-<text x="400" y="200" font-size="12" font-weight="400" fill="#a7b5c2" class="mono"></text>
-<text x="400" y="223" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Result notes stay in this session.</text>
-<text x="400" y="246" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Other children run independently.</text>
-<text x="400" y="269" font-size="12" font-weight="400" fill="#a7b5c2" class="mono"></text>
-<text x="400" y="292" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">Selecting a planned task opens details;</text>
-<text x="400" y="315" font-size="12" font-weight="400" fill="#a7b5c2" class="mono">it does not start a terminal.</text>
-<text x="400" y="716" font-size="12" font-weight="400" fill="#8fd3a3">Selected: Research R1</text>
-<text x="400" y="738" font-size="10" font-weight="400" fill="#a7b5c2">No second terminal or composite transcript</text>
-<text x="901" y="128" font-size="11" font-weight="600" fill="#8fd3a3">RESEARCH R1</text>
-<text x="901" y="153" font-size="16" font-weight="600" fill="#e5ecf1">Compare cross-platform</text>
-<text x="901" y="177" font-size="16" font-weight="600" fill="#e5ecf1">startup and permission</text>
-<text x="901" y="201" font-size="16" font-weight="600" fill="#e5ecf1">evidence for declared sources</text>
-<text x="901" y="248" font-size="11" font-weight="600" fill="#a7b5c2">Skills · 16 selected</text>
-<rect x="901" y="266" width="126.0" height="21" rx="5" fill="#171e26" stroke="#647486"/>
-<text x="907" y="280" font-size="10.5" font-weight="400" fill="#a7b5c2">systematic-debugging</text>
-<text x="901" y="307" font-size="12" font-weight="400" fill="#a7b5c2">Delivery unconfirmed</text>
-<text x="901" y="331" font-size="12" font-weight="400" fill="#edc78b">Reported use · agent report</text>
-<text x="901" y="353" font-size="11" font-weight="400" fill="#a7b5c2">Observed use: unknown</text>
-<text x="901" y="378" font-size="11" font-weight="400" fill="#e5ecf1">Usage does not confirm loading.</text>
-<rect x="901" y="400" width="267" height="30" rx="5" fill="#222c36" stroke="#2b3643"/>
-<text x="914" y="420" font-size="11" font-weight="400" fill="#e5ecf1">Inspect all 16 skills and evidence →</text>
-<text x="901" y="467" font-size="11" font-weight="600" fill="#a7b5c2">Overall result</text>
-<text x="901" y="491" font-size="14" font-weight="600" fill="#e5ecf1">Unassessed</text>
-<text x="901" y="520" font-size="11" font-weight="400" fill="#a7b5c2">Current result not independently</text>
-<text x="901" y="539" font-size="11" font-weight="400" fill="#a7b5c2">evaluated. Scores live in details.</text>
-<text x="901" y="591" font-size="11" font-weight="400" fill="#a7b5c2">Details also expose full labels,</text>
-<text x="901" y="611" font-size="11" font-weight="400" fill="#a7b5c2">versions, dependencies, coding tool</text>
-<text x="901" y="631" font-size="11" font-weight="400" fill="#a7b5c2">and requested/effective permissions.</text>
-<text x="901" y="683" font-size="10" font-weight="400" fill="#a7b5c2">Reduced motion: static usage label.</text>
-<text x="901" y="704" font-size="10" font-weight="400" fill="#a7b5c2">No scores or portraits grant approval.</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1040" viewBox="0 0 1440 1040" role="img" aria-labelledby="title desc">
+<title id="title">Concept B: branching workflow timeline</title><desc id="desc">One persistent orchestrator trunk with retained research paths and a later execution proposal awaiting exact approval. Tasks are direct children; stage headings are not agents. Earlier paused revision has a collapsed action rollup. Reported use remains delivery unconfirmed. No terminal or duration scale shown.</desc>
+<style>text{font-family:system-ui,-apple-system,Segoe UI,sans-serif}</style>
+<rect x="0" y="0" width="1440" height="1040" rx="0" fill="#11161c"/>
+<text x="24" y="33" font-size="19" fill="#8fd3a3" font-weight="600">OrkWorks</text>
+<text x="157" y="33" font-size="14" fill="#a7b5c2">example-repository</text>
+<text x="986" y="33" font-size="12" fill="#edc78b" font-weight="600">PROVISIONAL CONCEPT · SYNTHETIC DATA</text>
+<path d="M0 52 H1440" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="24" y="72" width="208" height="884" rx="8" fill="#171e26"/>
+<rect x="252" y="72" width="844" height="884" rx="8" fill="#171e26"/>
+<rect x="1116" y="72" width="300" height="884" rx="8" fill="#171e26"/>
+<text x="40" y="103" font-size="16" fill="#e5ecf1" font-weight="600">Sessions</text>
+<text x="40" y="128" font-size="12" fill="#a7b5c2">Compact switcher</text>
+<text x="268" y="103" font-size="17" fill="#e5ecf1" font-weight="600">Branching timeline · investigate startup</text>
+<text x="1134" y="103" font-size="16" fill="#e5ecf1" font-weight="600">Inspecting task</text>
+<path d="M24 145 H232" stroke="#303d49" stroke-width="2" fill="none"/>
+<path d="M252 121 H1096" stroke="#303d49" stroke-width="2" fill="none"/>
+<path d="M1116 121 H1416" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="36" y="161" width="184" height="70" rx="5" fill="#22312d" stroke="#8fd3a3"/>
+<text x="46" y="185" font-size="13" fill="#e5ecf1" font-weight="600">Orchestrator</text>
+<text x="46" y="206" font-size="12" fill="#a7b5c2">Working</text>
+<text x="46" y="222" font-size="11" fill="#8fd3a3">Terminal retained</text>
+<rect x="36" y="246" width="184" height="70" rx="5" fill="#171e26"/>
+<text x="46" y="270" font-size="13" fill="#e5ecf1" font-weight="600">Research R1</text>
+<text x="46" y="295" font-size="12" fill="#a7b5c2">Session ended</text>
+<rect x="36" y="331" width="184" height="70" rx="5" fill="#171e26"/>
+<text x="46" y="355" font-size="13" fill="#e5ecf1" font-weight="600">Research R2</text>
+<text x="46" y="380" font-size="12" fill="#a7b5c2">Session ended</text>
+<path d="M40 435 H216" stroke="#303d49" stroke-width="2" fill="none"/>
+<text x="40" y="463" font-size="13" fill="#e5ecf1" font-weight="600">Ordinary session</text>
+<text x="40" y="486" font-size="12" fill="#a7b5c2">Working</text>
+<text x="40" y="885" font-size="12" fill="#a7b5c2">Select a session to</text>
+<text x="40" y="905" font-size="12" fill="#a7b5c2">open its terminal.</text>
+<text x="24" y="989" font-size="14" fill="#e5ecf1" font-weight="600">One central surface: overview replaces the terminal. Panel layout and global navigation await #755.</text>
+<text x="24" y="1015" font-size="13" fill="#a7b5c2">Agent tasks and progress lead; Git references appear in inspected details. No drag-and-drop rearrangement.</text>
+<rect x="836" y="82" width="244" height="32" rx="5" fill="#222c36" stroke="#303d49"/>
+<text x="848" y="103" font-size="12" fill="#e5ecf1" font-weight="600">Return to terminal · Orchestrator</text>
+<rect x="278" y="143" width="792" height="87" rx="8" fill="#1c2925" stroke="#8fd3a3"/>
+<rect x="296" y="159" width="24" height="24" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="302" y="166" width="12" height="12" rx="4" fill="#7ba184"/>
+<rect x="305" y="170" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="308" y="170" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M306 175 H310" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="308.0" y="165" font-size="9" fill="#8fd3a3">◆</text>
+<text x="335" y="178" font-size="16" fill="#e5ecf1" font-weight="600">One orchestrator · same run and goal</text>
+<text x="296" y="208" font-size="12" fill="#edc78b">Approval needed · 1 new result · earlier blocker is historical</text>
+<path d="M296 230 V858" stroke="#8fd3a3" stroke-width="2" fill="none"/>
+<rect x="319" y="247" width="751" height="76" rx="8" fill="#171e26" stroke="#303d49"/>
+<text x="336" y="273" font-size="14" fill="#e5ecf1" font-weight="600">› Earlier research revision · superseded · collapsed</text>
+<text x="336" y="297" font-size="12" fill="#edc78b">1 historical blocker · 1 new result</text>
+<rect x="773" y="276" width="280" height="32" rx="5" fill="#222c36" stroke="#303d49"/>
+<text x="785" y="297" font-size="12" fill="#e5ecf1" font-weight="600">Show next action → old task R0</text>
+<path d="M296 280 H319" stroke="#8fd3a3" stroke-width="2" fill="none"/>
+<text x="320" y="355" font-size="14" fill="#e5ecf1" font-weight="600">⌄ Research plan · revision 2 · complete</text>
+<text x="320" y="377" font-size="12" fill="#a7b5c2">Retained results · sessions ended · stage order, not elapsed time</text>
+<path d="M296 355 H312" stroke="#8fd3a3" stroke-width="2" fill="none"/>
+<path d="M296 394 H319 V410" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="319" y="410" width="366" height="148" rx="8" fill="#171e26" stroke="#303d49"/>
+<rect x="333" y="423" width="24" height="24" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="339" y="430" width="12" height="12" rx="4" fill="#7ba184"/>
+<rect x="342" y="434" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="345" y="434" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M343 439 H347" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="345.0" y="429" font-size="9" fill="#8fd3a3">⌕</text>
+<text x="368" y="440" font-size="13" fill="#e5ecf1" font-weight="600">R1 · Compare contracts</text>
+<text x="333" y="470" font-size="12" fill="#8fd3a3">Session ended · Meets requirements</text>
+<rect x="333" y="485" width="125" height="22" rx="5" fill="#263e31" stroke="#8fd3a3"/>
+<text x="340" y="500" font-size="11" fill="#8fd3a3">✓ brainstorming</text>
+<text x="333" y="539" font-size="11" fill="#a7b5c2">Loaded · usage unknown</text>
+<path d="M296 394 H704 V410" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="704" y="410" width="366" height="148" rx="8" fill="#22312d" stroke="#8fd3a3"/>
+<rect x="718" y="423" width="24" height="24" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="724" y="430" width="12" height="12" rx="4" fill="#7ba184"/>
+<rect x="727" y="434" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="730" y="434" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M728 439 H732" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="730.0" y="429" font-size="9" fill="#8fd3a3">⌕</text>
+<text x="753" y="440" font-size="13" fill="#e5ecf1" font-weight="600">R2 · Inspect startup evidence…</text>
+<text x="718" y="470" font-size="12" fill="#8fd3a3">Session ended · Meets requirements</text>
+<rect x="718" y="485" width="87" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="725" y="500" font-size="11" fill="#a7b5c2">debugging</text>
+<rect x="811" y="485" width="53" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="818" y="500" font-size="11" fill="#a7b5c2">rules</text>
+<rect x="870" y="485" width="49" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="877" y="500" font-size="11" fill="#a7b5c2">plan</text>
+<text x="928" y="500" font-size="11" fill="#a7b5c2">+13 skills</text>
+<text x="718" y="525" font-size="11" fill="#edc78b">Delivery unconfirmed · reported use</text>
+<text x="718" y="545" font-size="11" fill="#8fd3a3">Inspecting historical assignment</text>
+<text x="320" y="593" font-size="14" fill="#edc78b" font-weight="600">⌄ Execution proposal · revision 1 · awaiting exact approval</text>
+<text x="320" y="617" font-size="12" fill="#a7b5c2">New proposed paths · no execution children or worktrees started</text>
+<path d="M296 593 H312" stroke="#8fd3a3" stroke-width="2" fill="none"/>
+<path d="M296 636 H319 V652" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="319" y="652" width="366" height="141" rx="8" fill="#171e26" stroke="#303d49"/>
+<rect x="333" y="665" width="24" height="24" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="339" y="672" width="12" height="12" rx="4" fill="#7ba184"/>
+<rect x="342" y="676" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="345" y="676" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M343 681 H347" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="345.0" y="671" font-size="9" fill="#8fd3a3">I</text>
+<text x="368" y="682" font-size="13" fill="#e5ecf1" font-weight="600">I1 · Implement startup correction</text>
+<text x="333" y="712" font-size="12" fill="#a7b5c2">Planned · not started</text>
+<text x="333" y="737" font-size="12" fill="#edc78b">Awaiting exact plan approval</text>
+<rect x="333" y="751" width="100" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="340" y="766" font-size="11" fill="#a7b5c2">TDD</text>
+<text x="448" y="766" font-size="11" fill="#a7b5c2">Selected</text>
+<path d="M296 636 H704 V652" stroke="#303d49" stroke-width="2" fill="none"/>
+<rect x="704" y="652" width="366" height="141" rx="8" fill="#171e26" stroke="#303d49"/>
+<rect x="718" y="665" width="24" height="24" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="724" y="672" width="12" height="12" rx="4" fill="#7ba184"/>
+<rect x="727" y="676" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="730" y="676" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M728 681 H732" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="730.0" y="671" font-size="9" fill="#8fd3a3">R</text>
+<text x="753" y="682" font-size="13" fill="#e5ecf1" font-weight="600">Q1 · Review startup correction</text>
+<text x="718" y="712" font-size="12" fill="#a7b5c2">Planned · not started</text>
+<text x="718" y="737" font-size="12" fill="#edc78b">Depends on I1 · later batch</text>
+<rect x="718" y="751" width="100" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="725" y="766" font-size="11" fill="#a7b5c2">code-review</text>
+<text x="833" y="766" font-size="11" fill="#a7b5c2">Selected</text>
+<text x="320" y="830" font-size="12" fill="#a7b5c2">Earlier results remain under their original assignment/revision.</text>
+<text x="320" y="854" font-size="12" fill="#a7b5c2">All task paths belong to the orchestrator; stage headings are not agents.</text>
+<rect x="320" y="880" width="294" height="32" rx="5" fill="#29382e" stroke="#8fd3a3"/>
+<text x="332" y="901" font-size="12" fill="#8fd3a3" font-weight="600">Inspect exact execution proposal →</text>
+<rect x="1134" y="141" width="28" height="28" rx="7" fill="#263b32" stroke="#8fd3a3"/>
+<rect x="1140" y="148" width="16" height="16" rx="4" fill="#7ba184"/>
+<rect x="1143" y="152" width="3" height="3" rx="1" fill="#11161c"/>
+<rect x="1150" y="152" width="3" height="3" rx="1" fill="#11161c"/>
+<path d="M1144 161 H1152" stroke="#11161c" stroke-width="2" fill="none"/>
+<text x="1148.0" y="147" font-size="9" fill="#8fd3a3">⌕</text>
+<text x="1173" y="161" font-size="13" fill="#8fd3a3" font-weight="600">Research</text>
+<text x="1134" y="200" font-size="16" fill="#e5ecf1" font-weight="600">R2 · Inspect cross-platform</text>
+<text x="1134" y="223" font-size="16" fill="#e5ecf1" font-weight="600">startup and permission</text>
+<text x="1134" y="246" font-size="16" fill="#e5ecf1" font-weight="600">evidence for declared sources</text>
+<text x="1134" y="281" font-size="13" fill="#a7b5c2">Session ended · inspecting history</text>
+<text x="1134" y="318" font-size="13" fill="#a7b5c2" font-weight="600">Skills · 16 selected</text>
+<rect x="1134" y="332" width="215" height="22" rx="5" fill="#171e26" stroke="#647486"/>
+<text x="1141" y="347" font-size="11" fill="#a7b5c2">systematic-debugging</text>
+<text x="1134" y="383" font-size="13" fill="#a7b5c2">Delivery unconfirmed</text>
+<text x="1134" y="407" font-size="13" fill="#edc78b">Reported use · agent report</text>
+<text x="1134" y="429" font-size="11" fill="#a7b5c2">Reported use does not prove loading.</text>
+<rect x="1134" y="454" width="264" height="32" rx="5" fill="#222c36" stroke="#303d49"/>
+<text x="1146" y="475" font-size="12" fill="#e5ecf1" font-weight="600">Inspect all skills and evidence →</text>
+<text x="1134" y="522" font-size="13" fill="#a7b5c2" font-weight="600">Overall result</text>
+<text x="1134" y="547" font-size="15" fill="#8fd3a3" font-weight="600">Meets requirements</text>
+<text x="1134" y="590" font-size="12" fill="#a7b5c2" font-weight="600">Git details · exact assignment</text>
+<text x="1134" y="614" font-size="12" fill="#e5ecf1">Branch: research-startup</text>
+<text x="1134" y="637" font-size="12" fill="#e5ecf1">Worktree: ../example-research</text>
+<text x="1134" y="674" font-size="12" fill="#a7b5c2">Permissions, coding tool and</text>
+<text x="1134" y="694" font-size="12" fill="#a7b5c2">score evidence stay in details.</text>
+<rect x="1134" y="884" width="264" height="32" rx="5" fill="#29382e" stroke="#8fd3a3"/>
+<text x="1146" y="905" font-size="12" fill="#8fd3a3" font-weight="600">Open history · Research R2</text>
 </svg>

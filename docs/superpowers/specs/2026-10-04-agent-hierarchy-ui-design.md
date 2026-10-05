@@ -2,6 +2,7 @@
 
 - Status: proposed interaction/projection contract; written review and upstream agreement pending
 - Draft started: 2026-10-04; artifact review: 2026-10-05
+- Shell prerequisite: [#755](https://github.com/Rambolarsen/orkworks/issues/755); final placement/navigation awaiting shell review
 - Tracking: [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
 - Accepted scope: [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md), [ordinary-child scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
@@ -9,19 +10,28 @@
 
 ## Scope and status
 
-Specify the Sessions hierarchy, node details and renderer projection fixtures.
-The existing Sessions panel remains the place to find agents; the selected
-session retains one terminal. The mockups illustrate a proposed interface,
-not an implemented feature or released desktop capture.
+Specify workflow nodes, evidence, action discovery and renderer projection
+fixtures for a central tree or branching timeline. On 2026-10-05 the user
+rejected the Sessions-embedded hierarchy as too intrusive and requested a
+central overview in place of the terminal, with paths appearing as work
+progresses. Keep Sessions as a compact switcher of actual sessions.
+
+The broader move away from tab-based panels, including removal of drag-and-drop
+panel rearrangement, is queued in [#755](https://github.com/Rambolarsen/orkworks/issues/755).
+This revision records that direction and compares two provisional overview
+concepts. It does not select a final shell, layout library or global navigation
+scheme. #755 must resolve those choices and reconcile this draft before final
+written acceptance of #746. The mockups are synthetic concept drawings, not
+implemented features or released desktop captures.
 
 The user authorized initial specification/mockup drafting for #746 on
-2026-10-04. #610's ordinary-child scope alignment is accepted. This artifact
-makes concrete interaction proposals within that direction. It does not finalize
-#743/#744 wire records, claim verified adapter support, approve a runtime plan,
-or change the authoritative v1 recommendation behavior. Those contract owners
-must agree to the projection inputs before runtime planning becomes executable.
-Another session owns #745; this task consumes opaque repository identity and
-does not define its algorithm, history or learning rules.
+2026-10-04 and continued the design revision on 2026-10-05. #610's ordinary-child
+scope alignment is accepted. This artifact does not finalize #743/#744 wire
+records, claim verified adapter support, approve a runtime plan, or change v1
+recommendation behavior. Those contract owners must agree to the projection
+inputs before runtime planning becomes executable. Another session owns #745;
+this task consumes opaque repository identity without defining its algorithm,
+history or learning rules.
 
 ### Source investigation
 
@@ -29,10 +39,10 @@ Read against merged baseline `0c6562a1`:
 
 | Existing seam | Established behavior | Design consequence |
 | --- | --- | --- |
-| `apps/desktop/src/components/SessionListPanel.tsx` | Listbox; Up/Down select a session, Enter focuses its terminal; remembered rows suppress live unread/loud treatment | Introduce hierarchy navigation without manufacturing session IDs or changing ordinary attention semantics |
-| `apps/desktop/src/sessionGroups.ts` | Non-dead sessions in Active, dead sessions grouped Today/This week/Earlier | Group ordinary sessions as today; retain a run together when it has declared lineage |
-| `apps/desktop/src/sessionSort.ts` | Ordinary activity order is refreshed when IDs change or after 30 seconds | Preserve that path for ordinary rows; freeze hierarchy order within a run |
-| `apps/desktop/src/components/SessionDetailPanel.tsx` | Selected-session situation, actions, facts and history; request cleanup prevents stale detail fetches | Extend details with assignment/skills/evaluation; inspect planned nodes separately from active session |
+| `apps/desktop/src/components/SessionListPanel.tsx` | Listbox; Up/Down select a session, Enter focuses its terminal; remembered rows suppress live unread/loud treatment | Keep the compact session index; put workflow inspection in a separate central surface |
+| `apps/desktop/src/sessionGroups.ts` | Non-dead sessions in Active, dead sessions grouped Today/This week/Earlier | Keep ordinary session grouping; group declared work by run only in the overview |
+| `apps/desktop/src/sessionSort.ts` | Ordinary activity order is refreshed when IDs change or after 30 seconds | Preserve activity sorting in the switcher; keep workflow paths stable separately |
+| `apps/desktop/src/components/SessionDetailPanel.tsx` | Selected-session situation, actions, facts and history; request cleanup prevents stale detail fetches | Bind overview details to its inspected node; terminal details to its actual session |
 | `apps/desktop/src/workspaceSessionController.ts` | Foreground/admission/polling generations reject stale results; restore only a remembered active ID matching a non-dead session | Fence hierarchy state by workspace/runtime generation; reveal a restored child without selecting its parent |
 | `apps/desktop/src/App.tsx`, `sessionUnread.ts` | Actual session selection clears its unread/acknowledges attention | Group inspection/collapse and skill evidence must not acknowledge other sessions |
 | `apps/desktop/src/api.ts` | Canonical renderer `SessionInfo` has lifecycle, attention and terminal outcome; no hierarchy/skill/evaluation contract yet | Add a separate proposed read projection; join to canonical session data by validated ID |
@@ -41,19 +51,23 @@ Read against merged baseline `0c6562a1`:
 
 ### Uncertainty and blind-spot checkpoint
 
-**What am I least confident about?** How stable hierarchy placement fits the
-current activity sort. Investigation confirms grouping/sorting acts on ordinary
-session records, with no run owner. Proposal: explicitly partition owned
-hierarchies from ordinary rows and preserve declared order within each run.
-Runtime implementation will need joined projection fixtures, not an extra
-session registry in the renderer.
+**What am I least confident about?** Whether “branches” meant agent work paths
+or Git branches. The user explicitly clarified on 2026-10-05: agent tasks and
+progress lead; Git details belong on inspection. The accepted scope declares
+direct children, explicit batches/dependencies and new exact approval for
+additions/retries. Paths therefore represent workflow assignments; show exact
+Git branch/worktree references only in inspected details when upstream records
+supply them. No branching policy or Git operation follows from the drawing.
 
-**What could the project be missing?** Automatic collapse can hide a selected
-child, a live session after task completion, or a decision whose summary was
-read. The product design already demands preserved selection and visible
-blockers. The rules below separate viewed results, coordination outcomes,
-session lifetime and unresolved actions. A viewed summary never marks work
-accepted, releases capacity, or acknowledges every child's attention.
+**What could the project be missing?** A timeline can look like a complete event
+history even when its source is a current projection and a bounded notification
+ring. #742 retains exact plan/report records but its notification ring can lose
+old events. Use retained plan stages and results for the overview, not replayed
+notifications or invented timestamps. Another important constraint is ADR 0013:
+its current Sessions-as-multi-view wording and session-bound detail panel need
+explicit review in #755 for a central overview. Preserve its one-active-context
+principle: overview and terminal are alternative central surfaces; overview
+inspection must not show a different session's detail beside a visible terminal.
 
 ## Node identity and planned/live/remembered state
 
@@ -64,11 +78,11 @@ branch names, cwd, terminal prose, task labels, or coding-tool-native subagents.
 
 | Node | Identity and display | Selection/action behavior |
 | --- | --- | --- |
-| Root with parent session | Opaque `runId` plus exact `parentSessionId`; role Orchestrator, immutable goal label | Select its ordinary session; current plan/run state is additional context |
+| Root with parent session | Opaque `runId` plus exact `parentSessionId`; role Orchestrator, immutable goal label | Inspect run details; Open terminal explicitly selects its ordinary session |
 | Planned child | Tuple `(runId, planId, planRevision, taskId)`; role and assignment from that exact proposed/approved configuration | Inspect task/configuration details; label “Planned · not started”; no terminal, fake session, launch, kill or resume action |
 | Allocating child | Same tuple; server reservation indicates starting | Label “Starting · session not available”; still no terminal until an exact child ID is projected |
 | Started child | Same tuple plus server-bound `childSessionId` and configuration digest | Join exactly one canonical SessionInfo; retain the task row key when it starts |
-| Remembered child/root | Joined session lifecycle `dead`, with its terminal outcome/resume availability | Select ordinary saved terminal/history; no live unread treatment; resume is a separate server-validated action |
+| Remembered child/root | Joined session lifecycle `dead`, with its terminal outcome/resume availability | Inspect historical result; Open history explicitly selects saved terminal; resume remains separate |
 | Missing parent/session | Valid owned task/root reference whose session record is unavailable | Show “Parent session unavailable” or “Session unavailable”; preserve other children and details without a replacement session |
 | Ordinary session | Canonical session ID without validated orchestration membership | Existing grouping, label, coding-tool icon, status and ordinary actions |
 
@@ -76,20 +90,25 @@ Presentation phase `planned`, `starting`, `session`, or `session-unavailable`
 is separate from ordinary lifecycle and memoryState. An alive child whose task
 result is complete stays alive and consumes capacity until the backend says it
 is terminal. A remembered session's old attention does not become a live
-request. A session ID must appear in only one place; suppress its ordinary-row
-duplicate only after its exact hierarchy membership validates.
+request. Keep one canonical entry per actual session in the compact switcher.
+A workflow
+node may reference that same ID in the alternative central overview; it is not
+a second session record. Planned nodes never enter the session switcher.
 
 A newer plan revision gets new task keys; no result/delivery/viewed state
 transfers by label or task ID alone. Previously launched children retain their
 original plan identity and remain selectable under that run. Plans are shown
 in server-declared creation order, tasks in ordered-batch/declaration order.
-Unlaunched obsolete revisions appear in run history details rather than as
-current planned nodes. A missing parent does not revoke ordinary child
+Retain earlier plan stages and launched paths with their exact result versions.
+Unlaunched obsolete revisions appear as explicitly superseded history, never
+current launchable work. Their task details can be disclosed without cluttering
+the current stage. A missing parent does not revoke ordinary child
 management or grant the renderer permission to resume orchestration.
 
 ## Portrait, role, task, status, and skill badge priority
 
-Use a compact, indented row with a recognizable 28px role portrait, role name,
+Use a compact tree row or timeline card with a recognizable 28px role portrait,
+role name,
 short task label, textual status and compact skill badges. At high density the
 portrait is 24px. Reuse stable role artwork for Orchestrator, Research,
 Implementation, Review, Verification and Remediation. Individual task labels
@@ -98,8 +117,9 @@ agent fallback when art is absent; hide decorative portraits from assistive
 technology because the role/task text supplies their meaning.
 
 Priority is required action/status, role/task identity, skills, then coding tool
-and last activity. Portraits never outrank blockers. Parent-child lines use
-subtle strokes without arrows that could imply dependencies. No persistent XP,
+and last activity. Portraits never outrank blockers. Delegation connectors use
+subtle strokes without arrows that could imply dependencies. Stage/time labels
+are separate from delegation and declared wait reasons. No persistent XP,
 rarity, currency, ranking or rewards. Existing attention tone owns status color;
 portraits and coding-tool marks do not invent a competing status system.
 
@@ -111,10 +131,10 @@ requirements. Worker self-assessment remains labeled as such in details.
 The renderer consumes #744's authoritative result; it does not calculate scores,
 average reviewers, reinterpret terminal exit, or infer acceptance.
 
-For rows narrower than 320px, allow two task lines and move status to its own
+For nodes narrower than 320px, allow two task lines and move status to its own
 line; use a 260px reference minimum, vertical scrolling and no horizontal
 scrolling. Full labels remain available in details and accessible names, not
-only tooltips. Rows grow with text zoom; dimensions are nominal, not clipping
+only tooltips. Nodes grow with text zoom; dimensions are nominal, not clipping
 limits. Use plain text rendering for all task labels/evidence excerpts; never
 interpret them as HTML or shell commands.
 
@@ -155,23 +175,83 @@ hidden usage. Reduced-motion preference removes all animation and uses a static
 changes; motion is never the only usage/source indication. #743 owns event
 retention and dedupe; UI scheduling state is bounded to visible current badges.
 
-## Stable placement and collapse behavior
+## Central tree and branching timeline concepts
 
-Place owned runs under **Agent workflows** and ordinary sessions under their
-existing **Active / Today / This week / Earlier** sections. Runs have a stable
-server creation-sequence order with run ID as a deterministic tie breaker;
-refreshing attention, usage or activity does not reorder them. A new run is
-inserted once at its sequence position. Within each run, plan headings and
-ordered batch/task positions remain fixed; children do not jump when they
-become blocked or report a result. Attention counts and explicit “Show next
-action” navigation provide urgency without sorting children by attention.
+These are alternatives for #755 to compare, not two required switchable modes.
+Both show one run's declared work in the central area while the terminal is
+hidden. The session switcher stays compact; it contains actual sessions and
+ordinary attention indicators, not task hierarchies or planned agents.
 
-Only two agent levels exist: root and direct children. Plan headings add
-visual grouping, not delegation levels. Active runs start expanded. Manual
-collapse/expand does not acknowledge unread sessions or change outcomes.
-New plans append their declared rows under the existing parent rather than
-reusing old task positions. Inspection explicitly reveals its ancestry and
-scrolls only enough to show the target.
+| Concept | Strength | Trade-off |
+| --- | --- | --- |
+| Central tree | Root and direct child identity are easy to scan; familiar disclosure and keyboard structure | Research-to-execution progress requires explicit stage headings and history summaries |
+| Branching timeline | A persistent orchestrator trunk and successive plan stages show how work develops; earlier results stay visible | More visual space; must clearly separate stage order, delegation and dependencies |
+
+The branching timeline is the direction to explore first because the user wants
+to see new paths appear as work progresses. The central tree is the simpler
+comparison. Neither concept requires dragging, freely positioned graph nodes,
+terminal tiling, an editor, or new scheduling behavior.
+
+### Stage order and evolving paths
+
+Show the run's immutable goal/root once. Group its direct task nodes by retained
+plan stage/revision in server-declared creation order; within a stage, preserve
+ordered-batch/declaration order. A stage heading is not an agent or a delegation
+level. Research and later execution paths remain direct children of the same
+orchestrator even when drawn below earlier work. Review/verification consumes
+only its declared dependencies; placing it later does not imply that a child
+spawned it. A retained result is not proof of integration into a later worktree.
+
+New proposals append distinctly labeled planned paths, including “Awaiting
+exact plan approval”. Server-confirmed approval changes that stage's label;
+only an exact child session binding changes a path to started. Revisions keep
+old launched paths and results under their original identity; identical labels
+never replace them. Provisional/superseded work is visibly differentiated from
+approved current work. No node click, connector or elapsed time creates a task,
+worktree, dependency or launch grant.
+
+Use a vertical sequence of stages, not a duration-scaled chart. Where validated
+source timestamps exist, label the event and source; absent times read “Time
+unavailable”. Relative order comes from declared plan/stage order, not wall-clock
+sorting across agents. The timeline is a retained-work overview, not a complete
+event log: cursor gaps trigger authoritative refresh and cannot be reconstructed
+from terminal output. Do not fabricate missing stages, receipts or duration bars.
+
+Within a displayed run, attention, skill usage and activity do not reorder paths
+or scroll the viewport. New stages append without stealing focus. A run chooser
+uses stable creation sequence and exact run IDs; selecting a different run changes
+only the overview. Explicit task/action navigation reveals ancestry and scrolls
+only enough to show its target. Ordinary session grouping/activity sorting remains
+unchanged in the compact switcher.
+
+### Collapse and retained context
+
+Active stages start expanded. Stage disclosure groups direct tasks without
+changing their parent identity. Manual collapse never changes terminal selection,
+acknowledges unread, releases capacity or changes outcomes. The remembered
+terminal selection remains visible in the compact switcher and return control,
+even when its workflow stage is collapsed. It is not the overview's selection:
+overview selection denotes the inspected node.
+
+Do not hide the inspected node or focused descendant. When manual collapse would
+hide either, keep the stage fully expanded and name every applicable cause:
+
+- Inspected task: “Inspect the run or another stage to collapse this group.”
+  The run's Inspect details command moves inspection without changing terminal
+  selection or opening a terminal.
+- Focused descendant: “Move focus to the stage heading to collapse this group.”
+  Left moves focus to that heading; it does not select a session. The sibling
+  disclosure toolbar is then usable once inspection has also moved outside.
+
+Focus within task details, skills or task toolbar counts as descendant focus.
+Focus on the stage's disclosure toolbar is not descendant focus for manual
+collapse, but is inside the group for automatic-collapse protection. A blocked
+request is not queued: the user retries after clearing both causes. There is no
+partially collapsed tree or duplicated pinned task. `aria-expanded=false` means
+the task group is hidden; `true` means it is open. A deleted focused/inspected
+node falls back to its surviving stage/run heading without selecting another
+terminal. The accessible outline follows the
+[WAI tree pattern](https://www.w3.org/WAI/ARIA/apg/patterns/treeview/).
 
 ### Viewed-summary and automatic-collapse rules
 
@@ -183,14 +263,16 @@ approval, acceptance, evaluation freshness or readiness.
 
 Automatic collapse is eligible only when all of these hold:
 
-1. The backend says the displayed plan/run is coordination-terminal. Research
-   completion while the run continues planning is not a completed run.
+1. The backend says the displayed group is coordination-terminal. A completed
+   research stage can become eligible independently of a later execution stage;
+   collapsing the whole run requires the run itself to be terminal.
 2. Every current result summary in that group has been explicitly opened; a
    missing result/summary prevents eligibility rather than being assumed read.
 3. No pending approval, clarification, unresolved blocker, failure requiring
    action, unreviewed changed result, allocation/recovery problem or nonterminal
    child/reservation remains. A reported result never ends its live session.
-4. Selection, inspected node and keyboard focus are outside the group.
+4. Overview inspection and keyboard focus are outside the group. Retained
+   terminal selection alone is not overview inspection.
 5. That exact result revision has not already been automatically collapsed.
 
 Defer eligible collapse while the user inspects a descendant. Collapse when
@@ -199,48 +281,28 @@ suppresses another automatic collapse for that same revision, including after
 a refresh. A changed result resets viewed eligibility and suppression for that
 new revision; do not collapse immediately before it is viewed.
 
-Manual collapse is allowed for active groups only when it will not hide the
-selected or inspected child or the focused descendant. When it is blocked,
-show the named cause beside the disclosure and announce it politely:
-
-- Selected child: “Select the parent or another session to collapse this group.”
-  That explicit selection uses the ordinary session-selection path; the collapse
-  request itself never changes the terminal.
-- Inspected child only, including planned work: “Inspect the parent or another
-  task to collapse this group.” Activating the parent’s Inspect details command
-  moves inspection to the root without changing the current terminal.
-- Focused descendant only: “Move focus to the parent to collapse this group.”
-  Left moves tree focus to the root without selecting its terminal; its sibling
-  disclosure toolbar is then usable.
-
-Focus inside a child's skill/result details or child toolbar counts as that
-child's descendant focus. Focus on the root disclosure/toolbar is not descendant
-focus and does not itself block manual collapse. It still counts as inside the
-group for automatic-collapse protection. If several causes apply, name all and
-require all to clear. A blocked manual request is not queued for later execution.
-The user explicitly retries disclosure after moving selection/inspection/focus.
-There is no partially collapsed tree or duplicated pinned session row.
-`aria-expanded=false` means its child group is hidden, and `true` means that
-group is open, following the
-[WAI tree pattern](https://www.w3.org/WAI/ARIA/apg/patterns/treeview/).
-A deleted focused node moves focus to its surviving parent or next visible row
-without implicitly selecting a replacement terminal.
-
 Remember collapse/viewed preferences only in a bounded local UI cache: proposed
 limit 64 run entries per workspace, session-local until persistence is separately
 reviewed. Evict least-recently-inspected inactive UI entries; never backend
 ownership, result or replay records. New workspace/runtime adoption clears
-transient focus, animation and inspected-detail requests. Explicit session
-restoration expands the matching child even if its cached group was collapsed.
+transient focus, animation and inspected-detail requests. Explicit Open workflow
+navigation for a restored session reveals its matching
+child even if its cached stage was collapsed. Restoring a session alone does
+not force the overview open.
 
 ## Blocked-child and required-action discoverability
 
-Every root shows a rollup based on current child/run projections, including
+Every run root and stage heading shows a rollup based on current child/run
+projections, including
 collapsed children: “2 need you · 1 blocked · 1 new result”, with source labels
 in details. Distinct categories count distinct task/session/action identities
 within each category; overlapping categories are not summed into a total.
 Do not paint the parent session Needs You just because a child needs input.
 Group action counts are presentation data, not writes to parent attention.
+Superseded-stage blockers remain labeled historical and do not count as current
+run blockers unless the authoritative projection exposes a still-unresolved
+current action. Retaining an old failure does not invalidate a later result by
+itself; changed evidence and correction follow the exact upstream contracts.
 
 Keep these signals separate:
 
@@ -251,12 +313,14 @@ Keep these signals separate:
 - Unviewed result summaries from exact result revisions, independent of ordinary
   unread state. Viewing a summary never acknowledges other sessions.
 
-Collapsed roots retain textual counts, blocker reason and a named “Show next
+Collapsed roots/stages retain textual counts, blocker reason and a named “Show next
 action” control outside the tree's roving-focus surface. It expands and reveals
 the earliest actionable target in stable plan/task order; repeated activation
-cycles through current targets. A live child target uses normal session
-selection; a run/plan decision opens its version-bound details with the current
-terminal retained. Navigating to it does not approve or resolve it. New attention
+cycles through current targets. A child target is inspected in the overview;
+Open terminal is an explicit
+follow-up. A run/plan decision opens its version-bound overview details. Neither
+route acknowledges a session merely by revealing it. Navigating to it does not
+approve or resolve it. New attention
 updates the rollup without expanding, changing selection or stealing focus.
 “No actions” appears only from a complete current projection; failed refreshes
 show “Action state unavailable” and disable stale decision controls.
@@ -272,84 +336,108 @@ session counted in run capacity; show “Result received · session still alive�
 A successful evaluation does not advance a dependency. Current coordination
 results, readiness and approval remain server-owned and version-bound.
 
-## Single terminal and ordinary-session fallback
+## Overview navigation, single terminal and ordinary-session fallback
 
-Separate local `focusedNodeKey`/`inspectedNodeKey` from canonical
-`activeSessionId`. Selecting a started/remembered node goes through the existing
-session-selection path, including its per-session unread acknowledgement and
-saved active ID. Selecting a planned/missing-session node changes only inspected
-details. Keep the terminal labeled with its actual active session and show
-“Viewing planned task; terminal remains Research R1” in details when different.
-Do not send plan/task keys to terminal APIs or select a parent as a fallback.
+This is a candidate interaction contract for #755's shell review, not a finalized
+app-wide navigation bar or shortcut scheme. The central area shows either one
+workflow overview or one ordinary session terminal/history. Switching surfaces
+never ends, restarts or launches the hidden session. Preserve ADR 0022's
+detachable renderer attachment and sidecar-owned PTY lifetime.
 
-A skill click opens that node's skill details without focusing the terminal;
-keyboard users have an equivalent “Inspect skills” action in the tree's sibling
-toolbar. Detail navigation does not type into the session or load a second
-terminal/transcript. Parent/root selection uses its ordinary terminal, not a
-composite terminal for all agents. Remembered selection keeps saved scrollback
-and resume choices; it does not resume automatically.
+Separate local `focusedNodeKey`/`inspectedNodeKey`, displayed run and central
+surface from canonical `activeSessionId`. Clicking or inspecting a workflow
+node changes overview details only. A selected planned node is explicitly
+“Inspecting planned task”; it is never represented as a selected terminal.
+Skill inspection also stays in the overview, with exact evidence identity.
+
+“Open terminal” on a live/session-bound node explicitly uses ordinary session
+selection, including its existing unread acknowledgement and saved active ID,
+then replaces the overview with that session's terminal. “Open history” does
+the same for remembered sessions without automatic resume. Planned, allocating
+and missing-session nodes have neither command; no fake session IDs or parent
+fallback. Selecting an actual session in the compact switcher likewise opens
+its ordinary terminal, not a composite transcript.
+
+The terminal surface offers “Back to workflow” for a validated owning run. It
+returns to the previous overview node, disclosure state, scroll and focus when
+still available. After other session switches, open that session's exact owning
+run and reveal its node; do not silently return to an unrelated run. Ordinary
+sessions retain normal terminal navigation; a separate “Open workflow” command
+may expose the run chooser without manufacturing membership. The overview's
+“Return to terminal · [session]” command opens the retained actual session;
+if it is unavailable, offer the compact switcher without selecting a replacement.
+
+Overview details describe its inspected task/run. Terminal details describe
+only its actual session. Do not leave another agent's task/skills/evaluation
+beside a visible terminal after switching surfaces. On return, bind details
+before exposing the central surface; restore focus to the invoking node or its
+surviving heading. Shell review must decide placement/open-hide behavior and
+amend ADR 0013's index/detail wording while preserving one visible context.
+No second terminal or transcript is mounted as overview content.
 
 Preserve controller foreground/admission/polling fencing. Each hierarchy,
-evaluation, skill and detail fetch captures workspace identity, sidecar/runtime
-generation and exact subject/configuration. Apply only if all still match; an
-older snapshot cannot regress newer subject/result versions. On workspace
-switch, clear inspected hierarchy state before painting the new workspace.
-Restore `lastActiveSessionId` only under the existing non-dead-match policy;
-reveal that session's exact lineage when available. No parent/session launch
-or cross-instance aggregation is a selection side effect.
+evaluation, skill and detail fetch captures workspace identity, runtime generation
+and exact subject/configuration. Apply only if all still match; older snapshots
+cannot regress newer subject/result versions. On workspace switch, clear overview
+inspection, navigation return state and transient UI state before painting the
+new workspace. Restore `lastActiveSessionId` only under the existing non-dead-match
+policy. Session restoration does not open a workflow, launch a parent or aggregate
+independent instances; explicit Open workflow reveals its exact lineage.
 
-If the hierarchy extension is absent, render the existing list. If it is
-present but malformed, render canonical sessions ordinarily, show “Workflow
-structure unavailable”, and disable hierarchy/approval/evidence claims. Do not
-silently draw guessed edges. Unknown optional role artwork has a generic
-fallback; invalid lineage/versions/digests do not. Individual valid sessions
-remain available for ordinary management while the structure is unavailable.
-A referenced but missing parent is an explicit valid state, not malformed
-lineage; show its run heading and surviving children.
+If the hierarchy extension is absent, keep the ordinary session switcher and
+terminal usable without workflow affordances. If malformed, show “Workflow
+structure unavailable” in the overview and disable its stale decisions/evidence;
+canonical sessions remain available ordinarily. Do not draw guessed edges.
+Unknown optional artwork has a generic fallback; invalid identity/version/digest
+does not. A referenced but missing parent is a valid explicit state: retain the
+run heading, historical results and surviving children.
 
 ## Keyboard, accessibility, and reduced motion
 
-When valid hierarchy nodes are present, use one labeled tree containing run
-roots/children and ordinary-session leaf items; section/plan labels are
-noninteractive headings described by the items. Use explicit `aria-level`,
-`aria-posinset`/`aria-setsize`, `aria-expanded` only for items with visible child
-relationships, and `aria-selected` only for the canonical active session.
-A planned inspected node has an “Inspecting planned task” description and focus
-outline, without pretending to be the active terminal. Pure ordinary fallback
-retains the current listbox.
+Keep the compact Sessions listbox and its existing selection behavior. The
+central overview has its own labeled tree/outline with run, non-agent stage
+headings and task nodes. The timeline uses this same logical order/structure:
+connectors are decorative, not an unlabeled spatial navigation surface. Use
+explicit levels, `aria-posinset`/`aria-setsize` and `aria-expanded` for nodes with
+child groups. `aria-selected` denotes the overview's inspected node; set false on other
+selectable nodes and omit it on any nonselectable node. textual
+“Terminal retained: [session]” is separate from “Inspecting [task]”. Stage nodes
+are announced as stages, not agents or invented sessions.
 
-Use one roving tab stop on a treeitem, no nested tabbable badge/kill controls.
-Put disclosure, Inspect skills, Show next action, result and lifecycle commands
-in a sibling toolbar labeled for the focused/inspected node. Pointer shortcuts
-on badges/disclosure invoke the same commands; all have keyboard equivalents.
-Never place actionable buttons inside a selectable treeitem's accessible name.
+Use one roving treeitem tab stop, no nested tabbable badge/kill controls. Put
+disclosure, Inspect details/skills, Open terminal/history, Show next action and
+lifecycle commands in a sibling toolbar labeled for the focused node. Pointer
+shortcuts invoke the same commands. Required labels and full task/skill text
+remain accessible without hover.
 
-| Key within the tree | Behavior |
+| Key within the overview | Behavior |
 | --- | --- |
-| Up / Down | Previous/next visible node, bounded at ends; ordinary/session nodes follow current session selection behavior, planned/missing nodes inspect only |
-| Home / End | First/last visible node, same selection-versus-inspection rule |
-| Right | Expand omitted children; if fully expanded, focus first child using the same selection rule |
-| Left | Collapse siblings/children under the focused parent; from a child focus its root, without selecting the root terminal until explicitly activated |
-| Space | Select/inspect the focused node while keeping tree focus |
-| Enter | Existing session: select then focus its terminal; planned/unavailable: focus its details heading without launch |
-| Tab / Shift+Tab | Move to/from sibling toolbar and normal panel controls; no focus trap |
-| Escape in skill/result details | Return focus to the invoking node or surviving root; do not revert active terminal |
+| Up / Down; Home / End | Move focus through visible logical nodes; do not select a terminal or acknowledge its unread |
+| Right | Expand a group or focus its first child; no inspection/terminal change |
+| Left | Collapse the focused group if allowed; from a child focus its stage, then run; no terminal selection |
+| Type-ahead | Focus the next visible node matching its full accessible name; no terminal change |
+| Space | Inspect the focused node, keeping tree focus |
+| Enter | Inspect and focus its details heading; terminal opening remains the named toolbar command |
+| Tab / Shift+Tab | Traverse sibling toolbar and normal shell controls; no focus trap |
+| Escape in skill/result details | Return focus to invoking node or surviving stage/run; no terminal change |
 
-Keep the current Sessions panel shortcut and existing panel/terminal shortcuts;
-add no conflicting global accelerator. Pointer row selection returns keyboard
-focus to the tree as the current list does. Disclosure-only clicks never
-change the active terminal. After explicit selection restoration or toolbar
-navigation, expand/reveal the target before focusing it. Refresh alone does
-not focus or scroll to a new child.
+A separately focused “Open terminal” command selects exactly that node's session
+and focuses its terminal. Back to workflow restores/reveals the invoking node
+before focusing it. Keep existing terminal/session shortcuts; #755 must review
+any new global overview accelerator for conflicts rather than fixing one here.
+Refresh/new stages never steal focus or auto-pan. Text zoom/narrow layouts use
+stacked stage cards with vertical scrolling and the same outline order; no
+mandatory horizontal panning, drag gesture or hover-only action.
 
-Accessible names include role, full task label, textual lifecycle/attention,
-planned/session-unavailable qualifier and current result when present. Expose
-skill names/delivery/use labels in descriptions and details. Do not rely on
-color, fill, connecting lines, animation or hover. Tree focus and terminal
-selection use distinguishable outlines and textual “Selected”/“Inspecting” cues.
-Use a polite live region for changed required-action counts, coalesced over two
-seconds; announce neither every usage event nor terminal output through it.
-At 200% text zoom and reduced motion, all statuses/actions remain available.
+Accessible names include role, full task label, lifecycle/attention, planned or
+unavailable qualifier and current result. Stage names include kind/revision and
+approval state. Expose skill delivery/use in descriptions/details. Do not rely
+on color, fill, connectors, animation or hover. Focus and inspected selection
+have distinct outlines/text. Use a polite live region for required-action count
+changes, coalesced over two seconds; do not announce every usage receipt or
+terminal output. At 200% text zoom and reduced motion, all labels/actions remain
+available. Proposed alternative concepts still require keyboard, assistive
+technology and usability validation in the future runtime work.
 
 ## Renderer projection and contract fixtures
 
@@ -362,14 +450,15 @@ bounds, retention and owner agreement remain review gates.
 | --- | --- |
 | `HierarchySnapshot` | Workspace identity, current runtime generation, monotonically versioned snapshot identity, runs and validated session joins; explicit complete/unavailable status |
 | `RunProjection` | Exact run ID/creation sequence, repository identity reference, parent session ID or explicit unavailable reference, immutable goal, version-bound run/plan state, current action targets, backend live-child/reservation counts |
-| `TaskProjection` | Exact run/plan/revision/task tuple, declared batch/order/dependencies, role, label, immutable configuration digest, optional exact child ID, reservation phase, coordination outcome and current subject/result reference |
+| `TaskProjection` | Exact run/plan/revision/task tuple, declared batch/order/dependencies, role, label, immutable configuration digest, optional exact child ID, reservation phase, coordination outcome and current subject/result reference; optional validated source times, never synthesized chronology |
 | `SkillProjection` | Exact skill ID/version/content digest and configuration/child/generation binding, separate delivery/usage source/coverage, current evidence references, stable usage event identities or authoritative dedupe cursor |
 | `EvaluationProjection` | Current result subject/revision, overall result from #744, reviewer/source references, current/stale/conflicting status; optional detail scores with no renderer derivation |
 | `ActionTarget` | Opaque action ID, exact subject/version, reason/type and target node; display/navigation only, no token, grant, bearer, terminal input or arbitrary endpoint |
 
 Join uses validated ownership references, never a second renderer session map.
 Ordinary `SessionInfo` remains the lifecycle/status source. Proposed finite UI
-budget: one run root plus up to 16 plan headings and up to 128 tasks per visible
+budget: one run root plus up to 16 non-agent plan/stage headings and up to 128
+tasks per visible
 plan; up to 16 skills per node. Use windowed rendering or explicit progressive
 reveal for large collections, retain total counts and a direct reveal path to
 selected/action targets, and never hide required actions behind pagination.
@@ -413,15 +502,20 @@ invented as evidence. All mockup records are synthetic.
 | Approval denied for drift or an old action version | Keep decision unresolved, show the backend reason and refreshed exact proposal; no success decoration, transferred grant or silent retry |
 | All current summaries opened, user inside group | Defer collapse; selected terminal/focus preserved |
 | Eligible collapse, reopen, repeat refresh | Collapse once; reopening suppression retained for the same exact result revision |
-| Manual collapse with selected/inspected/focused child | Keep group fully expanded; explain each applicable cause and its explicit root selection, root inspection, or Left-to-root path; root disclosure remains usable after causes clear; no queued request or terminal switch |
-| Hidden child gains Needs You | Root count changes, no selection/focus theft; Show next action reveals that exact child |
+| Manual collapse with inspected/focused descendant | Keep group fully expanded; explain inspection and Left-to-stage paths; no queued request or terminal switch; latent terminal selection alone does not block disclosure |
+| Hidden child gains Needs You | Run/stage counts change without selection/focus theft; Show next action inspects the exact child without unread acknowledgement |
 | Dead child has terminal error plus unresolved review | Dim ordinary remembered row; distinct actionable run decision, no live unread |
 | Missing parent; surviving child | Unavailable parent label, child selectable normally; no replacement parent/automatic resume |
-| Corrupt lineage / absent extension | Visible unavailable warning plus ordinary list, or unchanged ordinary list when absent |
+| Corrupt lineage / absent extension | Visible unavailable overview warning; ordinary switcher remains usable, or unchanged ordinary behavior when absent |
+| Inspect planned/live node; open skill details | Overview inspection only; active session and unread unchanged |
+| Open terminal; Back to workflow | Explicit exact-ID selection acknowledges only that session; returning restores overview scroll/focus and details binding |
+| Switch session before returning | Open that session's owning run; no unrelated cached run/task details beside its terminal |
+| New exact approved plan/revision after research | Append planned stage/paths with new keys; retain old results; no inherited grant, task launch, copied edits or grandchildren |
+| Missing timestamps / event cursor gap | Label unavailable time; declared stage order retained; refresh authoritative records without reconstructing missing events |
 | 128 tasks/plan, 16 plans, long labels, 16 skills | Stable order, scroll/reveal access, +13 skills with all details; full accessible text |
 | Workspace switch and late detail/snapshot | New workspace never paints old node, summary, badge, action or animation |
-| Restored active child in collapsed group | Reveal its exact ancestry; one active terminal, no parent fallback |
-| Forget selected/focused child | Use ordinary lifecycle confirmation/selection clearing; focus moves safely without launching another session |
+| Open workflow for restored active child | Reveal its exact ancestry on explicit navigation; one active terminal, no parent fallback |
+| Forget terminal-selected or overview-inspected child | Use ordinary lifecycle confirmation/selection clearing; overview focus/inspection falls back safely without launching another session |
 | Keyboard / 200% text zoom / reduced motion | Every required action and skill detail reachable; no clipped status or motion-only information |
 
 ### Authority and Electron boundary
@@ -439,54 +533,62 @@ validated definitions/tests on both sides; never import renderer types into
 Electron or alter rootDir. This task adds no IPC, session route, runtime code,
 new renderer authorization decision or separate child-sidecar registry.
 
-## Low/high-density mockups and usability review
+## Provisional overview concepts and usability review
 
-The reference mockups preserve the three existing surfaces: Sessions hierarchy,
-one selected terminal, and selected/inspected details. Status wording, skill
-receipt source and required-action discoverability are normative proposals;
-exact portrait artwork and pixel spacing remain presentation choices.
+Both drawings replace the terminal with a central workflow overview and retain
+a compact switcher. They compare hierarchy structure at low density with evolving
+stages at higher density; they do not establish the final #755 shell. Inspect
+controls, return commands and details binding are candidate interactions.
+Portrait artwork, exact spacing and global shell controls remain review choices.
 
-### Low density: research and planned verification
+### Concept A: low-density central tree
 
-![Proposed low-density hierarchy: a research child is selected in the single terminal; another child needs input and a planned execution task awaits approval.](../../validation/assets/agent-hierarchy-low-density.svg)
+![Proposed central tree: a compact session switcher, a run root with direct research and planned verification tasks, inspected task evidence, and explicit terminal navigation. No terminal is shown while the overview is visible.](../../validation/assets/agent-hierarchy-low-density.svg)
 
-A selected Research R1 has two Loaded skills. Research R2 needs input with
-unconfirmed delivery. An outlined verification row waits for its declared batch and cannot start
-from selection. “Show next action” has a visible purpose and the detail surface
-keeps coding-tool/permissions/evaluation subordinate to the task.
+Research R1 is inspected with confirmed Loaded skills. Research R2 needs input
+with unconfirmed delivery. Verification V1 waits for its declared batch and
+cannot launch from inspection. The retained terminal selection is labeled in
+the compact switcher/return control, not portrayed as the tree's selection.
 
-### High density: collapsed attention, long labels and unknown evidence
+### Concept B: branching timeline with retained work
 
-![Proposed high-density hierarchy: a collapsed run retains action counts, a different expanded run keeps its selected child visible, skill overflow and a missing parent stay explicit, and one terminal is visible.](../../validation/assets/agent-hierarchy-high-density.svg)
+![Proposed branching timeline: one orchestrator trunk, completed research paths and a new execution proposal awaiting exact approval; direct tasks retain outcomes, unknown delivery and skill overflow remain explicit, and a collapsed historical stage has an action rollup.](../../validation/assets/agent-hierarchy-high-density.svg)
 
-The selected child stays in its expanded group; a separate collapsed group
-retains its textual action rollup. Long task/skill sets use details and overflow without enlarging the
-terminal into multiple views. A missing-parent group remains manageable;
-a completed workflow has an explicit overall result rather than numeric scores
-or reward decoration. Unknown delivery and reported use can coexist.
+A research stage remains visible above an execution proposal. Implementation
+and review paths attach to the same orchestrator through non-agent stage
+headings, not to each other as delegating children. Waiting/dependency labels
+are explicit. A collapsed historical stage retains unviewed-result navigation and labels an
+old blocker as historical; it is not a current execution blocker. Inspect
+reveals its exact task. Long labels/16-skill overflow are available in details,
+with reported use that does not imply loading. Plan identity/stage order is
+shown without a duration scale or invented timestamps. Missing-parent and failed
+remembered-session behavior remains in the fixture matrix and usable ordinary
+session management; no replacement parent is inferred.
 
 ### Bounded usability walkthrough
 
-Design-review tasks, using the synthetic mockups and contract cases:
-
 | User task | Expected route and success condition |
 | --- | --- |
-| Find a blocked/Needs You child in a collapsed workflow | Read root counts; Show next action reveals the target within two activations; terminal selection uses the exact child ID |
-| Tell whether a highlighted skill was loaded | Read Delivery unconfirmed versus Loaded, then inspect source; a reported highlight must not be mistaken for confirmation |
-| Inspect a planned verification task while coding continues | Inspect planned details; terminal remains labeled with the current actual child; no launch/resume affordance |
-| Find the full assignment and all 16 skills | Open details/+13 skills; no hover dependency or lost status |
-| Reopen completed work and find a revised result | Reopen persists for same revision; changed result is unviewed/currently unassessed until the appropriate evidence arrives |
-| Navigate with keyboard and reduced motion | Tree → labeled toolbar → skill/action details → Escape to invoking node, with no hidden selected child |
+| Find required attention in a collapsed stage | Read stage/run counts; Show next action reveals/inspects the target; Open terminal is a separate exact-ID choice |
+| Understand how research led to proposed work | Follow labeled stage order; inspect retained summaries/input references; recognize that execution still awaits its own approval |
+| Tell whether a highlighted skill was loaded | Read Delivery unconfirmed versus Loaded and inspect source; reported highlight does not fill an outlined badge |
+| Inspect planned verification while a session runs | Inspect overview task details; selected PTY continues hidden, with no launch/resume action |
+| Open an agent terminal and return | Explicit Open terminal; Back to workflow restores the node, scroll/focus and correct overview details |
+| Find full assignment and all 16 skills | Inspect details/+13 skills without hover or lost action/status |
+| Reopen completed work and find a revised result | Same-revision reopening persists; revised result is new/unviewed and evaluated only through exact evidence |
+| Navigate with keyboard, text zoom and reduced motion | Logical outline → labeled toolbar → details → invoking node; no spatial drag or motion-only information |
 
-The author performed a source/fixture consistency walkthrough. Rendered SVG
-layout checks and independent artifact review are recorded in the PR. This is
-an expert walkthrough, not a claim of measured user usability or a shipped
-screen-reader implementation. Written user review must confirm blocker finding,
-density and focus/collapse choices before these interactions become binding.
+Source/fixture consistency and rendered SVG checks are expert artifact checks,
+not measured user usability or shipped screen-reader behavior. Written review
+must resolve the central overview's navigation/density with #755 before these
+proposals become binding. A final shell mockup must also show the terminal
+surface, Review access, recommendations/capacity and narrow/zoom states; this
+scoped comparison does not design those shell surfaces.
 
 ## Execution handoff and implementation gate
 
-Current deliverables: this proposed specification, two synthetic SVG mockups,
+Current deliverables: this proposed specification, two provisional
+central-overview SVG concepts,
 contract-case matrix and review questions. Keep #746 open until the reviewed
 projection agreement and scoped execution handoff are complete. Do not close
 #610 or #740–#745 through this documentation PR.
@@ -502,13 +604,18 @@ Review questions for component owners:
   precedence and correction/conflict behavior; UI never self-calculates review.
 - #745: supply opaque repository identity and optional history references;
   failure to read history cannot block ordinary session inspection.
-- User: review stable placement, selection-protected disclosure behavior, summary-view
-  eligibility, density and the keyboard inspection/selection distinction.
+- #755/user: review central tree versus branching timeline, compact switcher,
+  alternative overview/terminal navigation, details binding, stable retained
+  paths, inspection-protected disclosure, keyboard and narrow/zoom behavior.
+  Amend the product design's placement and ADR 0011/0013 wording as required
+  through written shell review before final acceptance.
 
-After written review/upstream agreement, create a separate implementation issue
+After written shell review, this draft's acceptance and upstream agreement,
+create a separate implementation issue
 and executable plan for each testable unit: (1) validated sidecar read projection
 and canonical session joins; (2) pure renderer hierarchy/order/rollup and UI-state
-reducer with race/identity fixtures; (3) Sessions/detail presentation, keyboard,
+reducer with race/identity fixtures; (3) central overview/terminal navigation,
+compact switcher/details, keyboard,
 zoom/reduced-motion and single-terminal integration tests. Approval UI/IPC belongs
 to the separately reviewed #610/#742 unit and must be linked, not implemented
 as a renderer shortcut. Runtime plans name concrete source/test files and
