@@ -16,13 +16,15 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Architecture
 
-The proposed [Codex approval attention design](docs/superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
+The approved [Codex approval attention design](docs/superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
 uses a runtime-owned native server and passive observer with a two-second grace.
 The serial payload gate for [#690](https://github.com/Rambolarsen/orkworks/issues/690)
-has passed; written review and production signal/platform gates remain. This is
-not implemented; [ADR 0076](docs/adr/0076-codex-owned-native-approval-observer.md)
-remains proposed. Native attention will require an exact verified Codex
-version/platform entry; unverified combinations retain direct launch.
+and written review have passed; implementation was approved on 2026-10-05.
+[ADR 0076](docs/adr/0076-codex-owned-native-approval-observer.md) is accepted,
+while production signal/configuration/platform gates remain open. The shipping
+version/platform table stays empty and direct launch remains in use. Native
+clearing also requires the supported metadata-writer contract in
+[#761](https://github.com/Rambolarsen/orkworks/issues/761).
 
 The proposed [ordinary-child orchestration extension](specs/taskmaster.md#proposed-ordinary-child-orchestration-extension)
 lets a UI-created parent coordinate exactly approved plans through ordinary

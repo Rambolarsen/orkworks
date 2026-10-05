@@ -1,6 +1,6 @@
 # Codex approval status from a runtime-owned native server
 
-- Status: proposed
+- Status: accepted (implementation and version-specific rollout gated)
 - Deciders: repository owner, Codex
 - Date: 2026-10-04
 
@@ -17,7 +17,7 @@ The current independent direct launch (ADR 0072) does not provide an owned
 passive status connection. Introducing that connection must retain per-session
 execution credentials and native approval control, not borrow a shared daemon.
 
-## Decision (proposed)
+## Decision
 
 For feature-probed, configuration-compatible Codex launches with an exact
 version/platform entry backed by completed native protocol verification, own one private
@@ -38,11 +38,16 @@ intact, including an attention-owner write token that identical competing writes
 revoke. Native idle and generic completion cannot clear it. Keep overlap and
 uncertain subagent flows conservative. Time alone never classifies approval.
 
-The full [proposed design](../superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
+Owner approval: on 2026-10-05 the repository owner approved the linked design
+and its experimental upstream dependency with “lets go ahead”. This approval
+permits implementation; it does not waive the production verification gates.
+
+The full [approved design](../superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
 defines configuration eligibility, protocol bounds, lifecycle ownership,
-attention transitions, evidence limits, and release gates. Its written review
-and version-specific verification are required before rollout. This ADR does
-not yet change the accepted mappings in ADR 0051 or startup in ADR 0072.
+attention transitions, evidence limits, and release gates. Written review is
+complete; version-specific verification remains required before rollout. No compatibility entry is authorized by this approval alone.
+The shipped mappings in ADR 0051 and startup in ADR 0072 remain unchanged until
+a verified entry enables the implementation.
 
 ## Consequences
 
@@ -56,3 +61,24 @@ production workloads; owner acceptance must explicitly include that dependency
 risk. Slow automatic-review and root/subagent semantics remain blocking signal
 verification gates. The existing successful serial hook and native experiments
 are evidence for the proposal, not proof that the production fix is complete.
+
+## Amendment — 2026-10-05 implementation audit
+
+The decision stands; two implementation constraints operationalize its passive
+observer and ownership requirements.
+
+For the pinned 0.160.0 protocol, ordinary initialization names originate global
+client identity and implicit gateway login. The observer must use the reviewed
+non-originating initialization contract without adding capabilities or overriding
+execution configuration. The exact source and read-only installed checks are
+recorded in the [verification evidence](../superpowers/verification/2026-10-05-codex-native-approval-status.md).
+Other protocols require their own reviewed initialization contract.
+
+The MVP permits direct agent session-JSON writes. A sidecar revision and file
+identity do not atomically fence an arbitrary direct writer during a final
+check and rename. Production native clearing therefore remains disabled under
+the design's unfenced-writer rule, independently of version eligibility.
+[#761](https://github.com/Rambolarsen/orkworks/issues/761) tracks the required
+written producer/ownership contract. This implementation does not demote that
+producer or impose a new protocol lock. Cooperating-writer tests alone cannot
+remove this gate.

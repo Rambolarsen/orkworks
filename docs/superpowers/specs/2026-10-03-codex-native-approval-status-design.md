@@ -1,9 +1,11 @@
 # Codex approval attention from an owned native runtime
 
-Status: **proposed; written-spec review required before implementation planning**.
+Status: **approved for implementation on 2026-10-05; production verification gates remain open**.
 Tracked by [#690](https://github.com/Rambolarsen/orkworks/issues/690).
 Architecture decision: [ADR 0076](../../adr/0076-codex-owned-native-approval-observer.md).
-This document describes intended behavior; the shipped hook mapping is unchanged.
+The repository owner approved this design and its experimental dependency with
+“lets go ahead”. This document describes intended behavior; the shipped hook
+mapping is unchanged until a fully verified compatibility entry enables it.
 
 ## Outcome and scope
 
@@ -272,6 +274,14 @@ ownership instead of wrapping. Tokens are runtime-local, never serialized, and
 cannot survive replacement or process restart. If a write path cannot meet
 this contract, disable native clears rather than rely on tuple comparison.
 Never erase newer user, question, another approval, or another runtime's attention.
+
+Implementation audit (2026-10-05): the MVP permits agent-written session JSON,
+which bypasses a sidecar mutex. File identity detects completed replacement but
+cannot make the final check and rename atomic with an arbitrary direct writer.
+The existing unfenced-writer rule therefore keeps production native clear
+disabled; [#761](https://github.com/Rambolarsen/orkworks/issues/761) tracks the
+required written contract. No protocol migration or producer demotion is
+approved by this design, and cooperating-writer fixtures do not remove the gate.
 
 Native waitingOnApproval is thread-level, not an invocation ID. Parallel calls
 or multiple outstanding permissions form an ambiguous batch: after the grace,

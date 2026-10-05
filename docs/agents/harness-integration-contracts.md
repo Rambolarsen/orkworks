@@ -34,10 +34,12 @@ fixture and version/feature evidence are added beside the binding.
 ### Prompt attention authority
 
 The #690 serial capture gate has passed; current behavior below is unchanged.
-[Proposed ADR 0076](../adr/0076-codex-owned-native-approval-observer.md) and its
+[Accepted ADR 0076](../adr/0076-codex-owned-native-approval-observer.md) and its
 [written design](../superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
-define the proposed next step: owned native observation, a two-second grace,
-and conservative resolution. They are proposed, not shipped capability.
+define the approved implementation: owned native observation, a two-second
+grace, and conservative resolution. The owner approved implementation on
+2026-10-05. This remains unshipped: the exact version/platform compatibility
+table stays empty until its production verification gates pass.
 
 Codex's `PermissionRequest` maps to `waiting_for_input`, with one known
 exception: it also fires when `approvals_reviewer = "auto_review"` resolves the
