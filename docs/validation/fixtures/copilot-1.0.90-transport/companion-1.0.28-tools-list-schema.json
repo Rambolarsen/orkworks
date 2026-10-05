@@ -1,0 +1,60 @@
+{
+  "rpcMethod": "tools.list",
+  "params": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string",
+        "description": "Optional model ID \u2014 when provided, the returned tool list reflects model-specific overrides"
+      }
+    },
+    "additionalProperties": false,
+    "title": "ToolsListRequest"
+  },
+  "result": {
+    "type": "object",
+    "properties": {
+      "tools": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Tool identifier (e.g., \"bash\", \"grep\", \"str_replace_editor\")"
+            },
+            "namespacedName": {
+              "type": "string",
+              "description": "Optional namespaced name for declarative filtering (e.g., \"playwright/navigate\" for MCP tools)"
+            },
+            "description": {
+              "type": "string",
+              "description": "Description of what the tool does"
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": {},
+              "description": "JSON Schema for the tool's input parameters"
+            },
+            "instructions": {
+              "type": "string",
+              "description": "Optional instructions for how to use this tool effectively"
+            }
+          },
+          "required": [
+            "name",
+            "description"
+          ],
+          "additionalProperties": false,
+          "title": "Tool"
+        },
+        "description": "List of available built-in tools with metadata"
+      }
+    },
+    "required": [
+      "tools"
+    ],
+    "additionalProperties": false,
+    "title": "ToolList"
+  }
+}

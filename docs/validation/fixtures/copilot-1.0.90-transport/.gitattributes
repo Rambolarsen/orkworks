@@ -1,0 +1,3 @@
+# Preserve retained evidence bytes, including CLI-emitted blank lines at EOF.
+*.txt -text whitespace=-blank-at-eof
+*.json -text
