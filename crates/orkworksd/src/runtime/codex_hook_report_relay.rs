@@ -1,3 +1,4 @@
+use super::codex_approval_application::{self, HookReportOutcome, NativeHookReport};
 use crate::http::session_handlers::{
     report_harness_session_from_local_relay, HarnessSessionReportRequest,
 };
@@ -5,13 +6,16 @@ use crate::runtime::terminal_runtime::verify_workflow_report_token;
 use crate::AppState;
 use axum::http::StatusCode;
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 #[cfg(not(unix))]
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 const MAX_REPORT_BYTES: u64 = 4 * 1024;
 const MAX_REPORTS_PER_PASS: usize = 32;
@@ -20,9 +24,38 @@ const STALE_PENDING_REPORT_AGE: std::time::Duration = std::time::Duration::from_
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CodexHookReportEnvelope {
+struct IdentityEnvelope {
     report: HarnessSessionReportRequest,
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApprovalEnvelope {
+    approval: NativeHookReport,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CodexHookReportEnvelope {
+    Identity(IdentityEnvelope),
+    Approval(ApprovalEnvelope),
+}
+
+struct PendingReceipt {
+    bytes: Vec<u8>,
+    first_receipt: Instant,
+}
+
+#[derive(Default)]
+struct ReceiptBook {
+    pending: HashMap<OsString, PendingReceipt>,
+    retry_order: VecDeque<OsString>,
+    // Once exhausted, conservatively disable assistance for this relay's
+    // remaining lifetime. This floor never advances on drain or reconnect.
+    overflow_floor: Option<Instant>,
+}
+const MAX_PENDING_RECEIPTS: usize = 64;
+const MAX_RETRIES_PER_PASS: usize = MAX_REPORTS_PER_PASS / 2;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RelayOutcome {
@@ -35,6 +68,7 @@ pub(crate) struct RelayOutcome {
 pub(crate) struct CodexHookReportRelay {
     mailbox: Option<Arc<MailboxDirectory>>,
     directory: Option<tempfile::TempDir>,
+    receipts: Mutex<ReceiptBook>,
 }
 
 impl CodexHookReportRelay {
@@ -46,6 +80,7 @@ impl CodexHookReportRelay {
         Ok(Self {
             mailbox: Some(Arc::new(mailbox)),
             directory: Some(directory),
+            receipts: Mutex::new(ReceiptBook::default()),
         })
     }
 
@@ -90,44 +125,146 @@ impl CodexHookReportRelay {
                 .expect("Codex mailbox handle remains live"),
         );
 
-        // Directory scans and file reads/removals are blocking syscalls
-        // (openat/fdopendir/read/unlinkat); run them on the blocking pool
-        // rather than the async executor, matching this module's other
-        // filesystem work.
-        let scan_mailbox = Arc::clone(&mailbox);
-        let reports = match tokio::task::spawn_blocking(move || {
-            select_reports(&scan_mailbox, MAX_REPORTS_PER_PASS)
-        })
-        .await
-        {
-            Ok(Ok(reports)) => reports,
-            Ok(Err(_)) | Err(_) => return outcome,
+        // Cached retries have their own bounded quota. They never occupy the
+        // unvisited-file quota needed by identity binding and later hooks.
+        let (mut reports, excluded) = {
+            let mut book = self.receipts.lock().unwrap();
+            let mut retries = Vec::new();
+            for _ in 0..book.retry_order.len().min(MAX_RETRIES_PER_PASS) {
+                if let Some(name) = book.retry_order.pop_front() {
+                    if book.pending.contains_key(&name) {
+                        retries.push(name.clone());
+                        book.retry_order.push_back(name);
+                    }
+                }
+            }
+            (
+                retries,
+                book.pending.keys().cloned().collect::<HashSet<_>>(),
+            )
         };
-
+        let scan_mailbox = Arc::clone(&mailbox);
+        let new_reports = tokio::task::spawn_blocking(move || {
+            select_unvisited_reports(
+                &scan_mailbox,
+                MAX_REPORTS_PER_PASS - MAX_RETRIES_PER_PASS,
+                &excluded,
+            )
+        })
+        .await;
+        if let Ok(Ok(new_reports)) = new_reports {
+            reports.extend(new_reports);
+        }
         for name in reports {
-            outcome.reports_consumed += 1;
             let read_mailbox = Arc::clone(&mailbox);
             let read_name = name.clone();
+            let receipt = Instant::now();
             let report =
                 tokio::task::spawn_blocking(move || read_report(&read_mailbox, &read_name))
                     .await
                     .ok()
                     .flatten();
-            if let Some(report) = report {
-                let status = report_harness_session_from_local_relay(
-                    state.clone(),
-                    session_id.to_string(),
-                    report,
-                    report_token,
-                )
-                .await;
-                if status == StatusCode::OK {
-                    outcome.reports_accepted += 1;
+            let mut keep = false;
+            if let Some((report, bytes)) = report {
+                let (first_receipt, changed, full, overflowed) = {
+                    let mut book = self.receipts.lock().unwrap();
+                    let full = !book.pending.contains_key(&name)
+                        && book.pending.len() >= MAX_PENDING_RECEIPTS;
+                    if full && matches!(report, CodexHookReportEnvelope::Approval(_)) {
+                        book.overflow_floor.get_or_insert(receipt);
+                    }
+                    let floor = book.overflow_floor.unwrap_or(receipt);
+                    let (first, changed) = book.pending.get(&name).map_or((floor, false), |old| {
+                        (old.first_receipt, old.bytes != bytes)
+                    });
+                    (first, changed, full, book.overflow_floor.is_some())
+                };
+                if changed || overflowed {
+                    codex_approval_application::revoke_correlation(
+                        &state,
+                        session_id,
+                        report_token,
+                        runtime_generation,
+                    );
                 }
+                if !changed {
+                    match report {
+                        CodexHookReportEnvelope::Identity(envelope) => {
+                            let status = report_harness_session_from_local_relay(
+                                state.clone(),
+                                session_id.to_string(),
+                                envelope.report,
+                                report_token,
+                            )
+                            .await;
+                            if status == StatusCode::OK {
+                                outcome.reports_accepted += 1;
+                            }
+                        }
+                        CodexHookReportEnvelope::Approval(envelope) => {
+                            if full {
+                                // Leave the original file unmodified. The fixed
+                                // overflow floor prevents renewed grace later.
+                                keep = true;
+                            } else {
+                                let callback_state = state.clone();
+                                let callback_id = session_id.to_string();
+                                let callback_token = report_token.to_string();
+                                // Application validation/persistence does blocking
+                                // I/O too; keep it off the async PTY driver.
+                                let callback = tokio::task::spawn_blocking(move || {
+                                    codex_approval_application::report_hook(
+                                        &callback_state,
+                                        &callback_id,
+                                        &callback_token,
+                                        runtime_generation,
+                                        first_receipt,
+                                        &envelope.approval,
+                                    )
+                                })
+                                .await;
+                                match callback.unwrap_or(HookReportOutcome::Retry) {
+                                    HookReportOutcome::Accepted => outcome.reports_accepted += 1,
+                                    HookReportOutcome::Rejected => {}
+                                    HookReportOutcome::Retry => {
+                                        keep = true;
+                                        let mut book = self.receipts.lock().unwrap();
+                                        if !book.pending.contains_key(&name) {
+                                            book.pending.insert(
+                                                name.clone(),
+                                                PendingReceipt {
+                                                    bytes,
+                                                    first_receipt,
+                                                },
+                                            );
+                                            book.retry_order.push_back(name.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Unidentifiable/corrupted bytes revoke only; they cannot
+                // fabricate a permission candidate or an attention transition.
+                codex_approval_application::revoke_correlation(
+                    &state,
+                    session_id,
+                    report_token,
+                    runtime_generation,
+                );
             }
-            let remove_mailbox = Arc::clone(&mailbox);
-            let remove_name = name.clone();
-            let _ = tokio::task::spawn_blocking(move || remove_mailbox.remove(&remove_name)).await;
+            if !keep {
+                outcome.reports_consumed += 1;
+                {
+                    let mut book = self.receipts.lock().unwrap();
+                    book.pending.remove(&name);
+                    book.retry_order.retain(|pending| pending != &name);
+                }
+                let remove_mailbox = Arc::clone(&mailbox);
+                let _ = tokio::task::spawn_blocking(move || remove_mailbox.remove(&name)).await;
+            }
         }
 
         outcome
@@ -169,20 +306,42 @@ fn is_report_filename(name: &OsStr) -> bool {
     uuid::Uuid::parse_str(stem).is_ok_and(|id| id.simple().to_string() == stem)
 }
 
+#[cfg(test)]
 fn select_reports(
     mailbox: &MailboxDirectory,
     report_limit: usize,
 ) -> io::Result<Vec<std::ffi::OsString>> {
-    let entries = mailbox.entries(MAX_MAILBOX_ENTRIES_PER_PASS)?;
+    select_unvisited_reports(mailbox, report_limit, &HashSet::new())
+}
+
+fn select_unvisited_reports(
+    mailbox: &MailboxDirectory,
+    report_limit: usize,
+    excluded: &HashSet<OsString>,
+) -> io::Result<Vec<OsString>> {
     let mut reports = Vec::with_capacity(report_limit);
-    for name in entries {
-        if is_report_filename(&name) {
-            reports.push(name);
-            if reports.len() >= report_limit {
-                break;
+    let mut inspected = 0;
+    while reports.len() < report_limit && inspected < MAX_MAILBOX_ENTRIES_PER_PASS {
+        // Never consume more directory entries than the remaining selected
+        // quota: unconsumed overflow files must not repeatedly hide later
+        // identity/Permission entries in the same physical scan page.
+        let page_limit =
+            (report_limit - reports.len()).min(MAX_MAILBOX_ENTRIES_PER_PASS - inspected);
+        let entries = mailbox.entries(page_limit)?;
+        if entries.is_empty() {
+            break;
+        }
+        inspected += entries.len();
+        let at_end = entries.len() < page_limit;
+        for name in entries {
+            if is_report_filename(&name) && !excluded.contains(&name) {
+                reports.push(name);
+            } else {
+                discard_stale_pending_report(mailbox, &name);
             }
-        } else {
-            discard_stale_pending_report(mailbox, &name);
+        }
+        if at_end {
+            break;
         }
     }
     reports.sort();
@@ -211,7 +370,10 @@ fn discard_stale_pending_report(mailbox: &MailboxDirectory, name: &OsStr) {
     }
 }
 
-fn read_report(mailbox: &MailboxDirectory, name: &OsStr) -> Option<HarnessSessionReportRequest> {
+fn read_report(
+    mailbox: &MailboxDirectory,
+    name: &OsStr,
+) -> Option<(CodexHookReportEnvelope, Vec<u8>)> {
     let mut file = mailbox.open_report(name).ok()?;
     let mut bytes = Vec::with_capacity(MAX_REPORT_BYTES as usize);
     file.by_ref()
@@ -221,23 +383,38 @@ fn read_report(mailbox: &MailboxDirectory, name: &OsStr) -> Option<HarnessSessio
     if bytes.len() as u64 > MAX_REPORT_BYTES {
         return None;
     }
-    let report = serde_json::from_slice::<CodexHookReportEnvelope>(&bytes)
-        .ok()?
-        .report;
-    if report.source != "codex_hook"
-        || !report
-            .hook_fingerprint
-            .as_deref()
-            .is_some_and(crate::metadata::valid_hook_fingerprint)
-    {
-        return None;
+    let envelope = serde_json::from_slice::<CodexHookReportEnvelope>(&bytes).ok()?;
+    if let CodexHookReportEnvelope::Identity(envelope) = &envelope {
+        if envelope.report.source != "codex_hook"
+            || !envelope
+                .report
+                .hook_fingerprint
+                .as_deref()
+                .is_some_and(crate::metadata::valid_hook_fingerprint)
+        {
+            return None;
+        }
     }
-    Some(report)
+    Some((envelope, bytes))
 }
 
 #[cfg(unix)]
 struct MailboxDirectory {
     handle: File,
+    scan: Mutex<Option<DirectoryScan>>,
+}
+
+#[cfg(unix)]
+struct DirectoryScan(*mut libc::DIR);
+// SAFETY: a stream has no thread affinity and is accessed only through its
+// owning MailboxDirectory mutex. No DIR pointer or dirent reference escapes.
+#[cfg(unix)]
+unsafe impl Send for DirectoryScan {}
+#[cfg(unix)]
+impl Drop for DirectoryScan {
+    fn drop(&mut self) {
+        unsafe { libc::closedir(self.0) };
+    }
 }
 
 #[cfg(unix)]
@@ -255,7 +432,10 @@ impl MailboxDirectory {
                 "Codex report mailbox is not a directory",
             ));
         }
-        Ok(Self { handle })
+        Ok(Self {
+            handle,
+            scan: Mutex::new(None),
+        })
     }
 
     fn entries(&self, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
@@ -263,34 +443,33 @@ impl MailboxDirectory {
         use std::os::fd::AsRawFd;
         use std::os::unix::ffi::OsStringExt;
 
-        let descriptor = unsafe {
-            libc::openat(
-                self.handle.as_raw_fd(),
-                b".\0".as_ptr().cast(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-            )
-        };
-        if descriptor < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let stream = unsafe { libc::fdopendir(descriptor) };
-        if stream.is_null() {
-            let error = io::Error::last_os_error();
-            unsafe { libc::close(descriptor) };
-            return Err(error);
-        }
-
-        struct DirectoryStream(*mut libc::DIR);
-        impl Drop for DirectoryStream {
-            fn drop(&mut self) {
-                unsafe { libc::closedir(self.0) };
+        let mut scan = self.scan.lock().unwrap();
+        if scan.is_none() {
+            let descriptor = unsafe {
+                libc::openat(
+                    self.handle.as_raw_fd(),
+                    b".\0".as_ptr().cast(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                )
+            };
+            if descriptor < 0 {
+                return Err(io::Error::last_os_error());
             }
+            let stream = unsafe { libc::fdopendir(descriptor) };
+            if stream.is_null() {
+                let error = io::Error::last_os_error();
+                unsafe { libc::close(descriptor) };
+                return Err(error);
+            }
+            *scan = Some(DirectoryScan(stream));
         }
-        let stream = DirectoryStream(stream);
         let mut names = Vec::with_capacity(limit);
         while names.len() < limit {
-            let entry = unsafe { libc::readdir(stream.0) };
+            // SAFETY: the mutex exclusively owns this retained directory
+            // stream; each name is copied before the next readdir call.
+            let entry = unsafe { libc::readdir(scan.as_ref().expect("initialized scan").0) };
             if entry.is_null() {
+                *scan = None;
                 break;
             }
             let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
@@ -347,6 +526,7 @@ impl MailboxDirectory {
 struct MailboxDirectory {
     path: PathBuf,
     _handle: File,
+    scan: Mutex<Option<std::fs::ReadDir>>,
 }
 
 #[cfg(windows)]
@@ -374,15 +554,23 @@ impl MailboxDirectory {
         Ok(Self {
             path: path.to_path_buf(),
             _handle: handle,
+            scan: Mutex::new(None),
         })
     }
 
     fn entries(&self, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
+        let mut scan = self.scan.lock().unwrap();
+        if scan.is_none() {
+            *scan = Some(std::fs::read_dir(&self.path)?);
+        }
         let mut names = Vec::with_capacity(limit);
-        for entry in std::fs::read_dir(&self.path)? {
-            names.push(entry?.file_name());
-            if names.len() >= limit {
-                break;
+        while names.len() < limit {
+            match scan.as_mut().expect("initialized scan").next() {
+                Some(entry) => names.push(entry?.file_name()),
+                None => {
+                    *scan = None;
+                    break;
+                }
             }
         }
         Ok(names)
@@ -458,6 +646,87 @@ mod tests {
         )));
     }
 
+    #[test]
+    fn reads_closed_approval_envelope_without_weakening_identity() {
+        let relay = super::CodexHookReportRelay::new().unwrap();
+        let name = std::ffi::OsString::from("00112233445566778899aabbccddeeff.json");
+        let valid = serde_json::json!({"approval": {
+            "rootId":"root", "turnId":null, "toolUseId":null,
+            "event":"PermissionRequest", "observedAt":"2026-10-05T01:02:03.123456Z",
+            "hookFingerprint":"a".repeat(64)
+        }});
+        std::fs::write(relay.mailbox_path().join(&name), valid.to_string()).unwrap();
+        assert!(super::read_report(relay.mailbox.as_ref().unwrap(), &name).is_some());
+        let mut token = valid.clone();
+        token["approval"]["reportToken"] = serde_json::json!("secret");
+        let mut free_text = valid.clone();
+        free_text["approval"]["toolInput"] = serde_json::json!({"command":"secret"});
+        let mut mixed = valid.clone();
+        mixed["report"] = serde_json::json!({"harnessSessionId":"root","source":"codex_hook","confidence":0.98,"hookFingerprint":"a".repeat(64)});
+        for invalid in [token, free_text, mixed] {
+            std::fs::write(relay.mailbox_path().join(&name), invalid.to_string()).unwrap();
+            assert!(super::read_report(relay.mailbox.as_ref().unwrap(), &name).is_none());
+        }
+        std::fs::write(relay.mailbox_path().join(&name), vec![b' '; 4097]).unwrap();
+        assert!(super::read_report(relay.mailbox.as_ref().unwrap(), &name).is_none());
+    }
+
+    #[test]
+    fn retained_overflow_reports_cannot_starve_unvisited_reports() {
+        let relay = super::CodexHookReportRelay::new().unwrap();
+        let mut expected = std::collections::HashSet::new();
+        for _ in 0..48 {
+            let name = std::ffi::OsString::from(format!("{}.json", uuid::Uuid::new_v4().simple()));
+            std::fs::write(relay.mailbox_path().join(&name), b"{}").unwrap();
+            expected.insert(name);
+        }
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..4 {
+            let page = super::select_unvisited_reports(
+                relay.mailbox.as_ref().unwrap(),
+                16,
+                &std::collections::HashSet::new(),
+            )
+            .unwrap();
+            assert!(page.len() <= 16);
+            // Keep every selected file, as full-book overflow must do.
+            seen.extend(page);
+        }
+        assert_eq!(
+            seen, expected,
+            "retained overflow files must not starve later identity/Permission files"
+        );
+    }
+
+    #[test]
+    fn bounded_directory_pages_eventually_visit_reports_after_noise() {
+        let relay = super::CodexHookReportRelay::new().unwrap();
+        for sequence in 0..(super::MAX_MAILBOX_ENTRIES_PER_PASS * 2) {
+            std::fs::write(
+                relay.mailbox_path().join(format!("noise-{sequence}")),
+                b"ignored",
+            )
+            .unwrap();
+        }
+        let name = format!("{}.json", uuid::Uuid::new_v4().simple());
+        std::fs::write(relay.mailbox_path().join(&name), b"{}").unwrap();
+        let mut seen = false;
+        for _ in 0..4 {
+            let entries = relay
+                .mailbox
+                .as_ref()
+                .unwrap()
+                .entries(super::MAX_MAILBOX_ENTRIES_PER_PASS)
+                .unwrap();
+            assert!(entries.len() <= super::MAX_MAILBOX_ENTRIES_PER_PASS);
+            seen |= entries.contains(&std::ffi::OsString::from(&name));
+        }
+        assert!(
+            seen,
+            "bounded scans must advance, not rescan the same noise page forever"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn temp_cleanup_does_not_remove_a_replacement_directory() {
@@ -519,6 +788,8 @@ mod tests {
             std::fs::remove_file(relay.mailbox_path().join(candidate)).unwrap();
         }
         let report_name = report_name.expect("place a completed report beyond the first scan page");
+        // Placement inspection is separate from the production scan under test.
+        *relay.mailbox.as_ref().unwrap().scan.lock().unwrap() = None;
 
         let report_names =
             super::select_reports(relay.mailbox.as_ref().unwrap(), super::MAX_REPORTS_PER_PASS)

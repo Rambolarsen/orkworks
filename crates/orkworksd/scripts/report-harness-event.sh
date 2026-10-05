@@ -56,6 +56,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Capture once, before parsing or network I/O. UUID filenames carry no order.
+native_observed_at=""
+if [ "${ORKWORKS_CODEX_NATIVE_APPROVAL:-}" = "1" ]; then
+  native_observed_at="$(python3 -c 'from datetime import datetime,timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z"))' 2>/dev/null)" || true
+fi
+
 payload="$(cat || true)"
 
 # Plan-path mode is its own exit path: extract the harness-written file path
@@ -238,12 +244,55 @@ print("%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s" % (safe(data.get("cwd")), session_id, s
     ;;
 esac
 
+# Native Pre/Post are correlation only. Suppress a permission HTTP wait only
+# after a complete, bounded scalar envelope has been atomically published.
+native_approval_spooled="no"
+if [ "$session_source" = "codex_hook" ] && [ "${ORKWORKS_CODEX_NATIVE_APPROVAL:-}" = "1" ] && \
+   [ -n "${ORKWORKS_CODEX_SESSION_REPORT_DIR:-}" ] && [ -n "${ORKWORKS_REPORT_TOKEN:-}" ] && \
+   [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "$native_observed_at" ]; then
+  case "$event" in
+    PreToolUse|PermissionRequest|PostToolUse|Stop|UserPromptSubmit)
+      if printf '%s' "$payload" | python3 -c '
+import json, os, re, sys, tempfile, uuid
+raw = json.load(sys.stdin)
+valid_id = lambda v: isinstance(v,str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}",v) is not None
+if not isinstance(raw,dict) or not valid_id(raw.get("session_id")) or not re.fullmatch(r"[a-f0-9]{64}",sys.argv[3]):
+    raise SystemExit(2)
+report = {"rootId":raw["session_id"], "event":sys.argv[1], "observedAt":sys.argv[2], "hookFingerprint":sys.argv[3]}
+for source,target in (("turn_id","turnId"),("tool_use_id","toolUseId")):
+    value = raw.get(source)
+    report[target] = value if valid_id(value) else None
+encoded = json.dumps({"approval":report},separators=(",",":")).encode()
+if len(encoded) > 4096: raise SystemExit(2)
+directory = sys.argv[4]
+fd, temporary = tempfile.mkstemp(prefix=".pending-",dir=directory)
+try:
+    with os.fdopen(fd,"wb") as output:
+        output.write(encoded)
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temporary,os.path.join(directory,uuid.uuid4().hex+".json"))
+except Exception:
+    try: os.unlink(temporary)
+    except OSError: pass
+    raise
+' "$event" "$native_observed_at" "$hook_fingerprint" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" 2>/dev/null; then
+        if [ "$event" = "PermissionRequest" ]; then
+          native_approval_spooled="yes"
+          attention_post_kind="enqueued"
+        fi
+      fi
+      ;;
+  esac
+fi
+
 # Codex's SessionStart event captures identity only. Turn events carry their
 # explicit normalized status and provenance so the sidecar can validate the
 # deterministic signal without trusting mutable payload text.
-if [ "$codex_capture_only" != "yes" ] && [ "$session_source" = "codex_hook" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && \
+if [ "$native_approval_spooled" != "yes" ] && [ "$codex_capture_only" != "yes" ] && [ "$session_source" = "codex_hook" ] && [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ] && \
   { [ "$session_source" != "codex_hook" ] || [ "$codex_attention" = "yes" ]; }; then
-  observed_at="$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))')"
+  observed_at="$native_observed_at"
+  if [ -z "$observed_at" ]; then observed_at="$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))')"; fi
   attention_payload="$(python3 -c '
 import json, sys
 payload = {"status":sys.argv[1], "observedAt":sys.argv[2]}
@@ -262,7 +311,7 @@ print(json.dumps(payload))
   attention_http_status=$(reporter_curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
     -d "$attention_payload" --output /dev/null --write-out '%{http_code}') || attention_curl_exit=$?
-elif [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; then
+elif [ "$native_approval_spooled" != "yes" ] && [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; then
   attention_post_kind="skipped_missing_environment"
 fi
 

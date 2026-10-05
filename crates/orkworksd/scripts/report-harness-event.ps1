@@ -12,6 +12,11 @@ param(
     [switch]$ReportPlanPath
 )
 
+# Fixed hook receipt, including capture-only events. Reuse for all transports.
+$nativeObservedAt = ""
+if ($env:ORKWORKS_CODEX_NATIVE_APPROVAL -ceq "1") {
+    $nativeObservedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
+}
 $payload = ""
 try {
     $payload = [Console]::In.ReadToEnd()
@@ -225,6 +230,49 @@ if ($Marker -clike "*:claude-code") {
     $sessionSource = "copilot_hook"
 }
 
+# Native envelopes contain only closed bounded scalar evidence. Required
+# proof/publish failure preserves the ordinary immediate permission HTTP path.
+$nativePermissionSpooled = $false
+if ($sessionSource -eq "codex_hook" -and $env:ORKWORKS_CODEX_NATIVE_APPROVAL -ceq "1" -and
+    $env:ORKWORKS_CODEX_SESSION_REPORT_DIR -and $env:ORKWORKS_REPORT_TOKEN -and $sessionId -and
+    $Event -cin @("PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "UserPromptSubmit")) {
+    $temporaryApproval = $null
+    try {
+        $nativeData = $payload | ConvertFrom-Json
+        $rootProperty = Get-ExactJsonPropertyValue $nativeData "session_id"
+        $rootId = if ($null -ne $rootProperty) { $rootProperty.Value } else { $null }
+        if ($rootId -isnot [string] -or $rootId -cnotmatch "\A[A-Za-z0-9_-]{1,128}\z" -or
+            $HookFingerprint -cnotmatch "\A[a-f0-9]{64}\z") { throw "invalid scalar proof" }
+        $approval = @{ rootId = $rootId; event = $Event; observedAt = $nativeObservedAt; hookFingerprint = $HookFingerprint; turnId = $null; toolUseId = $null }
+        foreach ($pair in @(@("turn_id", "turnId"), @("tool_use_id", "toolUseId"))) {
+            $property = Get-ExactJsonPropertyValue $nativeData $pair[0]
+            if ($null -ne $property -and $property.Value -is [string] -and
+                $property.Value -cmatch "\A[A-Za-z0-9_-]{1,128}\z") {
+                $approval[$pair[1]] = $property.Value
+            }
+        }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes((@{ approval = $approval } | ConvertTo-Json -Compress -Depth 4))
+        if ($bytes.Length -gt 4096) { throw "oversized envelope" }
+        $temporaryApproval = Join-Path $env:ORKWORKS_CODEX_SESSION_REPORT_DIR (".pending-" + [guid]::NewGuid().ToString("N"))
+        $publishedApproval = Join-Path $env:ORKWORKS_CODEX_SESSION_REPORT_DIR ([guid]::NewGuid().ToString("N") + ".json")
+        $stream = [System.IO.File]::Open($temporaryApproval, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        } finally { $stream.Dispose() }
+        [System.IO.File]::Move($temporaryApproval, $publishedApproval)
+        $temporaryApproval = $null
+        if ($Event -ceq "PermissionRequest") {
+            $nativePermissionSpooled = $true
+            $attentionPostKind = "enqueued"
+        }
+    } catch {
+        if ($temporaryApproval -and [System.IO.File]::Exists($temporaryApproval)) {
+            try { [System.IO.File]::Delete($temporaryApproval) } catch {}
+        }
+    }
+}
+
 # The timeout below bounds the whole request; Invoke-RestMethod has no
 # separate fast-fail connect-phase timeout the way curl's --connect-timeout
 # does, so a hung connect (not just a slow response) still costs the full
@@ -233,9 +281,10 @@ if ($Marker -clike "*:claude-code") {
 # Codex's SessionStart event captures identity only. Turn events carry their
 # explicit normalized status and provenance so the sidecar can validate the
 # deterministic signal without trusting mutable payload text.
-if (-not $codexCaptureOnly -and $sessionId -and $port -and $sessionSource -eq "codex_hook" -and $codexAttention) {
+if (-not $nativePermissionSpooled -and -not $codexCaptureOnly -and $sessionId -and $port -and $sessionSource -eq "codex_hook" -and $codexAttention) {
     try {
-        $observedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
+        $observedAt = $nativeObservedAt
+        if (-not $observedAt) { $observedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ") }
         $attention = @{ status = $Status; observedAt = $observedAt }
         if ($reportedCwd) {
             $attention["cwd"] = $reportedCwd
@@ -254,7 +303,7 @@ if (-not $codexCaptureOnly -and $sessionId -and $port -and $sessionSource -eq "c
     } catch {
         $attentionPostKind = "failed"
     }
-} elseif ($sessionSource -eq "codex_hook" -and $codexAttention) {
+} elseif (-not $nativePermissionSpooled -and $sessionSource -eq "codex_hook" -and $codexAttention) {
     $attentionPostKind = "skipped_missing_environment"
 }
 

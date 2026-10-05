@@ -17,6 +17,9 @@ pub(crate) struct NativeApprovalState {
     turn: Option<String>,
     hook_revision: Option<u64>,
     last_hook_at: Option<chrono::DateTime<chrono::Utc>>,
+    // Accepted legacy HTTP transitions and authenticated private turn
+    // boundaries fence queued old events. Never infer this from caller trust.
+    fenced_hook_at: Option<chrono::DateTime<chrono::Utc>>,
     ownership: Option<(AttentionWriteToken, SessionWriteToken)>,
     live_revision: Option<AttentionWriteToken>,
     committed_input_sequence: u64,
@@ -39,6 +42,7 @@ impl NativeApprovalState {
             turn: None,
             hook_revision: Some(0),
             last_hook_at: None,
+            fenced_hook_at: None,
             ownership: None,
             live_revision: None,
             committed_input_sequence: 0,
@@ -202,6 +206,26 @@ pub(crate) fn report_hook(
             tracker.invalidate();
             return HookReportOutcome::Rejected;
         }
+        let boundary = matches!(report.event, HookEvent::Stop | HookEvent::UserPromptSubmit);
+        if let Some(external) = handle
+            .runtime
+            .last_hook_attention_at
+            .filter(|at| tracker.last_hook_at.is_none_or(|private| *at > private))
+        {
+            tracker.fenced_hook_at = Some(
+                tracker
+                    .fenced_hook_at
+                    .map_or(external, |at| at.max(external)),
+            );
+        }
+        if tracker
+            .fenced_hook_at
+            .is_some_and(|at| observed < at || (observed == at && !boundary))
+        {
+            tracker.reducer.disconnected();
+            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
+            return HookReportOutcome::Rejected;
+        }
         // UUID filename order is not event order. Ties and reversed delivery
         // revoke correlation; an authenticated permission remains conservative.
         if handle
@@ -227,7 +251,6 @@ pub(crate) fn report_hook(
                 return HookReportOutcome::Rejected;
             }
         }
-        let boundary = matches!(report.event, HookEvent::Stop | HookEvent::UserPromptSubmit);
         let activation = report.event == HookEvent::PermissionRequest && !handle.active_work_hook;
         if (activation || boundary)
             && meta.metadata_source != "user"
@@ -260,6 +283,13 @@ pub(crate) fn report_hook(
         }
         if activation || boundary {
             handle.active_work_hook = true;
+        }
+        if boundary {
+            tracker.fenced_hook_at = Some(
+                tracker
+                    .fenced_hook_at
+                    .map_or(observed, |at| at.max(observed)),
+            );
         }
         if report.turn_id.is_none() {
             tracker.reducer.disconnected();
@@ -911,6 +941,399 @@ mod tests {
             hook_fingerprint: expected_fingerprint().unwrap(),
         };
         (dir, state, generation, report, t)
+    }
+
+    fn queue_hook(
+        relay: &super::super::codex_hook_report_relay::CodexHookReportRelay,
+        report: &NativeHookReport,
+        event: &str,
+    ) -> std::path::PathBuf {
+        let path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(&path, serde_json::json!({"approval": {
+            "rootId":report.root_id, "turnId":report.turn_id, "toolUseId":report.tool_use_id,
+            "event":event, "observedAt":report.observed_at, "hookFingerprint":report.hook_fingerprint
+        }}).to_string()).unwrap();
+        path
+    }
+
+    #[tokio::test]
+    async fn relay_trusted_http_and_private_boundaries_fence_older_permission() {
+        for event in ["Stop", "UserPromptSubmit"] {
+            for private_first in [false, true] {
+                let (_dir, state, generation, mut report, _) = callback_fixture();
+                let id = state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .next()
+                    .unwrap()
+                    .clone();
+                let relay =
+                    super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+                let boundary_at = chrono::Utc::now();
+                report.observed_at =
+                    boundary_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                if private_first {
+                    queue_hook(&relay, &report, event);
+                    assert_eq!(
+                        relay
+                            .consume_ready(state.clone(), &id, "test-report-token", generation)
+                            .await
+                            .reports_accepted,
+                        1
+                    );
+                }
+                let request = serde_json::from_value(serde_json::json!({
+                    "status":if event == "Stop" { "idle" } else { "working" },
+                    "source":"codex_hook", "event":event, "observedAt":report.observed_at,
+                    "hookFingerprint":report.hook_fingerprint
+                }))
+                .unwrap();
+                let response = crate::http::session_handlers::report_attention_with_headers(
+                    axum::extract::State(state.clone()),
+                    axum::extract::Path(id.clone()),
+                    axum::http::HeaderMap::new(),
+                    axum::Json(request),
+                )
+                .await;
+                assert_eq!(response.status(), axum::http::StatusCode::OK);
+                if !private_first {
+                    // Before the private boundary arrives, the accepted HTTP
+                    // watermark alone already fences the old private event.
+                    report.observed_at = (boundary_at - chrono::Duration::seconds(1))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                    queue_hook(&relay, &report, "PermissionRequest");
+                    assert_eq!(
+                        relay
+                            .consume_ready(state.clone(), &id, "test-report-token", generation)
+                            .await
+                            .reports_accepted,
+                        0
+                    );
+                    report.observed_at =
+                        boundary_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                    queue_hook(&relay, &report, event);
+                    assert_eq!(
+                        relay
+                            .consume_ready(state.clone(), &id, "test-report-token", generation)
+                            .await
+                            .reports_accepted,
+                        1
+                    );
+                }
+                // An exact duplicate boundary cannot mutate/renew state.
+                queue_hook(&relay, &report, event);
+                assert_eq!(
+                    relay
+                        .consume_ready(state.clone(), &id, "test-report-token", generation)
+                        .await
+                        .reports_accepted,
+                    0
+                );
+                report.observed_at = (boundary_at - chrono::Duration::seconds(1))
+                    .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                queue_hook(&relay, &report, "PermissionRequest");
+                assert_eq!(
+                    relay
+                        .consume_ready(state.clone(), &id, "test-report-token", generation)
+                        .await
+                        .reports_accepted,
+                    0
+                );
+                assert_eq!(
+                    state.sessions.lock().unwrap()[&id]
+                        .info
+                        .observed_status
+                        .as_deref(),
+                    Some(if event == "Stop" { "idle" } else { "working" })
+                );
+                super::super::terminal_runtime::clear_workflow_report_token(&id);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_rejected_http_and_wrong_generation_cannot_create_a_watermark() {
+        let (_dir, state, generation, mut report, _) = callback_fixture();
+        let id = state
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        let relay = super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+        let future = (chrono::Utc::now() + chrono::Duration::seconds(10))
+            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+        let request = serde_json::from_value(serde_json::json!({"status":"idle", "source":"codex_hook", "event":"Stop", "observedAt":future, "hookFingerprint":"0".repeat(64)})).unwrap();
+        let response = crate::http::session_handlers::report_attention_with_headers(
+            axum::extract::State(state.clone()),
+            axum::extract::Path(id.clone()),
+            axum::http::HeaderMap::new(),
+            axum::Json(request),
+        )
+        .await;
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(state.sessions.lock().unwrap()[&id]
+            .runtime
+            .last_hook_attention_at
+            .is_none());
+        report.observed_at = chrono::Utc::now().to_rfc3339();
+        let path = queue_hook(&relay, &report, "PermissionRequest");
+        assert_eq!(
+            relay
+                .consume_ready(state.clone(), &id, "test-report-token", generation + 1)
+                .await,
+            super::super::codex_hook_report_relay::RelayOutcome::default()
+        );
+        assert!(path.exists());
+        assert_eq!(
+            relay
+                .consume_ready(state.clone(), &id, "wrong-token", generation)
+                .await,
+            super::super::codex_hook_report_relay::RelayOutcome::default()
+        );
+        assert!(path.exists());
+        assert!(state.sessions.lock().unwrap()[&id]
+            .runtime
+            .last_hook_attention_at
+            .is_none());
+        assert_eq!(
+            relay
+                .consume_ready(state.clone(), &id, "test-report-token", generation)
+                .await
+                .reports_accepted,
+            1
+        );
+        assert!(!path.exists());
+        super::super::terminal_runtime::clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn relay_corrupted_retry_revokes_without_swallowing_existing_wait() {
+        let (_dir, state, generation, mut report, t) = callback_fixture();
+        let id = state
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            report_hook(
+                &state,
+                &id,
+                "test-report-token",
+                generation,
+                t - Duration::from_secs(3),
+                &report
+            ),
+            HookReportOutcome::Accepted
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[&id]
+                .info
+                .attention
+                .as_deref(),
+            Some("needs_you")
+        );
+        let relay = super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+        let metadata_path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir()
+            .join(format!("{id}.json"));
+        let held_path = metadata_path.with_extension("held");
+        std::fs::rename(&metadata_path, &held_path).unwrap();
+        report.observed_at = chrono::Utc::now().to_rfc3339();
+        report.tool_use_id = Some("old-tool".into());
+        let path = queue_hook(&relay, &report, "PreToolUse");
+        relay
+            .consume_ready(state.clone(), &id, "test-report-token", generation)
+            .await;
+        assert!(path.exists());
+        std::fs::rename(held_path, metadata_path).unwrap();
+        let original = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, original.replace("old-tool", "changed-tool")).unwrap();
+        let revision = state.sessions.lock().unwrap()[&id]
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .hook_revision;
+        let outcome = relay
+            .consume_ready(state.clone(), &id, "test-report-token", generation)
+            .await;
+        assert_eq!(outcome.reports_accepted, 0);
+        assert!(!path.exists());
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions[&id].info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            sessions[&id]
+                .runtime
+                .native_approval
+                .as_ref()
+                .unwrap()
+                .hook_revision,
+            revision.map(|r| r + 1)
+        );
+        drop(sessions);
+        super::super::terminal_runtime::clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn relay_overflow_defers_permission_without_starving_identity_or_renewing_grace() {
+        let (_dir, state, generation, mut report, _) = callback_fixture();
+        let id = state
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut meta = store.read_session(&id).unwrap();
+            meta.harness_session_id_source = None;
+            store.write_session(&meta);
+        }
+        let relay = super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+        report.tool_use_id = Some("one-tool".into());
+        for _ in 0..64 {
+            queue_hook(&relay, &report, "PreToolUse");
+        }
+        for _ in 0..8 {
+            relay
+                .consume_ready(state.clone(), &id, "test-report-token", generation)
+                .await;
+        }
+        report.observed_at = chrono::Utc::now().to_rfc3339();
+        let permission = queue_hook(&relay, &report, "PermissionRequest");
+        for _ in 0..2 {
+            relay
+                .consume_ready(state.clone(), &id, "test-report-token", generation)
+                .await;
+        }
+        assert!(
+            permission.exists(),
+            "overflow must defer, never drop Permission"
+        );
+        let identity = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(&identity, serde_json::json!({"report": {"harnessSessionId":"root-id", "source":"codex_hook", "confidence":0.98, "hookFingerprint":report.hook_fingerprint}}).to_string()).unwrap();
+        for _ in 0..4 {
+            relay
+                .consume_ready(state.clone(), &id, "test-report-token", generation)
+                .await;
+            if !identity.exists() {
+                break;
+            }
+        }
+        assert!(
+            !identity.exists(),
+            "cached Retry/overflow cannot starve identity binding"
+        );
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        // The existing identity route may keep an older metadata source for an
+        // already stored ID; explicitly resolve the fixture's temporary gap.
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            let mut meta = store.read_session(&id).unwrap();
+            meta.harness_session_id_source = Some("codex_hook".into());
+            store.write_session(&meta);
+        }
+        for _ in 0..16 {
+            relay
+                .consume_ready(state.clone(), &id, "test-report-token", generation)
+                .await;
+            if !permission.exists() {
+                break;
+            }
+        }
+        assert!(
+            !permission.exists(),
+            "deferred valid Permission eventually reaches backend"
+        );
+        assert_eq!(
+            state.sessions.lock().unwrap()[&id]
+                .info
+                .attention
+                .as_deref(),
+            Some("needs_you"),
+            "fixed overflow receipt cannot renew grace"
+        );
+        super::super::terminal_runtime::clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn relay_activation_retry_keeps_first_receipt_and_exact_record() {
+        let (_dir, state, generation, report, _) = callback_fixture();
+        let id = state
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        let relay = super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+        let path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        let envelope = serde_json::json!({"approval": {
+            "rootId":report.root_id, "turnId":report.turn_id, "toolUseId":report.tool_use_id,
+            "event":"PermissionRequest", "observedAt":report.observed_at,
+            "hookFingerprint":report.hook_fingerprint
+        }})
+        .to_string();
+        std::fs::write(&path, &envelope).unwrap();
+        let staging = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir()
+            .join(format!("{id}.json.tmp"));
+        std::fs::create_dir(&staging).unwrap();
+        relay
+            .consume_ready(state.clone(), &id, "test-report-token", generation)
+            .await;
+        assert!(
+            path.exists(),
+            "temporary persistence failure must retain Permission"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), envelope);
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        std::fs::remove_dir(staging).unwrap();
+        let outcome = relay
+            .consume_ready(state.clone(), &id, "test-report-token", generation)
+            .await;
+        assert_eq!(outcome.reports_accepted, 1);
+        assert!(!path.exists());
+        assert_eq!(
+            state.sessions.lock().unwrap()[&id]
+                .info
+                .attention
+                .as_deref(),
+            Some("needs_you"),
+            "retry must not renew the two-second deadline"
+        );
+        super::super::terminal_runtime::clear_workflow_report_token(&id);
     }
 
     #[test]

@@ -1138,6 +1138,179 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn report_harness_event_ps1_native_scalar_success_fallback_and_secret_exclusion() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let temp = tempfile::tempdir().unwrap();
+        let mailbox = temp.path().join("mailbox");
+        std::fs::create_dir(&mailbox).unwrap();
+        let capture = temp.path().join("requests.jsonl");
+        let wrapper = temp.path().join("run-reporter.ps1");
+        std::fs::write(&wrapper, r#"Set-Variable -Name HOME -Value $env:ORKWORKS_FIXTURE_HOME -Force
+function Invoke-RestMethod {
+    param($Method, $Uri, $Headers, $ContentType, $Body, $TimeoutSec)
+    Add-Content -Path $env:ORKWORKS_REQUEST_CAPTURE -Value $Body
+}
+& $env:ORKWORKS_REPORTER_SCRIPT -Marker 'orkworks:harness-integration:v2:codex' -Event $env:ORKWORKS_TEST_EVENT -HookFingerprint $env:ORKWORKS_TEST_FINGERPRINT"#).unwrap();
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts/report-harness-event.ps1");
+        for (event, marker, directory, root, fingerprint, null_ids) in [
+            (
+                "PreToolUse",
+                "1",
+                mailbox.clone(),
+                "root-1",
+                "a".repeat(64),
+                false,
+            ),
+            (
+                "PermissionRequest",
+                "1",
+                mailbox.clone(),
+                "root-1",
+                "a".repeat(64),
+                false,
+            ),
+            (
+                "PostToolUse",
+                "1",
+                mailbox.clone(),
+                "root-1",
+                "a".repeat(64),
+                false,
+            ),
+            (
+                "PermissionRequest",
+                "1",
+                mailbox.clone(),
+                "root-1",
+                "a".repeat(64),
+                true,
+            ),
+            (
+                "PermissionRequest",
+                "0",
+                mailbox.clone(),
+                "root-1",
+                "a".repeat(64),
+                false,
+            ),
+            (
+                "PermissionRequest",
+                "1",
+                temp.path().join("absent"),
+                "root-1",
+                "a".repeat(64),
+                false,
+            ),
+            (
+                "PermissionRequest",
+                "1",
+                mailbox.clone(),
+                "bad root",
+                "a".repeat(64),
+                false,
+            ),
+            (
+                "PermissionRequest",
+                "1",
+                mailbox.clone(),
+                "root-1",
+                "bad".into(),
+                false,
+            ),
+        ] {
+            let payload = serde_json::json!({"session_id":root, "turn_id":if null_ids { serde_json::json!({}) } else { serde_json::json!("turn-1") }, "tool_use_id":if null_ids { "bad id" } else { "tool-1" }, "tool_input":{"command":"command-secret"}, "tool_response":"response-secret"});
+            let mut child = Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                ])
+                .arg(&wrapper)
+                .env("ORKWORKS_FIXTURE_HOME", temp.path())
+                .env("ORKWORKS_REPORTER_SCRIPT", &script)
+                .env("ORKWORKS_REQUEST_CAPTURE", &capture)
+                .env("ORKWORKS_TEST_EVENT", event)
+                .env("ORKWORKS_TEST_FINGERPRINT", fingerprint)
+                .env("ORKWORKS_CODEX_NATIVE_APPROVAL", marker)
+                .env("ORKWORKS_CODEX_SESSION_REPORT_DIR", directory)
+                .env("ORKWORKS_SESSION_ID", "session-secret")
+                .env("ORKWORKS_PORT", "1")
+                .env("ORKWORKS_REPORT_TOKEN", "report-secret")
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(payload.to_string().as_bytes())
+                .unwrap();
+            assert!(child.wait_with_output().unwrap().status.success());
+        }
+        let records = std::fs::read_dir(&mailbox)
+            .unwrap()
+            .map(|e| {
+                let bytes = std::fs::read(e.unwrap().path()).unwrap();
+                assert!(bytes.len() <= 4096);
+                let text = String::from_utf8(bytes).unwrap();
+                for secret in [
+                    "command-secret",
+                    "response-secret",
+                    "report-secret",
+                    "session-secret",
+                ] {
+                    assert!(!text.contains(secret));
+                }
+                serde_json::from_str::<serde_json::Value>(&text).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let approvals = records
+            .iter()
+            .filter_map(|r| r.get("approval"))
+            .collect::<Vec<_>>();
+        assert_eq!(approvals.len(), 4);
+        for approval in &approvals {
+            assert_eq!(approval.as_object().unwrap().len(), 6);
+            assert_eq!(approval["rootId"], "root-1");
+            let at = approval["observedAt"].as_str().unwrap();
+            assert_eq!(at.len(), 27);
+            assert!(chrono::DateTime::parse_from_rfc3339(at).is_ok());
+        }
+        assert!(approvals
+            .iter()
+            .any(|a| a["turnId"].is_null() && a["toolUseId"].is_null()));
+        let requests = std::fs::read_to_string(&capture).unwrap();
+        let waits = requests
+            .lines()
+            .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+            .filter(|b| b["status"] == "waiting_for_input")
+            .count();
+        assert_eq!(
+            waits, 4,
+            "only four failed/unowned native routes use immediate HTTP"
+        );
+        let diagnostic = std::fs::read_to_string(
+            temp.path()
+                .join(".orkworks/hook-scripts/report-harness-event-diagnostic.json"),
+        )
+        .unwrap();
+        for secret in [
+            "command-secret",
+            "response-secret",
+            "report-secret",
+            "session-secret",
+            "root-1",
+        ] {
+            assert!(!diagnostic.contains(secret));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn report_harness_event_ps1_rejects_array_lifecycle_sources() {
         use std::io::Write;
         use std::process::{Command, Stdio};
