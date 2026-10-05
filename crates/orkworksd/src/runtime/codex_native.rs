@@ -106,6 +106,8 @@ pub(crate) struct NativeLaunchPlan {
     cwd: PathBuf,
     route: Route,
     record: CompatibilityRecord,
+    #[cfg(test)]
+    controlled_fixture: Option<launch::ControlledFixtureListener>,
 }
 impl NativeLaunchPlan {
     pub(crate) async fn start(
@@ -173,6 +175,8 @@ async fn eligible_with_records(
         cwd: PathBuf::from(&command.cwd),
         route,
         record,
+        #[cfg(test)]
+        controlled_fixture: None,
     };
     if plan.revalidate().is_err() {
         return Ok(None);

@@ -428,6 +428,12 @@ fn arguments(
     }
     (server, tui)
 }
+// Only this module's controlled fake-native constructor can mint fixture provenance.
+// It is absent from non-test builds and cannot be obtained from environment or records.
+#[cfg(test)]
+pub(super) struct ControlledFixtureListener {
+    _private: (),
+}
 pub(super) async fn start(
     plan: NativeLaunchPlan,
     execution_env: &[(String, String)],
@@ -441,7 +447,13 @@ async fn start_with_port_hook<F: FnMut(&str)>(
     execution_env: &[(String, String)],
     mut port_released: F,
 ) -> Result<OwnedNativeRuntime, NativeError> {
-    if !cfg!(unix) {
+    // Neither port reservation, child liveness nor initialize shape proves listener ownership.
+    // #763 must establish the owned-listener handoff before any non-fixture bearer delivery.
+    #[cfg(test)]
+    let controlled_fixture = plan.controlled_fixture.is_some();
+    #[cfg(not(test))]
+    let controlled_fixture = false;
+    if !controlled_fixture || !cfg!(unix) {
         return Err(NativeError::Unavailable);
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -594,6 +606,7 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
                 root_proof: "fixture only",
                 evidence: "fixture only",
             },
+            controlled_fixture: Some(ControlledFixtureListener { _private: () }),
         }
     }
     pub(crate) fn fixture_env(dir: &Path, mode: &str) -> Vec<(String, String)> {
@@ -801,6 +814,179 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
         assert!(runtime.revalidate_tui_executable().is_err());
         runtime.shutdown().await;
     }
+    // Mirrors ordinary/installed construction, without controlled-fixture provenance.
+    fn unproven_plan(dir: &Path, cache: &VersionProbeCache) -> NativeLaunchPlan {
+        let fixture = fixture_plan(dir, cache, false);
+        NativeLaunchPlan {
+            executable: fixture.executable,
+            configured_program: fixture.configured_program,
+            identity: fixture.identity,
+            epoch: fixture.epoch,
+            cwd: fixture.cwd,
+            route: fixture.route,
+            record: fixture.record,
+            controlled_fixture: None,
+        }
+    }
+
+    struct CompetitorBearerReceipt(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    impl tokio_tungstenite::tungstenite::handshake::server::Callback for CompetitorBearerReceipt {
+        fn on_request(
+            self,
+            request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+            response: tokio_tungstenite::tungstenite::handshake::server::Response,
+        ) -> Result<
+            tokio_tungstenite::tungstenite::handshake::server::Response,
+            tokio_tungstenite::tungstenite::handshake::server::ErrorResponse,
+        > {
+            // Keep only the boolean; never retain, print, or persist the capability.
+            if request.headers().contains_key("Authorization") {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            Ok(response)
+        }
+    }
+
+    fn accepting_competitor(
+        listener: std::net::TcpListener,
+        bearer_received: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> tokio::task::JoinHandle<()> {
+        listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+        tokio::spawn(async move {
+            use futures_util::{SinkExt, StreamExt};
+            use serde_json::{json, Value};
+            use tokio_tungstenite::tungstenite::Message;
+            loop {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let Ok(mut socket) = tokio_tungstenite::accept_hdr_async(
+                    tcp,
+                    CompetitorBearerReceipt(bearer_received.clone()),
+                )
+                .await
+                else {
+                    continue;
+                };
+                while let Some(Ok(Message::Text(text))) = socket.next().await {
+                    let value: Value = serde_json::from_str(&text).unwrap();
+                    if value["method"] == "initialize" {
+                        let result = json!({"userAgent":"fixture/0.160.0","codexHome":"/fixture","platformOs":std::env::consts::OS,"platformFamily":"unix"});
+                        if socket
+                            .send(Message::Text(
+                                json!({"id":value["id"],"result":result}).to_string(),
+                            ))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn unproven_listener_never_delivers_bearer_to_accepting_competitor() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VersionProbeCache::new();
+        let received = Arc::new(AtomicBool::new(false));
+        // A competitor also survives rejection before the reservation hook is reached.
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let control_endpoint = format!("ws://{}", listener.local_addr().unwrap());
+        let mut competitors = vec![accepting_competitor(listener, received.clone())];
+        let result = tokio::time::timeout(
+            Duration::from_secs(7),
+            start_with_port_hook(
+                unproven_plan(dir.path(), &cache),
+                &fixture_env(dir.path(), "hang"),
+                |endpoint| {
+                    let listener =
+                        std::net::TcpListener::bind(endpoint.trim_start_matches("ws://")).unwrap();
+                    competitors.push(accepting_competitor(listener, received.clone()));
+                },
+            ),
+        )
+        .await
+        .expect("startup rejection must remain bounded");
+        let accepted_readiness = result.is_ok();
+        let accepted_live_child = result.as_ref().is_ok_and(|runtime| runtime.is_alive());
+        if let Ok(mut runtime) = result {
+            runtime.shutdown().await;
+        }
+        // Independently exercise the already-live competitor, without an Authorization header.
+        // This proves survival is not just a hook that the early guard never invokes.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            use futures_util::{SinkExt, StreamExt};
+            use serde_json::{json, Value};
+            use tokio_tungstenite::tungstenite::Message;
+            let (mut socket, _) = tokio_tungstenite::connect_async(&control_endpoint)
+                .await
+                .unwrap();
+            socket
+                .send(Message::Text(
+                    json!({"id":1,"method":"initialize","params":{}}).to_string(),
+                ))
+                .await
+                .unwrap();
+            let frame = socket.next().await.unwrap().unwrap();
+            let Message::Text(text) = frame else {
+                panic!("competitor control response absent");
+            };
+            let value: Value = serde_json::from_str(&text).unwrap();
+            let shape_correct = value["result"]
+                == json!({"userAgent":"fixture/0.160.0","codexHome":"/fixture","platformOs":std::env::consts::OS,"platformFamily":"unix"});
+            assert!(
+                shape_correct,
+                "competitor control initialize shape mismatch"
+            );
+            socket.close(None).await.unwrap();
+        }).await.expect("surviving competitor control must remain usable");
+        let competitor_survived = competitors.iter().all(|task| !task.is_finished());
+        for task in competitors {
+            task.abort();
+            let _ = task.await;
+        }
+        assert!(
+            !received.load(Ordering::SeqCst),
+            "unproven listener received an Authorization capability"
+        );
+        assert!(
+            !accepted_readiness,
+            "shape-correct competitor was accepted while owned child alive={accepted_live_child}"
+        );
+        assert!(competitor_survived);
+        assert!(
+            !dir.path().join("pid").exists(),
+            "rejection must precede native child spawn"
+        );
+        assert!(
+            !dir.path().join("tui-args").exists(),
+            "rejection must precede TUI augmentation"
+        );
+    }
+
+    #[tokio::test]
+    async fn installed_diagnostic_cannot_obtain_fixture_listener_provenance_or_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VersionProbeCache::new();
+        let fixture = fixture_plan(dir.path(), &cache, false);
+        let command = CommandSpec {
+            program: fixture.configured_program,
+            args: vec![],
+            cwd: dir.path().display().to_string(),
+        };
+        let result = installed_diagnostic_plan(&command, &cache).await;
+        assert!(matches!(result, Err(NativeError::Unavailable)));
+        assert!(!dir.path().join("args").exists());
+        assert!(!dir.path().join("pid").exists());
+        assert!(!dir.path().join("tui-args").exists());
+    }
+
     #[tokio::test]
     async fn port_competition_retries_bounded_attempts_without_attaching_to_the_competitor() {
         let dir = tempfile::tempdir().unwrap();
@@ -1195,26 +1381,12 @@ esac
     }
 }
 
-// Explicit operator-only constructor. Production VERIFIED remains empty.
+// Installed diagnostics remain unavailable until #763 proves listener ownership.
+// This constructor cannot mint controlled-fixture provenance or start probes/children.
 #[cfg(all(test, unix))]
 pub(crate) async fn installed_diagnostic_plan(
-    command: &CommandSpec,
-    cache: &VersionProbeCache,
+    _command: &CommandSpec,
+    _cache: &VersionProbeCache,
 ) -> Result<NativeLaunchPlan, NativeError> {
-    if !Path::new(&command.program).is_absolute() {
-        return Err(NativeError::Unavailable);
-    }
-    let record = CompatibilityRecord {
-        version: "0.160.0",
-        os: "macos",
-        arch: "aarch64",
-        user_agent_prefix: "codex_cli_rs/0.160.0",
-        protocol: "v2-thread-status-0.160",
-        root_proof: "operator diagnostic only",
-        evidence: "unverified operator diagnostic only",
-    };
-    eligible_with_records(command, cache, &[record])
-        .await
-        .map_err(|_| NativeError::Unavailable)?
-        .ok_or(NativeError::Unavailable)
+    Err(NativeError::Unavailable)
 }
