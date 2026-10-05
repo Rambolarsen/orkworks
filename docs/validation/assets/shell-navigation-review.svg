@@ -21,7 +21,7 @@
 <text x="22" y="285" class="small">Selected terminal</text>
 <rect x="10" y="306" width="220" height="76" rx="6" fill="#1d222b"/>
 <text x="22" y="329" class="">Check error cases</text>
-<text x="22" y="354" class="amber">Research · needs input</text>
+<text x="22" y="354" class="amber">Research · Needs you</text>
 <rect x="10" y="396" width="220" height="76" rx="6" fill="#1d222b"/>
 <text x="22" y="419" class="">Ordinary session</text>
 <text x="22" y="444" class="small">Copilot · working</text>
@@ -69,8 +69,8 @@
 <text x="272" y="504" class="">2. Keep resume errors bound to the requested session.</text>
 <text x="272" y="542" class="">3. Preserve retry and workspace-generation fencing.</text>
 <text x="272" y="608" class="small">Reading this document sends no prompt and approves no plan.</text>
-<rect x="272" y="650" width="230" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
-<text x="284" y="673" class="small">Send review prompt…</text>
-<text x="272" y="710" class="small">Native confirmation and artifact revalidation required</text>
+<rect x="272" y="650" width="260" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="284" y="673" class="small">Request independent review</text>
+<text x="272" y="710" class="small">Explicit click approves the fixed prompt · artifact revalidated</text>
 <text x="272" y="790" class="small">One Review document. No document tabs or editor.</text>
 </svg>

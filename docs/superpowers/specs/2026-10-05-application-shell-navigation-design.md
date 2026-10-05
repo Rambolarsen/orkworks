@@ -42,9 +42,10 @@ instance dashboard is introduced.
 | `apps/desktop/electron/menuTemplate.ts` | Saved accelerators, native menu roles, shortcut-capture suppression, per-panel View checkboxes | Retain user accelerators and capture suppression; replace panel toggles with surface/inspector commands |
 | `apps/desktop/electron/layoutMemory.ts` | Installation-level `layout.json`; arbitrary JSON accepted, Dockview deserializes in renderer | Treat legacy docking data as presentation only; create bounded versioned shell preferences through Electron |
 | `apps/desktop/src/workspaceSessionController.ts` | Workspace/foreground generations fence asynchronous work; remembered selection restores only a matching non-dead session | Revalidate every remembered destination; preserve existing session restoration and lifetime rules |
-| [Session Plan Review](../../../specs/session-plan-review.md) | One selected-session Markdown artifact; reading is separate from the explicitly approved fixed review prompt | Keep one Review surface, exact document target, refresh/error handling and separate Send review prompt action |
+| [Session Plan Review](../../../specs/session-plan-review.md) | One selected-session Markdown artifact; reading is separate from the explicitly approved fixed review prompt | Keep one Review surface, exact document target, refresh/error handling and separate Request independent review action |
 | [ADR 0011](../../adr/0011-dockview-panel-layout.md) | Accepted movable panels and terminal tab support | Requires supersession before implementing a deliberate fixed-layout divergence |
-| [ADR 0013](../../adr/0013-single-active-context-primitive.md) | Singular active terminal, Sessions as multi-view, Details bound to focused session | Preserve one active context; review an amendment allowing an alternative workflow overview and its inspected-task details |
+| [ADR 0013](../../adr/0013-single-active-context-primitive.md) | Singular active terminal, session as context, Details bound to focused session | Stage a replacement preserving one visible context while superseding session-only context and detail binding |
+| [ADR 0002](../../adr/0002-electron-react-typescript-desktop.md) and [Taskmaster UI](../../../specs/taskmaster.md) | Three-column shell, right action overview and Taskmaster Dockview panel | Reconcile those layout requirements before runtime planning; retain Electron/React/TypeScript and Taskmaster authority boundaries |
 
 ### Uncertainty and blind-spot checkpoint
 
@@ -125,12 +126,14 @@ remains resizable and draggable.
 The app header preserves workspace switch, connection status, native controls
 and Settings. A content header shows the exact context title/breadcrumb and
 actions: Sessions, Workflow when available, Details, Actions with current
-counts, Capacity. These open destinations; they are not persistent panel tabs.
+counts, Capacity. Workflow can open the run chooser without a selected session
+or validated owning run; unavailable projections show an explanation. These
+open destinations; they are not persistent panel tabs.
 No floating, docking, view reordering or document-tab strip exists. Resize
 handles adjust fixed regions only and have keyboard-operable separator controls.
 
-Details, Recommendations and Capacity share the optional inspector; only one
-is visible there. Capacity and recommendations keep explicit workspace/tool
+Details, Actions, Recommendations and Capacity share the optional inspector;
+only one is visible there. Capacity and recommendations keep explicit workspace/tool
 scope labels and their existing unavailable/disabled states. A utility's return
 action restores the prior valid detail subject, never a stale session. Closing
 an inspector restores focus to its invoker without changing selection.
@@ -153,8 +156,13 @@ Logical UI state, not an accepted IPC schema:
   stable disclosure/focus/scroll anchors and presentation choice.
 - Review has the exact selected session and current validated artifact identity,
   plus a bounded return descriptor. It never stores prompt content or grants.
-- Inspector is closed, context details, workspace recommendations, or capacity;
-  context details derive from the current surface's subject.
+- Inspector is closed, context details, workspace Actions, workspace
+  recommendations, or capacity; context details derive from the current
+  surface's subject. Actions has exact workspace/generation scope, an inspected
+  obligation key/type and a bounded central return descriptor.
+- The run chooser has exact workspace/generation scope and validated run IDs
+  ordered by stable creation sequence; it is a temporary navigation page, not
+  terminal selection or a run creation command.
 - Navigation remembers at most one valid return descriptor per central surface,
   not an unbounded browser history. Lost targets fall back visibly.
 
@@ -162,17 +170,35 @@ Logical UI state, not an accepted IPC schema:
 | --- | --- | --- |
 | Select actual session in Sessions | Terminal for that exact ID; ordinary dead-session history remains available | Bind Details to that session; acknowledge only through existing explicit selection semantics; retain list focus until Enter/Focus terminal |
 | Open Workflow from selected child/root | Owning exact run's overview; active terminal ID stays latent | Reveal that node; bind inspector to overview inspection; focus overview heading/previous anchor |
-| Open Workflow without a validated owning run | No inferred graph; explain “Workflow unavailable for this session” | Preserve current context; ordinary session commands stay usable |
-| Inspect planned/live workflow node or Show next action | Same Workflow, exact inspected target | No session selection, unread acknowledgement, resume or launch; focus inspected node/details command |
+| Choose run from any context / Open Workflow without an owning run | Temporary run chooser; no inferred membership or graph | Preserve active session and central return; focus chooser heading/current run; unavailable projections are labeled |
+| Choose another retained run | Workflow for that exact validated run ID, including runs with an unavailable parent session | Change overview only; restore that run's valid anchors or heading; no session selection/acknowledgement; stale choice leaves chooser with an explanation |
+| Close run chooser / Return to terminal from Workflow | Prior valid central destination / retained selected session's Terminal | Restore invoker/heading focus without selection; missing terminal offers Sessions without selecting a replacement |
+| Inspect planned/live workflow node | Same Workflow, exact inspected target | No session selection, unread acknowledgement, resume or launch; focus inspected node/details command |
+| Show next action | Reveal next validated obligation in the current Workflow, or open Actions and focus its exact row | Navigation only; session attention reveals its row without selecting it; missing/stale targets show unavailable and refresh, with no fallback execution |
 | Open terminal/history from node | Terminal for validated actual session ID | Select explicitly, acknowledge only that session, focus terminal/history; record owning run return |
 | Back to workflow from Terminal | Exact current session's owning run, if still valid | Restore overview anchors; unrelated cached run is never displayed as its workflow |
 | Review plan from session detail | One Review surface for selected session's readable Markdown artifact | Current selected session remains exact; focus document heading; store Terminal return |
 | Review associated artifact from workflow task | First explicitly select its exact ordinary session, then open Review | This action acknowledges that session as explicit selection; record exact Workflow return; planned nodes without an associated session have no ordinary Review action |
 | Close Review / Back to terminal | Same selected session's Terminal/history if valid | Restore document invoker/terminal focus, no second selection or prompt submission |
 | Back to workflow from Review | Recorded exact run/task, if still valid | Restore overview focus; otherwise show why return is unavailable and offer selected Terminal |
-| Open Details / Actions / Capacity | Wide: contextual inspector; compact: temporary page | Announce scope, preserve central return; never change active session merely to inspect |
+| Open Details / Actions / Capacity | Wide: corresponding inspector state; compact: temporary page | Actions is workspace-scoped; Details follows visible subject; Capacity keeps workspace/tool scope. Preserve central return and invoker focus; no session selection |
 | New session successfully created | Terminal for newly created exact session | Existing creation authority and failure handling retained; never interpret it as a run/child creation |
 | Workspace starts switching or backend generation changes | Clear/fence old ephemera and gate commands through existing lifecycle | No late old overview/document/detail can paint the new workspace; no silent launch/resume |
+
+Actions is a read-only workspace overview with separate groups for canonical
+session attention, exact run decisions/unviewed results, and recommendations.
+Entries retain their source's stable identity and subject/version; unavailable
+sources are labeled rather than flattened into a zero. It adds no approval or
+execution endpoint. Inspecting an entry opens its scoped details; an explicit
+Open terminal/history, Review exact proposal, or existing recommendation command
+performs the separately labeled transition and retains its existing authority.
+Show next action follows the current overview's declared action order; outside
+Workflow it follows the displayed Actions order, with session attention first,
+then run obligations in stable run/stage/task order, then recommendations in
+their existing order. It never selects a terminal or approves a result. If the
+target cannot be inspected in a validated overview, focus its Actions row with
+an unavailable explanation. Closing Actions restores the prior valid central
+subject and invoker; refreshing/removing its inspected entry clears stale detail.
 
 When reviewing another task's ordinary artifact, label the action with that
 session and the consequence: “Review R2 plan — switch session”. Distinguish it
@@ -239,8 +265,9 @@ messages and refresh behavior. One document is visible; no browser/file editor
 or additional document tabs. Opening another session closes/replaces the old
 document subject. A changed artifact invalidates pending prompt/approval
 bindings and is displayed as changed, not as an approved snapshot. The fixed
-Send review prompt action retains native confirmation and sidecar revalidation;
-reading or refreshing cannot send it.
+Request independent review action retains the existing explicit-click approval
+and authenticated Electron-to-sidecar revalidation; it adds no native dialog.
+Reading or refreshing cannot send the fixed prompt.
 
 Attention navigation is two-step when coming from Workflow: Show next action
 inspects/reveals the exact target, then Open terminal/history or Review proposal
@@ -315,15 +342,33 @@ legacy record or unrelated app settings/hotkeys.
 
 Per-workspace remembered navigation needs a separate bounded record using the
 existing canonical workspace key, at most 20 remembered workspace entries and
-64 KiB total. Store last surface, selected session ID, optional run ID and
-overview anchors only. Revalidate after ready restoration; never persist runtime
-generation authority, action versions, artifacts/prompts, credentials or
-approval state. Review restores only after the same selected session currently
-exposes a readable validated artifact; otherwise fall back to Terminal with a
-reason. Missing overview/selected session falls back to the existing valid
+64 KiB total. Store last surface, optional run ID and overview anchors only.
+The sidecar's `lastActiveSessionId`, restored through the existing controller's
+non-dead-match policy, is the sole durable selection authority. Navigation
+restoration cannot replace it, call ordinary selection/acknowledgement, or
+restore a dead session. Revalidate after ready restoration; never persist
+runtime generation authority, action versions, artifacts/prompts, credentials
+or approval state. Review restores only for the sidecar-restored selected
+session's currently readable validated artifact, clearly labeled with its
+current identity; no old artifact identity is implied. Otherwise fall back to
+Terminal with a reason. A missing overview falls back to the existing valid
 selection or an empty terminal state, without automatic resume. Workspace
 deletion forgets its navigation record; each independent instance has no peer
 discovery/focus authority. Persistence failure cannot gate ordinary sessions.
+
+Electron owns both shell records. Use bounded nonblocking advisory locking on
+a retained installation-scoped lock file, following the existing workspace
+history contract: never unlink, replace or evict the lock inode by age. Each
+mutation carries the record revision read when that operation was prepared.
+Under the lock, reread and validate the current record, reject revision overflow
+or a revision mismatch, apply only that operation's fields/entry, enforce bounds,
+flush a same-directory temporary file, atomically replace and verify read-back.
+Never write an in-memory whole-history snapshot. A stale save, including one
+prepared before another instance's deletion/eviction, is rejected and cannot
+resurrect that entry. Reread for future user navigation; do not automatically
+replay the rejected operation with a fresh revision. Deletion and retention use
+the same lock/revision discipline. Lock contention or failed validation/save
+preserves existing bytes and reports failure while the current view stays usable.
 
 Proposed startup default is last valid central view. First use/no remembered
 view opens Terminal for the existing valid selection, or the ordinary empty
@@ -343,30 +388,40 @@ The following proposed text is staged for written review. Existing accepted
 specs/ADRs continue to describe current product behavior until acceptance; this
 PR does not mark them superseded or claim a shipped shell.
 
-1. On acceptance, create the next available ADR superseding ADR 0011's movable
-   panels/tabbed Terminal requirement. Record fixed regions, explicit central
-   navigation, retained resize behavior, migration and the separately decided
-   library. Keep ADR 0011 as historical; update its status/link and ADR index.
-2. Amend ADR 0013 in a dated section: “A session remains the terminal context.
-   The compact Sessions index provides session-level awareness; an explicitly
-   opened central workflow overview provides declared task/stage awareness in
-   place of Terminal. Only one central context is visible. Details follows the
-   visible context: selected session in Terminal, exact inspected task/run in
-   Workflow, selected-session artifact in Review. Inspection never selects a
-   terminal or grants runtime authority.” Its single-context decision stands.
-3. Amend [MVP shell scope](../../../specs/orkworks-mvp.md#electron-desktop-shell):
+1. On acceptance, create the next available replacement ADR superseding ADR
+   0011's movable panels/tabbed Terminal requirement, ADR 0013's session-only
+   context/detail binding, and ADR 0002's mandatory three-column/right-sidebar
+   layout decision. Preserve Electron/React/TypeScript, one visible central
+   context, one visible terminal, deliberate session switching and the compact
+   Sessions index. Record fixed regions, Workflow/Review contexts, visible-subject
+   detail binding, retained resizing, concurrency-safe persistence/migration and
+   the separately decided library. Keep all three old ADRs as historical;
+   update their superseded status/links and the ADR index. Carry preserved stack
+   constraints into the replacement so ADR 0002's supersession cannot imply a
+   technology change. Update root ADR pointers and product-design constraints
+   in the same accepted change; do not leave session-only binding authoritative.
+2. Amend [MVP shell scope](../../../specs/orkworks-mvp.md#electron-desktop-shell):
    replace VS Code-like three-column/mandatory-right-sidebar wording with
    compact Sessions, one central Terminal/Review/eligible Workflow surface and
    an optional contextual inspector; preserve native window and Electron
    security/lifetime rules. Update selected-session association and hotkey
    behavior descriptions where they currently require tabs/panel hiding.
+3. Amend [Taskmaster](../../../specs/taskmaster.md)'s UI implications and milestone
+   requirements: replace its Dockview panel/mandatory right-side action overview
+   with the scoped Actions/Recommendations inspector or compact page. Retain
+   recommendation approval, explicit session targeting, unavailable states and
+   every existing control/authority boundary.
 4. Amend [Session Plan Review](../../../specs/session-plan-review.md) so Review
    plan opens the single reusable central Review surface with explicit return
-   navigation, retaining artifact/path constraints and prompt confirmation.
+   navigation, retaining artifact/path constraints and the existing explicit
+   Request independent review click as approval, without an added native dialog.
 5. Reconcile #746 and the [hierarchy product direction](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
    with the accepted shell, replacing provisional placement/mockups and binding
-   keyboard, compact behavior and inspection to these transitions. Update
-   [architecture](../../agents/architecture.md#dockview-panel-layout),
+   keyboard, run chooser, compact behavior and inspection to these transitions.
+   Update its ADR 0013 amendment wording to replacement/supersession and its
+   explicit-only Workflow startup wording to the owner-selected validated last
+   central view restoration; neither restoration nor inspection grants execution.
+   Update [architecture](../../agents/architecture.md#dockview-panel-layout),
    [product boundaries](../../agents/product-boundaries.md#single-active-context-ux-invariant),
    root guide pointers and docs landing claims when their described behavior
    actually changes. Do not advertise an installer feature from a proposed spec.
@@ -395,7 +450,7 @@ dependencies are textual. No rendered line is a measured duration or Git graph.
 
 ### Central Review and workspace actions
 
-![One Review document replacing Terminal, explicit return actions, separate confirmed review-prompt submission, and a workspace-scoped Recommendations inspector.](../../validation/assets/shell-navigation-review.svg)
+![One Review document replacing Terminal, explicit return actions, separate explicit review-prompt approval, and a workspace-scoped Recommendations inspector.](../../validation/assets/shell-navigation-review.svg)
 
 ### Narrow window / effective zoom width
 
@@ -407,7 +462,7 @@ dependencies are textual. No rendered line is a measured duration or Git graph.
 | Switch agents | Compact actual-session row opens its exact terminal; Enter focuses xterm; workflow inspection does not alter that selection |
 | Inspect planned verification | V1 details show not started and dependency/approval state; there is no fabricated terminal or launch button |
 | Understand research → execution | Earlier research stage retains results; new proposal reads Awaiting approval; inspection grants nothing |
-| Review a plan | Review plan selects one validated artifact; Back to terminal restores the exact session; Send review prompt remains separately confirmed |
+| Review a plan | Review plan selects one validated artifact; Back to terminal restores the exact session; Request independent review remains a separate explicit approval click |
 | Return after changing sessions | Workflow resolves from the newly selected session's ownership; unrelated old run/details cannot appear beside its terminal |
 | Find recommendations/capacity | Explicit inspector/page scope labels; details restores to the current context; no recommendation sends into an inspected-only node |
 | Use narrow width/200% zoom | Central outline stays readable, temporary pages have return actions, all attention/status/skill details remain reachable |
@@ -425,8 +480,10 @@ artifact/generation replies; unavailable ownership; planned nodes; forgotten
 targets; parent loss; collapse with focused descendants; Review target drift;
 same-session terminal reattachment; detached output drain; inspector scope
 changes; hotkey migration/capture; width/zoom transitions; malformed/future
-layout records; atomic-save failure; exact approval with no renderer authority;
-and ordinary sessions with no orchestration projections.
+layout records; concurrent save/deletion and stale revision rejection; lock
+contention/atomic-save failure; sidecar selection precedence; retained runs with
+missing parents and stale chooser targets; Actions scope/return; exact approval
+with no renderer authority; and ordinary sessions with no orchestration projections.
 
 After written shell acceptance and authoritative reconciliation, use
 writing-plans to produce reviewed executable units for (1) pure navigation and

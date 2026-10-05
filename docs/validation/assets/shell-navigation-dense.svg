@@ -21,7 +21,7 @@
 <text x="22" y="285" class="small">Selected terminal</text>
 <rect x="10" y="306" width="220" height="76" rx="6" fill="#1d222b"/>
 <text x="22" y="329" class="">Check error cases</text>
-<text x="22" y="354" class="amber">Research · needs input</text>
+<text x="22" y="354" class="amber">Research · Needs you</text>
 <rect x="10" y="396" width="220" height="76" rx="6" fill="#1d222b"/>
 <text x="22" y="419" class="">Ordinary session</text>
 <text x="22" y="444" class="small">Copilot · working</text>
@@ -67,7 +67,7 @@
 <rect x="465" y="150" width="150" height="34" rx="6" fill="#343c49" stroke="#46505e"/>
 <text x="477" y="173" class="small">View: Timeline</text>
 <text x="270" y="225" class="heading">Research · revision 1 · retained · Show results</text>
-<text x="270" y="254" class="small">R2 still needs input · 1 current action retained</text>
+<text x="270" y="254" class="small">R2 · Needs you · 1 current action retained</text>
 <path d="M286 275 L286 810" fill="none" stroke="#647080" stroke-width="1.5"/>
 <text x="316" y="310" class="heading">Execution · revision 2 · approved plan</text>
 <path d="M286 360 L316 360" fill="none" stroke="#647080" stroke-width="1.5"/>

@@ -21,7 +21,7 @@
 <text x="22" y="285" class="small">Selected terminal</text>
 <rect x="10" y="306" width="220" height="76" rx="6" fill="#1d222b"/>
 <text x="22" y="329" class="">Check error cases</text>
-<text x="22" y="354" class="amber">Research · needs input</text>
+<text x="22" y="354" class="amber">Research · Needs you</text>
 <rect x="10" y="396" width="220" height="76" rx="6" fill="#1d222b"/>
 <text x="22" y="419" class="">Ordinary session</text>
 <text x="22" y="444" class="small">Copilot · working</text>
