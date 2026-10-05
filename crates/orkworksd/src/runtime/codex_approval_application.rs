@@ -17,6 +17,9 @@ pub(crate) struct NativeApprovalState {
     turn: Option<String>,
     hook_revision: Option<u64>,
     last_hook_at: Option<chrono::DateTime<chrono::Utc>>,
+    // Private attention events share legacy ordering; correlation-only Pre/
+    // Post records must never advance that attention watermark.
+    last_private_attention_at: Option<chrono::DateTime<chrono::Utc>>,
     // Accepted legacy HTTP transitions and authenticated private turn
     // boundaries fence queued old events. Never infer this from caller trust.
     fenced_hook_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -42,6 +45,7 @@ impl NativeApprovalState {
             turn: None,
             hook_revision: Some(0),
             last_hook_at: None,
+            last_private_attention_at: None,
             fenced_hook_at: None,
             ownership: None,
             live_revision: None,
@@ -206,16 +210,35 @@ pub(crate) fn report_hook(
             tracker.invalidate();
             return HookReportOutcome::Rejected;
         }
-        let boundary = matches!(report.event, HookEvent::Stop | HookEvent::UserPromptSubmit);
-        if let Some(external) = handle
+        if handle
             .runtime
-            .last_hook_attention_at
-            .filter(|at| tracker.last_hook_at.is_none_or(|private| *at > private))
+            .accepted_input_at
+            .is_some_and(|input| observed <= input)
         {
+            tracker.reducer.disconnected();
+            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
+            return HookReportOutcome::Rejected;
+        }
+        let boundary = matches!(report.event, HookEvent::Stop | HookEvent::UserPromptSubmit);
+        if let Some(external) = handle.runtime.last_hook_attention_at.filter(|at| {
+            tracker
+                .last_private_attention_at
+                .is_none_or(|private| *at > private)
+        }) {
             tracker.fenced_hook_at = Some(
                 tracker
                     .fenced_hook_at
                     .map_or(external, |at| at.max(external)),
+            );
+        }
+        // A valid boundary fences its older queued events even if newer
+        // correlation or attention makes replaying its transition stale.
+        // Input and all scalar/auth/root checks have already passed.
+        if boundary {
+            tracker.fenced_hook_at = Some(
+                tracker
+                    .fenced_hook_at
+                    .map_or(observed, |at| at.max(observed)),
             );
         }
         if tracker
@@ -228,15 +251,6 @@ pub(crate) fn report_hook(
         }
         // UUID filename order is not event order. Ties and reversed delivery
         // revoke correlation; an authenticated permission remains conservative.
-        if handle
-            .runtime
-            .accepted_input_at
-            .is_some_and(|input| observed <= input)
-        {
-            tracker.reducer.disconnected();
-            tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
-            return HookReportOutcome::Rejected;
-        }
         let reordered = tracker
             .last_hook_at
             .is_some_and(|previous| observed <= previous)
@@ -284,13 +298,6 @@ pub(crate) fn report_hook(
         if activation || boundary {
             handle.active_work_hook = true;
         }
-        if boundary {
-            tracker.fenced_hook_at = Some(
-                tracker
-                    .fenced_hook_at
-                    .map_or(observed, |at| at.max(observed)),
-            );
-        }
         if report.turn_id.is_none() {
             tracker.reducer.disconnected();
         }
@@ -315,7 +322,14 @@ pub(crate) fn report_hook(
                 .last_hook_at
                 .map_or(observed, |previous| previous.max(observed)),
         );
-        handle.runtime.last_hook_attention_at = tracker.last_hook_at;
+        if boundary || report.event == HookEvent::PermissionRequest {
+            let attention_at = handle
+                .runtime
+                .last_hook_attention_at
+                .map_or(observed, |at| at.max(observed));
+            handle.runtime.last_hook_attention_at = Some(attention_at);
+            tracker.last_private_attention_at = Some(attention_at);
+        }
         tracker.live_revision = handle.runtime.attention_owner.snapshot();
         if tracker.hook_revision.is_none() || !tracker.reducer.assistance_available() {
             tracker.reducer.disconnected();
@@ -956,6 +970,359 @@ mod tests {
             "event":event, "observedAt":report.observed_at, "hookFingerprint":report.hook_fingerprint
         }}).to_string()).unwrap();
         path
+    }
+
+    async fn deliver_http_hook(
+        state: &Arc<AppState>,
+        id: &str,
+        report: &NativeHookReport,
+        event: &str,
+        status: &str,
+    ) -> axum::http::StatusCode {
+        let request = serde_json::from_value(serde_json::json!({
+            "status":status, "source":"codex_hook", "event":event,
+            "observedAt":report.observed_at, "hookFingerprint":report.hook_fingerprint
+        }))
+        .unwrap();
+        crate::http::session_handlers::report_attention_with_headers(
+            axum::extract::State(state.clone()),
+            axum::extract::Path(id.to_owned()),
+            axum::http::HeaderMap::new(),
+            axum::Json(request),
+        )
+        .await
+        .status()
+    }
+
+    #[tokio::test]
+    async fn newer_private_correlation_cannot_defeat_http_and_private_boundary_fences() {
+        for correlation in ["PreToolUse", "PostToolUse"] {
+            for boundary in ["Stop", "UserPromptSubmit"] {
+                for private_first in [false, true] {
+                    let (_dir, state, generation, mut report, _) = callback_fixture();
+                    let id = state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .keys()
+                        .next()
+                        .unwrap()
+                        .clone();
+                    let relay =
+                        super::super::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
+                    let t3 = chrono::Utc::now();
+                    report.observed_at = t3.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                    report.tool_use_id = Some("tool".into());
+                    queue_hook(&relay, &report, correlation);
+                    assert_eq!(
+                        relay
+                            .consume_ready(state.clone(), &id, "test-report-token", generation)
+                            .await
+                            .reports_accepted,
+                        1
+                    );
+                    assert!(
+                        state.sessions.lock().unwrap()[&id]
+                            .runtime
+                            .last_hook_attention_at
+                            .is_none(),
+                        "correlation-only evidence cannot advance accepted attention order"
+                    );
+                    report.observed_at = (t3 - chrono::Duration::milliseconds(100))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                    if private_first {
+                        queue_hook(&relay, &report, boundary);
+                        relay
+                            .consume_ready(state.clone(), &id, "test-report-token", generation)
+                            .await;
+                    }
+                    assert_eq!(
+                        deliver_http_hook(
+                            &state,
+                            &id,
+                            &report,
+                            boundary,
+                            if boundary == "Stop" {
+                                "idle"
+                            } else {
+                                "working"
+                            }
+                        )
+                        .await,
+                        axum::http::StatusCode::OK
+                    );
+                    if !private_first {
+                        queue_hook(&relay, &report, boundary);
+                        relay
+                            .consume_ready(state.clone(), &id, "test-report-token", generation)
+                            .await;
+                    }
+                    {
+                        let sessions = state.sessions.lock().unwrap();
+                        assert_eq!(
+                            sessions[&id].info.observed_status.as_deref(),
+                            Some(if boundary == "Stop" {
+                                "idle"
+                            } else {
+                                "working"
+                            })
+                        );
+                        let boundary_at = chrono::DateTime::parse_from_rfc3339(&report.observed_at)
+                            .unwrap()
+                            .with_timezone(&chrono::Utc);
+                        assert_eq!(
+                            sessions[&id].runtime.native_approval.as_ref().unwrap().fenced_hook_at,
+                            Some(boundary_at),
+                            "reordered private and accepted HTTP copies preserve the boundary fence"
+                        );
+                    }
+                    report.observed_at = (t3 - chrono::Duration::milliseconds(200))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                    queue_hook(&relay, &report, "PermissionRequest");
+                    assert_eq!(
+                        relay
+                            .consume_ready(state.clone(), &id, "test-report-token", generation)
+                            .await
+                            .reports_accepted,
+                        0
+                    );
+                    assert_eq!(
+                        state.sessions.lock().unwrap()[&id]
+                            .info
+                            .observed_status
+                            .as_deref(),
+                        Some(if boundary == "Stop" {
+                            "idle"
+                        } else {
+                            "working"
+                        })
+                    );
+                    super::super::terminal_runtime::clear_workflow_report_token(&id);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn reordered_boundary_fences_old_permission_without_replaying_over_newer_attention() {
+        for correlation in ["PreToolUse", "PostToolUse"] {
+            for boundary in ["Stop", "UserPromptSubmit"] {
+                for private_first in [false, true] {
+                    for native_attention in [false, true] {
+                        let (_dir, state, generation, mut report, _) = callback_fixture();
+                        let id = state
+                            .sessions
+                            .lock()
+                            .unwrap()
+                            .keys()
+                            .next()
+                            .unwrap()
+                            .clone();
+                        let relay =
+                            super::super::codex_hook_report_relay::CodexHookReportRelay::new()
+                                .unwrap();
+                        let t3 = chrono::Utc::now() - chrono::Duration::milliseconds(100);
+                        report.observed_at =
+                            t3.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                        report.tool_use_id = Some("tool".into());
+                        queue_hook(&relay, &report, correlation);
+                        assert_eq!(
+                            relay
+                                .consume_ready(state.clone(), &id, "test-report-token", generation)
+                                .await
+                                .reports_accepted,
+                            1
+                        );
+                        // A later real wait belongs to another invocation;
+                        // PostToolUse has already retired the correlation ID.
+                        report.tool_use_id = Some("new-permission-tool".into());
+                        report.observed_at = (t3 + chrono::Duration::milliseconds(50))
+                            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                        if native_attention {
+                            assert_eq!(
+                                report_hook(
+                                    &state,
+                                    &id,
+                                    "test-report-token",
+                                    generation,
+                                    Instant::now() - Duration::from_secs(3),
+                                    &report
+                                ),
+                                HookReportOutcome::Accepted
+                            );
+                        } else {
+                            assert_eq!(
+                                deliver_http_hook(
+                                    &state,
+                                    &id,
+                                    &report,
+                                    "PermissionRequest",
+                                    "waiting_for_input"
+                                )
+                                .await,
+                                axum::http::StatusCode::OK
+                            );
+                        }
+                        let attention_at = state.sessions.lock().unwrap()[&id]
+                            .runtime
+                            .last_hook_attention_at;
+                        assert_eq!(
+                            state.sessions.lock().unwrap()[&id]
+                                .info
+                                .attention
+                                .as_deref(),
+                            Some("needs_you")
+                        );
+                        report.observed_at = (t3 - chrono::Duration::milliseconds(100))
+                            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                        if private_first {
+                            queue_hook(&relay, &report, boundary);
+                            assert_eq!(
+                                relay
+                                    .consume_ready(
+                                        state.clone(),
+                                        &id,
+                                        "test-report-token",
+                                        generation
+                                    )
+                                    .await
+                                    .reports_accepted,
+                                0
+                            );
+                        }
+                        assert_eq!(
+                            deliver_http_hook(
+                                &state,
+                                &id,
+                                &report,
+                                boundary,
+                                if boundary == "Stop" {
+                                    "idle"
+                                } else {
+                                    "working"
+                                }
+                            )
+                            .await,
+                            axum::http::StatusCode::OK
+                        );
+                        if !private_first {
+                            queue_hook(&relay, &report, boundary);
+                            assert_eq!(
+                                relay
+                                    .consume_ready(
+                                        state.clone(),
+                                        &id,
+                                        "test-report-token",
+                                        generation
+                                    )
+                                    .await
+                                    .reports_accepted,
+                                0
+                            );
+                        }
+                        assert_eq!(
+                            state.sessions.lock().unwrap()[&id]
+                                .runtime
+                                .last_hook_attention_at,
+                            attention_at
+                        );
+                        assert_eq!(
+                            state.sessions.lock().unwrap()[&id]
+                                .info
+                                .attention
+                                .as_deref(),
+                            Some("needs_you"),
+                            "old boundary must not replay over a newer accepted wait"
+                        );
+                        report.observed_at = (t3 - chrono::Duration::milliseconds(200))
+                            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+                        queue_hook(&relay, &report, "PermissionRequest");
+                        assert_eq!(
+                            relay
+                                .consume_ready(state.clone(), &id, "test-report-token", generation)
+                                .await
+                                .reports_accepted,
+                            0
+                        );
+                        assert_eq!(
+                            state.sessions.lock().unwrap()[&id]
+                                .info
+                                .attention
+                                .as_deref(),
+                            Some("needs_you")
+                        );
+                        super::super::terminal_runtime::clear_workflow_report_token(&id);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_or_input_obsolete_boundaries_do_not_advance_the_fence() {
+        for boundary in [HookEvent::Stop, HookEvent::UserPromptSubmit] {
+            for invalid in 0..7 {
+                let (_dir, state, generation, mut report, t) = callback_fixture();
+                let id = state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .next()
+                    .unwrap()
+                    .clone();
+                report.event = boundary;
+                let at = chrono::DateTime::parse_from_rfc3339(&report.observed_at)
+                    .unwrap()
+                    .with_timezone(&chrono::Utc);
+                match invalid {
+                    0 => report.root_id = "different-root".into(),
+                    1 => report.hook_fingerprint = "0".repeat(64),
+                    2 => report.observed_at = "invalid-time".into(),
+                    3 => report.observed_at = (at + chrono::Duration::seconds(10)).to_rfc3339(),
+                    4 => {
+                        state
+                            .sessions
+                            .lock()
+                            .unwrap()
+                            .get_mut(&id)
+                            .unwrap()
+                            .runtime
+                            .accepted_input_at = Some(at)
+                    }
+                    _ => {}
+                }
+                let token = if invalid == 5 {
+                    "wrong-token"
+                } else {
+                    "test-report-token"
+                };
+                let generation = if invalid == 6 {
+                    generation + 1
+                } else {
+                    generation
+                };
+                assert_eq!(
+                    report_hook(&state, &id, token, generation, t, &report),
+                    HookReportOutcome::Rejected
+                );
+                let sessions = state.sessions.lock().unwrap();
+                assert!(
+                    sessions[&id]
+                        .runtime
+                        .native_approval
+                        .as_ref()
+                        .unwrap()
+                        .fenced_hook_at
+                        .is_none(),
+                    "rejected proof/input must not allocate boundary authority"
+                );
+                assert!(sessions[&id].runtime.last_hook_attention_at.is_none());
+                assert_eq!(sessions[&id].info.attention.as_deref(), Some("needs_you"));
+                drop(sessions);
+                super::super::terminal_runtime::clear_workflow_report_token(&id);
+            }
+        }
     }
 
     #[tokio::test]
