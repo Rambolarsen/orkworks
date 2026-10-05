@@ -538,6 +538,10 @@ Single binary. Top-level modules:
 
 For the current Rust domain model itself, see [domain-entities.md](domain-entities.md).
 
+Delayed terminal-status transitions preserve durable `ended` metadata even
+while the same live runtime remains `ending`: finalization writes metadata
+before updating the live handle, so that interval must not reopen the record.
+
 PTY input runs as one sequential blocking-pool write at a time, while the
 session driver continues draining output and observing the independent stop
 channel. Input and resize remain ordered in the bounded queue. A command

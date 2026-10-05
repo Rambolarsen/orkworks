@@ -1991,8 +1991,10 @@ impl SessionApplication {
                         // lock must not overwrite a live handle that has since
                         // entered its terminal lifecycle. Persisted `ended` alone
                         // is not authoritative when a live handle is active: it
-                        // can be stale from an earlier process. If the session
-                        // map is temporarily busy, release the workspace lock
+                        // can be stale from an earlier process. Once the live
+                        // generation is ending, preserve a durable terminal status even
+                        // before the finalizer updates its live phase. If the
+                        // session map is temporarily busy, release the workspace lock
                         // and retry rather than treating contention as no handle.
                         let live_handle_phase = match state.sessions.try_lock() {
                             Ok(sessions) => {
@@ -2030,7 +2032,12 @@ impl SessionApplication {
                             || (is_terminal
                                 && meta.lifecycle_phase == "ended"
                                 && (handle_decision.is_none()
-                                    || live_handle_phase.as_deref() == Some("ended")))
+                                    || live_handle_phase.as_deref() == Some("ended")
+                                    || (live_handle_phase.as_deref() == Some("ending")
+                                        && matches!(
+                                            meta.status.as_str(),
+                                            "killed" | "ended" | "error"
+                                        ))))
                             || (!is_terminal
                                 && matches!(live_handle_phase.as_deref(), Some("ending" | "ended")))
                             || (handle_decision.is_none()
@@ -11342,96 +11349,102 @@ mod tests {
 
     #[tokio::test]
     async fn delayed_terminal_transition_cannot_regress_finalized_metadata() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let id = "delayed-terminal-transition";
-        let mut metadata = crate::test_support::test_session_metadata(
-            id,
-            "Delayed transition",
-            &root.path().display().to_string(),
-            "running",
-            "now",
-            "now",
-        );
-        metadata.lifecycle_phase = "active".into();
-        metadata.lifecycle = "alive".into();
-        state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .write_session(&metadata);
-        let mut handle = attention_test_handle(id, root.path());
-        handle.info.lifecycle_phase = "active".into();
-        handle.info.lifecycle = "alive".into();
-        state.sessions.lock().unwrap().insert(id.into(), handle);
-
-        let workspace_guard = state.workspace.lock().unwrap();
-        let transition = tokio::spawn({
-            let state = state.clone();
-            async move {
-                SessionApplication::new(state)
-                    .transition_session_status(id, None, "ended")
-                    .await
-            }
-        });
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                if state.sessions.lock().unwrap()[id].info.lifecycle_phase == "ending" {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("terminal transition should enter ending before waiting on metadata");
-
-        let ws = workspace_guard.as_ref().unwrap();
-        let mut finalized = ws.metadata.read_session(id).unwrap();
-        finalized.status = "ended".into();
-        finalized.lifecycle_phase = "ended".into();
-        finalized.lifecycle = "dead".into();
-        finalized.pending_terminal_status = None;
-        ws.metadata.write_session(&finalized);
-        let mut sessions_guard = state.sessions.lock().unwrap();
-        sessions_guard.get_mut(id).unwrap().info.lifecycle_phase = "ended".into();
-        drop(workspace_guard);
-
-        // Keep the live state locked long enough for the detached transition to
-        // encounter WouldBlock. It must release the workspace lock and retry,
-        // rather than treating temporary contention as a missing live handle.
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        let stored_while_sessions_locked = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .read_session(id)
-            .unwrap();
-        assert_eq!(stored_while_sessions_locked.lifecycle_phase, "ended");
-        drop(sessions_guard);
-
-        assert!(
-            !tokio::time::timeout(std::time::Duration::from_secs(1), transition)
-                .await
-                .expect("detached transition should finish after the workspace lock is released")
+        // Finalization persists ended before updating the live handle. Cover
+        // both sides of that gap while the original transition is delayed.
+        for final_live_phase in ["ending", "ended"] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = "delayed-terminal-transition";
+            let mut metadata = crate::test_support::test_session_metadata(
+                id,
+                "Delayed transition",
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            metadata.lifecycle_phase = "active".into();
+            metadata.lifecycle = "alive".into();
+            state
+                .workspace
+                .lock()
                 .unwrap()
-        );
-        let stored = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .read_session(id)
-            .unwrap();
-        assert_eq!(stored.lifecycle_phase, "ended");
-        assert_eq!(stored.status, "ended");
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let mut handle = attention_test_handle(id, root.path());
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.lifecycle = "alive".into();
+            state.sessions.lock().unwrap().insert(id.into(), handle);
+
+            let workspace_guard = state.workspace.lock().unwrap();
+            let transition = tokio::spawn({
+                let state = state.clone();
+                async move {
+                    SessionApplication::new(state)
+                        .transition_session_status(id, None, "ended")
+                        .await
+                }
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                loop {
+                    if state.sessions.lock().unwrap()[id].info.lifecycle_phase == "ending" {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("terminal transition should enter ending before waiting on metadata");
+
+            let ws = workspace_guard.as_ref().unwrap();
+            let mut finalized = ws.metadata.read_session(id).unwrap();
+            finalized.status = "ended".into();
+            finalized.lifecycle_phase = "ended".into();
+            finalized.lifecycle = "dead".into();
+            finalized.pending_terminal_status = None;
+            ws.metadata.write_session(&finalized);
+            let mut sessions_guard = state.sessions.lock().unwrap();
+            sessions_guard.get_mut(id).unwrap().info.lifecycle_phase = final_live_phase.into();
+            drop(workspace_guard);
+
+            // Keep the live state locked long enough for the detached transition to
+            // encounter WouldBlock. It must release the workspace lock and retry,
+            // rather than treating temporary contention as a missing live handle.
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            let stored_while_sessions_locked = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored_while_sessions_locked.lifecycle_phase, "ended");
+            drop(sessions_guard);
+
+            assert!(
+                !tokio::time::timeout(std::time::Duration::from_secs(1), transition)
+                    .await
+                    .expect(
+                        "detached transition should finish after the workspace lock is released"
+                    )
+                    .unwrap()
+            );
+            let stored = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(stored.lifecycle_phase, "ended");
+            assert_eq!(stored.status, "ended");
+        }
     }
 
     #[tokio::test]
