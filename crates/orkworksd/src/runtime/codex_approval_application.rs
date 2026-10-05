@@ -332,7 +332,7 @@ pub(crate) fn report_hook(
                 handle,
                 &mut tracker,
                 &effect,
-                Instant::now(),
+                Instant::now,
                 COORDINATED_METADATA_WRITERS,
             );
         }
@@ -343,7 +343,7 @@ pub(crate) fn report_hook(
                 handle,
                 &mut tracker,
                 &effect,
-                Instant::now(),
+                Instant::now,
                 COORDINATED_METADATA_WRITERS,
             );
         }
@@ -409,7 +409,7 @@ pub(crate) fn begin_observation(
                 handle,
                 &mut tracker,
                 &effect,
-                Instant::now(),
+                Instant::now,
                 COORDINATED_METADATA_WRITERS,
             );
         }
@@ -484,7 +484,7 @@ pub(crate) fn finish_observation(
                 handle,
                 &mut tracker,
                 &effect,
-                Instant::now(),
+                Instant::now,
                 COORDINATED_METADATA_WRITERS,
             );
         }
@@ -513,7 +513,7 @@ fn apply_effect(
     handle: &mut SessionHandle,
     tracker: &mut NativeApprovalState,
     effect: &Effect,
-    now: Instant,
+    clock: impl Fn() -> Instant,
     coordinated_writers: bool,
 ) -> ApplyOutcome {
     if !tracker.reducer.accepts(effect)
@@ -576,7 +576,7 @@ fn apply_effect(
                 tracker.reducer.disconnected();
                 return ApplyOutcome::Rejected;
             }
-            if !tracker.reducer.clear_is_fresh(now) {
+            if !tracker.reducer.clear_is_fresh(clock()) {
                 return reject(tracker);
             }
             let Some((live, durable)) = tracker.ownership.as_ref() else {
@@ -599,9 +599,8 @@ fn apply_effect(
             meta.observed_status = Some("working".into());
             meta.attention = Some("working".into());
             meta.last_activity = crate::workspace_runtime::iso_now();
-            let commit_clock = Instant::now();
             match store.try_write_session_if_owned_when(&meta, durable, || {
-                tracker.reducer.clear_is_fresh(now + commit_clock.elapsed())
+                tracker.reducer.clear_is_fresh(clock())
             }) {
                 Err(_) => return ApplyOutcome::PersistFailed,
                 Ok(false) => return reject(tracker),
@@ -674,7 +673,7 @@ mod tests {
                 .reducer
                 .observe(NativeStatus::ApprovalPending, true, at, at)[0];
             assert_eq!(
-                apply_effect(&store, &mut handle, &mut tracker, &show, at, true),
+                apply_effect(&store, &mut handle, &mut tracker, &show, || at, true),
                 ApplyOutcome::Applied
             );
             let next = at + Duration::from_millis(100);
@@ -708,7 +707,7 @@ mod tests {
                 next
             };
             assert_eq!(
-                apply_effect(&store, &mut handle, &mut tracker, &clear, commit, true),
+                apply_effect(&store, &mut handle, &mut tracker, &clear, || commit, true),
                 ApplyOutcome::Rejected,
                 "competitor {competitor}"
             );
@@ -725,6 +724,85 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn metadata_read_delay_counts_toward_clear_commit_freshness() {
+        use std::io::Write;
+        use std::os::unix::ffi::OsStrExt;
+
+        let (_dir, store, mut handle, _, _) = fixture();
+        let entry = Instant::now();
+        let start = entry - Duration::from_secs(3);
+        let mut tracker = NativeApprovalState::new(handle.runtime.run_generation());
+        tracker
+            .reducer
+            .observe(NativeStatus::Active, true, start, start);
+        tracker
+            .reducer
+            .hook(HookEvent::PreToolUse, Some("tool"), start);
+        tracker
+            .reducer
+            .hook(HookEvent::PermissionRequest, None, start);
+        let pending = entry - Duration::from_millis(250);
+        let show = tracker
+            .reducer
+            .observe(NativeStatus::ApprovalPending, true, pending, pending)[0];
+        assert_eq!(
+            apply_effect(&store, &mut handle, &mut tracker, &show, || pending, true),
+            ApplyOutcome::Applied
+        );
+        let rpc_started = entry - Duration::from_millis(200);
+        let clear = tracker
+            .reducer
+            .observe(NativeStatus::Active, true, rpc_started, entry)[0];
+        let path = store
+            .sessions_dir()
+            .join(format!("{}.json", handle.info.id));
+        let original = std::fs::read(&path).unwrap();
+        // A FIFO makes the actual read_session call wait before staging starts.
+        // No metadata implementation hooks or sleeps in production are needed.
+        std::fs::remove_file(&path).unwrap();
+        let fifo = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let writer_path = path.clone();
+        let writer_bytes = original.clone();
+        let writer = std::thread::spawn(move || {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(writer_path)
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+            file.write_all(&writer_bytes).unwrap();
+        });
+        let result = apply_effect(
+            &store,
+            &mut handle,
+            &mut tracker,
+            &clear,
+            Instant::now,
+            true,
+        );
+        writer.join().unwrap();
+        // Restore a regular fixture file before checking durable state; a
+        // rejected clear must have left the FIFO untouched instead of renaming.
+        use std::os::unix::fs::FileTypeExt;
+        let rejected_before_rename = std::fs::metadata(&path).unwrap().file_type().is_fifo();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, original).unwrap();
+        assert_eq!(result, ApplyOutcome::Rejected);
+        assert!(rejected_before_rename);
+        assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            store
+                .read_session(&handle.info.id)
+                .unwrap()
+                .attention
+                .as_deref(),
+            Some("needs_you")
+        );
+        assert!(!tracker.reducer.accepts(&clear));
+    }
+
     #[test]
     fn production_clear_gate_preserves_wait_even_with_valid_owned_resolution() {
         let (_dir, store, mut handle, mut tracker, t) = fixture();
@@ -738,7 +816,7 @@ mod tests {
                 &mut handle,
                 &mut tracker,
                 &show,
-                at,
+                || at,
                 COORDINATED_METADATA_WRITERS
             ),
             ApplyOutcome::Applied
@@ -753,7 +831,7 @@ mod tests {
                 &mut handle,
                 &mut tracker,
                 &clear,
-                next,
+                || next,
                 COORDINATED_METADATA_WRITERS
             ),
             ApplyOutcome::Rejected
@@ -1184,7 +1262,7 @@ mod tests {
             .reducer
             .observe(NativeStatus::ApprovalPending, true, at, at)[0];
         assert_eq!(
-            apply_effect(&store, &mut handle, &mut tracker, &effect, at, true),
+            apply_effect(&store, &mut handle, &mut tracker, &effect, || at, true),
             ApplyOutcome::Applied
         );
         assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
@@ -1193,7 +1271,7 @@ mod tests {
             .reducer
             .observe(NativeStatus::Active, true, next, next)[0];
         assert_eq!(
-            apply_effect(&store, &mut handle, &mut tracker, &clear, next, true),
+            apply_effect(&store, &mut handle, &mut tracker, &clear, || next, true),
             ApplyOutcome::Applied
         );
         assert_eq!(handle.info.attention.as_deref(), Some("working"));
