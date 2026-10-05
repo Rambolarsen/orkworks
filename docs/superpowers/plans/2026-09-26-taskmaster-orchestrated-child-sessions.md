@@ -62,6 +62,16 @@ accepted scope decision is [ADR 0077](../../adr/0077-taskmaster-orchestrated-chi
 - [x] Validate the concrete draft with `rtk git diff --check`, `rtk proxy bash scripts/doc-check.sh` and `rtk proxy pnpm --dir docs docs:build`; inspect output.
 - [x] Obtain written scope acceptance; then update #610's criteria and retire #617 as superseded, without closing #610 or claiming eligibility.
 
+## Repository identity draft: 2026-10-04
+
+The early #745 input has a [proposed repository-identity contract](../specs/2026-10-04-configuration-learning-design.md)
+and [documentation task plan](2026-10-04-repository-identity-specification.md).
+It specifies local common-directory registration, replacement/relocation
+behavior, exact configuration/approval/resume binding and finite persistence.
+Written contract review, filesystem/platform evidence and executable code
+planning remain open. It does not complete #745's downstream learning/history
+scope or satisfy baseline unit 4's reviewed identity prerequisite yet.
+
 ## Runtime planning boundaries
 
 No unit below has an approved executable code plan. Create its tracker only

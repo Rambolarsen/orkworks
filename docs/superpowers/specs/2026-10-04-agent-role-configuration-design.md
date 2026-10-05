@@ -15,8 +15,9 @@ coding-tool permissions. Configuration is immutable once approved. Evidence
 about delivery, usage, and outcomes lives in separate records.
 
 This is a proposed component contract, not an implemented API or a declaration
-that a coding tool is eligible. The authoritative Taskmaster/MVP specs and #610
-still need alignment with the ordinary-child-session proposal. The capability
+that a coding tool is eligible. The authoritative ordinary-child scope is aligned
+under accepted ADR 0077 and PR #747; #610 remains open for gated runtime work.
+The capability
 register currently supplies no verified launch slice. Review of this document,
 the upstream launch scope, and a scoped execution plan is required before code.
 No accepted ADR is amended or superseded by this draft.
@@ -56,13 +57,21 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 | `RubricSnapshot` | `id`, `version` (positive integer), `dimensions` (ID/description pairs), `evaluatorRole`; rating/calculation belongs to #744 |
 | `AdapterBinding` | `harnessId`, `definitionDigest`, `adapterId`, `adapterVersion`, `executableIdentity`, `toolVersion`, `platform`, `instructionMechanism`, `effectiveSettingsDigest`, `evidenceId`, `evidenceDigest` |
 | `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration`; part of the immutable configuration |
-| `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`, `capabilityEvidence`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
+| `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `repositoryBinding`, `sourceWorktreeBinding`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`, `capabilityEvidence`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
 
 `configurationId` is stable only within the immutable plan revision. A changed
 configuration gets a new ID and digest. Repository/workspace/plan/task identities
 are those supplied by the approved baseline, never guessed from a display name.
-The repository identity across worktrees remains a reviewed #745 input; an
-unresolved repository binding prevents comparison and launch.
+The [repository-identity portion of #745](2026-10-04-configuration-learning-design.md)
+is now a proposed review input; an unresolved binding prevents comparison and
+launch. Its proposed amendment adds required `repositoryBinding` and `sourceWorktreeBinding`
+to both child and bootstrap configurations and binds its digest into the run and every exact
+plan/parent binding. The complete descriptor participates in canonical digests,
+inclusive byte bounds and protected snapshot retention; `repositoryId` must
+match it. The source worktree snapshot binds the existing root and private Git
+directory objects; another same-family worktree cannot replace that source.
+Its digest is also retained by every plan/parent binding. Existing records without the reviewed binding cannot become eligible
+through path/name inference. This amendment and platform evidence remain gated.
 
 `assignmentKind` is `child` for the plan-bound `AssignmentConfiguration`. The
 parent uses the separate run bootstrap and plan binding below. `assignment` includes a short
@@ -179,7 +188,7 @@ source binding changes the configuration digest and needs new approval.
 ### Run-bound orchestrator bootstrap
 
 `OrchestratorBootstrapConfiguration` uses `schemaVersion` (1), `bootstrapId`,
-`repositoryId`, `workspaceId`, `parentSessionId`, `runId`, `rootAssignmentId`,
+`repositoryId`, `repositoryBinding`, `sourceWorktreeBinding`, `workspaceId`, `parentSessionId`, `runId`, `rootAssignmentId`,
 `goalDigest`, `roleTemplate`, `taskCategory`, `assignment`, `rules`,
 `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`,
 `capabilityEvidence`, `model`, `permissions`,
@@ -199,7 +208,7 @@ the assignment prefix and exact plan/task bindings above.
 
 Each `ParentPlanBinding` includes `runId`, `parentSessionId`, `planId`,
 `planRevision`, `runDefinitionDigest`, `bootstrapConfigurationDigest`,
-`preparationRevision`, and `inputDigest`. It is part of that plan's immutable
+`repositoryBindingDigest`, `sourceWorktreeBindingDigest`, `preparationRevision`, and `inputDigest`. It is part of that plan's immutable
 approved definition. It reuses the original startup bytes, permission profile,
 skills and model policy; reports and approved tasks are dynamic coordination
 inputs, not system-prompt/configuration replacement. Both the 2 MiB plan limit
