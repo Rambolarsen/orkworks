@@ -117,10 +117,12 @@ impl NativeLaunchPlan {
             .map_err(|e| e.to_string())
     }
     fn revalidate(&self) -> Result<(), NativeError> {
-        if !self.epoch.is_current()
-            || launch::resolve(&self.configured_program).as_ref() != Some(&self.executable)
-            || launch::ExecutableIdentity::read(&self.executable).as_ref() != Some(&self.identity)
-        {
+        if !startup_current(
+            &self.configured_program,
+            &self.executable,
+            &self.identity,
+            &self.epoch,
+        ) {
             return Err(NativeError::Unavailable);
         }
         Ok(())
@@ -159,24 +161,10 @@ async fn eligible_with_records(
         return Ok(None);
     };
     let epoch = cache.epoch();
-    let version = launch::version(&executable, &command.cwd, &identity, cache).await;
-    let Some(record) = records
-        .iter()
-        .find(|r| {
-            Some(r.version) == version.as_deref()
-                && r.os == std::env::consts::OS
-                && r.arch == std::env::consts::ARCH
-                && r.protocol == "v2-thread-status-0.160"
-                && !r.root_proof.is_empty()
-                && !r.evidence.is_empty()
-        })
-        .copied()
+    let Some(record) = probe_record(command, cache, records, &executable, &identity, &epoch).await
     else {
         return Ok(None);
     };
-    if !launch::features(&executable, &command.cwd).await {
-        return Ok(None);
-    }
     let plan = NativeLaunchPlan {
         executable,
         configured_program: command.program.clone(),
@@ -190,6 +178,50 @@ async fn eligible_with_records(
         return Ok(None);
     }
     Ok(Some(plan))
+}
+
+fn startup_current(
+    configured: &str,
+    executable: &Path,
+    identity: &launch::ExecutableIdentity,
+    epoch: &VersionProbeEpoch,
+) -> bool {
+    epoch.is_current()
+        && launch::resolve(configured).as_deref() == Some(executable)
+        && launch::ExecutableIdentity::read(executable).as_ref() == Some(identity)
+}
+// Shared probe sequence; production enters only after canonical binary resolution.
+async fn probe_record(
+    command: &CommandSpec,
+    cache: &VersionProbeCache,
+    records: &[CompatibilityRecord],
+    executable: &Path,
+    identity: &launch::ExecutableIdentity,
+    epoch: &VersionProbeEpoch,
+) -> Option<CompatibilityRecord> {
+    let current = || startup_current(&command.program, executable, identity, epoch);
+    if !current() {
+        return None;
+    }
+    let version = launch::version_fenced(executable, &command.cwd, identity, cache, &current).await;
+    if !current() {
+        return None;
+    }
+    let record = records
+        .iter()
+        .find(|r| {
+            Some(r.version) == version.as_deref()
+                && r.os == std::env::consts::OS
+                && r.arch == std::env::consts::ARCH
+                && r.protocol == "v2-thread-status-0.160"
+                && !r.root_proof.is_empty()
+                && !r.evidence.is_empty()
+        })
+        .copied()?;
+    if !launch::features_fenced(executable, &command.cwd, &current).await || !current() {
+        return None;
+    }
+    Some(record)
 }
 
 /// No Debug/Serialize: owns the memory-only TUI capability and authenticated client.

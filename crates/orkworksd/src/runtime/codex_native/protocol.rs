@@ -308,9 +308,12 @@ mod tests {
                     match fault {
                         "request" => {
                             socket.send(Message::Text(json!({"id":99,"method":"item/commandExecution/requestApproval","params":{}}).to_string())).await.unwrap();
-                            assert!(tokio::time::timeout(Duration::from_secs(3), socket.next())
-                                .await
-                                .is_ok());
+                            match tokio::time::timeout(Duration::from_secs(3),socket.next()).await.expect("observer did not close its connection") {
+                                None | Some(Ok(Message::Close(_))) => {},
+                                Some(Err(WsError::ConnectionClosed|WsError::AlreadyClosed|WsError::Protocol(tokio_tungstenite::tungstenite::error::ProtocolError::ResetWithoutClosingHandshake))) => {},
+                                Some(Err(WsError::Io(error))) if matches!(error.kind(),std::io::ErrorKind::ConnectionReset|std::io::ErrorKind::ConnectionAborted|std::io::ErrorKind::UnexpectedEof) => {},
+                                _ => panic!("observer sent a forbidden application response before close"),
+                            }
                             return;
                         }
                         "malformed" => {
@@ -368,9 +371,52 @@ mod tests {
         task.abort();
     }
     #[tokio::test]
+    async fn approval_request_receives_no_application_reply_before_observer_closes() {
+        let (endpoint, task) = fixture("request").await;
+        let mut client = Client::connect(&endpoint, "fixture-secret", record())
+            .await
+            .unwrap();
+        assert_eq!(
+            client.observe("root").await.err(),
+            Some(NativeError::UnsupportedRequest)
+        );
+        drop(client);
+        tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .expect("approval fixture did not finish")
+            .expect("approval fixture assertion failed");
+    }
+    #[tokio::test]
+    async fn malicious_fixture_client_reply_is_detected_by_the_no_reply_assertion() {
+        let (endpoint, task) = fixture("request").await;
+        let mut client = Client::connect(&endpoint, "fixture-secret", record())
+            .await
+            .unwrap();
+        assert_eq!(
+            client.observe("root").await.err(),
+            Some(NativeError::UnsupportedRequest)
+        );
+        // Negative control is entirely test-only and connected only to fixture().
+        // No production observer response path is added or modified.
+        client
+            .socket
+            .send(Message::Text(json!({"id":99,"result":null}).to_string()))
+            .await
+            .unwrap();
+        drop(client);
+        let error = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .expect("approval fixture did not finish")
+            .expect_err("fixture accepted a forbidden application reply");
+        let panic = error.into_panic();
+        assert_eq!(
+            panic.downcast_ref::<&str>().copied(),
+            Some("observer sent a forbidden application response before close")
+        );
+    }
+    #[tokio::test]
     async fn unsafe_wire_cycles_disconnect_without_answering_requests() {
         for (fault, expected) in [
-            ("request", NativeError::UnsupportedRequest),
             ("wrong-id", NativeError::Shape),
             ("malformed", NativeError::Shape),
             ("oversized", NativeError::Limit),

@@ -223,7 +223,15 @@ impl Drop for OwnedProcess {
     }
 }
 #[cfg(unix)]
-async fn probe(executable: &Path, cwd: &str, args: &[&str]) -> Option<(String, String)> {
+async fn probe_fenced(
+    executable: &Path,
+    cwd: &str,
+    args: &[&str],
+    current: &impl Fn() -> bool,
+) -> Option<(String, String)> {
+    if !current() {
+        return None;
+    }
     let mut command = Command::new(executable);
     command
         .args(args)
@@ -239,6 +247,9 @@ async fn probe(executable: &Path, cwd: &str, args: &[&str]) -> Option<(String, S
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if !current() {
+        return None;
+    }
     let mut owner = OwnedProcess::spawn(command).ok()?;
     let stdout = owner.child.as_mut()?.stdout.take()?;
     let stderr = owner.child.as_mut()?.stderr.take()?;
@@ -268,13 +279,22 @@ async fn probe(executable: &Path, cwd: &str, args: &[&str]) -> Option<(String, S
             String::from_utf8(error).ok()?,
         ))
     };
-    tokio::time::timeout(Duration::from_secs(3), read)
+    let result = tokio::time::timeout(Duration::from_secs(3), read)
         .await
         .ok()
-        .flatten()
+        .flatten();
+    if !current() {
+        return None;
+    }
+    result
 }
 #[cfg(not(unix))]
-async fn probe(_: &Path, _: &str, _: &[&str]) -> Option<(String, String)> {
+async fn probe_fenced(
+    _: &Path,
+    _: &str,
+    _: &[&str],
+    _: &impl Fn() -> bool,
+) -> Option<(String, String)> {
     None
 }
 fn canonical_version(stdout: &str, stderr: &str) -> Option<String> {
@@ -296,13 +316,17 @@ fn canonical_version(stdout: &str, stderr: &str) -> Option<String> {
     }
     Some(version.to_owned())
 }
-pub(super) async fn version(
+pub(super) async fn version_fenced(
     executable: &Path,
     cwd: &str,
     identity: &ExecutableIdentity,
     cache: &VersionProbeCache,
+    current: &impl Fn() -> bool,
 ) -> Option<String> {
-    cache
+    if !current() {
+        return None;
+    }
+    let result = cache
         .probe_or_get(
             VersionProbeCacheKey {
                 harness_id: "codex-native/v1".into(),
@@ -313,23 +337,39 @@ pub(super) async fn version(
             Duration::from_secs(30),
             Duration::from_secs(5),
             || async {
-                let (out, err) = probe(executable, cwd, &["--version"]).await?;
+                let (out, err) = probe_fenced(executable, cwd, &["--version"], current).await?;
                 canonical_version(&out, &err)
             },
         )
-        .await
+        .await;
+    if !current() {
+        return None;
+    }
+    result
 }
-pub(super) async fn features(executable: &Path, cwd: &str) -> bool {
-    let Some((help, err)) = probe(executable, cwd, &["--help"]).await else {
-        return false;
-    };
-    if !err.is_empty() || !help.starts_with("Codex CLI") {
+pub(super) async fn features_fenced(
+    executable: &Path,
+    cwd: &str,
+    current: &impl Fn() -> bool,
+) -> bool {
+    if !current() {
         return false;
     }
-    let Some((server, err)) = probe(executable, cwd, &["app-server", "--help"]).await else {
+    let Some((help, err)) = probe_fenced(executable, cwd, &["--help"], current).await else {
         return false;
     };
-    if !err.is_empty() || !server.contains("Usage: codex app-server") {
+    if !current() || !err.is_empty() || !help.starts_with("Codex CLI") {
+        return false;
+    }
+    if !current() {
+        return false;
+    }
+    let Some((server, err)) =
+        probe_fenced(executable, cwd, &["app-server", "--help"], current).await
+    else {
+        return false;
+    };
+    if !current() || !err.is_empty() || !server.contains("Usage: codex app-server") {
         return false;
     }
     let has = |text: &str, flag: &str| {
@@ -341,6 +381,25 @@ pub(super) async fn features(executable: &Path, cwd: &str) -> bool {
         && has(&server, "--listen")
         && has(&server, "--ws-auth")
         && has(&server, "--ws-token-sha256")
+}
+// Existing lower-level probe fixtures inject their own executable without
+// claiming a production compatibility entry. No unfenced wrapper is shipped.
+#[cfg(test)]
+async fn version(
+    executable: &Path,
+    cwd: &str,
+    identity: &ExecutableIdentity,
+    cache: &VersionProbeCache,
+) -> Option<String> {
+    version_fenced(executable, cwd, identity, cache, &|| true).await
+}
+#[cfg(test)]
+async fn features(executable: &Path, cwd: &str) -> bool {
+    features_fenced(executable, cwd, &|| true).await
+}
+#[cfg(test)]
+async fn probe(executable: &Path, cwd: &str, args: &[&str]) -> Option<(String, String)> {
+    probe_fenced(executable, cwd, args, &|| true).await
 }
 fn arguments(
     plan: &NativeLaunchPlan,
@@ -838,6 +897,126 @@ printf 'codex-cli 0.160.0\n'
             .unwrap()
             .is_none());
         }
+    }
+    #[tokio::test]
+    async fn inter_probe_epoch_change_during_version_stops_help_child() {
+        assert_probe_mutation_stops_next_child("version", false).await;
+    }
+    #[tokio::test]
+    async fn inter_probe_executable_replacement_during_version_stops_help_child() {
+        assert_probe_mutation_stops_next_child("version", true).await;
+    }
+    #[tokio::test]
+    async fn inter_probe_epoch_change_during_cli_help_stops_server_help_child() {
+        assert_probe_mutation_stops_next_child("cli-help", false).await;
+    }
+    #[tokio::test]
+    async fn inter_probe_executable_replacement_during_cli_help_stops_server_help_child() {
+        assert_probe_mutation_stops_next_child("cli-help", true).await;
+    }
+    #[tokio::test]
+    async fn inter_probe_epoch_change_during_server_help_revokes_final_result() {
+        assert_probe_mutation_stops_next_child("server-help", false).await;
+    }
+    #[tokio::test]
+    async fn inter_probe_executable_replacement_during_server_help_revokes_final_result() {
+        assert_probe_mutation_stops_next_child("server-help", true).await;
+    }
+    async fn assert_probe_mutation_stops_next_child(stage: &str, replace: bool) {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("codex");
+        let script = format!(
+            r#"#!/bin/sh
+case "$1" in --version) stage=version;; --help) stage=cli-help;; *) stage=server-help;; esac
+printf '%s\n' "$stage" >> '{dir}/children'
+if [ "$stage" = '{stage}' ]; then
+ touch '{dir}/entered'
+ while [ ! -f '{dir}/release' ]; do sleep 0.01; done
+fi
+case "$stage" in
+ version) printf 'codex-cli 0.160.0\n';;
+ cli-help) printf 'Codex CLI\n --remote endpoint\n --remote-auth-token-env name\n';;
+ server-help) printf 'Usage: codex app-server\n --listen endpoint\n --ws-auth auth\n --ws-token-sha256 digest\n';;
+esac
+"#,
+            dir = dir.path().display(),
+            stage = stage
+        );
+        std::fs::write(&executable, &script).unwrap();
+        crate::test_support::make_test_executable(&executable);
+        let executable = executable.canonicalize().unwrap();
+        let identity = ExecutableIdentity::read(&executable).unwrap();
+        let cache = std::sync::Arc::new(VersionProbeCache::new());
+        let epoch = cache.epoch();
+        let command = CommandSpec {
+            program: executable.display().to_string(),
+            args: vec![],
+            cwd: dir.path().display().to_string(),
+        };
+        let record = CompatibilityRecord {
+            version: "0.160.0",
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            user_agent_prefix: "fixture/0.160.0",
+            protocol: "v2-thread-status-0.160",
+            root_proof: "fixture",
+            evidence: "fixture",
+        };
+        let task = {
+            let cache = cache.clone();
+            let executable = executable.clone();
+            tokio::spawn(async move {
+                super::super::probe_record(
+                    &command,
+                    &cache,
+                    &[record],
+                    &executable,
+                    &identity,
+                    &epoch,
+                )
+                .await
+            })
+        };
+        // Earlier bounded probes may take up to three seconds each under the
+        // parallel fixture load. Wait on the actual barrier or task completion,
+        // not a shorter one-second scheduling assumption.
+        let barrier_deadline = Instant::now() + Duration::from_secs(8);
+        while !dir.path().join("entered").exists()
+            && !task.is_finished()
+            && Instant::now() < barrier_deadline
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(
+            dir.path().join("entered").exists(),
+            "probe fixture did not reach {stage} barrier; finished={}, children={}",
+            task.is_finished(),
+            std::fs::read_to_string(dir.path().join("children")).unwrap_or_default()
+        );
+        if replace {
+            let replacement = dir.path().join("replacement");
+            std::fs::write(&replacement, &script).unwrap();
+            crate::test_support::make_test_executable(&replacement);
+            std::fs::rename(replacement, &executable).unwrap();
+        } else {
+            cache.bump_generation();
+        }
+        std::fs::write(dir.path().join("release"), "").unwrap();
+        let result = task.await.unwrap();
+        let children = std::fs::read_to_string(dir.path().join("children")).unwrap();
+        let expected = match stage {
+            "version" => "version\n",
+            "cli-help" => "version\ncli-help\n",
+            _ => "version\ncli-help\nserver-help\n",
+        };
+        assert_eq!(
+            children, expected,
+            "invalidated/replaced {stage} spawned a subsequent child"
+        );
+        assert!(
+            result.is_none(),
+            "invalidated/replaced probe retained eligibility"
+        );
     }
     #[tokio::test]
     async fn native_cache_never_reuses_integration_outputs_or_replaced_executable_identity() {
