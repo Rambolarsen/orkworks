@@ -159,13 +159,19 @@ uses `enroll(cwd)`. These are proposed internal operations, not HTTP endpoints.
 4. For resolution, look up one active registration matching both the canonical
    common-directory locator and object identity. Missing registration returns
    `identity_unregistered`; duplicates/corruption return `identity_ambiguous`.
-   An ID with mismatched fields returns `identity_drift`.
+   An ID with mismatched fields returns `identity_drift`. If the same native
+   common-directory object is active at another canonical locator, return
+   `identity_drift` with that exact registration reference instead of treating
+   the relocated family as merely unregistered.
 5. Only Electron-authorized run preparation may enroll an unregistered family
    after displaying its local repository locator. Enrollment writes OrkWorks
    metadata only; it grants no permission to create worktrees or launch children.
-   Under the registry lock, repeat the lookup and object checks before atomically
-   persisting a new registration. Two simultaneous enrollments of the same
-   binding produce the same registration. Child/parent reports cannot enroll,
+   Under the registry lock, repeat the lookup and object checks across all active
+   registrations before atomically persisting a new registration. A matching
+   native object at another locator blocks enrollment pending explicit UI
+   retirement of that exact old binding; never publish two active locators for
+   the same object or silently retire a binding during enrollment. Two simultaneous
+   enrollments of the same binding produce the same registration. Child/parent reports cannot enroll,
    replace, retire or select a historical ID.
 6. If the locator is already registered with a different object identity, return
    `identity_drift`. The UI must explicitly retire the old binding before new
@@ -173,9 +179,15 @@ uses `enroll(cwd)`. These are proposed internal operations, not HTTP endpoints.
    later revalidation even if the object subsequently reappears.
 
 Symlink/junction aliases resolving to the same canonical locator and object
-reuse the registration. A move that changes the canonical locator requires a
-new registration and new run; no history reassociation or approval transfer is
-provided. A clone cannot adopt the old identity through matching remotes or contents.
+reuse the registration. A move that changes the canonical locator requires
+explicit retirement of the old same-object registration, then a new registration
+and new run. This rule also applies when moving back: the original retired ID
+can never reactivate, and any current same-object registration must be retired
+before enrolling the returned locator. A crash between retirement and enrollment
+leaves the old binding retired; it does not restore it. Concurrent relocation
+attempts serialize under the registry lock and cannot create duplicate active
+object bindings. No history reassociation or approval transfer is provided.
+A clone cannot adopt the old identity through matching remotes or contents.
 A registry copy is data, not origin proof; supported restore and the limits of
 direct copying are specified below.
 Backing-directory replacement, stale linkage, relocation and conflicting
@@ -333,7 +345,11 @@ Required contract fixtures before implementation eligibility:
   and invalid encodings have shared byte/digest fixtures and platform receipts.
 - Observable common-directory replacement at the same locator, worktree
   replacement, relocation and post-approval drift block admission/resume.
-  Matching remotes/commits cannot heal a mismatch.
+  Matching remotes/commits cannot heal a mismatch. Enrollment of a moved
+  same-object family blocks until its exact prior registration is explicitly
+  retired. Moving away and back cannot reactivate either retired ID or resume
+  its old run, even if root/private-directory object IDs match again; cover
+  concurrent enrollment and a crash between retirement and new enrollment.
 - Concurrent enrollment across sidecars returns one ID; retirement versus
   validation, timeout, full registry, crash before/after publication, lock-file
   retention, malformed registry and explicit reset preserve their dispositions.

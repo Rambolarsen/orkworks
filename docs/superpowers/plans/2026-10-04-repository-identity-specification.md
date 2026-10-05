@@ -41,7 +41,7 @@ source implementation is unauthorized until contract/ADR/plan acceptance.
 - [x] Run `rtk git diff --check`, `rtk proxy bash scripts/doc-check.sh`,
   `rtk proxy pnpm --dir docs docs:build` and the worktree currency hook in the
   owned checkout; inspect outputs before claiming verification.
-- [ ] Commit and open a documentation PR for the owner's written contract review;
+- [x] Commit and open a documentation PR for the owner's written contract review;
   update #745 with partial progress and remaining gates, preserving its scope.
 - [ ] Obtain written contract acceptance; only then prepare the separate
   ADR/runtime tracker/executable plan and its explicit approval.
@@ -69,3 +69,15 @@ approved source-worktree root/private-directory identity is now retained and
 revalidated, and supported registry restoration uses a new epoch with explicit
 direct-copy/rollback limitations. These are proposed specification corrections;
 no platform or runtime success is claimed. No second reviewer round was run.
+
+## PR review pass
+
+The owner authorized babysitting, review fixes and merge of
+[PR #753](https://github.com/Rambolarsen/orkworks/pull/753) on 2026-10-05.
+Codex reviewed initial head `3e82304` and identified the same-object relocation
+retirement gap. The contract now requires explicit retirement of the old active
+locator before new enrollment, rejects duplicate active object bindings under
+the registry lock, and covers moving away/back plus interrupted enrollment.
+Substantial external review cycle 1/3 will request review of the corrected head.
+Merge authorization applies to this documentation deliverable; platform
+eligibility, accepted identity ADR and executable runtime planning remain gated.
