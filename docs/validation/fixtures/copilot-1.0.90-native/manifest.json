@@ -62,7 +62,7 @@
   ],
   "normalizedArgv": [
     "python3",
-    "inspect-runtime.py",
+    "docs/validation/fixtures/copilot-1.0.90-native/inspect-runtime.py",
     "--native",
     "<installed-native-executable>",
     "--cache",
@@ -70,5 +70,5 @@
     "--output",
     "<observer-output-directory>"
   ],
-  "pathRendering": "Host-specific paths replaced by observer placeholders; not raw argv capture."
+  "pathRendering": "Portable equivalent of observed invocation: script path names the byte-identical retained copy; host-specific paths replaced by observer placeholders. Not raw argv capture."
 }
