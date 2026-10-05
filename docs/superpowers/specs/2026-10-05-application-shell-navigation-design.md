@@ -373,32 +373,51 @@ selection or an empty terminal state, without automatic resume. Workspace
 deletion forgets its navigation record; each independent instance has no peer
 discovery/focus authority. Persistence failure cannot gate ordinary sessions.
 
-Electron owns both shell records. Use bounded nonblocking advisory locking on
+Electron owns both shell records, including a monotonic revision and an opaque
+creation epoch as storage metadata. Use bounded nonblocking advisory locking on
 a retained installation-scoped lock file, following the existing workspace
-history contract: never unlink, replace or evict the lock inode by age. Each
-Electron instance serializes mutation preparation and commit through one local
-writer queue; renderer events submit desired presentation changes, not prepared
-record revisions. Prepare the next mutation's expected revision only after the
-preceding transaction finishes, using its verified result or a fresh validated
-read. Coalesce not-yet-prepared superseded presentation changes for the same
-record/workspace into the latest valid desired state; reset/deletion commands
-remain ordering barriers and cancel older queued saves for their subject.
-Queued navigation retains its originating workspace/generation and is revalidated
-before preparation; switching/disposal drops invalidated requests rather than
-retargeting them. A revision-rejected operation is still final: this queue cannot
-replay it with a new revision. Only a later valid user change may prepare a new
-operation. This prevents rapid same-instance navigation/resizing from competing
-with its own earlier revision while retaining cross-instance stale-write rejection.
-Each prepared mutation carries the revision read at its preparation.
-Under the lock, reread and validate the current record, reject revision overflow
-or a revision mismatch, apply only that operation's fields/entry, enforce bounds,
-flush a same-directory temporary file, atomically replace and verify read-back.
-Never write an in-memory whole-history snapshot. A stale save, including one
-prepared before another instance's deletion/eviction, is rejected and cannot
-resurrect that entry. Reread for future user navigation; do not automatically
-replay the rejected operation with a fresh revision. Deletion and retention use
-the same lock/revision discipline. Lock contention or failed validation/save
-preserves existing bytes and reports failure while the current view stays usable.
+history contract: never unlink, replace or evict the lock inode by age. First-use
+initialization is a separate locked transaction that establishes a valid epoch
+and revision before admitting intents; reread any record another instance has
+already created rather than replacing it.
+
+Each Electron instance serializes preparation and commit through one writer
+queue. At enqueue, Electron binds every intent to the record epoch/revision of
+its last validated snapshot and the exact originating workspace/generation.
+Renderer events provide only desired presentation changes. An intent never
+acquires a new causal base merely because preparation was delayed. Coalesce
+unprepared presentation updates for the same record/workspace using the latest
+intent's own causal base. Reset/deletion remains an ordering barrier; it cancels
+queued pre-barrier saves for its affected subject.
+
+Prepare the next transaction after its predecessor finishes. Starting from the
+intent's enqueue-time base, advance its expected revision only along an unbroken
+chain of verified, successful, non-barrier commits made by this same local writer
+to that record. Never advance across a reset/deletion, failed transaction, epoch
+change, or revision seen only by rereading shared storage. Track this local proof
+only while a pending intent needs it; it is not durable instance/peer history.
+Thus two rapid local saves can follow one another, while another instance's
+intervening reset/deletion leaves a revision gap and rejects the older intent,
+even if it had not yet been prepared. A fresh read updates the snapshot for
+future user intents; it cannot legitimize an existing queued event.
+
+Before preparation, revalidate workspace/generation; switching/disposal drops
+invalidated requests rather than retargeting them. Under the lock, reread and
+validate the record and require its epoch/revision to equal the intent's derived
+expected base. On mismatch, reject the intent and discard other queued events
+whose causal chain depends on that rejected base; refresh for a later user change,
+without automatic replay. Any failed transaction likewise invalidates its local
+successor chain and drops dependent queued intents, even when the persisted
+revision is unchanged. Refresh before admitting a later user intent; an existing
+queued event cannot retry the failed chain. Apply only the operation's fields/entry, enforce bounds,
+reject revision overflow, increment revision, flush a same-directory temporary
+file, atomically replace and verify read-back before admitting a local successor.
+Never write an in-memory whole-history snapshot. Normal reset, deletion and
+retention mutate the revisioned container; they do not remove or rewind it.
+Explicit reconstruction of a missing/corrupt record creates a fresh epoch, so
+old queued intents remain invalid even if its new revision starts at zero.
+Lock contention or failed validation/save preserves existing bytes and reports
+failure while the current view stays usable.
 
 Proposed startup default is last valid central view. First use/no remembered
 view opens Terminal for the existing valid selection, or the ordinary empty
@@ -528,8 +547,10 @@ changes; hotkey migration/capture; width/zoom transitions; malformed/future
 layout records; 20-to-21-workspace and byte-budget eviction, protected-entry
 oversize rejection, recency unchanged by attention/temporary pages; concurrent
 save/deletion and stale revision rejection; rapid same-instance navigation/resize,
-coalescing and deletion/reset ordering, queued workspace-generation invalidation; lock
-contention/atomic-save failure; sidecar selection precedence; retained runs with
+coalescing and deletion/reset ordering, queued workspace-generation invalidation;
+external reset/deletion between enqueue and preparation, unknown revision gaps,
+reconstructed-record epoch mismatch; first-use initialization races, failed-save
+successor invalidation, lock contention/atomic-save failure; sidecar selection precedence; retained runs with
 missing parents and stale chooser targets; Actions scope/return; exact approval
 with no renderer authority; and ordinary sessions with no orchestration projections.
 
