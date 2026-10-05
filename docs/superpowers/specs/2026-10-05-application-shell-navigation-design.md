@@ -376,7 +376,20 @@ discovery/focus authority. Persistence failure cannot gate ordinary sessions.
 Electron owns both shell records. Use bounded nonblocking advisory locking on
 a retained installation-scoped lock file, following the existing workspace
 history contract: never unlink, replace or evict the lock inode by age. Each
-mutation carries the record revision read when that operation was prepared.
+Electron instance serializes mutation preparation and commit through one local
+writer queue; renderer events submit desired presentation changes, not prepared
+record revisions. Prepare the next mutation's expected revision only after the
+preceding transaction finishes, using its verified result or a fresh validated
+read. Coalesce not-yet-prepared superseded presentation changes for the same
+record/workspace into the latest valid desired state; reset/deletion commands
+remain ordering barriers and cancel older queued saves for their subject.
+Queued navigation retains its originating workspace/generation and is revalidated
+before preparation; switching/disposal drops invalidated requests rather than
+retargeting them. A revision-rejected operation is still final: this queue cannot
+replay it with a new revision. Only a later valid user change may prepare a new
+operation. This prevents rapid same-instance navigation/resizing from competing
+with its own earlier revision while retaining cross-instance stale-write rejection.
+Each prepared mutation carries the revision read at its preparation.
 Under the lock, reread and validate the current record, reject revision overflow
 or a revision mismatch, apply only that operation's fields/entry, enforce bounds,
 flush a same-directory temporary file, atomically replace and verify read-back.
@@ -514,7 +527,8 @@ same-session terminal reattachment; detached output drain; inspector scope
 changes; hotkey migration/capture; width/zoom transitions; malformed/future
 layout records; 20-to-21-workspace and byte-budget eviction, protected-entry
 oversize rejection, recency unchanged by attention/temporary pages; concurrent
-save/deletion and stale revision rejection; lock
+save/deletion and stale revision rejection; rapid same-instance navigation/resize,
+coalescing and deletion/reset ordering, queued workspace-generation invalidation; lock
 contention/atomic-save failure; sidecar selection precedence; retained runs with
 missing parents and stale chooser targets; Actions scope/return; exact approval
 with no renderer authority; and ordinary sessions with no orchestration projections.
