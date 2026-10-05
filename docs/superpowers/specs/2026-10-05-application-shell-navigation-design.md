@@ -342,7 +342,11 @@ legacy record or unrelated app settings/hotkeys.
 
 Per-workspace remembered navigation needs a separate bounded record using the
 existing canonical workspace key, at most 20 remembered workspace entries and
-64 KiB total. Store last surface, optional run ID and overview anchors only.
+64 KiB total. Store `lastCentralSurface` (exactly Terminal, Workflow or Review),
+optional run ID and overview anchors only. Temporary Sessions/Details/Actions/
+Capacity pages and the run chooser are non-restorable; opening one retains the
+underlying central destination for persistence and never saves its ephemeral
+invoker, focus or return descriptor. Unknown surface values are invalid.
 The sidecar's `lastActiveSessionId`, restored through the existing controller's
 non-dead-match policy, is the sole durable selection authority. Navigation
 restoration cannot replace it, call ordinary selection/acknowledgement, or
@@ -400,22 +404,37 @@ PR does not mark them superseded or claim a shipped shell.
    constraints into the replacement so ADR 0002's supersession cannot imply a
    technology change. Update root ADR pointers and product-design constraints
    in the same accepted change; do not leave session-only binding authoritative.
-2. Amend [MVP shell scope](../../../specs/orkworks-mvp.md#electron-desktop-shell):
+2. Reconcile [independent workspace instances](../../../specs/multi-workspace.md)
+   and [ADR 0060](../../adr/0060-independent-workspace-instances.md): replace the
+   visible *session* context requirement and ADR 0013 preservation reference
+   with one visible central context under the new shell ADR. The new ADR
+   explicitly supersedes only ADR 0060's session-only context clause; add a
+   dated replacement pointer there while keeping its independent-instance,
+   one-workspace/sidecar, path-only history, lease and cleanup ownership decisions
+   accepted. Navigation memory is a separate presentation record, not a peer
+   registry or a change to workspace-history authority.
+3. Amend [MVP shell scope](../../../specs/orkworks-mvp.md#electron-desktop-shell):
    replace VS Code-like three-column/mandatory-right-sidebar wording with
    compact Sessions, one central Terminal/Review/eligible Workflow surface and
    an optional contextual inspector; preserve native window and Electron
    security/lifetime rules. Update selected-session association and hotkey
    behavior descriptions where they currently require tabs/panel hiding.
-3. Amend [Taskmaster](../../../specs/taskmaster.md)'s UI implications and milestone
+4. Amend [Taskmaster](../../../specs/taskmaster.md)'s UI implications and milestone
    requirements: replace its Dockview panel/mandatory right-side action overview
    with the scoped Actions/Recommendations inspector or compact page. Retain
    recommendation approval, explicit session targeting, unavailable states and
    every existing control/authority boundary.
-4. Amend [Session Plan Review](../../../specs/session-plan-review.md) so Review
+5. Amend [Session Plan Review](../../../specs/session-plan-review.md) so Review
    plan opens the single reusable central Review surface with explicit return
    navigation, retaining artifact/path constraints and the existing explicit
    Request independent review click as approval, without an added native dialog.
-5. Reconcile #746 and the [hierarchy product direction](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
+   Add a dated [ADR 0034](../../adr/0034-user-approved-session-review-prompt.md)
+   amendment replacing the Details-panel placement reference with the same
+   selected-session action on central Review. Its narrow user-approved fixed
+   prompt decision stands: session ID only from renderer, Electron authentication,
+   sidecar path containment/revalidation, one live-PTY write and event recording;
+   no generic terminal-write API or independence claim is added.
+6. Reconcile #746 and the [hierarchy product direction](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
    with the accepted shell, replacing provisional placement/mockups and binding
    keyboard, run chooser, compact behavior and inspection to these transitions.
    Update its ADR 0013 amendment wording to replacement/supersession and its

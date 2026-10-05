@@ -121,8 +121,10 @@ The [proposed shell/navigation contract](../specs/2026-10-05-application-shell-n
 and six synthetic mockups are drafted for written review. #755 precedes final
 shell-dependent #746 placement/navigation acceptance. It compares central tree
 and timeline views, removes panel dragging/tab management, defines compact
-session switching and central Review/Terminal returns, and stages required
-ADR 0011 supersession / ADR 0013 amendment and layout migration.
+session switching and central Review/Terminal returns, and stages the required
+replacement ADR for ADR 0002/0011/0013, the ADR 0060 context-clause
+replacement pointer, ADR 0034 placement amendment, authoritative MVP/Taskmaster/
+Session Plan Review/multi-workspace reconciliation, and layout migration.
 No shell direction, replacement library or runtime execution plan is accepted
 by this link. Existing #746 evidence/identity contracts remain separately gated.
 
@@ -137,7 +139,8 @@ by this link. Existing #746 evidence/identity contracts remain separately gated.
 | Spec: skill delivery and usage evidence protocol | [#743](https://github.com/Rambolarsen/orkworks/issues/743) | #741, #740 | `docs/superpowers/specs/2026-10-04-skill-usage-evidence-design.md` |
 | Spec: assignment quality and completeness evaluation | [#744](https://github.com/Rambolarsen/orkworks/issues/744) | #741 | `docs/superpowers/specs/2026-10-04-assignment-evaluation-design.md` |
 | Spec: repository-scoped configuration learning and skill improvements | [#745](https://github.com/Rambolarsen/orkworks/issues/745) | #741, #743, #744 | `docs/superpowers/specs/2026-10-04-configuration-learning-design.md` |
-| Spec: agent hierarchy interaction and visual presentation | [#746](https://github.com/Rambolarsen/orkworks/issues/746) | Draft independently; finalize projection after #741, #743, #744 | `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md` |
+| Spec: application shell and workflow navigation | [#755](https://github.com/Rambolarsen/orkworks/issues/755) | Draft from current shell and #746 interaction proposal; final shell direction and authoritative reconciliation require written acceptance | `docs/superpowers/specs/2026-10-05-application-shell-navigation-design.md` and six synthetic shell mockups |
+| Spec: agent hierarchy interaction and visual presentation | [#746](https://github.com/Rambolarsen/orkworks/issues/746) | Draft independently; finalize projection after #741, #743, #744; final placement/navigation also requires accepted #755 shell direction and authoritative reconciliation | `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md` |
 
 #745's repository-identity-across-worktrees portion is an early reviewed
 input to #741 and baseline worktree/child admission; draft it with #741 before
@@ -148,12 +151,13 @@ repository identity blocks launch; it cannot wait for the complete learning unit
 Parallel drafting lanes:
 
 1. Scope alignment, capability research, role-contract drafting, and hierarchy
-   interaction/mockup drafting can proceed independently from the agreed
-   product direction.
+   interaction/mockup drafting and #755 shell drafting can proceed independently
+   from the agreed product direction; their final navigation must agree.
 2. After configuration/eligibility decisions, preparation, usage evidence, and
    evaluation contracts can proceed independently with shared identity terms.
 3. Learning consumes the approved usage/evaluation contracts. The hierarchy
-   projection is finalized against those contracts.
+   projection is finalized against those contracts; final #746 placement/navigation
+   also waits for #755 shell acceptance and authoritative reconciliation.
 4. Only then create/review scoped runtime plans and implementation issues.
    Foundation approval and tool eligibility remain launch gates.
 
@@ -671,7 +675,7 @@ rtk git commit -m "docs: specify repository-scoped configuration learning and sk
 - Read: `apps/desktop/src/domain/session.ts`.
 
 **Interfaces:**
-- Consumes: Existing session lifecycle/selection/unread state and the product node design; final field agreement consumes configuration, usage, and evaluation contracts.
+- Consumes: Existing session lifecycle/selection/unread state and the product node design; final field agreement consumes configuration, usage, and evaluation contracts; final placement/navigation consumes accepted #755 shell direction and authoritative reconciliation.
 - Produces: A reviewed interaction/projection contract and mockup fixtures covering planned/live/remembered nodes, skills, blockers, selection, collapse, accessible names, reduced motion, and secondary permission/evaluation detail. It introduces no privileged renderer control or second terminal.
 
 **Steps:**
@@ -766,7 +770,8 @@ the repository's applicable TDD/review/CI requirements.
 | Comparable repository-local history and future configuration choices | #745 |
 | Reviewable skill updates and rejection memory | #745, existing improvement workflow |
 | Portraits, tasks/status, badges, stable hierarchy, collapsed attention | #746 |
-| Single terminal, accessibility, reduced motion, secondary details | #746 |
+| Fixed shell, central navigation, layout migration and authoritative reconciliation | #755; final #746 placement/navigation consumes it |
+| Single terminal, accessibility, reduced motion, secondary details | #746 and shell integration #755 |
 | Bounded authenticated reports and history; ordinary-session compatibility | #741/#743/#744/#745, then baseline integration |
 
 Tasks 1–3 have proposed draft artifacts: the capability register, role

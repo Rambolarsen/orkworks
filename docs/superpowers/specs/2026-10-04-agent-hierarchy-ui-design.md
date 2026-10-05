@@ -382,7 +382,8 @@ only its actual session. Do not leave another agent's task/skills/evaluation
 beside a visible terminal after switching surfaces. On return, bind details
 before exposing the central surface; restore focus to the invoking node or its
 surviving heading. Shell review must decide placement/open-hide behavior and
-amend ADR 0013's index/detail wording while preserving one visible context.
+supersede ADR 0013's session-only context/detail binding while preserving one
+visible context; the #755 handoff stages the replacement and related reconciliation.
 No second terminal or transcript is mounted as overview content.
 
 Preserve controller foreground/admission/polling fencing. Each hierarchy,
