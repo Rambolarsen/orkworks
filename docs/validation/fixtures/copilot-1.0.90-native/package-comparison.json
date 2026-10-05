@@ -1,5 +1,5 @@
 {
-  "installedExecutable": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+  "installedExecutable": "<installed-native-executable>",
   "installedSha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458",
   "packages": [
     {
@@ -67,5 +67,6 @@
         }
       ]
     }
-  ]
+  ],
+  "pathRendering": "Host-specific executable path replaced by observer placeholder; byte identities unchanged."
 }

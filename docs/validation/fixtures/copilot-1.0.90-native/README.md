@@ -8,16 +8,22 @@ directory chosen by the observer.
 
 ## Reproduce the local static comparison
 
-From the repository root, with the installed executable and existing cache:
+From the repository root, set `ORK740_NATIVE` to the installed native
+executable, `ORK740_CACHE` to its existing 1.0.90 distribution cache, and
+`ORK740_OUTPUT` to a fresh observer-owned disposable directory. These variables
+denote filesystem paths, not credential values. Then run:
 
 ```bash
 rtk proxy python3 docs/validation/fixtures/copilot-1.0.90-native/inspect-runtime.py \
-  --native /opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot \
-  --cache /Users/froomiebot/Library/Caches/copilot/pkg/darwin-arm64/1.0.90 \
-  --output /private/tmp/ork740-native-reproduction
+  --native "$ORK740_NATIVE" \
+  --cache "$ORK740_CACHE" \
+  --output "$ORK740_OUTPUT"
 ```
 
-Use your own paths and a fresh observer-owned output directory. The inspector
+Host-specific input/cwd/output paths in the manifest and package comparison are
+replaced by declared observer placeholders. They are normalized provenance,
+not a raw argv recording or runtime event. File sizes/digests and source
+selections are unchanged. The inspector
 refuses a native executable whose digest differs from this packet. All six
 `cacheMatches` values must be true to reproduce this selected-file identity.
 Absent/mismatched cache files invalidate that comparison; do not silently

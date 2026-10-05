@@ -122,18 +122,18 @@ never stored. Likewise, native monitoring help's coupled OTel content gate
 remains unresolved. Do not enable broad content capture to see what it contains.
 
 ## Investigated uncertainty
-+
-+**Least confidence:** whether OTel or an existing native session channel can
-+provide complete request-bound receipts without forbidden capture. Static
-+schema presence cannot resolve live emission, storage or completeness.
-+
-+**Project blind spot:** the executable version can be reported before importing
-+mutable cached runtime files. The selected-file comparison resolves today's
-+source binding, but a future probe needs fresh loaded-distribution identity and
-+the complete effective startup-source audit already required by Task 2.
-+
-+## Handoff and bounded next action
-+
+
+**Least confidence:** whether OTel or an existing native session channel can
+provide complete request-bound receipts without forbidden capture. Static
+schema presence cannot resolve live emission, storage or completeness.
+
+**Project blind spot:** the executable version can be reported before importing
+mutable cached runtime files. The selected-file comparison resolves today's
+source binding, but a future probe needs fresh loaded-distribution identity and
+the complete effective startup-source audit already required by Task 2.
+
+## Handoff and bounded next action
+
 Task 1's native source/schema binding has progressed; its safe runtime example,
 capture-before-storage and per-request completeness gates remain open. The
 retained [reproduction instructions](fixtures/copilot-1.0.90-native/README.md)

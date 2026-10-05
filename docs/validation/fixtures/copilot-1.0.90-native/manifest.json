@@ -3,17 +3,7 @@
   "issue": 740,
   "kind": "static-source-inspection-not-runtime-events",
   "platform": "Darwin 25.6.0 arm64",
-  "argv": [
-    "python3",
-    "inspect-runtime.py",
-    "--native",
-    "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-    "--cache",
-    "/Users/froomiebot/Library/Caches/copilot/pkg/darwin-arm64/1.0.90",
-    "--output",
-    "/private/tmp/ork740-native-packet"
-  ],
-  "cwd": "/Users/froomiebot/workspace/orkworks",
+  "cwd": "<repository-root>",
   "exitCode": 0,
   "environmentPresenceOnly": {
     "COPILOT_HOME": false,
@@ -31,8 +21,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 3003,
-      "sha256": "bb66197eb60333ff1f1f1f54837e3dd98bc80ad12e6b9881c4f93a08724c5fdd"
+      "bytes": 3248,
+      "sha256": "fd0730250c6bcbfcb3fd96e1e930853bffdc180198b109b20c0e95eb843719da"
     },
     {
       "path": "events-selected.schema.json",
@@ -51,8 +41,8 @@
     },
     {
       "path": "package-comparison.json",
-      "bytes": 2808,
-      "sha256": "7df23bc9530bc1bef110e8b0fcb3eda3a2cd6754e7dcb072c0a111538dd748d6"
+      "bytes": 2854,
+      "sha256": "69933a5e00887ca2020dbbff29c4ba1819866145c3eeef2b92a25f0cd42dfb98"
     },
     {
       "path": "runtime-identity.json",
@@ -69,5 +59,16 @@
       "bytes": 4302,
       "sha256": "d20444640a950119a64c9e5d1a00e702c164ebf8da9ad17f8016a568af6d0bf7"
     }
-  ]
+  ],
+  "normalizedArgv": [
+    "python3",
+    "inspect-runtime.py",
+    "--native",
+    "<installed-native-executable>",
+    "--cache",
+    "<existing-1.0.90-cache>",
+    "--output",
+    "<observer-output-directory>"
+  ],
+  "pathRendering": "Host-specific paths replaced by observer placeholders; not raw argv capture."
 }
