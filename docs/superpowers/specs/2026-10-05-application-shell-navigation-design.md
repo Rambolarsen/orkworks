@@ -347,6 +347,19 @@ optional run ID and overview anchors only. Temporary Sessions/Details/Actions/
 Capacity pages and the run chooser are non-restorable; opening one retains the
 underlying central destination for persistence and never saves its ephemeral
 invoker, focus or return descriptor. Unknown surface values are invalid.
+Entries are an ordered most-recent-first list. After a validated central
+navigation succeeds in a ready workspace, its successful save transaction
+moves that workspace entry to the front; transaction order, not wall-clock
+sorting, defines recency across instances. Read/restore, polling, attention
+updates and temporary-page inspection do not change recency. Within the same
+locked revision transaction, evict entries from the least-recent end until both
+the 20-entry and 64-KiB serialized-record limits hold, protecting only the entry
+being written. Opening a 21st remembered workspace therefore removes the oldest
+other entry. This is presentation retention, not knowledge of other instances'
+current workspaces. If the protected entry alone cannot fit, reject the entire
+save without committing any evictions, preserve the previous bytes and report
+failure. Explicit workspace deletion removes its entry under the same protocol.
+
 The sidecar's `lastActiveSessionId`, restored through the existing controller's
 non-dead-match policy, is the sole durable selection authority. Navigation
 restoration cannot replace it, call ordinary selection/acknowledgement, or
@@ -499,7 +512,9 @@ artifact/generation replies; unavailable ownership; planned nodes; forgotten
 targets; parent loss; collapse with focused descendants; Review target drift;
 same-session terminal reattachment; detached output drain; inspector scope
 changes; hotkey migration/capture; width/zoom transitions; malformed/future
-layout records; concurrent save/deletion and stale revision rejection; lock
+layout records; 20-to-21-workspace and byte-budget eviction, protected-entry
+oversize rejection, recency unchanged by attention/temporary pages; concurrent
+save/deletion and stale revision rejection; lock
 contention/atomic-save failure; sidecar selection precedence; retained runs with
 missing parents and stale chooser targets; Actions scope/return; exact approval
 with no renderer authority; and ordinary sessions with no orchestration projections.
