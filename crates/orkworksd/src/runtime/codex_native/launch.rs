@@ -1194,3 +1194,27 @@ esac
         }
     }
 }
+
+// Explicit operator-only constructor. Production VERIFIED remains empty.
+#[cfg(all(test, unix))]
+pub(crate) async fn installed_diagnostic_plan(
+    command: &CommandSpec,
+    cache: &VersionProbeCache,
+) -> Result<NativeLaunchPlan, NativeError> {
+    if !Path::new(&command.program).is_absolute() {
+        return Err(NativeError::Unavailable);
+    }
+    let record = CompatibilityRecord {
+        version: "0.160.0",
+        os: "macos",
+        arch: "aarch64",
+        user_agent_prefix: "codex_cli_rs/0.160.0",
+        protocol: "v2-thread-status-0.160",
+        root_proof: "operator diagnostic only",
+        evidence: "unverified operator diagnostic only",
+    };
+    eligible_with_records(command, cache, &[record])
+        .await
+        .map_err(|_| NativeError::Unavailable)?
+        .ok_or(NativeError::Unavailable)
+}

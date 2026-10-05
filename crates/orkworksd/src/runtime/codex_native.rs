@@ -288,6 +288,12 @@ impl OwnedNativeRuntime {
         }
         result
     }
+    #[cfg(test)]
+    pub(crate) fn disconnect_observer(&mut self) -> bool {
+        let connected = self.observer.take().is_some();
+        self.retry_at = Instant::now();
+        connected
+    }
     pub(crate) async fn shutdown(&mut self) {
         self.observer = None;
         self.server.shutdown().await;
@@ -413,3 +419,6 @@ pub(crate) fn fixture_plan_and_env(
     env.push(("FIXTURE_REDACT_REPORT".into(), "yes".into()));
     (plan, env)
 }
+
+#[cfg(all(test, unix))]
+pub(crate) use launch::installed_diagnostic_plan;

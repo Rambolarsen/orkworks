@@ -10,7 +10,30 @@ use std::time::Instant;
 // revision cannot make a file replacement atomic with that producer.
 const COORDINATED_METADATA_WRITERS: bool = false;
 
+#[cfg(test)]
+#[derive(Default, Debug)]
+pub(crate) struct DiagnosticMetrics {
+    pub(crate) hook_outcomes: [[u64; 3]; 5],
+    pub(crate) accepted_with_correlation_fields: u64,
+    pub(crate) exact_correlated_posts: u64,
+    pub(crate) observations: u64,
+    pub(crate) observations_discarded: u64,
+    pub(crate) last_status: Option<super::codex_approval::NativeStatus>,
+    pub(crate) last_error: Option<super::codex_native::NativeError>,
+    pub(crate) singleton: bool,
+    pub(crate) observation_age_ms: u128,
+    pub(crate) effects: [[u64; 3]; 2],
+    pub(crate) accepted_input: u64,
+    pub(crate) input_to_working: u64,
+    pub(crate) observer_paused: bool,
+    pub(crate) observer_disconnects: u64,
+}
+#[cfg(test)]
+pub(crate) type DiagnosticSink = Arc<std::sync::Mutex<DiagnosticMetrics>>;
+
 pub(crate) struct NativeApprovalState {
+    #[cfg(test)]
+    pub(crate) diagnostic: Option<DiagnosticSink>,
     reducer: ApprovalReducer,
     fence: Fence,
     root: Option<String>,
@@ -39,6 +62,8 @@ impl NativeApprovalState {
             ..Fence::default()
         };
         Self {
+            #[cfg(test)]
+            diagnostic: None,
             reducer: ApprovalReducer::new(fence),
             fence,
             root: None,
@@ -95,6 +120,11 @@ fn accepted_root(meta: &crate::metadata::SessionMetadata) -> Option<&str> {
 }
 
 impl NativeApprovalState {
+    #[cfg(test)]
+    pub(crate) fn diagnostic_disconnect(&mut self) {
+        self.hook_revision = self.hook_revision.and_then(|r| r.checked_add(1));
+        self.reducer.disconnected();
+    }
     pub(crate) fn invalidate(&mut self) {
         self.hook_revision = self.hook_revision.and_then(|r| r.checked_add(1));
         self.reducer.invalidate(self.fence);
@@ -394,6 +424,30 @@ pub(crate) fn report_hook(
         tracker.live_revision = handle.runtime.attention_owner.snapshot();
         HookReportOutcome::Accepted
     })();
+    #[cfg(test)]
+    if let Some(sink) = &tracker.diagnostic {
+        let event = match report.event {
+            HookEvent::PreToolUse => 0,
+            HookEvent::PermissionRequest => 1,
+            HookEvent::PostToolUse => 2,
+            HookEvent::Stop => 3,
+            HookEvent::UserPromptSubmit => 4,
+        };
+        let disposition = match outcome {
+            HookReportOutcome::Accepted => 0,
+            HookReportOutcome::Retry => 1,
+            HookReportOutcome::Rejected => 2,
+        };
+        let mut metrics = sink.lock().unwrap();
+        metrics.hook_outcomes[event][disposition] += 1;
+        metrics.exact_correlated_posts = tracker.reducer.diagnostic_exact_posts();
+        if outcome == HookReportOutcome::Accepted
+            && report.turn_id.is_some()
+            && report.tool_use_id.is_some()
+        {
+            metrics.accepted_with_correlation_fields += 1;
+        }
+    }
     handle.runtime.native_approval = Some(tracker);
     outcome
 }
@@ -494,6 +548,24 @@ pub(crate) fn finish_observation(
     let Some(mut tracker) = handle.runtime.native_approval.take() else {
         return false;
     };
+    #[cfg(test)]
+    if let Some(sink) = &tracker.diagnostic {
+        let mut metrics = sink.lock().unwrap();
+        metrics.observations += 1;
+        match &result {
+            Ok(observation) => {
+                metrics.last_status = Some(observation.status);
+                metrics.last_error = None;
+                metrics.singleton = observation.complete_singleton_root;
+                metrics.observation_age_ms = observation.started_at.elapsed().as_millis();
+            }
+            Err(error) => {
+                metrics.last_status = None;
+                metrics.last_error = Some(*error);
+                metrics.singleton = false;
+            }
+        }
+    }
     let applied = (|| {
         let Some(meta) = workspace.metadata.read_session(id) else {
             return false;
@@ -535,6 +607,12 @@ pub(crate) fn finish_observation(
         tracker.live_revision = handle.runtime.attention_owner.snapshot();
         true
     })();
+    #[cfg(test)]
+    if !applied {
+        if let Some(sink) = &tracker.diagnostic {
+            sink.lock().unwrap().observations_discarded += 1;
+        }
+    }
     handle.runtime.native_approval = Some(tracker);
     applied
 }
@@ -552,7 +630,35 @@ fn reject(tracker: &mut NativeApprovalState) -> ApplyOutcome {
     ApplyOutcome::Rejected
 }
 
+#[cfg(not(test))]
+use apply_effect_inner as apply_effect;
+
+#[cfg(test)]
 fn apply_effect(
+    store: &MetadataStore,
+    handle: &mut SessionHandle,
+    tracker: &mut NativeApprovalState,
+    effect: &Effect,
+    clock: impl Fn() -> Instant,
+    coordinated_writers: bool,
+) -> ApplyOutcome {
+    let outcome = apply_effect_inner(store, handle, tracker, effect, clock, coordinated_writers);
+    #[cfg(test)]
+    if let Some(sink) = &tracker.diagnostic {
+        let kind = match effect {
+            Effect::ShowWait { .. } => 0,
+            Effect::ClearWait { .. } => 1,
+        };
+        let disposition = match outcome {
+            ApplyOutcome::Applied => 0,
+            ApplyOutcome::PersistFailed => 1,
+            ApplyOutcome::Rejected => 2,
+        };
+        sink.lock().unwrap().effects[kind][disposition] += 1;
+    }
+    outcome
+}
+fn apply_effect_inner(
     store: &MetadataStore,
     handle: &mut SessionHandle,
     tracker: &mut NativeApprovalState,
@@ -2069,5 +2175,96 @@ mod tests {
             .reducer
             .observe(NativeStatus::Active, true, next, next)
             .is_empty());
+    }
+    #[test]
+    fn diagnostic_metrics_record_real_hook_observation_and_effect_dispositions() {
+        let (_dir, store, mut handle, mut tracker, t) = fixture();
+        let sink = Arc::new(std::sync::Mutex::new(DiagnosticMetrics::default()));
+        tracker.diagnostic = Some(sink.clone());
+        let at = t + std::time::Duration::from_secs(2);
+        let show = tracker
+            .reducer
+            .observe(NativeStatus::ApprovalPending, true, at, at)[0];
+        assert_eq!(
+            apply_effect(
+                &store,
+                &mut handle,
+                &mut tracker,
+                &show,
+                || at,
+                COORDINATED_METADATA_WRITERS
+            ),
+            ApplyOutcome::Applied
+        );
+        let next = at + std::time::Duration::from_millis(100);
+        let clear = tracker
+            .reducer
+            .observe(NativeStatus::Active, true, next, next)[0];
+        assert_eq!(
+            apply_effect(
+                &store,
+                &mut handle,
+                &mut tracker,
+                &clear,
+                || next,
+                COORDINATED_METADATA_WRITERS
+            ),
+            ApplyOutcome::Rejected
+        );
+        assert_eq!(sink.lock().unwrap().effects, [[1, 0, 0], [0, 0, 1]]);
+
+        let (_dir, state, generation, report, receipt) = callback_fixture();
+        let id = state
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut(&id)
+            .unwrap()
+            .runtime
+            .native_approval
+            .as_mut()
+            .unwrap()
+            .diagnostic = Some(sink.clone());
+        assert_eq!(
+            report_hook(
+                &state,
+                &id,
+                "test-report-token",
+                generation,
+                receipt,
+                &report
+            ),
+            HookReportOutcome::Accepted
+        );
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        let snapshot = begin_observation(&state, &id, generation, &cancelled).unwrap();
+        assert!(finish_observation(
+            &state,
+            &id,
+            snapshot,
+            Ok(super::super::codex_native::NativeObservation {
+                status: NativeStatus::Active,
+                complete_singleton_root: true,
+                started_at: Instant::now()
+            }),
+            &cancelled
+        ));
+        let metrics = sink.lock().unwrap();
+        assert_eq!(metrics.hook_outcomes[1], [1, 0, 0]);
+        assert_eq!(metrics.observations, 1);
+        assert_eq!(metrics.last_status, Some(NativeStatus::Active));
+        assert!(metrics.singleton);
+        let safe = format!("{metrics:?}");
+        for excluded in [&id, "root-id", "turn", "test-report-token", "old question"] {
+            assert!(!safe.contains(excluded));
+        }
     }
 }

@@ -52,6 +52,8 @@ struct Observation {
 }
 
 struct Candidate {
+    #[cfg(test)]
+    permission_had_exact_tool: bool,
     id: CandidateId,
     eligible: bool,
     saw_pending_edge: bool,
@@ -89,6 +91,8 @@ pub(crate) struct ApprovalReducer {
     exhausted: bool,
     issued: Option<Effect>,
     pending_clear: Option<Effect>,
+    #[cfg(test)]
+    diagnostic_exact_posts: u64,
 }
 
 impl ApprovalReducer {
@@ -106,7 +110,14 @@ impl ApprovalReducer {
             exhausted: false,
             issued: None,
             pending_clear: None,
+            #[cfg(test)]
+            diagnostic_exact_posts: 0,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn diagnostic_exact_posts(&self) -> u64 {
+        self.diagnostic_exact_posts
     }
 
     pub(crate) fn hook(
@@ -446,6 +457,8 @@ impl ApprovalReducer {
         let candidate = CandidateId(next);
         if let Some(index) = index {
             self.records[index].candidate = Some(Candidate {
+                #[cfg(test)]
+                permission_had_exact_tool: tool_id.is_some(),
                 id: candidate,
                 eligible: !self.locked,
                 saw_pending_edge: false,
@@ -475,6 +488,16 @@ impl ApprovalReducer {
         };
         if self.records[index].completed {
             return None;
+        }
+        #[cfg(test)]
+        if !self.locked
+            && self.records[index].has_pre
+            && self.records[index]
+                .candidate
+                .as_ref()
+                .is_some_and(|candidate| candidate.eligible && candidate.permission_had_exact_tool)
+        {
+            self.diagnostic_exact_posts = self.diagnostic_exact_posts.saturating_add(1);
         }
         self.records[index].completed = true;
         if self.records[index].candidate.is_none() {
@@ -1339,5 +1362,47 @@ mod tests {
         assert_eq!(actual, fence);
         assert!(!r.accepts(&first));
         assert!(r.accepts(&second));
+    }
+    #[test]
+    fn diagnostic_exact_post_count_requires_explicit_matching_permission_and_serial_candidate() {
+        let t = Instant::now();
+        for scenario in 0..6 {
+            let mut reducer = ApprovalReducer::new(Fence::default());
+            reducer.observe(NativeStatus::Active, true, t, t);
+            reducer.hook(HookEvent::PreToolUse, Some("tool"), t);
+            if scenario == 3 {
+                reducer.hook(HookEvent::PreToolUse, Some("other"), t);
+            }
+            reducer.hook(
+                HookEvent::PermissionRequest,
+                if scenario == 1 {
+                    None
+                } else if scenario == 2 {
+                    Some("other")
+                } else {
+                    Some("tool")
+                },
+                t,
+            );
+            if scenario == 4 {
+                reducer.disconnected();
+            }
+            reducer.hook(
+                HookEvent::PostToolUse,
+                Some(if scenario == 5 { "unknown" } else { "tool" }),
+                t,
+            );
+            assert_eq!(
+                reducer.diagnostic_exact_posts(),
+                u64::from(scenario == 0),
+                "scenario {scenario}"
+            );
+            reducer.hook(HookEvent::PostToolUse, Some("tool"), t);
+            assert_eq!(
+                reducer.diagnostic_exact_posts(),
+                u64::from(scenario == 0),
+                "repeated Post must not count"
+            );
+        }
     }
 }

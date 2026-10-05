@@ -497,6 +497,12 @@ pub(crate) struct SessionRuntime {
     run_generation: RuntimeGeneration,
     startup_spawned: bool,
     pub(crate) native_approval: Option<super::codex_approval_application::NativeApprovalState>,
+    #[cfg(test)]
+    pub(crate) native_diagnostic: Option<super::codex_approval_application::DiagnosticSink>,
+    #[cfg(test)]
+    native_observer_pause: Option<tokio::sync::watch::Sender<bool>>,
+    #[cfg(test)]
+    diagnostic_cleanup: Option<tokio::sync::watch::Receiver<bool>>,
     pub(crate) attention_owner: super::observed_status::AttentionOwner,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
     pub(crate) output_tx: broadcast::Sender<RuntimeEvent>,
@@ -541,6 +547,12 @@ impl SessionRuntime {
                 startup_spawned: false,
                 attention_owner: super::observed_status::AttentionOwner::default(),
                 native_approval: None,
+                #[cfg(test)]
+                native_diagnostic: None,
+                #[cfg(test)]
+                native_observer_pause: None,
+                #[cfg(test)]
+                diagnostic_cleanup: None,
                 control_tx,
                 output_tx,
                 replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -583,6 +595,12 @@ impl SessionRuntime {
             startup_spawned: false,
             attention_owner: super::observed_status::AttentionOwner::default(),
             native_approval: None,
+            #[cfg(test)]
+            native_diagnostic: None,
+            #[cfg(test)]
+            native_observer_pause: None,
+            #[cfg(test)]
+            diagnostic_cleanup: None,
             control_tx,
             output_tx,
             replay: ReplayBuffer::new(DEFAULT_REPLAY_CAPACITY),
@@ -1338,7 +1356,17 @@ impl NativeObserverControl {
         let (failed_tx, failed) = tokio::sync::watch::channel(false);
         let cancelled = Arc::new(AtomicBool::new(false));
         let cancellation = cancelled.clone();
+        #[cfg(test)]
+        let mut pause_rx = {
+            let (pause_tx, pause_rx) = tokio::sync::watch::channel(false);
+            if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
+                handle.runtime.native_observer_pause = Some(pause_tx);
+            }
+            pause_rx
+        };
         let task = tokio::spawn(async move {
+            #[cfg(test)]
+            let mut was_paused = false;
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
             loop {
                 tokio::select! { biased;
@@ -1351,6 +1379,25 @@ impl NativeObserverControl {
                 if !native.is_alive() {
                     let _ = failed_tx.send(true);
                     break;
+                }
+                #[cfg(test)]
+                let paused = *pause_rx.borrow_and_update();
+                #[cfg(test)]
+                {
+                    let disconnected = paused && !was_paused && native.disconnect_observer();
+                    if let Some(handle) = state.sessions.lock().unwrap().get_mut(&id) {
+                        if paused && !was_paused {
+                            if let Some(tracker) = handle.runtime.native_approval.as_mut() {
+                                tracker.diagnostic_disconnect();
+                            }
+                        }
+                        if let Some(sink) = &handle.runtime.native_diagnostic {
+                            let mut metrics = sink.lock().unwrap();
+                            metrics.observer_paused = paused;
+                            metrics.observer_disconnects += u64::from(disconnected);
+                        }
+                    }
+                    was_paused = paused;
                 }
                 let capture_state = state.clone();
                 let capture_id = id.clone();
@@ -1373,6 +1420,10 @@ impl NativeObserverControl {
                         break;
                     }
                 };
+                #[cfg(test)]
+                if paused {
+                    continue;
+                }
                 // Fence and independent hook revision were captured BEFORE
                 // the first awaited RPC; PTY input/output never awaits it.
                 let result = tokio::select! { biased;
@@ -1843,9 +1894,25 @@ async fn start_session_runtime_inner(
             handle.runtime.native_approval = Some(
                 super::codex_approval_application::NativeApprovalState::new(run_generation),
             );
+            #[cfg(test)]
+            if let Some(tracker) = handle.runtime.native_approval.as_mut() {
+                tracker.diagnostic = handle.runtime.native_diagnostic.clone();
+            }
         }
         NativeObserverControl::start(state.clone(), id.clone(), run_generation, owned)
     });
+    #[cfg(test)]
+    let diagnostic_cleanup_tx = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get_mut(&id).expect("installed runtime");
+        if handle.runtime.native_diagnostic.is_some() {
+            let (tx, rx) = tokio::sync::watch::channel(false);
+            handle.runtime.diagnostic_cleanup = Some(rx);
+            Some(tx)
+        } else {
+            None
+        }
+    };
     let driver_state = state.clone();
     let driver_id = id.clone();
     let driver_output_tx = output_tx.clone();
@@ -2352,6 +2419,10 @@ async fn start_session_runtime_inner(
                             .trim_terminal_output(&trim_id);
                     })
                     .await;
+                    #[cfg(test)]
+                    if let Some(tx) = diagnostic_cleanup_tx {
+                        tx.send_replace(true);
+                    }
                 });
                 break;
             }
@@ -6729,3 +6800,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
         assert!(reader_task.await.unwrap().is_err());
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "codex_native_diagnostic.rs"]
+mod native_diagnostic;
