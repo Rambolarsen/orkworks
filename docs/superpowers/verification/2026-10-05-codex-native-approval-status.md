@@ -6,7 +6,10 @@ Contract: [approved design](../specs/2026-10-03-codex-native-approval-status-des
 ## Disposition
 
 Implementation approved by the repository owner on 2026-10-05, including the
-experimental upstream dependency. This record does **not** qualify a shipping
+experimental upstream dependency. Native startup and installed diagnostic execution are blocked pending the
+owned-listener contract in [#763](https://github.com/Rambolarsen/orkworks/issues/763).
+Do not run the future operator procedure below on this branch.
+This record does **not** qualify a shipping
 compatibility entry. Live signal/configuration/lifecycle gates remain open.
 
 ## Exact source audit
@@ -190,6 +193,41 @@ authority and does not silently impose a lock or migrate the protocol. A written
 reviewed producer/ownership contract is required before enabling clearing;
 [#761](https://github.com/Rambolarsen/orkworks/issues/761) tracks that prerequisite.
 
+## Listener ownership review
+
+The complete-branch review found that the released reservation allows an
+accepting competitor to receive the bearer before initialize validation.
+Owned-child liveness proves neither bind success nor endpoint identity.
+The earlier missing/wrong-token and 401-competitor checks do not establish
+client capability confidentiality. Native startup and the installed
+diagnostic therefore require a separate closed gate before bearer delivery.
+[#763](https://github.com/Rambolarsen/orkworks/issues/763) tracks the written
+owned-listener contract. This record assumes no upstream ready-output,
+port-zero, inherited listener or additional RPC solution.
+
+## Final corrective verification
+
+The accepting-competitor regression first reproduced bearer receipt with
+boolean-only evidence and a shape-correct response while the fake owned child
+remained alive. The guard now rejects before port reservation, capability
+creation, argument augmentation or native process spawn. Ordinary plans have
+no listener proof; production cannot mint the private cfg(test) marker used
+only by controlled launch fixtures. The installed diagnostic constructor
+returns Unavailable before probes or plan construction.
+
+The regression passes after rejection and independently checks that the
+retained competitor still answers an unauthenticated initialize request.
+No bearer was received, no native/TUI readiness accepted, and no owned
+process spawned. Focused checks passed for 33 native, two owned-lifecycle and
+27 broader diagnostic tests. The serial full run passed **1,794 unit tests
+and four reporter integration tests**, with five ignored. Build, formatting
+and whitespace checks passed. Clippy and scoped final re-review are recorded
+in the final PR validation; this record does not assert a warning-free run.
+
+No installed conversation, login or native approval gate ran. Closed startup
+is the disposition of the review finding; listener ownership remains an
+unimplemented prerequisite, not verified by those fake results.
+
 ## Open production gates
 
 - Effective model/approval/sandbox/config parity between direct and native paths,
@@ -228,9 +266,17 @@ only a first explicit matching Pre/Permission/Post chain on an eligible,
 unlocked candidate; missing IDs, overlap, disconnect and repeats do not count.
 Field-presence counts are separate and do not prove invocation identity.
 
-### Setup in an operator terminal
+### Withheld operator procedure
 
-These steps are for the operator after review, from the fix checkout. They
+**Blocked by #763. Do not run these setup/login/diagnostic commands yet.**
+They document the future exercise after an approved listener-ownership
+implementation and review. The current installed path rejects before
+bearer delivery; no fixture-only bypass may be used with an installed binary.
+
+### Future setup in an operator terminal
+
+These future steps are for the operator after #763 is implemented and
+reviewed, from the fix checkout. They
 start no automatic prompt or approval answer. The candidate is the canonical
 Codex **0.160.0 on macOS arm64**. Other platforms/configurations remain unverified.
 Create dedicated homes, without copying or symlinking normal credentials,
@@ -313,7 +359,7 @@ Retained histories are not evidence. Their later removal requires proof that
 this exact test subprocess and its owned children ended. Login/auth homes
 remain operator-owned.
 
-This prepares a signal/usability exercise. Native clearing still cannot pass
+This prepares a currently blocked signal/usability exercise. Native clearing still cannot pass
 its production gate while #761 remains unresolved. Effective direct/owned
 configuration equality, exact resume, installed root/subagent/overlap and OS
 lifecycle proof remain open; the RPC allowlist was not expanded. No installed

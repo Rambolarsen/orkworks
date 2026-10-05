@@ -39,7 +39,10 @@ The #690 serial capture gate has passed; current behavior below is unchanged.
 define the approved implementation: owned native observation, a two-second
 grace, and conservative resolution. The owner approved implementation on
 2026-10-05. This remains unshipped: the exact version/platform compatibility
-table stays empty until its production verification gates pass.
+table stays empty until its production verification gates pass. Native
+startup and the installed diagnostic separately remain closed until the
+owned-listener contract in [#763](https://github.com/Rambolarsen/orkworks/issues/763)
+proves the target before bearer delivery.
 
 Codex's `PermissionRequest` maps to `waiting_for_input`, with one known
 exception: it also fires when `approvals_reviewer = "auto_review"` resolves the

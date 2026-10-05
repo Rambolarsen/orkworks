@@ -363,6 +363,12 @@ not end ownership; native child exit or session shutdown tears down the owned
 runtime. A fixed two-second hook grace and fresh, complete singleton-root
 observations feed conditional attention effects without adding public schemas.
 
+Native startup and the installed diagnostic have a closed listener-ownership
+gate before bearer delivery. Child liveness and an expected initialize shape
+do not attest a listener after a released-port race.
+[#763](https://github.com/Rambolarsen/orkworks/issues/763) tracks the required
+reviewed handoff/identity contract; controlled fake fixtures cannot enable it.
+
 Native clearing has a separate unfenced-writer gate. Sidecar revisions and
 completed-file identity checks do not make a final check/rename atomic with
 supported direct agent-written JSON. Existing JSON authority remains intact;

@@ -82,3 +82,18 @@ the design's unfenced-writer rule, independently of version eligibility.
 written producer/ownership contract. This implementation does not demote that
 producer or impose a new protocol lock. Cooperating-writer tests alone cannot
 remove this gate.
+
+## Amendment — 2026-10-06 listener ownership review
+
+The authenticated owned-server decision stands. Review found that releasing
+a reserved port before spawn and checking child liveness does not prove the
+listener belongs to that child. A competing listener can receive the bearer
+during upgrade, before response validation. The implementation must fail
+closed before bearer delivery for production and the installed diagnostic.
+Controlled test-only fake fixtures do not qualify an installed listener.
+
+[#763](https://github.com/Rambolarsen/orkworks/issues/763) tracks the required
+written and reviewed owned-listener handoff/identity contract, including
+subsequent connections. No readiness-output, port-zero, inherited-socket or
+additional RPC contract is assumed. The prepared operator procedure must
+remain withheld until that prerequisite is implemented and verified.

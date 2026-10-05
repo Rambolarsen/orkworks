@@ -81,6 +81,15 @@ service. No non-loopback listener, global daemon mutation, or cross-session
 reuse is permitted. Authentication and port-race behavior need live tests;
 the successful Unix-socket diagnostics did not verify this transport.
 
+Implementation audit (2026-10-06): the sequence above lacks authoritative
+listener ownership before the bearer upgrade. Child liveness and response
+shape cannot exclude an accepting competitor. Native startup and the
+installed diagnostic must fail closed before token delivery until
+[#763](https://github.com/Rambolarsen/orkworks/issues/763) supplies a reviewed
+owned-listener handoff/identity contract, including reconnects. Controlled
+test-only fake fixtures are not installed proof. No new upstream readiness,
+port-zero, socket-inheritance or RPC behavior is approved by this audit.
+
 Native eligibility requires both bounded feature probes and an explicit,
 reviewed compatibility record for the actual configured executable's exact
 Codex version, host OS/architecture, and expected app-server protocol/status shape.

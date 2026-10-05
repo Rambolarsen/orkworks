@@ -311,7 +311,9 @@ The approved Codex approval runtime extension is routed through
 [written design](docs/superpowers/specs/2026-10-03-codex-native-approval-status-design.md).
 The #690 serial capture gate passed and the owner approved implementation on
 2026-10-05; the new launch and attention behavior remain disabled until their
-version-specific production verification gates pass.
+version-specific production verification gates pass. Native startup and the
+installed diagnostic also remain closed pending the owned-listener contract
+in [#763](https://github.com/Rambolarsen/orkworks/issues/763).
 
 ## Metadata protocol
 

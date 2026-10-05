@@ -24,7 +24,10 @@ and written review have passed; implementation was approved on 2026-10-05.
 while production signal/configuration/platform gates remain open. The shipping
 version/platform table stays empty and direct launch remains in use. Native
 clearing also requires the supported metadata-writer contract in
-[#761](https://github.com/Rambolarsen/orkworks/issues/761).
+[#761](https://github.com/Rambolarsen/orkworks/issues/761). Native startup and
+the installed diagnostic additionally require an owned-listener contract
+before bearer delivery; [#763](https://github.com/Rambolarsen/orkworks/issues/763)
+tracks that prerequisite.
 
 The proposed [ordinary-child orchestration extension](specs/taskmaster.md#proposed-ordinary-child-orchestration-extension)
 lets a UI-created parent coordinate exactly approved plans through ordinary
