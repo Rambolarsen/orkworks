@@ -56,3 +56,22 @@ not committed. Every retained artifact stays below 128 KiB and the packet below
 2 MiB. Nothing here certifies a full dependency closure, selected runtime
 during a future launch, permission enforcement, content emission or model-loop
 continuation. Recheck identities and effective configuration at that launch.
+
+## Check rejection with Python optimization
+
+Executable/schema validation uses explicit errors, so `-O` and
+`PYTHONOPTIMIZE` cannot disable it. The regression case makes a disposable
+copy with a changed byte outside the embedded asset, then checks rejection
+and absence of written evidence under normal Python, `-O` and
+`PYTHONOPTIMIZE=1`. It never executes the copied native file.
+
+```bash
+rtk proxy python3 docs/validation/fixtures/copilot-1.0.90-native/test-runtime-identity.py \
+  --native "$ORK740_NATIVE" \
+  --cache "$ORK740_CACHE" \
+  --inspector docs/validation/fixtures/copilot-1.0.90-native/inspect-runtime.py
+```
+
+The test was observed failing for both optimized modes before the fix, then
+passing in all three modes. A valid native/cache reproduction under `-O`
+still produces the same five retained artifacts.

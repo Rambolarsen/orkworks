@@ -21,8 +21,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 3248,
-      "sha256": "fd0730250c6bcbfcb3fd96e1e930853bffdc180198b109b20c0e95eb843719da"
+      "bytes": 4073,
+      "sha256": "92783221f46f9f1dd029f953ab256f25d389eeab40c193c2fdd08dbd26173a5e"
     },
     {
       "path": "events-selected.schema.json",
@@ -31,8 +31,8 @@
     },
     {
       "path": "inspect-runtime.py",
-      "bytes": 6690,
-      "sha256": "5a351130beff4df7996630e2fa257c2f5beebca1a5cc656a56f7d567a3cb2611"
+      "bytes": 6916,
+      "sha256": "008d98dce197c8cf979181ff6e6d216fd187d33787c49d24d7a8789d053cb28b"
     },
     {
       "path": "json-output-excerpts.json",
@@ -53,6 +53,11 @@
       "path": "sea-loader-excerpts.json",
       "bytes": 3510,
       "sha256": "c73343b8ccc2d3d0e3f9130c34bc35a85559cea4169e76bd23e00b7bbb9ccf1b"
+    },
+    {
+      "path": "test-runtime-identity.py",
+      "bytes": 1961,
+      "sha256": "04ed7214928b127dabed716c9f938421654fe7b69eb2123d5cf7c4afddda7e48"
     },
     {
       "path": "tools-selected.schema.json",

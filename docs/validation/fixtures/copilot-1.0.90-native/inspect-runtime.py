@@ -15,6 +15,11 @@ MEMBERS = ["package.json", "index.js", "app.js", "schemas/api.schema.json",
            "schemas/session-events.schema.json", "prebuilds/darwin-arm64/runtime.node"]
 
 
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
 def digest(data):
     return {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
@@ -26,7 +31,7 @@ def closure(document, roots):
         if isinstance(value, dict):
             reference = value.get("$ref")
             if reference:
-                assert reference.startswith("#/definitions/"), reference
+                require(reference.startswith("#/definitions/"), "Unexpected schema reference: " + reference)
                 name = reference.removeprefix("#/definitions/")
                 if name not in selected:
                     selected[name] = document["definitions"][name]
@@ -48,8 +53,8 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     binary = args.native.read_bytes()
-    assert hashlib.sha256(binary).hexdigest() == EXPECTED, "Native identity changed"
-    assert struct.unpack_from("<I", binary)[0] == 0xFEEDFACF, "Expected Mach-O 64"
+    require(hashlib.sha256(binary).hexdigest() == EXPECTED, "Native identity changed")
+    require(struct.unpack_from("<I", binary)[0] == 0xFEEDFACF, "Expected Mach-O 64")
     command_count = struct.unpack_from("<I", binary, 16)[0]
     position = 32
     sections = []
@@ -65,11 +70,11 @@ def main():
                     offset = struct.unpack_from("<I", binary, start + 48)[0]
                     sections.append((offset, length))
         position += size
-    assert len(sections) == 1, "Expected one SEA section"
+    require(len(sections) == 1, "Expected one SEA section")
     offset, length = sections[0]
     blob = binary[offset:offset + length]
     magic, flags = struct.unpack_from("<II", blob)
-    assert magic == 0x143DA20 and flags == 0x19, "Unexpected SEA format"
+    require(magic == 0x143DA20 and flags == 0x19, "Unexpected SEA format")
     cursor = 9  # uint32 magic, uint32 flags, uint8 execArgv extension
 
     def number():
@@ -82,22 +87,22 @@ def main():
         nonlocal cursor
         size = number()
         value = blob[cursor:cursor + size]
-        assert len(value) == size
+        require(len(value) == size, "Truncated SEA field")
         cursor += size
         return value
 
     code_path, loader = field(), field()
-    assert code_path == b"sea-loader.js"
+    require(code_path == b"sea-loader.js", "Unexpected SEA entry point")
     assets = {}
     for _ in range(number()):
         name = field().decode("utf-8")
         assets[name] = field()
     exec_argv = [field().decode("utf-8") for _ in range(number())]
-    assert cursor == len(blob), "Unparsed SEA bytes"
+    require(cursor == len(blob), "Unparsed SEA bytes")
     archive = assets["copilot.tgz"]
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as package:
         files = {name: package.extractfile("package/" + name).read() for name in MEMBERS}
-    assert json.loads(files["package.json"])["version"] == "1.0.90"
+    require(json.loads(files["package.json"])["version"] == "1.0.90", "Unexpected runtime version")
     identities = []
     for name, content in files.items():
         cache_file = args.cache / name
