@@ -1169,7 +1169,31 @@ function Invoke-RestMethod {
         let mut diagnostic_source = diagnostic_source.to_owned();
         // Instrument only a copied script. Preserve the reporter's actual operations,
         // ACL, mutex, cleanup and swallowed-error behavior; export no source errors.
+        // Script scope lets the outer catch observe substages assigned inside the ACL function.
         let stages = [
+            (
+                "if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)",
+                "acl_guard",
+            ),
+            (
+                "$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()",
+                "acl_identity",
+            ),
+            (
+                "$acl = New-Object System.Security.AccessControl.FileSecurity",
+                "acl_security",
+            ),
+            (
+                "$acl.SetAccessRuleProtection($true, $false)",
+                "acl_protection",
+            ),
+            ("$acl.SetOwner($identity.User)", "acl_owner"),
+            (
+                "$rule = [System.Security.AccessControl.FileSystemAccessRule]::new(",
+                "acl_rule_construct",
+            ),
+            ("$acl.SetAccessRule($rule)", "acl_rule_apply"),
+            ("Set-Acl -LiteralPath $Path -AclObject $acl", "acl_set"),
             (
                 "[System.IO.Directory]::CreateDirectory($diagnosticDirectory)",
                 "directory",
@@ -1209,7 +1233,7 @@ function Invoke-RestMethod {
             assert_eq!(diagnostic_source.matches(anchor).count(), expected);
             diagnostic_source = diagnostic_source.replace(
                 anchor,
-                &format!("$fixtureDiagnosticStage = '{stage}'{line_ending}        {anchor}"),
+                &format!("$script:fixtureDiagnosticStage = '{stage}'{line_ending}        {anchor}"),
             );
         }
         let catch_anchor = "    } catch {\n        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {".replace('\n', line_ending);
