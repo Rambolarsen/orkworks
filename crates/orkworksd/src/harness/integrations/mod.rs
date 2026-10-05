@@ -1146,7 +1146,9 @@ mod tests {
         std::fs::create_dir(&mailbox).unwrap();
         let capture = temp.path().join("requests.jsonl");
         let wrapper = temp.path().join("run-reporter.ps1");
-        std::fs::write(&wrapper, r#"Set-Variable -Name HOME -Value $env:ORKWORKS_FIXTURE_HOME -Force
+        std::fs::write(&wrapper, r#"if (-not [string]::Equals($HOME, $env:ORKWORKS_FIXTURE_HOME, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'fixture-home-isolated=false'
+}
 function Invoke-RestMethod {
     param($Method, $Uri, $Headers, $ContentType, $Body, $TimeoutSec)
     Add-Content -Path $env:ORKWORKS_REQUEST_CAPTURE -Value $Body
@@ -1230,6 +1232,7 @@ function Invoke-RestMethod {
                     "-File",
                 ])
                 .arg(&wrapper)
+                .env("USERPROFILE", temp.path())
                 .env("ORKWORKS_FIXTURE_HOME", temp.path())
                 .env("ORKWORKS_REPORTER_SCRIPT", &script)
                 .env("ORKWORKS_REQUEST_CAPTURE", &capture)
