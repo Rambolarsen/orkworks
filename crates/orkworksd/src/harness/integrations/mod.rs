@@ -1330,6 +1330,8 @@ function Invoke-RestMethod {
                     "-File",
                 ])
                 .arg(&wrapper)
+                // Let Windows PowerShell rebuild its module path after the pwsh intermediary.
+                .env_remove("PSModulePath")
                 .env("USERPROFILE", temp.path())
                 .env("ORKWORKS_FIXTURE_HOME", temp.path())
                 .env("ORKWORKS_REPORTER_SCRIPT", &script)
