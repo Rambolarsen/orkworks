@@ -1154,8 +1154,75 @@ function Invoke-RestMethod {
     Add-Content -Path $env:ORKWORKS_REQUEST_CAPTURE -Value $Body
 }
 & $env:ORKWORKS_REPORTER_SCRIPT -Marker 'orkworks:harness-integration:v2:codex' -Event $env:ORKWORKS_TEST_EVENT -HookFingerprint $env:ORKWORKS_TEST_FINGERPRINT"#).unwrap();
-        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let source_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/report-harness-event.ps1");
+        let source = std::fs::read_to_string(source_path).unwrap();
+        let diagnostic_start = source
+            .find("if ($sessionSource -eq \"codex_hook\" -and $HOME) {")
+            .unwrap();
+        let (prefix, diagnostic_source) = source.split_at(diagnostic_start);
+        let mut diagnostic_source = diagnostic_source.to_owned();
+        // Instrument only a copied script. Preserve the reporter's actual operations,
+        // ACL, mutex, cleanup and swallowed-error behavior; export no source errors.
+        let stages = [
+            (
+                "[System.IO.Directory]::CreateDirectory($diagnosticDirectory)",
+                "directory",
+            ),
+            (
+                "$diagnosticMutex = [System.Threading.Mutex]::new",
+                "mutex_create",
+            ),
+            ("$null = $diagnosticMutex.WaitOne()", "mutex_wait"),
+            (
+                "$captures = [System.Collections.Generic.List[object]]::new()",
+                "captures",
+            ),
+            ("$previous = [System.IO.File]::ReadAllText", "previous_read"),
+            ("$captures.Add($codexPayloadCapture)", "capture_add"),
+            ("$captures = @($captures.ToArray()", "capture_array"),
+            ("$record = @{", "record"),
+            ("$diagnosticBody = $record | ConvertTo-Json", "serialize"),
+            ("$stream = [System.IO.File]::Open", "temporary_open"),
+            (
+                "Set-PrivateDiagnosticAcl $temporaryDiagnostic",
+                "temporary_acl",
+            ),
+            (
+                "[System.IO.File]::WriteAllText($temporaryDiagnostic",
+                "temporary_write",
+            ),
+            (
+                "Set-PrivateDiagnosticAcl $diagnosticPath",
+                "destination_acl",
+            ),
+            ("[System.IO.File]::Replace($temporaryDiagnostic", "replace"),
+            ("[System.IO.File]::Move($temporaryDiagnostic", "move"),
+        ];
+        for (anchor, stage) in stages {
+            let expected = if stage == "destination_acl" { 2 } else { 1 };
+            assert_eq!(diagnostic_source.matches(anchor).count(), expected);
+            diagnostic_source = diagnostic_source.replace(
+                anchor,
+                &format!("$fixtureDiagnosticStage = '{stage}'\n        {anchor}"),
+            );
+        }
+        let catch_anchor = "    } catch {\n        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {";
+        assert_eq!(diagnostic_source.matches(catch_anchor).count(), 1);
+        let traced_catch = r#"    } catch {
+        $fixtureDiagnosticException = $_.Exception
+        for ($fixtureDepth = 0; $fixtureDepth -lt 4 -and $fixtureDiagnosticException.InnerException; $fixtureDepth++) {
+            $fixtureDiagnosticException = $fixtureDiagnosticException.InnerException
+        }
+        $fixtureExceptionType = $fixtureDiagnosticException.GetType().FullName
+        if ($fixtureExceptionType -notmatch '^[A-Za-z0-9_.+]{1,128}$') { $fixtureExceptionType = 'Other' }
+        $fixtureTraceRecord = @{ stage = $fixtureDiagnosticStage; exceptionType = $fixtureExceptionType; hresult = [int]$fixtureDiagnosticException.HResult } | ConvertTo-Json -Compress
+        try { [System.IO.File]::AppendAllText($env:ORKWORKS_FIXTURE_DIAGNOSTIC_TRACE, $fixtureTraceRecord + [Environment]::NewLine) } catch {}
+        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {"#;
+        diagnostic_source = diagnostic_source.replacen(catch_anchor, traced_catch, 1);
+        let script = temp.path().join("instrumented-reporter.ps1");
+        std::fs::write(&script, format!("{prefix}{diagnostic_source}")).unwrap();
+        let diagnostic_trace = temp.path().join("diagnostic-trace.jsonl");
         for (event, marker, directory, root, fingerprint, null_ids) in [
             (
                 "PreToolUse",
@@ -1235,6 +1302,7 @@ function Invoke-RestMethod {
                 .env("USERPROFILE", temp.path())
                 .env("ORKWORKS_FIXTURE_HOME", temp.path())
                 .env("ORKWORKS_REPORTER_SCRIPT", &script)
+                .env("ORKWORKS_FIXTURE_DIAGNOSTIC_TRACE", &diagnostic_trace)
                 .env("ORKWORKS_REQUEST_CAPTURE", &capture)
                 .env("ORKWORKS_TEST_EVENT", event)
                 .env("ORKWORKS_TEST_FINGERPRINT", fingerprint)
@@ -1296,6 +1364,32 @@ function Invoke-RestMethod {
             waits, 4,
             "only four failed/unowned native routes use immediate HTTP"
         );
+        let trace = match std::fs::read_to_string(&diagnostic_trace) {
+            Ok(trace) => trace,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(_) => panic!("fixture diagnostic trace unreadable"),
+        };
+        for line in trace.lines() {
+            let value: serde_json::Value =
+                serde_json::from_str(line).expect("fixture diagnostic trace shape");
+            assert!(value.as_object().is_some_and(|object| object.len() == 3));
+            let stage = value["stage"].as_str().expect("fixture diagnostic stage");
+            assert!(stages.iter().any(|(_, allowed)| *allowed == stage));
+            let exception_type = value["exceptionType"]
+                .as_str()
+                .expect("fixture diagnostic exception type");
+            assert!(
+                !exception_type.is_empty()
+                    && exception_type.len() <= 128
+                    && exception_type
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || ['_', '.', '+'].contains(&c))
+            );
+            let hresult = value["hresult"]
+                .as_i64()
+                .expect("fixture diagnostic HResult");
+            eprintln!("fixture-diagnostic stage={stage} exception-type={exception_type} hresult={hresult}");
+        }
         let diagnostic = std::fs::read_to_string(
             temp.path()
                 .join(".orkworks/hook-scripts/report-harness-event-diagnostic.json"),
