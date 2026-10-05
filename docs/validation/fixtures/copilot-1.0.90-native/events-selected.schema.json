@@ -1,0 +1,826 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/SystemMessageEvent"
+    },
+    {
+      "$ref": "#/definitions/SkillInvokedEvent"
+    },
+    {
+      "$ref": "#/definitions/SkillInvokedRefEvent"
+    },
+    {
+      "$ref": "#/definitions/SkillContextDeliveredEvent"
+    },
+    {
+      "$ref": "#/definitions/SkillContextDeliveredRefEvent"
+    },
+    {
+      "$ref": "#/definitions/SkillsLoadedEvent"
+    },
+    {
+      "$ref": "#/definitions/ToolsUpdatedEvent"
+    }
+  ],
+  "definitions": {
+    "SystemMessageEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "system.message",
+          "description": "Type discriminator. Always \"system.message\"."
+        },
+        "data": {
+          "$ref": "#/definitions/SystemMessageData",
+          "description": "System/developer instruction content with role and optional template metadata"
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"system.message\". System/developer instruction content with role and optional template metadata",
+      "title": "SystemMessageEvent"
+    },
+    "SystemMessageData": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The system or developer prompt text sent as model input"
+        },
+        "contentBlocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SystemMessageContentBlock",
+            "description": "One persisted structured system-message block and its cache intent"
+          },
+          "description": "Optional ordered structured blocks corresponding to content, retained for prompt-cache layout restoration."
+        },
+        "interactionId": {
+          "type": "string",
+          "description": "Logical interaction identifier for the model run receiving this prompt"
+        },
+        "role": {
+          "$ref": "#/definitions/SystemMessageRole",
+          "description": "Message role: \"system\" for system prompts, \"developer\" for developer-injected instructions"
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional name identifier for the message source"
+        },
+        "metadata": {
+          "$ref": "#/definitions/SystemMessageMetadata",
+          "description": "Metadata about the prompt template and its construction"
+        }
+      },
+      "required": [
+        "content",
+        "role"
+      ],
+      "additionalProperties": false,
+      "description": "System/developer instruction content with role and optional template metadata",
+      "title": "SystemMessageData"
+    },
+    "SystemMessageContentBlock": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Text content for this system-message block."
+        },
+        "isStatic": {
+          "type": "boolean",
+          "description": "Diagnostic classification indicating whether the block is stable across equivalent sessions."
+        },
+        "cacheBreakpoint": {
+          "type": "boolean",
+          "description": "Explicit prompt-cache intent. True places a breakpoint after this block, false suppresses one, and absence preserves the provider's legacy default."
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "additionalProperties": false,
+      "description": "One persisted structured system-message block and its cache intent",
+      "title": "SystemMessageContentBlock"
+    },
+    "SystemMessageRole": {
+      "type": "string",
+      "enum": [
+        "system",
+        "developer"
+      ],
+      "description": "Message role: \"system\" for system prompts, \"developer\" for developer-injected instructions",
+      "title": "SystemMessageRole",
+      "x-enumDescriptions": {
+        "system": "System prompt message.",
+        "developer": "Developer instruction message."
+      }
+    },
+    "SystemMessageMetadata": {
+      "type": "object",
+      "properties": {
+        "promptVersion": {
+          "type": "string",
+          "description": "Version identifier of the prompt template or structured prompt layout used"
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": {
+            "x-opaque-json": true
+          },
+          "description": "Template variables used when constructing the prompt"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Metadata about the prompt template and its construction",
+      "title": "SystemMessageMetadata"
+    },
+    "SkillInvokedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "skill.invoked",
+          "description": "Type discriminator. Always \"skill.invoked\"."
+        },
+        "data": {
+          "$ref": "#/definitions/SkillInvokedData",
+          "description": "Skill invocation details including content, allowed tools, and plugin metadata"
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"skill.invoked\". Skill invocation details including content, allowed tools, and plugin metadata",
+      "title": "SkillInvokedEvent"
+    },
+    "SkillInvokedData": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the invoked skill"
+        },
+        "invokedAtTurn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Projected chat-message count when the skill was invoked. New writers persist this so replay does not need to reconstruct superseded history; readers derive it for legacy events when absent."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier active when the skill was invoked, when known"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path to the SKILL.md definition, or an empty string for an SDK-provided skill without a filesystem identity"
+        },
+        "content": {
+          "type": "string",
+          "description": "Full content of the skill file, injected into the conversation for the model"
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tool names that should be auto-approved when this skill is active"
+        },
+        "disableModelInvocation": {
+          "type": "boolean",
+          "description": "Whether model invocation is disabled for this skill"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source identifier for where the skill was discovered. Known values include: project (workspace skill), inherited (parent-directory skill), personal-copilot (~/.copilot/skills), personal-agents (~/.agents/skills), custom (configured directory), plugin (installed plugin), builtin (bundled runtime skill), remote (org/enterprise skill), and sdk (SDK-provided skill)"
+        },
+        "pluginName": {
+          "type": "string",
+          "description": "Name of the plugin this skill originated from, when applicable"
+        },
+        "pluginVersion": {
+          "type": "string",
+          "description": "Version of the plugin this skill originated from, when applicable"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the skill from its SKILL.md frontmatter"
+        },
+        "trigger": {
+          "$ref": "#/definitions/SkillInvokedTrigger",
+          "description": "What triggered the skill invocation: `user-invoked` (explicit user action, such as via a slash command or UI affordance), `agent-invoked` (agent requested the skill), or `context-load` (loaded as part of another context, such as preloading skills configured on a custom agent or subagent)"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "content"
+      ],
+      "additionalProperties": false,
+      "description": "Skill invocation details including content, allowed tools, and plugin metadata",
+      "title": "SkillInvokedData"
+    },
+    "SkillInvokedTrigger": {
+      "type": "string",
+      "enum": [
+        "user-invoked",
+        "agent-invoked",
+        "context-load"
+      ],
+      "description": "What triggered the skill invocation: `user-invoked` (explicit user action, such as via a slash command or UI affordance), `agent-invoked` (agent requested the skill), or `context-load` (loaded as part of another context, such as preloading skills configured on a custom agent or subagent)",
+      "title": "SkillInvokedTrigger",
+      "x-enumDescriptions": {
+        "user-invoked": "Skill invocation requested explicitly by the user, such as via a slash command or UI affordance.",
+        "agent-invoked": "Skill invocation requested by the agent.",
+        "context-load": "Skill content loaded as part of another context, such as a configured custom agent or subagent."
+      }
+    },
+    "SkillInvokedRefEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "skill.invoked_ref",
+          "description": "Type discriminator. Always \"skill.invoked_ref\"."
+        },
+        "data": {
+          "$ref": "#/definitions/SkillInvokedRefData",
+          "description": "Internal durable skill invocation receipt whose content resolves from an earlier inline skill event in the same session."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"skill.invoked_ref\". Internal durable skill invocation receipt whose content resolves from an earlier inline skill event in the same session.",
+      "title": "SkillInvokedRefEvent",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "SkillInvokedRefData": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the invoked skill"
+        },
+        "invokedAtTurn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Projected chat-message count when the skill was invoked. Preserved from the inline event data when the authored body is deduplicated."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier active when the skill was invoked, when known"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path to the SKILL.md definition, or an empty string for an SDK-provided skill without a filesystem identity"
+        },
+        "contentId": {
+          "type": "string",
+          "description": "Content identifier of an earlier inline skill event in this session, in the prefixed form `sha256:<lowercase hex digest>` over the UTF-8 bytes of that event's `content`"
+        },
+        "contentLength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "UTF-16 code unit length of the referenced skill content. Derived from the referenced body and validated against it when the reference is expanded; a reference whose length disagrees with the body it names is rejected instead of expanded"
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tool names that should be auto-approved when this skill is active"
+        },
+        "disableModelInvocation": {
+          "type": "boolean",
+          "description": "Whether model invocation is disabled for this skill"
+        },
+        "source": {
+          "type": "string",
+          "description": "Source identifier for where the skill was discovered"
+        },
+        "pluginName": {
+          "type": "string",
+          "description": "Name of the plugin this skill originated from, when applicable"
+        },
+        "pluginVersion": {
+          "type": "string",
+          "description": "Version of the plugin this skill originated from, when applicable"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the skill from its SKILL.md frontmatter"
+        },
+        "trigger": {
+          "$ref": "#/definitions/SkillInvokedTrigger",
+          "description": "What triggered the skill invocation"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "contentId",
+        "contentLength"
+      ],
+      "additionalProperties": false,
+      "description": "Internal durable skill invocation receipt whose content resolves from an earlier inline skill event in the same session.",
+      "title": "SkillInvokedRefData"
+    },
+    "SkillContextDeliveredEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "skill.context_delivered",
+          "description": "Type discriminator. Always \"skill.context_delivered\"."
+        },
+        "data": {
+          "$ref": "#/definitions/SkillContextDeliveredData",
+          "description": "Exact skill context delivered to the model during a tool phase. This is not a user submission or another skill invocation."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"skill.context_delivered\". Exact skill context delivered to the model during a tool phase. This is not a user submission or another skill invocation.",
+      "title": "SkillContextDeliveredEvent",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "SkillContextDeliveredData": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Exact model-facing skill wrapper, including its invocation-time file context"
+        },
+        "source": {
+          "type": "string",
+          "description": "Unmodified injection provenance, in the form skill-<invocation-name>"
+        },
+        "interactionId": {
+          "type": "string",
+          "description": "Interaction that delivered this context, when known"
+        }
+      },
+      "required": [
+        "content",
+        "source"
+      ],
+      "additionalProperties": false,
+      "description": "Exact skill context delivered to the model during a tool phase. This is not a user submission or another skill invocation.",
+      "title": "SkillContextDeliveredData"
+    },
+    "SkillContextDeliveredRefEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "skill.context_delivered_ref",
+          "description": "Type discriminator. Always \"skill.context_delivered_ref\"."
+        },
+        "data": {
+          "$ref": "#/definitions/SkillContextDeliveredRefData",
+          "description": "Internal durable receipt that reconstructs exact model-visible skill context from earlier session content."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"skill.context_delivered_ref\". Internal durable receipt that reconstructs exact model-visible skill context from earlier session content.",
+      "title": "SkillContextDeliveredRefEvent",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "SkillContextDeliveredRefData": {
+      "type": "object",
+      "properties": {
+        "contentId": {
+          "type": "string",
+          "description": "Content identifier of an earlier inline skill event in this session, in the prefixed form `sha256:<lowercase hex digest>` over the UTF-8 bytes of that event's `content`"
+        },
+        "prefix": {
+          "type": "string",
+          "description": "Exact text preceding the referenced content in the delivered wrapper"
+        },
+        "suffix": {
+          "type": "string",
+          "description": "Exact text following the referenced content in the delivered wrapper"
+        },
+        "source": {
+          "type": "string",
+          "description": "Unmodified injection provenance, in the form skill-<invocation-name>"
+        },
+        "interactionId": {
+          "type": "string",
+          "description": "Interaction that delivered this context, when known"
+        }
+      },
+      "required": [
+        "contentId",
+        "source"
+      ],
+      "additionalProperties": false,
+      "description": "Internal durable receipt that reconstructs exact model-visible skill context from earlier session content.",
+      "title": "SkillContextDeliveredRefData"
+    },
+    "SkillsLoadedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.skills_loaded",
+          "description": "Type discriminator. Always \"session.skills_loaded\"."
+        },
+        "data": {
+          "$ref": "#/definitions/SkillsLoadedData",
+          "description": "Payload of `session.skills_loaded` listing resolved skill metadata."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.skills_loaded\". Payload of `session.skills_loaded` listing resolved skill metadata.",
+      "title": "SkillsLoadedEvent"
+    },
+    "SkillsLoadedData": {
+      "type": "object",
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SkillsLoadedSkill",
+            "description": "A single resolved skill in `session.skills_loaded`, including source, invocability, enabled state, path, and argument hint."
+          },
+          "description": "Array of resolved skill metadata"
+        }
+      },
+      "required": [
+        "skills"
+      ],
+      "additionalProperties": false,
+      "description": "Payload of `session.skills_loaded` listing resolved skill metadata.",
+      "title": "SkillsLoadedData"
+    },
+    "SkillsLoadedSkill": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique identifier for the skill"
+        },
+        "commandName": {
+          "type": "string",
+          "description": "Canonical slash command name used to invoke the skill, without the leading '/'"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of what the skill does"
+        },
+        "source": {
+          "$ref": "#/definitions/SkillSource",
+          "description": "Source location type (e.g., project, personal-copilot, plugin, builtin, remote, sdk)"
+        },
+        "userInvocable": {
+          "type": "boolean",
+          "description": "Whether the skill can be invoked by the user as a slash command"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the skill is currently enabled"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the skill file, if available"
+        },
+        "argumentHint": {
+          "type": "string",
+          "description": "Optional freeform hint describing the skill's expected arguments, from the `argument-hint` frontmatter field"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "source",
+        "userInvocable",
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "description": "A single resolved skill in `session.skills_loaded`, including source, invocability, enabled state, path, and argument hint.",
+      "title": "SkillsLoadedSkill"
+    },
+    "SkillSource": {
+      "type": "string",
+      "enum": [
+        "project",
+        "inherited",
+        "personal-copilot",
+        "personal-agents",
+        "plugin",
+        "custom",
+        "builtin",
+        "sdk"
+      ],
+      "description": "Source location type (e.g., project, personal-copilot, plugin, builtin, sdk)",
+      "title": "SkillSource",
+      "x-enumDescriptions": {
+        "project": "Skill defined in the current project's skill directories.",
+        "inherited": "Skill discovered from a parent directory in the current workspace tree.",
+        "personal-copilot": "Skill defined in the user's Copilot skill directory.",
+        "personal-agents": "Skill defined in the user's personal agents skill directory.",
+        "plugin": "Skill provided by an installed plugin.",
+        "custom": "Skill loaded from a configured custom skill directory.",
+        "builtin": "Skill bundled with the runtime.",
+        "sdk": "Pathless skill supplied lazily by an SDK skill provider."
+      }
+    },
+    "ToolsUpdatedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.tools_updated",
+          "description": "Type discriminator. Always \"session.tools_updated\"."
+        },
+        "data": {
+          "$ref": "#/definitions/ToolsUpdatedData",
+          "description": "Payload of `session.tools_updated` identifying the model whose resolved tools were updated."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.tools_updated\". Payload of `session.tools_updated` identifying the model whose resolved tools were updated.",
+      "title": "ToolsUpdatedEvent"
+    },
+    "ToolsUpdatedData": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Identifier of the model the resolved tools apply to."
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "additionalProperties": false,
+      "description": "Payload of `session.tools_updated` identifying the model whose resolved tools were updated.",
+      "title": "ToolsUpdatedData"
+    }
+  }
+}

@@ -6,7 +6,15 @@
 - Inputs: [role contract](../superpowers/specs/2026-10-04-agent-role-configuration-design.md), [probe plan](../superpowers/plans/2026-10-04-copilot-role-capability-probes.md)
 - Evidence: [transport inspection manifest](fixtures/copilot-1.0.90-transport/manifest.json)
 
-## Decision
+## Subsequent qualification
+
+The [native 1.0.90 inspection](copilot-native-receipt-qualification.md) now binds
+actual embedded schemas/source to the installed executable. The 1.0.28
+companion excerpts below remain historical leads. Ordinary CLI JSON stdout
+excludes the necessary receipts; OTel still lacks safe capture and a retained
+runtime example. No transport or role has qualified.
+
+## Decision at this inspection
 
 Investigate Copilot's native OpenTelemetry file exporter as the first candidate
 for measuring delivered instructions and model-visible tool definitions. The

@@ -1,0 +1,63 @@
+{
+  "native": {
+    "bytes": 158652784,
+    "sha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458"
+  },
+  "seaSection": {
+    "offset": 92831744,
+    "bytes": 61501946
+  },
+  "seaLoader": {
+    "bytes": 122868,
+    "sha256": "da4cf279685153942a477484b671d20f51543892641418850525126c7c8879be"
+  },
+  "seaExecArgv": [
+    "--no-warnings",
+    "--report-on-fatalerror",
+    "--optimize-for-size",
+    "--expose-gc"
+  ],
+  "asset": {
+    "name": "copilot.tgz",
+    "bytes": 61378900,
+    "sha256": "3664ce7e674ca7036741e0b5efec19e2ffc422a664cc0348256e734cac9b8643"
+  },
+  "selectedMembers": [
+    {
+      "path": "package/package.json",
+      "bytes": 2297,
+      "sha256": "f7998c25b7a701f516ae06091cb268106aa0a2625c0bc460607e702a43dfdb89",
+      "cacheMatches": true
+    },
+    {
+      "path": "package/index.js",
+      "bytes": 41570,
+      "sha256": "9df9fc05c699c7dd2dbcd2ba322861c31ce6c7c3c9a5e10aeb4054f7213bf1ba",
+      "cacheMatches": true
+    },
+    {
+      "path": "package/app.js",
+      "bytes": 7577057,
+      "sha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813",
+      "cacheMatches": true
+    },
+    {
+      "path": "package/schemas/api.schema.json",
+      "bytes": 2064273,
+      "sha256": "749f184068021a6a05b0d8234ecb8cb4d392a5b9b044c87f619bde374eab928d",
+      "cacheMatches": true
+    },
+    {
+      "path": "package/schemas/session-events.schema.json",
+      "bytes": 911334,
+      "sha256": "c1b43f27c015b87bbb74072c6591227e860d6b1862aed9edecfe5aacd29a16c3",
+      "cacheMatches": true
+    },
+    {
+      "path": "package/prebuilds/darwin-arm64/runtime.node",
+      "bytes": 86098368,
+      "sha256": "ad89ad135478cd2b19a5b99bb19064d0be281961cab0506f3767f39234d4c591",
+      "cacheMatches": true
+    }
+  ]
+}

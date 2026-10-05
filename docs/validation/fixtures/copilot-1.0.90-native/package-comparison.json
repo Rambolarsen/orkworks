@@ -1,0 +1,71 @@
+{
+  "installedExecutable": "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+  "installedSha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458",
+  "packages": [
+    {
+      "name": "@github/copilot",
+      "version": "1.0.90",
+      "metadataUrl": "https://registry.npmjs.org/@github%2fcopilot/1.0.90",
+      "tarballUrl": "https://registry.npmjs.org/@github/copilot/-/copilot-1.0.90.tgz",
+      "registryIntegrity": "sha512-XNhA7NscW1D/H537wK+NRuUyWNCqK5JIZZ4aknhibZMiOvRLLbasR4t1QxzSEfr+ZOC6AIY9e6PkGMjgOAN5aQ==",
+      "integrityVerified": true,
+      "archiveBytes": 5451,
+      "archiveSha256": "46b5c0031ca632e04765b5721308613a21d2936fb6ded0875065f3d1da5e34bc",
+      "members": [
+        {
+          "path": "package/npm-loader.js",
+          "bytes": 1185,
+          "sha256": "0ea824a86be5757533fdb092eff7050871bd7a711a46babde0ffe0e44ac5ad88"
+        },
+        {
+          "path": "package/package.json",
+          "bytes": 1088,
+          "sha256": "6691a52883d42197368a19a0a3d069983d05447a1782e079e2de62fb030cb7a8"
+        },
+        {
+          "path": "package/LICENSE.md",
+          "bytes": 2955,
+          "sha256": "b9680937e10425bf19862908856c16ed274e6b81a1368bd62be7a757eab21628"
+        },
+        {
+          "path": "package/README.md",
+          "bytes": 7740,
+          "sha256": "33657f2e7383f2167b47d5f8c549a6071905a5c93d5d67d17e5c5399f126f07b"
+        }
+      ]
+    },
+    {
+      "name": "@github/copilot-darwin-arm64",
+      "version": "1.0.90",
+      "metadataUrl": "https://registry.npmjs.org/@github%2fcopilot-darwin-arm64/1.0.90",
+      "tarballUrl": "https://registry.npmjs.org/@github/copilot-darwin-arm64/-/copilot-darwin-arm64-1.0.90.tgz",
+      "registryIntegrity": "sha512-TmNxIy9ANQPnc1clDKCHaCnx9QyEtTsOcf6+rKcNH/gXdyq4xk0UH2MaTCyhGMyXGQWelbo5zf05iJpexE4kHw==",
+      "integrityVerified": true,
+      "archiveBytes": 97505090,
+      "archiveSha256": "e8919d150b588b31175f67a15dd947fe36f1a401dadc47b992955afb6004897c",
+      "members": [
+        {
+          "path": "package/copilot",
+          "bytes": 158652784,
+          "sha256": "3ae21a3f00fcc216faaa1f062ee98451c7807066ee26f0fe1c85c6ed315e5458",
+          "matchesInstalledExecutable": true
+        },
+        {
+          "path": "package/package.json",
+          "bytes": 663,
+          "sha256": "ea611203d83d70918a7b2fd8f8162c2be8950768640d0b315384fe2ea1e3bf0c"
+        },
+        {
+          "path": "package/LICENSE.md",
+          "bytes": 2955,
+          "sha256": "b9680937e10425bf19862908856c16ed274e6b81a1368bd62be7a757eab21628"
+        },
+        {
+          "path": "package/README.md",
+          "bytes": 383,
+          "sha256": "56746543469bfbe86eb179359b947ecac42db726220c0b031f128343b780bc7a"
+        }
+      ]
+    }
+  ]
+}

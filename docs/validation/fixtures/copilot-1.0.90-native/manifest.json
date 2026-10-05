@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-05",
+  "issue": 740,
+  "kind": "static-source-inspection-not-runtime-events",
+  "platform": "Darwin 25.6.0 arm64",
+  "argv": [
+    "python3",
+    "inspect-runtime.py",
+    "--native",
+    "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+    "--cache",
+    "/Users/froomiebot/Library/Caches/copilot/pkg/darwin-arm64/1.0.90",
+    "--output",
+    "/private/tmp/ork740-native-packet"
+  ],
+  "cwd": "/Users/froomiebot/workspace/orkworks",
+  "exitCode": 0,
+  "environmentPresenceOnly": {
+    "COPILOT_HOME": false,
+    "COPILOT_CACHE_HOME": false,
+    "COPILOT_PKG_CACHE_HOME": false,
+    "COPILOT_CLI_DIST_DIR": false,
+    "COPILOT_CLI_VERSION": false,
+    "COPILOT_CLI_RESOLVED_DIST_DIR": false
+  },
+  "artifacts": [
+    {
+      "path": ".gitattributes",
+      "bytes": 13,
+      "sha256": "9e8f041ed812cb5288282cc6b187de804e96b688d56647fdae181c49fec71863"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3003,
+      "sha256": "bb66197eb60333ff1f1f1f54837e3dd98bc80ad12e6b9881c4f93a08724c5fdd"
+    },
+    {
+      "path": "events-selected.schema.json",
+      "bytes": 30183,
+      "sha256": "8bc6ad3dc02386317be8f2c1a4c25e7232973d15f05c36fe144381e78c3a3594"
+    },
+    {
+      "path": "inspect-runtime.py",
+      "bytes": 6690,
+      "sha256": "5a351130beff4df7996630e2fa257c2f5beebca1a5cc656a56f7d567a3cb2611"
+    },
+    {
+      "path": "json-output-excerpts.json",
+      "bytes": 3019,
+      "sha256": "bd4fddad60de98f3a4134d9986bcecfd74552b9ff5b820e66813bec3d59e5c8a"
+    },
+    {
+      "path": "package-comparison.json",
+      "bytes": 2808,
+      "sha256": "7df23bc9530bc1bef110e8b0fcb3eda3a2cd6754e7dcb072c0a111538dd748d6"
+    },
+    {
+      "path": "runtime-identity.json",
+      "bytes": 1773,
+      "sha256": "712b5f13cd9b2e005ad40cdd066bbb6a37355374377ac4943e71e441d52dd151"
+    },
+    {
+      "path": "sea-loader-excerpts.json",
+      "bytes": 3510,
+      "sha256": "c73343b8ccc2d3d0e3f9130c34bc35a85559cea4169e76bd23e00b7bbb9ccf1b"
+    },
+    {
+      "path": "tools-selected.schema.json",
+      "bytes": 4302,
+      "sha256": "d20444640a950119a64c9e5d1a00e702c164ebf8da9ad17f8016a568af6d0bf7"
+    }
+  ]
+}

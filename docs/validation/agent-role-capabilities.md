@@ -1,7 +1,7 @@
 # Coding-tool role capabilities
 
 Date: 2026-10-04
-Installed CLI: `GitHub Copilot CLI 1.0.90` (`/opt/homebrew/bin/copilot`; version output captured during this investigation). The official release tag is [v1.0.90](https://github.com/github/copilot-cli/releases/tag/v1.0.90), dated 2026-09-30. The release tag is a version reference; the current docs links below are authoritative vendor docs but are not version-pinned. No version-tagged source for role-control internals was consulted.
+Installed CLI: `GitHub Copilot CLI 1.0.90` (`/opt/homebrew/bin/copilot`; version output captured during this investigation). The official release tag is [v1.0.90](https://github.com/github/copilot-cli/releases/tag/v1.0.90), dated 2026-09-30. The release tag is a version reference; the current docs links below are authoritative vendor docs but are not version-pinned. The later [native receipt qualification](copilot-native-receipt-qualification.md) inspects version-matched embedded runtime schemas/source; it supplies static evidence, not exercised role controls.
 
 For an immutable official-documentation source pointer, GitHub's CLI reference history identifies the source-sync commit [`b87a8cfb5931ae735ff4dc3d936ccbc2a4c0b1e7`](https://github.com/github/docs/commit/b87a8cfb5931ae735ff4dc3d936ccbc2a4c0b1e7) for the CLI reference page. This is a pinned documentation snapshot, not a claim that its date/version matches the 1.0.90 binary; where behavior differs, the installed help is the v1.0.90 evidence and current official docs are explicitly labeled unpinned.
 
@@ -230,10 +230,10 @@ capability evidence.
 | #740 criterion | Current disposition |
 | --- | --- |
 | Exact versions, primary references, bounded fixtures | Retained local help/version/discovery; runtime controls remain unverified |
-| Role/native/startup rules and selected skill delivery | Native OTel capture candidate inspected in the [transport research](copilot-role-observation-transport.md); actual schema/sample, complete content receipt and safe capture remain open |
+| Role/native/startup rules and selected skill delivery | Native OTel capture candidate inspected in the [transport research](copilot-role-observation-transport.md); native schema is now version-bound in the [qualification report](copilot-native-receipt-qualification.md); runtime sample, complete content receipt and safe capture remain open |
 | Six roles' tools/commands/files/network/connectors/bypasses | Audited surfaces and role matrix retained; no complete profile fixture |
 | Unsupported eligibility, no silent widening/fallback | All six profiles unavailable; absence of evidence is not impossibility |
-| Reported/observed/unknown usage coverage | Companion content-bearing invocation schema retained as a version-mismatched lead; native 1.0.90 emission/coverage remains unverified and discovery is not usage |
+| Reported/observed/unknown usage coverage | Version-bound native invocation/delivery/ref schemas retained; CLI JSON stdout excludes the receipts, native emission/coverage remains unverified and discovery is not usage |
 | Initial slice or explicit no-go | Current no-go retained; smallest proposed experiment is a synthetic local-only review profile |
 | Same-parent continuation | Requires its own schema/event/runtime/generation fixture; no live probe |
 | Reviewed specification/research execution handoff | Concrete [probe plan](../superpowers/plans/2026-10-04-copilot-role-capability-probes.md) prepared for written review and separate probe-session authorization |
@@ -272,3 +272,24 @@ need investigation; post-capture redaction or one observed tool is insufficient.
 The probe plan now links these concrete checks without marking transport or
 role qualification complete. All six profiles remain unverified/no-go, and
 #740 remains open for the necessary evidence and reviewed consumer handoff.
+
+## Native source qualification follow-up — 2026-10-05
+
+The [native qualification report](copilot-native-receipt-qualification.md) and
+[static inspection packet](fixtures/copilot-1.0.90-native/manifest.json) resolve
+the source/version mismatch: the official native 1.0.90 executable matches the
+installed bytes, and its embedded runtime contains version-matched schemas.
+Six selected cached runtime files, including the native addon, match the
+embedded archive. The earlier 1.0.28 companion packet remains a distinct lead.
+The loader can report its version before importing the cached runtime, so
+future launch identity must bind the actual loaded distribution as well.
+
+Native schemas define exact skill-delivery receipts and same-session content
+references, plus an experimental initialized-session tool metadata query.
+These are static source facts. The ordinary `--output-format json` writer
+explicitly omits the necessary system/skill receipts and is no-go for delivery
+measurement. Tool metadata has optional input schemas and no mandatory model
+request/generation binding; it is not yet a complete effective inventory.
+OTel capture safety and any alternative observer remain unverified. No live
+probe ran, no SDK integration is proposed, all six roles remain unavailable,
+and #740 remains open.
