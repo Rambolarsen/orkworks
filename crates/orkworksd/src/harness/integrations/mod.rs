@@ -1161,6 +1161,11 @@ function Invoke-RestMethod {
             .find("if ($sessionSource -eq \"codex_hook\" -and $HOME) {")
             .unwrap();
         let (prefix, diagnostic_source) = source.split_at(diagnostic_start);
+        let line_ending = if source.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
         let mut diagnostic_source = diagnostic_source.to_owned();
         // Instrument only a copied script. Preserve the reporter's actual operations,
         // ACL, mutex, cleanup and swallowed-error behavior; export no source errors.
@@ -1204,11 +1209,11 @@ function Invoke-RestMethod {
             assert_eq!(diagnostic_source.matches(anchor).count(), expected);
             diagnostic_source = diagnostic_source.replace(
                 anchor,
-                &format!("$fixtureDiagnosticStage = '{stage}'\n        {anchor}"),
+                &format!("$fixtureDiagnosticStage = '{stage}'{line_ending}        {anchor}"),
             );
         }
-        let catch_anchor = "    } catch {\n        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {";
-        assert_eq!(diagnostic_source.matches(catch_anchor).count(), 1);
+        let catch_anchor = "    } catch {\n        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {".replace('\n', line_ending);
+        assert_eq!(diagnostic_source.matches(catch_anchor.as_str()).count(), 1);
         let traced_catch = r#"    } catch {
         $fixtureDiagnosticException = $_.Exception
         for ($fixtureDepth = 0; $fixtureDepth -lt 4 -and $fixtureDiagnosticException.InnerException; $fixtureDepth++) {
@@ -1218,8 +1223,10 @@ function Invoke-RestMethod {
         if ($fixtureExceptionType -notmatch '^[A-Za-z0-9_.+]{1,128}$') { $fixtureExceptionType = 'Other' }
         $fixtureTraceRecord = @{ stage = $fixtureDiagnosticStage; exceptionType = $fixtureExceptionType; hresult = [int]$fixtureDiagnosticException.HResult } | ConvertTo-Json -Compress
         try { [System.IO.File]::AppendAllText($env:ORKWORKS_FIXTURE_DIAGNOSTIC_TRACE, $fixtureTraceRecord + [Environment]::NewLine) } catch {}
-        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {"#;
-        diagnostic_source = diagnostic_source.replacen(catch_anchor, traced_catch, 1);
+        if ($temporaryDiagnostic -and [System.IO.File]::Exists($temporaryDiagnostic)) {"#
+            .replace("\r\n", "\n")
+            .replace('\n', line_ending);
+        diagnostic_source = diagnostic_source.replacen(catch_anchor.as_str(), &traced_catch, 1);
         let script = temp.path().join("instrumented-reporter.ps1");
         std::fs::write(&script, format!("{prefix}{diagnostic_source}")).unwrap();
         let diagnostic_trace = temp.path().join("diagnostic-trace.jsonl");
