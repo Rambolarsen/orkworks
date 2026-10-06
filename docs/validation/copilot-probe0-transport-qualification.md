@@ -70,11 +70,66 @@ file, which is not retained. Hash binding of the redacted attributes to
 delivered bytes therefore cannot be re-checked by a reader; it records what the
 observer measured.
 
+## Probe 0b: three further refused-turn cases (2026-10-06)
+
+Owner-approved follow-up, three single-turn runs with no retry, same
+environment construction and quota refusal as above. Setup, hashes and
+measurements are in `fixtures/copilot-1.0.90-probe1/` (`argv.txt`,
+`summary.json`, sanitized exports). The fixture's skill now has a sibling
+`reference.md` containing `ORK740_REF`.
+
+| Question | Result | Status |
+| --- | --- | --- |
+| Nested rule delivery | With cwd in `scope/`, both `ORK740_ROOT` and `ORK740_SCOPE` appear in system instructions; with cwd at the root only the root rule appears | Observed, 1 sample each |
+| Referenced skill resource | Neither the skill body nor `reference.md` content (`ORK740_REF`) is delivered at startup; only the skill name is listed | Observed; delivery on invocation unverified |
+| Effect of `--disable-builtin-mcps` | Without the flag, `github-mcp-server` reaches state `initialized`; with it, the server stays `discovered` only, and `githubiq` additionally appears as `discovered` (no `source` attribute) | Observed: the flag prevents builtin initialization; `githubiq` origin unknown |
+| Repo-independence of MCP discovery | Both servers are still discovered from a non-git directory, where no rule or sentinel skill is found | Observed |
+| Tool inventory | Identical four tools in all three cases | Observed |
+
+`githubiq` appears only when the flag is set, and its origin was not
+determined. It is not in the tool inventory, but "no connectors" stays
+unverified until its source and connection behavior are established. Rules and
+the sentinel skill come from the git root of the working directory; discovery
+outside a repository found neither.
+
+## Proposed Probe 2: mock-endpoint capture test (not run)
+
+The remaining capture gate, that response and reasoning content are excluded
+from the export, needs a completed model turn, which the quota blocks until
+November 1. Native help documents a custom-provider (BYOK) route that needs no
+GitHub authentication, so a local mock can supply the turn. This would qualify
+the capture transport only. It uses a substituted provider, so it is not
+evidence about Copilot-hosted model behavior, permission enforcement or any
+role profile, and its result must not be cited as such.
+
+Proposed configuration, for owner review before any run:
+
+- Mock: a throwaway Python HTTP server on `127.0.0.1` (ephemeral port),
+  OpenAI chat-completions shape, streaming. It returns one canned reply
+  containing the sentinel `ORK740_RESPONSE` and, in a second case, a scripted
+  call to a tool that is not in the available set (denial case). Its request
+  log is kept and checked against the exported prompts.
+- Environment: `COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:<port>/v1`,
+  `COPILOT_PROVIDER_TYPE=openai`, `COPILOT_PROVIDER_WIRE_API=completions`,
+  `COPILOT_MODEL=mock-740`, no API key, the same disposable `COPILOT_HOME`,
+  capture settings and OTel file path as Probe 0.
+- Same argv filters as Probe 0. Two turns, 120 seconds each, one process at a
+  time, no retry. Nothing leaves the machine; stop if any non-loopback
+  connection is observed.
+- Checks: `ORK740_RESPONSE` and any mock "reasoning" string absent from the
+  exported file; the mock's received request matches the exported
+  instructions/tools; the later request in a multi-message turn contains no
+  response content in captured inputs; unavailable-tool call is refused.
+- A pass qualifies the exclusion property for this transport only. The
+  Copilot-hosted Probe 1 matrix still waits for quota and a new authorization.
+
 ## Remaining gates
 
-1. Re-run once quota is available, with one successful turn, to show responses
-   and reasoning are absent from the exported file and from later inputs.
-2. Add a scoped-rule case (cwd in `scope/`) and a referenced-skill-resource case.
-3. Investigate `github-mcp-server`/`githubiq` discovery under
-   `--disable-builtin-mcps`.
-4. Only then approve the Probe 1 allow/deny matrix in a new authorization.
+1. Run Probe 2 if the owner approves its configuration.
+2. After quota returns: one successful hosted turn to confirm exclusion
+   against the real service, then the Probe 1 allow/deny matrix under a new
+   authorization.
+3. Establish the origin and connection behavior of `githubiq` and whether
+   `--disable-builtin-mcps` suffices for a "no connectors" claim.
+4. Observe skill-body delivery on invocation, which needs tool-output capture or
+   a startup-injection design in #743.
