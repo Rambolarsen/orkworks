@@ -1296,11 +1296,39 @@ function Invoke-RestMethod {
             .write_all(br#"{"session_id":"root-1"}"#)
             .unwrap();
         assert!(child.wait_with_output().unwrap().status.success());
-        assert_eq!(
-            std::fs::read_dir(&full_mailbox).unwrap().count(),
-            64,
-            "full slot queue must not publish another approval or leak a staging file"
+        let full_entries = std::fs::read_dir(&full_mailbox)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        let approval_slots = full_entries
+            .iter()
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("approval-"))
+            })
+            .count();
+        assert_eq!(approval_slots, 64, "full slot queue must stay bounded");
+        assert!(
+            full_entries.iter().all(|path| {
+                !path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".pending-"))
+            }),
+            "full slot queue must clean up staged envelopes"
         );
+        for path in full_entries.iter().filter(|path| {
+            !path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("approval-"))
+        }) {
+            let identity: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            assert!(identity.get("report").is_some());
+            assert!(identity.get("approval").is_none());
+        }
         let records = std::fs::read_dir(&mailbox)
             .unwrap()
             .map(|e| {
