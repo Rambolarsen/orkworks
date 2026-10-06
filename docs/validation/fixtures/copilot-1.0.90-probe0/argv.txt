@@ -1,0 +1,4 @@
+cwd: synthetic fixture git root (inputs/ + git init + one commit)
+env: COPILOT_HOME=<fresh empty dir seeded with inputs/probe-config.json>; COPILOT_OTEL_FILE_EXPORTER_PATH=<temp file>; COPILOT_DEBUG_NONCE unset
+argv: copilot --no-auto-update --available-tools view grep glob skill --deny-tool shell write url --disable-builtin-mcps -s -p "Reply with the single word OK. Do not use tools."
+limit: 120 s, one process, no retry. exit 0, stdout empty, stderr = quota error (see stderr.txt)
