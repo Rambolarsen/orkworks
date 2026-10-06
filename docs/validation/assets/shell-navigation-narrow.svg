@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="900" viewBox="0 0 760 900" role="img" aria-labelledby="title desc"><title id="title">Narrow shell and workflow outline</title><desc id="desc">Synthetic proposed OrkWorks shell. One central context; no draggable panels. Workflow paths are tasks, not Git branches. All content is illustrative.</desc>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#e8e9ed;font-size:16px}.small{font-size:14px;fill:#b9bec8}.title{font-size:24px;font-weight:600}.heading{font-size:18px;font-weight:600}.mono{font-family:monospace;font-size:16px}.green{fill:#a8dab4}.amber{fill:#efce91}.muted{fill:#b9bec8}</style>
+<rect x="0" y="0" width="760" height="900" rx="0" fill="#11141a"/>
+<rect x="0" y="0" width="760" height="44" rx="0" fill="#191d25"/>
+<text x="20" y="29" class="heading">OrkWorks / sample-project</text>
+<text x="548" y="29" class="green">Connected</text>
+<text x="20" y="94" class="title">Workflow / Safer startup</text>
+<rect x="20" y="117" width="110" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="32" y="140" class="small">Sessions</text>
+<rect x="144" y="117" width="144" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="156" y="140" class="small">Needs you · 1</text>
+<rect x="302" y="117" width="100" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="314" y="140" class="small">Details</text>
+<rect x="416" y="117" width="110" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="428" y="140" class="small">Capacity</text>
+<rect x="20" y="170" width="236" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="32" y="193" class="small">Return to selected terminal</text>
+<text x="20" y="260" class="heading">Orchestrator · Safer startup</text>
+<text x="20" y="302" class="heading">Research plan · revision 1</text>
+<rect x="20" y="326" width="720" height="104" rx="8" fill="#202630" stroke="#3b4655"/>
+<rect x="34" y="340" width="30" height="30" rx="8" fill="#364355"/>
+<text x="43" y="361" class="heading">R</text>
+<text x="74" y="357" class="heading">Research R1</text>
+<text x="34" y="385" class="">Read launch contract</text>
+<text x="34" y="410" class="small">Working</text>
+<rect x="20" y="446" width="720" height="104" rx="8" fill="#202630" stroke="#3b4655"/>
+<rect x="34" y="460" width="30" height="30" rx="8" fill="#364355"/>
+<text x="43" y="481" class="heading">R</text>
+<text x="74" y="477" class="heading">Research R2</text>
+<text x="34" y="505" class="">Check error cases</text>
+<text x="34" y="530" class="amber">Needs input · inspect, then explicitly open terminal</text>
+<text x="20" y="616" class="heading">Execution proposal · revision 2</text>
+<rect x="20" y="640" width="720" height="104" rx="8" fill="#202630" stroke="#677388"/>
+<rect x="34" y="654" width="30" height="30" rx="8" fill="#364355"/>
+<text x="43" y="675" class="heading">V</text>
+<text x="74" y="671" class="heading">Verification V1</text>
+<text x="34" y="699" class="">Exercise failure paths</text>
+<text x="34" y="724" class="amber">Planned · waits for I1 · approval required</text>
+<text x="20" y="802" class="small">Sessions / Details replace this surface temporarily.</text>
+<text x="20" y="829" class="small">Back restores the exact valid workflow and focus anchor.</text>
+<rect x="0" y="870" width="760" height="30" rx="0" fill="#191d25"/>
+<text x="20" y="890" class="small">PROPOSED · synthetic · narrow / effective zoom width</text>
+</svg>

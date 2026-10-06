@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc"><title id="title">Central Review with workspace recommendations</title><desc id="desc">Synthetic proposed OrkWorks shell. One central context; no draggable panels. Workflow paths are tasks, not Git branches. All content is illustrative.</desc>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#e8e9ed;font-size:16px}.small{font-size:14px;fill:#b9bec8}.title{font-size:24px;font-weight:600}.heading{font-size:18px;font-weight:600}.mono{font-family:monospace;font-size:16px}.green{fill:#a8dab4}.amber{fill:#efce91}.muted{fill:#b9bec8}</style>
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#11141a"/>
+<rect x="0" y="0" width="1440" height="44" rx="0" fill="#191d25"/>
+<text x="20" y="29" class="heading">OrkWorks</text>
+<text x="160" y="29" class="small">sample-project  /  Switch workspace</text>
+<text x="1090" y="29" class="green">Connected</text>
+<text x="1230" y="29" class="small">Settings</text>
+<text x="1330" y="29" class="small">−  □  ×</text>
+<rect x="0" y="44" width="240" height="826" rx="0" fill="#191d25"/>
+<text x="20" y="83" class="heading">Sessions</text>
+<rect x="168" y="59" width="52" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="180" y="82" class="small">+</text>
+<text x="20" y="122" class="small">ACTIVE · 4</text>
+<rect x="10" y="126" width="220" height="76" rx="6" fill="#1d222b"/>
+<text x="22" y="149" class="">Run: safer startup</text>
+<text x="22" y="174" class="small">Orchestrator · working</text>
+<rect x="10" y="216" width="220" height="76" rx="6" fill="#2a3341"/>
+<text x="22" y="239" class="">Read launch contract</text>
+<text x="22" y="264" class="small">Research · working</text>
+<text x="22" y="285" class="small">Selected terminal</text>
+<rect x="10" y="306" width="220" height="76" rx="6" fill="#1d222b"/>
+<text x="22" y="329" class="">Check error cases</text>
+<text x="22" y="354" class="amber">Research · Needs you</text>
+<rect x="10" y="396" width="220" height="76" rx="6" fill="#1d222b"/>
+<text x="22" y="419" class="">Ordinary session</text>
+<text x="22" y="444" class="small">Copilot · working</text>
+<text x="20" y="548" class="small">REMEMBERED</text>
+<text x="20" y="582" class="">Previous verification</text>
+<text x="20" y="608" class="small">Ended · history available</text>
+<text x="20" y="805" class="small">No planned tasks here</text>
+<text x="20" y="832" class="small">Switch actual sessions</text>
+<rect x="240" y="44" width="1200" height="88" rx="0" fill="#171b22"/>
+<text x="264" y="78" class="title">Review / R1 startup plan</text>
+<text x="264" y="112" class="small">One visible context · task paths, not Git branches</text>
+<rect x="920" y="63" width="136" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="932" y="86" class="small">Needs you · 1</text>
+<rect x="1070" y="63" width="106" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="1082" y="86" class="small">Capacity</text>
+<rect x="1190" y="63" width="100" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="1202" y="86" class="small">Details</text>
+<path d="M240 132 L1440 132" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="0" y="870" width="1440" height="30" rx="0" fill="#191d25"/>
+<text x="20" y="890" class="small">PROPOSED · synthetic records · no runtime feature claimed</text>
+<rect x="1120" y="132" width="320" height="738" rx="0" fill="#191e26"/>
+<text x="1140" y="171" class="heading">Recommendations</text>
+<text x="1140" y="201" class="small">Scope: sample-project</text>
+<rect x="1340" y="218" width="78" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="1352" y="241" class="small">Close</text>
+<text x="1140" y="289" class="heading">Review launch errors</text>
+<text x="1140" y="322" class="small">Target: Read launch contract</text>
+<text x="1140" y="355" class="small">Fix requires confirmation</text>
+<rect x="1140" y="380" width="218" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="1152" y="403" class="small">Inspect recommendation</text>
+<text x="1140" y="492" class="small">No terminal input on inspection</text>
+<text x="1140" y="524" class="small">Capacity opens separately</text>
+<rect x="266" y="150" width="164" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="278" y="173" class="small">Back to terminal</text>
+<rect x="444" y="150" width="164" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="456" y="173" class="small">Back to workflow</text>
+<rect x="622" y="150" width="96" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="634" y="173" class="small">Refresh</text>
+<text x="272" y="235" class="title">Startup diagnostics plan</text>
+<text x="272" y="278" class="small">Selected session: R1 · associated Markdown artifact</text>
+<text x="272" y="333" class="heading">Goal</text>
+<text x="272" y="368" class="">Preserve the useful reason a coding tool could not start.</text>
+<text x="272" y="428" class="heading">Acceptance criteria</text>
+<text x="272" y="466" class="">1. Show the exact launch failure in session details.</text>
+<text x="272" y="504" class="">2. Keep resume errors bound to the requested session.</text>
+<text x="272" y="542" class="">3. Preserve retry and workspace-generation fencing.</text>
+<text x="272" y="608" class="small">Reading this document sends no prompt and approves no plan.</text>
+<rect x="272" y="650" width="260" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="284" y="673" class="small">Request independent review</text>
+<text x="272" y="710" class="small">Explicit click approves the fixed prompt · artifact revalidated</text>
+<text x="272" y="790" class="small">One Review document. No document tabs or editor.</text>
+</svg>

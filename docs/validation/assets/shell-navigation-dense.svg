@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc"><title id="title">High-density workflow timeline</title><desc id="desc">Synthetic proposed OrkWorks shell. One central context; no draggable panels. Workflow paths are tasks, not Git branches. All content is illustrative.</desc>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#e8e9ed;font-size:16px}.small{font-size:14px;fill:#b9bec8}.title{font-size:24px;font-weight:600}.heading{font-size:18px;font-weight:600}.mono{font-family:monospace;font-size:16px}.green{fill:#a8dab4}.amber{fill:#efce91}.muted{fill:#b9bec8}</style>
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#11141a"/>
+<rect x="0" y="0" width="1440" height="44" rx="0" fill="#191d25"/>
+<text x="20" y="29" class="heading">OrkWorks</text>
+<text x="160" y="29" class="small">sample-project  /  Switch workspace</text>
+<text x="1090" y="29" class="green">Connected</text>
+<text x="1230" y="29" class="small">Settings</text>
+<text x="1330" y="29" class="small">−  □  ×</text>
+<rect x="0" y="44" width="240" height="826" rx="0" fill="#191d25"/>
+<text x="20" y="83" class="heading">Sessions</text>
+<rect x="168" y="59" width="52" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="180" y="82" class="small">+</text>
+<text x="20" y="122" class="small">ACTIVE · 4</text>
+<rect x="10" y="126" width="220" height="76" rx="6" fill="#1d222b"/>
+<text x="22" y="149" class="">Run: safer startup</text>
+<text x="22" y="174" class="small">Orchestrator · working</text>
+<rect x="10" y="216" width="220" height="76" rx="6" fill="#2a3341"/>
+<text x="22" y="239" class="">Read launch contract</text>
+<text x="22" y="264" class="small">Research · working</text>
+<text x="22" y="285" class="small">Selected terminal</text>
+<rect x="10" y="306" width="220" height="76" rx="6" fill="#1d222b"/>
+<text x="22" y="329" class="">Check error cases</text>
+<text x="22" y="354" class="amber">Research · Needs you</text>
+<rect x="10" y="396" width="220" height="76" rx="6" fill="#1d222b"/>
+<text x="22" y="419" class="">Ordinary session</text>
+<text x="22" y="444" class="small">Copilot · working</text>
+<text x="20" y="548" class="small">REMEMBERED</text>
+<text x="20" y="582" class="">Previous verification</text>
+<text x="20" y="608" class="small">Ended · history available</text>
+<text x="20" y="805" class="small">No planned tasks here</text>
+<text x="20" y="832" class="small">Switch actual sessions</text>
+<rect x="240" y="44" width="1200" height="88" rx="0" fill="#171b22"/>
+<text x="264" y="78" class="title">Workflow / Safer startup · 12 tasks</text>
+<text x="264" y="112" class="small">One visible context · task paths, not Git branches</text>
+<rect x="920" y="63" width="136" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="932" y="86" class="small">Needs you · 1</text>
+<rect x="1070" y="63" width="106" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="1082" y="86" class="small">Capacity</text>
+<rect x="1190" y="63" width="100" height="34" rx="6" fill="#343c49" stroke="#46505e"/>
+<text x="1202" y="86" class="small">Details</text>
+<path d="M240 132 L1440 132" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="1120" y="132" width="320" height="738" rx="0" fill="#191e26"/>
+<text x="1140" y="170" class="heading">Task details</text>
+<rect x="1340" y="145" width="78" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="1352" y="168" class="small">Close</text>
+<text x="1140" y="216" class="heading">Research · R2</text>
+<text x="1140" y="245" class="">Check error cases</text>
+<text x="1140" y="276" class="amber">Needs input</text>
+<text x="1140" y="320" class="">Question</text>
+<text x="1140" y="348" class="small">Which failures need recovery?</text>
+<rect x="1140" y="372" width="170" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="1152" y="395" class="small">Open terminal</text>
+<text x="1140" y="448" class="heading">Skills</text>
+<text x="1140" y="478" class="small">systematic-debugging</text>
+<text x="1140" y="503" class="small">Delivery unconfirmed</text>
+<text x="1140" y="528" class="small">Reported use · not loaded proof</text>
+<text x="1140" y="582" class="small">Result: Unassessed</text>
+<text x="1140" y="628" class="heading">Git details</text>
+<text x="1140" y="655" class="small">Worktree: not assigned</text>
+<text x="1140" y="710" class="small">Inspection only</text>
+<text x="1140" y="738" class="small">Terminal selection unchanged</text>
+<rect x="0" y="870" width="1440" height="30" rx="0" fill="#191d25"/>
+<text x="20" y="890" class="small">PROPOSED · synthetic records · no runtime feature claimed</text>
+<rect x="266" y="150" width="184" height="34" rx="6" fill="#252b35" stroke="#46505e"/>
+<text x="278" y="173" class="small">Return to selected terminal</text>
+<rect x="465" y="150" width="150" height="34" rx="6" fill="#343c49" stroke="#46505e"/>
+<text x="477" y="173" class="small">View: Timeline</text>
+<text x="270" y="225" class="heading">Research · revision 1 · retained · Show results</text>
+<text x="270" y="254" class="small">R2 · Needs you · 1 current action retained</text>
+<path d="M286 275 L286 810" fill="none" stroke="#647080" stroke-width="1.5"/>
+<text x="316" y="310" class="heading">Execution · revision 2 · approved plan</text>
+<path d="M286 360 L316 360" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="316" y="338" width="760" height="54" rx="6" fill="#202630" stroke="#394554"/>
+<text x="330" y="360" class="">I1  Preserve startup errors</text>
+<text x="330" y="382" class="small">Working · 3 skills loaded</text>
+<path d="M286 425 L316 425" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="316" y="403" width="760" height="54" rx="6" fill="#202630" stroke="#394554"/>
+<text x="330" y="425" class="">I2  Clarify resume errors</text>
+<text x="330" y="447" class="small">Working · delivery unknown</text>
+<path d="M286 490 L316 490" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="316" y="468" width="760" height="54" rx="6" fill="#202630" stroke="#394554"/>
+<text x="330" y="490" class="">R1  Review I1 changes</text>
+<text x="330" y="512" class="small">Waits for I1 · not started</text>
+<path d="M286 555 L316 555" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="316" y="533" width="760" height="54" rx="6" fill="#202630" stroke="#394554"/>
+<text x="330" y="555" class="">R2  Review I2 changes</text>
+<text x="330" y="577" class="small">Waits for I2 · not started</text>
+<path d="M286 620 L316 620" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="316" y="598" width="760" height="54" rx="6" fill="#202630" stroke="#394554"/>
+<text x="330" y="620" class="">V1  Check denied launches</text>
+<text x="330" y="642" class="small">Waits for R1 · not started</text>
+<path d="M286 685 L316 685" fill="none" stroke="#647080" stroke-width="1.5"/>
+<rect x="316" y="663" width="760" height="54" rx="6" fill="#202630" stroke="#394554"/>
+<text x="330" y="685" class="">V2  Check resume failures</text>
+<text x="330" y="707" class="small">Waits for R2 · not started</text>
+<text x="316" y="766" class="small">6 more tasks · Show all · required actions remain reachable</text>
+<text x="316" y="804" class="small">Run live capacity: 3 / 4 · completed reports do not free live slots</text>
+</svg>

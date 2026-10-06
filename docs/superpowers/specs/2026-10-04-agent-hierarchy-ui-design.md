@@ -8,6 +8,16 @@
 - Accepted scope: [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md), [ordinary-child scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
 - Consumers: [role configuration #741](2026-10-04-agent-role-configuration-design.md), [preparation #742](2026-10-04-orchestrator-preparation-design.md), [skill evidence #743](https://github.com/Rambolarsen/orkworks/issues/743), [evaluation #744](https://github.com/Rambolarsen/orkworks/issues/744)
 
+## Shell proposal handoff: 2026-10-05
+
+The [application-shell/navigation proposal](2026-10-05-application-shell-navigation-design.md)
+now stages compact Sessions, alternative central Workflow/Terminal/Review
+surfaces, explicit task-inspection versus session-selection transitions,
+context-bound details, narrow/zoom navigation, and saved-layout migration.
+Its six synthetic shell drawings extend this document's provisional overview
+concepts. Written owner acceptance and authoritative ADR/spec reconciliation
+remain open; these links do not accept either visual design or authorize code.
+
 ## Scope and status
 
 Specify workflow nodes, evidence, action discovery and renderer projection
@@ -372,7 +382,8 @@ only its actual session. Do not leave another agent's task/skills/evaluation
 beside a visible terminal after switching surfaces. On return, bind details
 before exposing the central surface; restore focus to the invoking node or its
 surviving heading. Shell review must decide placement/open-hide behavior and
-amend ADR 0013's index/detail wording while preserving one visible context.
+supersede ADR 0013's session-only context/detail binding while preserving one
+visible context; the #755 handoff stages the replacement and related reconciliation.
 No second terminal or transcript is mounted as overview content.
 
 Preserve controller foreground/admission/polling fencing. Each hierarchy,
