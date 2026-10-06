@@ -254,13 +254,23 @@ if ($sessionSource -eq "codex_hook" -and $env:ORKWORKS_CODEX_NATIVE_APPROVAL -ce
         $bytes = [System.Text.Encoding]::UTF8.GetBytes((@{ approval = $approval } | ConvertTo-Json -Compress -Depth 4))
         if ($bytes.Length -gt 4096) { throw "oversized envelope" }
         $temporaryApproval = Join-Path $env:ORKWORKS_CODEX_SESSION_REPORT_DIR (".pending-" + [guid]::NewGuid().ToString("N"))
-        $publishedApproval = Join-Path $env:ORKWORKS_CODEX_SESSION_REPORT_DIR ([guid]::NewGuid().ToString("N") + ".json")
         $stream = [System.IO.File]::Open($temporaryApproval, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
         try {
             $stream.Write($bytes, 0, $bytes.Length)
             $stream.Flush($true)
         } finally { $stream.Dispose() }
-        [System.IO.File]::Move($temporaryApproval, $publishedApproval)
+        $publishedApproval = $null
+        for ($slot = 0; $slot -lt 64; $slot++) {
+            $candidate = Join-Path $env:ORKWORKS_CODEX_SESSION_REPORT_DIR ("approval-{0:D2}.json" -f $slot)
+            try {
+                [System.IO.File]::Move($temporaryApproval, $candidate)
+                $publishedApproval = $candidate
+                break
+            } catch [System.IO.IOException] {
+                if (-not [System.IO.File]::Exists($candidate)) { throw }
+            }
+        }
+        if (-not $publishedApproval) { throw "native approval mailbox is full" }
         $temporaryApproval = $null
         if ($Event -ceq "PermissionRequest") {
             $nativePermissionSpooled = $true

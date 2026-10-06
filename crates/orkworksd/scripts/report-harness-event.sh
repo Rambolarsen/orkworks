@@ -253,7 +253,7 @@ if [ "$session_source" = "codex_hook" ] && [ "${ORKWORKS_CODEX_NATIVE_APPROVAL:-
   case "$event" in
     PreToolUse|PermissionRequest|PostToolUse|Stop|UserPromptSubmit)
       if printf '%s' "$payload" | python3 -c '
-import json, os, re, sys, tempfile, uuid
+import json, os, re, sys, tempfile
 raw = json.load(sys.stdin)
 valid_id = lambda v: isinstance(v,str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}",v) is not None
 if not isinstance(raw,dict) or not valid_id(raw.get("session_id")) or not re.fullmatch(r"[a-f0-9]{64}",sys.argv[3]):
@@ -271,9 +271,20 @@ try:
         output.write(encoded)
         output.flush()
         os.fsync(output.fileno())
-    os.replace(temporary,os.path.join(directory,uuid.uuid4().hex+".json"))
+    for slot in range(64):
+        published = os.path.join(directory,"approval-%02d.json" % slot)
+        try:
+            os.link(temporary,published)
+        except FileExistsError:
+            continue
+        os.unlink(temporary)
+        temporary = None
+        break
+    else:
+        raise RuntimeError("native approval mailbox is full")
 except Exception:
-    try: os.unlink(temporary)
+    try:
+        if temporary: os.unlink(temporary)
     except OSError: pass
     raise
 ' "$event" "$native_observed_at" "$hook_fingerprint" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" 2>/dev/null; then

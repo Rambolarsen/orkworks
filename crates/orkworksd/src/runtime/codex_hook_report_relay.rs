@@ -21,6 +21,9 @@ const MAX_REPORT_BYTES: u64 = 4 * 1024;
 const MAX_REPORTS_PER_PASS: usize = 32;
 const MAX_MAILBOX_ENTRIES_PER_PASS: usize = 1024;
 const STALE_PENDING_REPORT_AGE: std::time::Duration = std::time::Duration::from_secs(30);
+const MAX_APPROVAL_SLOTS: usize = 64;
+// Must match the fixed slot range used by both installed Codex reporters.
+const MAX_PENDING_RECEIPTS: usize = MAX_APPROVAL_SLOTS;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,7 +57,6 @@ struct ReceiptBook {
     // remaining lifetime. This floor never advances on drain or reconnect.
     overflow_floor: Option<Instant>,
 }
-const MAX_PENDING_RECEIPTS: usize = 64;
 const MAX_RETRIES_PER_PASS: usize = MAX_REPORTS_PER_PASS / 2;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -298,6 +300,16 @@ fn is_report_filename(name: &OsStr) -> bool {
     let Some(name) = name.to_str() else {
         return false;
     };
+    if let Some(slot) = name
+        .strip_prefix("approval-")
+        .and_then(|name| name.strip_suffix(".json"))
+    {
+        return slot.len() == 2
+            && slot.bytes().all(|byte| byte.is_ascii_digit())
+            && slot
+                .parse::<usize>()
+                .is_ok_and(|slot| slot < MAX_APPROVAL_SLOTS);
+    }
     let Some(stem) = name.strip_suffix(".json") else {
         return false;
     };
@@ -815,6 +827,23 @@ mod tests {
         assert!(!is_report_filename(OsStr::new(
             "00112233-4455-6677-8899-aabbccddeeff.json"
         )));
+    }
+
+    #[test]
+    fn bounded_approval_slot_names_are_consumable() {
+        assert!(is_report_filename(OsStr::new("approval-00.json")));
+        assert!(is_report_filename(OsStr::new("approval-63.json")));
+        assert!(!is_report_filename(OsStr::new("approval-64.json")));
+        assert!(!is_report_filename(OsStr::new("approval-aa.json")));
+
+        let relay = super::CodexHookReportRelay::new().unwrap();
+        let name = std::ffi::OsString::from("approval-00.json");
+        std::fs::write(relay.mailbox_path().join(&name), b"{}").unwrap();
+        assert_eq!(
+            super::select_reports(relay.mailbox.as_ref().unwrap(), 1).unwrap(),
+            vec![name],
+            "the relay scanner must recognize reusable approval slots"
+        );
     }
 
     #[test]

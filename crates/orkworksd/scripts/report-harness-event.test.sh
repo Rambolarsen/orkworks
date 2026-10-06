@@ -420,6 +420,26 @@ waits = [b for b in bodies if b.get('status') == 'waiting_for_input']
 assert len(waits) == 4, bodies
 assert all(b['event'] == 'PermissionRequest' for b in waits)
 NATIVE
+# A full bounded approval mailbox must leave PermissionRequest on the existing
+# authenticated HTTP attention path instead of publishing another file.
+mkdir -p "$temp_dir/full-native-mailbox"
+python3 - "$temp_dir/full-native-mailbox" <<'NATIVE'
+import pathlib, sys
+directory = pathlib.Path(sys.argv[1])
+for slot in range(64):
+    (directory / f"approval-{slot:02}.json").write_text("occupied")
+NATIVE
+printf '%s' '{"session_id":"root-full"}' | NATIVE_MAILBOX="$temp_dir/full-native-mailbox" run_native_reporter PermissionRequest
+python3 - "$temp_dir/full-native-mailbox" "$temp_dir/native-http" <<'NATIVE'
+import json, pathlib, sys
+directory = pathlib.Path(sys.argv[1])
+assert len(list(directory.glob('approval-*.json'))) == 64
+assert not any('approval' in json.loads(path.read_text()) for path in directory.glob('*.json') if not path.name.startswith('approval-'))
+assert not list(directory.glob('.pending-*')), 'full slots must clean up staged envelopes'
+bodies = [json.loads(line) for line in pathlib.Path(sys.argv[2]).read_text().splitlines()]
+waits = [body for body in bodies if body.get('status') == 'waiting_for_input' and body.get('event') == 'PermissionRequest']
+assert len(waits) == 5, bodies
+NATIVE
 
 for event in Stop UserPromptSubmit; do
   printf '%s' '{"session_id":"root-1","turn_id":"turn-1"}' | run_native_reporter "$event"

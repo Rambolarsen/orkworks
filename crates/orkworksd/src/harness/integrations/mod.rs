@@ -1256,6 +1256,51 @@ function Invoke-RestMethod {
                 .unwrap();
             assert!(child.wait_with_output().unwrap().status.success());
         }
+        let full_mailbox = temp.path().join("full-mailbox");
+        std::fs::create_dir(&full_mailbox).unwrap();
+        for slot in 0..64 {
+            std::fs::write(
+                full_mailbox.join(format!("approval-{slot:02}.json")),
+                b"occupied",
+            )
+            .unwrap();
+        }
+        let mut child = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&wrapper)
+            .env_remove("PSModulePath")
+            .env("USERPROFILE", temp.path())
+            .env("ORKWORKS_FIXTURE_HOME", temp.path())
+            .env("ORKWORKS_REPORTER_SCRIPT", &script)
+            .env("ORKWORKS_REQUEST_CAPTURE", &capture)
+            .env("ORKWORKS_TEST_EVENT", "PermissionRequest")
+            .env("ORKWORKS_TEST_FINGERPRINT", "a".repeat(64))
+            .env("ORKWORKS_CODEX_NATIVE_APPROVAL", "1")
+            .env("ORKWORKS_CODEX_SESSION_REPORT_DIR", &full_mailbox)
+            .env("ORKWORKS_SESSION_ID", "session-secret")
+            .env("ORKWORKS_PORT", "1")
+            .env("ORKWORKS_REPORT_TOKEN", "report-secret")
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"session_id":"root-1"}"#)
+            .unwrap();
+        assert!(child.wait_with_output().unwrap().status.success());
+        assert_eq!(
+            std::fs::read_dir(&full_mailbox).unwrap().count(),
+            64,
+            "full slot queue must not publish another approval or leak a staging file"
+        );
         let records = std::fs::read_dir(&mailbox)
             .unwrap()
             .map(|e| {
@@ -1294,10 +1339,7 @@ function Invoke-RestMethod {
             .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
             .filter(|b| b["status"] == "waiting_for_input")
             .count();
-        assert_eq!(
-            waits, 4,
-            "only four failed/unowned native routes use immediate HTTP"
-        );
+        assert_eq!(waits, 5, "unowned or full native routes use immediate HTTP");
         let diagnostic = std::fs::read_to_string(
             temp.path()
                 .join(".orkworks/hook-scripts/report-harness-event-diagnostic.json"),
