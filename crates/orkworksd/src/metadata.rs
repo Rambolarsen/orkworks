@@ -1389,6 +1389,7 @@ impl MetadataStore {
                 Err(e) => return Err(e),
             }
         }
+        revisions.remove(id);
         Ok(())
     }
 
@@ -2666,8 +2667,30 @@ mod tests {
             .try_write_session_if_owned(&meta, &token)
             .unwrap());
         store.delete_session(&meta.id).unwrap();
+        assert!(!store.session_writes.lock().unwrap().contains_key(&meta.id));
+        assert!(!store.try_write_session_if_owned(&meta, &token).unwrap());
         store.try_write_session(&meta).unwrap();
         assert!(!store.try_write_session_if_owned(&meta, &token).unwrap());
+    }
+
+    #[test]
+    fn failed_session_delete_keeps_invalidated_owner_until_retry_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MetadataStore::new(dir.path());
+        let meta = test_metadata("owner-delete-retry");
+        let token = store.try_write_session_owned(&meta).unwrap().unwrap();
+        let moved = dir.path().join("held-sessions");
+        std::fs::rename(store.sessions_dir(), &moved).unwrap();
+        std::fs::write(store.sessions_dir(), b"block directory access").unwrap();
+
+        assert!(store.delete_session(&meta.id).is_err());
+        assert!(store.session_writes.lock().unwrap().contains_key(&meta.id));
+        assert!(!store.try_write_session_if_owned(&meta, &token).unwrap());
+
+        std::fs::remove_file(store.sessions_dir()).unwrap();
+        std::fs::rename(moved, store.sessions_dir()).unwrap();
+        store.delete_session(&meta.id).unwrap();
+        assert!(!store.session_writes.lock().unwrap().contains_key(&meta.id));
     }
 
     #[test]
