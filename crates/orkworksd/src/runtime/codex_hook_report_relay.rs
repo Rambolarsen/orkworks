@@ -125,8 +125,9 @@ impl CodexHookReportRelay {
                 .expect("Codex mailbox handle remains live"),
         );
 
-        // Cached retries have their own bounded quota. They never occupy the
-        // unvisited-file quota needed by identity binding and later hooks.
+        // Cached retries have their own bounded quota, leaving at least half
+        // the pass for unvisited files. Unused retry slots remain available
+        // for identity binding and later hooks.
         let (mut reports, excluded) = {
             let mut book = self.receipts.lock().unwrap();
             let mut retries = Vec::new();
@@ -143,13 +144,10 @@ impl CodexHookReportRelay {
                 book.pending.keys().cloned().collect::<HashSet<_>>(),
             )
         };
+        let unvisited_budget = MAX_REPORTS_PER_PASS - reports.len();
         let scan_mailbox = Arc::clone(&mailbox);
         let new_reports = tokio::task::spawn_blocking(move || {
-            select_unvisited_reports(
-                &scan_mailbox,
-                MAX_REPORTS_PER_PASS - MAX_RETRIES_PER_PASS,
-                &excluded,
-            )
+            select_unvisited_reports(&scan_mailbox, unvisited_budget, &excluded)
         })
         .await;
         if let Ok(Ok(new_reports)) = new_reports {
@@ -632,7 +630,180 @@ impl MailboxDirectory {
 #[cfg(test)]
 mod tests {
     use super::is_report_filename;
+    use crate::test_support::{
+        test_app_state_with_workspace, test_session_info, test_session_metadata,
+    };
     use std::ffi::OsStr;
+
+    fn identity_fixture() -> (
+        tempfile::TempDir,
+        std::sync::Arc<crate::AppState>,
+        String,
+        u64,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = format!("relay-budget-{}", uuid::Uuid::new_v4());
+        let mut meta = test_session_metadata(&id, "relay", "/tmp", "running", "now", "now");
+        meta.harness = "codex".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut info = test_session_info(&id, "relay", "/tmp", "running", "now");
+        info.harness = Some("codex".into());
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut runtime = super::super::session_runtime::SessionRuntime::detached_test();
+        let generation = runtime.run_generation();
+        runtime.native_approval =
+            Some(super::super::codex_approval_application::NativeApprovalState::new(generation));
+        state.sessions.lock().unwrap().insert(
+            id.clone(),
+            crate::SessionHandle {
+                info,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+        super::super::terminal_runtime::set_workflow_report_token(&id, "relay-budget-token".into());
+        (dir, state, id, generation)
+    }
+
+    fn queue_identity(relay: &super::CodexHookReportRelay) -> std::path::PathBuf {
+        let path = relay
+            .mailbox_path()
+            .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+        std::fs::write(
+            &path,
+            serde_json::json!({"report": {
+                "harnessSessionId":"root-id", "source":"codex_hook", "confidence":0.98,
+                "hookFingerprint":"a".repeat(64)
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        path
+    }
+
+    #[tokio::test]
+    async fn consume_ready_uses_full_identity_budget_without_retries() {
+        let (_dir, state, id, generation) = identity_fixture();
+        let relay = super::CodexHookReportRelay::new().unwrap();
+        let paths: Vec<_> = (0..24).map(|_| queue_identity(&relay)).collect();
+
+        let outcome = relay
+            .consume_ready(state.clone(), &id, "relay-budget-token", generation)
+            .await;
+
+        assert_eq!(
+            outcome.reports_consumed, 24,
+            "unused retry slots must remain available to ordinary identity reports"
+        );
+        assert_eq!(outcome.reports_accepted, 24);
+        assert!(paths.iter().all(|path| !path.exists()));
+        assert!(relay.receipts.lock().unwrap().pending.is_empty());
+        super::super::terminal_runtime::clear_workflow_report_token(&id);
+    }
+
+    #[tokio::test]
+    async fn consume_ready_reserves_new_identity_capacity_under_retry_pressure() {
+        let (_dir, state, id, generation) = identity_fixture();
+        let relay = super::CodexHookReportRelay::new().unwrap();
+        let metadata_path = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .sessions_dir()
+            .join(format!("{id}.json"));
+        let held_path = metadata_path.with_extension("held");
+        std::fs::rename(&metadata_path, &held_path).unwrap();
+        // Missing durable metadata makes actual approval application return Retry.
+        for _ in 0..32 {
+            let path = relay
+                .mailbox_path()
+                .join(format!("{}.json", uuid::Uuid::new_v4().simple()));
+            std::fs::write(
+                path,
+                serde_json::json!({"approval": {
+                    "rootId":"root-id", "turnId":null, "toolUseId":"tool",
+                    "event":"PreToolUse", "observedAt":chrono::Utc::now().to_rfc3339(),
+                    "hookFingerprint":"a".repeat(64)
+                }})
+                .to_string(),
+            )
+            .unwrap();
+        }
+        for _ in 0..2 {
+            let outcome = relay
+                .consume_ready(state.clone(), &id, "relay-budget-token", generation)
+                .await;
+            assert_eq!(outcome.reports_consumed, 0);
+        }
+        let (retry_order, original_receipts) = {
+            let book = relay.receipts.lock().unwrap();
+            assert_eq!(book.pending.len(), 32);
+            (
+                book.retry_order.clone(),
+                book.pending
+                    .iter()
+                    .map(|(name, receipt)| {
+                        (name.clone(), (receipt.bytes.clone(), receipt.first_receipt))
+                    })
+                    .collect::<std::collections::HashMap<_, _>>(),
+            )
+        };
+        std::fs::rename(held_path, metadata_path).unwrap();
+        let identities: Vec<_> = (0..24).map(|_| queue_identity(&relay)).collect();
+        // Start the pressure pass at a complete scan page, after fixture setup.
+        *relay.mailbox.as_ref().unwrap().scan.lock().unwrap() = None;
+
+        let outcome = relay
+            .consume_ready(state.clone(), &id, "relay-budget-token", generation)
+            .await;
+
+        assert_eq!(
+            outcome.reports_consumed, 32,
+            "retry and new reports share the unchanged total cap"
+        );
+        assert_eq!(outcome.reports_accepted, 16);
+        assert_eq!(
+            identities.iter().filter(|path| !path.exists()).count(),
+            16,
+            "full retry pressure must leave sixteen new identity slots"
+        );
+        let book = relay.receipts.lock().unwrap();
+        assert_eq!(
+            book.retry_order,
+            retry_order
+                .into_iter()
+                .skip(16)
+                .collect::<std::collections::VecDeque<_>>()
+        );
+        assert_eq!(book.pending.len(), 16);
+        for (name, receipt) in &book.pending {
+            assert_eq!(receipt.bytes, original_receipts[name].0);
+            assert_eq!(
+                receipt.first_receipt, original_receipts[name].1,
+                "retry rotation must retain the original receipt time"
+            );
+        }
+        drop(book);
+        super::super::terminal_runtime::clear_workflow_report_token(&id);
+    }
 
     #[test]
     fn only_uuid_json_names_are_consumable() {
