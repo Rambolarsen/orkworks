@@ -141,6 +141,10 @@ Do not persist the full provider prompt or uncited workspace files. Retention,
 workspace deletion, and corruption behavior must be explicit in the runtime
 contract and preserve existing workspace-local deletion expectations.
 
+Keep assessment runs distinct from **Analyze now** in request, result, and cache
+identity. An unchanged evidence snapshot may reuse a prior assessment report
+only; a regular analysis result must never appear as an assessment outcome.
+
 If a next step is proposed, create or update it through the existing
 recommendation store. Preserve the Brain-derived `proactive:v1:` identity and
 current dismissal/lifecycle behavior; knowledge-only changes must not revive a
