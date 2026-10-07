@@ -110,6 +110,20 @@ pub(super) fn canonical_binary(path: &Path) -> bool {
 pub(super) struct OwnedProcess {
     child: Option<Child>,
 }
+#[cfg(unix)]
+fn signal_probe_indicates_process_exists(result: libc::c_int, errno: libc::c_int) -> bool {
+    result == 0 || errno == libc::EPERM
+}
+#[cfg(unix)]
+fn process_group_exists(group_id: libc::pid_t) -> bool {
+    // SAFETY: signal zero only probes a process group and does not deliver a
+    // signal or change process state.
+    let result = unsafe { libc::kill(-group_id, 0) };
+    let errno = std::io::Error::last_os_error()
+        .raw_os_error()
+        .unwrap_or_default();
+    signal_probe_indicates_process_exists(result, errno)
+}
 impl OwnedProcess {
     #[cfg(unix)]
     fn spawn(mut command: Command) -> Result<Self, NativeError> {
@@ -177,6 +191,36 @@ impl OwnedProcess {
         }
     }
     #[cfg(unix)]
+    fn group_has_live_processes(&self) -> bool {
+        if !self.retains_identity() {
+            return false;
+        }
+        let Some(child) = self.child.as_ref() else {
+            return false;
+        };
+        let Ok(pid) = libc::pid_t::try_from(child.id()) else {
+            return false;
+        };
+        if self.exit_state().is_none() {
+            return true;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            linux_group_has_live_descendants(pid, pid)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            macos_group_has_live_descendants(pid, pid)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        {
+            // Native launch is disabled where we cannot distinguish live
+            // descendants from zombies. The leader is still signaled above,
+            // but group existence alone is not evidence of live work.
+            false
+        }
+    }
+    #[cfg(unix)]
     fn signal(&self, signal: libc::c_int) {
         if !self.retains_identity() {
             return;
@@ -196,10 +240,12 @@ impl OwnedProcess {
         {
             self.signal(libc::SIGTERM);
             let deadline = Instant::now() + Duration::from_secs(2);
-            while self.is_alive() && Instant::now() < deadline {
+            while self.group_has_live_processes() && Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            self.signal(libc::SIGKILL);
+            if self.group_has_live_processes() {
+                self.signal(libc::SIGKILL);
+            }
             self.reap();
         }
     }
@@ -222,6 +268,121 @@ impl Drop for OwnedProcess {
         self.reap();
     }
 }
+
+#[cfg(target_os = "linux")]
+fn linux_group_has_live_descendants(group_id: libc::pid_t, leader_id: libc::pid_t) -> bool {
+    let entries = match std::fs::read_dir("/proc") {
+        Ok(entries) => entries,
+        Err(_) => return true,
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            return true;
+        };
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<libc::pid_t>().ok())
+        else {
+            continue;
+        };
+        if pid == leader_id {
+            continue;
+        }
+        let stat = match std::fs::read_to_string(entry.path().join("stat")) {
+            Ok(stat) => stat,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return true,
+        };
+        let Some(close_paren) = stat.rfind(')') else {
+            return true;
+        };
+        let mut fields = stat[close_paren + 1..].split_whitespace();
+        let Some(state) = fields.next() else {
+            return true;
+        };
+        let Some(_parent) = fields.next() else {
+            return true;
+        };
+        let Some(process_group) = fields.next().and_then(|value| value.parse().ok()) else {
+            return true;
+        };
+        if process_group == group_id && !matches!(state, "Z" | "X" | "x") {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn macos_group_has_live_descendants(group_id: libc::pid_t, leader_id: libc::pid_t) -> bool {
+    use std::mem::size_of;
+
+    let mut pids = vec![0 as libc::pid_t; 64];
+    loop {
+        let count = unsafe {
+            // SAFETY: libproc writes at most the supplied byte length into the
+            // initialized PID buffer; the process-group ID remains protected
+            // by the unreaped leader while it is queried.
+            libc::proc_listpgrppids(
+                group_id,
+                pids.as_mut_ptr().cast(),
+                (pids.len() * size_of::<libc::pid_t>()) as libc::c_int,
+            )
+        };
+        if count <= 0 {
+            return count < 0 || {
+                // libproc reports zero on failure as well as an empty list.
+                // A still-existing group is therefore treated conservatively.
+                process_group_exists(group_id)
+            };
+        }
+        let count = count as usize;
+        if count >= pids.len() {
+            if pids.len() >= 4096 {
+                return true;
+            }
+            pids.resize((pids.len() * 2).min(4096), 0);
+            continue;
+        }
+        for pid in pids.iter().take(count).copied() {
+            if pid <= 0 || pid == leader_id {
+                continue;
+            }
+            let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+            let read = unsafe {
+                // SAFETY: `info` has the exact size expected by this flavor of
+                // proc_pidinfo and is initialized before reading.
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    info.as_mut_ptr().cast(),
+                    size_of::<libc::proc_bsdinfo>() as libc::c_int,
+                )
+            };
+            if read != size_of::<libc::proc_bsdinfo>() as libc::c_int {
+                // The process may have exited after enumeration; any other
+                // uncertainty retains the full grace period.
+                // SAFETY: signal zero only probes the enumerated PID.
+                let result = unsafe { libc::kill(pid, 0) };
+                let errno = std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or_default();
+                if signal_probe_indicates_process_exists(result, errno) {
+                    return true;
+                }
+                continue;
+            }
+            let info = unsafe { info.assume_init() };
+            if info.pbi_status != libc::SZOMB {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 #[cfg(unix)]
 async fn probe_fenced(
     executable: &Path,
@@ -593,10 +754,10 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
                 "model=\"configured\"",
                 "--enable",
                 "feature",
-                "resume",
-                "saved-id",
                 "--disable",
                 "other",
+                "resume",
+                "saved-id",
             ]
         } else {
             vec![]
@@ -1377,6 +1538,58 @@ esac
         assert_ne!(a.value(), b.value());
         assert_ne!(a.value(), a.digest());
     }
+    #[test]
+    fn permission_denied_signal_probe_keeps_owned_process_live() {
+        assert!(signal_probe_indicates_process_exists(-1, libc::EPERM));
+        assert!(!signal_probe_indicates_process_exists(-1, libc::ESRCH));
+    }
+    #[tokio::test]
+    async fn shutdown_waits_for_owned_descendants_after_leader_exits() {
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("descendant-ready");
+        let completed = dir.path().join("descendant-term-handled");
+        let child = r#"
+import pathlib, signal, sys, time
+def finish(signum, frame):
+    time.sleep(0.35)
+    pathlib.Path(sys.argv[2]).write_text("graceful")
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, finish)
+pathlib.Path(sys.argv[1]).write_text("ready")
+while True:
+    time.sleep(0.02)
+"#;
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "trap 'exit 0' TERM; python3 -c \"$1\" \"$2\" \"$3\" & wait",
+            "fixture",
+            child,
+            ready.to_str().unwrap(),
+            completed.to_str().unwrap(),
+        ]);
+        let mut owner = OwnedProcess::spawn(command).unwrap();
+        for _ in 0..200 {
+            if ready.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(ready.exists(), "descendant fixture did not start");
+
+        let shutdown_started = Instant::now();
+        owner.shutdown().await;
+
+        assert!(
+            completed.exists(),
+            "shutdown force-killed the descendant before its TERM handler completed"
+        );
+        assert!(
+            shutdown_started.elapsed() < Duration::from_secs(1),
+            "shutdown waited on the exited leader after its descendant finished"
+        );
+    }
+
     #[tokio::test]
     async fn owned_descendants_are_cleaned_even_after_leader_exit_and_cancellation() {
         let dir = tempfile::tempdir().unwrap();

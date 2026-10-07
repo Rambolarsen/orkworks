@@ -74,6 +74,9 @@ struct Route {
     shared: Vec<String>,
     resume: Option<String>,
 }
+fn native_process_group_probe_supported(os: &str) -> bool {
+    matches!(os, "linux" | "macos")
+}
 fn valid_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -89,6 +92,9 @@ fn parse_arguments(args: &[String]) -> Option<Route> {
     while i < args.len() {
         match args[i].as_str() {
             "-c" | "--config" | "--enable" | "--disable" => {
+                if resume.is_some() {
+                    return None;
+                }
                 let value = args.get(i + 1)?;
                 if value.is_empty() || value.starts_with('-') || value.contains('\0') {
                     return None;
@@ -157,8 +163,9 @@ async fn eligible_with_records(
     let Some(route) = parse_arguments(&command.args) else {
         return Ok(None);
     };
-    // Windows stays on the direct path until suspended Job ownership has been verified.
-    if !cfg!(unix)
+    // Only Linux and macOS have a live owned-group probe; other platforms
+    // stay on the existing direct-launch path until ownership is verified.
+    if !native_process_group_probe_supported(std::env::consts::OS)
         || !records
             .iter()
             .any(|r| r.os == std::env::consts::OS && r.arch == std::env::consts::ARCH)
@@ -398,10 +405,10 @@ mod tests {
             "model=\"configured\"",
             "--enable",
             "feature",
-            "resume",
-            "saved-id",
             "--disable",
             "other",
+            "resume",
+            "saved-id",
         ]
         .map(String::from);
         let route = parse_arguments(&args).expect("mapped route");
@@ -418,6 +425,10 @@ mod tests {
         );
         assert_eq!(route.resume.as_deref(), Some("saved-id"));
         assert!(parse_arguments(&[]).is_some());
+        assert!(
+            parse_arguments(&["resume", "saved-id", "--disable", "other"].map(String::from))
+                .is_none()
+        );
         for invalid in [
             vec!["--model", "x"],
             vec!["--sandbox", "workspace-write"],
@@ -434,6 +445,15 @@ mod tests {
                 parse_arguments(&invalid.into_iter().map(String::from).collect::<Vec<_>>())
                     .is_none()
             );
+        }
+    }
+
+    #[test]
+    fn native_eligibility_is_limited_to_implemented_process_group_probes() {
+        assert!(native_process_group_probe_supported("linux"));
+        assert!(native_process_group_probe_supported("macos"));
+        for os in ["freebsd", "openbsd", "netbsd", "dragonfly"] {
+            assert!(!native_process_group_probe_supported(os), "{os}");
         }
     }
 
