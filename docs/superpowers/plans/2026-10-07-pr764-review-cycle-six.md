@@ -76,3 +76,29 @@ Cycle 7 was explicitly authorized after cycle six exposed a Windows-only fixture
 - [ ] Do not merge until all findings, required checks, and the repository `/code-review medium` gate are dispositioned.
 
 Local cross-target test compilation was attempted with `x86_64-pc-windows-gnu`, but this machine lacks the MinGW C compiler required by `ring` and `libz-sys`; GitHub's native Windows job must validate the corrected test target after push.
+
+## Cycle 8/8 finite extension
+
+The user explicitly authorized one additional review cycle after Copilot found
+that a delayed, spooled `PermissionRequest` could be discarded after 30 seconds.
+This cycle is limited to preserving that validated permission as a conservative
+post-grace wait, then requesting one fresh review from each configured reviewer.
+
+- [x] Add a regression that sends a permission timestamped 31 seconds earlier,
+  then proves the accepted evidence produces persisted `needs_you` after grace.
+- [x] Permit an aged `PermissionRequest` through timestamp validation only;
+  disconnect native correlation before processing it so it cannot authorize a
+  clear. Other stale hook events remain rejected, and existing input/boundary
+  fences still run before the permission is accepted.
+- [x] Confirm the regression fails before the change and passes afterward; all
+  21 `codex_approval_application` tests pass.
+- [x] Run format and diff checks. The first full-suite attempt exposed two
+  loopback HTTP tests routed through the shell proxy (`NO_PROXY` unset). A
+  clean-target rerun bypassing the proxy reached 1,768 passing tests but 38
+  unrelated environment-sensitive failures (loopback listener permissions and
+  timing); the focused approval-application suite passed cleanly.
+- [ ] Push the corrected head and request one Codex review, one Copilot review,
+  and one custom PR review workflow run for that exact SHA.
+- [ ] Re-inventory comments/checks and disposition every cycle-eight finding.
+- [ ] Keep merge blocked until required checks and the manual
+  `/code-review medium` gate are complete.

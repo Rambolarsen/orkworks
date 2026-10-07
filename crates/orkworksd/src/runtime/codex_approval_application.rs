@@ -228,7 +228,11 @@ pub(crate) fn report_hook(
         }
         let observed = observed.expect("validated timestamp");
         let age = chrono::Utc::now().signed_duration_since(observed);
-        if age < chrono::Duration::seconds(-1) || age > chrono::Duration::seconds(30) {
+        let delayed_permission =
+            age > chrono::Duration::seconds(30) && report.event == HookEvent::PermissionRequest;
+        if age < chrono::Duration::seconds(-1)
+            || (age > chrono::Duration::seconds(30) && !delayed_permission)
+        {
             tracker.reducer.disconnected();
             tracker.hook_revision = tracker.hook_revision.and_then(|r| r.checked_add(1));
             return HookReportOutcome::Rejected;
@@ -294,6 +298,13 @@ pub(crate) fn report_hook(
             if report.event != HookEvent::PermissionRequest {
                 return HookReportOutcome::Rejected;
             }
+        }
+        // A delayed permission is still validated evidence that a wait exists,
+        // but its old timestamp cannot support native correlation or clearing.
+        // Disconnect first so the reducer retains it only through its locked,
+        // post-grace conservative path.
+        if delayed_permission {
+            tracker.reducer.disconnected();
         }
         let activation = report.event == HookEvent::PermissionRequest && !handle.active_work_hook;
         if (activation || boundary)
@@ -1061,6 +1072,55 @@ mod tests {
             hook_fingerprint: expected_fingerprint().unwrap(),
         };
         (dir, state, generation, report, t)
+    }
+
+    #[test]
+    fn delayed_permission_is_kept_as_a_conservative_wait() {
+        let (_dir, state, generation, mut report, _) = callback_fixture();
+        let id = state
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        report.observed_at = (chrono::Utc::now() - chrono::Duration::seconds(31))
+            .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+        let receipt = Instant::now();
+
+        assert_eq!(
+            report_hook(
+                &state,
+                &id,
+                "test-report-token",
+                generation,
+                receipt,
+                &report,
+            ),
+            HookReportOutcome::Accepted,
+            "a delayed authenticated permission remains valid evidence for a conservative wait"
+        );
+
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().metadata;
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get_mut(&id).unwrap();
+        let mut tracker = handle.runtime.native_approval.take().unwrap();
+        let after_grace = receipt + Duration::from_secs(3);
+        for effect in tracker.reducer.tick(after_grace) {
+            assert_eq!(
+                apply_effect(store, handle, &mut tracker, &effect, || after_grace, true),
+                ApplyOutcome::Applied
+            );
+        }
+        handle.runtime.native_approval = Some(tracker);
+        assert_eq!(handle.info.attention.as_deref(), Some("needs_you"));
+        assert_eq!(
+            store.read_session(&id).unwrap().attention.as_deref(),
+            Some("needs_you")
+        );
+        super::super::terminal_runtime::clear_workflow_report_token(&id);
     }
 
     fn queue_hook(
