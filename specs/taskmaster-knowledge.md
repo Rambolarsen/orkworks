@@ -21,12 +21,17 @@ the background. Installed CLI-managed policy effects are qualified below.
 
 ## Knowledge distribution
 
-The brain publisher exports only pages explicitly named in an application
-allowlist. It preserves hierarchy, page identities, maturity, applicability,
-provenance, and relationships. Links never implicitly include excluded pages.
-An application index is generated from included pages. Personal assessments,
-project pages, experiment details, and research are excluded unless individually
-selected for distribution. No private-repository credential ships in the app.
+The Brain publisher exports only reviewed, distilled guidance pages explicitly
+named in an application allowlist. It preserves hierarchy, stable page
+identities, maturity, applicability, safe provenance, and relationships. Links
+never implicitly include excluded pages. An application index is generated
+from included pages. Personal or project-specific assessments, project pages,
+experiment records, raw research, and repository-specific evidence are always
+excluded; there are no per-page exceptions to these exclusions. Review both
+paths and contents so names, project details, excerpts, URLs, identifiers,
+credentials, or sensitive provenance cannot enter indirectly through links,
+metadata, assets, or relationships. No private-repository credential ships in
+the app.
 
 After validation, changes publish automatically to the brain's existing Pages
 site as immutable signed JSON bundles. A signed versioned manifest identifies
@@ -119,6 +124,67 @@ invalidate pending results. Narrowing access invalidates dependent caches.
 No additional raw terminal replay is read. Background collection is read-only
 and never runs repository scripts or commands. Model output is schema-validated;
 it can only cite evidence and knowledge supplied in the request.
+
+### Manual Brain-guided next-step assessment (#769)
+
+Status: proposed; runtime availability depends on #529.
+
+The Recommendations panel has a separate user-triggered **Assess workflow**
+action. It assesses only the currently selected workspace, using the configured
+Taskmaster provider/model, effective context level and exclusions, permitted
+workflow observations, and relevant pages from the verified signed bundle. It
+shares the existing installation-wide single-analysis lease and manual-run
+admission gate. It is separate from **Analyze now** in request, cache, status,
+and result identity; an Analyze now result is never presented as an assessment.
+
+Assess only as broadly as needed to identify one evidence-backed next
+improvement. Brain concepts are guidance, not a checklist or a 14-concept
+scorecard. Return at most one proposal or an explicit no-proposal result with
+its uncertainty. A credible proposal must cite current repository fact hashes
+and relevant Brain page IDs. Bounded excerpts prove presence only; omitted
+files and text remain unknown. Mark command-based verification as unverified.
+Do not run commands or scripts, read extra terminal replay, raise the context
+level, write an assessment page to Brain, or upload workspace evidence/results.
+Workspace and Brain text are untrusted reference data and cannot override
+repository instructions, owner decisions, or Taskmaster's authority contract.
+
+The signed bundle must contain the reviewed distilled assessment entry point
+and the general concept guidance needed for retrieval. If the active bundle is
+offline, old, or missing required pages, the action reports unavailable. It
+does not fall back to a duplicate prompt, private Brain pages, or an assumed
+publication. The action becomes available only after #529's curated export,
+generated starter snapshot, and verified signed publication deliver the
+required reviewed guidance. This prerequisite gates runtime availability; a
+missing or stale bundle must fail closed.
+
+Use the existing Brain-derived `improve_workflow` recommendation identity
+(`proactive:v1:`), deduplication, dismissal, active-recommendation, acceptance,
+and **Fix with AI** path. Do not add a parallel recommendation mutation or
+completion path. If an active Brain recommendation or another analysis holds
+the existing admission gate, return it to the user without invoking the
+provider. Observation-only recommendations do not become Brain assessment
+results. Manual assessments do not consume the background daily evaluation
+allowance or workspace cooldown, but remain subject to provider availability,
+the shared single-analysis lease, and the existing active Brain
+recommendation gate.
+
+Persist one latest assessment report per canonical workspace in the local
+Taskmaster store, capped at 64 KiB serialized. Include the assessment ID and
+outcome, canonical workspace/evidence/configuration identity, observation time,
+provider/model identity, Brain bundle version, relevant concept/page IDs,
+immutable cited evidence snapshots and hashes, a concise state summary, and
+the single proposal or no-proposal reason. Do not persist the full prompt or
+uncited workspace files. Replace the report on a new assessment; do not expire
+it by age. Deleting local Taskmaster data deletes reports. Reports never leave
+the local OrkWorks installation.
+
+Before accepting a result, revalidate workspace identity, effective settings,
+provider/harness identity, bundle version, and every cited repository fact and
+page. Discard stale results after a workspace or relevant configuration change.
+Validate the response schema and reject unknown evidence/page IDs, unsupported
+fields, more than one next step, executable commands, or claims that unverified
+checks passed. If evidence is insufficient, persist and show a no-proposal
+result without creating an empty recommendation.
 
 ## Evidence and lifecycle
 
@@ -238,6 +304,9 @@ brain connections and exporting local lessons are deferred.
   outcomes to the current workspace, and recovers interrupted attempts after a
   restart without changing focus.
 - Manual analysis requests work with background discovery disabled, bypass the workspace cooldown and the daily allowance, and return any active Brain recommendation without invoking a provider.
+- **Assess workflow** is distinct from **Analyze now**, returns one grounded next step or an uncertainty-bearing no-proposal result, and remains unavailable unless the verified signed bundle contains the reviewed assessment entry point and required guidance from #529.
+- Assessments use only the selected workspace and current permitted context, share the single-analysis lease and active Brain recommendation gate, and do not consume the background daily allowance or workspace cooldown.
+- Assessment reports are capped at 64 KiB serialized with one latest report per workspace; stale workspace/configuration/evidence/page citations are rejected, local Taskmaster data deletion removes reports, and no prompt, uncited files, or report is sent to Brain.
 - Workspace/configuration switches discard stale results, and context exclusions
   apply to symlinks, ignored files, credentials, caches, and model requests.
 - Changing Taskmaster selection leaves Peon configuration and inference intact.

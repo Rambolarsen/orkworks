@@ -1074,6 +1074,59 @@ Model output must be schema-validated and cannot bypass deterministic safety rul
 
 Taskmaster is a logical product component. It does not require a permanently running premium model or a dedicated harness process.
 
+## Brain-guided next-step assessment
+
+Status: proposed by [the #769 design](../docs/superpowers/specs/2026-10-07-taskmaster-brain-guided-assessment-design.md); runtime availability depends on the reviewed signed guidance from #529.
+
+Recommendations offers a separate, user-triggered **Assess workflow** action
+beside **Analyze now**. It assesses only the workspace selected by the current
+OrkWorks instance, using the configured Taskmaster provider/model, current
+context level and exclusions, permitted workflow observations, and the active
+verified Brain knowledge bundle. It shares the existing installation-wide
+single-analysis lease and manual-run admission gate. It does not change Peon's
+provider, raise context access, read additional terminal replay, run repository
+commands or scripts, or contact the private Brain repository.
+
+The assessment uses relevant general Brain concepts as guidance, not as a
+scorecard. It returns at most one evidence-backed next improvement, or a
+no-proposal result that explains uncertainty or missing evidence. A proposal
+must cite current repository fact hashes and the Brain page IDs used; bounded
+excerpts establish only what they contain. Checks requiring command execution
+remain unverified. Workspace and Brain content are untrusted reference data and
+cannot override repository instructions, user decisions, or Taskmaster's
+authority contract.
+
+The action is unavailable when the verified bundle does not contain the
+reviewed assessment entry point and required general guidance. An older bundle,
+offline update state, or missing page never triggers a handwritten prompt
+fallback or private Brain lookup. A missing Taskmaster provider, an active
+analysis, an active Brain-derived `improve_workflow` recommendation, or
+insufficient current repository evidence produces a clear inline unavailable,
+blocked, or no-proposal result without a speculative recommendation.
+
+Assessment runs, cache identity, status, and report are distinct from **Analyze
+now**. A report is workspace-local and bounded to the latest result for that
+workspace. It records the workspace/evidence/configuration identity, assessment
+time, provider/model, Brain bundle version, relevant concept/page IDs, cited
+evidence snapshots and hashes, a concise state summary, and either the single
+proposed next step or a no-proposal reason. It does not store the full prompt or
+uncited workspace files. Each serialized report is capped at 64 KiB. Retain one
+report per workspace, replacing it after a new assessment; do not expire
+reports by age. Deleting local Taskmaster data deletes the reports. If the same
+current workspace, evidence, configuration, provider, and knowledge snapshot
+has already been assessed, the report may be reused only as an assessment
+result; an **Analyze now** result is never shown as an assessment.
+
+A credible next step enters the existing Brain-derived `improve_workflow`
+recommendation path, retaining its `proactive:v1:` identity, deduplication,
+dismissal, active-recommendation, acceptance, and **Fix with AI** lifecycle.
+Assessment creates no second recommendation mutation or approval path. It does
+not edit files, type into terminals, create or resume sessions, change
+repository configuration, or publish workspace evidence or results to Brain.
+Progress, provenance, outcome, and failure appear inline in Recommendations;
+workspace changes discard stale display and result state. Background popups and
+focus changes are not introduced.
+
 ## API
 
 Proposed HTTP endpoints:
@@ -1287,6 +1340,10 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
 - [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, `accepted`, or `completed` status.
 - [ ] A manual Brain analysis bypasses the per-workspace cooldown and the daily allowance (manual analyses are unlimited; the allowance governs automatic background discovery only), and is refused while a Brain-derived `improve_workflow` recommendation is proposed, accepted, or executing; deterministic observation-only recommendations do not block it, and the user is directed to the existing Fix with AI handoff for a Brain recommendation.
+- [ ] **Assess workflow** is a distinct manual run and result from **Analyze now**, uses the selected workspace's existing Taskmaster provider/context/evidence and shared single-analysis lease, returns at most one grounded improvement or a clear no-proposal result, and is unavailable until the verified signed bundle contains the reviewed assessment guidance required by #529.
+- [ ] Assessment proposals cite current repository fact hashes and relevant Brain page IDs, validate every citation and captured identity before acceptance, and reuse the existing `proactive:v1:` `improve_workflow` recommendation lifecycle without adding execution authority.
+- [ ] One bounded local assessment report per workspace records its evidence/configuration/provider/knowledge identity and outcome, is removed with that workspace's local data, never stores the full prompt or uncited files, and cannot be populated from an **Analyze now** result.
+- [ ] Assessment progress, provenance, outcome, and failures are shown inline in Recommendations; workspace/configuration changes discard stale results, and no background popup or focus change is introduced.
 - [ ] A Fix with AI prompt contains the stable recommendation ID and directs the target agent to use the `working-on-recommendation` skill to read the recommendation and its source-session evidence.
 - [ ] An authenticated target agent can transition an accepted `improve_workflow` recommendation to `completed`; the callback cannot name a different target session or lifecycle state, and retries are idempotent.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
