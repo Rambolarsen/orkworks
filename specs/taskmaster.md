@@ -1138,6 +1138,10 @@ Proposed HTTP endpoints:
 - `POST /taskmaster/recommendations/:id/dismiss` — dismiss with an optional reason
 - `POST /taskmaster/recommendations/:id/refresh` — reevaluate against current state
 - `POST /taskmaster/analyze` — request an immediate Brain-backed evaluation for the selected workspace, subject to the daily allowance and the active-improvement gate
+- `POST /taskmaster/assess-workflow` — request a manual Brain-guided workflow assessment for the currently selected workspace; the request has no caller-supplied workspace, provider, context override, knowledge page, or report body
+- `GET /taskmaster/run-status` — return the existing run status plus a distinct read-only assessment status projection (`idle`, `queued`, `running`, or the latest `succeeded`, `failed`, or `interrupted` outcome)
+
+`assess-workflow` is authenticated through the sidecar's existing local API boundary. Its response distinguishes `scheduled`, `unavailable`, `already_running`, and `active_recommendation`; it never returns repository excerpts in the scheduling response. Assessment status and report details are scoped to the selected workspace. The status projection identifies the assessment and outcome, and may return the bounded latest report only while its workspace, effective context settings, exclusions, provider/harness identity, bundle version, cited fact hashes, and cited knowledge page IDs still match current state. A mismatch or narrower effective access invalidates the stored report before it can be returned.
 
 Proposed WebSocket event:
 
