@@ -457,6 +457,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn fixture_connection_count(dir: &Path) -> usize {
         std::fs::read_to_string(dir.join("server-connections"))
             .unwrap_or_default()
@@ -464,6 +465,7 @@ mod tests {
             .count()
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn permanent_protocol_shape_failure_does_not_reconnect() {
         let dir = tempfile::tempdir().unwrap();
@@ -486,6 +488,7 @@ mod tests {
         runtime.shutdown().await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn transient_observation_failures_back_off_across_reconnects() {
         let dir = tempfile::tempdir().unwrap();
@@ -516,6 +519,36 @@ mod tests {
             Some(NativeError::Disconnected)
         );
         assert_eq!(runtime.backoff, Duration::from_secs(1));
+        assert_eq!(
+            runtime.observe("root").await.unwrap().status,
+            NativeStatus::Active
+        );
+        assert_eq!(runtime.backoff, Duration::from_millis(250));
+        runtime.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clean_websocket_close_remains_retryable() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VersionProbeCache::new();
+        let (plan, mut environment) = super::fixture_plan_and_env(dir.path(), &cache, false);
+        environment.push(("FIXTURE_CLOSE_OBSERVATIONS".into(), "1".into()));
+        let mut runtime = plan.start(&environment).await.unwrap();
+        let connections = fixture_connection_count(dir.path());
+
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Disconnected)
+        );
+        assert_eq!(runtime.backoff, Duration::from_millis(500));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Disconnected)
+        );
+        assert_eq!(fixture_connection_count(dir.path()), connections + 1);
+        assert_eq!(runtime.permanent_error, None);
         assert_eq!(
             runtime.observe("root").await.unwrap().status,
             NativeStatus::Active

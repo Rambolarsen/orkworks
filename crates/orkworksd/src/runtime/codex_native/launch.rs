@@ -693,6 +693,7 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
                     if value["method"] == "initialized" {
                         continue;
                     }
+                    let mut close_observation = false;
                     let result = match value["method"].as_str().unwrap() {
                         "initialize" => {
                             json!({"userAgent":"fixture/0.160.0","codexHome":"/fixture","platformOs":std::env::consts::OS,"platformFamily":"unix"})
@@ -705,8 +706,15 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
                                 .ok()
                                 .and_then(|value| value.parse::<usize>().ok())
                                 .unwrap_or(0);
+                            let closes = std::env::var("FIXTURE_CLOSE_OBSERVATIONS")
+                                .ok()
+                                .and_then(|value| value.parse::<usize>().ok())
+                                .unwrap_or(0);
                             if request <= disconnects {
                                 return;
+                            }
+                            if request <= closes {
+                                close_observation = true;
                             }
                             if std::env::var("FIXTURE_PROTOCOL_FAILURE").ok().as_deref()
                                 == Some("shape")
@@ -721,6 +729,10 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
                         }
                         _ => panic!("forbidden fixture method"),
                     };
+                    if close_observation {
+                        let _ = socket.send(Message::Close(None)).await;
+                        return;
+                    }
                     if socket
                         .send(Message::Text(
                             json!({"id":value["id"],"result":result}).to_string(),

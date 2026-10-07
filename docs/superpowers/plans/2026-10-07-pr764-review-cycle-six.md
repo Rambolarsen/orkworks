@@ -63,3 +63,16 @@
 - [ ] Do not merge while actionable findings or the mandatory manual `/code-review medium` gate remain unresolved.
 
 **Cycle 6/6 request:** PR #764, branch `codex-native-approval-status`; the reviewed SHA and trigger times are recorded in the cycle-six babysit update after the requests complete.
+
+## Cycle 7/7 authorized extension
+
+Cycle 7 was explicitly authorized after cycle six exposed a Windows-only fixture compile failure and Copilot identified that clean WebSocket closes were treated as permanent protocol-shape failures.
+
+- [x] Add a Unix fixture regression that sends a WebSocket close during observation; confirm it fails as `Shape` before the fix.
+- [x] Map clean WebSocket close to a transient disconnect and ignore ping/pong control frames while continuing to reject malformed data frames.
+- [x] Gate fixture-dependent tests and helpers on Unix so the Windows test target does not reference Unix-only fixture support.
+- [x] Run focused and full sidecar tests, build, format, and diff checks; inspect final diff.
+- [ ] Push the corrected head and request this cycle's Codex review, Copilot review, and custom PR review workflow.
+- [ ] Do not merge until all findings, required checks, and the repository `/code-review medium` gate are dispositioned.
+
+Local cross-target test compilation was attempted with `x86_64-pc-windows-gnu`, but this machine lacks the MinGW C compiler required by `ring` and `libz-sys`; GitHub's native Windows job must validate the corrected test target after push.

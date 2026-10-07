@@ -89,8 +89,11 @@ impl Client {
                 .await
                 .ok_or(NativeError::Disconnected)?
                 .map_err(wire_error)?;
-            let Message::Text(text) = frame else {
-                return Err(NativeError::Shape);
+            let text = match frame {
+                Message::Text(text) => text,
+                Message::Close(_) => return Err(NativeError::Disconnected),
+                Message::Ping(_) | Message::Pong(_) => continue,
+                _ => return Err(NativeError::Shape),
             };
             if text.len() > LIMIT {
                 return Err(NativeError::Limit);
