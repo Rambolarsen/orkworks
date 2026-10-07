@@ -648,9 +648,9 @@ review assignment, accept it as **eligible for exact-plan approval** only when:
 2. Every required evidence surface is `passed` or has a source-backed,
    fixture-confirmed `not-applicable` result, with retained referenced bytes
    matching their recorded digests.
-3. The evidence snapshot and current support state validate, no revocation or
-   invalidation is present, and all approved rule, skill, resource, model, and
-   path bindings still match.
+3. The snapshot decision is `verified`, the snapshot and current support state
+   validate, no revocation or invalidation is present, and all approved rule,
+   skill, resource, model, and path bindings still match.
 4. These checks make the assignment eligible for approval; they do not approve
    or launch it. The user must still approve the exact plan revision before a
    launch grant exists. A missing or unknown delivery receipt after launch
