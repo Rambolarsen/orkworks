@@ -519,6 +519,7 @@ async fn start_with_port_hook<F: FnMut(&str)>(
                     observer: Some(observer),
                     retry_at: Instant::now(),
                     backoff: Duration::from_millis(250),
+                    permanent_error: None,
                 });
             }
             Ok(Err(_)) => server.shutdown().await,
@@ -550,6 +551,10 @@ case " $* " in
   if [ -n "${ORKWORKS_CODEX_NATIVE_AUTH-}" ]; then echo present; else echo absent; fi > "$FIXTURE_DIR/tui-auth-presence"
   echo fake-tui-ready
   if [ "${FIXTURE_TUI_EXIT-}" = yes ]; then exit 0; fi
+  if [ "${FIXTURE_TUI_EXIT_ON_SERVER-}" = yes ]; then
+   while [ ! -e "$FIXTURE_DIR/server-exited" ]; do sleep 0.005; done
+   exit 0
+  fi
   while :; do sleep 1; done
   ;;
 esac
@@ -571,6 +576,13 @@ while [ "$#" -gt 0 ]; do
  case "$1" in --listen) export FIXTURE_LISTEN="$2"; shift;; --ws-token-sha256) export FIXTURE_DIGEST="$2"; shift;; esac
  shift
 done
+if [ "${FIXTURE_TUI_EXIT_ON_SERVER-}" = yes ]; then
+ "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_server_fixture --nocapture &
+ fixture_server_pid=$!
+ trap 'kill -TERM "$fixture_server_pid" 2>/dev/null || true; wait "$fixture_server_pid" 2>/dev/null || true; touch "$FIXTURE_DIR/server-exited"; exit 0' TERM
+ wait "$fixture_server_pid"
+ exit $?
+fi
 exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_server_fixture --nocapture
 "#).unwrap();
         crate::test_support::make_test_executable(&executable);
@@ -646,14 +658,28 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
 
     #[tokio::test]
     async fn native_server_fixture() {
+        use std::io::Write as _;
+
         let Ok(endpoint) = std::env::var("FIXTURE_LISTEN") else {
             return;
         };
         let listener = tokio::net::TcpListener::bind(endpoint.trim_start_matches("ws://"))
             .await
             .unwrap();
+        let observation_requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         loop {
             let (tcp, _) = listener.accept().await.unwrap();
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(
+                    std::path::PathBuf::from(std::env::var("FIXTURE_DIR").unwrap())
+                        .join("server-connections"),
+                )
+                .unwrap()
+                .write_all(b"connected\n")
+                .unwrap();
+            let observation_requests = observation_requests.clone();
             tokio::spawn(async move {
                 use futures_util::{SinkExt, StreamExt};
                 use serde_json::{json, Value};
@@ -671,7 +697,25 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
                         "initialize" => {
                             json!({"userAgent":"fixture/0.160.0","codexHome":"/fixture","platformOs":std::env::consts::OS,"platformFamily":"unix"})
                         }
-                        "thread/loaded/list" => json!({"data":["root"],"nextCursor":null}),
+                        "thread/loaded/list" => {
+                            let request = observation_requests
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                                + 1;
+                            let disconnects = std::env::var("FIXTURE_DISCONNECT_OBSERVATIONS")
+                                .ok()
+                                .and_then(|value| value.parse::<usize>().ok())
+                                .unwrap_or(0);
+                            if request <= disconnects {
+                                return;
+                            }
+                            if std::env::var("FIXTURE_PROTOCOL_FAILURE").ok().as_deref()
+                                == Some("shape")
+                            {
+                                json!({"data":"wrong-shape","nextCursor":null})
+                            } else {
+                                json!({"data":["root"],"nextCursor":null})
+                            }
+                        }
                         "thread/read" => {
                             json!({"thread":{"id":"root","sessionId":"root","source":"mcp","cliVersion":"0.160.0","status":{"type":"active","activeFlags":[]}}})
                         }

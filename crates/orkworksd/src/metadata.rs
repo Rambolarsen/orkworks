@@ -4,7 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 use tracing::warn;
 
@@ -1161,6 +1161,7 @@ pub(crate) struct SessionWriteToken {
 pub struct MetadataStore {
     root: PathBuf,
     session_writes: Mutex<HashMap<String, crate::runtime::observed_status::AttentionOwner>>,
+    session_write_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     summary_checkpoints: Mutex<HashMap<String, SummaryCheckpointCacheEntry>>,
     #[cfg(test)]
     after_event_write: Mutex<Option<Box<dyn Fn(&Path) + Send>>>,
@@ -1171,6 +1172,7 @@ impl MetadataStore {
         Self {
             root: root.to_path_buf(),
             session_writes: Mutex::new(HashMap::new()),
+            session_write_locks: Mutex::new(HashMap::new()),
             summary_checkpoints: Mutex::new(HashMap::new()),
             #[cfg(test)]
             after_event_write: Mutex::new(None),
@@ -1183,6 +1185,35 @@ impl MetadataStore {
 
     pub fn root_path(&self) -> PathBuf {
         self.root.clone()
+    }
+
+    fn session_write_lock(&self, id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.session_write_locks.lock().unwrap();
+        if let Some(lock) = locks.get(id).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(Mutex::new(()));
+        locks.insert(id.to_owned(), Arc::downgrade(&lock));
+        lock
+    }
+
+    fn with_session_write_lock<T>(&self, id: &str, operation: impl FnOnce() -> T) -> T {
+        let lock = self.session_write_lock(id);
+        let guard = lock.lock().unwrap();
+        let result = operation();
+        drop(guard);
+
+        let mut locks = self.session_write_locks.lock().unwrap();
+        let remove = locks
+            .get(id)
+            .and_then(Weak::upgrade)
+            .is_some_and(|registered| {
+                Arc::ptr_eq(&registered, &lock) && Arc::strong_count(&registered) == 2
+            });
+        if remove {
+            locks.remove(id);
+        }
+        result
     }
 
     pub fn events_dir(&self) -> PathBuf {
@@ -1300,21 +1331,23 @@ impl MetadataStore {
         &self,
         meta: &SessionMetadata,
     ) -> std::io::Result<Option<SessionWriteToken>> {
-        let mut revisions = self.session_writes.lock().unwrap();
-        self.write_session_file(meta)?;
-        Ok(revisions
-            .entry(meta.id.clone())
-            .or_default()
-            .accepted_write()
-            .map(|write| SessionWriteToken {
-                session: meta.id.clone(),
-                write,
-            }))
+        self.with_session_write_lock(&meta.id, || {
+            self.write_session_file(meta)?;
+            let mut revisions = self.session_writes.lock().unwrap();
+            Ok(revisions
+                .entry(meta.id.clone())
+                .or_default()
+                .accepted_write()
+                .map(|write| SessionWriteToken {
+                    session: meta.id.clone(),
+                    write,
+                }))
+        })
     }
 
-    /// Serializes the ownership check and replacement with every cooperating
-    /// store writer. Direct agent JSON writes are NOT serialized by this lock;
-    /// native clears remain separately disabled in production for that reason.
+    /// Serializes the ownership check and replacement with cooperating writers
+    /// for this session. Direct agent JSON writes are NOT serialized by this
+    /// lock; native clears remain separately disabled in production for that reason.
     #[cfg(test)]
     pub(crate) fn try_write_session_if_owned(
         &self,
@@ -1330,27 +1363,36 @@ impl MetadataStore {
         token: &SessionWriteToken,
         ready: impl FnOnce() -> bool,
     ) -> std::io::Result<bool> {
-        let mut revisions = self.session_writes.lock().unwrap();
-        let Some(owner) = revisions.get_mut(&meta.id) else {
-            return Ok(false);
-        };
-        if token.session != meta.id || !owner.owns(&token.write) {
-            return Ok(false);
-        }
-        let path = self.sessions_dir().join(format!("{}.json", meta.id));
-        let json = serde_json::to_string_pretty(meta)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        let tmp = tmp_write_path(&path);
-        fs::write(&tmp, json)?;
-        // Recheck the monotonic observation deadline after serialization and
-        // staging I/O, immediately before the atomic replacement.
-        if !ready() {
-            fs::remove_file(tmp)?;
-            return Ok(false);
-        }
-        fs::rename(tmp, path)?;
-        owner.accepted_write();
-        Ok(true)
+        self.with_session_write_lock(&meta.id, || {
+            let owns_write = {
+                let revisions = self.session_writes.lock().unwrap();
+                revisions
+                    .get(&meta.id)
+                    .is_some_and(|owner| token.session == meta.id && owner.owns(&token.write))
+            };
+            if !owns_write {
+                return Ok(false);
+            }
+            let path = self.sessions_dir().join(format!("{}.json", meta.id));
+            let json = serde_json::to_string_pretty(meta)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            let tmp = tmp_write_path(&path);
+            fs::write(&tmp, json)?;
+            // Recheck the monotonic observation deadline after serialization
+            // and staging I/O, immediately before the atomic replacement.
+            if !ready() {
+                fs::remove_file(tmp)?;
+                return Ok(false);
+            }
+            fs::rename(tmp, path)?;
+            self.session_writes
+                .lock()
+                .unwrap()
+                .get_mut(&meta.id)
+                .expect("owner cannot change while its session write lock is held")
+                .accepted_write();
+            Ok(true)
+        })
     }
 
     fn write_session_file(&self, meta: &SessionMetadata) -> std::io::Result<()> {
@@ -1377,20 +1419,24 @@ impl MetadataStore {
     }
 
     pub fn delete_session(&self, id: &str) -> std::io::Result<()> {
-        let mut revisions = self.session_writes.lock().unwrap();
-        if let Some(owner) = revisions.get_mut(id) {
-            owner.accepted_write();
-        }
-        let path = self.sessions_dir().join(format!("{}.json", id));
-        for target in [path.clone(), corrupt_session_path(&path)] {
-            match fs::remove_file(&target) {
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e),
+        self.with_session_write_lock(id, || {
+            {
+                let mut revisions = self.session_writes.lock().unwrap();
+                if let Some(owner) = revisions.get_mut(id) {
+                    owner.accepted_write();
+                }
             }
-        }
-        revisions.remove(id);
-        Ok(())
+            let path = self.sessions_dir().join(format!("{}.json", id));
+            for target in [path.clone(), corrupt_session_path(&path)] {
+                match fs::remove_file(&target) {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            self.session_writes.lock().unwrap().remove(id);
+            Ok(())
+        })
     }
 
     pub fn delete_events(&self, id: &str) -> std::io::Result<()> {
@@ -2613,6 +2659,73 @@ mod tests {
             store.read_session(&meta.id).unwrap().attention.as_deref(),
             Some("needs_you")
         );
+    }
+
+    #[test]
+    fn session_file_io_does_not_hold_the_global_write_owner_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(MetadataStore::new(dir.path()));
+        let meta = test_metadata("owner-map-lock-is-short");
+        let path = store.sessions_dir().join(format!("{}.json", meta.id));
+        let owner_map = store.session_writes.lock().unwrap();
+        let writer_store = store.clone();
+        let writer = std::thread::spawn(move || writer_store.try_write_session(&meta));
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while !path.exists() && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        let file_was_written_before_owner_map_unlock = path.exists();
+        drop(owner_map);
+        writer.join().unwrap().unwrap();
+
+        assert!(
+            file_was_written_before_owner_map_unlock,
+            "session file I/O must not wait behind the store-wide owner map lock"
+        );
+    }
+
+    #[test]
+    fn different_sessions_do_not_share_their_write_lane() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(MetadataStore::new(dir.path()));
+        let blocked_lane = store.session_write_lock("another-session");
+        let blocked_guard = blocked_lane.lock().unwrap();
+        let meta = test_metadata("independent-session");
+        let path = store.sessions_dir().join(format!("{}.json", meta.id));
+        let writer_store = store.clone();
+        let writer = std::thread::spawn(move || writer_store.try_write_session(&meta));
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while !path.exists() && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        let wrote_while_other_session_was_locked = path.exists();
+        drop(blocked_guard);
+        writer.join().unwrap().unwrap();
+
+        assert!(
+            wrote_while_other_session_was_locked,
+            "unrelated session writes must use independent per-session locks"
+        );
+    }
+
+    #[test]
+    fn same_session_write_waits_for_its_existing_lane() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(MetadataStore::new(dir.path()));
+        let meta = test_metadata("same-session-lane");
+        let path = store.sessions_dir().join(format!("{}.json", meta.id));
+        let lane = store.session_write_lock(&meta.id);
+        let guard = lane.lock().unwrap();
+        let writer_store = store.clone();
+        let writer = std::thread::spawn(move || writer_store.try_write_session(&meta));
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!path.exists(), "same-session write passed its lane owner");
+        drop(guard);
+        writer.join().unwrap().unwrap();
+        assert!(path.exists());
     }
 
     #[test]

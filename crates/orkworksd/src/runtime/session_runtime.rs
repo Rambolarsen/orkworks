@@ -1447,6 +1447,12 @@ impl NativeObserverControl {
                     result = tokio::task::spawn_blocking(move || super::codex_approval_application::finish_observation(&apply_state, &apply_id, snapshot, result, &apply_cancelled)) => result,
                 };
             }
+            // TUI and app-server exits can race. Observe liveness after the
+            // loop stops but before owner shutdown can turn an unexpected
+            // server exit into an ordinary, intentional cleanup.
+            if !native.is_alive() {
+                let _ = failed_tx.send(Some(NativeObserverFailure::ServerExited));
+            }
             native.shutdown().await;
         });
         Self {
@@ -1457,7 +1463,7 @@ impl NativeObserverControl {
         }
     }
 
-    async fn shutdown(&mut self) {
+    async fn shutdown(&mut self) -> Option<NativeObserverFailure> {
         self.cancelled.store(true, Ordering::Release);
         let _ = self.stop.send(true);
         if let Some(mut task) = self.task.take() {
@@ -1469,6 +1475,7 @@ impl NativeObserverControl {
                 let _ = task.await;
             }
         }
+        *self.failed.borrow_and_update()
     }
 }
 impl Drop for NativeObserverControl {
@@ -2353,7 +2360,8 @@ async fn start_session_runtime_inner(
                     }
                 }
                 if let Some(observer) = native_observer.as_mut() {
-                    observer.shutdown().await;
+                    native_server_failed |=
+                        observer.shutdown().await == Some(NativeObserverFailure::ServerExited);
                 }
                 let exit = child_exit.take().expect("child exit should be present");
                 let _ = drain_codex_reports_before_exit(
@@ -2663,7 +2671,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn owned_native_lifecycle_exit_detach_server_failure_and_workspace_shutdown() {
-        for scenario in 0..4 {
+        for scenario in 0..5 {
             let dir = tempfile::tempdir().unwrap();
             let id = format!("native-lifecycle-{}", uuid::Uuid::new_v4());
             let state = test_state_with_runtime_session(&id);
@@ -2689,6 +2697,9 @@ mod tests {
                 &state.integration_probe_cache,
                 true,
             );
+            if scenario == 4 {
+                environment.push(("FIXTURE_TUI_EXIT_ON_SERVER".into(), "yes".into()));
+            }
             if scenario == 0 {
                 environment.push(("FIXTURE_TUI_EXIT".into(), "yes".into()));
             }
@@ -2742,6 +2753,15 @@ mod tests {
                 .trim()
                 .parse()
                 .unwrap();
+            if scenario == 4 {
+                state.sessions.lock().unwrap()[&id]
+                    .runtime
+                    .native_observer_pause
+                    .as_ref()
+                    .expect("native observer pause control")
+                    .send_replace(true);
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            }
             match scenario {
                 1 => {
                     let claim = claim_attachment(&state, &id).unwrap();
@@ -2763,6 +2783,9 @@ mod tests {
                 3 => {
                     state.workspace.lock().unwrap().take();
                 }
+                4 => unsafe {
+                    libc::kill(server_pid, libc::SIGTERM);
+                },
                 _ => {}
             }
             while unsafe { libc::kill(server_pid, 0) } == 0
@@ -2783,7 +2806,7 @@ mod tests {
                 0,
                 "TUI survived scenario {scenario}"
             );
-            if scenario == 2 {
+            if scenario == 2 || scenario == 4 {
                 let terminal_event =
                     tokio::time::timeout(std::time::Duration::from_secs(5), async {
                         loop {
@@ -2812,6 +2835,11 @@ mod tests {
                     ),
                     "unexpected native server exit should reach the terminal as an error, got {terminal_event:?}"
                 );
+                while state.sessions.lock().unwrap()[&id].info.status != "error"
+                    && tokio::time::Instant::now() < deadline
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
                 assert_eq!(state.sessions.lock().unwrap()[&id].info.status, "error");
             }
             while super::super::terminal_runtime::has_workflow_report_capability(&id)

@@ -57,6 +57,18 @@ impl std::fmt::Display for NativeError {
     }
 }
 impl std::error::Error for NativeError {}
+impl NativeError {
+    fn is_permanent_protocol_failure(self) -> bool {
+        matches!(
+            self,
+            Self::Authentication
+                | Self::Shape
+                | Self::UnsupportedRequest
+                | Self::Limit
+                | Self::Root
+        )
+    }
+}
 
 struct Route {
     shared: Vec<String>,
@@ -238,6 +250,7 @@ pub(crate) struct OwnedNativeRuntime {
     observer: Option<protocol::Client>,
     retry_at: Instant,
     backoff: Duration,
+    permanent_error: Option<NativeError>,
 }
 impl OwnedNativeRuntime {
     pub(crate) fn tui_args(&self) -> &[String] {
@@ -260,6 +273,9 @@ impl OwnedNativeRuntime {
             self.observer = None;
             return Err(NativeError::Unavailable);
         }
+        if let Some(error) = self.permanent_error {
+            return Err(error);
+        }
         if self.observer.is_none() {
             if Instant::now() < self.retry_at {
                 return Err(NativeError::Disconnected);
@@ -269,11 +285,9 @@ impl OwnedNativeRuntime {
             {
                 Ok(client) => {
                     self.observer = Some(client);
-                    self.backoff = Duration::from_millis(250);
                 }
                 Err(error) => {
-                    self.retry_at = Instant::now() + self.backoff;
-                    self.backoff = (self.backoff * 2).min(Duration::from_secs(2));
+                    self.schedule_retry(error);
                     return Err(error);
                 }
             }
@@ -286,11 +300,24 @@ impl OwnedNativeRuntime {
             .ok_or(NativeError::Disconnected)?
             .observe(root)
             .await;
-        if result.is_err() {
-            self.observer = None;
-            self.retry_at = Instant::now() + self.backoff;
+        match result {
+            Ok(_) => {
+                self.backoff = Duration::from_millis(250);
+            }
+            Err(error) => {
+                self.observer = None;
+                self.schedule_retry(error);
+            }
         }
         result
+    }
+    fn schedule_retry(&mut self, error: NativeError) {
+        if error.is_permanent_protocol_failure() {
+            self.permanent_error = Some(error);
+        } else {
+            self.retry_at = Instant::now() + self.backoff;
+            self.backoff = (self.backoff * 2).min(Duration::from_secs(2));
+        }
     }
     #[cfg(test)]
     pub(crate) fn disconnect_observer(&mut self) -> bool {
@@ -408,6 +435,93 @@ mod tests {
                     .is_none()
             );
         }
+    }
+
+    #[test]
+    fn only_transient_native_errors_are_retryable() {
+        for error in [
+            NativeError::Authentication,
+            NativeError::Shape,
+            NativeError::UnsupportedRequest,
+            NativeError::Limit,
+            NativeError::Root,
+        ] {
+            assert!(error.is_permanent_protocol_failure(), "{error}");
+        }
+        for error in [
+            NativeError::Disconnected,
+            NativeError::Timeout,
+            NativeError::Stale,
+        ] {
+            assert!(!error.is_permanent_protocol_failure(), "{error}");
+        }
+    }
+
+    fn fixture_connection_count(dir: &Path) -> usize {
+        std::fs::read_to_string(dir.join("server-connections"))
+            .unwrap_or_default()
+            .lines()
+            .count()
+    }
+
+    #[tokio::test]
+    async fn permanent_protocol_shape_failure_does_not_reconnect() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VersionProbeCache::new();
+        let (plan, mut environment) = super::fixture_plan_and_env(dir.path(), &cache, false);
+        environment.push(("FIXTURE_PROTOCOL_FAILURE".into(), "shape".into()));
+        let mut runtime = plan.start(&environment).await.unwrap();
+        let connections = fixture_connection_count(dir.path());
+
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Shape)
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Shape)
+        );
+        assert_eq!(fixture_connection_count(dir.path()), connections);
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn transient_observation_failures_back_off_across_reconnects() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = VersionProbeCache::new();
+        let (plan, mut environment) = super::fixture_plan_and_env(dir.path(), &cache, false);
+        environment.push(("FIXTURE_DISCONNECT_OBSERVATIONS".into(), "2".into()));
+        let mut runtime = plan.start(&environment).await.unwrap();
+
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Disconnected)
+        );
+        assert_eq!(runtime.backoff, Duration::from_millis(500));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Disconnected)
+        );
+        assert_eq!(runtime.backoff, Duration::from_millis(500));
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Disconnected)
+        );
+        assert_eq!(runtime.backoff, Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_millis(520)).await;
+        assert_eq!(
+            runtime.observe("root").await.err(),
+            Some(NativeError::Disconnected)
+        );
+        assert_eq!(runtime.backoff, Duration::from_secs(1));
+        assert_eq!(
+            runtime.observe("root").await.unwrap().status,
+            NativeStatus::Active
+        );
+        assert_eq!(runtime.backoff, Duration::from_millis(250));
+        runtime.shutdown().await;
     }
 }
 
