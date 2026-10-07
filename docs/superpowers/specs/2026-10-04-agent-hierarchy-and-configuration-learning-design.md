@@ -280,10 +280,11 @@ Keep first-version history repository-scoped, preserving the existing learning
 proposal's boundary. Cross-repository pooling requires a separate design.
 Compare assignments by role, task category, relevant scope, coding tool/model,
 role-template version, skill versions, rubric ID/version, and effective
-permission profile. Quality-score comparisons use the same rubric version;
-cross-version comparisons require an explicit normalization rule in the
-reviewed evaluation contract. Display sample counts and evidence coverage;
-sparse or incompatible history does not establish a reliable ranking.
+permission profile. Quality-score comparisons use the same rubric ID and
+version; comparisons across different rubric identities or versions require an
+explicit normalization rule in the reviewed evaluation contract. Display
+sample counts and evidence coverage; sparse or incompatible history does not
+establish a reliable ranking.
 
 For each skill, retain usage counts within comparable assignments, separating
 reported and observed usage, plus associated assignment outcomes. Keep usage-rate
