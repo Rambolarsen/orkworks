@@ -304,7 +304,10 @@ fn linux_group_has_live_descendants(group_id: libc::pid_t, leader_id: libc::pid_
         let Some(_parent) = fields.next() else {
             return true;
         };
-        let Some(process_group) = fields.next().and_then(|value| value.parse().ok()) else {
+        let Some(process_group) = fields
+            .next()
+            .and_then(|value| value.parse::<libc::pid_t>().ok())
+        else {
             return true;
         };
         if process_group == group_id && !matches!(state, "Z" | "X" | "x") {
