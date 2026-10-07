@@ -625,8 +625,8 @@ rtk git commit -m "docs: specify assignment quality and completeness evaluation"
 
 - [ ] **Step 3: Check the task's full acceptance criteria.**
 
-- [ ] Define canonical repository identity across its worktrees, comparison cohorts by role/task/configuration/tool/model/permission versions, and the boundary excluding cross-repository pooling.
-- [ ] Define reported-versus-observed usage rates, denominator and unknown counts, sample/coverage visibility, and separately associated quality/completeness outcomes without causal attribution to all equipped skills.
+- [ ] Define canonical repository identity across its worktrees, comparison cohorts by role/task/configuration/tool/model/rubric/permission versions, and the boundary excluding cross-repository pooling.
+- [ ] Define reported-versus-observed usage rates, denominator and unknown counts, sample/coverage visibility, and optional-skill outcome comparisons that hold other relevant configuration dimensions fixed while allowing the candidate skill to vary; do not infer causality from association.
 - [ ] Define inclusion/exclusion for stale, invalidated, blocked, interrupted, conflicting, and sparse evidence; skill/template updates do not rewrite historical scores.
 - [ ] Specify a bounded local summary/read interface for the orchestrator and explainable selection reasons; mandatory repository skills and task fit remain binding.
 - [ ] Changes only appear in a later proposed configuration and approval. Learning does not mutate active prompts, grant permissions, launch agents, or autonomously edit skills.

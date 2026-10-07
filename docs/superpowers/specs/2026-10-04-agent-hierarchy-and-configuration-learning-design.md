@@ -279,16 +279,24 @@ A result can be fully complete and still fail the quality rubric.
 Keep first-version history repository-scoped, preserving the existing learning
 proposal's boundary. Cross-repository pooling requires a separate design.
 Compare assignments by role, task category, relevant scope, coding tool/model,
-role-template version, skill versions, and effective permission profile.
-Display sample counts and evidence coverage; sparse or incompatible history
-does not establish a reliable ranking.
+role-template version, skill versions, rubric ID/version, and effective
+permission profile. Quality-score comparisons use the same rubric version;
+cross-version comparisons require an explicit normalization rule in the
+reviewed evaluation contract. Display sample counts and evidence coverage;
+sparse or incompatible history does not establish a reliable ranking.
 
 For each skill, retain usage counts within comparable assignments, separating
-reported and observed usage, plus associated assignment outcomes. Exclude
-unknown usage from rate calculations and display the unknown count alongside
-the denominator. Do not equate use frequency with quality or automatically
-assign every loaded skill the task's quality score. Multiple skills, prompts,
-models, permissions, and task difficulty can explain a result.
+reported and observed usage, plus associated assignment outcomes. Keep usage-rate
+cohorts separate from optional-skill outcome comparisons. For an outcome
+comparison about one optional skill, hold the role, task category/scope,
+coding tool/model, role-template version, rubric, effective permission profile,
+and other selected skills fixed while allowing that candidate skill's presence
+or version to vary. Do not attribute a result to that skill when other relevant
+configuration factors also changed. Exclude unknown usage from rate calculations
+and display the unknown count alongside the denominator. Do not equate use
+frequency with quality or automatically assign every loaded skill the task's
+quality score. Multiple skills, prompts, models, permissions, and task
+difficulty can explain a result.
 
 Use a learning loop of run, independent evaluation, comparison with similar work,
 and improvement of a later configuration. A single run can raise a suggestion;
@@ -296,7 +304,9 @@ repeated comparable evidence supports changing optional skills, role instruction
 or task scope. Neither frequency of use alone nor unknown usage establishes
 that a skill helps or should be removed. Repeated established non-use can suggest
 a future trial without an optional skill; mandatory skills remain included.
-Numeric evidence thresholds and comparison eligibility are specified by #745.
+Numeric evidence thresholds, cohort eligibility, usage-rate denominators, and
+the treatment of assignments that cannot be matched on these dimensions are
+specified by #745.
 
 Remember rejected suggestions and suppress equivalent repeats until materially
 new relevant evidence appears. New evidence must be visible with the renewed
