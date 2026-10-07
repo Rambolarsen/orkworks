@@ -227,8 +227,11 @@ When invalidation affects an assessment-derived Brain recommendation, supersede
 any still-proposed recommendation, remove it from the active recommendation
 surface, and prevent **Fix with AI** from using stale evidence. Redact invalid
 evidence snapshots from the superseded record and from accepted, executing, or
-completed records while preserving transition and outcome history; do not
-rewrite that audit history merely to invalidate evidence.
+completed records only when a privacy or access change makes that evidence
+disallowed. Preserve lifecycle and outcome history. Ordinary evidence,
+provider, bundle, or recommendation-input changes still invalidate reports and
+supersede proposed recommendations, but do not redact accepted/completed audit
+snapshots unless they also narrow permitted access.
 Validate the response schema and reject unknown evidence/page IDs, unsupported
 fields, more than one next step, executable commands, or claims that unverified
 checks passed. If evidence is insufficient, persist and show a no-proposal
@@ -247,11 +250,11 @@ Hypotheses remain visibly experimental. Repository instructions and explicit
 owner decisions govern applicability. Recommendation identities are based on
 the target and underlying evidence, not generated prose or knowledge version.
 Knowledge updates alone cannot resurface dismissed suggestions. Analysis does
-not otherwise rewrite accepted or completed recommendations. When a privacy or
-context change invalidates their evidence, redact the affected snapshots while
-preserving lifecycle transitions and outcome history. Store explicit dismissal
-decisions and completion outcomes locally, distinguishing completed work from
-evidence of benefit. Do not publish local outcomes in v1.
+not otherwise rewrite accepted or completed recommendations. When
+effective-access narrowing makes their evidence disallowed, redact the affected
+snapshots while preserving lifecycle transitions and outcome history. Store
+explicit dismissal decisions and completion outcomes locally. Distinguish
+completed work from evidence of benefit. Do not publish local outcomes in v1.
 
 Use the existing explicit Fix with AI handoff into the user's active session.
 Include both local evidence and relevant knowledge in its scoped prompt.

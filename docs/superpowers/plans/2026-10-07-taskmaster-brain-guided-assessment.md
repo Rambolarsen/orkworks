@@ -26,7 +26,7 @@
 - Keep reports under the selected workspace's metadata root, retain one latest report per workspace, cap each serialized report at 64 KiB, and do not store the full provider prompt or uncited workspace files. Workspace metadata deletion removes its report. Never persist repository evidence in the global Taskmaster ledger.
 - The cache key and input identity hash the complete bounded request: permitted observations, every collected repository fact including uncited facts, current recommendation snapshot, selected pages, context settings/exclusions, workspace generation, prompt/schema version, provider/model, and full bundle identity. Any input change invalidates and deletes the report, including no-proposal results.
 - Any workspace/evidence identity mismatch, effective access reduction, new exclusion, provider/harness change, bundle change, or cited-page mismatch invalidates and deletes the stored report. Status reads revalidate identity and delete stale snapshots before returning a report.
-- Invalidation supersedes a still-proposed assessment-derived recommendation, removes it from active recommendations, and prevents **Fix with AI** from using stale evidence. Redact invalid snapshots from the superseded record and accepted/executing/completed records while preserving lifecycle and outcome history.
+- Any input invalidation supersedes a still-proposed assessment-derived recommendation, removes it from active recommendations, and prevents **Fix with AI** from using stale evidence. Redact snapshots from superseded and accepted/executing/completed records only when privacy or access narrowing makes their evidence disallowed; preserve lifecycle/outcome history. Other input changes do not redact accepted/completed audit snapshots.
 - Implementation tasks are gated on written-spec review and explicit implementation authorization. #529 separately gates runtime availability; its completion is not implied by approval of implementation work.
 - Reuse the existing Brain-derived `improve_workflow` identity (`proactive:v1:`), deduplication, dismissal, active-recommendation, acceptance, and **Fix with AI** lifecycle. Do not add another recommendation mutation or completion path.
 - Keep provider-managed policies and effects authoritative; rejection of unexpected tool output does not undo provider-side effects.
@@ -59,7 +59,7 @@
 
 1. Obtain written-spec review and record acceptance of the proposed assessment contract.
 2. Obtain explicit authorization to begin implementation and approval of the protocol ADR approach.
-3. Recheck live dependencies, including #529's Brain-inference eligibility prerequisite and #745's recommendation-lifecycle alignment.
+3. Recheck live dependencies, including #529's Brain-inference eligibility prerequisite and #745's recommendation-lifecycle alignment. The signed compatible-manifest output from #529 must carry the supported `privacyPolicyVersion` marker; verify its tracked acceptance criteria cover that field before implementation, and resolve any gap in #529 first. This is manifest metadata, not a separate publisher feature.
 4. Only then begin Tasks 1–6. Before #529 supplies an eligible bundle, all Brain-backed inference must fail closed.
 
 ## Task 1: Record the protocol decision
@@ -111,7 +111,7 @@
 - [ ] Mark an admitted assessment running before collection/prompt construction; persist failure for errors after admission, and recover a persisted running attempt as interrupted under the existing lease discipline.
 - [ ] Revalidate workspace instance, effective settings, provider/harness identity, bundle version, fact hashes, and page IDs immediately before report and recommendation writes.
 - [ ] Invalidate the stored report when effective context narrows or an exclusion is added; status reads revalidate identity and delete stale reports before returning them.
-- [ ] Supersede proposed recommendations derived from invalidated reports and redact stale excerpts from other lifecycle states while preserving transition/outcome history; ensure stale evidence cannot reach **Fix with AI**.
+- [ ] Supersede proposed recommendations derived from any invalidated report and ensure stale evidence cannot reach **Fix with AI**. Redact snapshots from any lifecycle state only when privacy/access narrowing makes them disallowed; preserve lifecycle/outcome history and do not redact accepted/completed records for ordinary evidence/provider/bundle changes.
 - [ ] Discard stale results without changing a newer report, recommendation, or run outcome.
 - [ ] Run focused runtime/evaluator tests, including existing analysis lease and stale identity tests.
 
@@ -152,7 +152,7 @@
 - [ ] Verify deterministic observation recommendations continue while Brain-backed provider analysis is gated, and verify Analyze now/background analysis resume only with an eligible bundle.
 - [ ] Verify a proposal reaches the existing `proactive:v1:` lifecycle and respects duplicate/dismissed/active recommendation state without duplicating mutations.
 - [ ] Verify insufficient evidence, unsupported citations, changed cited or uncited facts, changed recommendation inputs/configuration/workspace, and unavailable provider produce no ungrounded or cached-stale recommendation.
-- [ ] Verify report replacement, local-only persistence, workspace metadata deletion, access-narrowing invalidation on status reads, proposed-recommendation supersession, snapshot redaction on superseded and other audit records, bounded size, and separation from Analyze now cache/report state.
+- [ ] Verify report replacement, local-only persistence, workspace metadata deletion, access-narrowing invalidation on status reads, proposed-recommendation supersession, snapshot redaction after access narrowing, preservation of audit snapshots for non-access changes, bounded size, and separation from Analyze now cache/report state.
 - [ ] Run Rust tests, formatting, focused desktop tests/type-check, documentation link/build checks, and the repository-required `/code-review low` before code PR merge.
 - [ ] Keep all Brain-backed inference explicitly gated until #529's reviewed distilled export, supported privacy policy version, generated starter snapshot, and verified signed publication are complete; report any remaining #745 lifecycle alignment before implementation handoff.
 

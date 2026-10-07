@@ -1141,10 +1141,11 @@ focus changes are not introduced.
 If an input change or narrowed context invalidates an assessment, supersede any
 still-proposed recommendation derived from it, remove it from active
 recommendations, and prevent **Fix with AI** from using its stale evidence.
-Redact invalid evidence snapshots from the superseded record and from accepted,
-executing, or completed recommendations while preserving their lifecycle
-transitions and outcome history. Ordinary analysis does not otherwise rewrite
-accepted or completed recommendations.
+Only redact evidence snapshots from the superseded record and from accepted,
+executing, or completed recommendations when a privacy or access change makes
+that evidence disallowed; preserve their lifecycle transitions and outcome
+history. Other input changes invalidate the report and supersede a proposed
+recommendation without redacting accepted or completed audit snapshots.
 
 ## API
 
