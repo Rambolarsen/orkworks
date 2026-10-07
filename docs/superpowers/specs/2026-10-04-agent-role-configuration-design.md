@@ -26,15 +26,16 @@ No accepted ADR is amended or superseded by this draft.
 
 | Source | Established behavior | Proposed extension |
 | --- | --- | --- |
-| `crates/orkworksd/src/taskmaster/coordinator.rs:1` | Data-only records; `PlanNode` contains role, context digest, criteria, scope, tools, provider choices | Bind a separate versioned configuration into the approved definition; do not reinterpret existing tool lists as enforcement |
-| `crates/orkworksd/src/taskmaster/coordinator_store.rs:1` | Durable definitions and approval state, no runtime authority | Persist immutable configuration snapshots with definitions and mutable delivery evidence separately |
+| `crates/orkworksd/src/taskmaster/coordinator.rs:181` | Data-only `PlanNode` records contain role, context digest, criteria, scope, tools, and provider choices | Bind a separate versioned configuration into the approved definition; do not reinterpret existing tool lists as enforcement |
+| `crates/orkworksd/src/taskmaster/coordinator_store.rs:50,76` | `StoredPlan` and `CoordinatorStore` retain durable definitions and approval state, with no runtime authority | Persist immutable configuration snapshots with definitions and mutable delivery evidence separately |
 | `crates/orkworksd/src/session_application.rs:216` | `CreateSessionCommand` carries harness, model, initial prompt | A separately reviewed orchestration launch path consumes a validated configuration; ordinary creation remains unchanged |
 | `crates/orkworksd/src/harness/definition.rs:12` | Harness definition declares launch/resume/integration capabilities | Versioned adapter eligibility evidence and deterministic role/permission mapping |
 | `crates/orkworksd/src/harness/registry.rs:44` | Resolved definition and effective capabilities snapshot | Pin that definition plus executable/version/configuration evidence; registry membership alone is insufficient |
 
-These are source investigation references at branch base `5779d237`, not new
-production types. A later implementation plan must choose exact modules and
-wire routes after contract review.
+These are source investigation references at branch base
+`e572ab718cb51e7cfa21995bdf541fe024a1c712`, not new production types. A later
+implementation plan must choose exact modules and wire routes after contract
+review.
 
 ## Configuration identity and canonical digest
 
@@ -635,6 +636,32 @@ supply a matching effective profile, skills, and complete digest-bound definitio
 that configuration is accepted only after exact-plan approval. This is a contract
 example, not evidence that such an adapter exists.
 
+### Accepted contract path (synthetic fixture only)
+
+This scenario pins the positive eligibility path in the contract; it does not
+describe a real supported coding tool. Given a disposable fixture adapter for a
+review assignment, accept it as **eligible for exact-plan approval** only when:
+
+1. Its version, executable identity, platform, instruction mechanism, effective
+   settings, role, and requested/effective profile digests exactly match the
+   immutable configuration.
+2. Every required evidence surface is `passed` or has a source-backed,
+   fixture-confirmed `not-applicable` result, with retained referenced bytes
+   matching their recorded digests.
+3. The evidence snapshot and current support state validate, no revocation or
+   invalidation is present, and all approved rule, skill, resource, model, and
+   path bindings still match.
+4. These checks make the assignment eligible for approval; they do not approve
+   or launch it. The user must still approve the exact plan revision before a
+   launch grant exists. A missing or unknown delivery receipt after launch
+   blocks substantive work; approval does not waive the delivery gate.
+
+The accepted result is limited to that synthetic fixture and exact profile.
+The capability register currently marks all six Copilot roles unavailable and
+does not establish a supported profile for another tool. This example tests the
+contract's acceptance conditions only; it cannot populate the register or
+authorize a production launch.
+
 | Case | Required outcome |
 | --- | --- |
 | Root/scoped rules larger than former 16 KiB cap | Full applicable bytes admitted only within the new bounds and verified adapter context capacity; never truncated |
@@ -665,6 +692,31 @@ example, not evidence that such an adapter exists.
 | Child requests additional write path or approves a tool-side broadening prompt | Block; user-owned revised plan required |
 | Ordinary session has no config | Ordinary behavior; not a restricted agent and no configuration score invented |
 | Retired snapshot or corrected history | Preserve historical identity; use only eligible versions in future proposals |
+
+## Review handoff — 2026-10-07
+
+The author-level correctness/completeness pass checked this contract against
+#741, the product direction, accepted ADR 0077, the #610 scope alignment, and
+the listed source seams at the branch-base commit above. The source inspection
+confirms that the current coordinator, session creation, and harness registry
+do not enforce role profiles or skill delivery; the draft defines a proposed
+seam and does not claim that these runtime capabilities exist.
+
+The merged #740 capability register records the current capability-status and
+evidence disposition for this handoff: all six Copilot roles are unavailable,
+and no other tool has a verified substitute profile. Eligibility still
+requires an exact-profile immutable `CapabilityEvidenceSnapshot` plus current
+support-state validation. Draft PR #765 contains additional Probe 0 transport
+observations, but remains a draft and does not establish complete content
+delivery, response exclusion, or permission enforcement. Do not promote those
+observations into eligibility until their research handoff is reviewed and the
+required snapshot and support checks pass.
+
+No runtime execution plan is ready to write. The next gates are written owner
+review of this proposed contract and the reviewed #740 evidence disposition. If
+that evidence still yields no eligible profile, preserve the no-go and do not
+create a runtime launch plan. This handoff is not approval of an API, runtime
+implementation, or coding-tool profile.
 
 ## Consumer interfaces and implementation gate
 
