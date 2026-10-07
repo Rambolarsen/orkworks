@@ -1338,9 +1338,15 @@ fn startup_generation_is_ending(state: &AppState, id: &str, generation: RuntimeG
     })
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeObserverFailure {
+    ServerExited,
+    RuntimeUnavailable,
+}
+
 struct NativeObserverControl {
     stop: tokio::sync::watch::Sender<bool>,
-    failed: tokio::sync::watch::Receiver<bool>,
+    failed: tokio::sync::watch::Receiver<Option<NativeObserverFailure>>,
     task: Option<tokio::task::JoinHandle<()>>,
     cancelled: Arc<AtomicBool>,
 }
@@ -1353,7 +1359,7 @@ impl NativeObserverControl {
         mut native: super::codex_native::OwnedNativeRuntime,
     ) -> Self {
         let (stop, mut stop_rx) = tokio::sync::watch::channel(false);
-        let (failed_tx, failed) = tokio::sync::watch::channel(false);
+        let (failed_tx, failed) = tokio::sync::watch::channel(None);
         let cancelled = Arc::new(AtomicBool::new(false));
         let cancellation = cancelled.clone();
         #[cfg(test)]
@@ -1377,7 +1383,7 @@ impl NativeObserverControl {
                     break;
                 }
                 if !native.is_alive() {
-                    let _ = failed_tx.send(true);
+                    let _ = failed_tx.send(Some(NativeObserverFailure::ServerExited));
                     break;
                 }
                 #[cfg(test)]
@@ -1416,7 +1422,7 @@ impl NativeObserverControl {
                     Ok(Some(snapshot)) => snapshot,
                     Ok(None) => continue,
                     Err(()) => {
-                        let _ = failed_tx.send(true);
+                        let _ = failed_tx.send(Some(NativeObserverFailure::RuntimeUnavailable));
                         break;
                     }
                 };
@@ -1920,6 +1926,7 @@ async fn start_session_runtime_inner(
     tokio::spawn(async move {
         let mut native_observer = native_observer;
         let mut native_failure_handled = false;
+        let mut native_server_failed = false;
         let codex_hook_report_relay = codex_hook_report_relay;
         let report_token_for_driver = report_token.clone();
         let mut codex_report_interval =
@@ -2017,6 +2024,10 @@ async fn start_session_runtime_inner(
             tokio::select! {
                 _ = async { native_observer.as_mut().expect("native owner").failed.changed().await }, if native_observer.is_some() && !native_failure_handled => {
                     native_failure_handled = true;
+                    native_server_failed = matches!(
+                        *native_observer.as_mut().expect("native owner").failed.borrow_and_update(),
+                        Some(NativeObserverFailure::ServerExited)
+                    );
                     kill_requested = true;
                     let _ = driver_killer.lock().unwrap().kill();
                 }
@@ -2381,7 +2392,7 @@ async fn start_session_runtime_inner(
                 }
 
                 let is_error = exit.is_err();
-                let status = if is_error {
+                let status = if is_error || native_server_failed {
                     "error"
                 } else if kill_requested {
                     "killed"
@@ -2393,6 +2404,12 @@ async fn start_session_runtime_inner(
                     break;
                 }
                 match exit {
+                    Ok(()) if native_server_failed => {
+                        let _ = driver_output_tx.send(RuntimeEvent::Error {
+                            code: "codex_native_server_exited".into(),
+                            message: "Codex app-server exited unexpectedly".into(),
+                        });
+                    }
                     Ok(()) => {
                         let _ = driver_output_tx.send(RuntimeEvent::Ended {
                             status: status.to_string(),
@@ -2658,6 +2675,7 @@ mod tests {
                     .take();
             let (runtime, control_rx) = SessionRuntime::live(24, 80);
             let output = runtime.output_tx.clone();
+            let mut events = output.subscribe();
             let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
             {
                 let mut sessions = state.sessions.lock().unwrap();
@@ -2765,6 +2783,37 @@ mod tests {
                 0,
                 "TUI survived scenario {scenario}"
             );
+            if scenario == 2 {
+                let terminal_event =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                        loop {
+                            match events.recv().await {
+                                Ok(event @ RuntimeEvent::Ended { .. })
+                                | Ok(event @ RuntimeEvent::Error { .. }) => break event,
+                                Ok(RuntimeEvent::Output { .. })
+                                | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                    continue
+                                }
+                                Err(error) => panic!(
+                                    "runtime event stream ended before server failure: {error}"
+                                ),
+                            }
+                        }
+                    })
+                    .await
+                    .expect("native server failure should finalize promptly");
+                assert!(
+                    matches!(
+                        terminal_event,
+                        RuntimeEvent::Error {
+                            ref code,
+                            message: _
+                        } if code == "codex_native_server_exited"
+                    ),
+                    "unexpected native server exit should reach the terminal as an error, got {terminal_event:?}"
+                );
+                assert_eq!(state.sessions.lock().unwrap()[&id].info.status, "error");
+            }
             while super::super::terminal_runtime::has_workflow_report_capability(&id)
                 && tokio::time::Instant::now() < deadline
             {
