@@ -111,6 +111,14 @@ pub(crate) fn set_workflow_report_token(session_id: &str, token: String) {
     );
 }
 
+#[cfg(test)]
+pub(crate) fn has_workflow_report_capability(session_id: &str) -> bool {
+    report_capabilities()
+        .lock()
+        .unwrap()
+        .contains_key(session_id)
+}
+
 /// Removes `session_id`'s reporting capability, so a token issued to a
 /// now-dead session can never authenticate a later request even if an
 /// attacker captured it beforehand.
@@ -923,6 +931,7 @@ fn mark_committed_input_working(
         // explicit here; workspace-backed sessions take the atomic path below.
         crate::runtime::observed_status::apply_process_transition_to_handle(
             &mut handle.info,
+            &mut handle.runtime.attention_owner,
             &fields,
         );
         handle.pending_work_signal = None;
@@ -954,7 +963,11 @@ fn mark_committed_input_working(
         tracing::warn!(session_id = %id, "failed to persist input attention transition");
         return;
     }
-    crate::runtime::observed_status::apply_process_transition_to_handle(&mut handle.info, &fields);
+    crate::runtime::observed_status::apply_process_transition_to_handle(
+        &mut handle.info,
+        &mut handle.runtime.attention_owner,
+        &fields,
+    );
     handle.pending_work_signal = None;
     handle.runtime.input_generation = next_generation;
     handle.runtime.accepted_input_at = Some(accepted_at);
@@ -979,6 +992,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && !key.starts_with("ELECTRON_")
         && key != "ORKWORKS_OPEN_PLAN_TOKEN"
         && key != "ORKWORKS_CODEX_SESSION_REPORT_DIR"
+        && !key.eq_ignore_ascii_case("ORKWORKS_CODEX_NATIVE_APPROVAL")
         && key != "ORKWORKS_PROMPT_HOOK_GENERATION"
 }
 
@@ -3113,6 +3127,12 @@ mod tests {
 
     #[test]
     fn terminal_env_filter_removes_launcher_debug_variables() {
+        assert!(!should_forward_terminal_env(
+            "ORKWORKS_CODEX_NATIVE_APPROVAL"
+        ));
+        assert!(!should_forward_terminal_env(
+            "orkworks_codex_native_approval"
+        ));
         assert!(!should_forward_terminal_env("NODE_OPTIONS"));
         assert!(!should_forward_terminal_env("VSCODE_INSPECTOR_OPTIONS"));
         assert!(!should_forward_terminal_env("VSCODE_PID"));

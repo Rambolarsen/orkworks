@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const MAX_CACHE_ENTRIES: usize = 64;
@@ -15,7 +15,7 @@ pub(crate) struct VersionProbeCacheKey {
 }
 
 pub(crate) struct VersionProbeCache {
-    generation: AtomicU64,
+    generation: Arc<AtomicU64>,
     entries: Mutex<HashMap<VersionProbeCacheKey, VersionProbeCacheEntry>>,
 }
 
@@ -26,10 +26,26 @@ struct VersionProbeCacheEntry {
     version_output: Option<String>,
 }
 
+pub(crate) struct VersionProbeEpoch {
+    generation: Arc<AtomicU64>,
+    snapshot: u64,
+}
+impl VersionProbeEpoch {
+    pub(crate) fn is_current(&self) -> bool {
+        self.generation.load(Ordering::SeqCst) == self.snapshot
+    }
+}
+
 impl VersionProbeCache {
+    pub(crate) fn epoch(&self) -> VersionProbeEpoch {
+        VersionProbeEpoch {
+            generation: Arc::clone(&self.generation),
+            snapshot: self.generation.load(Ordering::SeqCst),
+        }
+    }
     pub(crate) fn new() -> Self {
         Self {
-            generation: AtomicU64::new(0),
+            generation: Arc::new(AtomicU64::new(0)),
             entries: Mutex::new(HashMap::new()),
         }
     }
@@ -121,6 +137,16 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    #[test]
+    fn read_only_epoch_fences_registry_invalidation() {
+        let cache = VersionProbeCache::new();
+        let old = cache.epoch();
+        assert!(old.is_current());
+        cache.bump_generation();
+        assert!(!old.is_current());
+        assert!(cache.epoch().is_current());
+    }
 
     fn key() -> VersionProbeCacheKey {
         VersionProbeCacheKey {

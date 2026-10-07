@@ -306,11 +306,14 @@ An ADR earns a bullet below only while it is `accepted` (not superseded), constr
 - ADR 0068: Codex CLI subagents remain within the owning OrkWorks session; identity replacement requires an authenticated root `SessionStart(source=clear)` after a recorded reset, and resume remains exact-ID-only.
 - ADR 0074: alternate-buffer pixel wheel input is accumulated per live terminal through xterm's public wheel handler; the first movement is immediate, later events require a rendered line of movement, and normal scrollback and line/page wheel input keep their existing behavior. The xterm 6.0.0 patch remains required in both shipped bundles.
 
-The proposed Codex approval runtime extension is routed through
+The approved Codex approval runtime extension is routed through
 [ADR 0076](docs/adr/0076-codex-owned-native-approval-observer.md) and its
 [written design](docs/superpowers/specs/2026-10-03-codex-native-approval-status-design.md).
-The #690 serial capture gate passed; the new launch and attention behavior
-remain proposed pending written review and verification.
+The #690 serial capture gate passed and the owner approved implementation on
+2026-10-05; the new launch and attention behavior remain disabled until their
+version-specific production verification gates pass. Native startup and the
+installed diagnostic also remain closed pending the owned-listener contract
+in [#763](https://github.com/Rambolarsen/orkworks/issues/763).
 
 ## Metadata protocol
 

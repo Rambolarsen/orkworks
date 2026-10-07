@@ -351,6 +351,31 @@ the option preserves the original arguments; failed or oversized probes abort
 startup. Existing sessions require relaunch. Global Codex configuration and
 its shared daemon are untouched. See [ADR 0072](../adr/0072-codex-session-process-isolation.md).
 
+The approved [native approval design](../superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
+([ADR 0076](../adr/0076-codex-owned-native-approval-observer.md)) adds a gated
+runtime path. Its exact version/platform compatibility table is empty, so
+current sessions retain the direct isolation above. Before any enabled native
+launch, argument and executable checks must succeed; the runtime then owns a
+private authenticated app-server, remote TUI and separate bounded passive
+observer. `futures-util` and `tokio-tungstenite` support that production client.
+The observer cannot answer approvals or start turns. Renderer detachment does
+not end ownership; native child exit or session shutdown tears down the owned
+runtime. A fixed two-second hook grace and fresh, complete singleton-root
+observations feed conditional attention effects without adding public schemas.
+
+Native startup and the installed diagnostic have a closed listener-ownership
+gate before bearer delivery. Child liveness and an expected initialize shape
+do not attest a listener after a released-port race.
+[#763](https://github.com/Rambolarsen/orkworks/issues/763) tracks the required
+reviewed handoff/identity contract; controlled fake fixtures cannot enable it.
+
+Native clearing has a separate unfenced-writer gate. Sidecar revisions and
+completed-file identity checks do not make a final check/rename atomic with
+supported direct agent-written JSON. Existing JSON authority remains intact;
+[#761](https://github.com/Rambolarsen/orkworks/issues/761) tracks the required
+written producer contract. The [verification record](../superpowers/verification/2026-10-05-codex-native-approval-status.md)
+lists the remaining configuration, signal and platform gates.
+
 Codex session identity stays bound to the conversation OrkWorks launched:
 differing Codex hook IDs are ignored, except for an authenticated root
 `SessionStart` with `source=clear` after OrkWorks records that explicit reset.
@@ -553,7 +578,10 @@ Single binary. Top-level modules:
 - `session_application.rs` — typed application seam for workspace opening, session lifecycle commands, attention and plan selection, and delete/forget workflows. It coordinates the existing `AppState` and runtime/metadata modules without owning a second session map; workspace opening retains the `WorkspaceLease` in `WorkspaceState` for the lifetime of the owner; `http/session_handlers.rs` remains responsible for request extraction, authorization, compatibility mapping, and serialization.
 - `session_projection.rs` — stateful `GET /sessions` projection. It snapshots live and durable session state, performs capacity/provider write-back and cwd/Git/conflict enrichment, and serializes projection with workspace replacement under `AppState.projection_lock`; the lock order is projection lock, workspace or sessions lock, then provider-manager internal locks. It releases state locks before filesystem, process-cwd, or Git I/O. Its process-local Git-context cache lives in `AppState`, reuses results per resolved worktree root for five seconds from scan start, and retains at most 512 roots. Workspace adoption clears it; expired entries are pruned and a full cache evicts the oldest scan. The dedicated cache lock serializes misses without holding workspace or session locks. Session recommendations and cwd-conflict warnings are derived afresh on each listing. `session_view.rs` remains pure and reusable for field derivation.
 - `runtime/` — background-task and PTY submodules:
-  - `observed_status.rs` — owns every write to `observed_status`/`attention` across the live session handle and persisted metadata: `apply_attention_signal` (external hook/debug reports) and `apply_process_transition` (the sidecar's own observations — committed input, idle timeout). See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md).
+  - `observed_status.rs` — applies ordinary `observed_status`/`attention` signals across the live session handle and persisted metadata: `apply_attention_signal` (external hook/debug reports) and `apply_process_transition` (the sidecar's own observations — committed input, idle timeout). See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md).
+  - `codex_approval.rs` — pure bounded hook/native correlation reducer; effects carry runtime/identity/turn/input fences and require owner acknowledgement after successful persistence.
+  - `codex_approval_application.rs` — private authenticated scalar callback and runtime-local attention ownership; atomic application checks use workspace→sessions lock order, and production clearing remains separately gated for unfenced JSON writers.
+  - `codex_native.rs` with `protocol.rs` and `launch.rs` — exact compatibility/argument eligibility, bounded authenticated passive WebSocket reads and owned server/TUI launch/cleanup. The shipping compatibility table remains empty pending live verification.
   - `peon_runtime.rs` — `peon_loop` (continuous Peon observation loop); idle sessions enter an in-memory hold and resume observation only after qualifying user input
   - `retention.rs` — `retention_cleanup_task`, `retention_cleanup_once`
   - `session_runtime.rs` — session-runtime-owned PTY/process startup, bounded PTY/persistence/control backpressure queues (including startup input buffering), output draining, replay state, attachment ownership, child wait/finalization. After direct-child exit, PTY output drains for a bounded grace; Unix polls a cancellable PTY descriptor, and Windows cancels a blocked ConPTY pipe read before releasing the reader. `start_session_runtime` generates a fresh workflow-observation reporting capability before spawning the child (ADR 0042), aborting startup on OS-randomness failure rather than spawning with no or a weak capability; `clear_ended_session_tracking` revokes it.

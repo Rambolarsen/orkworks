@@ -363,3 +363,92 @@ if source.count(source_guard) != 2:
 PY
 
 printf 'Codex hook reporter diagnostic tests passed.\n'
+
+# Native approval transport keeps scalar evidence private; legacy attention is
+# the fallback whenever the owned marker/proof or atomic publish is absent.
+mkdir -p "$temp_dir/native-mailbox"
+run_native_reporter() {
+  env PATH="$temp_dir/bin:$PATH" HOME="$temp_dir/home" \
+    REAL_PYTHON3="$real_python3" ORKWORKS_SESSION_ID='orkworks-session-secret' \
+    ORKWORKS_PORT=4567 ORKWORKS_REPORT_TOKEN='report-token-secret' \
+    ORKWORKS_CODEX_NATIVE_APPROVAL="${NATIVE_MARKER:-1}" \
+    ORKWORKS_CODEX_SESSION_REPORT_DIR="${NATIVE_MAILBOX:-$temp_dir/native-mailbox}" \
+    TEST_CURL_BODIES_FILE="$temp_dir/native-http" \
+    bash "$reporter" --marker 'orkworks:harness-integration:v2:codex' \
+      --event "$1" --hook-fingerprint "${NATIVE_FINGERPRINT:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}"
+}
+for event in PreToolUse PermissionRequest PostToolUse; do
+  printf '%s' '{"session_id":"root-1","turn_id":"turn-1","tool_use_id":"tool-1","tool_input":{"command":"command-secret"},"tool_response":"response-secret"}' | run_native_reporter "$event"
+done
+python3 - "$temp_dir/native-mailbox" "$temp_dir/native-http" <<'NATIVE'
+import json, pathlib, re, sys
+files = list(pathlib.Path(sys.argv[1]).glob('*.json'))
+records = [json.loads(p.read_text()) for p in files]
+approvals = [r['approval'] for r in records if 'approval' in r]
+assert len(approvals) == 3, records
+assert not pathlib.Path(sys.argv[2]).exists(), 'native permission must not POST immediate attention'
+assert {a['event'] for a in approvals} == {'PreToolUse', 'PermissionRequest', 'PostToolUse'}
+for a in approvals:
+    assert set(a) == {'rootId','turnId','toolUseId','event','observedAt','hookFingerprint'}, a
+    assert a['rootId'] == 'root-1' and a['turnId'] == 'turn-1' and a['toolUseId'] == 'tool-1'
+    assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z', a['observedAt']), a
+assert len({a['observedAt'] for a in approvals}) == 3
+for p in files:
+    assert p.stat().st_size <= 4096
+    for secret in ('report-token-secret', 'command-secret', 'response-secret', 'orkworks-session-secret'):
+        assert secret not in p.read_text(), secret
+NATIVE
+# Missing correlation is transported as null; required invalid proof falls back.
+printf '%s' '{"session_id":"root-1","turn_id":{},"tool_use_id":"bad id"}' | run_native_reporter PermissionRequest
+python3 - "$temp_dir/native-mailbox" <<'NATIVE'
+import json, pathlib, sys
+records = [json.loads(p.read_text()).get('approval') for p in pathlib.Path(sys.argv[1]).glob('*.json')]
+assert any(r and r['event'] == 'PermissionRequest' and r['turnId'] is None and r['toolUseId'] is None for r in records)
+NATIVE
+for mode in missing-mailbox invalid-root invalid-fingerprint no-marker; do
+  case "$mode" in
+    missing-mailbox) printf '%s' '{"session_id":"root-1"}' | NATIVE_MAILBOX="$temp_dir/absent" run_native_reporter PermissionRequest ;;
+    invalid-root) printf '%s' '{"session_id":"bad root"}' | run_native_reporter PermissionRequest ;;
+    invalid-fingerprint) printf '%s' '{"session_id":"root-1"}' | NATIVE_FINGERPRINT=bad run_native_reporter PermissionRequest ;;
+    no-marker) printf '%s' '{"session_id":"root-1"}' | NATIVE_MARKER=0 run_native_reporter PermissionRequest ;;
+  esac
+done
+python3 - "$temp_dir/native-http" <<'NATIVE'
+import json, pathlib, sys
+bodies = [json.loads(l) for l in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+waits = [b for b in bodies if b.get('status') == 'waiting_for_input']
+assert len(waits) == 4, bodies
+assert all(b['event'] == 'PermissionRequest' for b in waits)
+NATIVE
+# A full bounded approval mailbox must leave PermissionRequest on the existing
+# authenticated HTTP attention path instead of publishing another file.
+mkdir -p "$temp_dir/full-native-mailbox"
+python3 - "$temp_dir/full-native-mailbox" <<'NATIVE'
+import pathlib, sys
+directory = pathlib.Path(sys.argv[1])
+for slot in range(64):
+    (directory / f"approval-{slot:02}.json").write_text("occupied")
+NATIVE
+printf '%s' '{"session_id":"root-full"}' | NATIVE_MAILBOX="$temp_dir/full-native-mailbox" run_native_reporter PermissionRequest
+python3 - "$temp_dir/full-native-mailbox" "$temp_dir/native-http" <<'NATIVE'
+import json, pathlib, sys
+directory = pathlib.Path(sys.argv[1])
+assert len(list(directory.glob('approval-*.json'))) == 64
+assert not any('approval' in json.loads(path.read_text()) for path in directory.glob('*.json') if not path.name.startswith('approval-'))
+assert not list(directory.glob('.pending-*')), 'full slots must clean up staged envelopes'
+bodies = [json.loads(line) for line in pathlib.Path(sys.argv[2]).read_text().splitlines()]
+waits = [body for body in bodies if body.get('status') == 'waiting_for_input' and body.get('event') == 'PermissionRequest']
+assert len(waits) == 5, bodies
+NATIVE
+
+for event in Stop UserPromptSubmit; do
+  printf '%s' '{"session_id":"root-1","turn_id":"turn-1"}' | run_native_reporter "$event"
+done
+python3 - "$temp_dir/native-mailbox" "$temp_dir/native-http" <<'NATIVE'
+import json,pathlib,sys
+records=[json.loads(p.read_text()).get('approval') for p in pathlib.Path(sys.argv[1]).glob('*.json')]
+assert {r['event'] for r in records if r and r['event'] in ('Stop','UserPromptSubmit')} == {'Stop','UserPromptSubmit'}
+bodies=[json.loads(l) for l in pathlib.Path(sys.argv[2]).read_text().splitlines()]
+for event,status in (('Stop','idle'),('UserPromptSubmit','working')):
+    assert any(b.get('event') == event and b.get('status') == status for b in bodies)
+NATIVE

@@ -494,6 +494,83 @@ mod tests {
     }
 
     #[cfg(unix)]
+    async fn await_hanging_fixture_executable(bin: &Path) -> std::io::Result<()> {
+        // A concurrently forked process can briefly retain the descriptor used to
+        // write this script, even after the parent closes it. Linux then rejects
+        // exec with ETXTBSY before the fixture can write its PID. Establish that
+        // exact inode is executable before starting the production timeout probe.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            let spawn = tokio::process::Command::new(bin)
+                .arg("--fixture-ready")
+                .kill_on_drop(true)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn();
+            match spawn {
+                Ok(child) => {
+                    let output = tokio::time::timeout_at(deadline, child.wait_with_output())
+                        .await
+                        .map_err(|_| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "fixture readiness deadline",
+                            )
+                        })??;
+                    return if output.status.success()
+                        && output.stdout == b"fixture-ready\n"
+                        && output.stderr.is_empty()
+                    {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::other("fixture readiness failed"))
+                    };
+                }
+                Err(error)
+                    if error.raw_os_error() == Some(libc::ETXTBSY)
+                        && tokio::time::Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn hanging_fixture_readiness_rejects_a_retained_writer_before_probe_start() {
+        use crate::test_support::make_test_executable;
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("hanging-fixture");
+        let pidfile = dir.path().join("child.pid");
+        std::fs::write(&bin, format!(
+            "#!/bin/sh\nif [ \"$1\" = --fixture-ready ]; then printf 'fixture-ready\\n'; exit 0; fi\necho $$ > \"{}\"\nexec sleep 30\n", pidfile.display()
+        )).unwrap();
+        make_test_executable(&bin);
+        let writer = std::fs::OpenOptions::new().write(true).open(&bin).unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(4),
+            await_hanging_fixture_executable(&bin),
+        )
+        .await
+        .expect("retained-writer readiness rejection must remain bounded");
+        assert!(
+            result.is_err(),
+            "readiness must not treat an unspawned fixture as success"
+        );
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::ETXTBSY));
+        assert!(!pidfile.exists());
+        drop(writer);
+        await_hanging_fixture_executable(&bin).await.unwrap();
+        assert!(
+            !pidfile.exists(),
+            "readiness must not start the hanging body"
+        );
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn probe_tool_version_kills_a_hanging_binary_when_the_timeout_fires() {
         use crate::test_support::make_test_executable;
@@ -509,18 +586,24 @@ mod tests {
         std::fs::write(
             &bin,
             format!(
-                "#!/bin/sh\necho $$ > {}\nexec sleep 30\n",
+                "#!/bin/sh\nif [ \"$1\" = --fixture-ready ]; then printf 'fixture-ready\\n'; exit 0; fi\necho $$ > \"{}\"\nexec sleep 30\n",
                 pidfile.display()
             ),
         )
         .unwrap();
         make_test_executable(&bin);
+        await_hanging_fixture_executable(&bin).await.unwrap();
 
         let start = std::time::Instant::now();
         let result = probe_tool_version(&bin).await;
         assert!(result.is_none(), "a timed-out probe must not return output");
+        let elapsed = start.elapsed();
         assert!(
-            start.elapsed() < Duration::from_secs(5),
+            elapsed >= Duration::from_millis(2900),
+            "probe returned before reaching its timeout; fixture startup/read failure is not timeout coverage"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
             "must not wait past the 3s timeout"
         );
 
