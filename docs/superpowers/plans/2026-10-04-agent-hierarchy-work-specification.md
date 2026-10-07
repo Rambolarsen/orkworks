@@ -22,6 +22,27 @@ profiles remain unverified; no supported launch slice is claimed. The installed
 loader package version also differs from the executable's reported version, so
 launch identity must pin the actual resolved executable chain.
 
+### #741 review handoff — 2026-10-07
+
+The role contract received an author-level correctness/completeness pass against
+the product design, ADR 0077, the accepted #610 scope alignment, and the source
+seams at `origin/main` commit `e572ab718cb51e7cfa21995bdf541fe024a1c712`.
+The source still provides data-only plan records, ordinary session creation,
+and harness launch/resume metadata; it does not implement role enforcement or
+skill delivery. The proposed contract is not runtime behavior.
+
+The merged #740 capability register remains no-go for all six Copilot roles
+and names no verified substitute tool. Open draft PR #765 adds partial Probe 0
+transport observations, but does not establish a complete delivered-skill
+receipt, response/reasoning exclusion, or permission enforcement. Treat those
+observations as pending research review, not as support evidence.
+
+The #741 draft now includes a positive eligibility example limited to a
+synthetic fixture, so it cannot be mistaken for a real supported profile. No
+runtime execution plan is ready to write. Written owner review and the reviewed
+#740 evidence disposition remain gates; if the supported slice remains empty,
+retain the no-go and defer runtime planning.
+
 - [x] Investigate sources and produce the first configuration/evidence drafts.
 - [ ] Obtain review of the concrete role contract and capability methodology.
 - [ ] In a separately authorized probe session, establish version-specific
