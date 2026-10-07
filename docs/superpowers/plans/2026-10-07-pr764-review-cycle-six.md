@@ -59,5 +59,7 @@
 **Files:** No additional source files.
 
 - [x] Run Rust format check, focused lifecycle/protocol/metadata tests, full sidecar tests, and sidecar build.
-- [ ] Run `git diff --check`, inspect the complete diff, and verify PR head before requesting one Codex review, one Copilot review, and the custom review workflow.
+- [x] Run `git diff --check`, inspect the complete diff, and verify PR head before requesting one Codex review, one Copilot review, and the custom review workflow.
 - [ ] Do not merge while actionable findings or the mandatory manual `/code-review medium` gate remain unresolved.
+
+**Cycle 6/6 request:** PR #764, branch `codex-native-approval-status`; the reviewed SHA and trigger times are recorded in the cycle-six babysit update after the requests complete.
