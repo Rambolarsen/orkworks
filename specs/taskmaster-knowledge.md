@@ -36,7 +36,13 @@ the app.
 After validation, changes publish automatically to the brain's existing Pages
 site as immutable signed JSON bundles. A signed versioned manifest identifies
 compatible bundles by format version, publication sequence, SHA-256 digest,
-and relative download path. Older compatible releases remain available.
+relative download path, and `privacyPolicyVersion`. The policy version attests
+that the publisher applied the corresponding strict exclusion policy to the
+bundle; version `1` is the current strict allowlist policy, and the packaged
+starter snapshot carries the same version. Clients accept only a supported
+policy version. Bundles without it or with an unsupported version are not
+eligible for Brain-backed inference, even when their signatures and digests
+are valid. Older compatible releases remain available.
 The signing private key is a publishing secret; the app pins the public key.
 Missing signing configuration blocks publication, never verification.
 
@@ -46,6 +52,14 @@ size bounds, and content before atomic activation; retain the previous working
 snapshot. Failures and offline operation preserve cached knowledge. Knowledge
 is reference data, never executable tools, permission policy, or authority over
 repository instructions. Application-binary auto-update remains out of scope.
+
+Bundle eligibility has no independent wall-clock age cutoff. A compatible
+active bundle remains usable offline while its signature, digest, format, and
+content validate, its privacy policy version is supported, and it includes only
+guidance allowed by this distribution contract. The updater activates a newer
+verified bundle on its normal schedule; an unavailable feed or failed update
+retains the last eligible bundle. An old timestamp alone does not make a
+verified offline fallback ineligible.
 
 ## Analysis
 
@@ -105,6 +119,19 @@ allowance, which governs background discovery only. At most
 one analysis may run at a time, and the existing evidence cache still suppresses
 a provider call when the evidence and effective settings have not changed.
 
+Before any Brain-backed provider call, the active bundle must be eligible under
+the strict privacy rules above. Apply this gate to background analysis,
+**Analyze now**, and **Assess workflow**. Until #529 delivers the reviewed
+allowlisted export, generated compliant starter snapshot, and verified signed
+publication, fail closed for every Brain-backed analysis; do not send pages from
+the legacy starter or cached bundle that lack the supported privacy policy
+version. The current starter snapshot is ineligible until replaced by the
+compliant snapshot from #529.
+Deterministic workflow-observation recommendations continue without Brain
+inference. Once an eligible bundle is active, verified cached guidance remains
+usable offline. This prevents older packaged content from bypassing the
+current export policy.
+
 Before accepting a manual analysis request, Taskmaster checks for an active
 `improve_workflow` recommendation in `proposed`, `accepted`, or `executing`
 status. If one exists, it does not start another analysis. The desktop surfaces
@@ -148,17 +175,16 @@ level, write an assessment page to Brain, or upload workspace evidence/results.
 Workspace and Brain text are untrusted reference data and cannot override
 repository instructions, owner decisions, or Taskmaster's authority contract.
 
-The verified active bundle must contain the reviewed distilled assessment
+The eligible active bundle must contain the reviewed distilled assessment
 entry point and the general concept guidance needed for retrieval. A verified,
-cached active bundle remains usable offline; connectivity alone does not make
-the action unavailable. If no verified active bundle is available, or the
-active bundle is too old under the bundle freshness policy or lacks required
-guidance, the action reports unavailable. It does not fall back to a duplicate
-prompt, private Brain pages, or an assumed publication. The action becomes
-available only after #529's curated export, generated starter snapshot, and
-verified signed publication deliver the required reviewed guidance. This
-prerequisite gates runtime availability; missing, stale, or unverified guidance
-must fail closed.
+cached eligible bundle remains usable offline; connectivity or age alone does
+not make the action unavailable. If no eligible verified bundle is available,
+or it lacks required guidance, the action reports unavailable. It does not fall
+back to a duplicate prompt, private Brain pages, or an assumed publication.
+The action becomes available only after #529's curated export, generated
+compliant starter snapshot, and verified signed publication deliver the
+required reviewed guidance. This prerequisite gates runtime availability;
+missing, privacy-ineligible, or unverified guidance must fail closed.
 
 Use the existing Brain-derived `improve_workflow` recommendation identity
 (`proactive:v1:`), deduplication, dismissal, active-recommendation, acceptance,
@@ -184,12 +210,25 @@ it by age. Deleting that workspace's local metadata deletes its report. Reports
 never leave the local OrkWorks installation.
 
 Before accepting a result, revalidate workspace identity, effective settings,
-provider/harness identity, bundle version, and every cited repository fact and
-page. Discard stale results after a workspace, evidence, or relevant
-configuration change. A reduction in effective context access, a new exclusion,
-or a mismatch in any stored input identity invalidates and deletes the persisted
-report. Status reads must revalidate the current identity and delete any stale
-snapshot before returning it.
+provider/harness identity, bundle version, the complete bounded input snapshot,
+and every cited repository fact and page. The cache key and stored input identity
+cover all data supplied to the model: permitted observations, every collected
+repository fact (including uncited facts), the current recommendation snapshot,
+selected knowledge pages, context settings and exclusions, workspace generation,
+prompt/schema version, provider/model, and full bundle identity. Output-selected
+citations alone are not a sufficient cache key. Discard stale results after a
+workspace, any input evidence, or relevant configuration change. A reduction
+in effective context access, a new exclusion, or a mismatch in any stored input
+identity invalidates and deletes the persisted report. Status reads must
+revalidate the current identity and delete any stale snapshot before returning
+it.
+
+When invalidation affects an assessment-derived Brain recommendation, supersede
+any still-proposed recommendation, remove it from the active recommendation
+surface, and prevent **Fix with AI** from using stale evidence. Redact invalid
+evidence snapshots from the superseded record and from accepted, executing, or
+completed records while preserving transition and outcome history; do not
+rewrite that audit history merely to invalidate evidence.
 Validate the response schema and reject unknown evidence/page IDs, unsupported
 fields, more than one next step, executable commands, or claims that unverified
 checks passed. If evidence is insufficient, persist and show a no-proposal
@@ -207,10 +246,12 @@ Bounded excerpts prove their presence, not that omitted text or files are absent
 Hypotheses remain visibly experimental. Repository instructions and explicit
 owner decisions govern applicability. Recommendation identities are based on
 the target and underlying evidence, not generated prose or knowledge version.
-Knowledge updates alone cannot resurface dismissed suggestions. Accepted and
-completed recommendations are not rewritten by analysis. Store explicit
-dismissal decisions and completion outcomes locally, distinguishing completed
-work from evidence of benefit. Do not publish local outcomes in v1.
+Knowledge updates alone cannot resurface dismissed suggestions. Analysis does
+not otherwise rewrite accepted or completed recommendations. When a privacy or
+context change invalidates their evidence, redact the affected snapshots while
+preserving lifecycle transitions and outcome history. Store explicit dismissal
+decisions and completion outcomes locally, distinguishing completed work from
+evidence of benefit. Do not publish local outcomes in v1.
 
 Use the existing explicit Fix with AI handoff into the user's active session.
 Include both local evidence and relevant knowledge in its scoped prompt.
@@ -313,9 +354,9 @@ brain connections and exporting local lessons are deferred.
   outcomes to the current workspace, and recovers interrupted attempts after a
   restart without changing focus.
 - Manual analysis requests work with background discovery disabled, bypass the workspace cooldown and the daily allowance, and return any active Brain recommendation without invoking a provider.
-- **Assess workflow** is distinct from **Analyze now**, returns one grounded next step or an uncertainty-bearing no-proposal result, and remains unavailable unless the verified signed bundle contains the reviewed assessment entry point and required guidance from #529.
+- All Brain-backed provider analysis, including background discovery, **Analyze now**, and **Assess workflow**, remains unavailable until the active verified bundle carries a supported privacy policy version and meets the strict exclusion policy; #529 delivers the compliant starter/export/publication. Deterministic observation recommendations continue. A compatible eligible cached bundle remains usable offline with no independent age cutoff.
 - Assessments use only the selected workspace and current permitted context, share the single-analysis lease and active Brain recommendation gate, and do not consume the background daily allowance or workspace cooldown.
-- Assessment reports are capped at 64 KiB serialized with one latest report per workspace under its workspace metadata root; stale workspace/configuration/evidence/page citations or narrowed access invalidate reports, workspace metadata deletion removes them, and no prompt, uncited files, or report is sent to Brain.
+- Assessment reports are capped at 64 KiB serialized with one latest report per workspace under its workspace metadata root; their input identity covers every supplied observation, fact, recommendation, selected page, and effective setting. Stale inputs or narrowed access delete reports and supersede proposed derived recommendations; workspace metadata deletion removes reports, and no prompt, uncited files, or report is sent to Brain.
 - Workspace/configuration switches discard stale results, and context exclusions
   apply to symlinks, ignored files, credentials, caches, and model requests.
 - Changing Taskmaster selection leaves Peon configuration and inference intact.

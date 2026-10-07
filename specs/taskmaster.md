@@ -1096,13 +1096,16 @@ remain unverified. Workspace and Brain content are untrusted reference data and
 cannot override repository instructions, user decisions, or Taskmaster's
 authority contract.
 
-The action is unavailable when the verified bundle does not contain the
-reviewed assessment entry point and required general guidance. An older bundle,
-offline update state, or missing page never triggers a handwritten prompt
-fallback or private Brain lookup. A missing Taskmaster provider, an active
-analysis, an active Brain-derived `improve_workflow` recommendation, or
-insufficient current repository evidence produces a clear inline unavailable,
-blocked, or no-proposal result without a speculative recommendation.
+The action is unavailable when the active bundle is not eligible under the
+strict privacy and integrity rules in `taskmaster-knowledge.md`, or does not
+contain the reviewed assessment entry point and required general guidance.
+Bundle age or offline update state alone does not make a verified eligible
+bundle unavailable; an unavailable feed retains the last eligible bundle. No
+inference may use an unreviewed legacy bundle as a fallback. A missing
+Taskmaster provider, an active analysis, an active Brain-derived
+`improve_workflow` recommendation, or insufficient current repository evidence
+produces a clear inline unavailable, blocked, or no-proposal result without a
+speculative recommendation.
 
 Assessment runs, cache identity, status, and report are distinct from **Analyze
 now**. A report is workspace-local and bounded to the latest result for that
@@ -1117,6 +1120,14 @@ current workspace, evidence, configuration, provider, and knowledge snapshot
 has already been assessed, the report may be reused only as an assessment
 result; an **Analyze now** result is never shown as an assessment.
 
+The input identity and cache key cover the complete bounded request supplied
+to the model, not only facts the output later cites. Include all permitted
+observations, all collected repository facts (including uncited facts), the
+current recommendation snapshot, selected knowledge pages, context settings
+and exclusions, workspace generation, prompt/schema version, provider/model,
+and full bundle identity. Changing any input invalidates the report, including
+a no-proposal result.
+
 A credible next step enters the existing Brain-derived `improve_workflow`
 recommendation path, retaining its `proactive:v1:` identity, deduplication,
 dismissal, active-recommendation, acceptance, and **Fix with AI** lifecycle.
@@ -1126,6 +1137,14 @@ repository configuration, or publish workspace evidence or results to Brain.
 Progress, provenance, outcome, and failure appear inline in Recommendations;
 workspace changes discard stale display and result state. Background popups and
 focus changes are not introduced.
+
+If an input change or narrowed context invalidates an assessment, supersede any
+still-proposed recommendation derived from it, remove it from active
+recommendations, and prevent **Fix with AI** from using its stale evidence.
+Redact invalid evidence snapshots from the superseded record and from accepted,
+executing, or completed recommendations while preserving their lifecycle
+transitions and outcome history. Ordinary analysis does not otherwise rewrite
+accepted or completed recommendations.
 
 ## API
 
@@ -1141,7 +1160,7 @@ Proposed HTTP endpoints:
 - `POST /taskmaster/assess-workflow` — request a manual Brain-guided workflow assessment for the currently selected workspace; the request has no caller-supplied workspace, provider, context override, knowledge page, or report body
 - `GET /taskmaster/run-status` — return the existing run status plus a distinct read-only assessment status projection (`idle`, `queued`, `running`, or the latest `succeeded`, `failed`, or `interrupted` outcome)
 
-`assess-workflow` is authenticated through the sidecar's existing local API boundary. Its response distinguishes `scheduled`, `unavailable`, `already_running`, and `active_recommendation`; it never returns repository excerpts in the scheduling response. Assessment status and report details are scoped to the selected workspace. The status projection identifies the assessment and outcome, and may return the bounded latest report only while its workspace, effective context settings, exclusions, provider/harness identity, bundle version, cited fact hashes, and cited knowledge page IDs still match current state. A mismatch or narrower effective access invalidates the stored report before it can be returned.
+`assess-workflow` is authenticated through the sidecar's existing local API boundary. Its response distinguishes `scheduled`, `unavailable`, `already_running`, and `active_recommendation`; it never returns repository excerpts in the scheduling response. Assessment status and report details are scoped to the selected workspace. The status projection identifies the assessment and outcome, and may return the bounded latest report only while its workspace, effective context settings, exclusions, provider/harness identity, bundle version, complete input identity, cited fact hashes, and cited knowledge page IDs still match current state. A mismatch or narrower effective access invalidates the stored report and any proposed recommendation derived from it before either can be returned or used.
 
 Proposed WebSocket event:
 
@@ -1344,7 +1363,7 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
 - [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, `accepted`, or `completed` status.
 - [ ] A manual Brain analysis bypasses the per-workspace cooldown and the daily allowance (manual analyses are unlimited; the allowance governs automatic background discovery only), and is refused while a Brain-derived `improve_workflow` recommendation is proposed, accepted, or executing; deterministic observation-only recommendations do not block it, and the user is directed to the existing Fix with AI handoff for a Brain recommendation.
-- [ ] **Assess workflow** is a distinct manual run and result from **Analyze now**, uses the selected workspace's existing Taskmaster provider/context/evidence and shared single-analysis lease, returns at most one grounded improvement or a clear no-proposal result, and is unavailable until the verified signed bundle contains the reviewed assessment guidance required by #529.
+- [ ] **Assess workflow** is a distinct manual run and result from **Analyze now**, uses the selected workspace's existing Taskmaster provider/context/evidence and shared single-analysis lease, returns at most one grounded improvement or a clear no-proposal result, and is unavailable until an eligible verified bundle carries the supported privacy policy version and reviewed assessment guidance required by #529.
 - [ ] Assessment proposals cite current repository fact hashes and relevant Brain page IDs, validate every citation and captured identity before acceptance, and reuse the existing `proactive:v1:` `improve_workflow` recommendation lifecycle without adding execution authority.
 - [ ] One bounded local assessment report per workspace records its evidence/configuration/provider/knowledge identity and outcome, is removed with that workspace's local data, never stores the full prompt or uncited files, and cannot be populated from an **Analyze now** result.
 - [ ] Assessment progress, provenance, outcome, and failures are shown inline in Recommendations; workspace/configuration changes discard stale results, and no background popup or focus change is introduced.
