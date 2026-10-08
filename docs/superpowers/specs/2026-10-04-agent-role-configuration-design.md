@@ -33,9 +33,9 @@ No accepted ADR is amended or superseded by this draft.
 | `crates/orkworksd/src/harness/registry.rs:44` | Resolved definition and effective capabilities snapshot | Pin that definition plus executable/version/configuration evidence; registry membership alone is insufficient |
 
 These are source investigation references at branch base
-`e572ab718cb51e7cfa21995bdf541fe024a1c712`, not new production types. A later
-implementation plan must choose exact modules and wire routes after contract
-review.
+`6739461b88c79451f4578d6ea654b5e8359a3792`, rechecked against the current
+`origin/main`; they are not new production types. A later implementation plan
+must choose exact modules and wire routes after contract review.
 
 ## Configuration identity and canonical digest
 
@@ -57,7 +57,7 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 | `CriterionSnapshot` | `id`, `requirement` (`required` or `optional`), `description` |
 | `RubricSnapshot` | `id`, `version` (positive integer), `dimensions` (ID/description pairs), `evaluatorRole`; rating/calculation belongs to #744 |
 | `AdapterBinding` | `harnessId`, `definitionDigest`, `adapterId`, `adapterVersion`, `executableIdentity`, `toolVersion`, `platform`, `instructionMechanism`, `effectiveSettingsDigest`, `evidenceId`, `evidenceDigest` |
-| `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration`; part of the immutable configuration |
+| `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration` (opaque adapter/capability identity, stable across observer restarts); part of the immutable configuration |
 | `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `repositoryBinding`, `sourceWorktreeBinding`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`, `capabilityEvidence`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
 
 `configurationId` is stable only within the immutable plan revision. A changed
@@ -100,8 +100,17 @@ adapter must establish the requested model ID; if it cannot, that combination
 is unverified and cannot launch as pinned. In `tool-managed` mode, `policyId`
 names an explicit approved adapter policy (for example that tool's `auto`), and
 `policyDigest` binds its nonsecret settings and supported semantics. It does
-not promise a fixed inference backend. `adapterGeneration` pins the resolved
-model-capability snapshot used for the proposal.
+not promise a fixed inference backend. `adapterGeneration` is the opaque,
+bounded ASCII identity for the exact adapter-capability snapshot resolved for
+this configuration, including its adapter/tool binding, profile/evidence
+identity, and supported model policy. It is the immutable adapter/capability
+identity consumed by #743, not a model observation or a process counter. It
+stays unchanged when an observer process restarts; #743 uses
+`producerStreamId` for that producer-process incarnation, while
+`launchGeneration` identifies the child runtime. Changing the adapter, tool
+version, effective profile, evidence snapshot, or supported model policy
+requires a new configuration and `adapterGeneration`. A model observation
+within an unchanged approved tool-managed policy does not change this identity.
 
 A separate version-1 `ModelObservation` records `configurationDigest`,
 `sessionId`, `launchGeneration`, `observationId`, `observedAt` (UTC), `state`
@@ -693,14 +702,15 @@ authorize a production launch.
 | Ordinary session has no config | Ordinary behavior; not a restricted agent and no configuration score invented |
 | Retired snapshot or corrected history | Preserve historical identity; use only eligible versions in future proposals |
 
-## Review handoff — 2026-10-07
+## Review handoff — 2026-10-08
 
 The author-level correctness/completeness pass checked this contract against
 #741, the product direction, accepted ADR 0077, the #610 scope alignment, and
-the listed source seams at the branch-base commit above. The source inspection
-confirms that the current coordinator, session creation, and harness registry
-do not enforce role profiles or skill delivery; the draft defines a proposed
-seam and does not claim that these runtime capabilities exist.
+the listed source seams at the current `origin/main` base above. The source
+inspection confirms that the current coordinator, session creation, and
+harness registry do not enforce role profiles or skill delivery; the draft
+defines a proposed seam and does not claim that these runtime capabilities
+exist.
 
 The merged #740 capability register records the current capability-status and
 evidence disposition for this handoff: all six Copilot roles are unavailable,
@@ -712,6 +722,13 @@ delivery, response exclusion, or permission enforcement. Do not promote those
 observations into eligibility until their research handoff is reviewed and the
 required snapshot and support checks pass.
 
+Usage contract #743 merged in PR #785. Its report binding consumes
+`ModelBinding.adapterGeneration` as the stable adapter/capability identity;
+observer restarts instead receive a new `producerStreamId`. The two contracts
+now state this distinction explicitly. This alignment adds no capability
+evidence: the #740 register still marks all six Copilot roles unavailable and
+does not verify a substitute tool profile.
+
 No runtime execution plan is ready to write. The next gates are written owner
 review of this proposed contract and the reviewed #740 evidence disposition. If
 that evidence still yields no eligible profile, preserve the no-go and do not
@@ -720,10 +737,12 @@ implementation, or coding-tool profile.
 
 ## Consumer interfaces and implementation gate
 
-Preparation #742 consumes role/assignment/configuration identities and eligibility,
-and defines multi-plan parent authority. Usage #743 consumes configuration and
-skill digests plus adapter delivery/observation coverage; evidence records are
-not part of the immutable configuration. Evaluation #744 consumes approved
+Preparation #742 consumes role/assignment/configuration identities and
+eligibility, and defines multi-plan parent authority. Usage #743 consumes
+configuration and skill digests, the immutable `adapterGeneration`, and
+adapter delivery/observation coverage; producer-process restarts are fenced by
+`producerStreamId`. Evidence records are not part of the immutable
+configuration. Evaluation #744 consumes approved
 criteria/rubric and result identity, not just role labels. Learning #745 consumes
 versioned configuration plus independently assessed outcomes. UI #746 consumes
 bounded descriptors, permission reasons, and actual delivery/evaluation evidence;
