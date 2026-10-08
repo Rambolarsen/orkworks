@@ -130,6 +130,77 @@ test("corrupt navigation bytes remain until separately confirmed rebuild", async
   } finally { f.close(); }
 });
 
+test("forgetting a workspace offers confirmed recovery for corrupt navigation", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    mkdirSync(workspace);
+    const identity = realpathSync.native(workspace);
+    rememberWorkspacePath(f.directory, identity);
+    const path = workspaceNavigationMemoryPath(f.directory);
+    writeFileSync(path, "{corrupt");
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    let confirmations = 0;
+
+    const result = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation, async () => {
+      confirmations += 1;
+      return navigation.rebuild(true);
+    });
+
+    assert.equal(confirmations, 1);
+    assert.equal(result.navigation?.ok, true);
+    assert.deepEqual(result.history.recentWorkspacePaths, []);
+    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, []);
+    assert.deepEqual(navigation.read().entries, []);
+  } finally { f.close(); }
+});
+
+test("forgetting a workspace offers confirmed recovery for future navigation versions", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    mkdirSync(workspace);
+    const identity = realpathSync.native(workspace);
+    rememberWorkspacePath(f.directory, identity);
+    const path = workspaceNavigationMemoryPath(f.directory);
+    const source = JSON.stringify({ version: 2, epoch: "f".repeat(32), revision: 3, payload: { entries: [] } });
+    writeFileSync(path, source);
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    let confirmations = 0;
+
+    const result = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation, async () => {
+      confirmations += 1;
+      return navigation.rebuild(true);
+    });
+
+    assert.equal(confirmations, 1);
+    assert.equal(result.navigation?.ok, true);
+    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, []);
+    assert.deepEqual(navigation.read().entries, []);
+  } finally { f.close(); }
+});
+
+test("cancelling navigation recovery keeps the workspace shortcut and corrupt bytes", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    mkdirSync(workspace);
+    const identity = realpathSync.native(workspace);
+    rememberWorkspacePath(f.directory, identity);
+    const path = workspaceNavigationMemoryPath(f.directory);
+    writeFileSync(path, "{corrupt");
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+
+    const result = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation,
+      async () => ({ ok: false, diagnostic: "user_cancelled" }));
+
+    assert.equal(result.cancelled, true);
+    assert.deepEqual(result.history.recentWorkspacePaths, [identity]);
+    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, [identity]);
+    assert.equal(readFileSync(path, "utf8"), "{corrupt");
+  } finally { f.close(); }
+});
+
 test("failed save invalidates a queued successor without changing prior bytes", async () => {
   const f = fixture();
   try {

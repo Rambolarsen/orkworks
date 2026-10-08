@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
 import fsExt from "fs-ext";
@@ -96,11 +96,15 @@ export class RevisionedShellMemory<P> {
   }
 
   private path(): string { return join(this.directory, this.fileName); }
-  private readTarget(): Buffer | "oversize" | null {
+  private readTarget(): Buffer | "oversize" | "non_regular" | null {
     if (!existsSync(this.path())) return null;
-    const descriptor = openSync(this.path(), "r");
+    // O_NONBLOCK prevents a replaced FIFO from freezing Electron before fstat
+    // can reject it. It is ignored for ordinary files on supported platforms.
+    const descriptor = openSync(this.path(), constants.O_RDONLY | constants.O_NONBLOCK);
     try {
-      if (fstatSync(descriptor).size > this.limit) return "oversize";
+      const info = fstatSync(descriptor);
+      if (!info.isFile()) return "non_regular";
+      if (info.size > this.limit) return "oversize";
       // A file can grow after fstat. The extra byte detects that race without
       // ever allocating or reading more than the record bound plus one.
       const bytes = Buffer.allocUnsafe(this.limit + 1);
@@ -118,7 +122,7 @@ export class RevisionedShellMemory<P> {
     try {
       const bytes = this.readTarget();
       if (bytes === null) return { record: null, diagnostic: null };
-      if (bytes === "oversize") return { record: null, diagnostic: "corrupt_record" };
+      if (bytes === "oversize" || bytes === "non_regular") return { record: null, diagnostic: "corrupt_record" };
       const value: unknown = JSON.parse(decoder.decode(bytes));
       if (value !== null && typeof value === "object" && !Array.isArray(value)
         && "version" in value && value.version !== 1) return { record: null, diagnostic: "unsupported_version" };
@@ -154,6 +158,7 @@ export class RevisionedShellMemory<P> {
 
   private capturePrior(): Prior {
     const previous = this.readTarget();
+    if (previous === "non_regular") throw new Error("Prior shell target is not a regular file");
     if (previous !== "oversize") return previous;
     // A hardlink preserves an oversized prior inode for rollback without
     // buffering it or copying attacker-sized bytes. If unsupported, decline
@@ -183,10 +188,10 @@ export class RevisionedShellMemory<P> {
     if (previous !== null && !Buffer.isBuffer(previous) && this.priorInPlace(previous)) {
       return { ok: false, diagnostic: "write_failed" };
     }
-    let currentBytes: Buffer | "oversize" | null;
+    let currentBytes: Buffer | "oversize" | "non_regular" | null;
     try { currentBytes = this.readTarget(); }
     catch { return { ok: false, diagnostic: "restore_failed" }; }
-    if (currentBytes === "oversize") return { ok: false, diagnostic: "write_failed" };
+    if (currentBytes === "oversize" || currentBytes === "non_regular") return { ok: false, diagnostic: "write_failed" };
     if (currentBytes !== null && !currentBytes.equals(attempted)) {
       const observed = this.load();
       if (observed.record) return { ok: false, diagnostic: "write_failed" };

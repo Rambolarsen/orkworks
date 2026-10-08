@@ -475,6 +475,8 @@ test("explicit and restoration forgets couple validated history removal to navig
   assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", async \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory\)/);
   assert.match(mainSource, /Workspace navigation state could not be cleared\. Try removing the workspace shortcut again\./);
+  assert.match(mainSource, /forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory,\s*\(\) => confirmShellMemoryRebuild\("navigation"/);
+  assert.match(mainSource, /if \(result\.cancelled\) return toWorkspaceHistorySnapshot\(result\.history\);/);
   const start = mainSource.indexOf("async function restoreWorkspace(");
   const end = mainSource.indexOf("\n  async function", start + 10);
   assert.ok(start >= 0 && end > start);

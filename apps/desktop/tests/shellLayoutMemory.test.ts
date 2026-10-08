@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,6 +38,23 @@ test("invalid and future shell layout records preserve bytes until confirmed reb
     assert.equal(readFileSync(path, "utf8"), source);
     assert.equal((await memory.rebuild(true)).ok, true);
     assert.notEqual(readFileSync(path, "utf8"), source);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("shell layout returns a diagnostic for a FIFO record without blocking", (t) => {
+  if (process.platform === "win32") return t.skip("FIFOs are unavailable on Windows");
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-fifo-"));
+  try {
+    const path = shellLayoutMemoryPath(directory);
+    try { execFileSync("mkfifo", [path]); }
+    catch { return t.skip("mkfifo is unavailable"); }
+    const probe = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `
+      import { createShellLayoutMemory } from "./electron/shellLayoutMemory.ts";
+      const result = createShellLayoutMemory(process.argv[1]).read();
+      if (result.diagnostic !== "corrupt_record") process.exit(1);
+    `, directory], { encoding: "utf8", timeout: 2_000 });
+    assert.equal(probe.error, undefined, "reading the FIFO record must not block");
+    assert.equal(probe.status, 0, probe.stderr || "child process failed");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -192,7 +209,9 @@ test("a record that grows after size preflight is read only to the bound plus on
       const originalStat = fs.fstatSync;
       const originalRead = fs.readSync;
       let bytesRead = 0;
-      fs.fstatSync = (...args) => ({ ...originalStat(...args), size: 0 });
+      fs.fstatSync = (...args) => new Proxy(originalStat(...args), {
+        get(target, property, receiver) { return property === 'size' ? 0 : Reflect.get(target, property, receiver); },
+      });
       fs.readSync = (...args) => {
         const count = originalRead(...args);
         bytesRead += count;

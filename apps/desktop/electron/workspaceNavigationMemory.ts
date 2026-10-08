@@ -5,6 +5,7 @@ import { canonicalWorkspacePath, forgetWorkspacePath, readWorkspaceMemory, type 
 export type LastCentralSurface = "terminal" | "review";
 export type WorkspaceNavigationEntry = { workspaceIdentity: string; lastCentralSurface: LastCentralSurface };
 export type WorkspaceNavigationSnapshot = { entries: WorkspaceNavigationEntry[]; revision: number; diagnostic: ShellMemoryDiagnostic | null };
+type ConfirmNavigationRebuild = () => Promise<ShellMemoryResult | { ok: false; diagnostic: "user_cancelled" }>;
 type NavigationPayload = { entries: WorkspaceNavigationEntry[] };
 
 function exactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
@@ -74,7 +75,8 @@ export async function forgetRememberedWorkspaceWithNavigation(
   directory: string,
   identity: string,
   navigation: ReturnType<typeof createWorkspaceNavigationMemory>,
-): Promise<{ history: AppWorkspaceMemory; navigation: ShellMemoryResult | null }> {
+  confirmNavigationRebuild?: ConfirmNavigationRebuild,
+): Promise<{ history: AppWorkspaceMemory; navigation: ShellMemoryResult | null; cancelled?: true }> {
   const before = readWorkspaceMemory(directory);
   // An exact saved shortcut or navigation entry is the authority for a path
   // that has disappeared. Renderer text alone cannot delete another entry.
@@ -92,7 +94,16 @@ export async function forgetRememberedWorkspaceWithNavigation(
       return { history: before, navigation: null };
     }
   }
-  const deleted = await navigation.delete(identity, 0, () => true);
+  let deleted = await navigation.delete(identity, 0, () => true);
+  if (!deleted.ok && confirmNavigationRebuild
+    && (deleted.diagnostic === "corrupt_record" || deleted.diagnostic === "unsupported_version")) {
+    const rebuilt = await confirmNavigationRebuild();
+    if (!rebuilt.ok) {
+      if (rebuilt.diagnostic === "user_cancelled") return { history: before, navigation: null, cancelled: true };
+      return { history: before, navigation: rebuilt };
+    }
+    deleted = await navigation.delete(identity, 0, () => true);
+  }
   if (!deleted.ok) return { history: before, navigation: deleted };
   // The stores are independent. Retain the visible shortcut when navigation
   // deletion fails; after it succeeds, a history failure remains retryable.

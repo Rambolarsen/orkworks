@@ -1983,7 +1983,10 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("forget-workspace-path", async (_event, path: unknown) => {
     if (typeof path !== "string") throw new Error("Invalid workspace path");
-    const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), path, workspaceNavigationMemory);
+    const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), path, workspaceNavigationMemory,
+      () => confirmShellMemoryRebuild("navigation", mainWindow,
+        (owner, options) => dialog.showMessageBox(owner, options), () => workspaceNavigationMemory.rebuild(true)));
+    if (result.cancelled) return toWorkspaceHistorySnapshot(result.history);
     if (result.navigation && !result.navigation.ok) {
       throw new Error("Workspace navigation state could not be cleared. Try removing the workspace shortcut again.");
     }
