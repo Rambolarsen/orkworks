@@ -58,3 +58,8 @@ apm.lock.yaml
 .opencode/
 .codex/
 .gemini/settings.json
+
+# Local SonarQube analysis artifacts
+.sonar/
+.scannerwork/
+__pycache__/

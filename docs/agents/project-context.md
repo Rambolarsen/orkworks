@@ -92,6 +92,11 @@ the documentation site and tests generated-fact filtering. `pr-ci.yml` runs a
 `doc-drift` job on every pull request using the same checks as
 `scripts/doc-check.sh`; this job is informational and cannot block a merge.
 
+The PR workflow also runs the optional local analysis helper's standard-library
+tests on Ubuntu and native Windows (Python 3.9). This checks snapshot/report
+contracts, locks and credential handling; it does not start a SonarQube stack
+or replace the required product checks.
+
 ## Containerized development environment (optional)
 
 The root `Containerfile` and `compose.yaml` provide an optional Podman/OCI
@@ -129,6 +134,14 @@ use named volumes rather than host bind mounts because Electron and native
 dependencies are platform-specific. On Windows, Podman runs in a WSL2 VM;
 for bind-mounted paths on NTFS, set `git config core.autocrlf input` so
 in-container shell scripts do not receive incompatible line endings.
+
+### Local complexity analysis
+
+An optional, free SonarQube Community Build stack runs through a separate
+Podman Compose project. Use the [local analysis runbook](local-sonarqube.md)
+for prerequisites, credentials and scan/report commands.
+The `simplifying-repo` skill uses its verified snapshots; it is not part of
+the hosted weekly audit rotation or the product runtime.
 
 ## Windows sidecar file replacement
 

@@ -304,6 +304,7 @@ The `skills/` directory contains repo-level agent skills that are committed with
 
 | Skill | Description |
 | ----- | ----------- |
+| [simplifying-repo](skills/simplifying-repo/SKILL.md) | Validates current source and investigates measured reductions with local SonarQube |
 | [starting-work](skills/starting-work/SKILL.md) | Branch/worktree setup and per-checkout workflow for new code changes |
 | [cutting-release](skills/cutting-release/SKILL.md) | Version bump, tag push, CI monitoring, and release verification workflow |
 | [adding-harness](skills/adding-harness/SKILL.md) | Checklist for adding or changing a harness adapter (launch, resume, session ID capture, voice, capacity) |
@@ -351,3 +352,10 @@ Session metadata and session API payloads now accept canonical `harnessId`, `mod
 - `specs/review-queue.md` — superseded repo-local review inbox proposal
 - `specs/session-plan-review.md` — selected-session plan/spec review and explicit review prompt handoff
 - `specs/taskmaster.md` — cross-session coordination and next-step recommendations
+
+### Local complexity analysis
+
+For free, local SonarQube analysis through Podman, see the
+[setup and scan runbook](docs/agents/local-sonarqube.md). Agents can use
+[the simplification skill](skills/simplifying-repo/SKILL.md) to investigate
+behavior-preserving reductions against verified before/after evidence.

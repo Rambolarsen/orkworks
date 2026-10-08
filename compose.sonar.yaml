@@ -1,0 +1,64 @@
+services:
+  db:
+    image: docker.io/library/postgres:17.11-bookworm
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_DB: sonar
+      POSTGRES_PASSWORD: ${SONAR_DB_PASSWORD:?Run python3 scripts/sonar.py up}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  sonarqube:
+    image: docker.io/library/sonarqube:26.9.0.129388-community
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD:?Run python3 scripts/sonar.py up}
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+      nproc: 8192
+    volumes:
+      - data:/opt/sonarqube/data
+      - logs:/opt/sonarqube/logs
+      - extensions:/opt/sonarqube/extensions
+
+  scanner:
+    profiles: [scan]
+    image: localhost/${SONAR_WORKTREE_ID:-orkworks-default}-sonar-scanner:local
+    build:
+      context: .
+      dockerfile: Containerfile
+      target: sonar
+    working_dir: /workspace
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    volumes:
+      - node_modules:/workspace/apps/desktop/node_modules
+      - cargo_target:/workspace/crates/orkworksd/target
+      - cargo_registry:/usr/local/cargo/registry
+      - scanner_cache:/root/.sonar
+
+volumes:
+  database:
+  data:
+  logs:
+  extensions:
+  node_modules:
+    name: ${SONAR_WORKTREE_ID:-orkworks-default}-sonar-node-modules
+  cargo_target:
+    name: ${SONAR_WORKTREE_ID:-orkworks-default}-sonar-target
+  cargo_registry:
+  scanner_cache:

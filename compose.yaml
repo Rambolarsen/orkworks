@@ -13,6 +13,7 @@ services:
     build:
       context: .
       dockerfile: Containerfile
+      target: dev
     working_dir: /workspace
     volumes:
       - .:/workspace
