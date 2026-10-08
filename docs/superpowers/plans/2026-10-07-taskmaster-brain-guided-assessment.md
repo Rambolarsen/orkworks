@@ -19,14 +19,15 @@
 - At most one analysis runs per instance; all manual and background analyses share the installation-wide single-analysis lease.
 - Analysis context levels are session observations, workflow context, and relevant source code; excluded paths, ignored files, credential files, and files resolving outside the workspace remain excluded.
 - Background collection is read-only and never runs repository scripts or commands. The assessment action also runs no commands, reads no additional terminal replay, and does not raise the configured context level.
-- All Brain-backed provider analysis, including background discovery, **Analyze now**, and **Assess workflow**, remains unavailable until the active verified bundle carries a supported privacy policy version and meets the strict exclusion policy; #529 delivers the reviewed export, compliant starter snapshot, and signed publication. Deterministic observation recommendations continue during this gate.
+- All Brain-backed provider analysis, including background discovery, **Analyze now**, and **Assess workflow**, remains unavailable until the active verified signed bundle payload carries `privacyPolicyVersion: 1`, the manifest policy version matches the payload, and the strict exclusion policy passes. **Assess workflow** additionally requires signed `taskmaster-assessment-v1` capability. #529 delivers the reviewed export, compliant starter snapshot, and signed publication. Deterministic observation recommendations continue during this gate.
 - A compatible eligible cached bundle remains usable offline; network availability does not gate analysis.
-- Bundle age alone does not make an eligible verified offline bundle unavailable. Eligibility requires signed `privacyPolicyVersion: 1`, a valid signature and digest, compatible format, required reviewed pages, and strict privacy exclusions; there is no separate wall-clock freshness cutoff.
+- Bundle age alone does not make an eligible verified offline bundle unavailable. Eligibility for all Brain-backed inference requires signed payload `privacyPolicyVersion: 1`, matching signed-manifest policy version, a valid signature and digest, compatible format, and strict privacy exclusions; Assess workflow also requires signed `taskmaster-assessment-v1` capability. There is no separate wall-clock freshness cutoff.
 - Brain guidance is reference data only. It cannot override repository instructions or user decisions, grant permissions, or add execution authority.
 - Keep reports under the selected workspace's metadata root, retain one latest report per workspace, cap each serialized report at 64 KiB, and do not store the full provider prompt or uncited workspace files. Workspace metadata deletion removes its report. Never persist repository evidence in the global Taskmaster ledger.
-- The cache key and input identity hash the complete bounded request: permitted observations, every collected repository fact including uncited facts, current recommendation snapshot, selected pages, context settings/exclusions, workspace generation, prompt/schema version, provider/model, and full bundle identity. Any input change invalidates and deletes the report, including no-proposal results.
-- Any workspace/evidence identity mismatch, effective access reduction, new exclusion, provider/harness change, bundle change, or cited-page mismatch invalidates and deletes the stored report. Status reads revalidate identity and delete stale snapshots before returning a report.
-- Any input invalidation supersedes a still-proposed assessment-derived recommendation, removes it from active recommendations, and prevents **Fix with AI** from using stale evidence. Redact snapshots from superseded and accepted/executing/completed records only when privacy or access narrowing makes their evidence disallowed; preserve lifecycle/outcome history. Other input changes do not redact accepted/completed audit snapshots.
+- The cache key and input identity hash the complete bounded request: permitted observations, every collected repository fact including uncited facts, the pre-run recommendation snapshot, selected pages, context settings/exclusions, workspace generation, prompt/schema version, provider/model, and full bundle identity. If this assessment creates a recommendation, store its stable ID and exclude only that assessment-created record when revalidating the recommendation snapshot. If deduplication suppresses the proposal, store no derived recommendation ID and keep the existing record in the snapshot. Other input changes logically invalidate the report, including no-proposal results.
+- Any workspace/evidence identity mismatch, effective access reduction, new exclusion, provider/harness change, bundle change, or cited-page mismatch logically invalidates the stored report. The read-only status route revalidates identity and omits stale snapshots without changing state. Access-setting mutations redact disallowed evidence before replying; other stale reports are removed on the next state-changing assessment or workspace cleanup.
+- Any input invalidation supersedes a still-proposed assessment-derived recommendation, removes it from active recommendations, and prevents **Fix with AI** from using stale evidence. On effective-access narrowing, redact snapshots from every lifecycle record retaining them, including dismissed records, while preserving lifecycle/outcome history. Other input changes do not redact audit snapshots.
+- A novel proposal uses a crash-recoverable write in the single capped workspace assessment record: persist the validated report with an internal `pending_recommendation` marker and stable recommendation ID, durably upsert the existing recommendation, then atomically mark the report committed. Reconcile pending mutations idempotently under the analysis lease before the sidecar is ready to expose report/status. If existing deduplication suppresses the proposal, return a no-proposal result and do not stage a recommendation write; other no-proposal results need only an atomic report write.
 - Implementation tasks are gated on written-spec review and explicit implementation authorization. #529 separately gates runtime availability; its completion is not implied by approval of implementation work.
 - Reuse the existing Brain-derived `improve_workflow` identity (`proactive:v1:`), deduplication, dismissal, active-recommendation, acceptance, and **Fix with AI** lifecycle. Do not add another recommendation mutation or completion path.
 - Keep provider-managed policies and effects authoritative; rejection of unexpected tool output does not undo provider-side effects.
@@ -41,7 +42,8 @@
 | `docs/adr/README.md` | Index the accepted assessment protocol ADR. |
 | `crates/orkworksd/src/taskmaster/assessment.rs` | Assessment prompt, typed output, citation/schema validation, proposal/no-proposal result, and assessment cache identity. |
 | `crates/orkworksd/src/taskmaster/mod.rs` | Export assessment types and adapt a validated proposal through the existing recommendation path. |
-| `crates/orkworksd/src/taskmaster/runtime.rs` | Persist bounded per-workspace assessment status/report and validate bundle integrity, supported privacy policy version, and required signed knowledge pages. |
+| `crates/orkworksd/src/taskmaster/runtime.rs` | Persist bounded per-workspace assessment status/report and validate bundle integrity, signed policy/capability fields, and crash-recovery state. |
+| `apps/desktop/electron/knowledgeUpdates.ts` | Validate and retain the signed bundle payload's policy and assessment-capability markers across cache/restart. |
 | `crates/orkworksd/src/taskmaster/evaluator.rs` | Gate all Brain-backed inference on bundle eligibility; schedule assessment under the shared analysis lease and revalidate complete live input identity before applying output. |
 | `crates/orkworksd/src/http/taskmaster_handlers.rs` | Apply the bundle eligibility gate to Analyze now and expose authenticated assessment outcomes for unavailable, blocked, already-running, and scheduled requests. |
 | `crates/orkworksd/src/http/taskmaster_settings_handlers.rs` | Expose read-only assessment status through the existing authorized Taskmaster status boundary. |
@@ -59,7 +61,7 @@
 
 1. Obtain written-spec review and record acceptance of the proposed assessment contract.
 2. Obtain explicit authorization to begin implementation and approval of the protocol ADR approach.
-3. Recheck live dependencies, including #529's Brain-inference eligibility prerequisite and #745's recommendation-lifecycle alignment. The signed compatible-manifest output from #529 must carry the supported `privacyPolicyVersion` marker; verify its tracked acceptance criteria cover that field before implementation, and resolve any gap in #529 first. This is manifest metadata, not a separate publisher feature.
+3. Recheck live dependencies, including #529's Brain-inference eligibility prerequisite and #745's recommendation-lifecycle alignment. The signed bundle payload from #529 must carry supported `privacyPolicyVersion` and `taskmaster-assessment-v1` capability fields, with the manifest policy value matching the payload. Verify its tracked acceptance criteria cover these fields before implementation, and resolve any gap in #529 first.
 4. Only then begin Tasks 1–6. Before #529 supplies an eligible bundle, all Brain-backed inference must fail closed.
 
 ## Task 1: Record the protocol decision
@@ -68,10 +70,11 @@
 
 **Interfaces:**
 - Decide a versioned assessment result/status type distinct from ordinary analysis status.
-- Record the signed bundle `privacyPolicyVersion` eligibility contract from the knowledge spec.
+- Record signed-payload `privacyPolicyVersion`, matching-manifest, and `taskmaster-assessment-v1` capability requirements from the knowledge spec.
 - Record the spec's narrow authenticated `POST /taskmaster/assess-workflow` request and distinct read-only `GET /taskmaster/run-status` assessment projection.
 - Store the report under the canonical workspace metadata root, with one latest report per workspace and a 64 KiB serialized cap; workspace metadata deletion removes it.
-- Specify compatibility for workspace metadata without assessment fields, unreadable metadata, interrupted runs, and invalidation when stored input identity or effective access changes.
+- Specify proposal transaction recovery using an internal pending marker in the single capped workspace assessment record, stable recommendation ID, idempotent recommendation upsert, committed report state, and reconciliation before exposing a report/status.
+- Specify compatibility for workspace metadata without assessment fields, unreadable metadata, interrupted runs, read-only stale status projections, and invalidation when stored input identity or effective access changes.
 
 - [ ] Write the ADR from the accepted spec; do not broaden it into new workspace deletion UX or a second provider/network path.
 - [ ] Verify the record cap covers all stored fields and define deterministic rejection/truncation behavior before any runtime code uses the schema.
@@ -92,8 +95,9 @@
 - [ ] Add prompt fixtures proving only relevant distilled knowledge pages are supplied and every input is marked untrusted reference data.
 - [ ] Implement strict structured-output decoding; reject more than one proposed next step rather than applying a subset of multiple model proposals.
 - [ ] Require at least one current repository fact for a proposal; a session-observations-only context may return no proposal but cannot assert a repository gap.
-- [ ] Build cache identity from the complete bounded input snapshot, including uncited facts and current recommendations, plus prompt/schema version, effective settings, provider/harness identity, workspace generation, selected pages, and full bundle identity; keep it separate from Analyze now.
-- [ ] Prove changes to an uncited fact, recommendation snapshot, or any other supplied input invalidate proposal and no-proposal cache entries.
+- [ ] Build cache identity from the complete bounded input snapshot, including uncited facts and the pre-run recommendation snapshot, plus prompt/schema version, effective settings, provider/harness identity, workspace generation, selected pages, and full bundle identity; when this run creates a recommendation, record and exclude only its stable ID during revalidation; keep it separate from Analyze now.
+- [ ] Prove changes to an uncited fact, any recommendation other than this assessment's own created recommendation, or any other supplied input invalidate proposal and no-proposal cache entries; prove the created proposal itself does not invalidate its report, and dedupe suppression leaves the existing record in the snapshot with no derived ID.
+- [ ] When a proposal's `proactive:v1:` dedupe key already exists in any lifecycle state, return a duplicate-suppression no-proposal result without changing or relinking the existing record.
 - [ ] Run focused assessment evaluator tests; preserve the existing recommendation application path while refusing Brain-backed inference when the bundle is ineligible.
 
 ## Task 3: Add durable assessment lifecycle and admission
@@ -108,10 +112,13 @@
 - [ ] Add tests for a fresh report, replacement by a later report, the 64 KiB cap, legacy-ledger compatibility, unreadable-ledger refusal, and reopening persisted state.
 - [ ] Add tests proving one report is keyed to one canonical workspace and local Taskmaster-data deletion removes it.
 - [ ] Add tests for one active analysis/assessment only, active Brain recommendation blocking, active observation-only recommendations not blocking, and no background quota/cooldown consumption.
-- [ ] Mark an admitted assessment running before collection/prompt construction; persist failure for errors after admission, and recover a persisted running attempt as interrupted under the existing lease discipline.
+- [ ] Mark an admitted assessment running before collection/prompt construction; persist failure for errors after admission. During recovery under the analysis lease, reconcile a pending recommendation mutation to a committed result before marking an attempt interrupted; attempts without a pending mutation recover as interrupted.
+- [ ] For a novel proposal, atomically persist the validated bounded report in the single workspace assessment record with internal `pending_recommendation` state and stable recommendation ID before changing the recommendation store; do not publish a succeeded report while pending, and keep the serialized record under 64 KiB.
+- [ ] Idempotently upsert the recommendation by that ID, then atomically mark the assessment report committed and clear the pending marker. On startup, before opening the status/report route, acquire the analysis lease and reconcile pending writes by repeating the upsert before commit.
+- [ ] Add fault-injection tests for interruption before pending persistence, after pending persistence but before recommendation persistence, after recommendation persistence but before report commit, and during retry; every retry produces one recommendation and a matching committed report.
 - [ ] Revalidate workspace instance, effective settings, provider/harness identity, bundle version, fact hashes, and page IDs immediately before report and recommendation writes.
-- [ ] Invalidate the stored report when effective context narrows or an exclusion is added; status reads revalidate identity and delete stale reports before returning them.
-- [ ] Supersede proposed recommendations derived from any invalidated report and ensure stale evidence cannot reach **Fix with AI**. Redact snapshots from any lifecycle state only when privacy/access narrowing makes them disallowed; preserve lifecycle/outcome history and do not redact accepted/completed records for ordinary evidence/provider/bundle changes.
+- [ ] Logically invalidate reports when any input identity changes. Keep status reads read-only: revalidate and omit stale report content without modifying state; settings mutations redact disallowed evidence before replying, and other stale reports are deleted by the next state-changing assessment or workspace cleanup.
+- [ ] Supersede proposed recommendations derived from any invalidated report and ensure stale evidence cannot reach **Fix with AI**. On effective-access narrowing, redact report and recommendation snapshots in every lifecycle state, including dismissed records, while preserving lifecycle/outcome history; ordinary evidence/provider/bundle changes do not redact audit snapshots.
 - [ ] Discard stale results without changing a newer report, recommendation, or run outcome.
 - [ ] Run focused runtime/evaluator tests, including existing analysis lease and stale identity tests.
 
@@ -124,8 +131,8 @@
 - The existing Taskmaster status read includes a distinct assessment projection.
 - Responses classify scheduled, unavailable, already-running, and active-recommendation outcomes and never expose uncited repository content.
 
-- [ ] Add handler/evaluator tests for authentication, no workspace, missing policy version, ineligible legacy bundle, missing required pages/provider, active Brain recommendation, active analysis, and successful scheduling. Cover background and Analyze now gates as well as assessment.
-- [ ] Register the route and ensure assessment status reads remain read-only.
+- [ ] Add handler/evaluator tests for authentication, no workspace, missing policy version or capability, ineligible legacy bundle, missing provider, active Brain recommendation, active analysis, and successful scheduling. Cover background and Analyze now gates as well as assessment.
+- [ ] Register the route and ensure status reads remain read-only, suppress stale report content after identity mismatch, and perform persistent invalidation only from state-changing handlers/reconciliation.
 - [ ] Verify the renderer cannot submit a workspace path, provider, context override, arbitrary knowledge page, or report body.
 - [ ] Run focused sidecar handler tests and `cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check`.
 
@@ -148,17 +155,17 @@
 
 **Files:** Modify or add test fixtures only where required; no Brain repository or publisher changes are part of this issue.
 
-- [ ] Test eligible online and offline cached bundles, old-timestamp bundles, missing/unsupported `privacyPolicyVersion: 1`, malformed/unverified bundles, missing required pages, and bundles failing the exclusion policy. An eligible signed offline bundle remains usable regardless of age; an ineligible bundle blocks all Brain-backed provider analysis.
+- [ ] Test eligible online and offline cached bundles, restart with cached payload after manifest/feed loss, missing/unsupported/mismatched `privacyPolicyVersion: 1`, missing/unsupported `taskmaster-assessment-v1` capability, malformed/unverified bundles, and bundles failing the exclusion policy. An eligible signed offline bundle remains usable regardless of age; an ineligible bundle blocks all Brain-backed provider analysis.
 - [ ] Verify deterministic observation recommendations continue while Brain-backed provider analysis is gated, and verify Analyze now/background analysis resume only with an eligible bundle.
 - [ ] Verify a proposal reaches the existing `proactive:v1:` lifecycle and respects duplicate/dismissed/active recommendation state without duplicating mutations.
 - [ ] Verify insufficient evidence, unsupported citations, changed cited or uncited facts, changed recommendation inputs/configuration/workspace, and unavailable provider produce no ungrounded or cached-stale recommendation.
-- [ ] Verify report replacement, local-only persistence, workspace metadata deletion, access-narrowing invalidation on status reads, proposed-recommendation supersession, snapshot redaction after access narrowing, preservation of audit snapshots for non-access changes, bounded size, and separation from Analyze now cache/report state.
+- [ ] Verify report replacement, local-only persistence, workspace metadata deletion, stale-report suppression on read-only status reads, access-narrowing redaction before settings mutation replies, proposed-recommendation supersession, redaction of dismissed evidence after access narrowing, preservation of audit snapshots for non-access changes, bounded size, crash recovery, and separation from Analyze now cache/report state.
 - [ ] Run Rust tests, formatting, focused desktop tests/type-check, documentation link/build checks, and the repository-required `/code-review low` before code PR merge.
-- [ ] Keep all Brain-backed inference explicitly gated until #529's reviewed distilled export, supported privacy policy version, generated starter snapshot, and verified signed publication are complete; report any remaining #745 lifecycle alignment before implementation handoff.
+- [ ] Keep all Brain-backed inference explicitly gated until #529's reviewed distilled export, supported signed-payload policy/capability fields, generated starter snapshot, and verified signed publication are complete; report any remaining #745 lifecycle alignment before implementation handoff.
 
 ## Planning checkpoint
 
 - **Agent uncertainty investigated:** whether the existing evaluator could serve as the assessment implementation. It currently supports multiple proposals and has ordinary analysis cache/application identity. The plan therefore calls for a distinct evaluator and result identity, reusing only the provider/context/evidence/recommendation seams.
 - **Project blind spot investigated:** a valid signature alone does not mean the active bundle obeys the privacy policy or contains assessment guidance. The sidecar must check both; eligible cached guidance remains usable offline with no independent age cutoff, while unreviewed legacy, malformed, or incomplete bundles block Brain-backed inference.
-- **Dependency facts:** #529 is open and its issue requires the strict privacy policy, generated starter snapshot, and verified signed publication. #503 is the accepted Taskmaster knowledge baseline. #745 is open; this feature reuses the existing `proactive:v1:` recommendation identity and must reconcile its active/dismissed lifecycle without waiting for unrelated configuration-history work.
+- **Dependency facts:** #529 is open and requires the strict privacy policy, generated starter snapshot, and verified signed publication, but its current acceptance criteria do not name `privacyPolicyVersion` or the assessment capability marker. Resolve that tracked dependency gap before runtime implementation; #529 remains a prerequisite for Brain inference availability. #503 is the accepted Taskmaster knowledge baseline. #745 is open; this feature reuses the existing `proactive:v1:` recommendation identity and must reconcile its active/dismissed lifecycle without waiting for unrelated configuration-history work.
 - **Unresolved external gate:** Brain-backed inference cannot resume until #529 supplies an eligible signed bundle. A proposal also stays on the existing user-approved Fix with AI path; no assessment result grants execution permission.
