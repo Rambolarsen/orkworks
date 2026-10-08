@@ -34,8 +34,11 @@ forever and the panel stays noisy.
   for every action" rule is preserved; the audit only ever *proposes*.
 - No migration of already-terminal records (dismissed/completed/expired stay
   immutable history).
-- No new statuses, no transport-level `Recommendation` shape changes beyond
-  the additions listed below.
+- Transport-level shape changes are limited to exactly these additive
+  items: the `Cleanup` discriminant on `RecommendationType`, the optional
+  `audit` field on `Recommendation`, the optional `reason` field on
+  `DismissalWatermark`, and the accept route's `sessionId` becoming
+  optional (type-validated). Nothing else in the shared contract changes.
 - No scheduling; the audit runs only when triggered.
 
 ## The audit pass
@@ -61,8 +64,8 @@ after the previous card reached a terminal state creates a new generation
 
 ### Classification criteria
 
-Each proposed (and `executing`-reserved, if any) card is classified by every
-criterion it matches; criteria are independent and all labels are kept:
+Each `proposed` card is classified by every criterion it matches; criteria
+are independent and all labels are kept:
 
 1. **`under_eligible`** — the card's cited evidence contains fewer than two
    distinct qualifying observations under the *current* eligibility rule
@@ -75,8 +78,10 @@ criterion it matches; criteria are independent and all labels are kept:
    with any agent-reported citation or any problem area is never `noise`.
 3. **`duplicate`** — the same dedupe family already contains a newer
    `proposed` card (keep-newest rule), or a terminal sibling
-   (accepted/completed/dismissed/superseded/failed/expired) whose successor
-   lineage the proposed card does not extend.
+   (accepted/completed/dismissed/superseded/failed/expired) that the proposed
+   card does not extend: the proposed card's `supersedesRecommendationId`
+   (directly or through any chain of predecessors) references neither that
+   sibling nor any record the sibling itself supersedes.
 4. **`stale`** — the newest `observedAt` across the card's cited evidence is
    older than `STALE_AFTER` (constant, 14 days; no runtime config in v1).
 
@@ -95,40 +100,54 @@ card:
   criteria: [..], title }], scanned: usize, healthy: usize, staleAfterDays }`.
   It cites no workflow-observation evidence and fabricates no recurrences
   (`evidence: []`, `recurrenceCount: 0`).
+- `WorkflowImprovement` remains a required field on every recommendation, so
+  the cleanup card carries a placeholder value:   `targetSurface:
+  Documentation`, `impact: medium`, empty observation/affected-session lists,
+  and improvement text "Dismiss N proposed recommendations audited as
+  under-eligible/noise/duplicate/stale." The placeholder is presentation
+  only — no accept/dismiss flow reads it for a cleanup card.
 - `requiresApproval: true` — unlike `improve_workflow`, this card mutates
   state on accept, so it must render the approval affordance.
 - `priority` and `confidence` are informational (`medium`/`medium`); the
   reason string reports counts per criterion.
-- `proposed_improvement` text: "Dismiss N proposed recommendations audited
-  as under-eligible/noise/duplicate/stale."
 - The desktop panel renders it like any card but with the entry list
   (title + criteria badges) expandable, and its `Accept` action reads
   "Run cleanup" instead of "Fix with AI" (no prompt is submitted anywhere).
 
 ## Accept execution
 
-A new sidecar route: `POST /taskmaster/recommendations/:id/accept` already
-exists for `improve_workflow` (session-scoped prompt delivery). The cleanup
-card reuses the same route with type-specific execution:
+The existing accept route `POST /taskmaster/recommendations/:id/accept`
+becomes type-dispatched: the `sessionId` request field (currently required
+for `improve_workflow`'s prompt delivery) becomes optional — `improve_workflow`
+accepts require it present exactly as today, and cleanup accepts require it
+absent (a present `sessionId` on a cleanup card is a parse rejection, not an
+ignored field). The handler branches on the recommendation's type:
 
-- Only a `proposed` cleanup card is acceptable; accept is atomic within the
-  existing recommendation store lock.
-- For every entry in the card's `audit.entries` that still exists and is
-  still `proposed`: transition to `dismissed` via the existing `store::dismiss`
-  path, with `dismissalWatermark` populated as a normal dismissal and a
-  recorded reason `audit:<criterion>` (first matching criterion, deterministic
-  order under-eligible → noise → duplicate → stale). The audit card id is
-  appended to the watermark's record as part of the reason string so the
-  lineage is auditable from either side.
-- Entries that changed state between audit and approval are skipped and
-  reported in the accept response (`skipped: [{ id, status }]`); they are
-  not errors.
-- The cleanup card itself transitions to `accepted`, then `completed` via a
-  synthetic completion recorded in the same transaction, so it leaves the
-  active set immediately. If any entry dismiss fails mid-batch, the batch
-  stops, already-dismissed entries stay dismissed, and the cleanup card
-  rolls back to `proposed` (mirroring the improve_workflow accept rollback).
+- Only a `proposed` cleanup card is acceptable. The bulk dismissal runs
+  through the existing per-record CAS write discipline: each entry's
+  `proposed` → `dismissed` transition is a compare-and-swap on its current
+  status, so an entry changed between audit and approval fails its CAS, is
+  skipped, and is reported in the accept response (`skipped: [{ id, status }]`)
+  rather than aborting the batch.
+- For every entry in the card's `audit.entries`: transition to `dismissed`
+  via the existing `store::dismiss` path (guard widened to admit the
+  `cleanup` target type — see below), with `dismissalWatermark` populated as
+  a normal dismissal.
+- Watermark lineage: `DismissalWatermark` gains an additive optional
+  `reason` field (serde default `None`, never written by the ordinary user
+  dismiss route) — the audit batch writes `audit:<criterion>@<cleanup-card-id>`
+  (first matching criterion in deterministic order under-eligible → noise →
+  duplicate → stale) so the lineage is auditable from either side. This is
+  the only `DismissalWatermark` change.
+- The cleanup card itself transitions `proposed` → `accepted` → `completed`
+  inside the same batch, using the existing rollup transaction manifest
+  (`store.rs` batch machinery) so either all entries plus the card's own
+  lifecycle persist or none do. If persistence fails mid-batch, the manifest
+  aborts and the cleanup card stays `proposed`.
 - Dismissing the cleanup card discards the proposal; no other card changes.
+  The `store::dismiss` type guard is widened from `ImproveWorkflow`-only to
+  `ImproveWorkflow | Cleanup` so the card's own Dismiss action works; audited
+  target cards are still dismissed through the same widened guard.
 
 ## Evaluator interaction
 
@@ -148,8 +167,8 @@ card reuses the same route with type-specific execution:
 
 Existing statuses only: the cleanup card uses `proposed` → (`accepted` →
 `completed` | `dismissed`). `executing` is not used by the audit (no prompt
-delivery window). Store gains a type-specific accept path guarded by
-`RecommendationType`.
+delivery window). The store's type guards are widened for `Cleanup` on both
+the accept and dismiss paths (see "Accept execution").
 
 ## Desktop UI
 
@@ -177,10 +196,13 @@ delivery window). Store gains a type-specific accept path guarded by
 - Pure-function tests in `audit.rs`: each criterion (under-eligible leftover
   card, peon-noise card with problem area excluded, duplicate family, stale
   window, healthy card, terminal records skipped, criteria multiplicity).
-- Store tests: accept executes bulk dismissal atomically, skips
-  concurrently-changed entries, rolls back on mid-batch failure, completes
-  the cleanup card, one-active-card invariant, replace-in-place on re-audit.
-- HTTP tests: route returns the card; accept round-trip.
+- Store tests: accept executes bulk dismissal atomically via the batch
+  manifest, skips concurrently-changed entries (CAS miss), aborts cleanly on
+  mid-batch persistence failure, completes the cleanup card, one-active-card
+  invariant, replace-in-place on re-audit, watermark `reason` lineage.
+- HTTP tests: route returns the card; type-dispatched accept round-trips for
+  cleanup (sessionId rejected when present) and improve_workflow (sessionId
+  still required).
 - Desktop: panel rendering test for the cleanup card shape.
 - Evaluator tests: cleanup cards do not block brain analyses and are not
   treated as exact families.
