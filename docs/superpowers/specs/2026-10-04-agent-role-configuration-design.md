@@ -52,14 +52,14 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 | `RoleTemplateSnapshot` | `id`, `version` (positive integer), `role`, `instructions`, `instructionsDigest`, `contentDigest`, `provenance` |
 | `SkillSnapshot` | `id`, `version` (nonempty UTF-8 label, at most 128 bytes), `content`, `contentDigest`, `requirement` (`mandatory` or `optional`), `selectionReason`, `requirementSources`, `resourceIds`, `provenance`; referenced instruction resources use the separate records below |
 | `SkillResourceSnapshot` | `id`, `skillId`, `sourceReference`, `content`, `contentDigest`, `provenance`; an instruction resource owned by exactly one selected skill, with no independent rule authority |
-| `RuleSnapshot` | `id`, `sourcePath`, `content`, `contentDigest`, `precedence` (unique integer `0..31`), `authority` (always `binding`), `provenance`; scoped applicable instruction files are explicit inputs |
+| `RuleSnapshot` | `id`, `sourcePath`, `content`, `contentDigest`, `precedence` (unique integer `0..31`), `authority` (always `binding`), `provenance`; scoped applicable instruction files are explicit inputs; `(provenance.sourceIdentity, sourcePath)` is unique |
 | `RequirementManifest` | `sourceId`, `sourceDigest`, `taskId`, `requiredSkillIds`, `sourceLocations`, `applicabilityReason`; resolved requirement annotations separate from source snapshot content |
 | `CriterionSnapshot` | `id`, `requirement` (`required` or `optional`), `description` |
 | `RubricSnapshot` | `id`, `version` (positive integer), `dimensions` (ID/description pairs), `evaluatorRole`; rating/calculation belongs to #744 |
 | `AdapterBinding` | `harnessId`, `definitionDigest`, `adapterId`, `adapterVersion`, `executableIdentity`, `toolVersion`, `platform`, `instructionMechanism`, `effectiveSettingsDigest`, `evidenceId`, `evidenceDigest` |
 | `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration` (opaque adapter/capability identity, stable across observer restarts); part of the immutable configuration |
 | `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `repositoryBinding`, `sourceWorktreeBinding`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`, `capabilityEvidence`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
-| `VersionRetirement` | Separate source-catalog tombstone, never part of an assignment digest: `schemaVersion`, `sourceIdentity`, `artifactKind`, `artifactId`, `version`, `contentDigest`, `retiredAt`, `reason` |
+| `VersionRetirement` | Separate source-catalog tombstone, never part of an assignment digest: `schemaVersion`, `sourceIdentity`, `artifactKind`, `artifactId`, `version`, `snapshotDigest`, `retiredAt`, `reason` |
 | `RetirementLedgerControl` | Workspace-scoped state, separate from assignment digests: `schemaVersion` (1), `retirementSelectionAvailable` (boolean; initially true), `exhaustedAt` (UTC or null) |
 
 `configurationId` is stable only within the immutable plan revision. A changed
@@ -182,7 +182,9 @@ source binding changes the configuration digest and needs new approval.
 3. Normalize only collections declared as sets (skills and skillResources by ID,
    each skill resourceIds list by ID; tool/action and
    permission path entries by their full validated identity) before rendering.
-   Reject duplicate entries. The `rules` array must be in ascending `precedence`
+   Reject duplicate entries, including duplicate
+   `(provenance.sourceIdentity, sourcePath)` rule locators even when their
+   snapshot IDs differ. The `rules` array must be in ascending `precedence`
    order with positions exactly `0..rules.length-1`; reject another array order or
    gaps. Preserve meaningful instruction precedence,
    command argv, criteria and dependency ordering; do not silently reorder them.
@@ -662,7 +664,7 @@ are never auto-promoted into approved role configurations.
 
 Editing a template/skill creates a new version/digest. Separate, bounded
 `VersionRetirement` tombstones use a discriminated union with `schemaVersion` 1,
-`sourceIdentity`, `artifactKind`, `artifactId`, `version`, `contentDigest`,
+`sourceIdentity`, `artifactKind`, `artifactId`, `version`, `snapshotDigest`,
 `retiredAt` (UTC), and a bounded non-secret `reason`. For
 `artifactKind: role-template`, `version` is an integer from 1 through
 2^31−1, matching `RoleTemplateSnapshot.version`. For `artifactKind: skill`,
@@ -670,17 +672,32 @@ Editing a template/skill creates a new version/digest. Separate, bounded
 `SkillSnapshot.version`; compare it byte-for-byte without normalization. Reject
 any variant whose kind and version type/range do not match. The retirement lookup
 key is `(sourceIdentity, artifactKind, artifactId, version)`;
-`contentDigest` records the exact retired snapshot for audit, but is not part of
+`snapshotDigest` records the exact retired artifact snapshot for audit, but is not part of
 the lookup key because provenance/source revisions can change a snapshot digest
 without changing its artifact version. Once this key is retired, any later
 snapshot with the same key is ineligible, even if its digest differs; changed
 content requires a new version. The stable `sourceIdentity` is the catalog
 identity in snapshot provenance, not its changing source revision or file path.
+A `snapshotDigest` is a lowercase 64-character SHA-256 hex digest of
+`orkworks.retirement-artifact-snapshot.v1\n` followed by the canonical JSON
+bytes of an object containing `artifactKind`, the complete selected
+`RoleTemplateSnapshot` or `SkillSnapshot` descriptor, and, for a skill, the
+complete validated `SkillResourceSnapshot` closure named by `resourceIds`
+(sorted by resource ID); the resource list is empty for a role template.
+Include every descriptor field, including `provenance` and the existing
+content digests, and exact content bytes represented as UTF-8 strings. Use the
+recursive key ordering, JSON escaping, and integer serialization in
+Canonicalization step 4. The retirement record itself is not included. Keep
+the source snapshots' `contentDigest` semantics unchanged: for skills and
+resources it hashes content bytes only. A same-key retry is idempotent only
+when its computed `snapshotDigest` matches the stored digest; a different
+digest is rejected as version reuse, including changes to resource closure or
+provenance.
 A tombstone is written only through an Electron-authorized user action; callers
 cannot supply or claim retirement authority. There is at most one tombstone per
 lookup key. Repeating a retirement for an existing key returns that immutable
 record unchanged, without appending or changing its timestamp, digest, or reason;
-a conflicting `contentDigest` for the same key is rejected as version reuse.
+a conflicting `snapshotDigest` for the same key is rejected as version reuse.
 Retirement writes, proposal invalidation, and approval checks serialize under the
 workspace mutation transaction. The workspace lease prevents a second sidecar
 owner; it does not serialize concurrent request handlers in that owner. A
@@ -803,6 +820,7 @@ authorize a production launch.
 | Skill version `v6.3.0` | Accept as a label within 128 UTF-8 bytes; reject empty or oversized labels and non-string versions |
 | Template/rubric numeric version | Reject non-integers and values outside 1 through 2^31−1 |
 | Version-retirement discriminator/type mismatch | Reject a string role-template version, numeric skill version, empty/oversized skill label, or out-of-range template version |
+| Duplicate rule locator | Reject duplicate `(sourceIdentity, sourcePath)` pairs before precedence assignment, even with distinct snapshot IDs; discovery order cannot assign precedence to duplicate locators |
 | Same-scope rule path ordering | Normalize to the specified source-root-relative UTF-8 wire form and byte-sort; reject invalid paths; use `sourceIdentity` bytes as the tie-breaker |
 | Rule path uses absolute form, `\\`, empty/`.`/`..` component, or invalid UTF-8 | Reject before precedence assignment; do not case-fold or Unicode-normalize valid path components |
 | Role profile with unspecified task scope | Keep every permission denied; role ceiling alone grants no paths, commands, sources, or tools |
@@ -823,7 +841,7 @@ authorize a production launch.
 | Root requires pnpm for repository dependencies; scoped source requires npm for project dependencies | Block the conflict; the nested source itself states that the root owns the pnpm-only rule |
 | Retired skill/template version selected for a new proposal | Reject selection with the retirement reason; preserve existing approved snapshot/history |
 | Retirement races approval of a pending proposal | Use the shared workspace transaction: retirement first invalidates/rejects approval; approval first commits, then the existing approved configuration remains under normal launch checks |
-| Retry retirement for an existing key | Return the original tombstone unchanged and consume no additional ledger capacity; reject a conflicting digest |
+| Retry retirement for an existing key | Return the original tombstone unchanged and consume no additional ledger capacity for an identical full-snapshot digest; reject a conflicting snapshot digest, including changed skill resource IDs or provenance with unchanged content bytes |
 | Retirement ledger reaches either bound | Preserve tombstones, persist unavailable-selection marker, and block all new skill/template selections until bounded migration succeeds |
 | Retired artifact reappears after a source revision or with changed bytes at the same version | Reject by `(sourceIdentity, artifactKind, artifactId, version)`; digest change does not reactivate the version |
 | Acceptable effective profile is narrower than requested | Verify against the exact effective-profile digest and allow approval only after user sees and approves that effective profile |
