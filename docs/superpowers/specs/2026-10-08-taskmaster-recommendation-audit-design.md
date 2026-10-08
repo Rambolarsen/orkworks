@@ -86,7 +86,10 @@ are independent and all labels are kept:
    older than `STALE_AFTER` (constant, 14 days; no runtime config in v1).
 
 Cards matching none of the criteria are `healthy` and are never proposed for
-dismissal. Terminal records are never classified.
+dismissal. Terminal records are never classified. Rollup parents (cards with
+non-empty `rollupMemberIds`) are excluded from classification entirely —
+dismissing one would strand its `RolledUp` members; they count toward
+`scanned` but are never entries.
 
 ### The cleanup card
 
