@@ -30,7 +30,7 @@ investigation, review and verification belong to child sessions. Children use
 the selected workspace's existing sidecar, metadata store and PTY lifecycle,
 with an assigned worktree as their launch directory. No child sidecar,
 cross-instance registry or additional selected workspace is created. Keep
-ADR 0013's single selected terminal, ADR 0022's runtime-owned PTYs and
+ADR 0078's single selected terminal, ADR 0022's runtime-owned PTYs and
 ADR 0052's workspace metadata lease.
 
 The [preparation contract](../superpowers/specs/2026-10-04-orchestrator-preparation-design.md)

@@ -1,6 +1,6 @@
 # Single-active-context primitive: session = context, switching = context-switch
 
-- Status: accepted
+- Status: superseded by ADR 0078
 - Deciders: user
 - Date: 2026-06-19
 
@@ -41,3 +41,11 @@ This principle is also recorded as a project-wide rule in `AGENTS.md` under **Pr
 - `AGENTS.md` — Product design principles section (project-wide enforcement)
 - `DESIGN-IS-2026-06-19/03-verdict.md` — redesign verdict that respects this principle
 - ADR 0011 — Dockview panel layout (single-active-context shapes which panels open by default)
+
+## Superseded — 2026-10-08
+
+[ADR 0078](0078-fixed-desktop-shell-and-central-navigation.md) preserves one
+visible central context and one terminal, while allowing that central context
+to be Terminal, Review, or an eligible Workflow overview. The compact Sessions
+index remains the cross-session switcher. The old session-only definition of
+context and session-bound Details placement no longer governs the shell.

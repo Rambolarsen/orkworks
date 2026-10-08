@@ -48,3 +48,11 @@ attachment was still effectively the owner of runtime lifetime.
   multiple visible or interactive terminals for one session.
 - ADR 0021 remains unchanged in lifecycle meaning: `active` vs `ending` vs
   `ended` tracks process/runtime state, not attachment presence.
+
+## Amendment — 2026-10-08: central surfaces preserve one terminal
+
+[ADR 0078](0078-fixed-desktop-shell-and-central-navigation.md) supersedes ADR
+0013's session-only definition of visible context while preserving the one
+selected-terminal invariant. Terminal may be hidden while Review or an eligible
+Workflow surface is central; detaching its renderer attachment continues to
+leave PTY lifetime and output draining with the sidecar.

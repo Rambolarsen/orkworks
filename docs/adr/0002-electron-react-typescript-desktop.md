@@ -1,6 +1,6 @@
 # Electron + React + TypeScript desktop shell
 
-- Status: accepted
+- Status: superseded by ADR 0078
 - Deciders: OrkWorks team
 - Date: 2026-06-15
 
@@ -19,3 +19,10 @@ We will build the desktop shell using Electron with a React + TypeScript fronten
 - VS Code-influenced layout is familiar to developers
 - Electron's memory footprint is higher than a native app; acceptable for a developer tool
 - React + TypeScript provides strong typing and component reuse across panels
+
+## Superseded — 2026-10-08
+
+[ADR 0078](0078-fixed-desktop-shell-and-central-navigation.md) replaces this
+ADR's three-column layout decision with compact Sessions, one central surface,
+and an optional contextual inspector. Electron, React, and TypeScript remain the
+desktop stack; the supersession changes the shell organization only.

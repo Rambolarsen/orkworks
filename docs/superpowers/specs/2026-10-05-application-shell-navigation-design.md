@@ -1,12 +1,13 @@
 # Application shell and workflow navigation
 
-- Status: proposed; shell direction, defaults and authoritative amendments require written owner review
+- Status: approved design; runtime implementation and separately gated Workflow integration are not implemented
 - Date: 2026-10-05
+- Owner approval: 2026-10-08
 - Tracking: [#755](https://github.com/Rambolarsen/orkworks/issues/755), prerequisite of [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738)
 - Baseline inspected: `d48cc2159219c09b2575b8f25a45cb58bc68f23b`
 - Inputs: [hierarchy interaction](2026-10-04-agent-hierarchy-ui-design.md), [product direction](2026-10-04-agent-hierarchy-and-configuration-learning-design.md), [accepted orchestration scope](2026-10-04-taskmaster-orchestration-scope-design.md)
 
-## Purpose, scope and decisions for review
+## Purpose, scope and accepted decisions
 
 Replace panel tabs and drag-and-drop arrangement with a predictable shell for
 observing sessions and moving deliberately between work and its overview.
@@ -14,18 +15,19 @@ Keep Sessions compact. Put the tree or branching workflow timeline in the
 central area in place of the terminal. Lead with agent tasks and progress;
 Git references belong in inspected details.
 
-The owner selected #755 for specification work on 2026-10-05. The proposed
-direction is a compact session sidebar, one central surface, and one optional
-contextual inspector. This document and its synthetic drawings are review
-artifacts. They do not implement navigation, accept a replacement layout
-library, qualify coding-tool profiles, or authorize orchestration launches.
+The owner selected #755 for specification work on 2026-10-05 and approved the
+shell direction and defaults in writing on 2026-10-08. The accepted direction
+is a compact Sessions sidebar, one central surface, and one optional
+contextual inspector. This document and its synthetic drawings define the
+accepted shell contract; they do not implement navigation, qualify coding-tool
+profiles, or authorize orchestration launches.
 
-The owner chose **restore the last central view** during drafting on 2026-10-05.
-Always validate the remembered target before restoring it. Remaining proposed
-defaults requiring approval: use the branching timeline for workflow stages
-with a tree presentation available; keep the inspector closed until requested;
-open an explicitly selected session in Terminal. Startup preference acceptance
-does not by itself accept the remaining shell or authoritative amendments.
+The owner chose **restore the last central view** during drafting on 2026-10-05
+and approved the complete default set on 2026-10-08. Always validate the
+remembered target before restoring it. Use the branching timeline for workflow
+stages with a tree presentation available; keep the inspector closed until
+requested; open an explicitly selected session in Terminal. Restoration never
+selects or resumes a session and never grants an action.
 
 Preserve one selected terminal and one central context. Ordinary sessions work
 without any orchestration extension. No editor, tiled terminal, native subagent
@@ -43,9 +45,9 @@ instance dashboard is introduced.
 | `apps/desktop/electron/layoutMemory.ts` | Installation-level `layout.json`; arbitrary JSON accepted, Dockview deserializes in renderer | Treat legacy docking data as presentation only; create bounded versioned shell preferences through Electron |
 | `apps/desktop/src/workspaceSessionController.ts` | Workspace/foreground generations fence asynchronous work; remembered selection restores only a matching non-dead session | Revalidate every remembered destination; preserve existing session restoration and lifetime rules |
 | [Session Plan Review](../../../specs/session-plan-review.md) | One selected-session Markdown artifact; reading is separate from the explicitly approved fixed review prompt | Keep one Review surface, exact document target, refresh/error handling and separate Request independent review action |
-| [ADR 0011](../../adr/0011-dockview-panel-layout.md) | Accepted movable panels and terminal tab support | Requires supersession before implementing a deliberate fixed-layout divergence |
-| [ADR 0013](../../adr/0013-single-active-context-primitive.md) | Singular active terminal, session as context, Details bound to focused session | Stage a replacement preserving one visible context while superseding session-only context and detail binding |
-| [ADR 0002](../../adr/0002-electron-react-typescript-desktop.md) and [Taskmaster UI](../../../specs/taskmaster.md) | Three-column shell, right action overview and Taskmaster Dockview panel | Reconcile those layout requirements before runtime planning; retain Electron/React/TypeScript and Taskmaster authority boundaries |
+| [ADR 0011](../../adr/0011-dockview-panel-layout.md) | Historical decision for movable panels and terminal tabs | Superseded by accepted ADR 0078; retain Dockview for fixed-region resizing with drag-and-drop disabled |
+| [ADR 0013](../../adr/0013-single-active-context-primitive.md) | Historical session-only context and session-bound Details decision | Superseded by ADR 0078, preserving one central context and one terminal |
+| [ADR 0002](../../adr/0002-electron-react-typescript-desktop.md) and [Taskmaster UI](../../../specs/taskmaster.md) | Historical three-column shell and Dockview recommendation panel | Reconciled to compact Sessions, one central surface and optional inspector; Electron/React/TypeScript and Taskmaster authority remain |
 
 ### Uncertainty and blind-spot checkpoint
 
@@ -69,9 +71,8 @@ panel dragging is removed.
 
 Investigated facts above come from the source and existing contracts. Remaining
 risks: upstream #743/#744 projections are unfinished; timeline timestamps may be
-absent; vendor references do not prove OrkWorks capability; the owner has not
-accepted shell defaults or a library choice. The proposal retains unknown states
-and isolates runtime planning behind those gates.
+absent; vendor references do not prove OrkWorks capability. The accepted design
+retains unknown states and isolates Workflow integration behind those gates.
 
 ## Dated reference comparison
 
@@ -103,8 +104,10 @@ conversation, editing or integration product.
 | C — overview-first full-width canvas with a session picker only | Largest graph area; few permanent regions | Ordinary sessions and attention switching become less discoverable; adds navigation for frequent terminal use |
 
 Choose A. Its sidebar carries session-level awareness; the central workflow
-overview carries declared task/stage relationships. This is a product layout
-decision, not a decision to replace Dockview with a particular dependency.
+overview carries declared task/stage relationships. The selected layout library
+is Dockview 8.3.1 for fixed-region resizing and programmatic view hosting, with
+drag-and-drop disabled and group headers hidden. The package is pinned in
+`apps/desktop/pnpm-lock.yaml`; this does not upgrade the dependency.
 
 ## Shell regions and responsive defaults
 
@@ -320,9 +323,9 @@ Reduced motion removes transitions while retaining event labels. Text zoom
 does not shrink labels, overlap controls or conceal required actions. Screen
 reader announcements report meaningful state changes, not every PTY line.
 
-## Saved layout migration and library decision
+## Saved layout migration and layout library
 
-Do not feed legacy Dockview JSON into the new fixed shell. Proposed
+Do not feed legacy Dockview JSON into the new fixed shell. The
 installation-level `shell-layout.json` version 1 stores bounded region widths,
 Sessions visibility, density and tree/timeline preference only; it contains no
 session/run IDs, workspace paths, document content, tokens or grants. Target
@@ -419,32 +422,41 @@ old queued intents remain invalid even if its new revision starts at zero.
 Lock contention or failed validation/save preserves existing bytes and reports
 failure while the current view stays usable.
 
-Proposed startup default is last valid central view. First use/no remembered
+The startup default is the last valid central view. First use/no remembered
 view opens Terminal for the existing valid selection, or the ordinary empty
 state. Never start a run or session to fill a remembered view. Do not persist a
 workspace's navigation under another workspace during a switch.
 
-Before choosing a layout library, evaluate whether Dockview can deliver fixed
-regions with no visible tab strip, drag/float/dock affordance, hidden required
-context, or second terminal, while retaining accessibility/zoom guarantees.
-Compare a small fixed React/CSS/resizing implementation only if that requirement
-cannot be met cleanly. The outcome belongs in the accepted replacement ADR and
-its executable plan; this document introduces no dependency change.
+Configure Dockview with `disableDnd` and hide each group's header so users
+cannot drag, float, dock, reorder panels, or switch central surfaces through
+tabs. Do not set whole-layout `locked`, because split resizing remains part of
+the approved design. If implementation validation shows that Dockview cannot
+meet the fixed-region, header-free, accessibility, or zoom requirements, stop
+before substituting a library and return with evidence and a revised decision
+proposal.
+
+This decision is grounded in Dockview's [drag-and-drop options](https://dockview.dev/docs/core/dnd/strategy/),
+[group header controls](https://dockview.dev/docs/core/groups/hiddenHeader/),
+and [layout locking behavior](https://dockview.dev/docs/core/groups/locked/),
+read on 2026-10-08. The implementation plan verifies these behaviors against
+the pinned React package rather than treating current upstream documentation as
+proof of runtime behavior.
 
 ## Authoritative amendment sequence
 
-The following proposed text is staged for written review. Existing accepted
-specs/ADRs continue to describe current product behavior until acceptance; this
-PR does not mark them superseded or claim a shipped shell.
+The accepted shell direction requires the following authoritative
+reconciliation. Runtime implementation remains separate and is not represented
+as shipped behavior.
 
-1. On acceptance, create the next available replacement ADR superseding ADR
+1. Create ADR 0078 as the accepted replacement, superseding ADR
    0011's movable panels/tabbed Terminal requirement, ADR 0013's session-only
    context/detail binding, and ADR 0002's mandatory three-column/right-sidebar
    layout decision. Preserve Electron/React/TypeScript, one visible central
    context, one visible terminal, deliberate session switching and the compact
    Sessions index. Record fixed regions, Workflow/Review contexts, visible-subject
-   detail binding, retained resizing, concurrency-safe persistence/migration and
-   the separately decided library. Keep all three old ADRs as historical;
+   detail binding, retained resizing, concurrency-safe persistence/migration,
+   and Dockview with drag-and-drop disabled and group headers hidden. Keep all
+   three old ADRs as historical;
    update their superseded status/links and the ADR index. Carry preserved stack
    constraints into the replacement so ADR 0002's supersession cannot imply a
    technology change. Update root ADR pointers and product-design constraints
@@ -554,18 +566,16 @@ successor invalidation, lock contention/atomic-save failure; sidecar selection p
 missing parents and stale chooser targets; Actions scope/return; exact approval
 with no renderer authority; and ordinary sessions with no orchestration projections.
 
-After written shell acceptance and authoritative reconciliation, use
-writing-plans to produce reviewed executable units for (1) pure navigation and
-subject-binding reducer, (2) Electron preferences/migration and existing hotkey
-mapping, (3) fixed shell/single-terminal/Review integration and accessibility,
-and (4) #746 overview projection integration after #741/#743/#744 agreement.
-Map them to concrete source/test files and scoped issues only after that plan
-is reviewed. Do not start these units or create speculative implementation
-issues from this proposed document. Keep ordinary shell work separable from
-orchestration availability; approval IPC remains the #610/#742 owner's unit.
+Shell direction and defaults were approved on 2026-10-08, and authoritative
+spec/ADR reconciliation is recorded in this PR. The reviewed implementation
+plan is [2026-10-08-application-shell-redesign.md](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
+Create scoped runtime issues only after the owner reviews that plan. Keep
+ordinary shell work separable from orchestration availability; Workflow
+projection integration waits for #610/#741/#743/#744/#746 agreement, and
+approval IPC remains the #610/#742 owner's unit.
 
 Documentation checks for this deliverable: diff whitespace, doc drift,
 VitePress build/dead links, SVG XML plus rendered clipping/contrast/label
 inspection, and a requirement-by-requirement self-review. Keep #755 and #746
-open for written acceptance, amendments and reviewed execution handoff. No
+open for the reviewed execution handoff and remaining #746 projection gates. No
 runtime or coding-tool capability claim follows from those checks.

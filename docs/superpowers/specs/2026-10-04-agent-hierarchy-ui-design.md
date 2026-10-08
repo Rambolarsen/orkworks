@@ -2,21 +2,21 @@
 
 - Status: proposed interaction/projection contract; written review and upstream agreement pending
 - Draft started: 2026-10-04; artifact review: 2026-10-05
-- Shell prerequisite: [#755](https://github.com/Rambolarsen/orkworks/issues/755); final placement/navigation awaiting shell review
+- Shell prerequisite: [#755](https://github.com/Rambolarsen/orkworks/issues/755); approved shell contract in [ADR 0078](../../adr/0078-fixed-desktop-shell-and-central-navigation.md)
 - Tracking: [#746](https://github.com/Rambolarsen/orkworks/issues/746), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
 - Accepted scope: [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md), [ordinary-child scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md)
 - Consumers: [role configuration #741](2026-10-04-agent-role-configuration-design.md), [preparation #742](2026-10-04-orchestrator-preparation-design.md), [skill evidence #743](https://github.com/Rambolarsen/orkworks/issues/743), [evaluation #744](https://github.com/Rambolarsen/orkworks/issues/744)
 
-## Shell proposal handoff: 2026-10-05
+## Accepted shell handoff: 2026-10-08
 
-The [application-shell/navigation proposal](2026-10-05-application-shell-navigation-design.md)
-now stages compact Sessions, alternative central Workflow/Terminal/Review
-surfaces, explicit task-inspection versus session-selection transitions,
-context-bound details, narrow/zoom navigation, and saved-layout migration.
-Its six synthetic shell drawings extend this document's provisional overview
-concepts. Written owner acceptance and authoritative ADR/spec reconciliation
-remain open; these links do not accept either visual design or authorize code.
+The [application-shell/navigation design](2026-10-05-application-shell-navigation-design.md)
+defines compact Sessions, central Workflow/Terminal/Review surfaces, explicit
+task-inspection versus session-selection transitions, context-bound details,
+narrow/zoom navigation, and saved-layout migration. The owner approved its
+shell defaults on 2026-10-08, and ADR 0078 reconciles the authoritative shell
+contracts. This does not approve the #746 projection contract or authorize its
+runtime implementation.
 
 ## Scope and status
 
@@ -26,13 +26,13 @@ rejected the Sessions-embedded hierarchy as too intrusive and requested a
 central overview in place of the terminal, with paths appearing as work
 progresses. Keep Sessions as a compact switcher of actual sessions.
 
-The broader move away from tab-based panels, including removal of drag-and-drop
-panel rearrangement, is queued in [#755](https://github.com/Rambolarsen/orkworks/issues/755).
-This revision records that direction and compares two provisional overview
-concepts. It does not select a final shell, layout library or global navigation
-scheme. #755 must resolve those choices and reconcile this draft before final
-written acceptance of #746. The mockups are synthetic concept drawings, not
-implemented features or released desktop captures.
+The move away from tab-based panels, including removal of drag-and-drop panel
+rearrangement, is accepted in [#755](https://github.com/Rambolarsen/orkworks/issues/755)
+and [ADR 0078](../../adr/0078-fixed-desktop-shell-and-central-navigation.md).
+This document compares provisional hierarchy presentations within that shell.
+It does not finalize the #746 projection, role/skill evidence, or evaluation
+contracts. The mockups are synthetic concept drawings, not implemented features
+or released desktop captures.
 
 The user authorized initial specification/mockup drafting for #746 on
 2026-10-04 and continued the design revision on 2026-10-05. #610's ordinary-child
@@ -73,11 +73,10 @@ supply them. No branching policy or Git operation follows from the drawing.
 history even when its source is a current projection and a bounded notification
 ring. #742 retains exact plan/report records but its notification ring can lose
 old events. Use retained plan stages and results for the overview, not replayed
-notifications or invented timestamps. Another important constraint is ADR 0013:
-its current Sessions-as-multi-view wording and session-bound detail panel need
-explicit review in #755 for a central overview. Preserve its one-active-context
-principle: overview and terminal are alternative central surfaces; overview
-inspection must not show a different session's detail beside a visible terminal.
+notifications or invented timestamps. The accepted shell contract in ADR 0078
+defines one central context, with Workflow and Terminal as alternatives.
+Workflow inspection must not select or acknowledge a session, or show a
+different session's details beside a visible terminal.
 
 ## Node identity and planned/live/remembered state
 
@@ -187,7 +186,8 @@ retention and dedupe; UI scheduling state is bounded to visible current badges.
 
 ## Central tree and branching timeline concepts
 
-These are alternatives for #755 to compare, not two required switchable modes.
+These are the two presentations accepted by #755, not two separate runtime
+features. Timeline is the default and Tree is an available presentation choice.
 Both show one run's declared work in the central area while the terminal is
 hidden. The session switcher stays compact; it contains actual sessions and
 ordinary attention indicators, not task hierarchies or planned agents.
@@ -348,8 +348,8 @@ results, readiness and approval remain server-owned and version-bound.
 
 ## Overview navigation, single terminal and ordinary-session fallback
 
-This is a candidate interaction contract for #755's shell review, not a finalized
-app-wide navigation bar or shortcut scheme. The central area shows either one
+This is a candidate hierarchy interaction contract within #755's accepted
+shell, not a finalized app-wide navigation bar or shortcut scheme. The central area shows either one
 workflow overview or one ordinary session terminal/history. Switching surfaces
 never ends, restarts or launches the hidden session. Preserve ADR 0022's
 detachable renderer attachment and sidecar-owned PTY lifetime.
@@ -381,9 +381,9 @@ Overview details describe its inspected task/run. Terminal details describe
 only its actual session. Do not leave another agent's task/skills/evaluation
 beside a visible terminal after switching surfaces. On return, bind details
 before exposing the central surface; restore focus to the invoking node or its
-surviving heading. Shell review must decide placement/open-hide behavior and
-supersede ADR 0013's session-only context/detail binding while preserving one
-visible context; the #755 handoff stages the replacement and related reconciliation.
+surviving heading. The accepted shell defines placement, explicit navigation,
+and visible-subject details; #746 must reconcile its projection and final
+mockups to those transitions while preserving one visible central context.
 No second terminal or transcript is mounted as overview content.
 
 Preserve controller foreground/admission/polling fencing. Each hierarchy,
@@ -434,8 +434,9 @@ remain accessible without hover.
 
 A separately focused “Open terminal” command selects exactly that node's session
 and focuses its terminal. Back to workflow restores/reveals the invoking node
-before focusing it. Keep existing terminal/session shortcuts; #755 must review
-any new global overview accelerator for conflicts rather than fixing one here.
+before focusing it. Keep existing terminal/session shortcuts and use the #755
+command meanings. Any new global overview accelerator needs separate settings
+scope approval and conflict review.
 Refresh/new stages never steal focus or auto-pan. Text zoom/narrow layouts use
 stacked stage cards with vertical scrolling and the same outline order; no
 mandatory horizontal panning, drag gesture or hover-only action.
@@ -548,7 +549,7 @@ new renderer authorization decision or separate child-sidecar registry.
 
 Both drawings replace the terminal with a central workflow overview and retain
 a compact switcher. They compare hierarchy structure at low density with evolving
-stages at higher density; they do not establish the final #755 shell. Inspect
+stages at higher density; they do not establish the final #746 hierarchy projection. Inspect
 controls, return commands and details binding are candidate interactions.
 Portrait artwork, exact spacing and global shell controls remain review choices.
 
@@ -591,10 +592,10 @@ session management; no replacement parent is inferred.
 
 Source/fixture consistency and rendered SVG checks are expert artifact checks,
 not measured user usability or shipped screen-reader behavior. Written review
-must resolve the central overview's navigation/density with #755 before these
-proposals become binding. A final shell mockup must also show the terminal
+must resolve the hierarchy projection with its contract owners before these
+proposals become binding. The accepted #755 shell mockups cover the terminal
 surface, Review access, recommendations/capacity and narrow/zoom states; this
-scoped comparison does not design those shell surfaces.
+scoped comparison focuses on the hierarchy overview.
 
 ## Execution handoff and implementation gate
 
@@ -615,11 +616,10 @@ Review questions for component owners:
   precedence and correction/conflict behavior; UI never self-calculates review.
 - #745: supply opaque repository identity and optional history references;
   failure to read history cannot block ordinary session inspection.
-- #755/user: review central tree versus branching timeline, compact switcher,
-  alternative overview/terminal navigation, details binding, stable retained
-  paths, inspection-protected disclosure, keyboard and narrow/zoom behavior.
-  Amend the product design's placement and ADR 0011/0013 wording as required
-  through written shell review before final acceptance.
+- #755/user: shell direction is accepted: branching timeline default with Tree
+  presentation, compact Sessions, explicit central navigation and optional
+  inspector. #746 review should focus on the hierarchy projection, task identity,
+  evidence, disclosure, keyboard, and narrow/zoom behavior within that shell.
 
 After written shell review, this draft's acceptance and upstream agreement,
 create a separate implementation issue

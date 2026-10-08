@@ -112,8 +112,12 @@ opening, ready, closing, and unresolved states. Installation history needs
 concurrency-safe writes because independent instances can update the same path
 list, but its lock is never an instance coordinator or ownership mechanism.
 
-ADR 0013's single-active-context rule, ADR 0022's runtime-owned PTY lifetime,
-and ADR 0052's single-writer workspace lease remain in force. ADR 0056 is
+[ADR 0078](0078-fixed-desktop-shell-and-central-navigation.md) replaces the
+session-only visible-context clause from ADR 0013 with one visible central
+context per instance. This does not change ADR 0060's independent-instance,
+workspace-lease, path-history, or process-ownership decisions. ADR 0022's
+runtime-owned PTY lifetime and ADR 0052's single-writer workspace lease remain
+in force. ADR 0056 is
 superseded as implementation authority but retained, including its 2026-09-15
 evidence amendment, as the historical record of the rejected multi-sidecar
 proposal and the incomplete ownership evidence that still motivates #545.
@@ -173,3 +177,13 @@ launch remains unavailable until a production-backed native boundary and
 exact OS/harness evidence pass; the work to provide that boundary and evidence
 is tracked by [issue #617](https://github.com/Rambolarsen/orkworks/issues/617),
 under parent issue [#610](https://github.com/Rambolarsen/orkworks/issues/610).
+
+## Amendment — 2026-10-08: one central context per instance
+
+The [fixed desktop shell decision](0078-fixed-desktop-shell-and-central-navigation.md)
+supersedes only the earlier session-only wording for an instance's visible
+context. An instance may show Terminal, Review, or an eligible Workflow surface,
+but still has one selected terminal and no peer-instance focus authority.
+Workspace navigation memory is a bounded presentation record keyed by the
+canonical workspace; it is not a peer registry, execution authority, or change
+to the path-only workspace history described here.

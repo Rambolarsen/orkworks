@@ -138,16 +138,16 @@ scope or satisfy baseline unit 4's reviewed identity prerequisite yet.
 
 ## Application-shell prerequisite: #755
 
-The [proposed shell/navigation contract](../specs/2026-10-05-application-shell-navigation-design.md)
-and six synthetic mockups are drafted for written review. #755 precedes final
-shell-dependent #746 placement/navigation acceptance. It compares central tree
-and timeline views, removes panel dragging/tab management, defines compact
-session switching and central Review/Terminal returns, and stages the required
-replacement ADR for ADR 0002/0011/0013, the ADR 0060 context-clause
-replacement pointer, ADR 0034 placement amendment, authoritative MVP/Taskmaster/
-Session Plan Review/multi-workspace reconciliation, and layout migration.
-No shell direction, replacement library or runtime execution plan is accepted
-by this link. Existing #746 evidence/identity contracts remain separately gated.
+The [accepted shell/navigation contract](../specs/2026-10-05-application-shell-navigation-design.md)
+and six synthetic mockups define the #755 direction. ADR 0078 records the
+fixed, resizable shell, compact session switching, central Review/Terminal/
+eligible Workflow returns, and Dockview with drag-and-drop disabled and group
+headers hidden. Authoritative MVP/Taskmaster/Session Plan Review/multi-workspace
+reconciliation is recorded in that shell acceptance. The runtime execution
+plan is available at
+[2026-10-08-application-shell-redesign.md](2026-10-08-application-shell-redesign.md)
+and awaits owner review. Existing #746 evidence/identity contracts remain
+separately gated.
 
 ## Work packages and dependency order
 
@@ -160,8 +160,8 @@ by this link. Existing #746 evidence/identity contracts remain separately gated.
 | Spec: skill delivery and usage evidence protocol | [#743](https://github.com/Rambolarsen/orkworks/issues/743) | #741, #740 | `docs/superpowers/specs/2026-10-04-skill-usage-evidence-design.md` |
 | Spec: assignment quality and completeness evaluation | [#744](https://github.com/Rambolarsen/orkworks/issues/744) | #741 | `docs/superpowers/specs/2026-10-04-assignment-evaluation-design.md` |
 | Spec: repository-scoped configuration learning and skill improvements | [#745](https://github.com/Rambolarsen/orkworks/issues/745) | #741, #743, #744 | `docs/superpowers/specs/2026-10-04-configuration-learning-design.md` |
-| Spec: application shell and workflow navigation | [#755](https://github.com/Rambolarsen/orkworks/issues/755) | Draft from current shell and #746 interaction proposal; final shell direction and authoritative reconciliation require written acceptance | `docs/superpowers/specs/2026-10-05-application-shell-navigation-design.md` and six synthetic shell mockups |
-| Spec: agent hierarchy interaction and visual presentation | [#746](https://github.com/Rambolarsen/orkworks/issues/746) | Draft independently; finalize projection after #741, #743, #744; final placement/navigation also requires accepted #755 shell direction and authoritative reconciliation | `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md` |
+| Spec: application shell and workflow navigation | [#755](https://github.com/Rambolarsen/orkworks/issues/755) | Shell contract accepted; review the execution plan before creating runtime follow-up issues | `docs/superpowers/specs/2026-10-05-application-shell-navigation-design.md` and six synthetic shell mockups |
+| Spec: agent hierarchy interaction and visual presentation | [#746](https://github.com/Rambolarsen/orkworks/issues/746) | Draft independently; finalize projection after #741, #743, #744; reconcile placement/navigation to accepted #755 shell | `docs/superpowers/specs/2026-10-04-agent-hierarchy-ui-design.md` |
 
 #745's repository-identity-across-worktrees portion is an early reviewed
 input to #741 and baseline worktree/child admission; draft it with #741 before
@@ -177,8 +177,7 @@ Parallel drafting lanes:
 2. After configuration/eligibility decisions, preparation, usage evidence, and
    evaluation contracts can proceed independently with shared identity terms.
 3. Learning consumes the approved usage/evaluation contracts. The hierarchy
-   projection is finalized against those contracts; final #746 placement/navigation
-   also waits for #755 shell acceptance and authoritative reconciliation.
+   projection is finalized against those contracts and the accepted #755 shell.
 4. Only then create/review scoped runtime plans and implementation issues.
    Foundation approval and tool eligibility remain launch gates.
 
