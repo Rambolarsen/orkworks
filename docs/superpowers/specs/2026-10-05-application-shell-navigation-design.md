@@ -568,7 +568,7 @@ with no renderer authority; and ordinary sessions with no orchestration projecti
 
 Shell direction and defaults were approved on 2026-10-08, and authoritative
 spec/ADR reconciliation is recorded in this PR. The reviewed implementation
-plan is [2026-10-08-application-shell-redesign.md](../plans/2026-10-08-application-shell-redesign.md).
+plan is [2026-10-08-application-shell-redesign.md](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
 Create scoped runtime issues only after the owner reviews that plan. Keep
 ordinary shell work separable from orchestration availability; Workflow
 projection integration waits for #610/#741/#743/#744/#746 agreement, and

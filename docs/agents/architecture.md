@@ -642,7 +642,7 @@ drag-and-drop, and hides group headers. Electron will own bounded installation
 shell preferences and canonical-workspace navigation memory; legacy
 `layout.json` remains untouched. See the
 [accepted shell design](../superpowers/specs/2026-10-05-application-shell-navigation-design.md)
-and [implementation plan](../superpowers/plans/2026-10-08-application-shell-redesign.md).
+and [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
 This target does not change sidecar PTY lifetime or authorize Workflow actions.
 
 On Windows, Electron uses a hidden title bar with native window controls overlaid on the 38px app header. The OrkWorks icon sits before the workspace name; CSS reserves the native controls area. The application menu is auto-hidden and remains accessible with Alt. macOS and Linux retain their existing chrome.

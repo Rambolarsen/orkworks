@@ -56,7 +56,7 @@ The application shell redesign is approved in [ADR 0078](docs/adr/0078-fixed-des
 and its [design](docs/superpowers/specs/2026-10-05-application-shell-navigation-design.md).
 The current desktop still uses draggable Dockview panels; implementation is
 tracked under [#755](https://github.com/Rambolarsen/orkworks/issues/755) and
-remains subject to review of the [implementation plan](docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
+remains subject to review of the [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
 
 The accepted [brain-informed Taskmaster design](specs/taskmaster-knowledge.md)
 adds independently updated reference knowledge, a separate analysis model, and
