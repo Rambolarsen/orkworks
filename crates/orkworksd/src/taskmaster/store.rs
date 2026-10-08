@@ -47,6 +47,46 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+/// Applies the dismissal transformation from `store::dismiss` to a record
+/// without touching the store: builds the watermark, sets the status, and
+/// clears any packet approval. Shared by the single-record `dismiss` and the
+/// cleanup-accept batch so both build identical watermarks.
+pub(crate) fn dismissed_record(
+    mut recommendation: Recommendation,
+    dismissed_at: &str,
+    reason: Option<String>,
+) -> Recommendation {
+    let watermark = DismissalWatermark {
+        dismissed_at: dismissed_at.to_string(),
+        dismissed_through_sequence: recommendation
+            .evidence
+            .iter()
+            .map(|evidence| evidence.sequence)
+            .max()
+            .unwrap_or(0),
+        observation_ids: recommendation
+            .evidence
+            .iter()
+            .map(|evidence| evidence.observation_id.clone())
+            .collect(),
+        qualifying_count: recommendation.workflow_improvement.recurrence_count,
+        highest_impact: recommendation.priority,
+        affected_session_ids: recommendation
+            .workflow_improvement
+            .affected_session_ids
+            .clone(),
+        reason,
+    };
+    recommendation.status = RecommendationStatus::Dismissed;
+    recommendation.updated_at = dismissed_at.to_string();
+    recommendation.workflow_improvement.dismissal_watermark = Some(watermark);
+    if let Some(packet) = recommendation.completion_packet.as_mut() {
+        packet.approval = None;
+        packet.completion_idempotency_key = None;
+    }
+    recommendation
+}
+
 pub(crate) struct RecommendationStore {
     dir: PathBuf,
 }
@@ -85,7 +125,7 @@ struct StoredRecommendation {
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
-enum FaultPoint {
+pub(crate) enum FaultPoint {
     Staging,
     ManifestCommit,
     Publication(usize),
@@ -98,7 +138,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn set_fault_point(point: Option<FaultPoint>) {
+pub(crate) fn set_fault_point(point: Option<FaultPoint>) {
     FAULT_POINT.with(|fault| *fault.borrow_mut() = point);
 }
 
@@ -275,7 +315,7 @@ impl RecommendationStore {
         dismissed_at: String,
         reason: Option<String>,
     ) -> Result<Option<Recommendation>, StoreError> {
-        let Some(mut recommendation) = self.get(id)? else {
+        let Some(recommendation) = self.get(id)? else {
             return Ok(None);
         };
         if !matches!(
@@ -287,34 +327,7 @@ impl RecommendationStore {
         ) {
             return Err(StoreError::InvalidTransition);
         }
-        let watermark = DismissalWatermark {
-            dismissed_at: dismissed_at.clone(),
-            dismissed_through_sequence: recommendation
-                .evidence
-                .iter()
-                .map(|evidence| evidence.sequence)
-                .max()
-                .unwrap_or(0),
-            observation_ids: recommendation
-                .evidence
-                .iter()
-                .map(|evidence| evidence.observation_id.clone())
-                .collect(),
-            qualifying_count: recommendation.workflow_improvement.recurrence_count,
-            highest_impact: recommendation.priority,
-            affected_session_ids: recommendation
-                .workflow_improvement
-                .affected_session_ids
-                .clone(),
-            reason,
-        };
-        recommendation.status = RecommendationStatus::Dismissed;
-        recommendation.updated_at = dismissed_at;
-        recommendation.workflow_improvement.dismissal_watermark = Some(watermark);
-        if let Some(packet) = recommendation.completion_packet.as_mut() {
-            packet.approval = None;
-            packet.completion_idempotency_key = None;
-        }
+        let recommendation = dismissed_record(recommendation, &dismissed_at, reason);
         self.put(&recommendation)?;
         Ok(Some(recommendation))
     }

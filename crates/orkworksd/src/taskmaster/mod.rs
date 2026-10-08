@@ -36,6 +36,17 @@ pub(crate) enum AuditCriterion {
     Stale,
 }
 
+impl AuditCriterion {
+    pub(crate) fn key(self) -> &'static str {
+        match self {
+            Self::UnderEligible => "under_eligible",
+            Self::Noise => "noise",
+            Self::Duplicate => "duplicate",
+            Self::Stale => "stale",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AuditCleanupEntry {
