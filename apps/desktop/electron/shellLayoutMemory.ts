@@ -184,8 +184,32 @@ export class RevisionedShellMemory<P> {
     finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
   }
 
+  private retainRegularPrior(target: string, info = lstatSync(target)): RetainedPrior {
+    if (!info.isFile()) throw new Error("Prior shell target is not a regular file");
+    const backup = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.bak`);
+    try {
+      linkSync(target, backup);
+      const retained = lstatSync(backup);
+      if (!retained.isFile() || retained.dev !== info.dev || retained.ino !== info.ino || retained.size !== info.size) {
+        throw new Error("Regular-file backup did not preserve the prior inode");
+      }
+      return { backup, dev: retained.dev, ino: retained.ino, size: retained.size, kind: "regular" };
+    } catch (error) { rmSync(backup, { force: true }); throw error; }
+  }
+
   private capturePrior(allowSpecialRebuild = false): Prior {
-    const previous = this.readTarget();
+    let previous: Buffer | "oversize" | "non_regular" | null;
+    try { previous = this.readTarget(); }
+    catch (error) {
+      if (!allowSpecialRebuild) throw error;
+      // Confirmed recovery may replace an unreadable regular file without
+      // reading it, while retaining its inode so a failed publication can
+      // still roll back exactly.
+      const target = this.path();
+      const info = lstatSync(target);
+      if (!info.isFile()) throw error;
+      return this.retainRegularPrior(target, info);
+    }
     if (previous === "non_regular") {
       const target = this.path();
       const info = lstatSync(target);
@@ -210,13 +234,7 @@ export class RevisionedShellMemory<P> {
     // buffering it or copying attacker-sized bytes. If unsupported, decline
     // the rebuild before publication.
     const target = this.path();
-    if (!lstatSync(target).isFile()) throw new Error("Oversized prior target is not a regular file");
-    const backup = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.bak`);
-    try {
-      linkSync(target, backup);
-      const info = statSync(backup);
-      return { backup, dev: info.dev, ino: info.ino, size: info.size, kind: "regular" };
-    } catch (error) { rmSync(backup, { force: true }); throw error; }
+    return this.retainRegularPrior(target);
   }
 
   private priorInPlace(previous: RetainedPrior): boolean {

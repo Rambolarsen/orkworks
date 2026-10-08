@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, workspaceNavigationMemoryPath } from "../electron/workspaceNavigationMemory.ts";
-import { forgetWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, workspaceMemoryPath } from "../electron/workspaceMemory.ts";
+import { canonicalWorkspacePath, forgetWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, workspaceMemoryPath } from "../electron/workspaceMemory.ts";
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "ork-navigation-"));
@@ -537,5 +537,30 @@ test("navigation-only alias cannot be pruned through the forget retry path", asy
 
     assert.equal((await forgetRememberedWorkspaceWithNavigation(f.directory, alias, navigation)).navigation, null);
     assert.deepEqual(readFileSync(workspaceNavigationMemoryPath(f.directory)), before);
+  } finally { f.close(); }
+});
+
+test("navigation-only aliases are canonicalized before forgetting", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    const alias = join(f.directory, "alias");
+    mkdirSync(workspace);
+    symlinkSync(workspace, alias, "dir");
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    navigation.read();
+    await navigation.complete(alias, 1, () => true, "review");
+    const canonicalized: string[] = [];
+
+    const result = await forgetRememberedWorkspaceWithNavigation(
+      f.directory,
+      alias,
+      navigation,
+      undefined,
+      (path) => { canonicalized.push(path); return canonicalWorkspacePath(path); },
+    );
+
+    assert.equal(result.navigation, null);
+    assert.deepEqual(canonicalized, [alias]);
   } finally { f.close(); }
 });

@@ -6,6 +6,7 @@ export type LastCentralSurface = "terminal" | "review";
 export type WorkspaceNavigationEntry = { workspaceIdentity: string; lastCentralSurface: LastCentralSurface };
 export type WorkspaceNavigationSnapshot = { entries: WorkspaceNavigationEntry[]; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 type ConfirmNavigationRebuild = () => Promise<ShellMemoryResult | { ok: false; diagnostic: "user_cancelled" }>;
+type CanonicalWorkspacePathResolver = typeof canonicalWorkspacePath;
 type NavigationPayload = { entries: WorkspaceNavigationEntry[] };
 
 function exactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
@@ -76,6 +77,7 @@ export async function forgetRememberedWorkspaceWithNavigation(
   identity: string,
   navigation: ReturnType<typeof createWorkspaceNavigationMemory>,
   confirmNavigationRebuild?: ConfirmNavigationRebuild,
+  resolveCanonicalPath: CanonicalWorkspacePathResolver = canonicalWorkspacePath,
 ): Promise<{ history: AppWorkspaceMemory; navigation: ShellMemoryResult | null; cancelled?: true }> {
   const before = readWorkspaceMemory(directory);
   // An exact saved shortcut or navigation entry is the authority for a path
@@ -84,17 +86,14 @@ export async function forgetRememberedWorkspaceWithNavigation(
     return { history: before, navigation: null };
   }
   const wasRemembered = historyContains(before, identity);
-  const canonical = canonicalWorkspacePath(identity);
-  if (canonical !== null && canonical !== identity && !wasRemembered) {
-    return { history: before, navigation: null };
-  }
-
   if (!wasRemembered) {
     const stored = navigation.read();
     if (stored.diagnostic) return { history: before, navigation: { ok: false, diagnostic: stored.diagnostic } };
     if (!stored.entries.some((entry) => entry.workspaceIdentity === identity)) {
       return { history: before, navigation: null };
     }
+    const canonical = resolveCanonicalPath(identity);
+    if (canonical !== null && canonical !== identity) return { history: before, navigation: null };
   }
   let deleted = await navigation.delete(identity, 0, () => true);
   if (!deleted.ok && confirmNavigationRebuild

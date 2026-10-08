@@ -87,6 +87,58 @@ test("ordinary reads preserve a dangling shell-record symlink until confirmed re
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("confirmed rebuild recovers an unreadable regular shell record", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-unreadable-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    writeFileSync(target, "unreadable prior record");
+    const moduleUrl = new URL("../electron/shellLayoutMemory.ts", import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const target = process.argv[1];
+      let prior = fs.lstatSync(target);
+      const originalOpen = fs.openSync;
+      fs.openSync = (path, ...args) => {
+        if (path === target) {
+          const current = fs.lstatSync(target);
+          if (current.dev === prior.dev && current.ino === prior.ino) {
+            const denied = new Error('injected unreadable prior record');
+            denied.code = 'EACCES';
+            throw denied;
+          }
+        }
+        return originalOpen(path, ...args);
+      };
+      syncBuiltinESMExports();
+      const { createShellLayoutMemory } = await import(${JSON.stringify(moduleUrl)});
+      const memory = createShellLayoutMemory(process.argv[2]);
+      if (memory.read().diagnostic !== 'corrupt_record') process.exit(1);
+      const rebuilt = await memory.rebuild(true);
+      if (!rebuilt.ok || memory.read().diagnostic !== null) {
+        console.error(JSON.stringify({ rebuilt, diagnostic: memory.read().diagnostic }));
+        process.exitCode = 1;
+      }
+      fs.writeFileSync(target, 'unreadable prior for rollback');
+      prior = fs.lstatSync(target);
+      const rollbackMemory = createShellLayoutMemory(process.argv[2], (temporary, destination) => {
+        fs.renameSync(temporary, destination);
+        throw new Error('injected post-publication failure');
+      });
+      if (rollbackMemory.read().diagnostic !== 'corrupt_record') process.exit(1);
+      const rollback = await rollbackMemory.rebuild(true);
+      const restored = fs.lstatSync(target);
+      if (rollback.ok || rollback.diagnostic !== 'write_failed'
+        || restored.dev !== prior.dev || restored.ino !== prior.ino) {
+        console.error(JSON.stringify({ rollback, samePrior: restored.dev === prior.dev && restored.ino === prior.ino }));
+        process.exitCode = 1;
+      }
+    `;
+    const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script, target, directory], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("confirmed shell-layout rebuild can replace a FIFO record", async (t) => {
   if (process.platform === "win32") return t.skip("FIFOs are unavailable on Windows");
   const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-fifo-rebuild-"));
