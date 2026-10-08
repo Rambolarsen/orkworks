@@ -680,19 +680,33 @@ content requires a new version. The stable `sourceIdentity` is the catalog
 identity in snapshot provenance, not its changing source revision or file path.
 A `snapshotDigest` is a lowercase 64-character SHA-256 hex digest of
 `orkworks.retirement-artifact-snapshot.v1\n` followed by the canonical JSON
-bytes of an object containing `artifactKind`, the complete selected
-`RoleTemplateSnapshot` or `SkillSnapshot` descriptor, and, for a skill, the
-complete validated `SkillResourceSnapshot` closure named by `resourceIds`
-(sorted by resource ID); the resource list is empty for a role template.
-Include every descriptor field, including `provenance` and the existing
-content digests, and exact content bytes represented as UTF-8 strings. Use the
-recursive key ordering, JSON escaping, and integer serialization in
-Canonicalization step 4. The retirement record itself is not included. Keep
-the source snapshots' `contentDigest` semantics unchanged: for skills and
-resources it hashes content bytes only. A same-key retry is idempotent only
-when its computed `snapshotDigest` matches the stored digest; a different
-digest is rejected as version reuse, including changes to resource closure or
-provenance.
+bytes of exactly this version-1 object shape, with no additional properties:
+`{"artifactKind": <kind>, "snapshot": <catalog-owned snapshot>, "resources": <array>}`.
+`artifactKind` is `role-template` or `skill`. For `role-template`, `snapshot`
+contains exactly `id`, `version`, `role`, `instructions`, `instructionsDigest`,
+`contentDigest`, and `provenance`, copied from the selected
+`RoleTemplateSnapshot`; `resources` is empty. For `skill`, `snapshot` contains
+exactly the catalog-owned fields `id`, `version`, `content`, `contentDigest`,
+`resourceIds`, and `provenance` from the selected `SkillSnapshot`;
+`requirement`, `selectionReason`, and `requirementSources` are assignment-only
+annotations and are excluded. `resources` contains the complete validated
+`SkillResourceSnapshot` closure named by `resourceIds`, sorted by resource ID;
+each resource object contains exactly `id`, `skillId`, `sourceReference`,
+`content`, `contentDigest`, and `provenance`. Preserve every included field,
+including source provenance and existing content digests, and exact content
+bytes as UTF-8 strings. Canonicalize object properties recursively and serialize
+with the key ordering, JSON escaping, and integer rules in Canonicalization step
+4; arrays retain the specified resource-ID order. The retirement record itself
+is not included. The tuple fields are derived from and must equal the embedded
+snapshot: `sourceIdentity` equals `snapshot.provenance.sourceIdentity`,
+`artifactId` equals `snapshot.id`, `version` equals `snapshot.version`, and
+`artifactKind` must match the snapshot variant. Validate the skill resource
+closure and ownership before hashing. The source snapshots' `contentDigest`
+semantics remain unchanged: for skills and resources it hashes content bytes
+only. A same-key retry is idempotent only when this catalog-owned payload has
+the stored `snapshotDigest`; a different digest is rejected as version reuse,
+including changed catalog provenance or resource closure. Assignment-only
+annotation changes do not change the retirement digest.
 A tombstone is written only through an Electron-authorized user action; callers
 cannot supply or claim retirement authority. There is at most one tombstone per
 lookup key. Repeating a retirement for an existing key returns that immutable
@@ -841,7 +855,9 @@ authorize a production launch.
 | Root requires pnpm for repository dependencies; scoped source requires npm for project dependencies | Block the conflict; the nested source itself states that the root owns the pnpm-only rule |
 | Retired skill/template version selected for a new proposal | Reject selection with the retirement reason; preserve existing approved snapshot/history |
 | Retirement races approval of a pending proposal | Use the shared workspace transaction: retirement first invalidates/rejects approval; approval first commits, then the existing approved configuration remains under normal launch checks |
-| Retry retirement for an existing key | Return the original tombstone unchanged and consume no additional ledger capacity for an identical full-snapshot digest; reject a conflicting snapshot digest, including changed skill resource IDs or provenance with unchanged content bytes |
+| Retry retirement for an existing key | Return the original tombstone unchanged and consume no additional ledger capacity for an identical catalog-owned digest; assignment-only skill annotations do not change it, while changed catalog fields, resource IDs, closure, or provenance conflict at the same key |
+| Retirement key does not match snapshot | Reject unless source identity, kind, artifact ID, and version are derived from and equal the embedded snapshot variant |
+| Retirement digest payload shape | Use exactly `artifactKind`, `snapshot`, and `resources`; reject unknown payload fields and use the versioned cross-language byte fixture |
 | Retirement ledger reaches either bound | Preserve tombstones, persist unavailable-selection marker, and block all new skill/template selections until bounded migration succeeds |
 | Retired artifact reappears after a source revision or with changed bytes at the same version | Reject by `(sourceIdentity, artifactKind, artifactId, version)`; digest change does not reactivate the version |
 | Acceptable effective profile is narrower than requested | Verify against the exact effective-profile digest and allow approval only after user sees and approves that effective profile |
