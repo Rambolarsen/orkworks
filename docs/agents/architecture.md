@@ -121,8 +121,9 @@ privacy-qualified signed knowledge and its verified activation contract. The
 sidecar enforces this prerequisite at manual admission, scheduling, and worker
 entry, before provider preparation, context collection or usage reservation.
 The gate is closed in every build; unsigned policy fields, legacy starter/cache
-contents and executable approval cannot enable it. Already-queued runs become
-interrupted without dispatch. Deterministic observation recommendations and
+contents and executable approval cannot enable it. Scheduling still retries
+lease-protected stale run-status recovery before refusing analysis. Already-queued
+workers become interrupted without dispatch. Deterministic observation recommendations and
 explicit Fix with AI remain available. Existing engine fixtures exercise the
 private post-admission continuation; production-admission regressions separately
 prove the gate. #529 owns matching signed manifest/payload policy proof, signed

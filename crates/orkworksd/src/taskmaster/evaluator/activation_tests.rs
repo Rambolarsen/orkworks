@@ -736,3 +736,71 @@ fn privacy_prerequisite_interrupts_an_already_queued_analysis() {
     assert!(!fixture.marker.exists());
     assert_eq!(fixture.remaining(), 8);
 }
+
+#[tokio::test]
+async fn privacy_prerequisite_preserves_deferred_run_status_recovery() {
+    for running in [false, true] {
+        let fixture = Fixture::new("success");
+        fixture.approve();
+        let runtime = TaskmasterRuntime::open(fixture.root.clone());
+        let workspace = fixture.dir.path().to_path_buf();
+        let other_instance_lease = runtime.try_analysis_lease().unwrap().unwrap();
+        let id = runtime
+            .queue_run(
+                &workspace,
+                TaskmasterRunTrigger::Background,
+                "custom",
+                "fixture",
+            )
+            .unwrap();
+        if running {
+            assert!(runtime
+                .mark_run_running(&workspace, id, "custom", "fixture")
+                .unwrap());
+        }
+        // Workspace-open recovery defers while another instance owns the lease.
+        let _ = schedule_model_evaluation_with_workspace(
+            fixture.state.clone(),
+            workspace.clone(),
+            fixture.root.clone(),
+            TaskmasterRunTrigger::Background,
+            false,
+        );
+        assert_eq!(
+            runtime
+                .run_status(Some(&workspace))
+                .unwrap()
+                .active_attempt
+                .unwrap()
+                .id,
+            id
+        );
+        drop(other_instance_lease);
+        // The next admission must recover stale status without admitting analysis.
+        assert_eq!(
+            schedule_model_evaluation_with_workspace(
+                fixture.state.clone(),
+                workspace.clone(),
+                fixture.root.clone(),
+                TaskmasterRunTrigger::Background,
+                false,
+            ),
+            ScheduleResult::Unavailable
+        );
+        let status = runtime.run_status(Some(&workspace)).unwrap();
+        assert!(status.active_attempt.is_none());
+        if running {
+            assert_eq!(
+                status.latest_outcome.unwrap().state,
+                TaskmasterRunOutcomeState::Interrupted
+            );
+        } else {
+            assert!(status.latest_outcome.is_none());
+        }
+        assert!(!fixture.marker.exists());
+        assert_eq!(fixture.fallback_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture.remaining(), 8);
+        assert!(fixture.recommendations().is_empty());
+        assert!(runtime.try_analysis_lease().unwrap().is_some());
+    }
+}

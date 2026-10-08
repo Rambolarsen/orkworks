@@ -345,9 +345,7 @@ fn schedule_model_evaluation_with_workspace(
     trigger: TaskmasterRunTrigger,
     manual: bool,
 ) -> ScheduleResult {
-    if super::runtime::brain_knowledge_availability().is_err()
-        || tokio::runtime::Handle::try_current().is_err()
-    {
+    if tokio::runtime::Handle::try_current().is_err() {
         return ScheduleResult::Unavailable;
     }
     {
@@ -364,6 +362,11 @@ fn schedule_model_evaluation_with_workspace(
             Err(_) => return ScheduleResult::Unavailable,
         };
         let _ = runtime.recover_workspace_run(&workspace_path, &lease);
+        // Preserve deferred status recovery even while Brain admission is closed.
+        // The shared lease proves no other instance owns this stale attempt.
+        if super::runtime::brain_knowledge_availability().is_err() {
+            return ScheduleResult::Unavailable;
+        }
         let status = runtime.status(Some(&workspace_path));
         let Some(selection) = status.effective_settings.selection else {
             return ScheduleResult::Unavailable;

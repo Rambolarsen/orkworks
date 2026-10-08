@@ -28,7 +28,7 @@ The unsigned starter and Electron-validated legacy cache carry no matching signe
 
 - [x] Run the new `legacy_knowledge_` tests and observe provider dispatch / scheduling before the gate.
 - [x] Add `pub(crate) fn brain_knowledge_availability() -> Result<(), &'static str>` to runtime, returning the explicit unavailable prerequisite until #529 implements verified activation.
-- [x] In the scheduler, return `ScheduleResult::Unavailable` before queue/lease creation when that check fails. In the production worker, return before collection/transport preparation when it fails.
+- [x] In the scheduler, preserve lease-protected stale run recovery, then return `ScheduleResult::Unavailable` before queue creation when that check fails. In the production worker, return before collection/transport preparation when it fails.
 - [x] Keep transport and identity fixtures entering the private post-admission continuation and identify that scope in their helpers. New regression fixtures enter production admission.
 - [x] Make Analyze now return `unavailable` with the prerequisite reason, independently of whether background discovery is disabled. Preserve the existing active-recommendation response.
 - [x] After provider availability resolves to ready, project `knowledge_unavailable` in settings; render it as “Verified reference knowledge required”. Keep provider capability/approval diagnostics intact.
@@ -44,4 +44,8 @@ The unsigned starter and Electron-validated legacy cache carry no matching signe
 - [x] Check matching live Taskmaster recommendations through the API and tie off only a verified matching recommendation before the PR reaches terminal state.
 - [ ] Open one PR, babysit required checks and comments, merge via the documented maintainer path only after review/checks pass, and clean up using `scripts/finish-pr.sh`.
 
-Local verification: `scripts/verify-repo.sh` passed on 2026-10-08; Rust suites 1813 + 4 passed, 5 ignored; desktop 1111 passed, 1 skipped. Independent medium-effort diff review found no actionable issues. The live recommendation API returned no matching recommendation.
+Local verification: `scripts/verify-repo.sh` passed on 2026-10-08; Rust suites 1814 + 4 passed, 5 ignored; desktop 1111 passed, 1 skipped. Independent medium-effort diff review found no actionable issues. The live recommendation API returned no matching recommendation.
+
+PR review follow-up: confirmed deferred stale run recovery must remain reachable under the installation-wide lease while Brain admission is closed. Added queued/running recovery regression; observed failure before moving the scheduling gate after recovery. No analysis is queued, dispatched, or charged during recovery.
+
+Follow-up verification: full `scripts/verify-repo.sh` passed again after the recovery fix; independent medium-effort manual review found no actionable issues. Automated re-review cycle 1/3 will cover the updated head.
