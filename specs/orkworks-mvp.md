@@ -241,7 +241,15 @@ Direct agent, harness-hook, and Codex native attention writes share the
 accepted attention writes revoke a prior native clear token. Only `user` is
 strictly higher priority. Work-metadata patches preserve attention ownership
 and do not refresh Peon's strict greater-than-15-second attention staleness
-rule.
+rule. That age rule applies to ordinary agent and hook attention; a live
+native-owned `waiting_for_input` tuple remains protected regardless of age
+until its runtime owner resolves or revokes it. Accepted committed terminal
+input can supersede that wait through the trusted process transition, but
+does not bypass a user override. A complete explicit agent clear relinquishes
+the agent attention tier and permits immediate Peon inference. Native-enabled
+eligibility also requires both authenticated metadata reads and a
+non-mutating metadata PATCH preflight verified from the child execution
+context under its effective sandbox profile.
 Native clearing remains gated pending owner review, producer migration,
 behavioral verification, and the separate #690/#763 gates. See the
 [proposed mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
