@@ -224,8 +224,11 @@ Valid metadata sources:
 Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 
 Proposed, feature-gated Codex native approval sessions keep their complete
-attention tuple in the canonical session JSON. A migrated integration
-advertises `ORKWORKS_SESSION_METADATA_API_VERSION=1`; its agents must use the
+attention tuple in the canonical session JSON. A migrated integration sets
+`ORKWORKS_SESSION_METADATA_API_VERSION=1` only for launches that also pass the
+explicit native configuration and exact version/platform/protocol compatibility
+gates; unsupported and non-native launches retain direct JSON behavior. Its
+agents must use the
 authenticated versioned sidecar read/patch API for all metadata mutations,
 with no direct JSON fallback. The marker declares the API-required write
 protocol; native-clear eligibility remains disabled until an authenticated
@@ -252,7 +255,8 @@ and do not refresh Peon's strict greater-than-15-second attention staleness
 rule. That age rule applies to ordinary agent and hook attention; a live
 native-owned `waiting_for_input` tuple remains protected regardless of age
 until its runtime owner resolves or revokes it. Accepted committed terminal
-input can supersede that wait through the trusted process transition, but
+input can supersede a native-owned or validated Codex hook-owned permission
+wait through the trusted process transition, but
 does not bypass a user override. A complete explicit agent clear relinquishes
 the agent attention tier and permits immediate Peon inference. Native-enabled
 eligibility also requires both authenticated metadata reads and a
@@ -302,7 +306,7 @@ write-before-publish. OrkWorks never edits tracked/shareable configuration,
 Alongside Peon's LLM-based inference, some harnesses expose deterministic, higher-confidence signals that OrkWorks can consume directly instead of inferring them from terminal output:
 
 - **Attention state** (`waiting_for_input` and related statuses): a harness's own notification mechanism — e.g. Claude Code's `Notification` hook — can call `POST /sessions/:id/attention` on the sidecar. Today, writes use `metadataSource: "agent"` with `metadataConfidence: 1.0` and respect the same priority/staleness rule Peon already respects: they cannot overwrite fresh `user` or fresh `agent` metadata, but always outrank `peon`/`backend_inference`/`process`/`unknown`. The proposed native-enabled path uses separate attention provenance as described above.
-- **Session plan/spec association**: a harness may report an optional workspace-relative Markdown `planPath` independently of attention state; JSON `null` clears it and omission preserves it. When no harness path exists, OrkWorks may conservatively associate a valid printed path below `docs/superpowers/plans/` or `specs/`. The renderer receives availability and validated document content, never a filesystem path, and displays it in the reusable Review tab. Electron main may request the one user-approved fixed review prompt through its per-sidecar secret; the sidecar revalidates the artifact before PTY input. See [ADR 0025](../docs/adr/0025-authenticated-session-plan-handoff.md) and [ADR 0034](../docs/adr/0034-user-approved-session-review-prompt.md).
+- **Session plan/spec association**: a harness may report an optional workspace-relative Markdown `planPath` independently of attention state; JSON `null` clears it and omission preserves it. When no harness path exists, OrkWorks may conservatively associate a valid printed path below `docs/superpowers/plans/` or `specs/`. The renderer receives availability and validated document content, never a filesystem path. **Review plan** opens the single central Review surface for the selected session and records a bounded return destination to Terminal or the originating Workflow; it does not create a document tab. Electron main may request the one user-approved fixed review prompt through its per-sidecar secret; the sidecar revalidates the artifact before PTY input. See [ADR 0025](../docs/adr/0025-authenticated-session-plan-handoff.md) and [ADR 0034](../docs/adr/0034-user-approved-session-review-prompt.md).
 - **Harness-native session ID and Codex label enrichment**: a harness-specific mechanism (env var, hook JSON, structured JSONL event) reports the session's native ID via `POST /sessions/:id/harness-session`, tagged with a source string and confidence. This is the same generic capture endpoint used for OpenCode's `OPENCODE_SESSION_ID`, Claude Code's hook `session_id`, and Codex's hook `session_id`; when a Codex report also authenticates with `ORKWORKS_REPORT_TOKEN`, the sidecar may read the exact native thread from the supported local `state_5.sqlite` store and use `threads.name`, then `threads.title`, as the automatic session label. Unsupported or unavailable data preserves the existing label; prompt and rollout JSONL parsing is out of scope. See `skills/adding-harness/`.
 - **Codex hook report transport under network sandboxing**: Codex hooks may be unable to POST to OrkWorks' loopback sidecar when command networking is sandboxed. For Codex only, the sidecar may give the session a private, temporary report mailbox and consume native harness-session reports from that mailbox. The mailbox relays identity reports only; it does not grant loopback or outbound network access to ordinary Codex commands. The sidecar applies the same in-memory reporting-token authentication, hook fingerprint/provenance checks, and Codex identity-reset rules as the HTTP route. The reporting token is never written to a mailbox file. Attention and other reports retain their existing transport. The mailbox path is a session reporting capability, not proof of which child process wrote a report; see [ADR 0069](../docs/adr/0069-codex-session-id-hook-report-mailbox.md).
 - **Codex identity and resume integrity**: Codex CLI subagents are internal to their owning CLI session; they do not create OrkWorks sessions or receive independent OrkWorks session IDs. Retain the first accepted native Codex session ID; a different ID may replace it only on an authenticated root `SessionStart` with `source=clear` after OrkWorks recorded the explicit reset. Resume only with that exact ID and only when the corresponding thread row and rollout file exist in the supported local Codex store. Missing or unsaved IDs never fall back to another Codex conversation. See [ADR 0068](../docs/adr/0068-codex-subagents-share-owning-session-identity.md).

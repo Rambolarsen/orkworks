@@ -55,9 +55,14 @@ retain their existing behavior until a separately approved migration changes
 that contract.
 
 The implementation should expose authenticated `GET /sessions/:id/metadata`
-and `PATCH /sessions/:id/metadata` operations for direct agents. Native-enabled
-launches set `ORKWORKS_SESSION_METADATA_API_VERSION=1` alongside the existing
-session ID, sidecar port, and report token. When that marker is present, agents
+and `PATCH /sessions/:id/metadata` operations for direct agents. Only a
+launch eligible for the proposed native Codex runtime under its explicit
+configuration and exact version/platform/protocol compatibility gates may set
+`ORKWORKS_SESSION_METADATA_API_VERSION=1`; the resolved built-in harness
+capability alone is insufficient. Unsupported or non-native launches keep
+the existing direct JSON contract. Eligible launches set the marker alongside
+the existing session ID, sidecar port, and report token. When that marker is
+present, agents
 must use the API for all metadata mutations and must fail closed if it is
 unavailable; they must not fall back to writing the JSON file. Without the
 marker, the existing direct JSON contract remains in effect for sessions
@@ -199,11 +204,14 @@ to the resolved built-in harness definition. Only the source-controlled
 Codex definition may advertise `sidecar-v1`, and only after its agent
 instructions and reporter helpers have migrated; user overrides cannot add
 this capability. The launch adapter derives
-`ORKWORKS_SESSION_METADATA_API_VERSION=1` from that resolved capability. This
-marker requires API-only writes and fail-closed behavior; it does not itself
-enable native clear. Native-clear eligibility starts disabled and is activated
-only after a bootstrap handshake succeeds from the actual agent execution
-context under the effective sandbox profile. The handshake performs an
+`ORKWORKS_SESSION_METADATA_API_VERSION=1` only when both that resolved
+capability and the launch's native configuration plus exact version, platform,
+and protocol compatibility gates are satisfied. Unsupported or non-native
+launches omit the marker and retain direct JSON behavior. On an eligible
+launch, the marker requires API-only writes and fail-closed behavior; it does
+not itself enable native clear. Native-clear eligibility starts disabled and
+activates only after a bootstrap handshake succeeds from the actual agent
+execution context under the effective sandbox profile. The handshake performs an
 authenticated metadata GET and a sidecar-defined validation-only PATCH. The
 PATCH checks the route, method, token, revision, and schema without mutating
 session metadata; a sidecar-only loopback probe is insufficient. Agent
@@ -272,13 +280,16 @@ or revokes it. Ordinary agent and hook attention retain the strict boundary:
 age 15 seconds blocks Peon; age greater than 15 seconds permits it.
 
 Accepted committed terminal input is a trusted runtime transition. When it
-supersedes a native-owned approval wait, it atomically writes the existing
+supersedes either a native-owned approval wait or a validated Codex
+hook-owned PermissionRequest wait, it atomically writes the existing
 `process`-tier `working` tuple and revokes that wait's ownership token despite
-the ordinary source ladder. This exception applies only to the accepted live
-input transition and does not bypass a `user` override. Other process
-transitions keep the ordinary source check. The versioned read response
-exposes the metadata revision needed for writes; `attentionUpdatedAt` is
-persisted and projected for arbitration and diagnosis.
+the ordinary source ladder. The hook exception requires the live Codex
+permission authority to still own the wait; it does not extend to other
+harness-hook waits or free-form elicitation. This exception applies only to
+the accepted live input transition and does not bypass a `user` override.
+Other process transitions keep the ordinary source check. The versioned read
+response exposes the metadata revision needed for writes; `attentionUpdatedAt`
+is persisted and projected for arbitration and diagnosis.
 
 The authenticated child-context bootstrap handshake verifies both metadata
 read and write reachability under the effective sandbox profile. It performs
@@ -399,13 +410,20 @@ The implementation follow-up must include behavioral tests proving:
 - `workMetadataUpdatedAt` changes on work-metadata writes, remains unchanged
   for attention-only writes, and independently controls the work-metadata
   source staleness check.
-- The API version marker is set for the migrated built-in capability without
-  depending on child-context reachability. Native-clear eligibility remains
+- The API version marker is set only when the migrated built-in capability and
+  the launch's native configuration, exact version, platform, and protocol
+  compatibility gates pass. Unsupported and non-native launches omit it and
+  retain direct JSON behavior. Native-clear eligibility remains
   disabled until the agent-context authenticated GET and validation-only PATCH
   succeed under the effective sandbox profile. The handshake makes no record
   mutation and preserves revisions/timestamps; failure leaves API-only writes
   required and native clear disabled. The identity-only report mailbox does
   not satisfy this transport requirement.
+- The accepted committed-input transition clears both native-owned Codex
+  approval waits and validated Codex hook-owned PermissionRequest waits while
+  preserving `user` overrides. It does not clear unrelated harness-hook waits
+  or free-form elicitation; other process transitions retain ordinary source
+  arbitration.
 - Summary-only and plan-only writes leave `metadataSource`,
   `metadataConfidence`, and `workMetadataUpdatedAt` unchanged. Any descriptive
   work-field update supplies the complete `workFields` snapshot; partial
