@@ -209,15 +209,23 @@ is a positive, monotonically increasing integer in that stream. `eventId` is
 the deterministic string `<producerStreamId>:<producerSequence>`, validated by
 the server. The adapter and session reporter must persist and retry the same
 sequence/event ID until acknowledged. A sequence gap is recorded as incomplete
-coverage. The server records its own `receivedAt` and workspace-monotonic
-`workspaceSequence`, distinct from the producer's sequence. `occurredAt` is
-advisory; it must use `YYYY-MM-DDTHH:mm:ss[.sss]Z` UTC RFC3339 syntax with at
+coverage. The server records its own `receivedAt` and durable, workspace-
+monotonic `workspaceSequence`, distinct from the producer's sequence. It
+increments atomically for each newly persisted evidence event, survives sidecar
+restarts and repository evidence clears, and is never reused. A replay or
+cross-stream alias returns the original event's sequence and does not allocate
+a new one. `occurredAt` is advisory; it must use
+`YYYY-MM-DDTHH:mm:ss[.sss]Z` UTC RFC3339 syntax with at
 most 32 ASCII bytes, no earlier than
 the bound launch's `startedAt` minus five minutes, and no later than server
-receipt time plus five minutes. The UI
-orders by server `receivedAt`, never by this producer-supplied value.
-`evidenceRef` is an optional opaque reference/digest to a retained event or
-approved source-metadata digest, never arbitrary transcript text. The server
+receipt time plus five minutes. The UI orders by durable `workspaceSequence`;
+server `receivedAt` is its display timestamp, never producer-supplied
+`occurredAt`. `reported_use` requires exactly one bounded `evidenceRef`
+identifying where the assigned session applied the skill: a retained event in
+this evidence store or an approved source-metadata record/digest already
+present in the assignment snapshot. If no such application reference exists,
+reject the report and leave usage unknown. For other event kinds, `evidenceRef`
+is optional. It can never contain arbitrary transcript text. The server
 returns the accepted event ID, workspace sequence,
 effective provenance, and whether it was newly accepted or replayed.
 
@@ -257,7 +265,8 @@ once. The target remains in bounded history with its provenance; the active
 projection and aggregates exclude it and mark it corrected.
 
 Unknown event kinds and unknown schema versions fail closed. A delivery receipt
-must include the exact delivery mechanism and content digest. An observed event
+must include the exact delivery mechanism and content digest. A `reported_use`
+event must include its required application reference. An observed event
 must identify the adapter's documented invocation event type and a stable
 source event reference. For native invocation events, this reference is an
 adapter-issued immutable event ID in a documented namespace scoped to the
@@ -455,6 +464,8 @@ the server must not truncate fields into a different accepted payload.
 | Per-skill aggregates per workspace | 10,000 |
 | Aggregate assignment bindings per workspace | 10,000 |
 | Aggregate bytes per workspace | 2 MiB |
+| Compact correction-target rows per workspace | 100,000 |
+| Compact correction-target bytes per workspace | 10 MiB |
 | Accepted reports per workspace | 60 per rolling minute |
 | Attempts per valid capability | 120 per rolling minute, charged before JSON parsing and assignment lookup; includes replay and rejected requests |
 | Attempts per workspace | 600 per rolling minute, charged before JSON parsing and assignment lookup |
@@ -477,9 +488,10 @@ byte or count pressure may evict raw events sooner. Do not trim the approved
 assignment/skill identity, latest coverage state, deletion marker, active
 high-water marks, or tombstones still within the replay window. The 180-day
 aggregate/history TTL is also an upper bound; the 1,000 assignment and 10,000
-aggregate caps take precedence. When no expired binding/aggregate can be
-evicted, reject new evidence with `429 evidence_capacity`; do not silently drop
-an unexpired aggregate or weaken a replay guarantee. If tombstone capacity
+aggregate caps take precedence. When no expired binding/aggregate/correction
+target can be evicted, reject new evidence with `429 evidence_capacity`; do not
+silently drop an unexpired aggregate, correction target, or weaken a replay
+guarantee. If tombstone capacity
 cannot preserve the full replay window under the rate cap, reject new events
 with `429 evidence_capacity` before accepting them.
 The workspace rate cap admits at most 86,400 IDs in a 24-hour window; the
@@ -488,8 +500,16 @@ Apply this cap before allocating a tombstone or event record.
 
 Retain raw bounded evidence events for at most 30 days after the assignment
 reaches a terminal state, subject to earlier eviction under the stated storage
-caps; then delete event payloads and evidence references. Retain bounded
-per-skill aggregates and assignment/configuration identity for at most 180 days
+caps; then delete event payloads and evidence references. Retain a compact
+correction-target row for every aggregate contribution for the full lifetime of
+that contribution, up to 180 days after terminal state. Each row preserves the
+event ID, aggregate key, provenance/source, and correction state needed to
+remove the contribution without retaining raw evidence. Deleting raw event
+content does not delete this correction index. When its aggregate expires, the
+corresponding correction-target row expires atomically. Capacity pressure may
+not evict an unexpired row; if its count or byte ceiling is reached, reject new
+evidence/corrections with `429 evidence_capacity` before persistence. Retain
+bounded per-skill aggregates and assignment/configuration identity for at most 180 days
 after terminal state for local comparison, subject to the stated caps and
 repository deletion. If assignment/aggregate capacity is full and all records
 are still within their retention period, reject new evidence until capacity is
@@ -540,7 +560,7 @@ source material safe to retain.
 | `401` | Missing, invalid, or revoked report capability. |
 | `403` | Authenticated session is not the assigned producer for this event kind. |
 | `404` | Assignment or skill snapshot is not visible in this workspace. |
-| `409` | Idempotency conflict, producer-sequence conflict, or stale revision/generation. |
+| `409` | Idempotency conflict, producer-sequence conflict, `source_event_conflict`, or stale revision/generation. |
 | `410` | Assignment closed, producer sequence expired, or workspace deletion fenced the report. |
 | `413` | Request exceeds a byte/count bound. |
 | `429` | Rate or evidence capacity limit; includes bounded retry guidance. |
@@ -576,6 +596,25 @@ not inspect raw event files or authenticate producers. For each skill, expose:
 ```json
 {
   "skillSnapshotId": "skill-snapshot-graph-planning-7f2a",
+  "skillVersion": "v7",
+  "skillContentDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "binding": {
+    "runId": "run-123",
+    "planId": "plan-456",
+    "planRevision": 4,
+    "taskId": "task-789",
+    "taskVersion": 2,
+    "reservationId": "reservation-abc",
+    "parentSessionId": "session-parent",
+    "configurationId": "config-ghi",
+    "configurationDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "childSessionId": "session-def",
+    "sidecarGeneration": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "launchGeneration": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "adapterGeneration": "copilot-cli-1.0.90-profile-v1",
+    "evidenceStoreGeneration": 3
+  },
+  "currentEvidenceRefs": [{ "eventId": "rs_01J9EXAMPLE7N8R3Y6K2M4P0Q1A:18", "workspaceSequence": 401 }],
   "label": "orchestrating-task-graphs",
   "delivery": { "state": "selected_unconfirmed", "source": null },
   "usage": {
@@ -597,7 +636,14 @@ Badge behavior follows the parent design's refinement:
 - missing use remains `unknown`, never “unused” or numeric zero;
 - reduced-motion settings replace the brief highlight with a static indicator.
 
-The sidecar derives `lastAt` from server `receivedAt`, never `occurredAt`. It
+The sidecar orders evidence by durable `workspaceSequence`; it uses the
+corresponding server `receivedAt` only as the display timestamp for `lastAt`,
+never producer-supplied `occurredAt`. The renderer projection includes the
+validated plan/task/reservation/session tuple as well as the skill, configuration,
+and generation bindings shown above. It exposes stable usage event IDs with
+their workspace sequences, or an authoritative latest-workspace-sequence
+dedupe cursor. The renderer must not join records using labels or infer missing
+binding values. It
 may return null counts when coverage is unsupported/incomplete.
 Only display zero for an explicitly counted event stream in a stated coverage
 interval, and still label that interval's coverage. The UI does not convert
@@ -621,7 +667,8 @@ The future implementation plan must cover at least these contract cases:
 - invocation-looking terminal mention that must be rejected as observed use;
 - unsupported, partial, interrupted, and complete adapter coverage;
 - wrong workspace/session/assignment/skill/configuration digest;
-- stale plan, task attempt, runtime, and adapter generations;
+- stale plan revision, taskVersion, reservation/child binding, runtime, and
+  adapter generations;
 - same-key same-payload replay and same-key different-payload conflict;
 - rate, request, per-assignment, and workspace bounds before persistence;
 - trim with tombstone replay, expired replay, deletion, late retry, restart,
