@@ -12,6 +12,7 @@ import { getDevSidecarPath, getDevUserDataPath, getPackagedSidecarPath } from ".
 import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import { createShellLayoutMemory } from "./shellLayoutMemory";
+import { confirmShellMemoryRebuild } from "./shellMemoryRebuild";
 import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, type LastCentralSurface } from "./workspaceNavigationMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
@@ -1361,10 +1362,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-shell-layout", () => shellLayoutMemory.read());
   ipcMain.handle("save-shell-layout", (_event, preferences: unknown) => shellLayoutMemory.save(preferences));
   ipcMain.handle("reset-shell-layout", () => shellLayoutMemory.reset());
-  ipcMain.handle("rebuild-shell-layout", (_event, confirmed: unknown) => {
-    if (confirmed !== true) throw new Error("Shell layout rebuild requires explicit confirmation.");
-    return shellLayoutMemory.rebuild(true);
-  });
+  ipcMain.handle("rebuild-shell-layout", async () => confirmShellMemoryRebuild("layout", mainWindow,
+    (owner, options) => dialog.showMessageBox(owner, options), () => shellLayoutMemory.rebuild(true)));
 
   function currentNavigationIdentity(): { workspaceIdentity: string; generation: number } {
     if (latestBackendLifecycle.state !== "ready" || !latestBackendLifecycle.workspace) {
@@ -1402,10 +1401,8 @@ app.whenReady().then(async () => {
       && workspacePath === workspaceIdentity && backendGeneration === generation;
     return workspaceNavigationMemory.delete(workspaceIdentity, generation, stillCurrent);
   });
-  ipcMain.handle("rebuild-workspace-navigation", (_event, confirmed: unknown) => {
-    if (confirmed !== true) throw new Error("Workspace navigation rebuild requires explicit confirmation.");
-    return workspaceNavigationMemory.rebuild(true);
-  });
+  ipcMain.handle("rebuild-workspace-navigation", async () => confirmShellMemoryRebuild("navigation", mainWindow,
+    (owner, options) => dialog.showMessageBox(owner, options), () => workspaceNavigationMemory.rebuild(true)));
 
   ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => ({
     // Workspace history is a picker hint, not proof that this process owns the

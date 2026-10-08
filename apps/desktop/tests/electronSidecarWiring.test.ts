@@ -17,6 +17,18 @@ test("shell persistence IPC derives navigation identity from ready lifecycle and
   assert.match(rendererTypes, /completeWorkspaceNavigation: \(surface: LastCentralSurface\)/);
 });
 
+test("both shell rebuild IPC handlers gate writes on distinct native confirmations", () => {
+  assert.match(mainSource, /ipcMain\.handle\("rebuild-shell-layout", async \(\) => confirmShellMemoryRebuild\("layout",/);
+  assert.match(mainSource, /ipcMain\.handle\("rebuild-workspace-navigation", async \(\) => confirmShellMemoryRebuild\("navigation",/);
+  assert.match(mainSource, /dialog\.showMessageBox\(owner, options\)/);
+  assert.match(preloadSource, /rebuildShellLayout: \(\): Promise<ShellMemoryRebuildResult> => ipcRenderer\.invoke\("rebuild-shell-layout"\)/);
+  assert.match(preloadSource, /rebuildWorkspaceNavigation: \(\): Promise<ShellMemoryRebuildResult> => ipcRenderer\.invoke\("rebuild-workspace-navigation"\)/);
+  assert.match(rendererTypes, /rebuildShellLayout: \(\) => Promise<ShellMemoryRebuildResult>/);
+  assert.match(rendererTypes, /rebuildWorkspaceNavigation: \(\) => Promise<ShellMemoryRebuildResult>/);
+  assert.doesNotMatch(mainSource, /rebuild-shell-layout", \(_event, confirmed/);
+  assert.doesNotMatch(mainSource, /rebuild-workspace-navigation", \(_event, confirmed/);
+});
+
 test("Electron main centralizes initial and workspace sidecar startup", () => {
   assert.match(mainSource, /import \{ createSidecarLifecycle/);
   assert.equal(mainSource.match(/createSidecarLifecycle\(/g)?.length, 1);

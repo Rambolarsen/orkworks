@@ -81,6 +81,7 @@ export type LastCentralSurface = "terminal" | "review";
 export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: "low" | "high" };
 export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
 export type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
+export type ShellMemoryRebuildResult = ShellMemoryResult | { ok: false; diagnostic: "user_cancelled" };
 export type ShellLayoutSnapshot = { preferences: ShellPreferences; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 export type WorkspaceNavigationView = { lastCentralSurface: LastCentralSurface | null; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 
@@ -164,11 +165,11 @@ declare global {
       getShellLayout: () => Promise<ShellLayoutSnapshot>;
       saveShellLayout: (preferences: ShellPreferences) => Promise<ShellMemoryResult>;
       resetShellLayout: () => Promise<ShellMemoryResult>;
-      rebuildShellLayout: (confirmed: true) => Promise<ShellMemoryResult>;
+      rebuildShellLayout: () => Promise<ShellMemoryRebuildResult>;
       getWorkspaceNavigation: () => Promise<WorkspaceNavigationView>;
       completeWorkspaceNavigation: (surface: LastCentralSurface) => Promise<ShellMemoryResult>;
       deleteWorkspaceNavigation: () => Promise<ShellMemoryResult>;
-      rebuildWorkspaceNavigation: (confirmed: true) => Promise<ShellMemoryResult>;
+      rebuildWorkspaceNavigation: () => Promise<ShellMemoryRebuildResult>;
       getSettings: () => Promise<AppSettings>;
       getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
       getTaskmasterRunStatus: () => Promise<import("./taskmasterSettings").TaskmasterRunStatus>;
