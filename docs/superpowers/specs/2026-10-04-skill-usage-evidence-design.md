@@ -264,6 +264,17 @@ corrected, and cannot create or promote evidence. Each event may be corrected
 once. The target remains in bounded history with its provenance; the active
 projection and aggregates exclude it and mark it corrected.
 
+Assignment closure fences all new child and adapter producer sequences.
+Electron-main-authorized user corrections remain available afterward through a
+separate repository-scoped correction operation that does not use a producer
+stream or reopen assignment writes. The sidecar keys it by target event ID:
+repeating the same correction returns the original receipt, while a different
+reason for the already-corrected target returns `409 correction_conflict`.
+Accept it only while the compact correction-target row and aggregate are
+retained, apply the correction atomically, enforce workspace attempt/record
+bounds, and record user provenance with a new workspace sequence. Renderer
+code cannot invoke this operation directly.
+
 Unknown event kinds and unknown schema versions fail closed. A delivery receipt
 must include the exact delivery mechanism and content digest. A `reported_use`
 event must include its required application reference. An observed event
@@ -276,9 +287,12 @@ Adapter source sequence maps to `producerSequence`;
 coverage `fromSequence`, `throughSequence`, and gap ranges all use this same
 stream-local sequence, while the returned sequence is workspace-local storage
 order. One stream is scoped to one configuration, launch generation, producer
-kind, and adapter generation. Sequences start at 1 and are strictly increasing. A restart creates
-a new generation and stream; it cannot reuse the old stream or claim coverage
-across the restart. Producers submit in sequence order. The server rejects a
+kind, and the approved `adapterGeneration`. That field is the immutable #741
+adapter/capability identity and stays unchanged when its process restarts. The
+server-issued `producerStreamId` is the observer-process incarnation identity
+and restart fence: a restart receives a new stream ID, cannot reuse the old
+stream, and cannot claim coverage across the restart. Sequences start at 1 and
+are strictly increasing within each stream. Producers submit in sequence order. The server rejects a
 lower sequence unless it is an exact replay with a retained matching event or
 tombstone; a higher sequence is accepted and its skipped interval is marked as
 a gap.
@@ -290,48 +304,58 @@ must report no invocation coverage.
 
 ## Capability and coverage gates
 
-An adapter's capability entry must bind exact coding-tool version and launch
-configuration to reproducible evidence of:
+The evidence register binds exact coding-tool version, launch configuration,
+and role-specific permission profile. It evaluates content delivery and native
+observation as separate capabilities:
 
-1. how selected skill bytes are delivered and how the receipt binds those exact
-   bytes to the launched child;
-2. which native event identifies an actual skill invocation, where it is
-   emitted, and how it binds to the child, skill version, and assignment;
-3. observer coverage start/end, missing-event behavior, duplicate/gap handling,
-   and runtime-generation fencing;
-4. the adapter's ability to exclude full prompts, hidden reasoning, and
-   transcript content from evidence;
-5. a separated adapter-event ingress whose authority the child report route
-   cannot invoke or impersonate;
-6. the role-specific permission profile and any route that could widen it.
+**Delivery gate for `loaded`:** reproducible evidence must show how the exact
+selected skill bytes and their complete transitive resource closure are
+delivered, how the receipt binds those bytes and digests to the launched child,
+and that the role-specific permission profile has no unreviewed widening route.
+The receipt path must have authenticated adapter provenance that the child
+cannot invoke or impersonate. Until this delivery gate passes, the adapter
+cannot produce `loaded` evidence for launch eligibility.
 
-Until the evidence register verifies all requirements for an assignment's
-requested role/profile, that adapter cannot produce `loaded` or
-`observed_used` evidence for launch eligibility. A prompt instruction or
-successful process start is not a delivery receipt. Unsupported usage
-observation leaves usage `unknown`; it is not replaced with terminal parsing,
-model inference, or child claims.
+**Optional observation gate for `observed_used`:** when an adapter claims native
+invocation coverage, evidence must identify the recognized invocation event,
+where it is emitted, and how it binds to the child, skill version, and
+assignment; establish coverage start/end, missing-event behavior,
+duplicate/gap handling, stable source-event IDs, and restart fencing; exclude
+full prompts, hidden reasoning, and transcript content; and use an ingress the
+child route cannot invoke or impersonate. Until this separate gate passes, the
+adapter may still confirm delivery if its delivery gate passed, while usage
+observation remains `unsupported`/`unknown`. Native observation is optional;
+it is not a prerequisite for delivery confirmation.
 
-Coverage is explicit per assignment and adapter generation. `complete` is
-permitted only after a server-fenced finalization handshake. After draining its
-observer, the adapter requests interval closure and declares its final source
-sequence (`finalSequence`) through the adapter-only integration channel. The
-sidecar atomically records the assignment's terminal boundary and that declared
-sequence, closes event writes for the stream, and returns a finalization nonce.
-The sidecar rejects a boundary lower than an already accepted source sequence.
-The adapter then submits one final coverage control record naming the nonce and
-boundary. This is a bounded finalization operation, not a new evidence event:
-it consumes no producer sequence, cannot add invocation or delivery events,
-and cannot reopen writes. It is permitted after assignment closure only for the
-recorded stream, nonce, and boundary. The sidecar marks coverage complete only
-when all source sequences through `finalSequence` are accounted for with no
-gaps; missing sequences, an invalid boundary, or declared gaps leave coverage
-partial/interrupted. A lost trailing event therefore prevents complete
-coverage. Repeating the exact finalization payload returns the stored receipt;
-a changed payload for the nonce conflicts. Missing handshake/coverage never
-defaults to complete. The operation is generation-bound and idempotent.
+There is no eligible adapter yet: the #740 register currently marks all six
+Copilot profiles no-go and names no verified substitute. A prompt instruction
+or successful process start is not a delivery receipt. Unsupported usage
+observation is not replaced with terminal parsing, model inference, or child
+claims.
 
-Coverage is explicit per assignment and adapter generation:
+Coverage is explicit per assignment and producer stream. The adapter declares
+its proposed final source sequence (`finalSequence`) through the adapter-only
+channel before the child ends. This records a pending finalization request; it
+does not close the stream, establish a terminal boundary, or mark coverage
+complete. The sidecar accepts finalization only as part of, or after observing,
+the authoritative terminal transition of the assigned child runtime. At that
+transition it atomically closes event writes, records the boundary, compares
+the adapter-declared sequence with accepted sequences, and returns a
+finalization nonce. A boundary below any accepted sequence is invalid. The
+adapter then submits one final coverage control record naming the nonce and
+boundary. This bounded control operation consumes no producer sequence, cannot
+add invocation or delivery events, and cannot reopen writes. It is permitted
+after assignment closure only for the server-recorded stream, nonce, and
+boundary. Coverage is `complete` only when every source sequence through
+`finalSequence` is accounted for without gaps; missing sequences, an invalid
+boundary, or declared gaps leave it partial/interrupted. Later child activity
+cannot occur after the authoritative terminal transition and cannot be hidden
+by adapter-requested closure. Repeating the exact finalization payload returns
+the stored receipt; a changed payload for the nonce conflicts. Missing
+handshake/coverage never defaults to complete. The operation is generation-
+bound and idempotent.
+
+Coverage is explicit per assignment and producer stream:
 
 ```json
 {
@@ -560,8 +584,8 @@ source material safe to retain.
 | `401` | Missing, invalid, or revoked report capability. |
 | `403` | Authenticated session is not the assigned producer for this event kind. |
 | `404` | Assignment or skill snapshot is not visible in this workspace. |
-| `409` | Idempotency conflict, producer-sequence conflict, `source_event_conflict`, or stale revision/generation. |
-| `410` | Assignment closed, producer sequence expired, or workspace deletion fenced the report. |
+| `409` | Idempotency, producer-sequence, source-event, or correction conflict; or stale revision/generation. |
+| `410` | Assignment closed for child/adapter event writes, producer sequence expired, or workspace deletion fenced the report. |
 | `413` | Request exceeds a byte/count bound. |
 | `429` | Rate or evidence capacity limit; includes bounded retry guidance. |
 | `503` | Store degraded or durable commit unavailable; retry only with the same event ID. |
@@ -618,8 +642,8 @@ not inspect raw event files or authenticate producers. For each skill, expose:
   "label": "orchestrating-task-graphs",
   "delivery": { "state": "selected_unconfirmed", "source": null },
   "usage": {
-    "reported": { "state": "recorded", "source": "assigned_session_self_report", "processOriginVerified": false, "count": 1, "lastAt": "2026-10-07T14:23:10Z" },
-    "observed": { "state": "unknown", "source": "adapter_native_event", "count": null, "coverage": "unsupported" }
+    "reported": { "state": "recorded", "source": "assigned_session_self_report", "processOriginVerified": false, "count": 1, "countKind": "recorded", "lastAt": "2026-10-07T14:23:10Z" },
+    "observed": { "state": "unknown", "source": "adapter_native_event", "count": null, "countKind": "unavailable", "coverage": "unsupported" }
   }
 }
 ```
@@ -643,8 +667,12 @@ validated plan/task/reservation/session tuple as well as the skill, configuratio
 and generation bindings shown above. It exposes stable usage event IDs with
 their workspace sequences, or an authoritative latest-workspace-sequence
 dedupe cursor. The renderer must not join records using labels or infer missing
-binding values. It
-may return null counts when coverage is unsupported/incomplete.
+binding values. The projection reports accepted, uncorrected event counts. With
+partial or interrupted coverage, a known count remains a lower bound and is
+labeled `countKind: "lower_bound"` alongside the separate coverage state.
+Return null with `countKind: "unavailable"` only when no countable producer
+stream exists, such as unsupported observation. Known report counts remain
+available independently of adapter coverage.
 Only display zero for an explicitly counted event stream in a stated coverage
 interval, and still label that interval's coverage. The UI does not convert
 that local interval into a lifetime no-use claim. Loading and usage evidence
