@@ -1704,6 +1704,156 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_attempt_context_blocks_all_peon_persistence() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "cancelled-attempt-persistence";
+        let runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let runtime_identity = runtime.identity();
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id,
+                    "Original topic",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx: tokio::sync::watch::channel(false).0,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+        let mut metadata = test_session_metadata(
+            session_id,
+            "Original topic",
+            &dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        metadata.lifecycle_phase = "active".into();
+        metadata.lifecycle = "alive".into();
+        metadata.terminal_outcome = None;
+        metadata.pending_terminal_status = None;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        state.peon.mark_candidate(session_id);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, runtime_identity.clone())
+            .expect("diagnostic attempt should start");
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let context = AttemptContext::new(
+            state.clone(),
+            session_id.to_string(),
+            attempt,
+            cancellation.clone(),
+        );
+        let context_view = context.view();
+        assert!(context_view.is_current());
+
+        cancellation.store(true, Ordering::SeqCst);
+
+        let application = crate::session_application::SessionApplication::new(state.clone());
+        assert!(!application.persist_input_label(
+            &context_view,
+            "Cancelled topic".into(),
+            0,
+            false,
+        ));
+        assert_eq!(
+            state.sessions.lock().unwrap()[session_id].info.label,
+            "Original topic"
+        );
+        metadata = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(metadata.label, "Original topic");
+
+        let inference = peon::parse_inference(r#"{"status":"blocked","confidence":0.9}"#);
+        let persisted = application.persist_peon_observation(
+            &context_view,
+            inference.as_ref(),
+            None,
+            Some("cancelled attempt summary"),
+            "later",
+        );
+        assert!(!persisted.inference_persisted);
+        metadata = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session_id)
+            .unwrap();
+        assert_eq!(metadata.label, "Original topic");
+        assert_eq!(metadata.observed_status, None);
+        assert_eq!(metadata.summary, None);
+
+        let output_range = crate::session_application::PeonObservationOutputRange {
+            runtime_instance_id: runtime_identity.runtime_instance_id,
+            run_generation: runtime_identity.run_generation,
+            first_revision: 1,
+            last_revision: 1,
+        };
+        let workflow_observation = peon::PeonWorkflowObservation {
+            kind: crate::workflow_observations::ObservationKind::Obstacle,
+            description: "Cancelled workflow observation".into(),
+            evidence: "captured output".into(),
+            problem_area: None,
+            reported_impact: crate::workflow_observations::Impact::Low,
+            confidence: 0.8,
+        };
+        let recorded = application.record_peon_workflow_observations(
+            Some(dir.path()),
+            &context_view,
+            &output_range,
+            &["captured output".to_string()],
+            &[workflow_observation],
+        );
+        assert!(!recorded.accepted_observation);
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn attempt_context_drop_releases_its_lease_and_preserves_terminal_diagnostics() {
         let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
