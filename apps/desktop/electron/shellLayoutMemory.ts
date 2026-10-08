@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readlinkSync, readSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
 import fsExt from "fs-ext";
@@ -28,11 +28,20 @@ type Pending<P> = {
   update: (payload: P, revision: number) => P | null;
   resolve: (result: ShellMemoryResult) => void;
 };
-type RetainedPrior = { backup: string; dev: number; ino: number; size: number; kind: "regular" | "fifo" };
+type RetainedPrior = { backup: string; dev: number; ino: number; size: number; kind: "regular" | "fifo" }
+  | { backup: string; size: number; kind: "symlink"; linkTarget: string };
 type Prior = Buffer | RetainedPrior | null;
 export type ShellFileReplacer = (temporary: string, target: string, targetExists: boolean) => void;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const lockFileName = ".shell-memory.lock";
+
+function existsNoFollow(path: string): boolean {
+  try { lstatSync(path); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
 
 function exactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -103,13 +112,22 @@ export class RevisionedShellMemory<P> {
 
   private path(): string { return join(this.directory, this.fileName); }
   private readTarget(): Buffer | "oversize" | "non_regular" | null {
-    if (!existsSync(this.path())) return null;
-    // O_NONBLOCK prevents a replaced FIFO from freezing Electron before fstat
-    // can reject it. It is ignored for ordinary files on supported platforms.
+    let pathInfo;
+    try { pathInfo = lstatSync(this.path()); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    // Treat symlinks, including dangling ones, as records requiring explicit
+    // recovery. existsSync follows links and would mistake a dangling link for
+    // a missing first-use record, allowing an ordinary read to replace it.
+    if (!pathInfo.isFile()) return "non_regular";
+    // O_NONBLOCK and the inode comparison also reject a target swapped after
+    // lstat, without following a replacement FIFO or symlink.
     const descriptor = openSync(this.path(), constants.O_RDONLY | constants.O_NONBLOCK);
     try {
       const info = fstatSync(descriptor);
-      if (!info.isFile()) return "non_regular";
+      if (!info.isFile() || info.dev !== pathInfo.dev || info.ino !== pathInfo.ino) return "non_regular";
       if (info.size > this.limit) return "oversize";
       // A file can grow after fstat. The extra byte detects that race without
       // ever allocating or reading more than the record bound plus one.
@@ -156,7 +174,7 @@ export class RevisionedShellMemory<P> {
       }
       fsyncSync(descriptor);
       closeSync(descriptor); descriptor = null;
-      replacer(temporary, this.path(), existsSync(this.path()));
+      replacer(temporary, this.path(), existsNoFollow(this.path()));
       // Candidate and restore payloads fit the record bound. A misbehaving
       // replacer or external writer can still publish a larger target.
       const observed = this.readTarget();
@@ -166,19 +184,25 @@ export class RevisionedShellMemory<P> {
     finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
   }
 
-  private capturePrior(allowFifo = false): Prior {
+  private capturePrior(allowSpecialRebuild = false): Prior {
     const previous = this.readTarget();
     if (previous === "non_regular") {
       const target = this.path();
       const info = lstatSync(target);
-      if (!allowFifo || !info.isFIFO()) throw new Error("Prior shell target is not a rebuildable file");
+      const kind = info.isFIFO() ? "fifo" : info.isSymbolicLink() ? "symlink" : null;
+      if (!allowSpecialRebuild || kind === null) throw new Error("Prior shell target is not a rebuildable file");
       const backup = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.bak`);
       try {
-        linkSync(target, backup);
+        const linkTarget = kind === "symlink" ? readlinkSync(target) : null;
+        if (linkTarget === null) linkSync(target, backup);
+        else symlinkSync(linkTarget, backup);
         const retained = lstatSync(backup);
-        if (!retained.isFIFO() || retained.dev !== info.dev || retained.ino !== info.ino)
-          throw new Error("FIFO backup did not preserve the prior inode");
-        return { backup, dev: retained.dev, ino: retained.ino, size: retained.size, kind: "fifo" };
+        if ((kind === "fifo" && (!retained.isFIFO() || retained.dev !== info.dev || retained.ino !== info.ino))
+          || (kind === "symlink" && (!retained.isSymbolicLink() || readlinkSync(backup) !== linkTarget)))
+          throw new Error("Special-file backup did not preserve the prior object");
+        return kind === "symlink"
+          ? { backup, size: retained.size, kind, linkTarget: linkTarget! }
+          : { backup, dev: retained.dev, ino: retained.ino, size: retained.size, kind };
       } catch (error) { rmSync(backup, { force: true }); throw error; }
     }
     if (previous !== "oversize") return previous;
@@ -198,6 +222,10 @@ export class RevisionedShellMemory<P> {
   private priorInPlace(previous: RetainedPrior): boolean {
     try {
       const current = lstatSync(this.path());
+      if (previous.kind === "symlink") {
+        return current.isSymbolicLink() && current.size === previous.size
+          && readlinkSync(this.path()) === previous.linkTarget;
+      }
       return current.dev === previous.dev && current.ino === previous.ino && current.size === previous.size
         && (previous.kind === "fifo" ? current.isFIFO() : current.isFile());
     } catch { return false; }
@@ -250,7 +278,7 @@ export class RevisionedShellMemory<P> {
     }
     if (!Buffer.isBuffer(previous)) {
       try {
-        this.restoreReplacer(previous.backup, this.path(), existsSync(this.path()));
+        this.restoreReplacer(previous.backup, this.path(), existsNoFollow(this.path()));
         if (this.priorInPlace(previous)) return { ok: false, diagnostic: "write_failed" };
       } catch { /* The prior inode could not be confirmed at the target. */ }
       return { ok: false, diagnostic: "restore_failed" };

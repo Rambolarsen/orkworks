@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -55,6 +55,35 @@ test("shell layout returns a diagnostic for a FIFO record without blocking", (t)
     `, directory], { encoding: "utf8", timeout: 2_000 });
     assert.equal(probe.error, undefined, "reading the FIFO record must not block");
     assert.equal(probe.status, 0, probe.stderr || "child process failed");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("ordinary reads preserve a dangling shell-record symlink until confirmed rebuild", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-dangling-link-"));
+  try {
+    const path = shellLayoutMemoryPath(directory);
+    const missingTarget = join(directory, "temporarily-missing-target.json");
+    try { symlinkSync(missingTarget, path); }
+    catch { return t.skip("symbolic links are unavailable"); }
+    const memory = createShellLayoutMemory(directory);
+
+    assert.equal(memory.read().diagnostic, "corrupt_record");
+    assert.equal(lstatSync(path).isSymbolicLink(), true);
+    assert.equal(existsSync(missingTarget), false);
+
+    assert.deepEqual(await memory.rebuild(true), { ok: true });
+    assert.equal(lstatSync(path).isFile(), true);
+
+    unlinkSync(path);
+    symlinkSync(missingTarget, path);
+    const failingMemory = createShellLayoutMemory(directory, (temporary, target) => {
+      renameSync(temporary, target);
+      throw new Error("injected post-publication failure");
+    });
+    assert.deepEqual(await failingMemory.rebuild(true), { ok: false, diagnostic: "write_failed" });
+    assert.equal(lstatSync(path).isSymbolicLink(), true);
+    assert.equal(readlinkSync(path), missingTarget);
+    assert.equal(readdirSync(directory).some((name) => name.endsWith(".bak")), false);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
