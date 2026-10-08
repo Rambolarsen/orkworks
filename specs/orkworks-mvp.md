@@ -223,8 +223,9 @@ Valid metadata sources:
 
 Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 
-Proposed, feature-gated Codex native approval sessions keep their complete
-attention tuple in the canonical session JSON. A migrated integration sets
+For feature-gated Codex native approval sessions, the owner-approved written
+contract keeps the complete attention tuple in the canonical session JSON. A
+migrated integration sets
 `ORKWORKS_SESSION_METADATA_API_VERSION=1` only for launches that also pass the
 explicit native configuration and exact version/platform/protocol compatibility
 gates; unsupported and non-native launches retain direct JSON behavior. Its
@@ -265,9 +266,10 @@ the agent attention tier and permits immediate Peon inference. Native-enabled
 eligibility also requires both authenticated metadata reads and a
 non-mutating metadata PATCH preflight verified from the child execution
 context under its effective sandbox profile.
-Native clearing remains gated pending owner review, producer migration,
-behavioral verification, and the separate #690/#763 gates. See the
-[proposed mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
+Native clearing remains gated pending implementation, producer migration,
+behavioral verification, and the separate #690/#763 gates. The specification
+approval does not authorize runtime changes under #761. See the
+[approved mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
 
 ### Resolved harness capabilities and integrations
 
@@ -752,13 +754,27 @@ The first useful MVP should include:
 - append basic event logs to `events/<session-id>.ndjson`
 - record bounded, sequenced workflow observations to `workflow-observations/<session-id>.ndjson` through the shared recording module (see "Workflow observations" above)
 
-The proposed, feature-gated Codex native approval path keeps one canonical
-session record and routes active metadata writes through a versioned sidecar
-operation. Direct JSON reads remain available; direct JSON writes would be
+The owner-approved, feature-gated Codex native approval design keeps one
+canonical session record and routes active metadata writes through a versioned
+sidecar operation. Direct JSON reads remain available; direct JSON writes are
 unsupported for native-enabled sessions. The launch adapter advertises the
-protocol only for a migrated integration that has passed producer-path tests.
-This changes the current write contract and remains pending owner approval. See the
-[sidecar-mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
+protocol after the source-controlled integration has migrated its agent
+instructions and reporter helpers, and the launch passes the native
+configuration and exact version/platform/protocol compatibility gates. The
+marker makes the agent API-only and does not itself enable native clearing.
+After launch, the agent must complete the authenticated metadata GET and
+validation-only PATCH handshake from its actual execution context before any
+metadata mutation. Until the implementation and producer migration are
+complete, the handshake succeeds, and the independent #690/#763 verification
+gates pass, native clearing remains disabled. Sessions without the protocol
+marker retain direct JSON behavior; a session with the marker remains API-only
+while the handshake is pending or fails, and agent metadata writes fail closed
+instead of falling back to direct JSON. The
+specification approval does not authorize runtime changes under #761; see the
+[sidecar-mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md)
+and [ADR 0076](../docs/adr/0076-codex-owned-native-approval-observer.md).
+Implementation is tracked by [#788](https://github.com/Rambolarsen/orkworks/issues/788)
+and dependent [#789](https://github.com/Rambolarsen/orkworks/issues/789).
 
 #### Git Context Detection
 

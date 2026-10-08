@@ -289,8 +289,12 @@ which bypasses a sidecar mutex. File identity detects completed replacement but
 cannot make the final check and rename atomic with an arbitrary direct writer.
 The existing unfenced-writer rule therefore keeps production native clear
 disabled; [#761](https://github.com/Rambolarsen/orkworks/issues/761) tracks the
-required written contract. No protocol migration or producer demotion is
-approved by this design, and cooperating-writer fixtures do not remove the gate.
+written producer/ownership contract. The repository owner approved that
+separate contract on 2026-10-08; see the
+[sidecar-mediated metadata design](2026-10-08-codex-native-attention-layer-design.md)
+and [ADR 0076](../../adr/0076-codex-owned-native-approval-observer.md). This
+design itself does not authorize protocol migration or producer demotion, and
+cooperating-writer fixtures alone do not remove the production-clear gate.
 
 Native waitingOnApproval is thread-level, not an invocation ID. Parallel calls
 or multiple outstanding permissions form an ambiguous batch: after the grace,

@@ -398,23 +398,26 @@ do not attest a listener after a released-port race.
 [#763](https://github.com/Rambolarsen/orkworks/issues/763) tracks the required
 reviewed handoff/identity contract; controlled fake fixtures cannot enable it.
 
-Native clearing has a separate unfenced-writer gate. Sidecar revisions and
-completed-file identity checks do not make a final check/rename atomic with
-supported direct agent-written JSON. The current proposal for
-[#761](https://github.com/Rambolarsen/orkworks/issues/761) routes active
-metadata mutations for native-enabled Codex sessions through a versioned
-sidecar API. The launch adapter advertises that protocol only for a migrated
-integration. Direct JSON reads remain available; active direct JSON writes
-would be unsupported for those sessions. The sidecar keeps separate
+Native clearing has a separate unfenced-writer gate. The current MVP contract
+permits direct agent JSON writes, which sidecar revisions and completed-file
+identity checks cannot serialize with a final check/rename. The contract
+approved in [#761](https://github.com/Rambolarsen/orkworks/issues/761) routes
+active metadata mutations for native-enabled Codex sessions through a
+versioned sidecar API. The launch adapter advertises that protocol only for a
+migrated integration. Direct JSON reads remain available; active direct JSON
+writes would be unsupported for those sessions. The sidecar keeps separate
 work-metadata and attention source/confidence fields, records
 `attentionOrigin`, rejects stale revisions, persists an attention-specific
 update time, and serializes the full
 read/check/modify/write transaction with native clears against the single
-session record. The proposal is not yet owner-approved, implemented, or
-enabled, and changes the current write contract for eligible sessions. Owner
-review, producer migration, behavioral race tests, and the separate #690/#763
-gates remain required. See the
-[proposed mediated metadata design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md)
+session record. This changes the current write contract for eligible sessions.
+The approval covers the written contract only; it does not authorize runtime
+changes under #761. Implementation, producer migration, behavioral race tests,
+and the separate #690/#763 gates remain required, so production clearing stays
+disabled. [#788](https://github.com/Rambolarsen/orkworks/issues/788) owns the
+transactional API/writer boundary and behavioral tests; dependent [#789](https://github.com/Rambolarsen/orkworks/issues/789)
+owns Codex producer migration and handshake verification. See the
+[approved mediated metadata design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md)
 and [verification record](../superpowers/verification/2026-10-05-codex-native-approval-status.md).
 
 Codex session identity stays bound to the conversation OrkWorks launched:

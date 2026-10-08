@@ -1,10 +1,13 @@
 # Codex Native Attention With Sidecar-Mediated Metadata Writes
 
-- Status: proposed; implementation approval and verification remain gated
+- Status: owner-approved written design; producer-protocol implementation and
+  production verification remain gated
 - Deciders: repository owner, Codex
 - Date: 2026-10-08
 - Issue: [#761](https://github.com/Rambolarsen/orkworks/issues/761)
 - Related: [#690](https://github.com/Rambolarsen/orkworks/issues/690),
+  [#788](https://github.com/Rambolarsen/orkworks/issues/788),
+  [#789](https://github.com/Rambolarsen/orkworks/issues/789), and
   [ADR 0076](../../adr/0076-codex-owned-native-approval-observer.md)
 
 ## Context
@@ -19,10 +22,11 @@ The MVP currently permits direct agent reads and writes of that JSON record.
 The sidecar cannot serialize a clear with a writer that does not participate
 in its write boundary. The selected direction is therefore to route writes
 for native-enabled sessions through the sidecar. This changes the current
-direct-write contract for those sessions and requires an explicit owner
-decision before implementation. It does not change the rollout gate: native
-clearing remains disabled until the design, implementation, and independent
-verification gates are complete.
+direct-write contract for those sessions. The repository owner approved this
+written contract on 2026-10-08. That approval resolves the specification
+prerequisite only; it does not authorize runtime or producer-protocol changes
+under #761. Native clearing remains disabled until the implementation and
+independent verification gates are complete.
 
 ## Producers and write paths
 
@@ -43,6 +47,19 @@ same per-session serialized writer boundary as agent, user, hook, Peon, and
 lifecycle writes. The sidecar remains the only process that persists the
 session JSON for an active native-enabled session.
 
+The race guarantee applies to supported producers that use this boundary. A
+versioned API patch may still publish by replacing the complete session JSON,
+but it holds the same per-session transaction boundary across revision and
+source checks, mutation, and replacement that native clear holds across its
+final ownership check and replacement. An accepted competing attention write,
+including an identical-value write, advances the attention ownership revision.
+The implementation tests both commit orders at the final-check/replacement
+boundary. A direct filesystem replacement that bypasses the API is unsupported
+for a native-enabled session and receives no serialization guarantee; file
+identity checks alone do not make that write atomic. If any supported
+native-enabled producer still writes the JSON file directly, that session is
+ineligible for native clearing.
+
 ## Decision
 
 Keep the complete session record in `sessions/<session-id>.json`; do not add a
@@ -51,8 +68,12 @@ for an active native-enabled session go through a versioned sidecar operation.
 Direct JSON reads remain available. A direct JSON replacement is not a
 supported write path for an active native-enabled session because it bypasses
 the serialization and ownership checks. Sessions that are not native-enabled
-retain their existing behavior until a separately approved migration changes
-that contract.
+retain their existing behavior. Setting the protocol marker after producer
+migration and the static launch-eligibility checks activates the API-only write
+contract immediately. The child-context handshake is a separate gate for
+native-clear eligibility; while it is pending or if it fails, agent metadata
+writes fail closed and direct JSON writes remain unsupported. Native clearing
+also remains disabled until the independent production gates pass.
 
 The implementation should expose authenticated `GET /sessions/:id/metadata`
 and `PATCH /sessions/:id/metadata` operations for direct agents. Only a
@@ -178,15 +199,25 @@ The protocol contract is:
 
 Every persisted session-record mutation advances `metadataRevision` under the
 same per-session transaction boundary, including user, hook, Peon, backend,
-process, lifecycle, native, and API writes. The revision may be persisted as
-part of session metadata or maintained by an equivalent sidecar-owned version
-protocol, but it must survive all writes within the live session and must not
-be reused. Attention ownership revision is narrower: it advances on every
-accepted attention write, even when the tuple and source are unchanged, so a
-competing identical write revokes an in-flight native clear. Unrelated
+process, lifecycle, native, and API writes. The revision is persisted as part
+of session metadata, survives all writes within the live session, and is never
+reused. Attention ownership revision is narrower: it advances on every
+accepted attention write, even when the tuple and source are unchanged,
+so a competing identical write revokes an in-flight native clear. Unrelated
 work-metadata writes do not revoke a native clear. Runtime ownership tokens
 stay process-local and are never persisted. No bearer, native connection
 secret, or clear token is stored in session metadata.
+
+For a legacy record with no persisted revision, the versioned read returns the
+stable per-record initial revision `"0"` without rewriting the record. Every
+accepted persisted mutation, including the first, advances that revision under
+the transaction boundary and persists the result in the session record
+(`"1"` for the first mutation).
+The counter is per session record, is exposed as an opaque value, and must use a
+checked increment; exhaustion fails closed without writing rather than
+wrapping or reusing a revision. Concurrent readers therefore receive the same
+initial revision, and only one writer using it can commit. This protocol
+bookkeeping does not migrate the other fields in a legacy record.
 
 Native clear performs its final ownership and source checks and its atomic
 session-record replacement while holding the same per-session transaction
@@ -499,6 +530,14 @@ version/platform/configuration entry must have the following installed-path
 evidence; synthetic protocol and cooperating-writer tests do not substitute
 for these checks:
 
+- The #690 compatibility entry links a durable verification record for that
+  exact entry. The record identifies the installed OrkWorks build (version and
+  commit or artifact digest), OS version and architecture, effective launch
+  configuration, run date, and the outcome of each applicable scenario below.
+  It links the supporting logs, traces, or test artifacts and records any
+  ineligible or ambiguous result. An entry without this record is not verified
+  and cannot satisfy the production gate.
+
 - The effective model, approval policy, sandbox, and configuration match the
   direct-launch path, including ordered shared options and unchanged
   selected-model metadata behavior. Unsupported configurations continue to use
@@ -527,8 +566,11 @@ tests, cooperating-writer tests, or revision checks alone are insufficient.
 ## Handoff
 
 This design changes no runtime code and does not itself enable native clearing.
-After owner approval, create an implementation issue for the versioned
-metadata API, producer migration, single-record serialized writes, lifecycle
-handling, staleness timestamp, projection error behavior, and the behavioral
-tests above. Keep #690's production gate closed until that work and its
-separate native verification gates are complete.
+[#788](https://github.com/Rambolarsen/orkworks/issues/788) owns the versioned
+metadata API, single-record serialized writes, lifecycle handling, staleness
+timestamps, projection error behavior, and behavioral writer/clear race tests.
+Dependent [#789](https://github.com/Rambolarsen/orkworks/issues/789) owns the
+Codex producer migration and child-context handshake. Keep #690's production
+gate closed until both issues and the separate native verification gates are
+complete. The implementation work requires its own authorization; #761 does
+not authorize runtime changes. The approved disposition is linked from #690.

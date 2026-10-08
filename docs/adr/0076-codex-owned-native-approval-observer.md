@@ -98,11 +98,17 @@ subsequent connections. No readiness-output, port-zero, inherited-socket or
 additional RPC contract is assumed. The prepared operator procedure must
 remain withheld until that prerequisite is implemented and verified.
 
-## Proposed Amendment — 2026-10-08 sidecar-mediated metadata writes
+## Amendment — 2026-10-08 sidecar-mediated metadata writes
 
-Pending repository owner review and approval. Until accepted, the existing
-accepted ownership contract and production-clear gate remain authoritative;
-this proposal does not authorize producer-protocol or runtime changes.
+The repository owner approved this written contract on 2026-10-08. This
+approval resolves the producer/ownership specification prerequisite. It does
+not authorize runtime or producer-protocol changes under #761; those require
+separately scoped implementation work and authorization. Until implementation
+and verification pass, the production-clear gate remains closed.
+[#788](https://github.com/Rambolarsen/orkworks/issues/788) tracks the
+transactional API and writer boundary; dependent
+[#789](https://github.com/Rambolarsen/orkworks/issues/789) tracks Codex producer
+migration and the child-context handshake.
 
 The proposal keeps one canonical session record and requires active metadata
 writes for native-enabled Codex sessions to pass through an authenticated,
@@ -127,12 +133,14 @@ capability, not proof of OS process identity. The single-record projection
 keeps existing tuple and source-priority semantics, and metadata read/write
 failures cannot be interpreted as permission to clear or lower the source.
 
-This proposal changes the current direct-write contract for native-enabled
-sessions and therefore requires explicit owner approval before implementation.
-Until accepted, the existing JSON contract and production-clear gate remain
-authoritative. The detailed API contract, compatibility limits, timestamp
-behavior, race tests, and production-clear evidence gate are in the
+This approved proposal changes the current direct-write contract for
+native-enabled sessions. The detailed API contract, compatibility limits,
+timestamp behavior, race tests, and production-clear evidence gate are in the
 [sidecar-mediated metadata design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
-This proposal does not enable production clearing; producer migration,
-behavioral tests, #690 signal verification, and the independent #763 listener
-gate remain required.
+The race guarantee covers supported writers using the same per-session
+transaction boundary, including an API patch that replaces the whole record.
+Direct JSON replacement that bypasses the boundary is unsupported for an
+eligible session; if any supported producer still uses it, native clearing
+stays disabled. This amendment does not enable production clearing; producer
+migration, behavioral tests, #690 signal verification, and the independent
+#763 listener gate remain required.

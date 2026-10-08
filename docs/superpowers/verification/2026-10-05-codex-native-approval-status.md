@@ -189,9 +189,12 @@ JSON writer.
 The approved design requires native clearing to remain disabled if any accepted
 attention/source writer is unfenced. Production clear therefore needs a separate
 gate from version eligibility. The implementation preserves existing direct-JSON
-authority and does not silently impose a lock or migrate the protocol. A written,
-reviewed producer/ownership contract is required before enabling clearing;
-[#761](https://github.com/Rambolarsen/orkworks/issues/761) tracks that prerequisite.
+authority and does not silently impose a lock or migrate the protocol. The
+repository owner approved the written producer/ownership contract tracked by
+[#761](https://github.com/Rambolarsen/orkworks/issues/761) on 2026-10-08. The
+versioned API and writer-boundary evidence are tracked in [#788](https://github.com/Rambolarsen/orkworks/issues/788),
+with Codex producer migration and child-context handshake in dependent [#789](https://github.com/Rambolarsen/orkworks/issues/789).
+These remain unimplemented and require separately scoped authorization.
 
 ## Listener ownership review
 
@@ -359,8 +362,10 @@ Retained histories are not evidence. Their later removal requires proof that
 this exact test subprocess and its owned children ended. Login/auth homes
 remain operator-owned.
 
-This prepares a currently blocked signal/usability exercise. Native clearing still cannot pass
-its production gate while #761 remains unresolved. Effective direct/owned
-configuration equality, exact resume, installed root/subagent/overlap and OS
-lifecycle proof remain open; the RPC allowlist was not expanded. No installed
-gate is marked complete by compilation or fake results.
+This prepares a currently blocked signal/usability exercise. Native clearing
+still cannot pass its production gate until the approved #761 contract is
+implemented and the remaining signal, configuration, and listener gates pass.
+Effective direct/owned configuration equality, exact resume, installed
+root/subagent/overlap and OS lifecycle proof remain open; the RPC allowlist was
+not expanded. No installed gate is marked complete by compilation or fake
+results.
