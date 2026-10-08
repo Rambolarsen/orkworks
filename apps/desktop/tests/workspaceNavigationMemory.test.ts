@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -417,6 +417,32 @@ test("unrecognized, alias, and failed history forgets preserve navigation entrie
     writeFileSync(workspaceMemoryPath(f.directory), "{corrupt");
     assert.equal((await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation)).history.diagnostic?.code, "corrupt_history");
     assert.deepEqual(readFileSync(workspaceNavigationMemoryPath(f.directory)), source);
+  } finally { f.close(); }
+});
+
+test("an exact remembered shortcut stays removable if its old path is retargeted", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    const movedWorkspace = join(f.directory, "workspace-moved");
+    const replacementTarget = join(f.directory, "replacement-target");
+    mkdirSync(workspace);
+    mkdirSync(replacementTarget);
+    const identity = realpathSync.native(workspace);
+    rememberWorkspacePath(f.directory, identity);
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    navigation.read();
+    await navigation.complete(identity, 1, () => true, "review");
+
+    renameSync(workspace, movedWorkspace);
+    symlinkSync(replacementTarget, workspace, "dir");
+
+    const result = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation);
+
+    assert.equal(result.navigation?.ok, true);
+    assert.equal(result.history.lastWorkspacePath, null);
+    assert.deepEqual(result.history.recentWorkspacePaths, []);
+    assert.deepEqual(navigation.read().entries, []);
   } finally { f.close(); }
 });
 

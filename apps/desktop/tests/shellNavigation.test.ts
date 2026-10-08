@@ -86,6 +86,36 @@ test("a missing Review artifact falls back to its exact Terminal session with a 
   assert.equal(state.activeSessionId, "session-a");
 });
 
+test("discarding a missing Review retargets inspector return focus to the Terminal fallback", () => {
+  const initial = createShellNavigationState({ workspaceGeneration: 4, activeSessionId: "session-a" });
+  const reviewing = reduceShellNavigation(initial, {
+    type: "review-opened",
+    sessionId: "session-a",
+    artifactId: "plan-a",
+    generation: 4,
+  });
+  const inspected = reduceShellNavigation(reviewing, {
+    type: "inspector-opened",
+    destination: "details",
+    subject: { kind: "session", sessionId: "session-b" },
+    generation: 4,
+  });
+
+  const missingReview = reduceShellNavigation(inspected, {
+    type: "target-missing",
+    target: { kind: "artifact", sessionId: "session-a", artifactId: "plan-a" },
+    reason: "The plan is no longer available.",
+    generation: 4,
+  });
+  const inspectorClosed = reduceShellNavigation(missingReview, {
+    type: "inspector-closed",
+    generation: 4,
+  });
+
+  assert.deepEqual(missingReview.inspectorReturnFocus, { kind: "terminal", sessionId: "session-a" });
+  assert.deepEqual(inspectorClosed.focusTarget, { kind: "terminal", sessionId: "session-a" });
+});
+
 test("a missing active Terminal session clears selection and falls back visibly", () => {
   const initial = createShellNavigationState({ workspaceGeneration: 4, activeSessionId: "session-a" });
   const state = reduceShellNavigation(initial, {

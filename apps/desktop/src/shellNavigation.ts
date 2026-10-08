@@ -278,7 +278,9 @@ export function reduceShellNavigation(
             ? state.inspectorReturnFocus ?? terminalFocus(activeSessionId)
             : state.focusTarget,
         returnTarget: returnMatches || mustLeaveCentral ? null : state.returnTarget,
-        inspectorReturnFocus: inspectedMatches ? null : state.inspectorReturnFocus,
+        inspectorReturnFocus: mustLeaveCentral
+          ? terminalFocus(fallbackSessionId)
+          : inspectedMatches ? null : state.inspectorReturnFocus,
         visibleFallbackReason: event.reason,
       };
     }

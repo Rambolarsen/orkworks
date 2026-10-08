@@ -83,10 +83,12 @@ export async function forgetRememberedWorkspaceWithNavigation(
   if (before.diagnostic || !validCanonicalKey(identity)) {
     return { history: before, navigation: null };
   }
-  const canonical = canonicalWorkspacePath(identity);
-  if (canonical !== null && canonical !== identity) return { history: before, navigation: null };
-
   const wasRemembered = historyContains(before, identity);
+  const canonical = canonicalWorkspacePath(identity);
+  if (canonical !== null && canonical !== identity && !wasRemembered) {
+    return { history: before, navigation: null };
+  }
+
   if (!wasRemembered) {
     const stored = navigation.read();
     if (stored.diagnostic) return { history: before, navigation: { ok: false, diagnostic: stored.diagnostic } };
