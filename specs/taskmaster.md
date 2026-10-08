@@ -820,13 +820,13 @@ workflowImprovement
   affectedSessionIds
   impact
   expectedBenefit
-  supersedesRecommendationId null, dismissed predecessor ID, or superseded rollup parent ID
+  supersedesRecommendationId null, dismissed predecessor ID, superseded rollup parent ID, or invalidated assessment predecessor ID
   dismissalWatermark null or dismissed evidence watermark
 ```
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For exact-family evaluation, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses stay valid for shared deserialization but are never produced by that evaluator. The separate rollup evaluator may produce `superseded` when a proposed rollup's membership changes. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. For exact-family recommendations and unchanged rollup membership, `executing`, `accepted`, and `completed` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
+For exact-family evaluation, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses stay valid for shared deserialization but are never produced by that evaluator, except an assessment-derived exact-family recommendation may transition from `proposed` to terminal `superseded` when its captured assessment input becomes stale or effective access narrows. Such a superseded assessment recommendation cannot be accepted or executed. A later valid assessment may create one new linked successor for that superseded assessment record, with a new stable ID bound to the assessment ID and predecessor; the predecessor remains immutable. The separate rollup evaluator may also produce `superseded` when a proposed rollup's membership changes. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. For exact-family recommendations and unchanged rollup membership, `executing`, `accepted`, `completed`, and `superseded` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version, except for the linked assessment successor rule above.
 
 ### Deduplication and dismissal watermark
 
@@ -1071,6 +1071,151 @@ Model output must be schema-validated and cannot bypass deterministic safety rul
 
 Taskmaster is a logical product component. It does not require a permanently running premium model or a dedicated harness process.
 
+## Brain-guided next-step assessment
+
+Status: proposed by [the #769 design](../docs/superpowers/specs/2026-10-07-taskmaster-brain-guided-assessment-design.md); runtime availability depends on the reviewed signed guidance from #529.
+
+Recommendations offers a separate, user-triggered **Assess workflow** action
+beside **Analyze now**. It assesses only the workspace selected by the current
+OrkWorks instance, using the configured Taskmaster provider/model, current
+context level and exclusions, permitted workflow observations, and the active
+verified Brain knowledge bundle. It shares the existing installation-wide
+single-analysis lease and manual-run admission gate. It does not change Peon's
+provider, raise context access, read additional terminal replay, run repository
+commands or scripts, or contact the private Brain repository.
+
+The assessment uses relevant general Brain concepts as guidance, not as a
+scorecard. It returns at most one evidence-backed next improvement, or a
+no-proposal result that explains uncertainty or missing evidence. A proposal
+must cite at least one current repository fact hash and at least one relevant
+Brain page ID from the selected eligible bundle; reject a proposed result with
+an empty page-ID list. A no-proposal result may cite no Brain pages. Bounded
+excerpts establish only what they contain. Checks requiring command execution
+remain unverified. Workspace and Brain content are untrusted reference data and
+cannot override repository instructions, user decisions, or Taskmaster's
+authority contract.
+
+The action is unavailable when the active bundle is not eligible under the
+strict privacy and integrity rules in `taskmaster-knowledge.md`, or when its
+signed `capabilities` array lacks `taskmaster-assessment-v1`. The publisher
+grants that capability only when the reviewed assessment entry point and
+required general guidance are present. Bundle age or offline update state alone
+does not make a verified eligible bundle unavailable; an unavailable feed
+retains the last eligible bundle. No inference may use an unreviewed legacy
+bundle as a fallback. A missing Taskmaster provider, an active analysis, an
+active Brain-derived
+`improve_workflow` recommendation, or insufficient current repository evidence
+produces a clear inline unavailable, blocked, or no-proposal result without a
+speculative recommendation.
+
+Assessment runs, cache identity, status, and report are distinct from **Analyze
+now**. A report is workspace-local and bounded to the latest result for that
+workspace. It records the workspace/evidence/configuration identity, assessment
+time, provider/model, Brain bundle version, relevant concept/page IDs, cited
+evidence snapshots and hashes, a concise state summary, and either the single
+proposed next step or a no-proposal reason. It does not store the full prompt or
+uncited workspace files. Each serialized report is capped at 64 KiB. Retain one
+report per workspace, replacing it after a new assessment; do not expire
+reports by age. Deleting local Taskmaster data deletes the reports. If the same
+current workspace, evidence, configuration, provider, and knowledge snapshot
+has already been assessed, the report may be reused only as an assessment
+result; an **Analyze now** result is never shown as an assessment.
+
+The input identity and cache key cover the complete bounded request supplied
+to the model, not only facts the output later cites. Include all permitted
+observations, all collected repository facts (including uncited facts), the
+pre-run recommendation snapshot, selected knowledge pages, context settings
+and exclusions, workspace generation, prompt/schema version, provider/model,
+and full bundle identity. If this assessment creates a recommendation, record
+its stable ID and exclude only that exact assessment-created record when
+revalidating the current recommendation snapshot. If existing deduplication
+suppresses the proposal, record no derived recommendation ID and do not exclude
+the pre-existing record. Other recommendation changes remain input changes and
+invalidate the report. This prevents an assessment's own proposal from
+invalidating its report on the first status read. Any other input change
+invalidates the report, including a no-proposal result.
+
+A credible next step enters the existing Brain-derived `improve_workflow`
+recommendation path, retaining its `proactive:v1:` identity, deduplication,
+dismissal, active-recommendation, acceptance, and **Fix with AI** lifecycle.
+Assessment creates no second recommendation mutation or approval path. It does
+not edit files, type into terminals, create or resume sessions, change
+repository configuration, or publish workspace evidence or results to Brain.
+Progress, provenance, outcome, and failure appear inline in Recommendations;
+workspace changes discard stale display and result state. Background popups and
+focus changes are not introduced.
+
+If the existing deduplication key belongs to a proposed, dismissed, executing,
+accepted, or completed recommendation, return a no-proposal result with a
+duplicate-suppression reason; do not mutate or relink that record. If the
+matching record is an assessment-derived recommendation terminally superseded
+because its captured inputs became stale or access narrowed, a later valid
+assessment may create one successor in the same `proactive:v1:` family. Give
+that successor an ID derived from the dedupe key, predecessor ID, and unique
+assessment ID, and set `supersedesRecommendationId` to the predecessor. Retries
+of the same assessment remain idempotent; no other lifecycle state may be
+bypassed by this exception.
+
+Proposal persistence is crash-consistent with the existing recommendation
+store. Before upserting a proposal, atomically persist the bounded workspace
+assessment record with an internal pending-recommendation marker and the
+recommendation's stable ID. Keep pending records out of status responses until
+the recommendation is durably upserted and the assessment record is committed.
+Under the shared analysis lease, startup recovery idempotently repeats the
+upsert and commits the report before the sidecar serves status. The pending and
+committed forms share the report's 64 KiB serialized cap.
+
+If an input change or narrowed context invalidates an assessment, supersede any
+still-proposed recommendation derived from it, remove it from active
+recommendations, and prevent **Fix with AI** from using its stale evidence.
+For assessment-derived `improve_workflow` records, `superseded` is an allowed
+terminal status reached only from `proposed` when the assessment input identity
+changes or access narrows; it cannot be accepted or executed afterward. Other
+`improve_workflow` recommendations retain their existing lifecycle contract.
+When effective access narrowing makes evidence disallowed, redact its immutable
+snapshot from the report and every lifecycle record that retains it, including
+proposed, superseded, dismissed, accepted, executing, and completed
+recommendations. Also redact all model-generated display fields that may copy
+or paraphrase repository evidence, including recommendation title, summary,
+reason, proposed improvement, expected benefit, and corresponding report
+summary/proposal text. Clear affected evidence excerpts and source-derived
+display text rather than trying to infer which words disclose a source. Replace
+required display strings with a generic access-redacted placeholder. Preserve
+record identity, lifecycle transitions, dismissal decisions, and outcome
+history. Other input changes invalidate the report and supersede a proposed
+recommendation without redacting audit snapshots.
+
+Before any recommendation is returned or used, revalidate an assessment-derived
+proposal against its complete stored input identity. This applies to list and
+get responses, active-recommendation admission results, acceptance, and the
+**Fix with AI** handoff; no prior status poll is required. Suppress a stale
+proposal from responses and refuse its acceptance or handoff while preserving
+the report's read-only status projection semantics.
+
+The assessment status projection is read-only. It revalidates report identity
+and omits stale content, but never deletes or rewrites state. A pending
+recommendation transaction is never exposed or actionable: the writer that
+encounters a report-commit failure immediately attempts idempotent recovery
+before returning. Read-only status and recommendation list/get routes only
+check pending state; if it remains unreconciled, they omit the pending result or
+return unavailable and do not write. Active-recommendation admission,
+acceptance, and Fix with AI require successful reconciliation under the
+analysis lease before exposing or using a pending record. If reconciliation
+still fails, return an unavailable/service failure without exposing or acting
+on the pending recommendation; it does not count as an active recommendation
+for another assessment. Do not start new provider work while a prior pending
+transaction remains unreconciled.
+A context/access
+settings mutation redacts newly disallowed report and recommendation snapshots
+before replying. Because defaults apply across workspaces, a global context or
+exclusion reduction redacts every affected workspace-local report and every
+affected assessment-derived recommendation before the settings response; a
+workspace override change affects only that workspace. If an affected workspace
+is not open, its persisted assessment evidence must be reconciled and redacted
+before any later status, recommendation, acceptance, or Fix with AI response can
+expose or use it. Other stale reports are removed by the next state-changing
+assessment or workspace cleanup.
+
 ## API
 
 Proposed HTTP endpoints:
@@ -1082,6 +1227,10 @@ Proposed HTTP endpoints:
 - `POST /taskmaster/recommendations/:id/dismiss` — dismiss with an optional reason
 - `POST /taskmaster/recommendations/:id/refresh` — reevaluate against current state
 - `POST /taskmaster/analyze` — request an immediate Brain-backed evaluation for the selected workspace, subject to the daily allowance and the active-improvement gate
+- `POST /taskmaster/assess-workflow` — request a manual Brain-guided workflow assessment for the currently selected workspace; the request has no caller-supplied workspace, provider, context override, knowledge page, or report body
+- `GET /taskmaster/run-status` — return the existing run status plus a distinct read-only assessment status projection (`idle`, `queued`, `running`, or the latest `succeeded`, `failed`, or `interrupted` outcome)
+
+`assess-workflow` is authenticated through the sidecar's existing local API boundary. Its response distinguishes `scheduled`, `unavailable`, `already_running`, and `active_recommendation`; it never returns repository excerpts in the scheduling response. The `active_recommendation` response contains only a stable recommendation ID and status, not the recommendation object or its evidence. Assessment status and report details are scoped to the selected workspace. The status projection identifies the assessment and outcome, and may return the bounded latest report only while its workspace, effective context settings, exclusions, provider/harness identity, bundle version, complete input identity, cited fact hashes, and cited knowledge page IDs still match current state; identity revalidation excludes only that report's own derived recommendation. A mismatch logically invalidates the report and any proposed recommendation derived from it before either can be returned or used. Apply this validation before every recommendation list/get, active-recommendation response, acceptance, or Fix with AI handoff, even when no status poll occurred. This read-only status request never deletes or rewrites state: context/access settings mutations redact newly disallowed evidence before replying, and other stale reports are removed by the next state-changing assessment or workspace cleanup. A global context/exclusion reduction redacts every affected workspace-local snapshot before replying; unopened workspaces are reconciled before their data can next be exposed or used.
 
 Proposed WebSocket event:
 
@@ -1282,8 +1431,15 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] Capacity changes can supersede or rerank a proposed recommendation.
 - [ ] Taskmaster never writes terminal input, modifies source files, or performs Git workflow actions directly, except through the user-confirmed `improve_workflow` `accept` action, which submits a generated prompt into the user's own active session (never a session Taskmaster chose or started) and never edits files itself.
 - [ ] Two sessions that each produce a matching workflow observation (same fingerprint, confidence ≥ `0.6`) can produce one evidence-backed `improve_workflow` recommendation citing both.
-- [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and only ever reach `proposed`, `dismissed`, `executing`, `accepted`, or `completed` status.
+- [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and reach only `proposed`, `dismissed`, `executing`, `accepted`, or `completed` status, except an assessment-derived recommendation may transition from `proposed` to terminal `superseded` when its input identity changes or access narrows; a superseded recommendation cannot be accepted or executed.
 - [ ] A manual Brain analysis bypasses the per-workspace cooldown and the daily allowance (manual analyses are unlimited; the allowance governs automatic background discovery only), and is refused while a Brain-derived `improve_workflow` recommendation is proposed, accepted, or executing; deterministic observation-only recommendations do not block it, and the user is directed to the existing Fix with AI handoff for a Brain recommendation.
+- [ ] **Assess workflow** is a distinct manual run and result from **Analyze now**, uses the selected workspace's existing Taskmaster provider/context/evidence and shared single-analysis lease, returns at most one grounded improvement or a clear no-proposal result, and is unavailable until an eligible verified bundle carries matching signed `privacyPolicyVersion: 1` and `taskmaster-assessment-v1` capability fields and the reviewed assessment guidance required by #529.
+- [ ] Assessment proposals cite at least one current repository fact hash and at least one relevant Brain page ID, validate every citation and captured identity before every list/get/active-response/acceptance/Fix with AI use path, and reuse the existing `proactive:v1:` `improve_workflow` recommendation lifecycle without adding execution authority. A valid assessment may create a linked successor only for a matching assessment-derived recommendation terminally superseded by input invalidation, with an idempotent ID bound to that assessment and predecessor.
+- [ ] An assessment proposal superseded after input invalidation can later receive one linked generation-aware successor; dismissed, accepted, completed, and other non-invalidated records continue to suppress duplicate proposals.
+- [ ] Effective-access narrowing redacts cited snapshots and model-generated assessment text that may copy or paraphrase repository evidence from reports and recommendations in every lifecycle state, while preserving identity, transitions, dismissal decisions, and outcomes.
+- [ ] A pending assessment recommendation from a failed report commit is hidden and non-actionable across status, list/get, active-recommendation, accept, and Fix with AI paths until reconciliation succeeds; it does not count as an active recommendation, and new provider work waits for reconciliation.
+- [ ] One bounded local assessment report per workspace records its evidence/configuration/provider/knowledge identity and outcome, is removed with that workspace's local data, never stores the full prompt or uncited files, and cannot be populated from an **Analyze now** result.
+- [ ] Assessment progress, provenance, outcome, and failures are shown inline in Recommendations; workspace/configuration changes discard stale results, and no background popup or focus change is introduced.
 - [ ] A Fix with AI prompt contains the stable recommendation ID and directs the target agent to use the `working-on-recommendation` skill to read the recommendation and its source-session evidence.
 - [ ] An authenticated target agent can transition an accepted `improve_workflow` recommendation to `completed`; the callback cannot name a different target session or lifecycle state, and retries are idempotent.
 - [ ] Dismissing an `improve_workflow` recommendation persists an evidence watermark and does not resurface it from unchanged evidence.
