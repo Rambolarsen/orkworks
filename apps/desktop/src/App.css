@@ -2774,7 +2774,17 @@ html, body, #root {
 .recommendation-origin { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-eyebrow); margin-left: var(--space-2); }
 .recommendation-origin--analysis { color: var(--state-info); background: var(--state-info-bg); }
 .recommendation-origin--observations { color: var(--source-agent); background: var(--accent-subtle); }
-:root[data-theme="light"] .recommendation-origin--analysis, :root[data-theme="light"] .recommendation-origin--observations { color: var(--text-primary); }
+.recommendation-origin--cleanup { color: var(--state-warn); background: var(--state-warn-bg); }
+:root[data-theme="light"] .recommendation-origin--analysis, :root[data-theme="light"] .recommendation-origin--observations, :root[data-theme="light"] .recommendation-origin--cleanup { color: var(--text-primary); }
+.recommendation-audit { margin: var(--space-3) 0; }
+.recommendation-audit-summary { color: var(--text-muted); font-size: var(--text-sm); }
+.recommendation-audit-entries summary { cursor: pointer; color: var(--text-primary); }
+.recommendation-audit-entries ul { margin: var(--space-2) 0; padding-left: var(--space-4); }
+.recommendation-audit-entries li { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-1); }
+.recommendation-audit-entry-title { color: var(--text-primary); }
+.recommendation-audit-badge { font-size: var(--text-xs); padding: 0 var(--space-1); border: 1px solid var(--border-default); border-radius: var(--radius-sm); color: var(--text-muted); }
+.recommendation-audit-badge--stale, .recommendation-audit-badge--noise { color: var(--state-warn); }
+.recommendation-audit-badge--under_eligible, .recommendation-audit-badge--duplicate { color: var(--state-info); }
 .recommendation-origin-filter { display: flex; gap: 0; }
 .recommendation-origin-filter .recommendation-origin-filter-option { border: 1px solid var(--border-default); border-radius: 0; background: var(--surface-2); color: var(--text-muted); font: inherit; font-size: var(--text-sm); padding: var(--space-1) var(--space-3); cursor: pointer; }
 .recommendation-origin-filter .recommendation-origin-filter-option:hover { background: var(--surface-3); }

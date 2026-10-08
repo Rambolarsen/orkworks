@@ -36,6 +36,7 @@ interface DockviewAppData {
   onSelectSession: (id: string) => void;
   onOpenRecommendation: (id: string) => void;
   onFixWithAi: (recommendation: WorkflowRecommendation) => void;
+  onRunCleanup: (recommendation: WorkflowRecommendation) => void | PromiseLike<unknown>;
   onCreateSession: () => void;
   onKillSession: (id: string) => void;
   onForgetSession: (id: string) => void;
@@ -161,6 +162,7 @@ function RecPanel() {
       canFixWithAi={ctx.canFixWithAi && activeSession?.lifecycle === "alive"}
       onSelectSession={ctx.onSelectSession}
       onFixWithAi={ctx.onFixWithAi}
+      onRunCleanup={ctx.onRunCleanup}
       focusedRecommendationId={ctx.focusedRecommendationId}
     />
   );

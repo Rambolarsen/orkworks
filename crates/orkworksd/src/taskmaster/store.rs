@@ -47,6 +47,46 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+/// Applies the dismissal transformation from `store::dismiss` to a record
+/// without touching the store: builds the watermark, sets the status, and
+/// clears any packet approval. Shared by the single-record `dismiss` and the
+/// cleanup-accept batch so both build identical watermarks.
+pub(crate) fn dismissed_record(
+    mut recommendation: Recommendation,
+    dismissed_at: &str,
+    reason: Option<String>,
+) -> Recommendation {
+    let watermark = DismissalWatermark {
+        dismissed_at: dismissed_at.to_string(),
+        dismissed_through_sequence: recommendation
+            .evidence
+            .iter()
+            .map(|evidence| evidence.sequence)
+            .max()
+            .unwrap_or(0),
+        observation_ids: recommendation
+            .evidence
+            .iter()
+            .map(|evidence| evidence.observation_id.clone())
+            .collect(),
+        qualifying_count: recommendation.workflow_improvement.recurrence_count,
+        highest_impact: recommendation.priority,
+        affected_session_ids: recommendation
+            .workflow_improvement
+            .affected_session_ids
+            .clone(),
+        reason,
+    };
+    recommendation.status = RecommendationStatus::Dismissed;
+    recommendation.updated_at = dismissed_at.to_string();
+    recommendation.workflow_improvement.dismissal_watermark = Some(watermark);
+    if let Some(packet) = recommendation.completion_packet.as_mut() {
+        packet.approval = None;
+        packet.completion_idempotency_key = None;
+    }
+    recommendation
+}
+
 pub(crate) struct RecommendationStore {
     dir: PathBuf,
 }
@@ -85,7 +125,7 @@ struct StoredRecommendation {
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
-enum FaultPoint {
+pub(crate) enum FaultPoint {
     Staging,
     ManifestCommit,
     Publication(usize),
@@ -98,7 +138,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn set_fault_point(point: Option<FaultPoint>) {
+pub(crate) fn set_fault_point(point: Option<FaultPoint>) {
     FAULT_POINT.with(|fault| *fault.borrow_mut() = point);
 }
 
@@ -273,45 +313,21 @@ impl RecommendationStore {
         &self,
         id: &str,
         dismissed_at: String,
+        reason: Option<String>,
     ) -> Result<Option<Recommendation>, StoreError> {
-        let Some(mut recommendation) = self.get(id)? else {
+        let Some(recommendation) = self.get(id)? else {
             return Ok(None);
         };
-        if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
-            || !matches!(
-                recommendation.status,
-                RecommendationStatus::Proposed | RecommendationStatus::Executing
-            )
-        {
+        if !matches!(
+            recommendation.recommendation_type,
+            RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
+        ) || !matches!(
+            recommendation.status,
+            RecommendationStatus::Proposed | RecommendationStatus::Executing
+        ) {
             return Err(StoreError::InvalidTransition);
         }
-        let watermark = DismissalWatermark {
-            dismissed_at: dismissed_at.clone(),
-            dismissed_through_sequence: recommendation
-                .evidence
-                .iter()
-                .map(|evidence| evidence.sequence)
-                .max()
-                .unwrap_or(0),
-            observation_ids: recommendation
-                .evidence
-                .iter()
-                .map(|evidence| evidence.observation_id.clone())
-                .collect(),
-            qualifying_count: recommendation.workflow_improvement.recurrence_count,
-            highest_impact: recommendation.priority,
-            affected_session_ids: recommendation
-                .workflow_improvement
-                .affected_session_ids
-                .clone(),
-        };
-        recommendation.status = RecommendationStatus::Dismissed;
-        recommendation.updated_at = dismissed_at;
-        recommendation.workflow_improvement.dismissal_watermark = Some(watermark);
-        if let Some(packet) = recommendation.completion_packet.as_mut() {
-            packet.approval = None;
-            packet.completion_idempotency_key = None;
-        }
+        let recommendation = dismissed_record(recommendation, &dismissed_at, reason);
         self.put(&recommendation)?;
         Ok(Some(recommendation))
     }
@@ -1631,6 +1647,7 @@ mod tests {
                 dismissal_watermark: None,
             },
             completion_packet: None,
+            audit: None,
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,
@@ -2102,7 +2119,7 @@ mod tests {
             .unwrap();
 
         let dismissed = store
-            .dismiss("recommendation-1", "2026-08-21T12:00:00Z".into())
+            .dismiss("recommendation-1", "2026-08-21T12:00:00Z".into(), None)
             .unwrap()
             .unwrap();
 
@@ -2117,6 +2134,80 @@ mod tests {
                 .dismissed_through_sequence,
             4
         );
+    }
+
+    #[test]
+    fn dismisses_cleanup_cards_with_watermark_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(dir.path().to_path_buf()).unwrap();
+        let card = a_proposed_cleanup_card(&store);
+
+        let dismissed = store
+            .dismiss(
+                &card.id,
+                "2026-10-08T00:00:00Z".into(),
+                Some("audit:stale@cleanup-1".into()),
+            )
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(dismissed.status, RecommendationStatus::Dismissed);
+        let watermark = dismissed.workflow_improvement.dismissal_watermark.unwrap();
+        assert_eq!(watermark.reason.as_deref(), Some("audit:stale@cleanup-1"));
+        assert_eq!(
+            store.get(&card.id).unwrap().unwrap().status,
+            RecommendationStatus::Dismissed
+        );
+    }
+
+    fn a_proposed_cleanup_card(store: &RecommendationStore) -> Recommendation {
+        let card = Recommendation {
+            id: "cleanup-recommendation-1".into(),
+            workspace_id: "workspace-1".into(),
+            chain_id: "cleanup:v1".into(),
+            chain_depth: 0,
+            recommendation_type: RecommendationType::Cleanup,
+            status: RecommendationStatus::Proposed,
+            priority: Impact::Medium,
+            title: "Clean up stale audit cards".into(),
+            summary: "Remove stale audit cleanup cards".into(),
+            reason: vec!["Audit cleanup marked stale".into()],
+            evidence: vec![],
+            repository_evidence: vec![],
+            knowledge_evidence: vec![],
+            source_session_ids: vec![],
+            target_session_id: None,
+            suggested_harness_id: None,
+            suggested_model: None,
+            suggested_working_directory: None,
+            suggested_prompt: None,
+            confidence: RecommendationConfidence::High,
+            requires_approval: true,
+            dedupe_key: "cleanup:v1".into(),
+            created_at: "2026-10-08T00:00:00Z".into(),
+            updated_at: "2026-10-08T00:00:00Z".into(),
+            expires_at: None,
+            workflow_improvement: WorkflowImprovement {
+                proposed_improvement: String::new(),
+                target_surface: TargetSurface::Documentation,
+                observation_ids: vec![],
+                recurrence_count: 0,
+                affected_session_ids: vec![],
+                impact: Impact::Medium,
+                expected_benefit: String::new(),
+                supersedes_recommendation_id: None,
+                dismissal_watermark: None,
+            },
+            completion_packet: None,
+            audit: None,
+            rollup_member_ids: Vec::new(),
+            rollup_member_dedupe_keys: Vec::new(),
+            rollup_generation: None,
+            rolled_up_by: None,
+            proposed_change: None,
+        };
+        store.put(&card).unwrap();
+        card
     }
 
     #[test]
@@ -2319,7 +2410,7 @@ mod tests {
             .unwrap();
 
         let dismissed = store
-            .dismiss("recommendation-1", "2026-08-21T12:05:00Z".into())
+            .dismiss("recommendation-1", "2026-08-21T12:05:00Z".into(), None)
             .unwrap()
             .unwrap();
 

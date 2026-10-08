@@ -59,7 +59,7 @@ type ActiveHarnessSaveResult = {
 };
 
 type TaskmasterAcceptOptions = {
-  sessionId: string;
+  sessionId?: string;
   prompt?: string;
   packetRevision?: number;
   evidenceFingerprint?: string;

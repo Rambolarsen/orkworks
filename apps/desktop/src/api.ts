@@ -640,6 +640,21 @@ export interface DismissalWatermark {
   qualifyingCount: number;
   highestImpact: Impact;
   affectedSessionIds: string[];
+  /** Audit lineage only; never set by the ordinary user dismiss route. */
+  reason?: string | null;
+}
+
+export interface RecommendationAuditEntry {
+  id: string;
+  title: string;
+  criteria: Array<"under_eligible" | "noise" | "duplicate" | "stale">;
+}
+
+export interface RecommendationAudit {
+  entries: RecommendationAuditEntry[];
+  scanned: number;
+  healthy: number;
+  staleAfterDays: number;
 }
 
 export interface WorkflowImprovement {
@@ -661,7 +676,7 @@ export interface WorkflowRecommendation {
   workspaceId: string;
   chainId: string;
   chainDepth: number;
-  type: "improve_workflow";
+  type: "improve_workflow" | "cleanup";
   status: RecommendationStatus;
   priority: Impact;
   title: string;
@@ -675,13 +690,14 @@ export interface WorkflowRecommendation {
   suggestedWorkingDirectory: string | null;
   suggestedPrompt: string | null;
   confidence: RecommendationConfidence;
-  requiresApproval: false;
+  requiresApproval: boolean;
   dedupeKey: string;
   createdAt: string;
   updatedAt: string;
   expiresAt: string | null;
   workflowImprovement: WorkflowImprovement;
   completionPacket?: CompletionPacket | null;
+  audit?: RecommendationAudit | null;
   rollupMemberIds: string[];
   rollupMemberDedupeKeys: string[];
   rollupGeneration: number | null;
@@ -764,7 +780,7 @@ export async function dismissTaskmasterRecommendation(
 }
 
 export interface AcceptRecommendationOptions {
-  sessionId: string;
+  sessionId?: string;
   prompt?: string;
   packetRevision?: number;
   evidenceFingerprint?: string;
@@ -775,5 +791,16 @@ export async function acceptTaskmasterRecommendation(
   id: string,
   opts: AcceptRecommendationOptions,
 ): Promise<WorkflowRecommendation> {
-  return window.orkworks.acceptTaskmasterRecommendation(id, opts);
+  return (await window.orkworks.acceptTaskmasterRecommendation(id, opts)) as WorkflowRecommendation;
+}
+
+export interface CleanupAcceptResult {
+  recommendation: WorkflowRecommendation;
+  skipped: Array<{ id: string; status: string }>;
+}
+
+export async function acceptCleanupRecommendation(
+  id: string,
+): Promise<CleanupAcceptResult> {
+  return (await window.orkworks.acceptTaskmasterRecommendation(id, {})) as CleanupAcceptResult;
 }

@@ -15,6 +15,7 @@ use crate::workspace_runtime::{iso_now, orkworks_global_dir, WorkspaceIdentity, 
 use crate::{git, metadata, migration, AppState, WorkspaceState};
 use crate::{harness, peon, SessionHandle};
 use portable_pty::PtySize;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -22,6 +23,13 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 static PENDING_RECOMMENDATION_DELIVERIES: OnceLock<Mutex<HashSet<(PathBuf, String)>>> =
     OnceLock::new();
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkippedEntry {
+    pub(crate) id: String,
+    pub(crate) status: RecommendationStatus,
+}
 
 fn pending_recommendation_deliveries() -> &'static Mutex<HashSet<(PathBuf, String)>> {
     PENDING_RECOMMENDATION_DELIVERIES.get_or_init(|| Mutex::new(HashSet::new()))
@@ -500,6 +508,137 @@ impl SessionApplication {
         }
     }
 
+    /// Runs the recommendation audit for the active workspace and persists
+    /// the resulting cleanup card, replacing an existing proposed card in
+    /// place. Returns the new/refreshed card, or `None` when every proposed
+    /// card is healthy (or no workspace is open). Errors surface to the
+    /// caller so the HTTP handler can map them.
+    pub(crate) fn run_recommendation_audit(
+        &self,
+    ) -> Result<Option<Recommendation>, crate::taskmaster::store::StoreError> {
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return Ok(None);
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        let (existing, existing_hashes) = workspace.recommendation_store.list_with_hashes()?;
+        let prior = existing
+            .iter()
+            .find(|recommendation| {
+                recommendation.recommendation_type == RecommendationType::Cleanup
+                    && recommendation.status == RecommendationStatus::Proposed
+            })
+            .cloned();
+        let Some(card) = crate::taskmaster::audit::build_cleanup_card(
+            &existing,
+            &workspace.path.display().to_string(),
+            &now,
+            prior.as_ref(),
+        ) else {
+            return Ok(None);
+        };
+        let mut expected = BTreeMap::new();
+        expected.insert(
+            card.id.clone(),
+            prior
+                .as_ref()
+                .and_then(|p| existing_hashes.get(&p.id).cloned()),
+        );
+        let mut next = existing;
+        next.retain(|recommendation| recommendation.id != card.id);
+        next.push(card.clone());
+        workspace
+            .recommendation_store
+            .apply_recommendation_graph_transaction(&expected, &next)?;
+        Ok(Some(card))
+    }
+
+    /// Executes the bulk dismissal an accepted cleanup card proposes. Every
+    /// entry whose current record is still `Proposed` is dismissed through the
+    /// same watermark transformation as `store::dismiss` (reason
+    /// `audit:<first-criterion>@<cleanup-card-id>` from the audited list, with
+    /// no re-classification); an entry changed since the audit is skipped and
+    /// reported rather than aborting the batch. The cleanup card itself
+    /// transitions `Proposed` → `Completed` inside the same atomic graph
+    /// transaction; a persistence failure leaves it `Proposed`.
+    pub(crate) fn accept_cleanup_recommendation(
+        &self,
+        id: &str,
+    ) -> Result<Option<(Recommendation, Vec<SkippedEntry>)>, crate::taskmaster::store::StoreError>
+    {
+        use crate::taskmaster::store::StoreError;
+
+        let workspace_guard = self.state.workspace.lock().unwrap();
+        let Some(workspace) = workspace_guard.as_ref() else {
+            return Ok(None);
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        let (existing, existing_hashes) = workspace.recommendation_store.list_with_hashes()?;
+        let Some(card) = existing
+            .iter()
+            .find(|recommendation| recommendation.id == id)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        if card.recommendation_type != RecommendationType::Cleanup
+            || card.status != RecommendationStatus::Proposed
+            || card.audit.is_none()
+        {
+            return Err(StoreError::InvalidTransition);
+        }
+        let audit = card.audit.as_ref().unwrap();
+        let mut skipped = Vec::new();
+        let mut next = existing;
+        let mut expected = BTreeMap::new();
+        for entry in &audit.entries {
+            let Some(current) = next.iter().position(|record| record.id == entry.id) else {
+                return Err(StoreError::InvalidTransition);
+            };
+            if next[current].status != RecommendationStatus::Proposed {
+                skipped.push(SkippedEntry {
+                    id: next[current].id.clone(),
+                    status: next[current].status,
+                });
+                continue;
+            }
+            let criterion = entry
+                .criteria
+                .first()
+                .map(|criterion| criterion.key())
+                .ok_or(StoreError::InvalidTransition)?;
+            let dismissed = crate::taskmaster::store::dismissed_record(
+                next[current].clone(),
+                &now,
+                Some(format!("audit:{}@{}", criterion, card.id)),
+            );
+            expected.insert(
+                dismissed.id.clone(),
+                existing_hashes.get(&dismissed.id).cloned(),
+            );
+            next[current] = dismissed;
+        }
+        let mut completed_card = card.clone();
+        completed_card.status = RecommendationStatus::Completed;
+        completed_card.updated_at = now.clone();
+        expected.insert(
+            completed_card.id.clone(),
+            existing_hashes.get(&completed_card.id).cloned(),
+        );
+        let card_index = match next
+            .iter()
+            .position(|record| record.id == completed_card.id)
+        {
+            Some(index) => index,
+            None => return Err(StoreError::InvalidTransition),
+        };
+        next[card_index] = completed_card.clone();
+        workspace
+            .recommendation_store
+            .apply_recommendation_graph_transaction(&expected, &next)?;
+        Ok(Some((completed_card, skipped)))
+    }
+
     pub(crate) fn rollup_inputs_match(
         &self,
         workspace_instance: u64,
@@ -886,17 +1025,18 @@ impl SessionApplication {
         else {
             return Ok(None);
         };
-        if existing.recommendation_type != RecommendationType::ImproveWorkflow
-            || !matches!(
-                existing.status,
-                RecommendationStatus::Proposed | RecommendationStatus::Executing
-            )
-        {
+        if !matches!(
+            existing.recommendation_type,
+            RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
+        ) || !matches!(
+            existing.status,
+            RecommendationStatus::Proposed | RecommendationStatus::Executing
+        ) {
             return Err(RecommendationDismissError::Conflict);
         }
         workspace
             .recommendation_store
-            .dismiss(id, chrono::Utc::now().to_rfc3339())
+            .dismiss(id, chrono::Utc::now().to_rfc3339(), None)
             .map_err(RecommendationDismissError::Store)
     }
 
@@ -12430,6 +12570,439 @@ mod tests {
             .any(|id| !before.workflow_improvement.observation_ids.contains(id)));
     }
 
+    /// Seeds one proposed ImproveWorkflow recommendation directly through the
+    /// store: empty (under-eligible) or two qualifying citations (healthy).
+    fn seed_audit_card(
+        state: &Arc<AppState>,
+        id: &str,
+        dedupe_key_suffix: &str,
+        created_at: &str,
+        healthy: bool,
+    ) -> Recommendation {
+        let evidence = if healthy {
+            vec![
+                crate::taskmaster::WorkflowObservationEvidence {
+                    observation_id: format!("{id}-one"),
+                    sequence: 1,
+                    session_id: "audit-session".into(),
+                    kind: crate::workflow_observations::ObservationKind::Obstacle,
+                    description: "The setup blocks progress".into(),
+                    evidence: "first failure".into(),
+                    problem_area: Some("build".into()),
+                    reported_impact: crate::workflow_observations::Impact::Medium,
+                    source: crate::workflow_observations::ObservationSource::Agent,
+                    confidence: 0.8,
+                    observed_at: (chrono::Utc::now() - chrono::Duration::days(2))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                },
+                crate::taskmaster::WorkflowObservationEvidence {
+                    observation_id: format!("{id}-two"),
+                    sequence: 2,
+                    session_id: "audit-session".into(),
+                    kind: crate::workflow_observations::ObservationKind::Obstacle,
+                    description: "The setup blocks progress".into(),
+                    evidence: "second failure".into(),
+                    problem_area: Some("build".into()),
+                    reported_impact: crate::workflow_observations::Impact::Medium,
+                    source: crate::workflow_observations::ObservationSource::Peon,
+                    confidence: 0.8,
+                    observed_at: (chrono::Utc::now() - chrono::Duration::days(1))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                },
+            ]
+        } else {
+            Vec::new()
+        };
+        let card = Recommendation {
+            id: id.into(),
+            workspace_id: state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .path
+                .display()
+                .to_string(),
+            chain_id: dedupe_key_suffix.into(),
+            chain_depth: 0,
+            recommendation_type: RecommendationType::ImproveWorkflow,
+            status: RecommendationStatus::Proposed,
+            priority: crate::workflow_observations::Impact::Medium,
+            title: format!("Card {id}"),
+            summary: "Fix the thing".into(),
+            reason: vec!["audit seed".into()],
+            evidence,
+            repository_evidence: Vec::new(),
+            knowledge_evidence: Vec::new(),
+            source_session_ids: vec!["audit-session".into()],
+            target_session_id: None,
+            suggested_harness_id: None,
+            suggested_model: None,
+            suggested_working_directory: None,
+            suggested_prompt: None,
+            confidence: crate::taskmaster::RecommendationConfidence::Medium,
+            requires_approval: false,
+            dedupe_key: format!("improve_workflow:v1:tooling:audit-{dedupe_key_suffix}"),
+            created_at: created_at.into(),
+            updated_at: created_at.into(),
+            expires_at: None,
+            workflow_improvement: crate::taskmaster::WorkflowImprovement {
+                proposed_improvement: "Fix the thing".into(),
+                target_surface: crate::taskmaster::TargetSurface::Tooling,
+                observation_ids: Vec::new(),
+                recurrence_count: 2,
+                affected_session_ids: vec!["audit-session".into()],
+                impact: crate::workflow_observations::Impact::Medium,
+                expected_benefit: "Fewer blockers".into(),
+                supersedes_recommendation_id: None,
+                dismissal_watermark: None,
+            },
+            completion_packet: None,
+            audit: None,
+            rollup_member_ids: Vec::new(),
+            rollup_member_dedupe_keys: Vec::new(),
+            rollup_generation: None,
+            rolled_up_by: None,
+            proposed_change: None,
+        };
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&card)
+            .unwrap();
+        card
+    }
+
+    #[test]
+    fn run_recommendation_audit_builds_refreshes_and_clears_the_cleanup_card() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let under_first = seed_audit_card(
+            &state,
+            "audit-under-first",
+            "under-first",
+            "2026-10-01T00:00:00Z",
+            false,
+        );
+        let under_second = seed_audit_card(
+            &state,
+            "audit-under-second",
+            "under-second",
+            "2026-10-02T00:00:00Z",
+            false,
+        );
+        let healthy = seed_audit_card(
+            &state,
+            "audit-healthy",
+            "healthy",
+            "2026-10-03T00:00:00Z",
+            true,
+        );
+
+        let card = application.run_recommendation_audit().unwrap().unwrap();
+        assert_eq!(
+            card.recommendation_type,
+            crate::taskmaster::RecommendationType::Cleanup
+        );
+        assert_eq!(card.dedupe_key, "cleanup:v1");
+        assert!(card.requires_approval);
+        let audit = card.audit.as_ref().unwrap();
+        assert_eq!(audit.scanned, 3);
+        assert_eq!(audit.healthy, 1);
+        assert_eq!(audit.entries.len(), 2);
+        assert_eq!(
+            audit
+                .entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![under_first.id.as_str(), under_second.id.as_str()]
+        );
+
+        let persisted = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&card.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            persisted
+                .audit
+                .as_ref()
+                .unwrap()
+                .entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![under_first.id.as_str(), under_second.id.as_str()]
+        );
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .dismiss(&under_first.id, chrono::Utc::now().to_rfc3339(), None)
+                .unwrap();
+        }
+        let refreshed = application.run_recommendation_audit().unwrap().unwrap();
+        assert_eq!(refreshed.id, card.id);
+        assert!(refreshed.updated_at > card.updated_at);
+        let refreshed_audit = refreshed.audit.as_ref().unwrap();
+        assert_eq!(refreshed_audit.scanned, 2);
+        assert_eq!(refreshed_audit.healthy, 1);
+        assert_eq!(refreshed_audit.entries.len(), 1);
+        assert_eq!(refreshed_audit.entries[0].id, under_second.id);
+
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .dismiss(&under_second.id, chrono::Utc::now().to_rfc3339(), None)
+                .unwrap();
+        }
+        assert!(application.run_recommendation_audit().unwrap().is_none());
+
+        let remaining = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap();
+        assert!(remaining
+            .iter()
+            .any(|recommendation| recommendation.id == healthy.id
+                && recommendation.status == RecommendationStatus::Proposed));
+    }
+
+    #[test]
+    fn run_recommendation_audit_is_none_without_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+
+        assert!(SessionApplication::new(state)
+            .run_recommendation_audit()
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn accept_cleanup_recommendation_dismisses_flagged_skips_drift_and_completes_the_card() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let flagged_a = seed_audit_card(
+            &state,
+            "batch-flagged-a",
+            "flagged-a",
+            "2026-10-01T00:00:00Z",
+            false,
+        );
+        let flagged_b = seed_audit_card(
+            &state,
+            "batch-flagged-b",
+            "flagged-b",
+            "2026-10-02T00:00:00Z",
+            false,
+        );
+        let healthy = seed_audit_card(
+            &state,
+            "batch-healthy",
+            "healthy",
+            "2026-10-03T00:00:00Z",
+            true,
+        );
+
+        let mut card = crate::test_support::test_recommendation_with_evidence_ids(
+            "batch-cleanup-card",
+            Vec::new(),
+            RecommendationStatus::Proposed,
+        );
+        card.recommendation_type = RecommendationType::Cleanup;
+        card.workspace_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .display()
+            .to_string();
+        card.chain_id = "cleanup:v1".into();
+        card.dedupe_key = "cleanup:v1".into();
+        card.requires_approval = true;
+        card.audit = Some(crate::taskmaster::AuditCleanup {
+            entries: vec![
+                crate::taskmaster::AuditCleanupEntry {
+                    id: flagged_a.id.clone(),
+                    title: flagged_a.title.clone(),
+                    criteria: vec![crate::taskmaster::AuditCriterion::UnderEligible],
+                },
+                crate::taskmaster::AuditCleanupEntry {
+                    id: flagged_b.id.clone(),
+                    title: flagged_b.title.clone(),
+                    criteria: vec![crate::taskmaster::AuditCriterion::Stale],
+                },
+            ],
+            scanned: 2,
+            healthy: 1,
+            stale_after_days: crate::taskmaster::audit::STALE_AFTER_DAYS,
+        });
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .put(&card.clone())
+                .unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .dismiss(&flagged_b.id, "2026-10-04T00:00:00Z".into(), None)
+                .unwrap();
+        }
+
+        let (completed, skipped) = application
+            .accept_cleanup_recommendation(&card.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.status, RecommendationStatus::Completed);
+        assert_eq!(
+            skipped,
+            vec![crate::session_application::SkippedEntry {
+                id: flagged_b.id.clone(),
+                status: RecommendationStatus::Dismissed,
+            }]
+        );
+
+        let remaining = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap();
+        let by_id = |id: &str| remaining.iter().find(|r| r.id == id).unwrap();
+        let persisted_flagged_a = by_id(flagged_a.id.as_str());
+        assert_eq!(persisted_flagged_a.status, RecommendationStatus::Dismissed);
+        assert_eq!(
+            persisted_flagged_a
+                .workflow_improvement
+                .dismissal_watermark
+                .as_ref()
+                .unwrap()
+                .reason
+                .as_deref(),
+            Some("audit:under_eligible@batch-cleanup-card")
+        );
+        assert_eq!(
+            by_id(healthy.id.as_str()).status,
+            RecommendationStatus::Proposed
+        );
+        let persisted_card = by_id(card.id.as_str());
+        assert_eq!(persisted_card.status, RecommendationStatus::Completed);
+        assert_eq!(
+            persisted_card.workflow_improvement.dismissal_watermark,
+            None
+        );
+    }
+
+    #[test]
+    fn accept_cleanup_recommendation_rejects_a_completed_card() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        seed_audit_card(
+            &state,
+            "batch-flagged",
+            "flagged",
+            "2026-10-01T00:00:00Z",
+            false,
+        );
+        let card = application.run_recommendation_audit().unwrap().unwrap();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let current = workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&card.id)
+                .unwrap()
+                .unwrap();
+            let mut completed = current.clone();
+            completed.status = RecommendationStatus::Completed;
+            workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .put(&completed)
+                .unwrap();
+        }
+        assert!(matches!(
+            application.accept_cleanup_recommendation(&card.id).err(),
+            Some(crate::taskmaster::store::StoreError::InvalidTransition)
+        ));
+    }
+
+    #[test]
+    fn accept_cleanup_recommendation_aborts_atomically_when_persistence_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        seed_audit_card(
+            &state,
+            "fault-flagged",
+            "fault-flagged",
+            "2026-10-01T00:00:00Z",
+            false,
+        );
+        let card = application.run_recommendation_audit().unwrap().unwrap();
+
+        crate::taskmaster::store::set_fault_point(Some(
+            crate::taskmaster::store::FaultPoint::ManifestCommit,
+        ));
+        let result = application.accept_cleanup_recommendation(&card.id);
+        crate::taskmaster::store::set_fault_point(None);
+        assert!(result.is_err());
+
+        let remaining = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap();
+        assert!(remaining
+            .iter()
+            .any(|r| r.id == card.id && r.status == RecommendationStatus::Proposed));
+        assert!(remaining
+            .iter()
+            .any(|r| r.id == "fault-flagged" && r.status == RecommendationStatus::Proposed));
+    }
+
     #[test]
     fn applying_an_unchanged_executing_rollup_preserves_its_target_session() {
         let root = tempfile::tempdir().unwrap();
@@ -12606,6 +13179,59 @@ mod tests {
             crate::taskmaster::RecommendationStatus::Dismissed
         );
         assert!(reloaded.workflow_improvement.dismissal_watermark.is_some());
+    }
+
+    #[test]
+    fn dismiss_recommendation_discards_a_proposed_cleanup_card() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let mut card = crate::test_support::test_recommendation_with_evidence_ids(
+            "cleanup-dismiss-card",
+            Vec::new(),
+            RecommendationStatus::Proposed,
+        );
+        card.recommendation_type = RecommendationType::Cleanup;
+        card.chain_id = "cleanup:v1".into();
+        card.dedupe_key = "cleanup:v1".into();
+        card.requires_approval = true;
+        card.workspace_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .display()
+            .to_string();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&card)
+            .unwrap();
+
+        let dismissed = application
+            .dismiss_recommendation(&card.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(dismissed.status, RecommendationStatus::Dismissed);
+        assert!(dismissed.workflow_improvement.dismissal_watermark.is_some());
+
+        let reloaded = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&card.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reloaded.status, RecommendationStatus::Dismissed);
     }
 
     #[test]

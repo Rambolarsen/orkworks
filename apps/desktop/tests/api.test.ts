@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import type { PeonDiagnostics, SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import {
+  acceptCleanupRecommendation,
   acceptTaskmasterRecommendation,
   deleteHarness,
   dismissTaskmasterRecommendation,
@@ -511,6 +512,33 @@ test("Taskmaster accept sends the session id and prompt and returns the updated 
       options: { sessionId: "session-active", prompt: "Implement the fix" },
     });
     assert.equal((result as { targetSessionId: string }).targetSessionId, "session-active");
+  } finally {
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
+  }
+});
+
+test("Cleanup accept posts through the same bridge without a session id", async () => {
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  let accepted: { id: string; options: Record<string, unknown> } | undefined;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      acceptTaskmasterRecommendation: (id: string, options: Record<string, unknown>) => {
+        accepted = { id, options };
+        return Promise.resolve({
+          recommendation: { id: "cleanup-card", status: "completed" },
+          skipped: [],
+        });
+      },
+    },
+  };
+  try {
+    const result = await acceptCleanupRecommendation("cleanup-card");
+    assert.deepEqual(accepted, { id: "cleanup-card", options: {} });
+    assert.deepEqual(result, {
+      recommendation: { id: "cleanup-card", status: "completed" },
+      skipped: [],
+    });
   } finally {
     if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
     else (globalThis as unknown as { window: unknown }).window = origWindow;

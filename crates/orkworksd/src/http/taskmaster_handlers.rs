@@ -8,6 +8,7 @@ use crate::taskmaster::completion::CompletionMutationRequest;
 use crate::taskmaster::provider_catalog;
 use crate::taskmaster::store::StoreError;
 use crate::taskmaster::Recommendation;
+use crate::taskmaster::RecommendationType;
 use crate::AppState;
 use axum::{
     body::Bytes,
@@ -35,7 +36,7 @@ pub(crate) struct DismissRequest {
 #[derive(Deserialize)]
 pub(crate) struct AcceptRequest {
     #[serde(rename = "sessionId")]
-    session_id: String,
+    session_id: Option<String>,
     #[serde(default)]
     prompt: Option<String>,
     #[serde(flatten)]
@@ -298,6 +299,19 @@ pub(crate) async fn analyze_taskmaster(
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditResponse {
+    recommendation: Option<Recommendation>,
+}
+
+pub(crate) async fn run_recommendation_audit(State(state): State<Arc<AppState>>) -> Response {
+    match SessionApplication::new(state).run_recommendation_audit() {
+        Ok(recommendation) => Json(AuditResponse { recommendation }).into_response(),
+        Err(error) => store_error(error),
+    }
+}
+
 pub(crate) async fn list_recommendations(State(state): State<Arc<AppState>>) -> Response {
     let (recommendations, diagnostics) = match SessionApplication::new(state).list_recommendations()
     {
@@ -343,6 +357,13 @@ pub(crate) async fn dismiss_recommendation(
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CleanupAcceptResponse {
+    recommendation: Recommendation,
+    skipped: Vec<crate::session_application::SkippedEntry>,
+}
+
 pub(crate) async fn accept_recommendation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -355,20 +376,46 @@ pub(crate) async fn accept_recommendation(
     {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
-    match SessionApplication::new(state)
-        .accept_recommendation_with_packet(
-            &id,
-            &request.session_id,
-            request.prompt,
-            request.packet_mutation,
-        )
-        .await
-    {
-        Ok(Some(recommendation)) => Json(recommendation).into_response(),
-        Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(RecommendationAcceptError::Conflict) => StatusCode::CONFLICT.into_response(),
-        Err(RecommendationAcceptError::SessionNotFound) => StatusCode::NOT_FOUND.into_response(),
-        Err(RecommendationAcceptError::Store(error)) => store_error(error),
+    let recommendation = match SessionApplication::new(state.clone()).get_recommendation(&id) {
+        Ok(Some(recommendation)) => recommendation,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(RecommendationQueryError::Conflict) => return StatusCode::CONFLICT.into_response(),
+        Err(RecommendationQueryError::Store(error)) => return store_error(error),
+    };
+    let application = SessionApplication::new(state);
+    match recommendation.recommendation_type {
+        RecommendationType::Cleanup if request.session_id.is_none() => {
+            match application.accept_cleanup_recommendation(&id) {
+                Ok(Some((card, skipped))) => Json(CleanupAcceptResponse {
+                    recommendation: card,
+                    skipped,
+                })
+                .into_response(),
+                Ok(None) => StatusCode::NOT_FOUND.into_response(),
+                Err(error) => store_error(error),
+            }
+        }
+        RecommendationType::Cleanup => StatusCode::BAD_REQUEST.into_response(),
+        _ if request.session_id.is_none() => StatusCode::BAD_REQUEST.into_response(),
+        _ => {
+            match application
+                .accept_recommendation_with_packet(
+                    &id,
+                    &request.session_id.as_ref().unwrap().as_str(),
+                    request.prompt,
+                    request.packet_mutation,
+                )
+                .await
+            {
+                Ok(Some(recommendation)) => Json(recommendation).into_response(),
+                Ok(None) => StatusCode::NOT_FOUND.into_response(),
+                Err(RecommendationAcceptError::Conflict) => StatusCode::CONFLICT.into_response(),
+                Err(RecommendationAcceptError::SessionNotFound) => {
+                    StatusCode::NOT_FOUND.into_response()
+                }
+                Err(RecommendationAcceptError::Store(error)) => store_error(error),
+            }
+        }
     }
 }
 
@@ -475,7 +522,7 @@ mod tests {
             suggested_prompt: None,
             confidence: RecommendationConfidence::Medium,
             requires_approval: false,
-            dedupe_key: format!("dedupe-{id}"),
+            dedupe_key: format!("improve_workflow:v1:test:{id}"),
             created_at: "2026-09-13T10:00:00Z".into(),
             updated_at: "2026-09-13T10:00:00Z".into(),
             expires_at: None,
@@ -491,6 +538,7 @@ mod tests {
                 dismissal_watermark: None,
             },
             completion_packet: None,
+            audit: None,
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,
@@ -505,7 +553,7 @@ mod tests {
         let mut parent =
             recommendation_fixture(&parent_id, RecommendationStatus::Proposed, "session-parent");
         parent.rollup_member_ids = vec![member_id.clone()];
-        parent.rollup_member_dedupe_keys = vec!["dedupe-rollup-member".into()];
+        parent.rollup_member_dedupe_keys = vec![format!("improve_workflow:v1:test:{member_id}")];
         parent.rollup_generation = Some(7);
         let mut member =
             recommendation_fixture(&member_id, RecommendationStatus::RolledUp, "session-member");
@@ -882,6 +930,236 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    fn seed_audit_candidate(state: &std::sync::Arc<crate::AppState>, id: &str) -> String {
+        let mut card = recommendation_fixture(id, RecommendationStatus::Proposed, "audit-session");
+        let recent = (chrono::Utc::now() - chrono::Duration::days(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        card.evidence[0].observed_at = recent;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&card)
+            .unwrap();
+        card.id
+    }
+
+    #[tokio::test]
+    async fn run_audit_returns_the_built_cleanup_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let flagged = seed_audit_candidate(&state, "audit-under");
+
+        let response = run_recommendation_audit(State(state)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["recommendation"].is_object());
+        assert_eq!(body["recommendation"]["type"], "cleanup");
+        let entries = body["recommendation"]["audit"]["entries"]
+            .as_array()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["id"], flagged);
+        assert_eq!(
+            entries[0]["criteria"],
+            serde_json::json!(["under_eligible"])
+        );
+    }
+
+    #[tokio::test]
+    async fn run_audit_returns_null_when_every_proposed_card_is_healthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let response =
+            run_recommendation_audit(State(test_app_state_with_workspace(dir.path()))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["recommendation"].is_null());
+    }
+
+    #[tokio::test]
+    async fn run_audit_returns_null_without_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        *state.workspace.lock().unwrap() = None;
+
+        let response = run_recommendation_audit(State(state)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["recommendation"].is_null());
+    }
+
+    /// Seeds one proposed cleanup card citing the given flagged proposed
+    /// improve_workflow ids through its audit entries, all persisted through
+    /// the store so the accept path exercises the real graph.
+    fn seed_cleanup_batch(state: &std::sync::Arc<crate::AppState>, flagged_ids: &[&str]) -> String {
+        let now = chrono::Utc::now().to_rfc3339();
+        let entries = flagged_ids
+            .iter()
+            .map(|id| crate::taskmaster::AuditCleanupEntry {
+                id: (*id).into(),
+                title: format!("Flagged {id}"),
+                criteria: vec![crate::taskmaster::AuditCriterion::UnderEligible],
+            })
+            .collect();
+        let mut card = recommendation_fixture(
+            "cleanup-batch-card",
+            RecommendationStatus::Proposed,
+            "audit-session",
+        );
+        card.recommendation_type = RecommendationType::Cleanup;
+        card.id = "cleanup-batch-card".into();
+        card.title = "Recommendation cleanup".into();
+        card.requires_approval = true;
+        card.chain_id = "cleanup:v1".into();
+        card.dedupe_key = "cleanup:v1".into();
+        card.evidence = Vec::new();
+        card.audit = Some(crate::taskmaster::AuditCleanup {
+            entries,
+            scanned: flagged_ids.len(),
+            healthy: 0,
+            stale_after_days: crate::taskmaster::audit::STALE_AFTER_DAYS,
+        });
+        card.created_at = now.clone();
+        card.updated_at = now;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&card)
+            .unwrap();
+        card.id
+    }
+
+    fn seed_flagged(state: &std::sync::Arc<crate::AppState>, id: &str) {
+        let mut card = recommendation_fixture(id, RecommendationStatus::Proposed, "audit-session");
+        card.evidence[0].observed_at = (chrono::Utc::now() - chrono::Duration::days(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&card)
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cleanup_accept_executes_the_bulk_dismissal() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        seed_flagged(&state, "flagged-a");
+        let card_id = seed_cleanup_batch(&state, &["flagged-a"]);
+
+        let response = accept_recommendation(
+            State(state.clone()),
+            Path(card_id.clone()),
+            Json(AcceptRequest {
+                session_id: None,
+                prompt: None,
+                packet_mutation: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["recommendation"]["id"], "cleanup-batch-card");
+        assert_eq!(body["recommendation"]["status"], "completed");
+        assert_eq!(body["skipped"], serde_json::json!([]));
+
+        let store = state.workspace.lock().unwrap();
+        let store = &store.as_ref().unwrap().recommendation_store;
+        let flagged = store.get("flagged-a").unwrap().unwrap();
+        assert_eq!(flagged.status, RecommendationStatus::Dismissed);
+        assert_eq!(
+            flagged
+                .workflow_improvement
+                .dismissal_watermark
+                .as_ref()
+                .unwrap()
+                .reason
+                .as_deref(),
+            Some("audit:under_eligible@cleanup-batch-card")
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_accept_with_session_id_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let card_id = seed_cleanup_batch(&state, &[]);
+
+        let response = accept_recommendation(
+            State(state.clone()),
+            Path(card_id.clone()),
+            Json(AcceptRequest {
+                session_id: Some("no-session".into()),
+                prompt: None,
+                packet_mutation: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let store = state.workspace.lock().unwrap();
+        let card = store
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&card_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(card.status, RecommendationStatus::Proposed);
+    }
+
+    #[tokio::test]
+    async fn improve_workflow_accept_without_session_id_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        seed_flagged(&state, "sessionless-target");
+
+        let response = accept_recommendation(
+            State(state.clone()),
+            Path("sessionless-target".to_string()),
+            Json(AcceptRequest {
+                session_id: None,
+                prompt: None,
+                packet_mutation: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let store = state.workspace.lock().unwrap();
+        let card = store
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get("sessionless-target")
+            .unwrap()
+            .unwrap();
+        assert_eq!(card.status, RecommendationStatus::Proposed);
+    }
+
     #[tokio::test]
     async fn list_returns_active_parents_and_unparented_proposals_only() {
         let dir = tempfile::tempdir().unwrap();
@@ -960,7 +1238,7 @@ mod tests {
         assert_eq!(body["rollupMemberIds"], serde_json::json!([member_id]));
         assert_eq!(
             body["rollupMemberDedupeKeys"],
-            serde_json::json!(["dedupe-rollup-member"])
+            serde_json::json!(["improve_workflow:v1:test:rollup-member"])
         );
         assert_eq!(body["rollupGeneration"], 7);
         assert!(body["rolledUpBy"].is_null());
@@ -1000,7 +1278,7 @@ mod tests {
             State(state.clone()),
             Path(member_id.clone()),
             Json(AcceptRequest {
-                session_id: "unrelated-session".into(),
+                session_id: Some("unrelated-session".into()),
                 prompt: Some("attempted mutation".into()),
                 packet_mutation: None,
             }),
@@ -1059,7 +1337,7 @@ mod tests {
             state,
             Path("missing".into()),
             Json(AcceptRequest {
-                session_id: "no-session".into(),
+                session_id: Some("no-session".into()),
                 prompt: None,
                 packet_mutation: None,
             }),
@@ -1113,7 +1391,7 @@ mod tests {
             State(state),
             Path(recommendation_id),
             Json(AcceptRequest {
-                session_id: "no-such-session".into(),
+                session_id: Some("no-such-session".into()),
                 prompt: None,
                 packet_mutation: None,
             }),
@@ -1189,7 +1467,7 @@ mod tests {
             State(state),
             Path(recommendation_id),
             Json(AcceptRequest {
-                session_id: "some-other-session".into(),
+                session_id: Some("some-other-session".into()),
                 prompt: None,
                 packet_mutation: None,
             }),

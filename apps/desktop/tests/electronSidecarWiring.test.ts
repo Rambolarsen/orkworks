@@ -354,6 +354,19 @@ test("debug attention aborts its fetch when the backend generation changes", () 
   assert.match(handler, /signal: AbortSignal\.any\(\[signal, AbortSignal\.timeout\(15_000\)\]\)/);
 });
 
+test("cleanup accepts may omit the session id at the IPC boundary", () => {
+  const start = mainSource.indexOf("function normalizeRecommendationAcceptOptions");
+  assert.ok(start >= 0, "accept option normalizer not found");
+  const end = mainSource.indexOf("function normalizeDebugAttention", start);
+  assert.ok(end > start, "normalizer end marker not found");
+  const helper = mainSource.slice(start, end);
+  assert.match(helper, /sessionId\?: string/);
+  assert.match(helper, /input\.sessionId !== undefined\s*&&/);
+  assert.match(helper, /sessionId === undefined \? \{\} : \{ sessionId: input\.sessionId as string \}/);
+  assert.match(preloadSource, /type TaskmasterAcceptOptions = \{[\s\S]*?sessionId\?: string;/);
+  assert.match(rendererTypes, /acceptTaskmasterRecommendation: \(id: string, options: AcceptRecommendationOptions\) => Promise<unknown>/);
+});
+
 test("Taskmaster mutations abort their fetch when the backend generation changes", () => {
   const helperStart = mainSource.indexOf("async function taskmasterMutationRequest");
   const helperEnd = mainSource.indexOf("\n  function normalizeRecommendationAcceptOptions", helperStart);

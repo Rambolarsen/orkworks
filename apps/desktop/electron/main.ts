@@ -684,7 +684,7 @@ app.whenReady().then(async () => {
   }
 
   function normalizeRecommendationAcceptOptions(value: unknown): {
-    sessionId: string;
+    sessionId?: string;
     prompt?: string;
     packetRevision?: number;
     evidenceFingerprint?: string;
@@ -700,7 +700,8 @@ app.whenReady().then(async () => {
       evidenceFingerprint?: unknown;
       idempotencyKey?: unknown;
     };
-    if (typeof input.sessionId !== "string" || !input.sessionId) {
+    if (input.sessionId !== undefined
+      && (typeof input.sessionId !== "string" || !input.sessionId)) {
       throw new Error("Invalid recommendation handoff session.");
     }
     if (input.prompt !== undefined && typeof input.prompt !== "string") {
@@ -722,7 +723,7 @@ app.whenReady().then(async () => {
       throw new Error("Invalid completion packet idempotency key.");
     }
     return {
-      sessionId: input.sessionId,
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId as string }),
       ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
       ...(input.packetRevision === undefined ? {} : { packetRevision: input.packetRevision as number }),
       ...(input.evidenceFingerprint === undefined ? {} : { evidenceFingerprint: input.evidenceFingerprint as string }),

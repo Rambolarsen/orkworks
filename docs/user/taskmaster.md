@@ -8,8 +8,8 @@ lead to a suggestion to improve repository instructions.
 
 Recommendations from either pipeline carry an origin badge (anything with an
 unrecognized history shows none), and the Recommendations panel header has an
-All · Analysis · Observations filter so you can focus on one kind at a
-time.
+All · Analysis · Observations · Cleanup filter so you can focus on one kind at
+a time.
 
 - **Analysis** — recommendations produced by the Brain's model analysis,
   which looks for missing agentic-workflow capabilities by comparing your
@@ -25,6 +25,12 @@ time.
   actually observed in your sessions: friction that coding agents or Peon
   recorded while work was happening, such as repeated obstacles or
   workarounds.
+- **Cleanup** — maintenance proposals Taskmaster generates about its own
+  backlog. A Cleanup card lists its observation-based recommendations that
+  no longer qualify for their evidence (too little support, probable noise,
+  stale, or duplicates), so you can dismiss several stale cards at once with
+  **Run cleanup**.
+  Nothing is dismissed until you approve the card.
 
 Analysis recommendations judge what your workflow is missing; Observations
 recommendations target what already went wrong (and an Analysis rollup may

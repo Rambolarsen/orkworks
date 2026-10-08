@@ -39,6 +39,7 @@ import {
   applyDebugAttention,
   getProviders,
   acceptTaskmasterRecommendation,
+  acceptCleanupRecommendation,
 } from "./api";
 import { buildCompletionPacketAcceptOptions, buildFixPromptDraft } from "./taskmaster";
 import { handleAcceptedFixWithAi } from "./taskmasterFixHandoff";
@@ -431,6 +432,24 @@ function App() {
     if (activeSession?.lifecycle !== "alive") return;
     setFixRecommendation(recommendation);
   }, [activeSessionId, sessions, workspaceSessionController]);
+
+  const handleRunCleanup = useCallback(async (recommendation: WorkflowRecommendation) => {
+    try {
+      const result = await acceptCleanupRecommendation(recommendation.id);
+      if (result.skipped.length === 0) {
+        pushToast("info", "Cleanup complete — flagged recommendations dismissed.");
+        return;
+      }
+      const skippedText = result.skipped
+        .slice(0, 5)
+        .map((entry) => `${entry.id.slice(0, 8)} is now ${entry.status}`)
+        .join("; ");
+      pushToast("info", `Cleanup complete. Skipped ${result.skipped.length} changed entr${result.skipped.length === 1 ? "y" : "ies"}: ${skippedText}${result.skipped.length > 5 ? "…" : ""}`);
+    } catch (cause) {
+      pushToast("error", "Couldn't run the cleanup.");
+      throw cause;
+    }
+  }, []);
 
   const handleConfirmFixWithAi = useCallback(async (prompt: string) => {
     const recommendation = fixRecommendation;
@@ -841,6 +860,7 @@ function App() {
         focusedRecommendationId={focusedRecommendationId}
         onOpenRecommendation={handleOpenRecommendation}
         onFixWithAi={handleFixWithAi}
+        onRunCleanup={handleRunCleanup}
         onCreateSession={handleCreateSession}
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
