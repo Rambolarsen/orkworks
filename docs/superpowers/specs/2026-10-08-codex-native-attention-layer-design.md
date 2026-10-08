@@ -123,11 +123,12 @@ same per-session transaction boundary, including user, hook, Peon, backend,
 process, lifecycle, native, and API writes. The revision may be persisted as
 part of session metadata or maintained by an equivalent sidecar-owned version
 protocol, but it must survive all writes within the live session and must not
-be reused. Attention ownership revision is narrower: it advances only when
-the attention tuple or its source changes, so unrelated work-metadata writes
-do not revoke a native clear. Runtime ownership tokens stay process-local and
-are never persisted. No bearer, native connection secret, or clear token is
-stored in session metadata.
+be reused. Attention ownership revision is narrower: it advances on every
+accepted attention write, even when the tuple and source are unchanged, so a
+competing identical write revokes an in-flight native clear. Unrelated
+work-metadata writes do not revoke a native clear. Runtime ownership tokens
+stay process-local and are never persisted. No bearer, native connection
+secret, or clear token is stored in session metadata.
 
 Native clear performs its final ownership and source checks and its atomic
 session-record replacement while holding the same per-session transaction
