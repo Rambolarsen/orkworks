@@ -999,12 +999,13 @@ impl SessionApplication {
         else {
             return Ok(None);
         };
-        if existing.recommendation_type != RecommendationType::ImproveWorkflow
-            || !matches!(
-                existing.status,
-                RecommendationStatus::Proposed | RecommendationStatus::Executing
-            )
-        {
+        if !matches!(
+            existing.recommendation_type,
+            RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
+        ) || !matches!(
+            existing.status,
+            RecommendationStatus::Proposed | RecommendationStatus::Executing
+        ) {
             return Err(RecommendationDismissError::Conflict);
         }
         workspace
@@ -13173,6 +13174,59 @@ mod tests {
             crate::taskmaster::RecommendationStatus::Dismissed
         );
         assert!(reloaded.workflow_improvement.dismissal_watermark.is_some());
+    }
+
+    #[test]
+    fn dismiss_recommendation_discards_a_proposed_cleanup_card() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        let mut card = crate::test_support::test_recommendation_with_evidence_ids(
+            "cleanup-dismiss-card",
+            Vec::new(),
+            RecommendationStatus::Proposed,
+        );
+        card.recommendation_type = RecommendationType::Cleanup;
+        card.chain_id = "cleanup:v1".into();
+        card.dedupe_key = "cleanup:v1".into();
+        card.requires_approval = true;
+        card.workspace_id = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .path
+            .display()
+            .to_string();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&card)
+            .unwrap();
+
+        let dismissed = application
+            .dismiss_recommendation(&card.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(dismissed.status, RecommendationStatus::Dismissed);
+        assert!(dismissed.workflow_improvement.dismissal_watermark.is_some());
+
+        let reloaded = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&card.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reloaded.status, RecommendationStatus::Dismissed);
     }
 
     #[test]
