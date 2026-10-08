@@ -170,8 +170,8 @@ with `recommendationOrigin` in `apps/desktop/src/taskmaster.ts`, mirroring
 - **Observations** (deterministic `ImproveWorkflow` recommendations with
   `improve_workflow:v1:` dedupe keys) — proposals the deterministic
   evaluator (`evaluate_workflow_improvements`) builds by grouping accepted
-  `WorkflowObservation` records by fingerprint, requiring recurrence (or a
-  single high-impact report) before proposing.
+  `WorkflowObservation` records by fingerprint, requiring recurrence (two
+  distinct qualifying observations) before proposing.
 
 ## Related files
 

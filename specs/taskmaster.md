@@ -545,10 +545,7 @@ its review; coordinator implementation still requires that plan's approval.
 
 ### Eligibility
 
-Taskmaster reevaluates five seconds after the latest accepted workflow observation in the active workspace, so a burst of related records can be considered together, and reconstructs its view from persisted observations after a restart. A deterministic evaluator considers a cluster eligible when either:
-
-- it contains at least two distinct observations sharing a fingerprint, each with confidence ≥ `0.6`; or
-- it contains one observation with `reportedImpact: high` and confidence ≥ `0.8`.
+Taskmaster reevaluates five seconds after the latest accepted workflow observation in the active workspace, so a burst of related records can be considered together, and reconstructs its view from persisted observations after a restart. A deterministic evaluator considers a cluster eligible only when it contains at least two distinct observations sharing a fingerprint, each with confidence ≥ `0.6`; high-impact observations additionally require confidence ≥ `0.8`. A single observation, however confident or impactful, never proposal-qualifies — it remains stored as supporting context until a second distinct observation shares its fingerprint.
 
 Two inference results over the same unchanged Peon evidence window count as one observation; a genuinely repeated action produces a later evidence range and therefore a distinct, separately-countable occurrence. Recurrence may span one session or multiple sessions; the recommendation states which. Exact evidence families remain deterministic audit units. A separate bounded rollup layer may combine related proposed exact families; it does not replace exact identity or allow generated prose to become evidence. Observations below `0.6` confidence, and high-impact observations below `0.8` confidence, are not cited or counted, though they may remain stored as supporting context.
 

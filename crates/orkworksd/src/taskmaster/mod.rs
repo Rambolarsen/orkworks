@@ -211,10 +211,7 @@ pub(crate) fn evaluate_workflow_improvements(
     let mut proposals = Vec::new();
     for (fingerprint, mut qualifying) in groups {
         qualifying.sort_by_key(|observation| observation.sequence);
-        let high_impact_single = qualifying.len() == 1
-            && qualifying[0].reported_impact == Impact::High
-            && qualifying[0].confidence >= 0.8;
-        if qualifying.len() < 2 && !high_impact_single {
+        if qualifying.len() < 2 {
             continue;
         }
 
@@ -944,13 +941,17 @@ mod tests {
     }
 
     #[test]
-    fn proposes_a_high_impact_single_observation_but_ignores_weak_evidence() {
-        let high = observation("high", 1, "session-a", 0.8, Impact::High);
+    fn ignores_single_and_weak_high_impact_evidence() {
+        let high = observation("high", 1, "session-a", 0.9, Impact::High);
         let weak = observation("weak", 2, "session-b", 0.59, Impact::High);
-        let proposals =
-            evaluate_workflow_improvements(&[high], &[], "workspace-1", "2026-08-21T12:00:00Z");
-        assert_eq!(proposals.len(), 1);
-        assert_eq!(proposals[0].priority, Impact::High);
+
+        assert!(evaluate_workflow_improvements(
+            &[high],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        )
+        .is_empty());
 
         assert!(evaluate_workflow_improvements(
             &[weak],
@@ -1149,7 +1150,10 @@ mod tests {
     #[test]
     fn fix_prompt_includes_reference_snapshots_without_claiming_proactive_recurrence() {
         let mut recommendation = evaluate_workflow_improvements(
-            &[observation("one", 1, "session-a", 0.9, Impact::High)],
+            &[
+                observation("one", 1, "session-a", 0.9, Impact::High),
+                observation("two", 2, "session-b", 0.9, Impact::High),
+            ],
             &[],
             "workspace-1",
             "2026-09-09T00:00:00Z",

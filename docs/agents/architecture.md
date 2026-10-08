@@ -488,9 +488,9 @@ The workflow-observation and Taskmaster routes this design introduces or repurpo
 - `POST /taskmaster/recommendations/:id/completion-packet` — implemented. A bearer-authenticated source session may attach the initial packet or submit a superseding revision for that existing recommendation. The route enforces one matching source session and workspace-local packet validation; it does not create sessions or perform coordinator actions.
 
 Taskmaster correlates accepted observations five seconds after the latest
-accepted one: a fingerprint cluster of at least two observations at
-confidence ≥ 0.6, or one `reportedImpact: high` observation at confidence ≥
-0.8, produces one `improve_workflow` recommendation embedding immutable
+accepted one: a fingerprint cluster of at least two observations, each at
+confidence ≥ 0.6 (high-impact observations additionally require confidence
+≥ 0.8), produces one `improve_workflow` recommendation embedding immutable
 snapshots of its cited observations, deduped as
 `improve_workflow:v1:<target-surface>:<observation-fingerprint>` and
 resurfaced past a dismissal watermark only on higher impact or two
