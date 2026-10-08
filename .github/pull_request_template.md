@@ -6,7 +6,9 @@
 
 ## Test plan
 
-<!-- Concrete commands/checks you ran, not just "tests pass". -->
+<!-- For each changed surface (e.g. desktop, Rust, or docs), name the smallest
+     relevant check you ran and its result; note broader checks separately.
+     If you could not run a relevant check, say why. -->
 
 - [ ]
 - [ ]
