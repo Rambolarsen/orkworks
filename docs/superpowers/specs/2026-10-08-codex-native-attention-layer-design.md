@@ -196,15 +196,25 @@ The protocol contract is:
 
 Every persisted session-record mutation advances `metadataRevision` under the
 same per-session transaction boundary, including user, hook, Peon, backend,
-process, lifecycle, native, and API writes. The revision may be persisted as
-part of session metadata or maintained by an equivalent sidecar-owned version
-protocol, but it must survive all writes within the live session and must not
-be reused. Attention ownership revision is narrower: it advances on every
-accepted attention write, even when the tuple and source are unchanged, so a
-competing identical write revokes an in-flight native clear. Unrelated
+process, lifecycle, native, and API writes. The revision is persisted as part
+of session metadata, survives all writes within the live session, and is never
+reused. Attention ownership revision is narrower: it advances on every
+accepted attention write, even when the tuple and source are unchanged,
+so a competing identical write revokes an in-flight native clear. Unrelated
 work-metadata writes do not revoke a native clear. Runtime ownership tokens
 stay process-local and are never persisted. No bearer, native connection
 secret, or clear token is stored in session metadata.
+
+For a legacy record with no persisted revision, the versioned read returns the
+stable per-record initial revision `"0"` without rewriting the record. Every
+accepted persisted mutation, including the first, advances that revision under
+the transaction boundary and persists the result in the session record
+(`"1"` for the first mutation).
+The counter is per session record, is exposed as an opaque value, and must use a
+checked increment; exhaustion fails closed without writing rather than
+wrapping or reusing a revision. Concurrent readers therefore receive the same
+initial revision, and only one writer using it can commit. This protocol
+bookkeeping does not migrate the other fields in a legacy record.
 
 Native clear performs its final ownership and source checks and its atomic
 session-record replacement while holding the same per-session transaction
@@ -516,6 +526,14 @@ and review pass on the exact PR head. In addition, each exact #690
 version/platform/configuration entry must have the following installed-path
 evidence; synthetic protocol and cooperating-writer tests do not substitute
 for these checks:
+
+- The #690 compatibility entry links a durable verification record for that
+  exact entry. The record identifies the installed OrkWorks build (version and
+  commit or artifact digest), OS version and architecture, effective launch
+  configuration, run date, and the outcome of each applicable scenario below.
+  It links the supporting logs, traces, or test artifacts and records any
+  ineligible or ambiguous result. An entry without this record is not verified
+  and cannot satisfy the production gate.
 
 - The effective model, approval policy, sandbox, and configuration match the
   direct-launch path, including ordered shared options and unchanged
