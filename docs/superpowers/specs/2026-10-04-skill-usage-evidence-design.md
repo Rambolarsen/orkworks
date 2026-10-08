@@ -35,14 +35,33 @@ adapter, or skill must not be described as supported until the version-specific
 delivery, permission, and event-coverage evidence required by #740 has passed
 review. Until then the structures below are design contracts and the UI
 projects capability as unavailable or unknown.
+All JSON examples below are synthetic contract fixtures; they do not claim that
+Copilot or any other adapter is eligible.
 
 ## Terms and evidence semantics
 
-Evidence is keyed by the immutable pair `(assignmentId, skillSnapshotId)` from
-the approved #741 assignment configuration. A logical skill name alone is not
-an identity. The snapshot binds skill ID, version, canonical content digest,
-source reference, and the selected content bytes/delivery form. The
-configuration digest and assignment revision pin the complete approved set.
+Evidence is keyed by the approved #741/#742 identity tuple: `runId`, `planId`,
+`planRevision`, `taskId`, `taskVersion`, `reservationId`, `childSessionId`,
+`parentSessionId`, `configurationId`, `configurationDigest`, `sidecarGeneration`,
+`launchGeneration`, `adapterGeneration`, and `evidenceStoreGeneration`. These
+existing identities do not
+introduce an `assignmentId`, `assignmentRevision`, or `taskAttempt`.
+`configurationId` and its digest bind the selected skills; plan/task/reservation/
+session identities bind the exact launched child. Retries or changed
+assignments require a newly approved plan revision and configuration. A
+logical skill name alone is not an identity. `skillSnapshotId` is exactly the
+`SkillSnapshot.id` from #741, with no second ID namespace. That snapshot binds
+skill version, canonical content digest, source reference, and the selected
+content bytes/delivery form.
+
+Evidence is historical per launch generation. The current projection is keyed
+by `(configurationId, configurationDigest, skillSnapshotId,
+sidecarGeneration, launchGeneration, adapterGeneration,
+evidenceStoreGeneration)`. A resumed runtime
+gets a new launch generation even when its session/configuration IDs stay the
+same. Older events remain historical and cannot confirm that a skill is loaded
+or used in the new runtime; the new launch needs its own delivery and usage
+evidence. Context recall is not proof of continued loading.
 
 | Term | Meaning | Producer and strength |
 | --- | --- | --- |
@@ -55,8 +74,8 @@ configuration digest and assignment revision pin the complete approved set.
 `selected`, `loaded`, and usage are separate dimensions. A selected skill can
 remain delivery-unconfirmed. A use report without a delivery receipt remains a
 reported claim and cannot confirm delivery. An observation event cannot imply
-delivery unless that adapter event independently includes a valid delivery
-receipt. Neither `reported_used` nor inferred text may be relabeled
+delivery; loading requires a separate `delivery_receipt` event. Neither
+`reported_used` nor inferred text may be relabeled
 `observed_used`.
 
 Usage records are append-only evidence events. The effective projection for a
@@ -67,16 +86,19 @@ zero count. A definitive negative-use result is outside this protocol.
 
 ## Assignment and reporter binding
 
-An accepted report is bound to all of the following server-resolved values:
+An accepted report is bound to all of the following server-resolved values,
+using the #741 configuration and #742 plan/task identity vocabulary:
 
 - repository/workspace identity and its current local registration generation;
-- approved run ID, plan ID/revision, and immutable assignment ID/revision;
-- task ID/attempt and launched child OrkWorks session ID;
-- assignment configuration digest, including role, coding-tool executable/version
-  identity, model binding, and effective permission profile;
+- approved `runId`, `planId`, and `planRevision`;
+- `taskId`, `taskVersion`, `reservationId`, `parentSessionId`, and launched
+  `childSessionId`;
+- `configurationId`/`configurationDigest`, including role, coding-tool
+  executable/version identity, model binding, and effective permission profile;
 - skill snapshot ID, version, and content digest;
 - adapter identity, version, capability-register revision, and coverage declaration;
-- sidecar runtime generation and report-capability generation.
+- `sidecarGeneration`, `launchGeneration`, `adapterGeneration`, and current
+  `evidenceStoreGeneration`.
 
 The child cannot choose or override those authority-bearing fields. The
 sidecar derives the reporting session from the same session-scoped bearer
@@ -90,28 +112,41 @@ process-authenticated. A report is accepted only while the assignment is
 admitted and its plan/run authority is current. The capability is not
 serialized in configuration, report bodies, logs, or evidence records.
 
-Every request also carries the expected plan revision, assignment revision,
-task attempt, runtime generation, and adapter generation. The server compares
-them to its current durable assignment and live runtime. A stale, completed,
-cancelled, superseded, foreign-workspace, or mismatched assignment is rejected
-without persistence. Reports never reopen a task, resume a session, change a
-plan, or create launch authority.
+Every request carries expected values for the plan revision, task version,
+reservation, child session, configuration identity/digest, and generation
+identities, including `parentSessionId` and `evidenceStoreGeneration`.
+`planRevision` uses #742's
+1–64 range; `taskVersion` uses its
+1–2^31−1 range. `sidecarGeneration` and `launchGeneration` are lowercase
+64-character hex strings. `adapterGeneration` is #741's bounded ASCII identity
+(1–128 bytes), not a numeric counter. New events must match the durable plan,
+assignment and current live runtime binding. Exact replays are checked against
+the immutable stored launch binding, so they remain verifiable after the child
+runtime ends. A stale, superseded, foreign-workspace or mismatched tuple is
+rejected without persistence. A completed assignment accepts only an exact
+replay of an already committed event during its replay window. Reports never
+reopen a task, resume a session, change a plan, or create launch authority.
 
 The proposed report API is workspace-local and authenticated:
 
 ```http
-POST /taskmaster/assignments/{assignment_id}/skill-evidence
+POST /sessions/{childSessionId}/orchestration/skill-evidence
 Authorization: Bearer <session-scoped report capability>
 Content-Type: application/json
 ```
 
-The exact route and capability wiring require implementation review against
-the existing workflow observation handler. Authentication alone does not make
-the caller an eligible native observer. Only a capability-verified adapter may
-submit `delivery_receipt` or `observed_invocation` event kinds; the child
-reporter may submit `reported_use`. The server assigns provenance from the
-authenticated route/adapter registration, never from a caller-supplied
-`source`, `confidence`, or `observed` flag.
+The child route accepts only `reported_use` and a correction of that same
+session's self-reports. It rejects adapter-only event kinds. Adapter evidence
+uses a separate sidecar-internal integration call bound to a server-held
+adapter capability. That capability is never injected into the coding-tool
+environment, prompt, terminal, or child report token. The sidecar assigns
+adapter provenance only after checking the compiled integration identity,
+exact adapter/version binding, capability evidence, launch generation, and
+evidence-store generation. If an adapter cannot submit through this separated
+route, it cannot report delivery or native invocation evidence and remains
+unsupported. The #740 register currently verifies no adapter. The server
+assigns provenance from the authenticated route/integration, never from
+caller-supplied `source`, `confidence`, or `observed` fields.
 
 ## Event contract
 
@@ -122,11 +157,20 @@ in the receipt and are not trusted from the request.
 {
   "schemaVersion": 1,
   "expected": {
+    "runId": "run-123",
+    "planId": "plan-456",
     "planRevision": 4,
-    "assignmentRevision": 2,
-    "taskAttempt": 1,
-    "runtimeGeneration": 3,
-    "adapterGeneration": 1
+    "taskId": "task-789",
+    "taskVersion": 2,
+    "reservationId": "reservation-abc",
+    "parentSessionId": "session-parent",
+    "childSessionId": "session-def",
+    "configurationId": "config-ghi",
+    "configurationDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "sidecarGeneration": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "launchGeneration": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "adapterGeneration": "copilot-cli-1.0.90-profile-v1",
+    "evidenceStoreGeneration": 3
   },
   "producerStreamId": "rs_01J9EXAMPLE7N8R3Y6K2M4P0Q1A",
   "producerSequence": 18,
@@ -135,14 +179,15 @@ in the receipt and are not trusted from the request.
   "kind": "reported_use",
   "occurredAt": "2026-10-07T14:23:10Z",
   "evidenceRef": {
-    "kind": "skill_invocation_receipt",
-    "digest": "sha256:5b0d..."
+    "kind": "source_metadata_digest",
+    "digest": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
   }
 }
 ```
 
-`producerStreamId` is an opaque ID issued by the sidecar for one assignment,
-producer kind, and adapter generation; the authenticated route selects the
+`producerStreamId` is an opaque ID issued by the sidecar for one configuration,
+launch generation, evidence-store generation, producer kind, and adapter
+generation; the authenticated route selects the
 authoritative stream, and callers cannot create or reset it. `producerSequence`
 is a positive, monotonically increasing integer in that stream. `eventId` is
 the deterministic string `<producerStreamId>:<producerSequence>`, validated by
@@ -150,20 +195,50 @@ the server. The adapter and session reporter must persist and retry the same
 sequence/event ID until acknowledged. A sequence gap is recorded as incomplete
 coverage. The server records its own `receivedAt` and workspace-monotonic
 `workspaceSequence`, distinct from the producer's sequence. `occurredAt` is
-advisory; it must be UTC RFC3339 with at most 32 ASCII
-bytes and may be no more than five minutes ahead of server receipt time. The UI
+advisory; it must use `YYYY-MM-DDTHH:mm:ss[.sss]Z` UTC RFC3339 syntax with at
+most 32 ASCII bytes, no earlier than
+the bound launch's `startedAt` minus five minutes, and no later than server
+receipt time plus five minutes. The UI
 orders by server `receivedAt`, never by this producer-supplied value.
-`evidenceRef` is an optional opaque
-reference/digest to a bounded, redacted evidence object, never arbitrary
-transcript text. The server returns the accepted event ID, workspace sequence,
+`evidenceRef` is an optional opaque reference/digest to a retained event or
+approved source-metadata digest, never arbitrary transcript text. The server
+returns the accepted event ID, workspace sequence,
 effective provenance, and whether it was newly accepted or replayed.
 
-The event kinds are closed:
+The child event kinds are closed:
 
-- `delivery_receipt`: adapter proves delivery of the exact skill snapshot;
 - `reported_use`: authenticated child reports usage;
-- `observed_invocation`: adapter reports a recognized invocation event;
-- `coverage_update`: adapter identifies the covered interval and any gaps.
+- `correction`: authorized producer or user invalidates a specific accepted event.
+
+The separate adapter integration can emit `delivery_receipt`,
+`observed_invocation`, and `coverage_update`; those kinds are rejected by the
+child HTTP route. The sidecar's Electron-authorized evidence-management action
+can emit a user `correction`; renderer code cannot call it directly.
+
+`correction` has this compact illustrative form (actor, source, and all
+assignment fields remain server-resolved):
+
+```json
+{
+  "schemaVersion": 1,
+  "producerStreamId": "rs_01J9EXAMPLE7N8R3Y6K2M4P0Q1A",
+  "producerSequence": 19,
+  "eventId": "rs_01J9EXAMPLE7N8R3Y6K2M4P0Q1A:19",
+  "kind": "correction",
+  "targetEventId": "rs_01J9EXAMPLE7N8R3Y6K2M4P0Q1A:18",
+  "reason": "misbound"
+}
+```
+
+`correction` contains `targetEventId` and one closed reason: `duplicate`,
+`misbound`, `source_invalidated`, or `user_correction`. It has no free-form
+explanation. The assigned session may correct only its own `reported_use`; the
+adapter integration may correct only its own adapter-origin events; an
+Electron-main-authorized user action may correct any event in the current
+repository. A correction cannot target another correction, cannot itself be
+corrected, and cannot create or promote evidence. Each event may be corrected
+once. The target remains in bounded history with its provenance; the active
+projection and aggregates exclude it and mark it corrected.
 
 Unknown event kinds and unknown schema versions fail closed. A delivery receipt
 must include the exact delivery mechanism and content digest. An observed event
@@ -171,8 +246,8 @@ must identify the adapter's documented invocation event type and a stable
 source event reference. Adapter source sequence maps to `producerSequence`;
 coverage `fromSequence`, `throughSequence`, and gap ranges all use this same
 stream-local sequence, while the returned sequence is workspace-local storage
-order. One stream is scoped to one assignment, producer kind, and adapter
-generation. Sequences start at 1 and are strictly increasing. A restart creates
+order. One stream is scoped to one configuration, launch generation, producer
+kind, and adapter generation. Sequences start at 1 and are strictly increasing. A restart creates
 a new generation and stream; it cannot reuse the old stream or claim coverage
 across the restart. Producers submit in sequence order. The server rejects a
 lower sequence unless it is an exact replay with a retained matching event or
@@ -197,7 +272,9 @@ configuration to reproducible evidence of:
    and runtime-generation fencing;
 4. the adapter's ability to exclude full prompts, hidden reasoning, and
    transcript content from evidence;
-5. the role-specific permission profile and any route that could widen it.
+5. a separated adapter-event ingress whose authority the child report route
+   cannot invoke or impersonate;
+6. the role-specific permission profile and any route that could widen it.
 
 Until the evidence register verifies all requirements for an assignment's
 requested role/profile, that adapter cannot produce `loaded` or
@@ -239,8 +316,10 @@ event:
 - same event ID with different payload returns `409 idempotency_conflict`;
 - the same producer sequence with a different event ID or payload returns
   `409 producer_sequence_conflict` while its record/tombstone is retained;
-- stale revision/generation returns `409 stale_assignment`; a terminally closed
-  assignment returns `410 assignment_closed`; neither persists the event;
+- stale revision/generation returns `409 stale_assignment`; neither persists
+  the event;
+- a terminally closed assignment rejects any new producer sequence with
+  `410 assignment_closed`;
 - a lower producer sequence with no matching retained event/tombstone returns
   `410 producer_sequence_expired`; it cannot be accepted as a new event;
 - a higher sequence is accepted with an explicit gap marker; producers cannot
@@ -253,12 +332,19 @@ expires. Thus an old sequence whose tombstone has expired is rejected as
 `410 producer_sequence_expired`, not accepted as a new event; the receipt is
 available only while its matching event/tombstone remains. A new sequence
 represents a new report even if its prose or evidence resembles an earlier
-report. Deleting an assignment or workspace revokes its report capability and
-stream immediately, so a late retry cannot resurrect deleted evidence. A failed
-response after durable commit is safe to retry with the same event ID and
-sequence. Persist event, tombstone, high-water mark, and aggregate update
-atomically or recover them from the durable event log before serving
-projections.
+report. For an already committed event, authenticate and validate the request,
+then compare its event/tombstone payload before checking whether the assignment
+still accepts new writes. An exact same-payload retry returns the original
+receipt for 24 hours even after assignment completion; a changed payload
+conflicts. Keep only a hashed report-capability verification record for this
+24-hour replay-only period. It cannot authorize a new sequence. Run cancellation
+does not restore plan authority; workspace deletion/evidence clear revoke the
+record immediately, and sidecar restart revokes old-generation capabilities.
+A stale-generation retry then receives a fenced response while any already
+committed event remains visible in the projection. A failed response after
+durable commit is safe to retry with the same event ID and sequence. Persist
+event, tombstone, high-water mark, and aggregate update atomically or recover
+them from the durable event log before serving projections.
 
 ## Bounds, rate limits, and retention
 
@@ -270,18 +356,23 @@ the server must not truncate fields into a different accepted payload.
 | --- | ---: |
 | JSON request body | 16 KiB |
 | Event ID / opaque reference ID | 128 UTF-8 bytes |
-| Producer stream ID | 64 ASCII bytes |
-| `occurredAt` | UTC RFC3339, at most 32 ASCII bytes, at most 5 minutes in the future |
+| `producerStreamId` | ASCII `[A-Za-z0-9_-]`, 1–64 bytes; colon is reserved for the event ID separator |
+| `producerSequence` | Positive canonical decimal JSON integer, no leading zeros |
+| `occurredAt` | UTC RFC3339 `YYYY-MM-DDTHH:mm:ss[.sss]Z`, at most 32 ASCII bytes, launch start −5 minutes through receipt time +5 minutes |
 | Skill snapshot ID | 128 ASCII bytes, matching #741's `SkillSnapshot.id` |
 | Evidence digest | 128 ASCII bytes |
 | Evidence reference object | 512 bytes |
 | Retained assignment identity/binding row | 2 KiB |
-| Plan/assignment revisions, task attempt, runtime/adapter generations | Positive integers `1..=2,147,483,647` |
-| Producer sequence | Positive integer `1..=9,007,199,254,740,991` |
+| `planRevision` | Integer `1..=64`, matching #742 |
+| `taskVersion` | Integer `1..=2,147,483,647`, matching #742 |
+| `sidecarGeneration` / `launchGeneration` | Opaque lowercase 64-character hex strings, matching #742 |
+| `adapterGeneration` | Nonempty ASCII identity, at most 128 bytes, matching #741 |
+| `evidenceStoreGeneration` | Positive integer `1..=2,147,483,647` |
+| Producer sequence | Integer `1..=2,147,483,647`; stream exhaustion requires a new launch/plan binding, never wraparound |
 | Retained assignment bindings per workspace | 1,000 |
 | Producer streams per workspace | 2,000 |
 | Events in one request | 1 |
-| Skills in one assignment | 32 |
+| Skills in one configuration | 16, matching #741 |
 | Evidence events per assignment | 256 |
 | Retained event bytes per assignment | 256 KiB |
 | Retained events per workspace | 10,000 |
@@ -289,7 +380,18 @@ the server must not truncate fields into a different accepted payload.
 | Per-skill aggregates per workspace | 10,000 |
 | Aggregate bytes per workspace | 2 MiB |
 | Accepted reports per workspace | 60 per rolling minute |
+| Attempts per valid capability | 120 per rolling minute, charged before JSON parsing and assignment lookup; includes replay and rejected requests |
+| Attempts per workspace | 600 per rolling minute, charged before JSON parsing and assignment lookup |
 | Idempotency tombstones per workspace | 100,000 |
+
+Count a report attempt after validating its bearer capability but before JSON
+decoding, assignment/configuration lookup, or event/tombstone hashing. Charge
+new events, exact retries, malformed payloads, conflicts, stale generations,
+and other rejected authenticated requests. Keep rolling attempt counters in
+bounded short-lived memory and return `429 rate_limited` with `Retry-After`;
+attempt counters are not evidence history. The workspace accepted-event limit
+counts only newly persisted evidence/correction events. Enforce the body byte
+limit while reading the request, before buffering the complete payload.
 
 On assignment/workspace count or byte pressure, trim oldest raw event payloads
 first and preserve compact aggregates, per-stream high-water marks, and
@@ -315,12 +417,18 @@ per-skill aggregates and assignment/configuration identity for at most 180 days
 after terminal state for local comparison, subject to the stated caps and
 repository deletion. If assignment/aggregate capacity is full and all records
 are still within their retention period, reject new evidence until capacity is
-available or the user clears repository evidence history. On repository/workspace deletion, remove events, aggregates,
-references, and assignment-linked history; retain only a minimal deletion
-watermark sufficient to reject late writes for 24 hours, then remove it. Users
-must be able to clear evidence history for a repository without deleting
-ordinary session history. Retention is local to the selected repository and
-does not synchronize across workspaces or installations.
+available or the user clears repository evidence history. Repository evidence
+clear is an Electron-main-authorized operation scoped to the registered
+repository. It atomically increments `evidenceStoreGeneration`, revokes all
+report and adapter capabilities/streams, removes evidence records and
+aggregates, and writes a 24-hour deletion fence. Existing live assignments
+become evidence-disabled and cannot repopulate the cleared store; they may
+continue under their existing execution authority. New evidence requires a
+later approved assignment bound to the new evidence-store generation. This
+operation leaves ordinary session history untouched. Repository/workspace
+deletion performs the same evidence revocation and deletion, then removes the
+rest of workspace history under its own contract. Retention is local to the
+selected repository and does not synchronize across workspaces or installations.
 
 Startup recovery validates schema versions, checksummed records, per-file and
 aggregate bounds, tombstone deadlines, sequence counters, and assignment
@@ -333,14 +441,18 @@ reviewed repair path restores a consistent sequence and tombstone set.
 
 ## Privacy and evidence references
 
-Store only event kind, opaque skill/assignment references, source/coverage,
+Store only event kind, opaque skill/configuration references, source/coverage,
 timestamps, sequence/generation bindings, bounded digests, and aggregate
 counts. Never store bearer tokens, secrets, hidden reasoning, full prompts,
 complete transcripts, arbitrary tool arguments, or unredacted terminal output
-as skill telemetry. Evidence references point to separately bounded,
-redacted artifacts with independent access checks; if an artifact cannot be
-redacted and authorized, omit the reference and retain the evidence event
-without it. Hashes do not make sensitive source material safe to retain.
+as skill telemetry. `evidenceRef` may point only to another retained event in
+this same evidence store or a digest of source metadata already present in the
+approved assignment snapshot. It cannot contain a path, URL, blob, transcript,
+or pointer to separately stored content. References are workspace- and
+assignment-scoped, require the same authorization as their source event, and
+are removed when the referenced event/snapshot is deleted. No external evidence
+artifact store is introduced by this contract. Hashes do not make sensitive
+source material safe to retain.
 
 ## HTTP outcomes
 
@@ -409,7 +521,8 @@ Badge behavior follows the parent design's refinement:
 - missing use remains `unknown`, never “unused” or numeric zero;
 - reduced-motion settings replace the brief highlight with a static indicator.
 
-The sidecar may return null counts when coverage is unsupported/incomplete.
+The sidecar derives `lastAt` from server `receivedAt`, never `occurredAt`. It
+may return null counts when coverage is unsupported/incomplete.
 Only display zero for an explicitly counted event stream in a stated coverage
 interval, and still label that interval's coverage. The UI does not convert
 that local interval into a lifetime no-use claim. Loading and usage evidence
