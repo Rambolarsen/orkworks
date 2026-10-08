@@ -67,27 +67,49 @@ The read response contains the current record and an opaque
 `metadataRevision`. A write carries that revision and a field-scoped patch
 whose only top-level fields are:
 
-- `attentionState`: the complete attention tuple with required keys
-  `observedStatus`, `attention`, `needsUserInput`, `detectedQuestion`, and
+- `attentionState`: the complete attention input with required keys
+  `observedStatus`, `needsUserInput`, `detectedQuestion`, and
   `suggestedOptions`. Every key must be present; nullable values use explicit
   `null`. `false` is a value for `needsUserInput`, and an empty array is a
   value for `suggestedOptions`. The string and enum values use the existing
-  attention/status validators. This replaces the tuple as one unit.
+  validators. The caller does not submit `attention`; the sidecar derives it
+  from `observedStatus` using the existing canonical mapping (`waiting_for_input`
+  to `needs_you`, `stale`/`done` to `idle`, and `working`/`idle`/`blocked`/
+  `failed`/`capped` to the same value; `null` remains `null`). This replaces
+  the complete attention tuple as one unit.
 - `agentMetadata`: an object containing any subset of `task`, `summary`,
   `nextAction`, `workPhase`, `planPath`, `blockerDescription`,
   `failedCommand`, and `failedTest`. Omitted fields are preserved; explicit
   `null` clears nullable fields. `task` is a string; `workPhase` is one of
-  `ideation`, `implementation`, `review`, `debugging`, or `unknown`; `planPath`
-  uses the existing validated `PlanReference` shape. Other fields retain
-  their current serialized types and bounds.
+  `ideation`, `implementation`, `review`, `debugging`, or `unknown`. `summary`
+  and `planPath` use the atomic rules below. Other fields retain their current
+  serialized types and bounds.
 
 Either object may be omitted to preserve that group. The sidecar rejects
 unknown and protected fields, including session identity, lifecycle/process
 state, `metadataSource`, `metadataConfidence`, revisions, attention
-provenance, and timestamps. The sidecar owns `lastActivity` and updates it
-according to existing activity semantics. This whole-tuple operation prevents
-a direct writer from accidentally combining fields from two attention
-producers.
+provenance, summary provenance, plan provenance, and timestamps. The sidecar
+owns `lastActivity` and updates it according to existing activity semantics.
+This whole-tuple operation prevents a direct writer from accidentally
+combining fields from two attention producers.
+
+`summary` remains a dedicated current-summary snapshot. When a non-empty,
+non-whitespace summary is supplied, the sidecar updates `summary`,
+`summarySource=agent`, `summaryConfidence=1.0`, and `summaryObservedAt` together;
+the caller cannot submit the provenance fields. Explicit `null` clears all four
+fields together, omission preserves them, and an empty or whitespace-only
+string is rejected. This keeps agent summaries usable as Taskmaster handoff
+evidence without retaining stale snapshot provenance.
+
+`planPath` accepts a validated relative path, not a caller-built
+`PlanReference`; the sidecar resolves its worktree root and assigns the
+proposed `agent_reported` source. This adds `agent_reported` to the
+`PlanReference` source vocabulary; it is assigned by the sidecar and never
+accepted from a request. A patch that sets or clears `planPath` while the
+current reference has `source=user_selected` returns a conflict without
+writing any part of the `agentMetadata` group. Only the explicit user plan
+selection/clear operation may replace or clear that reference. Callers cannot
+submit a plan source or worktree root.
 
 The protocol contract is:
 
@@ -104,19 +126,25 @@ The protocol contract is:
    current record. A patch that loses the existing source-priority check
    returns a conflict without changing the record.
 4. A patch containing `attentionState` is an attention write. The sidecar
-   checks the attention source priority, assigns `attentionSource=agent`,
+   checks the attention source priority, validates `observedStatus`, derives
+   `attention` from its canonical mapping, assigns `attentionSource=agent`,
    `attentionConfidence=1.0`, and `attentionOrigin=direct_agent` rather than
    accepting those authority fields from the request, and advances the
-   attention ownership revision even when the submitted tuple is identical.
-   A patch containing only `agentMetadata` checks the existing metadata
-   source priority, assigns `metadataSource=agent` and confidence, and leaves
-   the attention tuple, attention source/confidence/origin, update time, and
-   ownership revision unchanged. If the corresponding source is `user`, that
-   scope's patch returns a conflict without writing.
+   attention ownership revision even when the submitted input is identical.
+   This group does not change `metadataSource`, `metadataConfidence`, or
+   `workMetadataUpdatedAt`. A patch containing `agentMetadata` independently
+   checks the existing work-metadata source priority, assigns
+   `metadataSource=agent` and confidence, and advances
+   `workMetadataUpdatedAt`; summary provenance changes as one unit, and a
+   user-selected plan cannot be changed by the agent patch. If a request
+   contains both groups, both source checks and updates run under the same
+   transaction and commit atomically. If either scope loses its source check,
+   the whole request returns a conflict without writing.
 5. Every accepted patch advances the metadata revision used for optimistic
    concurrency. Every accepted attention/source write from any producer also
    updates the durable attention-specific update time; work-metadata writes do
-   not refresh it.
+   not refresh it. Every accepted work-metadata write updates
+   `workMetadataUpdatedAt`; attention-only writes do not refresh it.
 
 Every persisted session-record mutation advances `metadataRevision` under the
 same per-session transaction boundary, including user, hook, Peon, backend,
@@ -159,32 +187,40 @@ Codex definition may advertise `sidecar-v1`, and only after its agent
 instructions and reporter helpers have migrated; user overrides cannot add
 this capability. The launch adapter derives
 `ORKWORKS_SESSION_METADATA_API_VERSION=1` from that resolved capability, and
-native-clear eligibility requires it. Legacy integrations continue to use
-the direct JSON contract and cannot enter a native-clear-eligible
-configuration. Migration tests must exercise every in-product writer path
-and verify that the generated instruction bundle and reporter helpers use
-the API. Out-of-band edits by a user or process that deliberately bypass the
-declared protocol remain outside the supported producer contract; this
-design does not claim to make arbitrary filesystem writes atomic with the
-sidecar.
+native-clear eligibility requires it. It may advertise the capability only
+when an authenticated metadata read has been verified from the agent's actual
+execution context under the effective sandbox profile; a sidecar-only
+loopback probe is insufficient. If the child cannot reach loopback or that
+reachability cannot be verified, the marker is absent and native clear stays
+disabled. The existing Codex report mailbox remains identity-only and is not
+a metadata-write transport. A future mailbox-based metadata transport needs
+its own protocol design and approval before it can enable this capability.
+Legacy integrations continue to use the direct JSON contract and cannot enter
+a native-clear-eligible configuration. Migration tests must exercise every
+in-product writer path, verify the generated instruction bundle and reporter
+helpers use the API, and prove reachability from the same sandboxed context.
+Out-of-band edits by a user or process that deliberately bypass the declared
+protocol remain outside the supported producer contract; this design does not
+claim to make arbitrary filesystem writes atomic with the sidecar.
 
 ## Attention ownership, age, and projection
 
 Keep `metadataSource` and `metadataConfidence` for general work metadata.
-Add `attentionSource`, `attentionConfidence`, `attentionOrigin`, and
-`attentionUpdatedAt` for the attention tuple, and expose these attention-
-specific fields in the session projection. `attentionOrigin` distinguishes
-`direct_agent`, `harness_hook`, `native_codex`, `user`, `peon`,
-`backend_inference`, `process`, and `debug`. Legacy records without the new
-fields derive `attentionSource` and confidence from the legacy metadata source
-and confidence, use the JSON file modification time as the initial age, and
-project `attentionOrigin=legacy_unknown`; they are never inferred to be owned
-by the native observer. In particular, legacy `metadataSource=codex_hook`
-normalizes to `attentionSource=agent` with its stored confidence and
-`legacy_unknown` origin. Other legacy source values retain their existing
-priority tier. Normalization may occur in memory; the next accepted write
-persists the new fields. If legacy file age cannot be read, Peon must preserve
-the current tuple until a valid attention write establishes a timestamp.
+Persist `workMetadataUpdatedAt` for that scope, and add `attentionSource`,
+`attentionConfidence`, `attentionOrigin`, and `attentionUpdatedAt` for the
+attention tuple. Expose these fields in the session projection.
+`attentionOrigin` distinguishes `direct_agent`, `harness_hook`, `native_codex`,
+`user`, `peon`, `backend_inference`, `process`, `debug`, and `legacy_unknown`.
+Legacy records without the new fields derive attention source/confidence and
+work-metadata source/confidence from the legacy metadata fields, use the JSON
+file modification time as the initial age for both scopes, and project
+`attentionOrigin=legacy_unknown`; they are never inferred to be owned by the
+native observer. In particular, legacy `metadataSource=codex_hook` normalizes
+to `attentionSource=agent` with its stored confidence and `legacy_unknown`
+origin. Other legacy source values retain their existing priority tier.
+Normalization may occur in memory; the next accepted write persists the new
+fields. If legacy file age cannot be read, Peon must preserve the corresponding
+current scope until a valid write to that scope establishes its timestamp.
 Session projections keep their current one-record semantics; they do not
 compose attention from another record.
 
@@ -193,14 +229,16 @@ The attention SourceBadge in session details must use `attentionSource` and
 work metadata. This keeps the visible attribution aligned with the tuple after
 the sources split.
 
-Persist an attention-specific update time with the attention tuple and source.
-Peon's `agent` staleness check uses that time, not the session
-file's modification time. The current boundary remains strict: age 15 seconds
-blocks Peon; age greater than 15 seconds permits it. A write to unrelated
-metadata must not refresh this timestamp. Legacy records without the field
-must follow a documented compatibility rule that does not make an active
-native wait immediately stale; the implementation handoff must settle this
-rule before coding.
+Persist `attentionUpdatedAt` with the attention tuple and source. Peon's
+attention `agent` staleness check uses it, not the session file's modification
+time. Persist `workMetadataUpdatedAt` with general work metadata and use it for
+the independent work-metadata source check. Any accepted write to that scope
+refreshes only its timestamp; an attention-only write refreshes only
+`attentionUpdatedAt`. The attention boundary remains strict: age 15 seconds
+blocks Peon; age greater than 15 seconds permits it. Legacy records without
+either timestamp use file modification time as the initial age for both
+scopes; if it cannot be read, Peon preserves the affected scope until a valid
+write to that scope establishes its timestamp.
 
 The attention source order remains `user > agent > peon > backend_inference >
 process > unknown > debug`. Direct agent, harness-hook, and native Codex
@@ -213,8 +251,9 @@ persisted and projected for arbitration and diagnosis.
 
 The existing work-metadata source ladder continues to protect descriptive
 fields such as task, summary, and blockers. Peon applies attention and
-work-metadata source checks independently, so an agent metadata patch can
-protect its summary without refreshing or changing attention ownership.
+work-metadata source checks independently, using their respective timestamps,
+so an agent attention write cannot keep an old work summary fresh and an agent
+metadata patch cannot refresh or change attention ownership.
 
 Session-list and detail projections read one canonical session record. A
 failed or malformed metadata read is an explicit projection error; it must
@@ -269,7 +308,14 @@ The implementation follow-up must include behavioral tests proving:
   receives a new metadata revision; an identical accepted tuple write also
   advances the attention ownership revision.
 - `attentionState` rejects partial tuples, replaces all tuple fields together,
-  and distinguishes omitted groups from explicit-null clears.
+  derives canonical `attention` from `observedStatus`, and distinguishes
+  omitted groups from explicit-null clears.
+- A non-empty agent summary updates the four current-summary fields together
+  with sidecar-owned provenance; explicit null clears all four, and omission
+  preserves them.
+- Agent `planPath` writes cannot replace or clear `user_selected` references,
+  cannot provide their own source/worktree root, and receive the sidecar-owned
+  `agent_reported` source.
 - A stale agent revision returns conflict and cannot replace newer metadata.
 - A write from any sidecar producer advances `metadataRevision`, so an agent
   patch read before a native, Peon, hook, user, or lifecycle write conflicts.
@@ -284,6 +330,12 @@ The implementation follow-up must include behavioral tests proving:
 - The persisted attention update time changes on attention/source writes,
   remains unchanged for unrelated writes, and preserves the strict Peon
   boundary at 15 seconds versus greater than 15 seconds.
+- `workMetadataUpdatedAt` changes on work-metadata writes, remains unchanged
+  for attention-only writes, and independently controls the work-metadata
+  source staleness check.
+- The version marker is withheld when an authenticated child-context metadata
+  read cannot be verified under the effective sandbox profile; the
+  identity-only report mailbox does not satisfy this transport requirement.
 - Agent work-metadata patches update metadata source priority without changing
   attention source, provenance, timestamp, or native clear ownership; Peon
   applies the two source-priority checks independently.
