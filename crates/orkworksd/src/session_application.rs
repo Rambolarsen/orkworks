@@ -386,6 +386,32 @@ fn refresh_rollup_parent_projection(
 // stale snapshot.
 static TERMINAL_SIZE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+fn persist_peon_input_label_metadata(
+    workspace: Option<&crate::WorkspaceState>,
+    session_id: &str,
+    label: &str,
+    from_initial_prompt: bool,
+) -> Option<bool> {
+    let Some(workspace) = workspace else {
+        return (!from_initial_prompt).then_some(false);
+    };
+    let Some(mut meta) = workspace.metadata.read_session(session_id) else {
+        return (!from_initial_prompt).then_some(false);
+    };
+    if (from_initial_prompt && !meta.label_from_initial_prompt) || !meta.label_source.accepts_peon()
+    {
+        return None;
+    }
+    meta.label = label.to_string();
+    meta.label_source = if from_initial_prompt {
+        metadata::LabelSource::InitialPrompt
+    } else {
+        metadata::LabelSource::Peon
+    };
+    workspace.metadata.write_session(&meta);
+    Some(true)
+}
+
 impl SessionApplication {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self { state }
@@ -1210,7 +1236,7 @@ impl SessionApplication {
     /// caller retains ownership of active-hook normalization, live projection,
     /// and retry scheduling.
     #[cfg(test)]
-    pub(crate) fn persist_peon_observation(
+    pub(crate) fn persist_peon_observation_for_test(
         &self,
         session_id: &str,
         inference: Option<&peon::PeonInference>,
@@ -1228,22 +1254,21 @@ impl SessionApplication {
         )
     }
 
-    pub(crate) fn persist_peon_observation_for_attempt(
+    pub(crate) fn persist_peon_observation(
         &self,
-        session_id: &str,
-        attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
+        context: &crate::runtime::peon_runtime::AttemptContextView,
         inference: Option<&peon::PeonInference>,
         provider_observation: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
         timestamp: &str,
     ) -> PeonInferencePersistenceResult {
         self.persist_peon_observation_inner(
-            session_id,
+            context.session_id(),
             inference,
             provider_observation,
             history_summary,
             timestamp,
-            Some(attempt),
+            Some(context),
         )
     }
 
@@ -1254,7 +1279,7 @@ impl SessionApplication {
         provider_observation: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
         timestamp: &str,
-        attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
+        attempt: Option<&crate::runtime::peon_runtime::AttemptContextView>,
     ) -> PeonInferencePersistenceResult {
         let result = self.persist_peon_observation_inner_locked(
             session_id,
@@ -1285,7 +1310,7 @@ impl SessionApplication {
         provider_observation: Option<&crate::providers::ProviderObservation>,
         history_summary: Option<&str>,
         timestamp: &str,
-        attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
+        attempt: Option<&crate::runtime::peon_runtime::AttemptContextView>,
     ) -> PeonInferencePersistenceResult {
         let label_epochs = self.state.peon.label_epochs.read().unwrap();
         let captured_label_epoch = label_epochs.get(session_id).copied().unwrap_or(0);
@@ -1305,16 +1330,10 @@ impl SessionApplication {
         // persisting so a replacement cannot pass the check and then receive
         // the old runtime's durable inference.
         let mut sessions_guard = self.state.sessions.lock().unwrap();
-        if let Some(attempt) = attempt {
-            let current = sessions_guard.get(session_id).is_some_and(|handle| {
-                handle.runtime.matches_identity(&attempt.runtime_identity)
-                    && handle.info.lifecycle_phase == "active"
-            });
-            if !current
-                || !self
-                    .state
-                    .peon
-                    .diagnostic_attempt_is_current(session_id, attempt)
+        if let Some(context) = attempt {
+            if !sessions_guard
+                .get(session_id)
+                .is_some_and(|handle| context.is_current_with_session(handle))
             {
                 return PeonInferencePersistenceResult {
                     inference_persisted: false,
@@ -1651,7 +1670,7 @@ impl SessionApplication {
     /// classification live here. The caller retains ownership of capture
     /// cursors, retry timers, and evaluator scheduling.
     #[cfg(test)]
-    pub(crate) fn record_peon_workflow_observations(
+    pub(crate) fn record_peon_workflow_observations_for_test(
         &self,
         session_id: &str,
         captured_workspace_path: Option<&Path>,
@@ -1669,22 +1688,21 @@ impl SessionApplication {
         )
     }
 
-    pub(crate) fn record_peon_workflow_observations_for_attempt(
+    pub(crate) fn record_peon_workflow_observations(
         &self,
-        session_id: &str,
         captured_workspace_path: Option<&Path>,
-        attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
+        context: &crate::runtime::peon_runtime::AttemptContextView,
         output_range: &PeonObservationOutputRange,
         captured_output: &[String],
         candidates: &[peon::PeonWorkflowObservation],
     ) -> PeonObservationRecordResult {
         self.record_peon_workflow_observations_inner(
-            session_id,
+            context.session_id(),
             captured_workspace_path,
             output_range,
             captured_output,
             candidates,
-            Some(attempt),
+            Some(context),
         )
     }
 
@@ -1695,7 +1713,7 @@ impl SessionApplication {
         output_range: &PeonObservationOutputRange,
         captured_output: &[String],
         candidates: &[peon::PeonWorkflowObservation],
-        attempt: Option<&crate::runtime::peon_runtime::PeonDiagnosticAttempt>,
+        attempt: Option<&crate::runtime::peon_runtime::AttemptContextView>,
     ) -> PeonObservationRecordResult {
         let workspace_guard = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace_guard.as_ref() else {
@@ -1711,22 +1729,16 @@ impl SessionApplication {
             };
         }
 
-        let _sessions_guard = if let Some(attempt) = attempt {
+        let _sessions_guard = if let Some(context) = attempt {
             let sessions = self.state.sessions.lock().unwrap();
-            let current = sessions.get(session_id).is_some_and(|handle| {
-                handle.runtime.matches_identity(&attempt.runtime_identity)
-                    && handle.info.lifecycle_phase == "active"
-            });
+            let current = sessions
+                .get(session_id)
+                .is_some_and(|handle| context.is_current_with_session(handle));
+            let attempt = context.attempt();
             let range_matches_attempt = output_range.runtime_instance_id
                 == attempt.runtime_identity.runtime_instance_id
                 && output_range.run_generation == attempt.runtime_identity.run_generation;
-            if !current
-                || !range_matches_attempt
-                || !self
-                    .state
-                    .peon
-                    .diagnostic_attempt_is_current(session_id, attempt)
-            {
+            if !current || !range_matches_attempt {
                 return PeonObservationRecordResult {
                     accepted_observation: false,
                     output_range_completed: true,
@@ -3096,40 +3108,11 @@ impl SessionApplication {
     /// Persists a validated Peon input label while preventing a reset from
     /// racing between the durable and live projections.
     #[cfg(test)]
-    pub(crate) fn persist_input_label(&self, id: &str, label: String, captured_epoch: u64) -> bool {
-        let epochs = self.state.peon.label_epochs.read().unwrap();
-        let current_epoch = epochs.get(id).copied().unwrap_or(0);
-        if captured_epoch != current_epoch {
-            return false;
-        }
-
-        let mut updated = false;
-        let ws_guard = self.state.workspace.lock().unwrap();
-        if let Some(ws) = ws_guard.as_ref() {
-            if let Some(mut meta) = ws.metadata.read_session(id) {
-                if !meta.label_source.accepts_peon() {
-                    return false;
-                }
-                meta.label = label.clone();
-                meta.label_source = metadata::LabelSource::Peon;
-                ws.metadata.write_session(&meta);
-                updated = true;
-            }
-        }
-        if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
-            handle.info.label = label;
-            updated = true;
-        }
-        updated
-    }
-
-    pub(crate) fn persist_input_label_for_attempt(
+    pub(crate) fn persist_input_label_for_test(
         &self,
         id: &str,
-        attempt: &crate::runtime::peon_runtime::PeonDiagnosticAttempt,
         label: String,
         captured_epoch: u64,
-        from_initial_prompt: bool,
     ) -> bool {
         let epochs = self.state.peon.label_epochs.read().unwrap();
         let current_epoch = epochs.get(id).copied().unwrap_or(0);
@@ -3137,38 +3120,47 @@ impl SessionApplication {
             return false;
         }
 
-        let mut updated = false;
+        let ws_guard = self.state.workspace.lock().unwrap();
+        let Some(mut updated) =
+            persist_peon_input_label_metadata(ws_guard.as_ref(), id, &label, false)
+        else {
+            return false;
+        };
+        if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
+            handle.info.label = label;
+            updated = true;
+        }
+        updated
+    }
+
+    pub(crate) fn persist_input_label(
+        &self,
+        context: &crate::runtime::peon_runtime::AttemptContextView,
+        label: String,
+        captured_epoch: u64,
+        from_initial_prompt: bool,
+    ) -> bool {
+        let id = context.session_id();
+        let epochs = self.state.peon.label_epochs.read().unwrap();
+        let current_epoch = epochs.get(id).copied().unwrap_or(0);
+        if captured_epoch != current_epoch {
+            return false;
+        }
+
         let ws_guard = self.state.workspace.lock().unwrap();
         let mut sessions = self.state.sessions.lock().unwrap();
-        let current = sessions.get(id).is_some_and(|handle| {
-            handle.runtime.matches_identity(&attempt.runtime_identity)
-                && handle.info.lifecycle_phase == "active"
-        });
-        if !current || !self.state.peon.diagnostic_attempt_is_current(id, attempt) {
+        if !sessions
+            .get(id)
+            .is_some_and(|handle| context.is_current_with_session(handle))
+        {
             return false;
         }
-        if let Some(ws) = ws_guard.as_ref() {
-            if let Some(mut meta) = ws.metadata.read_session(id) {
-                if from_initial_prompt && !meta.label_from_initial_prompt {
-                    return false;
-                }
-                if !meta.label_source.accepts_peon() {
-                    return false;
-                }
-                meta.label = label.clone();
-                meta.label_source = if from_initial_prompt {
-                    metadata::LabelSource::InitialPrompt
-                } else {
-                    metadata::LabelSource::Peon
-                };
-                ws.metadata.write_session(&meta);
-                updated = true;
-            } else if from_initial_prompt {
-                return false;
-            }
-        } else if from_initial_prompt {
+        let Some(metadata_updated) =
+            persist_peon_input_label_metadata(ws_guard.as_ref(), id, &label, from_initial_prompt)
+        else {
             return false;
-        }
+        };
+        let mut updated = metadata_updated;
         if let Some(handle) = sessions.get_mut(id) {
             handle.info.label = label;
             updated = true;
@@ -6339,23 +6331,25 @@ mod tests {
 
         let captured_output = vec!["retry output".to_string()];
 
-        let first = SessionApplication::new(state.clone()).record_peon_workflow_observations(
-            id,
-            Some(root.path()),
-            &range,
-            &captured_output,
-            &candidates,
-        );
+        let first = SessionApplication::new(state.clone())
+            .record_peon_workflow_observations_for_test(
+                id,
+                Some(root.path()),
+                &range,
+                &captured_output,
+                &candidates,
+            );
         assert!(first.accepted_observation);
         assert!(first.output_range_completed);
 
-        let duplicate = SessionApplication::new(state.clone()).record_peon_workflow_observations(
-            id,
-            Some(root.path()),
-            &range,
-            &captured_output,
-            &candidates,
-        );
+        let duplicate = SessionApplication::new(state.clone())
+            .record_peon_workflow_observations_for_test(
+                id,
+                Some(root.path()),
+                &range,
+                &captured_output,
+                &candidates,
+            );
         assert!(!duplicate.accepted_observation);
         assert!(duplicate.output_range_completed);
         let observations = state
@@ -6424,13 +6418,14 @@ mod tests {
                 .to_string(),
         ];
 
-        let result = SessionApplication::new(state.clone()).record_peon_workflow_observations(
-            id,
-            Some(root.path()),
-            &range,
-            &captured_output,
-            &candidates,
-        );
+        let result = SessionApplication::new(state.clone())
+            .record_peon_workflow_observations_for_test(
+                id,
+                Some(root.path()),
+                &range,
+                &captured_output,
+                &candidates,
+            );
 
         assert!(!result.accepted_observation);
         assert!(state
@@ -11832,11 +11827,13 @@ mod tests {
             .unwrap()
             .insert(id.into(), 4);
 
-        assert!(SessionApplication::new(state.clone()).persist_input_label(
-            id,
-            "New topic".into(),
-            4
-        ));
+        assert!(
+            SessionApplication::new(state.clone()).persist_input_label_for_test(
+                id,
+                "New topic".into(),
+                4
+            )
+        );
         assert_eq!(
             state
                 .workspace
@@ -12016,11 +12013,13 @@ mod tests {
             .unwrap()
             .insert(id.into(), 2);
 
-        assert!(SessionApplication::new(state.clone()).persist_input_label(
-            id,
-            "Live topic".into(),
-            2
-        ));
+        assert!(
+            SessionApplication::new(state.clone()).persist_input_label_for_test(
+                id,
+                "Live topic".into(),
+                2
+            )
+        );
         assert_eq!(state.sessions.lock().unwrap()[id].info.label, "Live topic");
     }
 
@@ -12052,11 +12051,13 @@ mod tests {
             .unwrap()
             .insert(id.into(), 7);
 
-        assert!(SessionApplication::new(state.clone()).persist_input_label(
-            id,
-            "Metadata topic".into(),
-            7
-        ));
+        assert!(
+            SessionApplication::new(state.clone()).persist_input_label_for_test(
+                id,
+                "Metadata topic".into(),
+                7
+            )
+        );
         assert_eq!(
             state
                 .workspace
@@ -12104,11 +12105,13 @@ mod tests {
             .unwrap()
             .insert(id.into(), 5);
 
-        assert!(!SessionApplication::new(state.clone()).persist_input_label(
-            id,
-            "Stale topic".into(),
-            4
-        ));
+        assert!(
+            !SessionApplication::new(state.clone()).persist_input_label_for_test(
+                id,
+                "Stale topic".into(),
+                4
+            )
+        );
         assert_eq!(
             state
                 .workspace
@@ -12141,11 +12144,13 @@ mod tests {
             .unwrap()
             .insert(id.into(), 3);
 
-        assert!(!SessionApplication::new(state.clone()).persist_input_label(
-            id,
-            "Unused topic".into(),
-            3
-        ));
+        assert!(
+            !SessionApplication::new(state.clone()).persist_input_label_for_test(
+                id,
+                "Unused topic".into(),
+                3
+            )
+        );
         assert!(!state.sessions.lock().unwrap().contains_key(id));
     }
 
@@ -13673,7 +13678,7 @@ mod tests {
             provider_state: "healthy".into(),
         };
 
-        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
             id,
             Some(&inference),
             Some(&provider_observation),
@@ -13785,7 +13790,7 @@ mod tests {
             workflow_observations: Vec::new(),
         };
 
-        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
             id,
             Some(&inference),
             None,
@@ -13900,7 +13905,7 @@ mod tests {
                 harness_session_id: None,
                 workflow_observations: Vec::new(),
             };
-            let result = SessionApplication::new(state.clone()).persist_peon_observation(
+            let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
                 &id,
                 Some(&inference),
                 None,
@@ -14001,7 +14006,7 @@ mod tests {
                 harness_session_id: None,
                 workflow_observations: Vec::new(),
             };
-            let result = SessionApplication::new(state.clone()).persist_peon_observation(
+            let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
                 id,
                 Some(&inference),
                 None,
@@ -14096,13 +14101,14 @@ mod tests {
                     harness_session_id: None,
                     workflow_observations: Vec::new(),
                 };
-                let result = SessionApplication::new(state.clone()).persist_peon_observation(
-                    id,
-                    Some(&inference),
-                    None,
-                    Some("New summary"),
-                    "later",
-                );
+                let result = SessionApplication::new(state.clone())
+                    .persist_peon_observation_for_test(
+                        id,
+                        Some(&inference),
+                        None,
+                        Some("New summary"),
+                        "later",
+                    );
                 assert!(result.inference_persisted, "{harness} {next_status:?}");
                 let stored = state
                     .workspace
@@ -14216,7 +14222,7 @@ mod tests {
             };
             assert!(
                 SessionApplication::new(state.clone())
-                    .persist_peon_observation(
+                    .persist_peon_observation_for_test(
                         id,
                         Some(&inference),
                         None,
@@ -14313,7 +14319,13 @@ mod tests {
             };
             assert!(
                 SessionApplication::new(state.clone())
-                    .persist_peon_observation(id, Some(&inference), None, Some("Summary"), "later",)
+                    .persist_peon_observation_for_test(
+                        id,
+                        Some(&inference),
+                        None,
+                        Some("Summary"),
+                        "later",
+                    )
                     .inference_persisted,
                 "{harness} {lifecycle} {phase}"
             );
@@ -14390,7 +14402,7 @@ mod tests {
             harness_session_id: None,
             workflow_observations: Vec::new(),
         };
-        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
             id,
             Some(&inference),
             None,
@@ -14498,7 +14510,7 @@ mod tests {
             workflow_observations: Vec::new(),
         };
 
-        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
             id,
             Some(&inference),
             None,
@@ -14571,7 +14583,7 @@ mod tests {
             workflow_observations: Vec::new(),
         };
 
-        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
             id,
             Some(&inference),
             None,
@@ -15047,7 +15059,7 @@ mod tests {
         }
 
         std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
-        application.persist_peon_observation(id, None, None, None, "later");
+        application.persist_peon_observation_for_test(id, None, None, None, "later");
 
         let saved = state
             .workspace
@@ -15285,7 +15297,7 @@ mod tests {
         );
 
         std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
-        application.persist_peon_observation(id, None, None, None, "recovered");
+        application.persist_peon_observation_for_test(id, None, None, None, "recovered");
         let saved = state
             .workspace
             .lock()
@@ -15392,7 +15404,7 @@ mod tests {
             .sessions_dir();
         std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
         let application = SessionApplication::new(state.clone());
-        application.persist_peon_observation(id, None, None, None, "blocked");
+        application.persist_peon_observation_for_test(id, None, None, None, "blocked");
         assert!(authority.identity_reset_pending(id));
         assert!(!authority.is_active(id));
 
@@ -15691,7 +15703,7 @@ mod tests {
             harness_session_id: Some("retired-native".into()),
             workflow_observations: Vec::new(),
         };
-        let result = SessionApplication::new(state.clone()).persist_peon_observation(
+        let result = SessionApplication::new(state.clone()).persist_peon_observation_for_test(
             id,
             Some(&inference),
             None,
@@ -15859,7 +15871,7 @@ mod tests {
             "successful reset retry must consume its stale tuple-clear marker"
         );
 
-        application.persist_peon_observation(id, None, None, None, "later");
+        application.persist_peon_observation_for_test(id, None, None, None, "later");
         let saved = state
             .workspace
             .lock()
