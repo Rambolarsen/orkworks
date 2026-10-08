@@ -302,8 +302,10 @@ directly.
 ## Recommended handling
 
 1. Recheck the current files. Peon observations are hypotheses, not proof of
-   recurrence or of absent policies; a single high-impact observation from one
-   session does not establish a real defect.
+   recurrence or of absent policies; an `improve_workflow` proposal requires
+   two distinct qualifying observations sharing a fingerprint, so a single
+   observation — however confident or impactful — never surfaces as a card
+   on its own.
 2. Determine first whether the report is noise. If it is, documenting the
    known limitation in repository tooling or documentation is a valid
    resolution; do not modify recommendation or observation files directly.
