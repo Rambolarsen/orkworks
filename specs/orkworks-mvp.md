@@ -758,10 +758,16 @@ The owner-approved, feature-gated Codex native approval design keeps one
 canonical session record and routes active metadata writes through a versioned
 sidecar operation. Direct JSON reads remain available; direct JSON writes are
 unsupported for native-enabled sessions. The launch adapter advertises the
-protocol only for a migrated integration that has passed producer-path tests
-and the child-context API handshake. Until that implementation and the
-independent #690/#763 verification gates pass, native clearing remains
-disabled and current sessions retain the existing write behavior. The
+protocol after the source-controlled integration has migrated its agent
+instructions and reporter helpers, and the launch passes the native
+configuration and exact version/platform/protocol compatibility gates. The
+marker makes the agent API-only and does not itself enable native clearing.
+After launch, the agent must complete the authenticated metadata GET and
+validation-only PATCH handshake from its actual execution context before any
+metadata mutation. Until the implementation and producer migration are
+complete, the handshake succeeds, and the independent #690/#763 verification
+gates pass, native clearing remains disabled and current sessions retain the
+existing write behavior. The
 specification approval does not authorize runtime changes under #761; see the
 [sidecar-mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md)
 and [ADR 0076](../docs/adr/0076-codex-owned-native-approval-observer.md).
