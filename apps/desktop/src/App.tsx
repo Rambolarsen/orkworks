@@ -445,8 +445,9 @@ function App() {
         .map((entry) => `${entry.id.slice(0, 8)} is now ${entry.status}`)
         .join("; ");
       pushToast("info", `Cleanup complete. Skipped ${result.skipped.length} changed entr${result.skipped.length === 1 ? "y" : "ies"}: ${skippedText}${result.skipped.length > 5 ? "…" : ""}`);
-    } catch {
+    } catch (cause) {
       pushToast("error", "Couldn't run the cleanup.");
+      throw cause;
     }
   }, []);
 

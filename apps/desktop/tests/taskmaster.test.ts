@@ -251,6 +251,17 @@ test("Empty state names the active origin filter, not just 'no recommendations y
   );
 });
 
+test("Panel dispatches cleanup cards to the audit block inside the cleanup chip", () => {
+  const source = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /isCleanup\s*\?\s*<CleanupAuditBlock/);
+  assert.match(source, /\["all", "analysis", "observations", "cleanup"\] as const/);
+  assert.match(source, /"Run cleanup"/);
+  assert.match(source, /onRunCleanup=\{runCleanup\}/);
+});
+
 test("Recommendations header wraps its actions in narrow panels", () => {
   const css = readFileSync(
     new URL("../src/App.css", import.meta.url),
