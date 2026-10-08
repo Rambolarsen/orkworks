@@ -98,53 +98,60 @@ subsequent connections. No readiness-output, port-zero, inherited-socket or
 additional RPC contract is assumed. The prepared operator procedure must
 remain withheld until that prerequisite is implemented and verified.
 
-## Amendment — 2026-10-08 separate Codex attention layer
+## Proposed Amendment — 2026-10-08 separate Codex attention layer
 
-The ownership decision stands. To preserve the supported direct agent JSON
-producer without requiring a new writer protocol, eligible native Codex
-sessions use a sidecar-owned `native-attention/<session-id>.json` record for
-the complete Codex attention tuple and its lifecycle. Native set, update, and
-clear operations never rewrite `sessions/<session-id>.json`.
+Pending repository owner review and approval. Until accepted, the existing
+accepted ownership contract and production-clear gate remain authoritative;
+this proposal does not authorize producer-protocol or runtime changes.
 
-`MetadataStore::read_session` remains raw for read-modify-write operations.
-Session-list and detail views compose the base record with the native layer in
-a separate projection path. The whole `user` or direct `agent` tuple in the
-base record takes precedence; otherwise, active native Codex attention follows
-the existing `codex_hook` priority and Peon staleness rules. Codex hook, native
-observer, accepted input, and lifecycle attention transitions for an eligible
-runtime all update the same layer, so clearing a wait cannot reveal stale
-Codex hook fields from the base record.
+This proposal would preserve the supported direct agent JSON producer without
+requiring a new writer protocol: eligible native Codex sessions would use a
+sidecar-owned `native-attention/<session-id>.json` record for the complete
+Codex attention tuple and its lifecycle. Native set, update, and clear
+operations would never rewrite `sessions/<session-id>.json`.
 
-This layer-scoped contract refines the earlier whole-record ownership wording:
-the native clear token protects the native layer record, not every source
-that can update the composed view. Direct `user` and `agent` JSON writers do
-not revoke that layer token because they cannot mutate the layer; the
-projection always gives their base tuple precedence, and native clear never
-mutates the base record. All accepted Codex hook, native observer, input, and
-lifecycle writes to the native layer still revoke the prior token, including
-identical-value writes. This scope change is limited to the separately stored
-native layer and does not change the direct JSON protocol.
+Under this proposal, `MetadataStore::read_session` remains raw for
+read-modify-write operations.
+Session-list and detail views would compose the base record with the native
+layer in a separate projection path. The whole `user` or direct `agent` tuple
+in the base record would take precedence; otherwise, active native Codex
+attention would follow the existing `codex_hook` priority and Peon staleness
+rules. Codex hook, native observer, accepted input, and lifecycle attention
+transitions for an eligible runtime would all update the same layer, so
+clearing a wait could not reveal stale Codex hook fields from the base record.
 
-Merged reads capture base identity and exact contents, capture native-layer
-identity, monotonic revision, and exact contents, then recheck both pairs in
-that order. Reads retry up to three times when either pair changes or fails;
-if they cannot stabilize both records, they omit the native overlay. Only a
-confirmed absent layer counts as revision zero. Every accepted layer write,
-including a clear or identical-value write, advances the revision, so a clear
-committed during projection forces a retry. A clear racing a base replacement
-changes only the native layer and cannot overwrite that replacement. The
-design does not claim a cross-file transaction against a direct base writer
-that changes the file after the final base observation.
+The proposed layer-scoped contract would refine the earlier whole-record
+ownership wording: the native clear token would protect the native layer
+record, not every source that can update the composed view. Direct `user` and
+`agent` JSON writers would not revoke that layer token because they cannot
+mutate the layer; the projection would always give their base tuple
+precedence, and native clear would never mutate it. All accepted Codex hook,
+native observer, input, and lifecycle writes to the native layer would still
+revoke the prior token, including identical-value writes. This scope change
+would be limited to the separately stored native layer and would not change
+the direct JSON protocol.
 
-The layer is atomically persisted under the existing single-writer workspace
-lease. On session end it becomes a non-live final snapshot; restart
-reconciliation converts orphaned live records to final snapshots without
-restoring clear authority. Final snapshots feed only the ended-session
-`final_observed_status_snapshot` projection. The layer contains no bearer,
-native connection secret, or ownership token. Session deletion/retention must
-retire the companion record. The concrete
+Merged reads would capture base identity and exact contents, capture
+native-layer identity, monotonic revision, and exact contents, then recheck
+both pairs in that order. Reads would retry up to three times when either
+pair changes or fails; if they cannot stabilize both records, they would
+omit the native overlay. Only a confirmed absent layer would count as revision
+zero. Every accepted layer write, including a clear or identical-value write,
+would advance the revision, so a clear committed during projection would force
+a retry. A clear racing a base replacement would change only the native layer
+and could not overwrite that replacement. The design does not claim a
+cross-file transaction against a direct base writer that changes the file
+after the final base observation.
+
+The layer would be atomically persisted under the existing single-writer
+workspace lease. On session end it would become a non-live final snapshot;
+restart reconciliation would convert orphaned live records to final
+snapshots without restoring clear authority. Final snapshots would feed only
+the ended-session `final_observed_status_snapshot` projection. The layer
+would contain no bearer, native connection secret, or ownership token. Session
+deletion/retention would retire the companion record. The concrete
 contract, compatibility limits, race tests, and production-clear evidence gate
 are in the [native attention layer design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
-This amendment does not enable production clearing; implementation review,
+This proposal does not enable production clearing; implementation review,
 behavioral race tests, #690 signal verification, and the independent #763
 listener gate remain required.
