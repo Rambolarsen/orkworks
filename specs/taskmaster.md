@@ -823,13 +823,13 @@ workflowImprovement
   affectedSessionIds
   impact
   expectedBenefit
-  supersedesRecommendationId null, dismissed predecessor ID, or superseded rollup parent ID
+  supersedesRecommendationId null, dismissed predecessor ID, superseded rollup parent ID, or invalidated assessment predecessor ID
   dismissalWatermark null or dismissed evidence watermark
 ```
 
 Each canonical `evidence` entry embeds an immutable snapshot of a cited observation (ID, sequence, session ID, kind, description, evidence text, impact, source, confidence, observed time), so ordinary observation-segment trimming cannot invalidate an existing proposed or dismissed card. A recommendation cannot claim more recurrences or sessions than its evidence contains. A proposed recommendation may be updated with later qualifying evidence while retaining its identity and lifecycle history.
 
-For exact-family evaluation, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses stay valid for shared deserialization but are never produced by that evaluator, except an assessment-derived exact-family recommendation may transition from `proposed` to terminal `superseded` when its captured assessment input becomes stale or effective access narrows. Such a superseded assessment recommendation cannot be accepted or executed. The separate rollup evaluator may also produce `superseded` when a proposed rollup's membership changes. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. For exact-family recommendations and unchanged rollup membership, `executing`, `accepted`, `completed`, and `superseded` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version.
+For exact-family evaluation, `proposed`, `dismissed`, `executing`, `accepted`, and `completed` are reachable in this version; the remaining canonical statuses stay valid for shared deserialization but are never produced by that evaluator, except an assessment-derived exact-family recommendation may transition from `proposed` to terminal `superseded` when its captured assessment input becomes stale or effective access narrows. Such a superseded assessment recommendation cannot be accepted or executed. A later valid assessment may create one new linked successor for that superseded assessment record, with a new stable ID bound to the assessment ID and predecessor; the predecessor remains immutable. The separate rollup evaluator may also produce `superseded` when a proposed rollup's membership changes. A dismissed record remains immutable history even when its evidence later qualifies for a resurfaced successor — the successor's `supersedesRecommendationId` records the lineage, and the predecessor's status is never rewritten. `executing` is a brief reservation the `accept` action holds while it delivers the fix prompt, before resolving to `accepted` (delivered) or rolling back to `proposed` (delivery failed). An authenticated agent completion report transitions `accepted` to `completed` after verified work; a repeated completion report from the same target session is idempotent. `dismiss` accepts `executing` too, as a manual recovery path if a crash ever leaves one stuck there. For exact-family recommendations and unchanged rollup membership, `executing`, `accepted`, `completed`, and `superseded` are terminal for the evaluator: once a recommendation leaves `proposed`, it is never resurfaced or rewritten by later qualifying evidence under the same dedupe family in this version, except for the linked assessment successor rule above.
 
 ### Deduplication and dismissal watermark
 
@@ -1148,8 +1148,16 @@ Progress, provenance, outcome, and failure appear inline in Recommendations;
 workspace changes discard stale display and result state. Background popups and
 focus changes are not introduced.
 
-If the existing deduplication key already exists, return a no-proposal result
-with a duplicate-suppression reason; do not mutate or relink that record.
+If the existing deduplication key belongs to a proposed, dismissed, executing,
+accepted, or completed recommendation, return a no-proposal result with a
+duplicate-suppression reason; do not mutate or relink that record. If the
+matching record is an assessment-derived recommendation terminally superseded
+because its captured inputs became stale or access narrowed, a later valid
+assessment may create one successor in the same `proactive:v1:` family. Give
+that successor an ID derived from the dedupe key, predecessor ID, and unique
+assessment ID, and set `supersedesRecommendationId` to the predecessor. Retries
+of the same assessment remain idempotent; no other lifecycle state may be
+bypassed by this exception.
 
 Proposal persistence is crash-consistent with the existing recommendation
 store. Before upserting a proposal, atomically persist the bounded workspace
@@ -1170,9 +1178,15 @@ changes or access narrows; it cannot be accepted or executed afterward. Other
 When effective access narrowing makes evidence disallowed, redact its immutable
 snapshot from the report and every lifecycle record that retains it, including
 proposed, superseded, dismissed, accepted, executing, and completed
-recommendations. Preserve lifecycle transitions, dismissal decisions, and
-outcome history. Other input changes invalidate the report and supersede a
-proposed recommendation without redacting audit snapshots.
+recommendations. Also redact all model-generated display fields that may copy
+or paraphrase repository evidence, including recommendation title, summary,
+reason, proposed improvement, expected benefit, and corresponding report
+summary/proposal text. Clear affected evidence excerpts and source-derived
+display text rather than trying to infer which words disclose a source. Replace
+required display strings with a generic access-redacted placeholder. Preserve
+record identity, lifecycle transitions, dismissal decisions, and outcome
+history. Other input changes invalidate the report and supersede a proposed
+recommendation without redacting audit snapshots.
 
 Before any recommendation is returned or used, revalidate an assessment-derived
 proposal against its complete stored input identity. This applies to list and
@@ -1182,7 +1196,19 @@ proposal from responses and refuse its acceptance or handoff while preserving
 the report's read-only status projection semantics.
 
 The assessment status projection is read-only. It revalidates report identity
-and omits stale content, but never deletes or rewrites state. A context/access
+and omits stale content, but never deletes or rewrites state. A pending
+recommendation transaction is never exposed or actionable: the writer that
+encounters a report-commit failure immediately attempts idempotent recovery
+before returning. Read-only status and recommendation list/get routes only
+check pending state; if it remains unreconciled, they omit the pending result or
+return unavailable and do not write. Active-recommendation admission,
+acceptance, and Fix with AI require successful reconciliation under the
+analysis lease before exposing or using a pending record. If reconciliation
+still fails, return an unavailable/service failure without exposing or acting
+on the pending recommendation; it does not count as an active recommendation
+for another assessment. Do not start new provider work while a prior pending
+transaction remains unreconciled.
+A context/access
 settings mutation redacts newly disallowed report and recommendation snapshots
 before replying. Because defaults apply across workspaces, a global context or
 exclusion reduction redacts every affected workspace-local report and every
@@ -1411,7 +1437,10 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - [ ] `improve_workflow` recommendations expose exactly one explicit `accept` action (no automatic/background execution, and it never starts a new session) and reach only `proposed`, `dismissed`, `executing`, `accepted`, or `completed` status, except an assessment-derived recommendation may transition from `proposed` to terminal `superseded` when its input identity changes or access narrows; a superseded recommendation cannot be accepted or executed.
 - [ ] A manual Brain analysis bypasses the per-workspace cooldown and the daily allowance (manual analyses are unlimited; the allowance governs automatic background discovery only), and is refused while a Brain-derived `improve_workflow` recommendation is proposed, accepted, or executing; deterministic observation-only recommendations do not block it, and the user is directed to the existing Fix with AI handoff for a Brain recommendation.
 - [ ] **Assess workflow** is a distinct manual run and result from **Analyze now**, uses the selected workspace's existing Taskmaster provider/context/evidence and shared single-analysis lease, returns at most one grounded improvement or a clear no-proposal result, and is unavailable until an eligible verified bundle carries matching signed `privacyPolicyVersion: 1` and `taskmaster-assessment-v1` capability fields and the reviewed assessment guidance required by #529.
-- [ ] Assessment proposals cite at least one current repository fact hash and at least one relevant Brain page ID, validate every citation and captured identity before every list/get/active-response/acceptance/Fix with AI use path, and reuse the existing `proactive:v1:` `improve_workflow` recommendation lifecycle without adding execution authority.
+- [ ] Assessment proposals cite at least one current repository fact hash and at least one relevant Brain page ID, validate every citation and captured identity before every list/get/active-response/acceptance/Fix with AI use path, and reuse the existing `proactive:v1:` `improve_workflow` recommendation lifecycle without adding execution authority. A valid assessment may create a linked successor only for a matching assessment-derived recommendation terminally superseded by input invalidation, with an idempotent ID bound to that assessment and predecessor.
+- [ ] An assessment proposal superseded after input invalidation can later receive one linked generation-aware successor; dismissed, accepted, completed, and other non-invalidated records continue to suppress duplicate proposals.
+- [ ] Effective-access narrowing redacts cited snapshots and model-generated assessment text that may copy or paraphrase repository evidence from reports and recommendations in every lifecycle state, while preserving identity, transitions, dismissal decisions, and outcomes.
+- [ ] A pending assessment recommendation from a failed report commit is hidden and non-actionable across status, list/get, active-recommendation, accept, and Fix with AI paths until reconciliation succeeds; it does not count as an active recommendation, and new provider work waits for reconciliation.
 - [ ] One bounded local assessment report per workspace records its evidence/configuration/provider/knowledge identity and outcome, is removed with that workspace's local data, never stores the full prompt or uncited files, and cannot be populated from an **Analyze now** result.
 - [ ] Assessment progress, provenance, outcome, and failures are shown inline in Recommendations; workspace/configuration changes discard stale results, and no background popup or focus change is introduced.
 - [ ] A Fix with AI prompt contains the stable recommendation ID and directs the target agent to use the `working-on-recommendation` skill to read the recommendation and its source-session evidence.

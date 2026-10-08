@@ -217,8 +217,15 @@ allowance or workspace cooldown, but remain subject to provider availability,
 the shared single-analysis lease, and the existing active Brain
 recommendation gate.
 
-If the existing deduplication key already exists, return a no-proposal result
-with a duplicate-suppression reason and do not mutate or relink that record.
+If the existing deduplication key belongs to a proposed, dismissed, executing,
+accepted, or completed recommendation, return a no-proposal result with a
+duplicate-suppression reason and do not mutate or relink that record. If the
+matching record is an assessment-derived recommendation terminally superseded
+because its inputs became stale or access narrowed, a later valid assessment
+may create one successor in the same `proactive:v1:` family. Bind its stable ID
+to the dedupe key, predecessor ID, and unique assessment ID, and link it through
+`supersedesRecommendationId`. Retries of that assessment remain idempotent; no
+other lifecycle state may use this exception.
 
 Persist one latest assessment report per canonical workspace under that
 workspace's local metadata root (`~/.orkworks/workspaces/<hash>/`), capped at
@@ -265,15 +272,20 @@ cleanup.
 
 When a novel proposal creates a recommendation, persistence is crash-consistent
 with the existing recommendation store. Before upserting the recommendation,
-atomically persist the bounded
-workspace assessment record with an internal pending-recommendation marker and
-the recommendation's stable ID. Keep the record hidden from status until the
-existing recommendation is durably upserted and the assessment record is
-committed. Under the shared analysis lease, startup recovery idempotently
-repeats that upsert and commits the report before the sidecar serves status;
-persisted running attempts without pending proposal mutations follow the
-existing interrupted-run recovery. Keep pending and committed report records
-within the same 64 KiB serialized cap.
+atomically persist the bounded workspace assessment record with an internal
+pending-recommendation marker and the recommendation's stable ID. Keep the
+record hidden from status until the existing recommendation is durably upserted
+and the assessment record is committed. Under the shared analysis lease, startup
+recovery idempotently repeats that upsert and commits the report before the
+sidecar serves status; persisted running attempts without pending proposal
+mutations follow the existing interrupted-run recovery. If the final report
+commit fails while the sidecar remains live, reconcile immediately before
+returning from the request. Until reconciliation succeeds, list/get,
+active-recommendation admission, acceptance, and Fix with AI must not expose or
+act on the pending record; if reconciliation still fails, return unavailable or
+service failure and do not start another provider assessment. A pending record
+does not count as an active recommendation. Keep pending and committed report
+records within the same 64 KiB serialized cap.
 
 When invalidation affects an assessment-derived Brain recommendation, supersede
 any still-proposed recommendation, remove it from the active recommendation
@@ -283,7 +295,12 @@ assessment-derived subset only, `superseded` is terminal and valid only after
 access narrowing makes evidence disallowed, redact its immutable snapshot from
 the report and every lifecycle record that retains it, including proposed,
 superseded, dismissed, accepted, executing, and completed recommendations.
-Preserve lifecycle transitions, dismissal decisions, and outcome history.
+Also redact model-generated display fields that may copy or paraphrase source
+content, including titles, summaries, reasons, `proposedImprovement`, expected
+benefit, and report summary/proposal text. Clear the affected excerpts and
+source-derived display text, replacing required strings with a generic
+access-redacted placeholder. Preserve record identity, lifecycle transitions,
+dismissal decisions, and outcome history.
 Ordinary evidence, provider, bundle, or recommendation-input changes still
 invalidate reports and supersede proposed recommendations, but do not redact
 audit snapshots unless they also narrow permitted access.
@@ -414,7 +431,7 @@ brain connections and exporting local lessons are deferred.
 - Manual analysis requests work with background discovery disabled, bypass the workspace cooldown and the daily allowance, and return any active Brain recommendation without invoking a provider.
 - All Brain-backed provider analysis, including background discovery, **Analyze now**, and **Assess workflow**, remains unavailable until the active verified bundle carries signed payload `privacyPolicyVersion: 1`, matching the signed manifest, and meets the strict exclusion policy; #529 delivers the compliant starter/export/publication. **Assess workflow** additionally requires the signed `taskmaster-assessment-v1` capability. Deterministic observation recommendations continue. A compatible eligible cached bundle remains usable offline with no independent age cutoff.
 - Assessments use only the selected workspace and current permitted context, share the single-analysis lease and active Brain recommendation gate, and do not consume the background daily allowance or workspace cooldown.
-- Assessment reports are capped at 64 KiB serialized with one latest report per workspace under its workspace metadata root; their input identity covers every supplied observation, fact, pre-run recommendation, selected page, and effective setting while excluding only their own derived recommendation by stable ID. Stale inputs suppress reports and derived proposals on every recommendation list/get/active-response/acceptance/Fix with AI path, without requiring a status poll; invalidated proposed assessment recommendations transition to terminal `superseded`. Access-setting mutations redact disallowed evidence before replying, including every workspace affected by a global default reduction; unopened workspace records are reconciled before later exposure or use. Other stale reports are deleted by the next state-changing assessment or workspace cleanup. Workspace metadata deletion removes reports, and no prompt, uncited files, or report is sent to Brain.
+- Assessment reports are capped at 64 KiB serialized with one latest report per workspace under its workspace metadata root; their input identity covers every supplied observation, fact, pre-run recommendation, selected page, and effective setting while excluding only their own derived recommendation by stable ID. Stale inputs suppress reports and derived proposals on every recommendation list/get/active-response/acceptance/Fix with AI path, without requiring a status poll; invalidated proposed assessment recommendations transition to terminal `superseded`, and a later valid assessment may create one linked successor with an ID bound to the predecessor and unique assessment. Access-setting mutations redact disallowed evidence and generated assessment text before replying, including every workspace affected by a global default reduction; unopened workspace records are reconciled before later exposure or use. Pending recommendations stay hidden and non-actionable until live or startup reconciliation succeeds. Other stale reports are deleted by the next state-changing assessment or workspace cleanup. Workspace metadata deletion removes reports, and no prompt, uncited files, or report is sent to Brain.
 - Workspace/configuration switches discard stale results, and context exclusions
   apply to symlinks, ignored files, credentials, caches, and model requests.
 - Changing Taskmaster selection leaves Peon configuration and inference intact.
