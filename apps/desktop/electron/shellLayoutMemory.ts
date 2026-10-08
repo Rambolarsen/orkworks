@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { TextDecoder } from "node:util";
 import fsExt from "fs-ext";
 
-export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
+export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
 export type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
 export type ShellDensity = "low" | "high";
 export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: ShellDensity };
@@ -73,6 +73,7 @@ export class RevisionedShellMemory<P> {
   private initial: () => P;
   private validPayload: (value: unknown) => value is P;
   private replacer: ShellFileReplacer;
+  private restoreReplacer: ShellFileReplacer;
   private snapshot: StoredRecord<P> | null = null;
   private pending: Pending<P>[] = [];
   private scheduled = false;
@@ -81,13 +82,15 @@ export class RevisionedShellMemory<P> {
 
   constructor(directory: string, fileName: string, limit: number,
     initial: () => P, validPayload: (value: unknown) => value is P,
-    replacer: ShellFileReplacer = replaceFile) {
+    replacer: ShellFileReplacer = replaceFile,
+    restoreReplacer: ShellFileReplacer = replaceFile) {
     this.directory = directory;
     this.fileName = fileName;
     this.limit = limit;
     this.initial = initial;
     this.validPayload = validPayload;
     this.replacer = replacer;
+    this.restoreReplacer = restoreReplacer;
   }
 
   private path(): string { return join(this.directory, this.fileName); }
@@ -107,9 +110,7 @@ export class RevisionedShellMemory<P> {
     } catch { return { record: null, diagnostic: "corrupt_record" }; }
   }
 
-  private write(record: StoredRecord<P>): ShellMemoryResult {
-    const bytes = Buffer.from(`${JSON.stringify(record)}\n`, "utf8");
-    if (bytes.byteLength > this.limit) return { ok: false, diagnostic: "invalid_input" };
+  private publish(bytes: Buffer, replacer: ShellFileReplacer = this.replacer): Buffer {
     const temporary = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
     let descriptor: number | null = null;
     try {
@@ -122,13 +123,57 @@ export class RevisionedShellMemory<P> {
       }
       fsyncSync(descriptor);
       closeSync(descriptor); descriptor = null;
-      this.replacer(temporary, this.path(), existsSync(this.path()));
-      const observed = readFileSync(this.path());
-      if (!observed.equals(bytes)) return { ok: false, diagnostic: "write_failed" };
+      replacer(temporary, this.path(), existsSync(this.path()));
+      return readFileSync(this.path());
+    }
+    finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
+  }
+
+  private failedWrite(previous: Buffer | null): ShellMemoryResult {
+    // A compliant peer cannot write while our retained lock is held. Still,
+    // never roll back a valid but unexpected record: it may be a newer write
+    // from a noncompliant external actor. Restore only missing/corrupt bytes.
+    const observed = this.load();
+    if (observed.record) return { ok: false, diagnostic: "write_failed" };
+    try {
+      const currentBytes = readFileSync(this.path());
+      const parsed: unknown = JSON.parse(decoder.decode(currentBytes));
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        && ("version" in parsed || "epoch" in parsed || "revision" in parsed)) {
+        return { ok: false, diagnostic: "write_failed" };
+      }
+    } catch { /* Missing or malformed bytes may be restored below. */ }
+    if (previous === null) {
+      // Initialization had no prior record. After excluding a recognizable
+      // competing record above, restore the prior absence under the same lock.
+      try {
+        rmSync(this.path(), { force: true });
+        if (!existsSync(this.path())) return { ok: false, diagnostic: "write_failed" };
+      } catch { /* Absence could not be confirmed. */ }
+      return { ok: false, diagnostic: "restore_failed" };
+    }
+    try {
+      if (existsSync(this.path()) && readFileSync(this.path()).equals(previous)) {
+        return { ok: false, diagnostic: "write_failed" };
+      }
+      if (this.publish(previous, this.restoreReplacer).equals(previous)) return { ok: false, diagnostic: "write_failed" };
+    } catch { /* The caller must know preservation could not be verified. */ }
+    return { ok: false, diagnostic: "restore_failed" };
+  }
+
+  private write(record: StoredRecord<P>): ShellMemoryResult {
+    const bytes = Buffer.from(`${JSON.stringify(record)}\n`, "utf8");
+    if (bytes.byteLength > this.limit) return { ok: false, diagnostic: "invalid_input" };
+    // Every caller holds the shared lock. Keep the exact prior bytes so a
+    // failed read-back can restore them without rewriting a normalized record.
+    let previous: Buffer | null;
+    try { previous = existsSync(this.path()) ? readFileSync(this.path()) : null; }
+    catch { return { ok: false, diagnostic: "write_failed" }; }
+    try {
+      if (!this.publish(bytes).equals(bytes)) return this.failedWrite(previous);
       this.snapshot = record;
       return { ok: true };
-    } catch { return { ok: false, diagnostic: "write_failed" }; }
-    finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
+    } catch { return this.failedWrite(previous); }
   }
 
   readRecord(): Loaded<P> {
@@ -238,9 +283,9 @@ export class RevisionedShellMemory<P> {
 }
 
 export function shellLayoutMemoryPath(directory: string): string { return join(directory, "shell-layout.json"); }
-export function createShellLayoutMemory(directory: string, replacer?: ShellFileReplacer) {
+export function createShellLayoutMemory(directory: string, replacer?: ShellFileReplacer, restoreReplacer?: ShellFileReplacer) {
   const memory = new RevisionedShellMemory(directory, "shell-layout.json", 16 * 1024,
-    () => ({ ...defaultShellPreferences }), validShellPreferences, replacer);
+    () => ({ ...defaultShellPreferences }), validShellPreferences, replacer, restoreReplacer);
   return {
     read: (): ShellLayoutSnapshot => {
       const loaded = memory.readRecord();

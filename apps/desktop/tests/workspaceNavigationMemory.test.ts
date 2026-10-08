@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createWorkspaceNavigationMemory, workspaceNavigationMemoryPath } from "../electron/workspaceNavigationMemory.ts";
+import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, workspaceNavigationMemoryPath } from "../electron/workspaceNavigationMemory.ts";
+import { readWorkspaceMemory, rememberWorkspacePath, workspaceMemoryPath } from "../electron/workspaceMemory.ts";
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "ork-navigation-"));
@@ -132,7 +133,7 @@ test("failed save invalidates a queued successor without changing prior bytes", 
   } finally { f.close(); }
 });
 
-test("read-back mismatch invalidates a queued successor", async () => {
+test("read-back mismatch restores prior bytes and invalidates a queued successor", async () => {
   const f = fixture();
   try {
     let replacements = 0;
@@ -141,11 +142,43 @@ test("read-back mismatch invalidates a queued successor", async () => {
       writeFileSync(target, replacements === 2 ? "{mismatch" : readFileSync(temporary));
     });
     memory.read();
+    const source = readFileSync(workspaceNavigationMemoryPath(f.directory));
     const first = memory.complete("/canonical/a", 1, () => true, "terminal");
     const second = memory.complete("/canonical/b", 1, () => true, "review");
     assert.equal((await first).ok, false);
     assert.equal((await second).ok, false);
+    assert.deepEqual(readFileSync(workspaceNavigationMemoryPath(f.directory)), source);
+    assert.deepEqual(memory.read().entries, []);
+  } finally { f.close(); }
+});
+
+test("failed mismatch rollback reports unconfirmed preservation", async () => {
+  const f = fixture();
+  try {
+    let replacements = 0;
+    const memory = createWorkspaceNavigationMemory(f.directory, (temporary, target) => {
+      replacements += 1;
+      writeFileSync(target, replacements === 2 ? "{mismatch" : readFileSync(temporary));
+    }, () => { throw new Error("injected rollback failure"); });
+    memory.read();
+    const result = await memory.complete("/canonical/a", 1, () => true, "terminal");
+    assert.deepEqual(result, { ok: false, diagnostic: "restore_failed" });
     assert.equal(readFileSync(workspaceNavigationMemoryPath(f.directory), "utf8"), "{mismatch");
+  } finally { f.close(); }
+});
+
+test("mismatch recovery does not overwrite a newer future-version record", async () => {
+  const f = fixture();
+  try {
+    let replacements = 0;
+    const future = JSON.stringify({ version: 2, epoch: "f".repeat(32), revision: 99, payload: { entries: [] } });
+    const memory = createWorkspaceNavigationMemory(f.directory, (temporary, target) => {
+      replacements += 1;
+      writeFileSync(target, replacements === 2 ? future : readFileSync(temporary));
+    });
+    memory.read();
+    assert.equal((await memory.complete("/canonical/a", 1, () => true, "review")).ok, false);
+    assert.equal(readFileSync(workspaceNavigationMemoryPath(f.directory), "utf8"), future);
   } finally { f.close(); }
 });
 
@@ -231,5 +264,68 @@ test("revision overflow preserves the record", async () => {
     memory.read();
     assert.equal((await memory.complete("/canonical/a", 1, () => true, "terminal")).ok, false);
     assert.equal(readFileSync(path, "utf8"), source);
+  } finally { f.close(); }
+});
+
+test("forgetting a non-current canonical workspace removes only its navigation entry", async () => {
+  const f = fixture();
+  try {
+    const older = join(f.directory, "older");
+    const current = join(f.directory, "current");
+    mkdirSync(older); mkdirSync(current);
+    const olderIdentity = realpathSync.native(older);
+    const currentIdentity = realpathSync.native(current);
+    rememberWorkspacePath(f.directory, olderIdentity);
+    rememberWorkspacePath(f.directory, currentIdentity);
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    navigation.read();
+    await navigation.complete(olderIdentity, 1, () => true, "review");
+    await navigation.complete(currentIdentity, 1, () => true, "terminal");
+
+    const result = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
+
+    assert.equal(result.history.diagnostic, null);
+    assert.equal(result.navigation?.ok, true);
+    assert.deepEqual(navigation.read().entries, [{ workspaceIdentity: currentIdentity, lastCentralSurface: "terminal" }]);
+    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, [currentIdentity]);
+  } finally { f.close(); }
+});
+
+test("unrecognized, alias, and failed history forgets preserve navigation entries", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    const alias = join(f.directory, "alias");
+    mkdirSync(workspace); symlinkSync(workspace, alias, "dir");
+    const identity = realpathSync.native(workspace);
+    rememberWorkspacePath(f.directory, identity);
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    navigation.read();
+    await navigation.complete(identity, 1, () => true, "review");
+    const source = readFileSync(workspaceNavigationMemoryPath(f.directory));
+
+    assert.equal((await forgetRememberedWorkspaceWithNavigation(f.directory, alias, navigation)).navigation, null);
+    assert.equal((await forgetRememberedWorkspaceWithNavigation(f.directory, join(f.directory, "unknown"), navigation)).navigation, null);
+    assert.deepEqual(readFileSync(workspaceNavigationMemoryPath(f.directory)), source);
+    writeFileSync(workspaceMemoryPath(f.directory), "{corrupt");
+    assert.equal((await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation)).history.diagnostic?.code, "corrupt_history");
+    assert.deepEqual(readFileSync(workspaceNavigationMemoryPath(f.directory)), source);
+  } finally { f.close(); }
+});
+
+test("missing but retained canonical workspace identity can be pruned after invalid destination", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "removed");
+    mkdirSync(workspace);
+    const identity = realpathSync.native(workspace);
+    rememberWorkspacePath(f.directory, identity);
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    navigation.read();
+    await navigation.complete(identity, 1, () => true, "review");
+    rmSync(workspace, { recursive: true });
+    const result = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation);
+    assert.equal(result.navigation?.ok, true);
+    assert.deepEqual(navigation.read().entries, []);
   } finally { f.close(); }
 });

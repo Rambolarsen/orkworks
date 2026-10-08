@@ -79,7 +79,7 @@ export type AcceptRecommendationOptions = {
 
 export type LastCentralSurface = "terminal" | "review";
 export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: "low" | "high" };
-export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
+export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
 export type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
 export type ShellLayoutSnapshot = { preferences: ShellPreferences; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 export type WorkspaceNavigationView = { lastCentralSurface: LastCentralSurface | null; revision: number; diagnostic: ShellMemoryDiagnostic | null };

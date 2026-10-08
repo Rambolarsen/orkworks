@@ -9,10 +9,10 @@ import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, ty
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevSidecarPath, getDevUserDataPath, getPackagedSidecarPath } from "./paths";
-import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
+import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
 import { createShellLayoutMemory } from "./shellLayoutMemory";
-import { createWorkspaceNavigationMemory, type LastCentralSurface } from "./workspaceNavigationMemory";
+import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, type LastCentralSurface } from "./workspaceNavigationMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
@@ -835,11 +835,14 @@ app.whenReady().then(async () => {
       console.warn(`[main] remembered workspace path was rejected by the sidecar: ${rejectedPath}`);
       if (restoreResult.removeFromHistory) {
         try {
-          const result = forgetWorkspacePath(app.getPath("userData"), rejectedPath);
-          const diagnostic = result.diagnostic;
+          const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), rejectedPath, workspaceNavigationMemory);
+          const diagnostic = result.history.diagnostic;
           currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic(diagnostic);
           if (currentHistoryDiagnostic) {
             console.warn("[main] rejected workspace could not be removed from history", diagnostic?.message);
+          }
+          if (result.navigation && !result.navigation.ok) {
+            console.warn("[main] rejected workspace navigation could not be removed", result.navigation.diagnostic);
           }
         } catch (error) {
           console.warn("[main] rejected workspace could not be removed from history", error instanceof Error ? error.message : "unknown error");
@@ -1981,9 +1984,13 @@ app.whenReady().then(async () => {
     return toWorkspaceHistorySnapshot(unpinWorkspacePath(app.getPath("userData"), path));
   });
 
-  ipcMain.handle("forget-workspace-path", (_event, path: unknown) => {
+  ipcMain.handle("forget-workspace-path", async (_event, path: unknown) => {
     if (typeof path !== "string") throw new Error("Invalid workspace path");
-    return toWorkspaceHistorySnapshot(forgetWorkspacePath(app.getPath("userData"), path));
+    const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), path, workspaceNavigationMemory);
+    if (result.navigation && !result.navigation.ok) {
+      throw new Error("Workspace shortcut was removed, but its navigation state could not be cleared.");
+    }
+    return toWorkspaceHistorySnapshot(result.history);
   });
 
   ipcMain.handle("open-remembered-workspace", async (_event, path: unknown) => {
@@ -2002,7 +2009,10 @@ app.whenReady().then(async () => {
       // never reach restoreWorkspace's removeFromHistory handling, so forget
       // the stale shortcut here before surfacing the error.
       if (result.failure.code === "invalid_destination") {
-        forgetWorkspacePath(app.getPath("userData"), path);
+        const forgotten = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), path, workspaceNavigationMemory);
+        if (forgotten.navigation && !forgotten.navigation.ok) {
+          console.warn("[main] invalid destination navigation could not be removed", forgotten.navigation.diagnostic);
+        }
       }
       throw new Error(result.failure.message);
     }

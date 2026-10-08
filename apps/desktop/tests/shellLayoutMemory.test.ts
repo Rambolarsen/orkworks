@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -111,4 +111,23 @@ test("a live retained shell lock blocks writes without evicting its inode", asyn
     await exited;
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("failed first-use read-back restores prior absence for malformed output", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const memory = createShellLayoutMemory(directory, (_temporary, target) => writeFileSync(target, "{mismatch"));
+    assert.equal(memory.read().diagnostic, "write_failed");
+    assert.equal(existsSync(shellLayoutMemoryPath(directory)), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("failed first-use read-back leaves an unexpected valid future record intact", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const future = JSON.stringify({ version: 2, epoch: "f".repeat(32), revision: 7, payload: {} });
+    const memory = createShellLayoutMemory(directory, (_temporary, target) => writeFileSync(target, future));
+    assert.equal(memory.read().diagnostic, "write_failed");
+    assert.equal(readFileSync(shellLayoutMemoryPath(directory), "utf8"), future);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

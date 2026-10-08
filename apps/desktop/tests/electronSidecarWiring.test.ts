@@ -455,15 +455,24 @@ test("open-remembered-workspace forgets stale paths that fail pre-sidecar valida
   assert.ok(start >= 0 && end > start, "open-remembered-workspace handler not found");
   const handler = mainSource.slice(start, end);
   assert.match(handler, /result\.failure\.code === "invalid_destination"/);
-  assert.match(handler, /forgetWorkspacePath\(app\.getPath\("userData"\), path\)/);
+  assert.match(handler, /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory\)/);
   assert.match(handler, /throw new Error\(result\.failure\.message\)/);
+});
+
+test("explicit and restoration forgets couple validated history removal to navigation deletion", () => {
+  assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", async \(_event, path: unknown\) => \{/);
+  assert.match(mainSource, /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory\)/);
+  const start = mainSource.indexOf("async function restoreWorkspace(");
+  const end = mainSource.indexOf("\n  async function", start + 10);
+  assert.ok(start >= 0 && end > start);
+  assert.match(mainSource.slice(start, end), /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), rejectedPath, workspaceNavigationMemory\)/);
 });
 
 test("workspace history IPC channels are wired through main, preload, and the renderer contract", () => {
   assert.match(mainSource, /ipcMain\.handle\("get-workspace-history", \(\) =>/);
   assert.match(mainSource, /ipcMain\.handle\("pin-workspace-path", \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /ipcMain\.handle\("unpin-workspace-path", \(_event, path: unknown\) => \{/);
-  assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", \(_event, path: unknown\) => \{/);
+  assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", async \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /ipcMain\.handle\("open-remembered-workspace", async \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /workspaceSwitchCoordinator\.getCurrentWorkspacePath\(\) === path\) return null;/);
   assert.match(mainSource, /await workspaceSwitchCoordinator\.switchWorkspace\(path\);/);

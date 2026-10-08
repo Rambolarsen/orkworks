@@ -1,5 +1,6 @@
 import { isAbsolute, normalize, join } from "node:path";
 import { RevisionedShellMemory, type ShellFileReplacer, type ShellMemoryDiagnostic, type ShellMemoryResult } from "./shellLayoutMemory.ts";
+import { canonicalWorkspacePath, forgetWorkspacePath, readWorkspaceMemory, type AppWorkspaceMemory } from "./workspaceMemory.ts";
 
 export type LastCentralSurface = "terminal" | "review";
 export type WorkspaceNavigationEntry = { workspaceIdentity: string; lastCentralSurface: LastCentralSurface };
@@ -30,9 +31,9 @@ function validPayload(value: unknown): value is NavigationPayload {
 
 export function workspaceNavigationMemoryPath(directory: string): string { return join(directory, "workspace-navigation.json"); }
 
-export function createWorkspaceNavigationMemory(directory: string, replacer?: ShellFileReplacer) {
+export function createWorkspaceNavigationMemory(directory: string, replacer?: ShellFileReplacer, restoreReplacer?: ShellFileReplacer) {
   const memory = new RevisionedShellMemory(directory, "workspace-navigation.json", 64 * 1024,
-    (): NavigationPayload => ({ entries: [] }), validPayload, replacer);
+    (): NavigationPayload => ({ entries: [] }), validPayload, replacer, restoreReplacer);
   return {
     read: (): WorkspaceNavigationSnapshot => {
       const loaded = memory.readRecord();
@@ -61,4 +62,30 @@ export function createWorkspaceNavigationMemory(directory: string, replacer?: Sh
     },
     rebuild: (confirmed: true): Promise<ShellMemoryResult> => memory.rebuild(confirmed),
   };
+}
+
+function historyContains(memory: AppWorkspaceMemory, identity: string): boolean {
+  return memory.lastWorkspacePath === identity
+    || memory.recentWorkspacePaths.includes(identity)
+    || memory.pinnedWorkspacePaths.includes(identity);
+}
+
+export async function forgetRememberedWorkspaceWithNavigation(
+  directory: string,
+  identity: string,
+  navigation: ReturnType<typeof createWorkspaceNavigationMemory>,
+): Promise<{ history: AppWorkspaceMemory; navigation: ShellMemoryResult | null }> {
+  const before = readWorkspaceMemory(directory);
+  // Existing shortcuts are the authority for a path that has disappeared.
+  // An existing alias must resolve to itself; renderer text alone is never a
+  // workspace identity and must not delete an unrelated navigation entry.
+  if (before.diagnostic || !historyContains(before, identity) || !validCanonicalKey(identity)) {
+    return { history: before, navigation: null };
+  }
+  const canonical = canonicalWorkspacePath(identity);
+  if (canonical !== null && canonical !== identity) return { history: before, navigation: null };
+
+  const history = forgetWorkspacePath(directory, identity);
+  if (history.diagnostic || historyContains(history, identity)) return { history, navigation: null };
+  return { history, navigation: await navigation.delete(identity, 0, () => true) };
 }
