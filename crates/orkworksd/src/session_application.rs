@@ -870,7 +870,7 @@ impl SessionApplication {
         }
         workspace
             .recommendation_store
-            .dismiss(id, chrono::Utc::now().to_rfc3339())
+            .dismiss(id, chrono::Utc::now().to_rfc3339(), None)
             .map_err(RecommendationDismissError::Store)
     }
 
