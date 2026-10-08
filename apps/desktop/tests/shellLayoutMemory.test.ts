@@ -131,3 +131,15 @@ test("failed first-use read-back leaves an unexpected valid future record intact
     assert.equal(readFileSync(shellLayoutMemoryPath(directory), "utf8"), future);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("first-use candidate published before replacer throws restores prior absence", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const memory = createShellLayoutMemory(directory, (temporary, target) => {
+      writeFileSync(target, readFileSync(temporary));
+      throw new Error("injected post-publication failure");
+    });
+    assert.equal(memory.read().diagnostic, "write_failed");
+    assert.equal(existsSync(shellLayoutMemoryPath(directory)), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

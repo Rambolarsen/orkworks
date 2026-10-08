@@ -182,6 +182,26 @@ test("mismatch recovery does not overwrite a newer future-version record", async
   } finally { f.close(); }
 });
 
+test("candidate bytes published before replacer throws restore prior bytes and invalidate successors", async () => {
+  const f = fixture();
+  try {
+    let replacements = 0;
+    const memory = createWorkspaceNavigationMemory(f.directory, (temporary, target) => {
+      replacements += 1;
+      writeFileSync(target, readFileSync(temporary));
+      if (replacements === 2) throw new Error("injected post-publication failure");
+    });
+    memory.read();
+    const source = readFileSync(workspaceNavigationMemoryPath(f.directory));
+    const first = memory.complete("/canonical/a", 1, () => true, "terminal");
+    const successor = memory.complete("/canonical/b", 1, () => true, "review");
+    assert.equal((await first).ok, false);
+    assert.equal((await successor).ok, false);
+    assert.deepEqual(readFileSync(workspaceNavigationMemoryPath(f.directory)), source);
+    assert.deepEqual(memory.read().entries, []);
+  } finally { f.close(); }
+});
+
 test("two instances share the first creation epoch instead of reinitializing", () => {
   const f = fixture();
   try {
@@ -327,5 +347,53 @@ test("missing but retained canonical workspace identity can be pruned after inva
     const result = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation);
     assert.equal(result.navigation?.ok, true);
     assert.deepEqual(navigation.read().entries, []);
+  } finally { f.close(); }
+});
+
+test("forget retry clears exactly one navigation entry after the first deletion fails", async () => {
+  const f = fixture();
+  try {
+    const older = join(f.directory, "older");
+    const current = join(f.directory, "current");
+    mkdirSync(older); mkdirSync(current);
+    const olderIdentity = realpathSync.native(older);
+    const currentIdentity = realpathSync.native(current);
+    rememberWorkspacePath(f.directory, olderIdentity);
+    rememberWorkspacePath(f.directory, currentIdentity);
+    let failNext = false;
+    const navigation = createWorkspaceNavigationMemory(f.directory, (temporary, target) => {
+      if (failNext) { failNext = false; throw new Error("injected navigation save failure"); }
+      writeFileSync(target, readFileSync(temporary));
+    });
+    navigation.read();
+    await navigation.complete(olderIdentity, 1, () => true, "review");
+    await navigation.complete(currentIdentity, 1, () => true, "terminal");
+
+    failNext = true;
+    const first = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
+    assert.equal(first.history.diagnostic, null);
+    assert.deepEqual(first.navigation, { ok: false, diagnostic: "write_failed" });
+    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, [currentIdentity]);
+    assert.deepEqual(navigation.read().entries.map((entry) => entry.workspaceIdentity), [currentIdentity, olderIdentity]);
+
+    const retried = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
+    assert.equal(retried.navigation?.ok, true);
+    assert.deepEqual(navigation.read().entries, [{ workspaceIdentity: currentIdentity, lastCentralSurface: "terminal" }]);
+  } finally { f.close(); }
+});
+
+test("navigation-only alias cannot be pruned through the forget retry path", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    const alias = join(f.directory, "alias");
+    mkdirSync(workspace); symlinkSync(workspace, alias, "dir");
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    navigation.read();
+    await navigation.complete(alias, 1, () => true, "review");
+    const before = readFileSync(workspaceNavigationMemoryPath(f.directory));
+
+    assert.equal((await forgetRememberedWorkspaceWithNavigation(f.directory, alias, navigation)).navigation, null);
+    assert.deepEqual(readFileSync(workspaceNavigationMemoryPath(f.directory)), before);
   } finally { f.close(); }
 });

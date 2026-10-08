@@ -76,16 +76,22 @@ export async function forgetRememberedWorkspaceWithNavigation(
   navigation: ReturnType<typeof createWorkspaceNavigationMemory>,
 ): Promise<{ history: AppWorkspaceMemory; navigation: ShellMemoryResult | null }> {
   const before = readWorkspaceMemory(directory);
-  // Existing shortcuts are the authority for a path that has disappeared.
-  // An existing alias must resolve to itself; renderer text alone is never a
-  // workspace identity and must not delete an unrelated navigation entry.
-  if (before.diagnostic || !historyContains(before, identity) || !validCanonicalKey(identity)) {
+  // An exact saved shortcut or navigation entry is the authority for a path
+  // that has disappeared. Renderer text alone cannot delete another entry.
+  if (before.diagnostic || !validCanonicalKey(identity)) {
     return { history: before, navigation: null };
   }
   const canonical = canonicalWorkspacePath(identity);
   if (canonical !== null && canonical !== identity) return { history: before, navigation: null };
 
-  const history = forgetWorkspacePath(directory, identity);
+  const wasRemembered = historyContains(before, identity);
+  const history = wasRemembered ? forgetWorkspacePath(directory, identity) : before;
   if (history.diagnostic || historyContains(history, identity)) return { history, navigation: null };
+  if (!wasRemembered) {
+    const stored = navigation.read();
+    if (stored.diagnostic || !stored.entries.some((entry) => entry.workspaceIdentity === identity)) {
+      return { history, navigation: null };
+    }
+  }
   return { history, navigation: await navigation.delete(identity, 0, () => true) };
 }

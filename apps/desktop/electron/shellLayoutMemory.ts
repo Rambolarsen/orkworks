@@ -129,18 +129,21 @@ export class RevisionedShellMemory<P> {
     finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
   }
 
-  private failedWrite(previous: Buffer | null): ShellMemoryResult {
+  private failedWrite(previous: Buffer | null, attempted: Buffer): ShellMemoryResult {
     // A compliant peer cannot write while our retained lock is held. Still,
     // never roll back a valid but unexpected record: it may be a newer write
-    // from a noncompliant external actor. Restore only missing/corrupt bytes.
-    const observed = this.load();
-    if (observed.record) return { ok: false, diagnostic: "write_failed" };
+    // from a noncompliant external actor. The exact attempted bytes identify
+    // our own publication even if the replacer threw after publishing it.
     try {
       const currentBytes = readFileSync(this.path());
-      const parsed: unknown = JSON.parse(decoder.decode(currentBytes));
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-        && ("version" in parsed || "epoch" in parsed || "revision" in parsed)) {
-        return { ok: false, diagnostic: "write_failed" };
+      if (!currentBytes.equals(attempted)) {
+        const observed = this.load();
+        if (observed.record) return { ok: false, diagnostic: "write_failed" };
+        const parsed: unknown = JSON.parse(decoder.decode(currentBytes));
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+          && ("version" in parsed || "epoch" in parsed || "revision" in parsed)) {
+          return { ok: false, diagnostic: "write_failed" };
+        }
       }
     } catch { /* Missing or malformed bytes may be restored below. */ }
     if (previous === null) {
@@ -170,10 +173,10 @@ export class RevisionedShellMemory<P> {
     try { previous = existsSync(this.path()) ? readFileSync(this.path()) : null; }
     catch { return { ok: false, diagnostic: "write_failed" }; }
     try {
-      if (!this.publish(bytes).equals(bytes)) return this.failedWrite(previous);
+      if (!this.publish(bytes).equals(bytes)) return this.failedWrite(previous, bytes);
       this.snapshot = record;
       return { ok: true };
-    } catch { return this.failedWrite(previous); }
+    } catch { return this.failedWrite(previous, bytes); }
   }
 
   readRecord(): Loaded<P> {
