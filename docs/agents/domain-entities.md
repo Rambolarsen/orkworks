@@ -176,6 +176,25 @@ with `recommendationOrigin` in `apps/desktop/src/taskmaster.ts`, mirroring
   `WorkflowObservation` records by fingerprint, requiring recurrence (two
   distinct qualifying observations) before proposing.
 
+### Recommendation audit vocabulary
+
+The recommendation audit adds a third `RecommendationType` discriminant,
+`Cleanup` (serde `cleanup`, dedupe key exactly `cleanup:v1`). A cleanup card
+is `ImproveWorkflow`-shaped (it still carries the required
+`workflowImprovement` placeholder, `targetSurface: documentation`) plus an
+optional `AuditCleanup` projection: `entries` (each `{ id, title, criteria }`
+with criteria from the `AuditCriterion` set `under_eligible | noise |
+duplicate | stale`, in canonical order), `scanned`, `healthy`, and
+`staleAfterDays`. `AuditCleanup` exists only on `cleanup`-type records.
+
+`DismissalWatermark` gains an additive optional `reason`. The ordinary user
+dismiss route never writes it; the cleanup-accept batch writes
+`audit:<first-criterion>@<cleanup-card-id>` so a bulk dismissal is auditable
+from either side. The renderer surfaces a third origin, `cleanup`, in
+`recommendationOrigin` (exact key `cleanup:v1`, or that prefix with a
+generation suffix), shown as its own panel filter chip and as the audit
+block on the card.
+
 ## Related files
 
 - `crates/orkworksd/src/metadata.rs`

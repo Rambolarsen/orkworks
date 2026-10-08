@@ -417,6 +417,7 @@ Initial recommendation types:
 - `avoid_parallel_session` — warn against starting more work in a shared dirty workspace
 - `archive_completed_session` — suggest clearing completed runtime clutter after downstream work is complete
 - `improve_workflow` — passive, evidence-backed suggestion to update instructions, a skill, a test, tooling, or documentation, derived from correlated `WorkflowObservation` records (see "Workflow-improvement recommendations" below)
+- `cleanup` — passive, audit-derived proposal to dismiss proposed workflow recommendations that no longer qualify for their evidence (see "Recommendation audit" below)
 
 Recommendation types describe intent. The shared recommendation engine selects the best available harness/model for intents that require a new session.
 
@@ -843,6 +844,48 @@ When either condition holds, Taskmaster creates one new `proposed` recommendatio
 
 The Taskmaster surface presents one card per active `improve_workflow` recommendation, showing the proposed improvement and target surface, why Taskmaster is suggesting it now, recurrence count and affected sessions, impact/confidence/expected benefit, expandable supporting observations (source and timestamp), and two actions: `Dismiss` and `Fix with AI` (sends a generated prompt containing the stable recommendation ID and the `working-on-recommendation` skill handoff into the user's currently active session, scoped to the recommended target surface; disabled when no session is active). This version does not create a GitHub issue or edit repository files itself — only the explicit `Fix with AI` action submits a prompt that may result in an edit, carried out by the session the user already has open. A target agent may report verified completion through the authenticated completion route; Taskmaster never infers completion from terminal text.
 
+## Recommendation audit
+
+Taskmaster audits its own backlog of `proposed` workflow recommendations and proposes bulk maintenance as a single reviewable `cleanup` card. The audit only ever proposes: every dismissal still requires explicit user approval for every action. There is no scheduler and no automatic mutation; the audit runs only when triggered and can be re-run at any time.
+
+### Audit pass and trigger
+
+`POST /taskmaster/audit/recommendations` (sidecar route, same localhost port and workspace-scoped binding as the other Taskmaster routes) runs one deterministic pass over the live recommendation list and returns the cleanup card, or `null` when every `proposed` card is healthy (or no workspace is open). Only one active cleanup card may exist per workspace: running the audit while one is `proposed` replaces it in place (same id, refreshed entries and counts, as immutable identity fields are preserved); running it after the previous card reached a terminal state creates a fresh generation whose `supersedesRecommendationId` names the terminal predecessor. The card cites no workflow-observation evidence and fabricates no recurrences — its own claims derive from the audit counts (`scanned`, `healthy`) and the per-entry criteria list.
+
+### Classification criteria
+
+Each `proposed`, non-cleanup, non-rollup card is classified by every criterion it matches; criteria are independent and all labels are kept, in canonical order under-eligible → noise → duplicate → stale:
+
+- `under_eligible` — fewer than two distinct qualifying observations across the card's cited evidence under the current eligibility rule (confidence ≥ `0.6`; a `high` impact citation additionally requires ≥ `0.8`). This is exactly the leftover class from the removed single-observation escape hatch.
+- `noise` — every cited observation is `source: peon` and none carries a `problemArea` (the deterministic proxy for over-detection: title-like, artifact-free Peon inference). A card with any agent-reported citation or any problem area is never noise.
+- `duplicate` — the same dedupe family already contains a newer `proposed` card (keep-newest), or a terminal sibling (accepted/completed/dismissed/superseded/failed/expired) the proposed card does not extend: its `supersedesRecommendationId` chain references neither that sibling nor any record the sibling itself supersedes.
+- `stale` — the newest `observedAt` across the cited evidence is older than 14 days (fixed constant; no runtime config in v1). A corrupt or unparseable timestamp suppresses the stale criterion entirely — a card is never auto-flagged stale on unreadable evidence age.
+
+Cards matching none of the criteria are healthy and are never proposed for dismissal. Terminal records and rollup parents are never classified (dismissing a rollup parent would strand its rolled-up members); parents count toward `scanned` but are never entries. A workspace with only healthy cards produces no card at all — an empty audit entry list is impossible by construction.
+
+### The cleanup card
+
+The card is a new `cleanup` recommendation type carrying the shared recommendation fields with `requiresApproval: true` (accept mutates state, so it must render the approval affordance), `evidence: []`, `recurrenceCount: 0`, placeholder `workflowImprovement` (`targetSurface: documentation`, empty observation/affected-session lists), and priority/confidence `medium`. It adds an optional `audit` field on the recommendation — `{ entries: [{ id, title, criteria }], scanned, healthy, staleAfterDays }` — omitted entirely on every other recommendation type. Only a `proposed` cleanup card is acceptable or dismissible; its dismissal discards the proposal and changes nothing else.
+
+### Accept execution and immutability
+
+The existing accept route `POST /taskmaster/recommendations/:id/accept` is type-dispatched. The `sessionId` request field (required for `improve_workflow` prompt delivery exactly as today) is optional: cleanup accepts require it absent — a present `sessionId` on a cleanup card is an explicit rejection, not an ignored field — and `improve_workflow` accepts without it are rejected explicitly as well. Dispatch branches on the stored type.
+
+Accept executes the audited bulk dismissal in one atomic graph transaction (the same batch manifest machinery rollups use):
+
+- For every entry in the audited list, a record still `proposed` is transitioned `proposed` → `dismissed` through the same per-record watermark transformation `store::dismiss` uses, with the audit batch's `reason` field set to `audit:<criterion>@<cleanup-card-id>` (`<criterion>` is the entry's first matching criterion in the canonical order, snake_case) so the lineage is auditable from either side. The audited list is trusted without re-classification; drift between audit and accept is handled by the status check plus the transaction's per-record expected hashes.
+- A record whose status changed between audit and approval fails its compare-and-swap, is skipped, and is reported in the accept response as `skipped: [{ id, status }]` rather than aborting the batch.
+- The cleanup card itself transitions `proposed` → `completed` inside the same batch; `executing` is never used (there is no prompt-delivery window). If persistence fails before the batch commit, the manifest aborts and the cleanup card stays `proposed` with nothing applied.
+- Dismissed-by-audit card re-dismissal lineage is written by the batch itself, not by serial `dismiss` calls, so watermarks are identical to ordinary dismissals and the batch cannot leave mixed half-states. A missing audited record (id absent from the graph) is treated as representation corruption and rejects the whole accept loudly instead of being skipped with a fabricated status.
+
+The store's type guards are widened on both the dismiss and accept paths to admit `cleanup` alongside `improve_workflow`, so the cleanup card's own `Dismiss` action discards the proposal. Dismissed-by-audit exact-family cards follow the existing dismissal-watermark resurfacing rules unchanged: new qualifying evidence after the watermark (impact increase, or two later observations including a new session) still creates a fresh proposed successor — the audit never blocks legitimate resurfacing, it only clears what no longer qualifies.
+
+### Evaluator interaction and non-goals
+
+`evaluate_workflow_improvements` and the rollup evaluator are untouched. The cleanup card is not an exact family: its dedupe key `cleanup:v1` never collides with `improve_workflow:v1:` families, and evaluators ignore `cleanup`-type cards when scanning for active workflow recommendations, so a pending cleanup card never blocks brain analyses.
+
+Non-goals: no automatic (unapproved) dismissal — the audit only proposes; no migration of already-terminal records (dismissed/completed/expired stay immutable history); no scheduling; and the only accepted transport-level shape changes are the additive `cleanup` type discriminant, the optional `audit` field on recommendations, the optional `reason` field on `DismissalWatermark` (never written by the ordinary user dismiss route), and the accept route's `sessionId` becoming optional.
+
 ## Review-session handoff
 
 When proposing `start_review_session`, Taskmaster prepares a read-only review handoff containing:
@@ -1223,6 +1266,7 @@ Proposed HTTP endpoints:
 - `GET /taskmaster/recommendations` — list recommendations for the active workspace
 - `GET /taskmaster/recommendations/:id` — get one recommendation
 - `POST /taskmaster/recommendations/:id/accept` — approve and execute the proposed action
+- `POST /taskmaster/audit/recommendations` — run one recommendation-audit pass and return the proposed `cleanup` card, or `null` when every proposed card is healthy (see "Recommendation audit" below)
 - `POST /taskmaster/recommendations/:id/complete` — authenticated target-agent completion report
 - `POST /taskmaster/recommendations/:id/dismiss` — dismiss with an optional reason
 - `POST /taskmaster/recommendations/:id/refresh` — reevaluate against current state
@@ -1240,7 +1284,7 @@ Workflow observations reach Taskmaster through a session-scoped sidecar route ra
 
 - `POST /sessions/:id/workflow-observations` — authenticated, harness-neutral explicit workflow-observation report (see `specs/orkworks-mvp.md`)
 
-`improve_workflow` recommendations use `GET /taskmaster/recommendations` (list), `POST /taskmaster/recommendations/:id/dismiss`, and `POST /taskmaster/recommendations/:id/accept` from the API above — `refresh` has no effect for this passive variant, since Taskmaster's five-second correlation debounce drives its own reevaluation. Unlike the general `accept` contract below (which starts a session), `improve_workflow`'s `accept` takes a caller-supplied `sessionId` identifying the user's currently active session and submits a generated fix prompt into it through the same mechanism as a live keystroke — it starts no session.
+`improve_workflow` recommendations use `GET /taskmaster/recommendations` (list), `POST /taskmaster/recommendations/:id/dismiss`, and `POST /taskmaster/recommendations/:id/accept` from the API above — `refresh` has no effect for this passive variant, since Taskmaster's five-second correlation debounce drives its own reevaluation. Unlike the general `accept` contract below (which starts a session), `improve_workflow`'s `accept` takes a caller-supplied `sessionId` identifying the user's currently active session and submits a generated fix prompt into it through the same mechanism as a live keystroke — it starts no session. `cleanup` cards use the same accept route from the desktop panel's `Run cleanup` action with an empty body (no `sessionId`); see "Recommendation audit" above for the type-dispatched contract and the atomic bulk dismissal.
 
 The `complete` action is separate from user acceptance: the agent uses its
 current session's `ORKWORKS_REPORT_TOKEN` and supplies only an optional bounded
