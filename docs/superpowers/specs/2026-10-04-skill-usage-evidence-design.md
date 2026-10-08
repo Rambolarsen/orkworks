@@ -304,17 +304,23 @@ observation leaves usage `unknown`; it is not replaced with terminal parsing,
 model inference, or child claims.
 
 Coverage is explicit per assignment and adapter generation. `complete` is
-permitted only after a server-fenced finalization handshake: the adapter asks
-the sidecar to close its observation interval; the sidecar atomically records
-the assignment's terminal boundary and final expected source sequence, closes
-new event writes for that stream, and returns a finalization nonce. The adapter
-then submits a final coverage record naming that nonce and boundary through
-the adapter-only integration channel. The sidecar accepts it only for the
-closed stream and only if all sequences through the boundary are present or
-explicitly represented as gaps. It may be submitted after the child assignment
-closes, but cannot add invocation or delivery events or reopen writes. Missing
-handshake/coverage leaves the interval `interrupted` or `partial`; it never
-defaults to complete. This operation is generation-bound and idempotent.
+permitted only after a server-fenced finalization handshake. After draining its
+observer, the adapter requests interval closure and declares its final source
+sequence (`finalSequence`) through the adapter-only integration channel. The
+sidecar atomically records the assignment's terminal boundary and that declared
+sequence, closes event writes for the stream, and returns a finalization nonce.
+The sidecar rejects a boundary lower than an already accepted source sequence.
+The adapter then submits one final coverage control record naming the nonce and
+boundary. This is a bounded finalization operation, not a new evidence event:
+it consumes no producer sequence, cannot add invocation or delivery events,
+and cannot reopen writes. It is permitted after assignment closure only for the
+recorded stream, nonce, and boundary. The sidecar marks coverage complete only
+when all source sequences through `finalSequence` are accounted for with no
+gaps; missing sequences, an invalid boundary, or declared gaps leave coverage
+partial/interrupted. A lost trailing event therefore prevents complete
+coverage. Repeating the exact finalization payload returns the stored receipt;
+a changed payload for the nonce conflicts. Missing handshake/coverage never
+defaults to complete. The operation is generation-bound and idempotent.
 
 Coverage is explicit per assignment and adapter generation:
 
@@ -325,6 +331,7 @@ Coverage is explicit per assignment and adapter generation:
     "usageObservation": "partial",
     "fromSequence": 1,
     "throughSequence": 18,
+    "finalSequence": 20,
     "finalizationNonce": "fin_01J9EXAMPLE7N8R3Y6K2M4P0Q1A",
     "gaps": [{ "from": 9, "through": 10, "reason": "adapter_restart" }]
   }
@@ -346,10 +353,14 @@ For native `observed_invocation` events, the server additionally reserves a
 cross-stream replay key `(adapter identity, adapter version, configurationDigest,
 launchGeneration, sourceEventNamespace, sourceEventId)` for the full evidence
 retention window. An exact replay under a restarted stream returns the original
-receipt marked `duplicate_source_event`; it does not append an event or change
-aggregates. A reused key with a different canonical payload hash returns
-`409 source_event_conflict` and marks adapter coverage incomplete. The key is
-reserved atomically with the event, survives event trimming as a bounded
+receipt marked `duplicate_source_event` and stores a bounded alias receipt for
+the new stream's `(producerStreamId, producerSequence)` with the incoming
+payload hash. This consumes that sequence for high-water/gap accounting and
+makes a retry on the restarted stream idempotent, but does not append an
+evidence event or change aggregates. A reused key with a different canonical
+payload hash returns `409 source_event_conflict` and marks adapter coverage
+incomplete. The key is reserved atomically with the event and alias receipt,
+survives event trimming as a bounded
 tombstone, and is removed only when the corresponding assignment evidence and
 replay retention expire or repository evidence is explicitly cleared. The
 verified capability entry must guarantee source-event ID stability across
@@ -419,9 +430,11 @@ the server must not truncate fields into a different accepted payload.
 | Retained assignment bindings per workspace | 1,000 |
 | Producer streams per workspace | 2,000 |
 | Native source-event replay keys per workspace | 10,000 |
+| Cross-stream alias receipts per workspace | 10,000 |
 | Source-event namespace / ID | 128 UTF-8 bytes each |
 | Finalization records per assignment | 1 |
 | Finalization nonce | 128 ASCII bytes |
+| Finalization payload | 1 KiB |
 | Events in one request | 1 |
 | Skills in one configuration | 16, matching #741 |
 | Evidence events per assignment | 256 |
