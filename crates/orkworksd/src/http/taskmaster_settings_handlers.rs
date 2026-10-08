@@ -390,6 +390,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unavailable_manual_analysis_retries_deferred_run_recovery() {
+        use crate::taskmaster::runtime::{TaskmasterRunOutcomeState, TaskmasterRunTrigger};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for running in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut state = test_app_state_with_workspace(directory.path());
+            let calls = Arc::new(AtomicUsize::new(0));
+            Arc::get_mut(&mut state).unwrap().providers =
+                crate::providers::ProviderManager::for_tests(
+                    crate::providers::ProviderSettingsPayload::default(),
+                    vec![crate::providers::FakeProvider::new("ollama").with_counter(calls.clone())],
+                );
+            let runtime = runtime_for(&state);
+            let mut settings = TaskmasterSettings::default();
+            settings.enabled = false;
+            settings.selection = Some(
+                serde_json::from_value(serde_json::json!({
+                    "provider":"ollama", "model":"test-model"
+                }))
+                .unwrap(),
+            );
+            runtime.replace_settings(settings).unwrap();
+            let mut other_instance_lease = Some(runtime.try_analysis_lease().unwrap().unwrap());
+            let id = runtime
+                .queue_run(
+                    directory.path(),
+                    TaskmasterRunTrigger::Background,
+                    "ollama",
+                    "test-model",
+                )
+                .unwrap();
+            if running {
+                assert!(runtime
+                    .mark_run_running(directory.path(), id, "ollama", "test-model")
+                    .unwrap());
+            }
+            for lease_available in [false, true] {
+                if lease_available {
+                    drop(other_instance_lease.take());
+                }
+                let response = super::super::taskmaster_handlers::analyze_taskmaster(
+                    State(state.clone()),
+                    authorized_headers(),
+                )
+                .await;
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = axum::body::to_bytes(response.into_body(), 4096)
+                    .await
+                    .unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["status"], "unavailable");
+                assert!(body["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("verified reference knowledge"));
+                let status = runtime.run_status(Some(directory.path())).unwrap();
+                if lease_available {
+                    assert!(status.active_attempt.is_none());
+                    if running {
+                        assert_eq!(
+                            status.latest_outcome.unwrap().state,
+                            TaskmasterRunOutcomeState::Interrupted
+                        );
+                    } else {
+                        assert!(status.latest_outcome.is_none());
+                    }
+                } else {
+                    assert_eq!(status.active_attempt.unwrap().id, id);
+                }
+            }
+            drop(other_instance_lease);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                runtime.status(Some(directory.path())).remaining_evaluations,
+                8
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn run_status_is_authenticated_and_reports_no_workspace_or_corrupt_ledger_unavailable() {
         let _ = authorized_headers();
         let directory = tempfile::tempdir().unwrap();

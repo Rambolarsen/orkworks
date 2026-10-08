@@ -44,8 +44,12 @@ The unsigned starter and Electron-validated legacy cache carry no matching signe
 - [x] Check matching live Taskmaster recommendations through the API and tie off only a verified matching recommendation before the PR reaches terminal state.
 - [ ] Open one PR, babysit required checks and comments, merge via the documented maintainer path only after review/checks pass, and clean up using `scripts/finish-pr.sh`.
 
-Local verification: `scripts/verify-repo.sh` passed on 2026-10-08; Rust suites 1814 + 4 passed, 5 ignored; desktop 1111 passed, 1 skipped. Independent medium-effort diff review found no actionable issues. The live recommendation API returned no matching recommendation.
+Local verification: `scripts/verify-repo.sh` passed on 2026-10-08; Rust suites 1815 + 4 passed, 5 ignored; desktop 1111 passed, 1 skipped. Independent medium-effort diff review found no actionable issues. The live recommendation API returned no matching recommendation.
 
 PR review follow-up: confirmed deferred stale run recovery must remain reachable under the installation-wide lease while Brain admission is closed. Added queued/running recovery regression; observed failure before moving the scheduling gate after recovery. No analysis is queued, dispatched, or charged during recovery.
 
 Follow-up verification: full `scripts/verify-repo.sh` passed again after the recovery fix; independent medium-effort manual review found no actionable issues. Automated re-review cycle 1/3 will cover the updated head.
+
+Second PR review follow-up: confirmed the manual HTTP unavailable response also must retry lease-protected recovery. Added a real HTTP queued/running test with background discovery disabled and a provider call counter; observed failure before the fix and success after it. The handler preserves live attempts while the lease is held and recovers stale attempts after release without dispatch or usage reservation. Review cycle 2/3 will cover this updated head.
+
+Final HTTP follow-up verification: `RUST_TEST_THREADS=4 bash scripts/verify-repo.sh` passed (Rust 1815 + 4; desktop 1111). The first default-concurrency attempt hit an unchanged Ollama fixture two-second socket read timeout; that test passed immediately in isolation and in the complete bounded rerun. A fresh medium-effort manual review found no actionable issues.

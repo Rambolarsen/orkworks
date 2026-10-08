@@ -258,6 +258,11 @@ pub(crate) async fn analyze_taskmaster(
         );
     };
     if let Err(reason) = crate::taskmaster::runtime::brain_knowledge_availability() {
+        // Manual admission must retry deferred stale-status recovery too. The
+        // shared analysis lease prevents interrupting another live instance.
+        if let Ok(Some(lease)) = runtime.try_analysis_lease() {
+            let _ = runtime.recover_workspace_run(&workspace_path, &lease);
+        }
         return manual_analysis_response("unavailable", None, Some(reason));
     }
     let trust = super::inference_trust_handlers::trust_store(&state).ok();
