@@ -1,0 +1,255 @@
+import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
+import { join } from "node:path";
+import { TextDecoder } from "node:util";
+import fsExt from "fs-ext";
+
+export type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
+export type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
+export type ShellDensity = "low" | "high";
+export type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: ShellDensity };
+export const defaultShellPreferences: ShellPreferences = { sessionsWidth: 240, inspectorWidth: 320, sessionsVisible: true, density: "low" };
+export type ShellLayoutSnapshot = { preferences: ShellPreferences; revision: number; diagnostic: ShellMemoryDiagnostic | null };
+
+type StoredRecord<P> = { version: 1; epoch: string; revision: number; payload: P };
+type Loaded<P> = { record: StoredRecord<P> | null; diagnostic: ShellMemoryDiagnostic | null };
+type Pending<P> = {
+  base: { epoch: string; revision: number };
+  subject: string;
+  barrier: boolean;
+  valid: () => boolean;
+  update: (payload: P, revision: number) => P | null;
+  resolve: (result: ShellMemoryResult) => void;
+};
+export type ShellFileReplacer = (temporary: string, target: string, targetExists: boolean) => void;
+const decoder = new TextDecoder("utf-8", { fatal: true });
+const lockFileName = ".shell-memory.lock";
+
+function exactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+}
+
+export function validShellPreferences(value: unknown): value is ShellPreferences {
+  if (!exactKeys(value, ["sessionsWidth", "inspectorWidth", "sessionsVisible", "density"])) return false;
+  return typeof value.sessionsWidth === "number" && Number.isFinite(value.sessionsWidth)
+    && value.sessionsWidth >= 200 && value.sessionsWidth <= 320
+    && typeof value.inspectorWidth === "number" && Number.isFinite(value.inspectorWidth)
+    && value.inspectorWidth >= 280 && value.inspectorWidth <= 420
+    && typeof value.sessionsVisible === "boolean"
+    && (value.density === "low" || value.density === "high");
+}
+
+function newEpoch(): string { return randomBytes(16).toString("hex"); }
+function lock(directory: string): number | null {
+  mkdirSync(directory, { recursive: true });
+  const descriptor = openSync(join(directory, lockFileName), "a+", 0o600);
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try { fsExt.flockSync(descriptor, "exnb"); return descriptor; }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EAGAIN" && code !== "EWOULDBLOCK" && code !== "EINTR") break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  closeSync(descriptor);
+  return null;
+}
+
+const replaceFile: ShellFileReplacer = (temporary, target, targetExists) => {
+  if (process.platform === "win32" && targetExists) {
+    execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+      "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_SHELL_TEMPORARY, $env:ORKWORKS_SHELL_TARGET, $null, $true)"], {
+      env: { ...process.env, ORKWORKS_SHELL_TEMPORARY: temporary, ORKWORKS_SHELL_TARGET: target }, stdio: "ignore",
+    });
+  } else renameSync(temporary, target);
+};
+
+export class RevisionedShellMemory<P> {
+  private directory: string;
+  private fileName: string;
+  private limit: number;
+  private initial: () => P;
+  private validPayload: (value: unknown) => value is P;
+  private replacer: ShellFileReplacer;
+  private snapshot: StoredRecord<P> | null = null;
+  private pending: Pending<P>[] = [];
+  private scheduled = false;
+  private proof: Array<{ from: number; to: number; epoch: string }> = [];
+  private needsRefresh = false;
+
+  constructor(directory: string, fileName: string, limit: number,
+    initial: () => P, validPayload: (value: unknown) => value is P,
+    replacer: ShellFileReplacer = replaceFile) {
+    this.directory = directory;
+    this.fileName = fileName;
+    this.limit = limit;
+    this.initial = initial;
+    this.validPayload = validPayload;
+    this.replacer = replacer;
+  }
+
+  private path(): string { return join(this.directory, this.fileName); }
+  private load(): Loaded<P> {
+    if (!existsSync(this.path())) return { record: null, diagnostic: null };
+    try {
+      const bytes = readFileSync(this.path());
+      if (bytes.byteLength > this.limit) return { record: null, diagnostic: "corrupt_record" };
+      const value: unknown = JSON.parse(decoder.decode(bytes));
+      if (value !== null && typeof value === "object" && !Array.isArray(value)
+        && "version" in value && value.version !== 1) return { record: null, diagnostic: "unsupported_version" };
+      if (!exactKeys(value, ["version", "epoch", "revision", "payload"])
+        || value.version !== 1 || typeof value.epoch !== "string" || !/^[0-9a-f]{32}$/.test(value.epoch)
+        || typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) || value.revision < 0
+        || !this.validPayload(value.payload)) return { record: null, diagnostic: "corrupt_record" };
+      return { record: value as StoredRecord<P>, diagnostic: null };
+    } catch { return { record: null, diagnostic: "corrupt_record" }; }
+  }
+
+  private write(record: StoredRecord<P>): ShellMemoryResult {
+    const bytes = Buffer.from(`${JSON.stringify(record)}\n`, "utf8");
+    if (bytes.byteLength > this.limit) return { ok: false, diagnostic: "invalid_input" };
+    const temporary = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
+    let descriptor: number | null = null;
+    try {
+      descriptor = openSync(temporary, "wx", 0o600);
+      let offset = 0;
+      while (offset < bytes.byteLength) {
+        const written = writeSync(descriptor, bytes, offset, bytes.byteLength - offset, null);
+        if (written <= 0) throw new Error("Shell record write made no progress");
+        offset += written;
+      }
+      fsyncSync(descriptor);
+      closeSync(descriptor); descriptor = null;
+      this.replacer(temporary, this.path(), existsSync(this.path()));
+      const observed = readFileSync(this.path());
+      if (!observed.equals(bytes)) return { ok: false, diagnostic: "write_failed" };
+      this.snapshot = record;
+      return { ok: true };
+    } catch { return { ok: false, diagnostic: "write_failed" }; }
+    finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
+  }
+
+  readRecord(): Loaded<P> {
+    let descriptor: number | null = null;
+    try {
+      descriptor = lock(this.directory);
+      if (descriptor === null) return { record: null, diagnostic: "lock_timeout" };
+      let loaded = this.load();
+      if (loaded.diagnostic === null && loaded.record === null) {
+        const first: StoredRecord<P> = { version: 1, epoch: newEpoch(), revision: 0, payload: this.initial() };
+        const written = this.write(first);
+        if (!written.ok) return { record: null, diagnostic: written.diagnostic };
+        loaded = this.load();
+      }
+      this.snapshot = loaded.record;
+      this.needsRefresh = false;
+      return loaded;
+    } catch { return { record: null, diagnostic: "write_failed" }; }
+    finally { if (descriptor !== null) closeSync(descriptor); }
+  }
+
+  enqueue(subject: string, valid: () => boolean, update: Pending<P>["update"], barrier = false): Promise<ShellMemoryResult> {
+    if (!this.snapshot || this.needsRefresh) {
+      const read = this.readRecord();
+      if (!read.record) return Promise.resolve({ ok: false, diagnostic: read.diagnostic ?? "corrupt_record" });
+    }
+    if (!barrier) {
+      const retained: Pending<P>[] = [];
+      for (const pending of this.pending) {
+        if (!pending.barrier && pending.subject === subject) pending.resolve({ ok: false, diagnostic: "stale_revision" });
+        else retained.push(pending);
+      }
+      this.pending = retained;
+    }
+    if (barrier) {
+      const retained: Pending<P>[] = [];
+      for (const pending of this.pending) {
+        if (!pending.barrier && pending.subject === subject) pending.resolve({ ok: false, diagnostic: "stale_revision" });
+        else retained.push(pending);
+      }
+      this.pending = retained;
+    }
+    const base = { epoch: this.snapshot!.epoch, revision: this.snapshot!.revision };
+    return new Promise((resolve) => {
+      this.pending.push({ base, subject, barrier, valid, update, resolve });
+      this.schedule();
+    });
+  }
+
+  private schedule(): void {
+    if (this.scheduled) return;
+    this.scheduled = true;
+    queueMicrotask(() => {
+      this.scheduled = false;
+      const intent = this.pending.shift();
+      if (!intent) { this.proof = []; return; }
+      const result = this.commit(intent);
+      intent.resolve(result);
+      if (!result.ok) {
+        for (const dependent of this.pending) dependent.resolve({ ok: false, diagnostic: "stale_revision" });
+        this.pending = []; this.proof = []; this.needsRefresh = true;
+      } else if (intent.barrier) this.proof = [];
+      if (this.pending.length) this.schedule(); else this.proof = [];
+    });
+  }
+
+  private commit(intent: Pending<P>): ShellMemoryResult {
+    if (!intent.valid()) return { ok: false, diagnostic: "stale_workspace" };
+    let expectedRevision = intent.base.revision;
+    for (const step of this.proof) {
+      if (step.epoch === intent.base.epoch && step.from === expectedRevision) expectedRevision = step.to;
+    }
+    let descriptor: number | null = null;
+    try {
+      descriptor = lock(this.directory);
+      if (descriptor === null) return { ok: false, diagnostic: "lock_timeout" };
+      const loaded = this.load();
+      if (!loaded.record) return { ok: false, diagnostic: loaded.diagnostic ?? "stale_revision" };
+      if (loaded.record.epoch !== intent.base.epoch || loaded.record.revision !== expectedRevision)
+        return { ok: false, diagnostic: "stale_revision" };
+      if (!intent.valid()) return { ok: false, diagnostic: "stale_workspace" };
+      if (loaded.record.revision === Number.MAX_SAFE_INTEGER) return { ok: false, diagnostic: "write_failed" };
+      const payload = intent.update(loaded.record.payload, loaded.record.revision + 1);
+      if (payload === null || !this.validPayload(payload)) return { ok: false, diagnostic: "invalid_input" };
+      const next: StoredRecord<P> = { ...loaded.record, revision: loaded.record.revision + 1, payload };
+      const result = this.write(next);
+      if (result.ok && !intent.barrier) this.proof.push({ epoch: next.epoch, from: loaded.record.revision, to: next.revision });
+      return result;
+    } catch { return { ok: false, diagnostic: "write_failed" }; }
+    finally { if (descriptor !== null) closeSync(descriptor); }
+  }
+
+  rebuild(confirmed: true): Promise<ShellMemoryResult> {
+    if (confirmed !== true) return Promise.resolve({ ok: false, diagnostic: "invalid_input" });
+    for (const pending of this.pending) pending.resolve({ ok: false, diagnostic: "stale_revision" });
+    this.pending = []; this.proof = [];
+    let descriptor: number | null = null;
+    try {
+      descriptor = lock(this.directory);
+      if (descriptor === null) return Promise.resolve({ ok: false, diagnostic: "lock_timeout" });
+      const result = this.write({ version: 1, epoch: newEpoch(), revision: 0, payload: this.initial() });
+      this.needsRefresh = !result.ok;
+      return Promise.resolve(result);
+    } catch { this.needsRefresh = true; return Promise.resolve({ ok: false, diagnostic: "write_failed" }); }
+    finally { if (descriptor !== null) closeSync(descriptor); }
+  }
+}
+
+export function shellLayoutMemoryPath(directory: string): string { return join(directory, "shell-layout.json"); }
+export function createShellLayoutMemory(directory: string, replacer?: ShellFileReplacer) {
+  const memory = new RevisionedShellMemory(directory, "shell-layout.json", 16 * 1024,
+    () => ({ ...defaultShellPreferences }), validShellPreferences, replacer);
+  return {
+    read: (): ShellLayoutSnapshot => {
+      const loaded = memory.readRecord();
+      return { preferences: loaded.record?.payload ?? { ...defaultShellPreferences }, revision: loaded.record?.revision ?? 0, diagnostic: loaded.diagnostic };
+    },
+    save: (preferences: unknown): Promise<ShellMemoryResult> => validShellPreferences(preferences)
+      ? memory.enqueue("layout", () => true, () => ({ ...preferences }))
+      : Promise.resolve({ ok: false, diagnostic: "invalid_input" }),
+    reset: (): Promise<ShellMemoryResult> => memory.enqueue("layout", () => true, () => ({ ...defaultShellPreferences }), true),
+    rebuild: (confirmed: true): Promise<ShellMemoryResult> => memory.rebuild(confirmed),
+  };
+}

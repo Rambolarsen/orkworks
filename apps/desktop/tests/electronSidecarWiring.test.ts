@@ -7,6 +7,16 @@ const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta
 const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
+test("shell persistence IPC derives navigation identity from ready lifecycle and accepts only a surface", () => {
+  assert.match(mainSource, /createShellLayoutMemory\(app\.getPath\("userData"\)\)/);
+  assert.match(mainSource, /createWorkspaceNavigationMemory\(app\.getPath\("userData"\)\)/);
+  assert.match(mainSource, /ipcMain\.handle\("complete-workspace-navigation", async \(_event, surface: unknown\)/);
+  assert.match(mainSource, /latestBackendLifecycle\.workspace\.workspaceIdentity/);
+  assert.match(mainSource, /backendGeneration/);
+  assert.match(preloadSource, /completeWorkspaceNavigation: \(surface: LastCentralSurface\)/);
+  assert.match(rendererTypes, /completeWorkspaceNavigation: \(surface: LastCentralSurface\)/);
+});
+
 test("Electron main centralizes initial and workspace sidecar startup", () => {
   assert.match(mainSource, /import \{ createSidecarLifecycle/);
   assert.equal(mainSource.match(/createSidecarLifecycle\(/g)?.length, 1);

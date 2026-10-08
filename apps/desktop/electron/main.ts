@@ -11,6 +11,8 @@ import { pathToFileURL } from "url";
 import { getDevSidecarPath, getDevUserDataPath, getPackagedSidecarPath } from "./paths";
 import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
+import { createShellLayoutMemory } from "./shellLayoutMemory";
+import { createWorkspaceNavigationMemory, type LastCentralSurface } from "./workspaceNavigationMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
@@ -565,6 +567,8 @@ app.whenReady().then(async () => {
   let currentHistoryDiagnostic = initialHistoryDiagnostic;
   workspacePath = null;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
+  const shellLayoutMemory = createShellLayoutMemory(app.getPath("userData"));
+  const workspaceNavigationMemory = createWorkspaceNavigationMemory(app.getPath("userData"));
 
   let latestBackendLifecycle: BackendLifecycleEvent = { state: "picker" };
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
@@ -1349,6 +1353,55 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("save-layout", async (_event, json: string) => {
     writeLayoutMemory(app.getPath("userData"), json);
+  });
+
+  ipcMain.handle("get-shell-layout", () => shellLayoutMemory.read());
+  ipcMain.handle("save-shell-layout", (_event, preferences: unknown) => shellLayoutMemory.save(preferences));
+  ipcMain.handle("reset-shell-layout", () => shellLayoutMemory.reset());
+  ipcMain.handle("rebuild-shell-layout", (_event, confirmed: unknown) => {
+    if (confirmed !== true) throw new Error("Shell layout rebuild requires explicit confirmation.");
+    return shellLayoutMemory.rebuild(true);
+  });
+
+  function currentNavigationIdentity(): { workspaceIdentity: string; generation: number } {
+    if (latestBackendLifecycle.state !== "ready" || !latestBackendLifecycle.workspace) {
+      throw new Error("Workspace navigation is available only in a ready workspace.");
+    }
+    const workspaceIdentity = latestBackendLifecycle.workspace.workspaceIdentity;
+    if (!workspaceIdentity || workspacePath !== workspaceIdentity
+      || workspaceSwitchCoordinator?.getCurrentWorkspacePath() !== workspaceIdentity) {
+      throw new Error("Ready workspace identity is unavailable.");
+    }
+    return { workspaceIdentity, generation: backendGeneration };
+  }
+
+  ipcMain.handle("get-workspace-navigation", () => {
+    const { workspaceIdentity } = currentNavigationIdentity();
+    const snapshot = workspaceNavigationMemory.read();
+    return {
+      lastCentralSurface: snapshot.entries.find((entry) => entry.workspaceIdentity === workspaceIdentity)?.lastCentralSurface ?? null,
+      revision: snapshot.revision,
+      diagnostic: snapshot.diagnostic,
+    };
+  });
+  ipcMain.handle("complete-workspace-navigation", async (_event, surface: unknown) => {
+    if (surface !== "terminal" && surface !== "review") throw new Error("Invalid central surface.");
+    const { workspaceIdentity, generation } = currentNavigationIdentity();
+    const stillCurrent = () => latestBackendLifecycle.state === "ready"
+      && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
+      && workspacePath === workspaceIdentity && backendGeneration === generation;
+    return workspaceNavigationMemory.complete(workspaceIdentity, generation, stillCurrent, surface as LastCentralSurface);
+  });
+  ipcMain.handle("delete-workspace-navigation", async () => {
+    const { workspaceIdentity, generation } = currentNavigationIdentity();
+    const stillCurrent = () => latestBackendLifecycle.state === "ready"
+      && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
+      && workspacePath === workspaceIdentity && backendGeneration === generation;
+    return workspaceNavigationMemory.delete(workspaceIdentity, generation, stillCurrent);
+  });
+  ipcMain.handle("rebuild-workspace-navigation", (_event, confirmed: unknown) => {
+    if (confirmed !== true) throw new Error("Workspace navigation rebuild requires explicit confirmation.");
+    return workspaceNavigationMemory.rebuild(true);
   });
 
   ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => ({
