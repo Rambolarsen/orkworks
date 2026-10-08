@@ -349,25 +349,36 @@ projection unknown where evidence is absent.
 ## Replay, ordering, and conflicts
 
 The pair `(producerStreamId, producerSequence)` determines a unique `eventId`.
+For same-stream idempotency, the server stores a hash of the full canonical
+validated request payload, including `producerStreamId`, `producerSequence`,
+and `eventId`. Cross-stream deduplication uses a separate semantic payload hash
+over the stable event fields: schema version, event kind, skill snapshot ID,
+occurred time, adapter event type, evidence reference/digest, and the resolved
+assignment/configuration binding. It excludes `producerStreamId`,
+`producerSequence`, `eventId`, and server-assigned receipt fields. Therefore a
+buffered invocation replayed into a restarted stream matches its original
+semantic hash even though its transport identity changes; the alias receipt
+retains the new stream's full request hash for retries on that stream.
 For native `observed_invocation` events, the server additionally reserves a
 cross-stream replay key `(adapter identity, adapter version, configurationDigest,
 launchGeneration, sourceEventNamespace, sourceEventId)` for the full evidence
 retention window. An exact replay under a restarted stream returns the original
 receipt marked `duplicate_source_event` and stores a bounded alias receipt for
-the new stream's `(producerStreamId, producerSequence)` with the incoming
-payload hash. This consumes that sequence for high-water/gap accounting and
-makes a retry on the restarted stream idempotent, but does not append an
+the new stream's `(producerStreamId, producerSequence)` with the incoming full
+request hash and semantic payload hash. This consumes that sequence for
+high-water/gap accounting and makes a retry on the restarted stream idempotent,
+but does not append an
 evidence event or change aggregates. A reused key with a different canonical
-payload hash returns `409 source_event_conflict` and marks adapter coverage
-incomplete. The key is reserved atomically with the event and alias receipt,
+semantic payload hash returns `409 source_event_conflict` and marks adapter
+coverage incomplete. The key is reserved atomically with the event and alias receipt,
 survives event trimming as a bounded
 tombstone, and is removed only when the corresponding assignment evidence and
 replay retention expire or repository evidence is explicitly cleared. The
 verified capability entry must guarantee source-event ID stability across
 restarts; without that guarantee, cross-generation native deduplication cannot
 be claimed and coverage remains partial.
-The server hashes the canonical validated payload and stores the hash with the
-event:
+The server stores the full request hash with each event/sequence receipt and
+the semantic hash with each native source-event replay key:
 
 - same event ID and same payload hash returns the original receipt as an
   idempotent replay; it does not append a second event or increment counts;
