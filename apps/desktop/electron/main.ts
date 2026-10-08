@@ -9,8 +9,11 @@ import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, ty
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevSidecarPath, getDevUserDataPath, getPackagedSidecarPath } from "./paths";
-import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, forgetWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
+import { accessibleWorkspaceDirectoryPath, canonicalWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, pinWorkspacePath, unpinWorkspacePath, type WorkspaceMemoryDiagnostic } from "./workspaceMemory";
 import { readLayoutMemory, writeLayoutMemory } from "./layoutMemory";
+import { createShellLayoutMemory } from "./shellLayoutMemory";
+import { confirmShellMemoryRebuild } from "./shellMemoryRebuild";
+import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, type LastCentralSurface } from "./workspaceNavigationMemory";
 import type { AppSettings } from "./settingsMemory";
 import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, providerDefinitionsForStoredSettings, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
 import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
@@ -565,6 +568,8 @@ app.whenReady().then(async () => {
   let currentHistoryDiagnostic = initialHistoryDiagnostic;
   workspacePath = null;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
+  const shellLayoutMemory = createShellLayoutMemory(app.getPath("userData"));
+  const workspaceNavigationMemory = createWorkspaceNavigationMemory(app.getPath("userData"));
 
   let latestBackendLifecycle: BackendLifecycleEvent = { state: "picker" };
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
@@ -831,11 +836,14 @@ app.whenReady().then(async () => {
       console.warn(`[main] remembered workspace path was rejected by the sidecar: ${rejectedPath}`);
       if (restoreResult.removeFromHistory) {
         try {
-          const result = forgetWorkspacePath(app.getPath("userData"), rejectedPath);
-          const diagnostic = result.diagnostic;
+          const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), rejectedPath, workspaceNavigationMemory);
+          const diagnostic = result.history.diagnostic;
           currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic(diagnostic);
           if (currentHistoryDiagnostic) {
             console.warn("[main] rejected workspace could not be removed from history", diagnostic?.message);
+          }
+          if (result.navigation && !result.navigation.ok) {
+            console.warn("[main] rejected workspace navigation could not be removed", result.navigation.diagnostic);
           }
         } catch (error) {
           console.warn("[main] rejected workspace could not be removed from history", error instanceof Error ? error.message : "unknown error");
@@ -1350,6 +1358,51 @@ app.whenReady().then(async () => {
   ipcMain.handle("save-layout", async (_event, json: string) => {
     writeLayoutMemory(app.getPath("userData"), json);
   });
+
+  ipcMain.handle("get-shell-layout", () => shellLayoutMemory.read());
+  ipcMain.handle("save-shell-layout", (_event, preferences: unknown) => shellLayoutMemory.save(preferences));
+  ipcMain.handle("reset-shell-layout", () => shellLayoutMemory.reset());
+  ipcMain.handle("rebuild-shell-layout", async () => confirmShellMemoryRebuild("layout", mainWindow,
+    (owner, options) => dialog.showMessageBox(owner, options), () => shellLayoutMemory.rebuild(true)));
+
+  function currentNavigationIdentity(): { workspaceIdentity: string; generation: number } {
+    if (latestBackendLifecycle.state !== "ready" || !latestBackendLifecycle.workspace) {
+      throw new Error("Workspace navigation is available only in a ready workspace.");
+    }
+    const workspaceIdentity = latestBackendLifecycle.workspace.workspaceIdentity;
+    if (!workspaceIdentity || workspacePath !== workspaceIdentity
+      || workspaceSwitchCoordinator?.getCurrentWorkspacePath() !== workspaceIdentity) {
+      throw new Error("Ready workspace identity is unavailable.");
+    }
+    return { workspaceIdentity, generation: backendGeneration };
+  }
+
+  ipcMain.handle("get-workspace-navigation", () => {
+    const { workspaceIdentity } = currentNavigationIdentity();
+    const snapshot = workspaceNavigationMemory.read();
+    return {
+      lastCentralSurface: snapshot.entries.find((entry) => entry.workspaceIdentity === workspaceIdentity)?.lastCentralSurface ?? null,
+      revision: snapshot.revision,
+      diagnostic: snapshot.diagnostic,
+    };
+  });
+  ipcMain.handle("complete-workspace-navigation", async (_event, surface: unknown) => {
+    if (surface !== "terminal" && surface !== "review") throw new Error("Invalid central surface.");
+    const { workspaceIdentity, generation } = currentNavigationIdentity();
+    const stillCurrent = () => latestBackendLifecycle.state === "ready"
+      && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
+      && workspacePath === workspaceIdentity && backendGeneration === generation;
+    return workspaceNavigationMemory.complete(workspaceIdentity, generation, stillCurrent, surface as LastCentralSurface);
+  });
+  ipcMain.handle("delete-workspace-navigation", async () => {
+    const { workspaceIdentity, generation } = currentNavigationIdentity();
+    const stillCurrent = () => latestBackendLifecycle.state === "ready"
+      && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
+      && workspacePath === workspaceIdentity && backendGeneration === generation;
+    return workspaceNavigationMemory.delete(workspaceIdentity, generation, stillCurrent);
+  });
+  ipcMain.handle("rebuild-workspace-navigation", async () => confirmShellMemoryRebuild("navigation", mainWindow,
+    (owner, options) => dialog.showMessageBox(owner, options), () => workspaceNavigationMemory.rebuild(true)));
 
   ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => ({
     // Workspace history is a picker hint, not proof that this process owns the
@@ -1928,9 +1981,16 @@ app.whenReady().then(async () => {
     return toWorkspaceHistorySnapshot(unpinWorkspacePath(app.getPath("userData"), path));
   });
 
-  ipcMain.handle("forget-workspace-path", (_event, path: unknown) => {
+  ipcMain.handle("forget-workspace-path", async (_event, path: unknown) => {
     if (typeof path !== "string") throw new Error("Invalid workspace path");
-    return toWorkspaceHistorySnapshot(forgetWorkspacePath(app.getPath("userData"), path));
+    const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), path, workspaceNavigationMemory,
+      () => confirmShellMemoryRebuild("navigation", mainWindow,
+        (owner, options) => dialog.showMessageBox(owner, options), () => workspaceNavigationMemory.rebuild(true)));
+    if (result.cancelled) return toWorkspaceHistorySnapshot(result.history);
+    if (result.navigation && !result.navigation.ok) {
+      throw new Error("Workspace navigation state could not be cleared. Try removing the workspace shortcut again.");
+    }
+    return toWorkspaceHistorySnapshot(result.history);
   });
 
   ipcMain.handle("open-remembered-workspace", async (_event, path: unknown) => {
@@ -1949,7 +2009,10 @@ app.whenReady().then(async () => {
       // never reach restoreWorkspace's removeFromHistory handling, so forget
       // the stale shortcut here before surfacing the error.
       if (result.failure.code === "invalid_destination") {
-        forgetWorkspacePath(app.getPath("userData"), path);
+        const forgotten = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), path, workspaceNavigationMemory);
+        if (forgotten.navigation && !forgotten.navigation.ok) {
+          console.warn("[main] invalid destination navigation could not be removed", forgotten.navigation.diagnostic);
+        }
       }
       throw new Error(result.failure.message);
     }

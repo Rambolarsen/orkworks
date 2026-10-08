@@ -66,6 +66,14 @@ type TaskmasterAcceptOptions = {
   idempotencyKey?: string;
 };
 
+type LastCentralSurface = "terminal" | "review";
+type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; density: "low" | "high" };
+type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
+type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
+type ShellMemoryRebuildResult = ShellMemoryResult | { ok: false; diagnostic: "user_cancelled" };
+type ShellLayoutSnapshot = { preferences: ShellPreferences; revision: number; diagnostic: ShellMemoryDiagnostic | null };
+type WorkspaceNavigationView = { lastCentralSurface: LastCentralSurface | null; revision: number; diagnostic: ShellMemoryDiagnostic | null };
+
 const developmentUpdateStatus: UpdateStatus = {
   state: "unavailable",
   reason: "development",
@@ -119,6 +127,14 @@ contextBridge.exposeInMainWorld("orkworks", {
   openRememberedWorkspace: (path: string): Promise<unknown> => ipcRenderer.invoke("open-remembered-workspace", path),
   getLayout: (): Promise<string | null> => ipcRenderer.invoke("get-layout"),
   saveLayout: (json: string): Promise<void> => ipcRenderer.invoke("save-layout", json),
+  getShellLayout: (): Promise<ShellLayoutSnapshot> => ipcRenderer.invoke("get-shell-layout"),
+  saveShellLayout: (preferences: ShellPreferences): Promise<ShellMemoryResult> => ipcRenderer.invoke("save-shell-layout", preferences),
+  resetShellLayout: (): Promise<ShellMemoryResult> => ipcRenderer.invoke("reset-shell-layout"),
+  rebuildShellLayout: (): Promise<ShellMemoryRebuildResult> => ipcRenderer.invoke("rebuild-shell-layout"),
+  getWorkspaceNavigation: (): Promise<WorkspaceNavigationView> => ipcRenderer.invoke("get-workspace-navigation"),
+  completeWorkspaceNavigation: (surface: LastCentralSurface): Promise<ShellMemoryResult> => ipcRenderer.invoke("complete-workspace-navigation", surface),
+  deleteWorkspaceNavigation: (): Promise<ShellMemoryResult> => ipcRenderer.invoke("delete-workspace-navigation"),
+  rebuildWorkspaceNavigation: (): Promise<ShellMemoryRebuildResult> => ipcRenderer.invoke("rebuild-workspace-navigation"),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   getTaskmasterSettings: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-settings"),
   getTaskmasterRunStatus: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-run-status"),
