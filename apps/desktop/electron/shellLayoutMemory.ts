@@ -13,6 +13,12 @@ export const defaultShellPreferences: ShellPreferences = { sessionsWidth: 240, i
 export type ShellLayoutSnapshot = { preferences: ShellPreferences; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 
 type StoredRecord<P> = { version: 1; epoch: string; revision: number; payload: P };
+type FileIdentity = { dev: number; ino: number };
+type PublishResult = { verified: boolean; candidate: FileIdentity | null };
+class ShellPublishError extends Error {
+  readonly candidate: FileIdentity | null;
+  constructor(message: string, candidate: FileIdentity | null) { super(message); this.candidate = candidate; }
+}
 type Loaded<P> = { record: StoredRecord<P> | null; diagnostic: ShellMemoryDiagnostic | null };
 type Pending<P> = {
   base: { epoch: string; revision: number };
@@ -134,11 +140,14 @@ export class RevisionedShellMemory<P> {
     } catch { return { record: null, diagnostic: "corrupt_record" }; }
   }
 
-  private publish(bytes: Buffer, replacer: ShellFileReplacer = this.replacer): boolean {
+  private publish(bytes: Buffer, replacer: ShellFileReplacer = this.replacer): PublishResult {
     const temporary = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
     let descriptor: number | null = null;
+    let candidate: FileIdentity | null = null;
     try {
       descriptor = openSync(temporary, "wx", 0o600);
+      const candidateInfo = fstatSync(descriptor);
+      candidate = { dev: candidateInfo.dev, ino: candidateInfo.ino };
       let offset = 0;
       while (offset < bytes.byteLength) {
         const written = writeSync(descriptor, bytes, offset, bytes.byteLength - offset, null);
@@ -151,8 +160,9 @@ export class RevisionedShellMemory<P> {
       // Candidate and restore payloads fit the record bound. A misbehaving
       // replacer or external writer can still publish a larger target.
       const observed = this.readTarget();
-      return Buffer.isBuffer(observed) && observed.equals(bytes);
+      return { verified: Buffer.isBuffer(observed) && observed.equals(bytes), candidate };
     }
+    catch (error) { throw new ShellPublishError(error instanceof Error ? error.message : String(error), candidate); }
     finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
   }
 
@@ -193,19 +203,32 @@ export class RevisionedShellMemory<P> {
     } catch { return false; }
   }
 
-  private failedWrite(previous: Prior, attempted: Buffer): ShellMemoryResult {
+  private candidateInPlace(candidate: FileIdentity): boolean {
+    try {
+      const current = lstatSync(this.path());
+      return current.isFile() && current.dev === candidate.dev && current.ino === candidate.ino;
+    } catch { return false; }
+  }
+
+  private failedWrite(previous: Prior, attempted: Buffer, candidate: FileIdentity | null): ShellMemoryResult {
     // A compliant peer cannot write while our retained lock is held. Still,
     // never roll back a valid but unexpected record: it may be a newer write
-    // from a noncompliant external actor. The exact attempted bytes identify
-    // our own publication even if the replacer threw after publishing it.
+    // from a noncompliant external actor. Attempted bytes identify our own
+    // publication; the temporary inode does so when read-back is unavailable.
     if (previous !== null && !Buffer.isBuffer(previous) && this.priorInPlace(previous)) {
       return { ok: false, diagnostic: "write_failed" };
     }
-    let currentBytes: Buffer | "oversize" | "non_regular" | null;
+    let currentBytes: Buffer | "oversize" | "non_regular" | "unreadable" | null;
     try { currentBytes = this.readTarget(); }
-    catch { return { ok: false, diagnostic: "restore_failed" }; }
-    if (currentBytes === "oversize" || currentBytes === "non_regular") return { ok: false, diagnostic: "write_failed" };
-    if (currentBytes !== null && !currentBytes.equals(attempted)) {
+    catch {
+      if (!candidate || !this.candidateInPlace(candidate)) return { ok: false, diagnostic: "restore_failed" };
+      currentBytes = "unreadable";
+    }
+    if (currentBytes === "oversize" || currentBytes === "non_regular") {
+      if (!candidate || !this.candidateInPlace(candidate)) return { ok: false, diagnostic: "restore_failed" };
+    }
+    if (currentBytes !== null && currentBytes !== "unreadable"
+      && currentBytes !== "oversize" && currentBytes !== "non_regular" && !currentBytes.equals(attempted)) {
       const observed = this.load();
       if (observed.record) return { ok: false, diagnostic: "write_failed" };
       try {
@@ -233,10 +256,10 @@ export class RevisionedShellMemory<P> {
       return { ok: false, diagnostic: "restore_failed" };
     }
     try {
-      if (currentBytes !== null && Buffer.isBuffer(currentBytes) && currentBytes.equals(previous)) {
+      if (Buffer.isBuffer(currentBytes) && currentBytes.equals(previous)) {
         return { ok: false, diagnostic: "write_failed" };
       }
-      if (this.publish(previous, this.restoreReplacer)) return { ok: false, diagnostic: "write_failed" };
+      if (this.publish(previous, this.restoreReplacer).verified) return { ok: false, diagnostic: "write_failed" };
     } catch { /* The caller must know preservation could not be verified. */ }
     return { ok: false, diagnostic: "restore_failed" };
   }
@@ -249,12 +272,24 @@ export class RevisionedShellMemory<P> {
     let previous: Prior;
     try { previous = this.capturePrior(allowFifoRebuild); }
     catch { return { ok: false, diagnostic: "write_failed" }; }
+    let removeBackup = false;
     try {
-      if (!this.publish(bytes)) return this.failedWrite(previous, bytes);
+      const published = this.publish(bytes);
+      if (!published.verified) {
+        const result = this.failedWrite(previous, bytes, published.candidate);
+        removeBackup = result.ok || result.diagnostic !== "restore_failed";
+        return result;
+      }
       this.snapshot = record;
+      removeBackup = true;
       return { ok: true };
-    } catch { return this.failedWrite(previous, bytes); }
-    finally { if (previous !== null && !Buffer.isBuffer(previous)) rmSync(previous.backup, { force: true }); }
+    } catch (error) {
+      const candidate = error instanceof ShellPublishError ? error.candidate : null;
+      const result = this.failedWrite(previous, bytes, candidate);
+      removeBackup = result.ok || result.diagnostic !== "restore_failed";
+      return result;
+    }
+    finally { if (removeBackup && previous !== null && !Buffer.isBuffer(previous)) rmSync(previous.backup, { force: true }); }
   }
 
   readRecord(): Loaded<P> {

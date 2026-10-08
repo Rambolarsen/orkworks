@@ -98,6 +98,85 @@ test("failed confirmed rebuild restores the prior FIFO inode", async (t) => {
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("failed read-back restores a prior FIFO when target reads keep failing", (t) => {
+  if (process.platform === "win32") return t.skip("FIFOs are unavailable on Windows");
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-fifo-readback-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    try { execFileSync("mkfifo", [target]); }
+    catch { return t.skip("mkfifo is unavailable"); }
+    const moduleUrl = new URL("../electron/shellLayoutMemory.ts", import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const { createShellLayoutMemory } = await import(${JSON.stringify(moduleUrl)});
+      const target = process.argv[1];
+      const directory = process.argv[2];
+      const prior = fs.statSync(target);
+      const originalOpen = fs.openSync;
+      let failedReads = 0;
+      fs.openSync = (path, ...args) => {
+        if (path === target && failedReads > 0) { failedReads -= 1; throw new Error('injected target read failure'); }
+        return originalOpen(path, ...args);
+      };
+      syncBuiltinESMExports();
+      const memory = createShellLayoutMemory(directory, (temporary, path) => {
+        fs.renameSync(temporary, path);
+        failedReads = 2;
+      });
+      const result = await memory.rebuild(true);
+      const restored = fs.statSync(target);
+      if (result.diagnostic !== 'write_failed' || !restored.isFIFO()
+        || restored.dev !== prior.dev || restored.ino !== prior.ino
+        || fs.readdirSync(directory).some((name) => name.endsWith('.bak'))) {
+        console.error(JSON.stringify({ result, restored: { fifo: restored.isFIFO(), dev: restored.dev, ino: restored.ino }, prior: { dev: prior.dev, ino: prior.ino } }));
+        process.exitCode = 1;
+      }
+    `;
+    const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script, target, directory], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("failed read-back restores prior record bytes when target reads keep failing", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-readback-bytes-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    const moduleUrl = new URL("../electron/shellLayoutMemory.ts", import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const { createShellLayoutMemory } = await import(${JSON.stringify(moduleUrl)});
+      const target = process.argv[1];
+      const directory = process.argv[2];
+      const originalOpen = fs.openSync;
+      let failedReads = 0;
+      let injectFailure = false;
+      fs.openSync = (path, ...args) => {
+        if (path === target && failedReads > 0) { failedReads -= 1; throw new Error('injected target read failure'); }
+        return originalOpen(path, ...args);
+      };
+      syncBuiltinESMExports();
+      const memory = createShellLayoutMemory(directory, (temporary, path) => {
+        fs.renameSync(temporary, path);
+        if (injectFailure) failedReads = 2;
+      });
+      const initial = memory.read();
+      if (initial.diagnostic !== null || !fs.existsSync(target)) throw new Error('initial shell record was not published');
+      const prior = fs.readFileSync(target);
+      injectFailure = true;
+      const result = await memory.rebuild(true);
+      const restored = fs.existsSync(target) ? fs.readFileSync(target) : null;
+      if (result.diagnostic !== 'write_failed' || !restored?.equals(prior)) {
+        console.error(JSON.stringify({ result, restored: restored?.toString() ?? null, prior: prior.toString() }));
+        process.exitCode = 1;
+      }
+    `;
+    const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script, target, directory], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("shell layout rejects out-of-range, non-finite, and unknown preference fields", async () => {
   const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
   try {
@@ -287,6 +366,25 @@ test("failed confirmed rebuild restores an oversized prior inode", async () => {
     assert.equal(restored.ino, prior.ino);
     assert.equal(restored.size, prior.size);
     assert.equal(readdirSync(directory).some((name) => name.endsWith(".bak")), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("failed rebuild retains an oversized backup when prior restoration cannot be verified", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    const source = Buffer.from("prior record ".repeat(2_000));
+    writeFileSync(target, source);
+    const memory = createShellLayoutMemory(directory, (temporary, path) => {
+      renameSync(temporary, path);
+      throw new Error("injected publication failure");
+    }, () => { throw new Error("injected restoration failure"); });
+
+    assert.deepEqual(await memory.rebuild(true), { ok: false, diagnostic: "restore_failed" });
+
+    const backups = readdirSync(directory).filter((name) => name.endsWith(".bak"));
+    assert.equal(backups.length, 1);
+    assert.deepEqual(readFileSync(join(directory, backups[0])), source);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
