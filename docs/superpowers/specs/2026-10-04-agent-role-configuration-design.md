@@ -33,7 +33,7 @@ No accepted ADR is amended or superseded by this draft.
 | `crates/orkworksd/src/harness/registry.rs:44` | Resolved definition and effective capabilities snapshot | Pin that definition plus executable/version/configuration evidence; registry membership alone is insufficient |
 
 These are source investigation references at branch base
-`6739461b88c79451f4578d6ea654b5e8359a3792`, rechecked against the current
+`18936e0f83d37ae9bf16ee672e961e14b646a11c`, rechecked against the current
 `origin/main`; they are not new production types. A later implementation plan
 must choose exact modules and wire routes after contract review.
 
@@ -52,13 +52,14 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 | `RoleTemplateSnapshot` | `id`, `version` (positive integer), `role`, `instructions`, `instructionsDigest`, `contentDigest`, `provenance` |
 | `SkillSnapshot` | `id`, `version` (nonempty UTF-8 label, at most 128 bytes), `content`, `contentDigest`, `requirement` (`mandatory` or `optional`), `selectionReason`, `requirementSources`, `resourceIds`, `provenance`; referenced instruction resources use the separate records below |
 | `SkillResourceSnapshot` | `id`, `skillId`, `sourceReference`, `content`, `contentDigest`, `provenance`; an instruction resource owned by exactly one selected skill, with no independent rule authority |
-| `RuleSnapshot` | `id`, `sourcePath`, `content`, `contentDigest`, `precedence`, `authority` (always `binding`), `provenance`; scoped applicable instruction files are explicit inputs |
+| `RuleSnapshot` | `id`, `sourcePath`, `content`, `contentDigest`, `precedence` (unique integer `0..31`), `authority` (always `binding`), `provenance`; scoped applicable instruction files are explicit inputs |
 | `RequirementManifest` | `sourceId`, `sourceDigest`, `taskId`, `requiredSkillIds`, `sourceLocations`, `applicabilityReason`; resolved requirement annotations separate from source snapshot content |
 | `CriterionSnapshot` | `id`, `requirement` (`required` or `optional`), `description` |
 | `RubricSnapshot` | `id`, `version` (positive integer), `dimensions` (ID/description pairs), `evaluatorRole`; rating/calculation belongs to #744 |
 | `AdapterBinding` | `harnessId`, `definitionDigest`, `adapterId`, `adapterVersion`, `executableIdentity`, `toolVersion`, `platform`, `instructionMechanism`, `effectiveSettingsDigest`, `evidenceId`, `evidenceDigest` |
 | `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration` (opaque adapter/capability identity, stable across observer restarts); part of the immutable configuration |
 | `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `repositoryBinding`, `sourceWorktreeBinding`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`, `capabilityEvidence`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
+| `VersionRetirement` | Separate source-catalog tombstone, never part of an assignment digest: `schemaVersion`, `sourceIdentity`, `artifactKind`, `artifactId`, `version`, `contentDigest`, `retiredAt`, `reason` |
 
 `configurationId` is stable only within the immutable plan revision. A changed
 configuration gets a new ID and digest. Repository/workspace/plan/task identities
@@ -89,11 +90,12 @@ manifest/content identities; a path or version label alone is insufficient.
 `effectiveSettingsDigest` covers the enumerated launch flags and nonsecret
 applicable startup settings. It does not include credential values.
 
-`provenance` records source kind (`repository`, `bundled`, or `user-approved`),
-source identity/revision and, for a local file, its canonical source path.
-It contains no credential. Skill ID denotes a logical skill; version plus content
-digest identifies the content actually approved. Same name/version with different
-bytes is drift, not the same historical configuration.
+`provenance` records `sourceKind` (`repository`, `bundled`, or `user-approved`),
+a stable `sourceIdentity` for the owning catalog, `sourceRevision`, and, for a
+local file, its canonical source path. It contains no credential. Skill ID denotes
+a logical skill; version plus content digest identifies the content actually
+approved. Same name/version with different bytes is drift, not the same historical
+configuration.
 
 `model` is a `ModelBinding`, never an implicit default. In `pinned` mode, the
 adapter must establish the requested model ID; if it cannot, that combination
@@ -258,11 +260,16 @@ order, with labeled section boundaries and content identities:
 Every `RuleSnapshot` is binding; advisory research/context belongs in assignment
 inputs, not a downgraded rule snapshot. `authority` must equal `binding`. Discover
 applicable repository rules from the approved root router and scoped instruction
-paths for the assignment, recording each resolved source and precedence. A
-nested rule supplements inherited rules except where the source explicitly
-specifies an authorized scoped override. Unknown applicability or an unresolved
-contradiction blocks approval; a later section cannot silently erase a binding
-root instruction.
+paths for the assignment, recording each resolved source and precedence. Version 1
+defines no rule-override operation: scoped rules add constraints to inherited
+rules, and a contradiction between simultaneously applicable binding rules blocks
+approval with the conflicting source IDs. A later section or deeper path cannot
+silently erase or weaken an inherited rule. Resolving a conflict requires changing
+the source rules and proposing a new configuration. The stored `precedence` is a
+unique zero-based render-order index assigned from the root router's declared
+order, followed by applicable scoped sources from shallowest to deepest; sources
+at the same scope without a declared order are sorted by normalized source path in
+UTF-8 byte order. This order is digest-bound but never resolves a contradiction.
 
 Each applicable rule and role template has one reviewed `RequirementManifest`
 for this assignment. Its `sourceId`/`sourceDigest` bind the exact source snapshot;
@@ -381,6 +388,25 @@ Secret bytes are resolved at execution and excluded from digests, reports and
 logs; a slot/source/scope/rotation-policy change requires a revised approval.
 Rotation within its explicitly approved policy does not expose secret bytes.
 
+### Safe permission defaults
+
+Role capability ceilings above are maximums, not defaults or grants. The
+version-1 default requested profile for every role has empty allowlists for
+tools, filesystem paths, commands, external sources, connectors, and coordination
+actions; `nativeDelegation` is `denied` and `accessChanges` is `request-only`.
+A proposal may add only the task-specific resources and actions needed to satisfy
+the declared assignment, and must name them explicitly in the requested profile
+before approval. For example, a research proposal names its exact repository
+paths or external sources; an implementation proposal names exact read/write
+paths and command invocations; a review proposal names the artifact/evidence
+paths; a verification proposal names each allowed check and its declared
+outputs; and a remediation proposal names the finding-scoped paths and commands.
+The orchestrator may name only
+coordination metadata/report reads and plan operations needed for the declared
+parent assignment. These additions remain within the role ceiling, are subject
+to capability evidence, and require user approval. Missing task-specific scope
+stays denied; neither role selection nor task text creates ambient access.
+
 The verified adapter constructs each command environment from this snapshot,
 starting empty. Unlisted ambient variables are removed rather than inherited.
 Required platform variables, working-directory/settings/search-path values and
@@ -443,8 +469,15 @@ login, a resume recipe, model availability, tool installation, or working hooks.
 Key it by exact tool version/executable identity, adapter version, platform,
 instruction mechanism, effective settings digest, role, and profile digest.
 `verified` requires primary schema/reference, exact version evidence, and a
-reproducible bounded capability fixture for the relevant combination. `limited`,
-`unverified`, and `unsupported` combinations cannot launch restricted roles.
+reproducible bounded capability fixture for the exact combination. It is the only
+decision that can make that exact profile eligible for user approval; approval and
+the launch-time checks below are still required. `limited` means evidence covers
+only a narrower capability set than the requested profile; it is ineligible, and
+any narrowed proposal requires new profile/configuration digests and its own
+evidence decision. `unverified` means evidence is absent, incomplete, ambiguous,
+or stale. `unsupported` means evidence establishes that a required behavior for
+the exact profile cannot be enforced. Neither `limited`, `unverified`, nor
+`unsupported` can launch a restricted role.
 
 ### Immutable capability evidence snapshot
 
@@ -468,10 +501,17 @@ are `instructions`, `skills`, `tools`, `commands`, `filesystem`, `network`,
 `connectors`, `delegation`, `startup`, and `model-policy`. A passed check requires
 retained reproducible fixture evidence and a primary reference. Not-applicable
 requires a source-backed reason and fixture confirming the surface is absent or
-denied; it is not a way to omit an untested control. `verified` requires all
-surfaces passed or legitimately not-applicable; failed/unverified coverage cannot
-be authenticated as verified merely by hashing it. Native usage observation is
-optional and separate from the mandatory skill-delivery check.
+denied; it is not a way to omit an untested control. A failed or unverified check
+requires a nonempty bounded explanation and source references for the observed
+limitation or evidence gap. For a non-verified decision, the support reasons are
+the failed/unverified check reasons in surface order; consumers must preserve each
+surface and its reference IDs rather than inventing a single summary or dropping
+the reason. If no exact snapshot exists, the proposal reports `unverified` with a
+bounded reason that cites the capability register or other reviewed source, and
+cannot advance to approval. `verified` requires all surfaces passed or legitimately
+not-applicable; failed/unverified coverage cannot be authenticated as verified
+merely by hashing it. Native usage observation is optional and separate from the
+mandatory skill-delivery check.
 
 Each reference contains `id`, `kind` (`primary-reference` or `fixture`),
 `sourceReference`, and `contentDigest` (SHA-256 of exact retained artifact bytes).
@@ -560,7 +600,7 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 | --- | --- |
 | IDs/digests | 128-byte IDs; 64-character digests; `schemaVersion` exactly 1 |
 | Generation identities | `adapterGeneration` is a nonempty ASCII ID within 128 bytes; runtime `launchGeneration` follows the preparation contract's opaque generation encoding, never a JSON numeric counter |
-| Numeric revisions | `RoleTemplateSnapshot.version`, `RubricSnapshot.version`, `planRevision`, and `preparationRevision` are integers 1 through 2^31−1; source revision identities retain their declared string representation |
+| Numeric revisions | `planRevision` and `preparationRevision` are integers 1–64, matching #742; `RoleTemplateSnapshot.version`, `RubricSnapshot.version`, and `taskVersion` are integers 1 through 2^31−1; source revision identities retain their declared string representation |
 | Version labels | `SkillSnapshot.version` is a nonempty UTF-8 string at most 128 bytes, compared byte-for-byte without normalization; `AdapterBinding.adapterVersion` and `toolVersion` are nonempty labels within the 512-byte label bound, not numeric revisions |
 | Labels/reasons | 512 bytes per label; 2 KiB per reason/source reference |
 | Skills/rules/inputs | 16 skills, 32 rule/resource snapshots combined (including skillResources), at most 32 resourceIds per skill, and 32 input references per configuration; 33 requirement manifests, at most 16 requiredSkillIds and 32 sourceLocations/requirementSources per record, each source location at most 512 bytes; unique IDs within each namespace |
@@ -571,6 +611,7 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 | Configuration | 1 MiB serialized descriptor plus its inline snapshots; rendered content counts within that bound |
 | Plan | 128 tasks and 2 MiB total approved definition, inclusive of every configuration; lower existing/upstream limit always wins |
 | Template catalog | 64 role-template versions per workspace, including pinned historical versions; 1 MiB total |
+| Version retirement ledger | 4,096 role-template/skill retirement entries per workspace and 1 MiB serialized; never evict tombstones |
 | Capability evidence | One inline snapshot, at most 64 KiB included in the 1 MiB configuration; ten surface checks, 16 references, 2 KiB per reason/source reference; fixture artifacts at most 64 KiB each / 1 MiB total per snapshot, retained separately; no raw production transcripts |
 | Blocker/delivery records | At most 16 KiB per record, 16 evidence references and 16 skill delivery entries; idempotency/rate/aggregate retention belong to #742/#743 |
 | Admission | Reject oversized/unsupported input before writing or launching; never truncate mandatory content or evict referenced snapshots |
@@ -596,9 +637,37 @@ absence of a configuration never opts them into orchestration or restricted role
 Existing dormant coordinator records are read under their original version and
 are never auto-promoted into approved role configurations.
 
-Editing a template/skill creates a new version/digest. Retired versions cannot
-be selected for new proposals but remain available for historical interpretation.
-A reviewed evidence invalidation can make an old version ineligible for resume.
+Editing a template/skill creates a new version/digest. Separate, bounded
+`VersionRetirement` tombstones use a discriminated union with `schemaVersion` 1,
+`sourceIdentity`, `artifactKind`, `artifactId`, `version`, `contentDigest`,
+`retiredAt` (UTC), and a bounded non-secret `reason`. For
+`artifactKind: role-template`, `version` is an integer from 1 through
+2^31−1, matching `RoleTemplateSnapshot.version`. For `artifactKind: skill`,
+`version` is a nonempty UTF-8 string of at most 128 bytes, matching
+`SkillSnapshot.version`; compare it byte-for-byte without normalization. Reject
+any variant whose kind and version type/range do not match. The retirement
+identity is the tuple `(sourceIdentity, artifactKind, artifactId, version,
+contentDigest)`; a same-named version with different content is a separate
+identity. The stable `sourceIdentity` is the catalog identity in snapshot
+provenance, not its changing source revision or file path. A tombstone is written
+only through an Electron-authorized user action; callers cannot supply or claim
+retirement authority. Tombstones are durable and monotonic: a retired identity
+cannot be reactivated; corrected or replacement content needs a new version/digest. The
+catalog/source identity is taken from snapshot provenance, so retirement does not
+affect a same-named skill from another source. Missing or unreadable catalog state
+blocks new proposals that depend on it and is reported as an unavailable
+retirement check; it is never treated as active.
+
+Retirement blocks selection in new proposals. It does not rewrite or erase an
+approved configuration or its history; an existing launch/resume still requires
+the exact retained bytes, approval, and current capability evidence to validate.
+A reviewed capability-evidence invalidation can independently make an old version
+ineligible for resume. Retired versions remain available for interpreting retained
+history. The catalog owner is the source identified by provenance, with state
+stored under the existing workspace metadata owner/lease; restart cannot restore
+an active version from a stale source file. When the retirement ledger reaches its
+bound, reject the retirement action without changing catalog state; report the
+failure and never evict tombstones or referenced snapshots.
 Referenced snapshots survive normal session retention while their plan/allocation
 records remain protected. On explicit eligible plan deletion, remove unreferenced
 configuration blobs after ownership checks; never remove plan-owned worktrees
@@ -677,7 +746,9 @@ authorize a production launch.
 | Whole worktree scope | Explicit `worktree-root` descriptor resolves to that approved canonical root, with normal escape/adapter checks |
 | Empty/optional-only acceptance criteria | Reject approval; at least one required criterion needed |
 | Skill version `v6.3.0` | Accept as a label within 128 UTF-8 bytes; reject empty or oversized labels and non-string versions |
-| Template/rubric numeric version or plan/preparation revision | Reject non-integers and values outside 1 through 2^31−1 |
+| Template/rubric/task numeric version | Reject non-integers and values outside 1 through 2^31−1 |
+| Version-retirement discriminator/type mismatch | Reject a string role-template version, numeric skill version, empty/oversized skill label, or out-of-range template version |
+| Role profile with unspecified task scope | Keep every permission denied; role ceiling alone grants no paths, commands, sources, or tools |
 | Referenced resource missing, changed or placed in rules | Reject missing/invalid closure or drift; preserve skill ownership and include exact resource bytes in digest/delivery |
 | Evidence digest valid but fixture missing, binding different or revoked | Reject approval/launch; a matching hash alone cannot establish verified eligibility |
 | Same logical skill/version, different bytes | Different configuration; old approval cannot launch new bytes |
@@ -688,6 +759,9 @@ authorize a production launch.
 | Mandatory manifest ID missing or labeled optional | Reject before approval; preserve source references |
 | Changed pinned model or model policy/generation | Revalidate; changed approved identity/settings require new proposal |
 | Tool-managed model changes within approved policy | Preserve known/reported/unknown observation; no change to immutable policy and no known-model cohort inferred |
+| `planRevision`/`preparationRevision` boundaries | Accept 1 and 64; reject 0 and 65, matching #742's shared identity bound |
+| Binding repository rules conflict at root and scoped path | Block the configuration with both source IDs; version 1 has no scoped override operation |
+| Retired skill/template version selected for a new proposal | Reject selection with the retirement reason; preserve existing approved snapshot/history |
 | Missing mandatory skill, conflicting repository rule, oversized context | Reject; no automatic skill removal or truncation |
 | Selected optional skill supplied in startup context | Loaded receipt only after adapter confirms delivery; no native invocation claim |
 | Hook records a terminal mention or unknown tool event | Unknown/reported usage; cannot create a native observed-use record |
@@ -711,6 +785,13 @@ inspection confirms that the current coordinator, session creation, and
 harness registry do not enforce role profiles or skill delivery; the draft
 defines a proposed seam and does not claim that these runtime capabilities
 exist.
+
+The capability-independent audit against the #741 acceptance criteria and the
+consuming #742/#743 contracts aligned `planRevision` to #742's `1..64` range,
+removed the undefined version-1 scoped-rule override, and defined durable,
+source-scoped retirement plus support-reason projection. These are contract
+clarifications only; they add no capability evidence and do not change the #740
+no-go disposition.
 
 The merged #740 capability register records the current capability-status and
 evidence disposition for this handoff: all six Copilot roles are unavailable,
