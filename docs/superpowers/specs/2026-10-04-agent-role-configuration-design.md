@@ -614,7 +614,7 @@ launch. It illustrates a review assignment that inspects only declared files:
   "permissions": {
     "requested": {
       "tools": ["read-file"],
-      "readPaths": [{"kind": "file", "path": "apps/desktop/src/domain/session.ts"}],
+      "readPaths": [{"kind": "file", "path": "apps/desktop/src/sessionSort.ts"}],
       "writePaths": [],
       "commands": [],
       "externalSources": [],
