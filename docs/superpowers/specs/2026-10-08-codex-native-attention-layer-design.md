@@ -421,8 +421,23 @@ The implementation follow-up must include behavioral tests proving:
 - A competing agent write and native clear are serialized: whichever commits
   first is reflected by the next read, and an earlier agent write prevents
   the old native owner from clearing.
-- Native clear rechecks ownership after any staged I/O and before the atomic
-  replacement while the per-session writer lock remains held.
+- Deterministic lock-order tests exercise both sides of the final-check/commit
+  boundary. In the clear-first case, pause native clear after its final
+  ownership check while it still holds the per-session writer lock; start an
+  authenticated versioned `attentionState` patch that has already read the
+  prior `metadataRevision` and would publish by replacing the whole session
+  record.
+  Verify the patch cannot commit during the pause, native clear commits first,
+  and the patch then receives a revision conflict without overwriting the
+  cleared record. After rereading and retrying, the attention patch commits
+  after clear and is visible as the current tuple. In the writer-first case,
+  commit the attention patch before native clear acquires the lock; verify the
+  clear then fails its owner-revision check and leaves the agent tuple current.
+  These interleavings prove the defined ordering for compliant sidecar
+  writers; direct file replacement remains unsupported for an eligible session
+  and is not counted as a passing serialization test.
+- Native clear rechecks ownership after any staged I/O and immediately before
+  the atomic replacement while the per-session writer lock remains held.
 - Every in-product active-session writer uses the versioned sidecar contract;
   active direct JSON replacement remains unsupported by the eligible runtime
   contract.
@@ -477,10 +492,37 @@ The implementation follow-up must include behavioral tests proving:
   authority from stale state.
 
 The production native-clear gate can be removed only after the written design
-and implementation handoff are approved, these tests pass on every supported
-platform, required CI and review pass on the exact PR head, and the separate
-#690 and #763 verification gates are satisfied. Reducer tests, cooperating
-writer tests, or revision checks alone are insufficient.
+and implementation handoff are approved, the implementation evidence above
+passes on every platform claimed by the producer migration, and required CI
+and review pass on the exact PR head. In addition, each exact #690
+version/platform/configuration entry must have the following installed-path
+evidence; synthetic protocol and cooperating-writer tests do not substitute
+for these checks:
+
+- The effective model, approval policy, sandbox, and configuration match the
+  direct-launch path, including ordered shared options and unchanged
+  selected-model metadata behavior. Unsupported configurations continue to use
+  the unchanged direct launch.
+- A fresh manual approval remains Needs You when held beyond the two-second
+  grace. One user approval during a long-running tool produces the validated
+  working transition before the tool finishes, while an observer disconnect
+  leaves the native prompt usable.
+- A separately configured automatic review is independently correlated to its
+  actual Pre/Permission/Post invocation, runs beyond two seconds without a user
+  approval click, and completes a long-running tool without a false Needs You
+  state. If its native pending flag cannot be distinguished safely from a
+  manual prompt, revise the signal design before enabling clearing.
+- Root/subagent identity and overlapping-prompt cases show that no independent
+  pending prompt is cleared. Any unverified or ambiguous case remains
+  conservative and ineligible for assisted clearing.
+- Owned-process startup, failure, cancellation, descendant cleanup, exact
+  resume, detached-terminal behavior, workspace shutdown, and simultaneous
+  session isolation pass on each platform included in the compatibility entry.
+
+The separate #763 owned-listener gate must also be satisfied before bearer
+delivery; it is independent of this metadata-writer contract. No compatibility
+entry may ship while any applicable #690 or #763 gate remains open. Reducer
+tests, cooperating-writer tests, or revision checks alone are insufficient.
 
 ## Handoff
 
