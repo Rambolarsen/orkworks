@@ -11,6 +11,7 @@ import { RotateCw } from "lucide-react";
 import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
+import type { ShellPreferences } from "../orkworksWindow";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
 import TerminalPanel from "./TerminalPanel";
@@ -50,7 +51,14 @@ interface DockviewAppData {
   onBackendUnavailable: () => void;
   onRetryBackend: () => void;
   dockviewApiRef: React.MutableRefObject<DockviewApi | null>;
-  signalPanelHiddenIdsRef: React.MutableRefObject<Set<SignalPanelId>>;
+  visibleSubjectId?: string | null;
+  shellPreferences: ShellPreferences;
+  onShellPreferencesLoaded: (preferences: ShellPreferences) => void;
+  responsiveMode: "wide" | "medium" | "compact";
+  compactPage: "terminal" | "sessions" | "detail" | "capacity" | "recommendations";
+  onCompactPageChange: (page: "terminal" | "sessions" | "detail" | "capacity" | "recommendations") => void;
+  mediumPage: "terminal" | "detail" | "capacity" | "recommendations";
+  onMediumPageChange: (page: "terminal" | "detail" | "capacity" | "recommendations") => void;
 }
 
 const DockviewContext = createContext<DockviewAppData>(null!);
@@ -58,19 +66,25 @@ const DockviewContext = createContext<DockviewAppData>(null!);
 function SessionsPanel() {
   const ctx = useContext(DockviewContext);
   return (
-    <SessionListPanel
-      workspace={ctx.workspace}
-      sessions={ctx.sessions}
-      activeSessionId={ctx.activeSessionId}
-      unreadIds={ctx.unreadIds}
-      acknowledgedIds={ctx.acknowledgedIds}
-      harnesses={ctx.harnesses}
-      onSelectSession={ctx.onSelectSession}
-      onKillSession={ctx.onKillSession}
-      onForgetSession={ctx.onForgetSession}
-      onFocusTerminal={ctx.onFocusTerminal}
-      onOpenWorkspace={ctx.onOpenWorkspace}
-    />
+    <section className="shell-region shell-region--sessions" aria-label="Sessions region">
+      <header className="shell-region-header">
+        <h2>Sessions</h2>
+        {ctx.workspace && <button type="button" aria-label="New session" title="New session" onClick={ctx.onCreateSession}>+</button>}
+      </header>
+      <SessionListPanel
+        workspace={ctx.workspace}
+        sessions={ctx.sessions}
+        activeSessionId={ctx.activeSessionId}
+        unreadIds={ctx.unreadIds}
+        acknowledgedIds={ctx.acknowledgedIds}
+        harnesses={ctx.harnesses}
+        onSelectSession={ctx.onSelectSession}
+        onKillSession={ctx.onKillSession}
+        onForgetSession={ctx.onForgetSession}
+        onFocusTerminal={ctx.onFocusTerminal}
+        onOpenWorkspace={ctx.onOpenWorkspace}
+      />
+    </section>
   );
 }
 
@@ -118,24 +132,30 @@ function DockviewTab(props: IDockviewPanelHeaderProps) {
 function DetailPanel() {
   const ctx = useContext(DockviewContext);
   return (
-    <SessionDetailPanel
-      sessions={ctx.sessions}
-      activeSessionId={ctx.activeSessionId}
-      harnesses={ctx.harnesses}
-      onResumeSession={ctx.onResumeSession}
-      onApplyDebugAttention={ctx.onApplyDebugAttention}
-      onOpenSettings={ctx.onOpenSettings}
-      onReviewPlan={ctx.onReviewPlan}
-      onOpenRecommendation={ctx.onOpenRecommendation}
-      showDebugMetadata={ctx.debugSettings.showSessionIds}
-    />
+    <section className="shell-region shell-region--inspector" aria-label="Details inspector">
+      <header className="shell-region-header"><h2>Details</h2></header>
+      <SessionDetailPanel
+        sessions={ctx.sessions}
+        visibleSessionId={ctx.visibleSubjectId ?? ctx.activeSessionId}
+        harnesses={ctx.harnesses}
+        onResumeSession={ctx.onResumeSession}
+        onApplyDebugAttention={ctx.onApplyDebugAttention}
+        onOpenSettings={ctx.onOpenSettings}
+        onReviewPlan={ctx.onReviewPlan}
+        onOpenRecommendation={ctx.onOpenRecommendation}
+        showDebugMetadata={ctx.debugSettings.showSessionIds}
+      />
+    </section>
   );
 }
 
 function TermPanel() {
   const ctx = useContext(DockviewContext);
   const session = ctx.sessions.find((s) => s.id === ctx.activeSessionId) ?? null;
-  return <TerminalPanel key={`${session?.id ?? 'none'}-${ctx.resumeTick}`} backendStatus={ctx.backendStatus} session={session} onBackendUnavailable={ctx.onBackendUnavailable} onRetryBackend={ctx.onRetryBackend} />;
+  return <section className="shell-region shell-region--central" aria-label="Central content">
+    <header className="shell-region-header shell-region-header--central"><h1>Terminal</h1></header>
+    <TerminalPanel key={`${session?.id ?? 'none'}-${ctx.resumeTick}`} backendStatus={ctx.backendStatus} session={session} onBackendUnavailable={ctx.onBackendUnavailable} onRetryBackend={ctx.onRetryBackend} />
+  </section>;
 }
 function ReviewTab() {
   const ctx = useContext(DockviewContext);
@@ -146,6 +166,27 @@ function ReviewTab() {
       reviewTick={ctx.reviewTick}
     />
   );
+}
+
+function CentralPanel() {
+  const ctx = useContext(DockviewContext);
+  if (ctx.responsiveMode === "medium" && ctx.mediumPage !== "terminal") {
+    const pages = {
+      detail: DetailPanel,
+      capacity: CapPanel,
+      recommendations: RecPanel,
+    };
+    const Page = pages[ctx.mediumPage];
+    return (
+      <section className="shell-region shell-region--central" aria-label="Temporary inspector page">
+        <button type="button" className="compact-return-button" onClick={() => ctx.onMediumPageChange("terminal")}>
+          Back to Terminal
+        </button>
+        <Page />
+      </section>
+    );
+  }
+  return <TermPanel />;
 }
 
 function CapPanel() {
@@ -168,14 +209,91 @@ function RecPanel() {
   );
 }
 
+function KeyboardRegionSeparator({ panelId, label, minimum, maximum, value, onValueChange }: {
+  panelId: "sessions" | "inspector";
+  label: string;
+  minimum: number;
+  maximum: number;
+  value: number;
+  onValueChange: (value: number) => void;
+}) {
+  const ctx = useContext(DockviewContext);
+  const adjust = (delta: number) => {
+    const api = ctx.dockviewApiRef.current;
+    const panel = api
+      ? panelId === "sessions"
+        ? api.getPanel("sessions")
+        : api.getPanel("detail") ?? api.getPanel("capacity") ?? api.getPanel("recommendations")
+      : undefined;
+    if (!panel) return;
+    const next = Math.max(minimum, Math.min(maximum, panel.group.size + delta));
+    panel.group.api.setSize({ width: next });
+    onValueChange(next);
+  };
+  return (
+    <div
+      className="shell-resize-separator"
+      role="separator"
+      aria-label={`${label} width`}
+      aria-orientation="vertical"
+      aria-valuemin={minimum}
+      aria-valuemax={maximum}
+      aria-valuenow={value}
+      aria-valuetext={`${value} pixels`}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+          event.preventDefault();
+          adjust(-16);
+        } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+          event.preventDefault();
+          adjust(16);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          adjust(minimum - value);
+        } else if (event.key === "End") {
+          event.preventDefault();
+          adjust(maximum - value);
+        }
+      }}
+    >
+      {label} width {value}px; use arrow keys to resize
+    </div>
+  );
+}
+
 const COMPONENTS = {
   sessions: SessionsPanel,
   detail: DetailPanel,
-  terminal: TermPanel,
+  terminal: CentralPanel,
   capacity: CapPanel,
   recommendations: RecPanel,
   review: ReviewTab,
 };
+
+function CompactShellPage({ page, onReturnToTerminal }: {
+  page: DockviewAppData["compactPage"];
+  onReturnToTerminal: () => void;
+}) {
+  const pageComponents = {
+    terminal: TermPanel,
+    sessions: SessionsPanel,
+    detail: DetailPanel,
+    capacity: CapPanel,
+    recommendations: RecPanel,
+  };
+  const Page = pageComponents[page];
+  return (
+    <div className="compact-shell-page">
+      {page !== "terminal" && (
+        <button className="compact-return-button" type="button" onClick={onReturnToTerminal}>
+          Back to Terminal
+        </button>
+      )}
+      <Page />
+    </div>
+  );
+}
 
 export interface PanelDefault {
   component: string;
@@ -186,9 +304,9 @@ export interface PanelDefault {
 export const PANEL_DEFAULTS: Record<string, PanelDefault> = {
   terminal:        { component: "terminal", title: "Terminal" },
   sessions:        { component: "sessions", title: "Sessions", position: { referencePanel: "terminal", direction: "left" } },
-  detail:          { component: "detail", title: "Detail", position: { referencePanel: "sessions", direction: "below" } },
+  detail:          { component: "detail", title: "Detail", position: { referencePanel: "terminal", direction: "right" } },
   capacity:        { component: "capacity", title: "Capacity", position: { referencePanel: "terminal", direction: "right" } },
-  recommendations: { component: "recommendations", title: "Recommendations", position: { referencePanel: "capacity", direction: "below" } },
+  recommendations: { component: "recommendations", title: "Recommendations", position: { referencePanel: "terminal", direction: "right" } },
   review:          { component: "review", title: "Review", position: { referencePanel: "terminal" } },
 };
 
@@ -205,52 +323,13 @@ export function shouldShowReviewPanel(
   return session?.hasOpenablePlan === true;
 }
 
-export type SignalPanelId = "recommendations" | "review";
-
-function panelOptions(api: DockviewApi, id: string): Parameters<typeof api.addPanel>[0] {
-  const def = PANEL_DEFAULTS[id];
-  const options: Parameters<typeof api.addPanel>[0] = {
-    id: def.component,
-    component: def.component,
-    title: def.title,
-    inactive: true,
-  };
-  if (def.position && api.getPanel(def.position.referencePanel)) {
-    options.position = {
-      referencePanel: def.position.referencePanel,
-      direction: def.position.direction,
-    };
-  }
-  return options;
-}
-
-export function synchronizeSignalPanels(
-  api: DockviewApi,
-  activeSession: SessionInfo | undefined,
-  hiddenSignalPanelIds: ReadonlySet<SignalPanelId> = new Set(),
-): void {
-  const signalPanels = [
-    { id: "recommendations", shouldShow: shouldShowRecommendationsPanel(activeSession) },
-    { id: "review", shouldShow: shouldShowReviewPanel(activeSession) },
-  ] satisfies ReadonlyArray<{ id: SignalPanelId; shouldShow: boolean }>;
-  for (const { id, shouldShow } of signalPanels) {
-    const def = PANEL_DEFAULTS[id];
-    const panel = api.getPanel(def.component);
-    if (shouldShow) {
-      if (!panel && !hiddenSignalPanelIds.has(id)) api.addPanel(panelOptions(api, id));
-    } else {
-      panel?.api.close();
-    }
-  }
-}
-
 /** Single source of truth for first-launch / Reset Layout. Capacity and
- *  Recommendations are reachable via View menu hotkeys but closed by default
- *  until they carry signal. */
-export const DEFAULT_LAYOUT_PANELS: ReadonlyArray<string> = ["terminal", "sessions", "detail"];
+ *  Recommendations remain optional inspector destinations. */
+export const DEFAULT_LAYOUT_PANELS: ReadonlyArray<string> = ["terminal", "sessions"];
 
-export function buildDefaultLayout(api: DockviewApi): void {
+export function buildDefaultLayout(api: DockviewApi, widths = { sessions: 240, inspector: 320 }, sessionsVisible = true): void {
   for (const id of DEFAULT_LAYOUT_PANELS) {
+    if (id === "sessions" && !sessionsVisible) continue;
     const def = PANEL_DEFAULTS[id];
     const options: Parameters<typeof api.addPanel>[0] = {
       id: def.component,
@@ -260,18 +339,18 @@ export function buildDefaultLayout(api: DockviewApi): void {
         ? { position: { referencePanel: def.position.referencePanel, direction: def.position.direction } }
         : {}),
     };
-    if (id === "terminal") options.minimumWidth = 400;
+    if (id === "terminal") options.minimumWidth = 560;
+    if (id === "sessions") {
+      options.initialWidth = widths.sessions;
+      options.minimumWidth = 200;
+      options.maximumWidth = 320;
+    }
     api.addPanel(options);
   }
 }
 
-/** Pre-redesign 5-panel default layouts referenced Capacity and/or
- *  Recommendations panel ids. Their positions cascade off removed siblings
- *  so the cleanest cutover is to rebuild the default. One-time per existing
- *  user; versioned layouts never trigger this. */
-function layoutNeedsMigration(json: Record<string, unknown>): boolean {
-  const text = JSON.stringify(json);
-  return text.includes('"capacity"') || text.includes('"recommendations"');
+function hideDockviewHeaders(api: DockviewApi): void {
+  for (const group of api.groups) group.header.hidden = true;
 }
 
 function DockviewApp(props: DockviewAppData) {
@@ -279,9 +358,10 @@ function DockviewApp(props: DockviewAppData) {
   const ctxValue = props;
 
   const cleanupRef = useRef<(() => void) | null>(null);
-  const [layoutReady, setLayoutReady] = useState<DockviewApi | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
-  const activeSession = props.sessions.find((s) => s.id === props.activeSessionId);
+  const [regionWidths, setRegionWidths] = useState({ sessions: 240, inspector: 320 });
+  const preferencesRef = useRef(props.shellPreferences);
+  preferencesRef.current = props.shellPreferences;
 
   // Invalidate our callbacks before Dockview's passive-effect disposal, including
   // development refreshes that preserve this component's refs and state.
@@ -290,21 +370,28 @@ function DockviewApp(props: DockviewAppData) {
     cleanupRef.current = null;
   }, []);
 
+  useLayoutEffect(() => {
+    if (props.responsiveMode !== "compact") return;
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+  }, [props.responsiveMode]);
+
   useEffect(() => {
+    if (props.responsiveMode === "wide") return;
     const api = dockviewApiRef.current;
-    if (!api || layoutReady !== api) return;
-    synchronizeSignalPanels(
-      api,
-      activeSession,
-      props.signalPanelHiddenIdsRef.current,
-    );
-  }, [activeSession, dockviewApiRef, layoutReady, props.signalPanelHiddenIdsRef]);
+    if (!api) return;
+    for (const id of ["detail", "capacity", "recommendations"]) {
+      api.getPanel(PANEL_DEFAULTS[id].component)?.api.close();
+    }
+  }, [props.responsiveMode, dockviewApiRef]);
 
   function resetLayout(api: DockviewApi) {
     api.clear();
     buildDefaultLayout(api);
-    props.signalPanelHiddenIdsRef.current.clear();
-    synchronizeSignalPanels(api, activeSession, props.signalPanelHiddenIdsRef.current);
+    hideDockviewHeaders(api);
+    setRegionWidths({ sessions: 240, inspector: 320 });
+    props.onShellPreferencesLoaded({ sessionsWidth: 240, inspectorWidth: 320, sessionsVisible: true, density: "low" });
+    void window.orkworks.resetShellLayout();
   }
 
   function reportVisibility(api: DockviewApi) {
@@ -315,11 +402,19 @@ function DockviewApp(props: DockviewAppData) {
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+    <div className="shell-layout" data-density={props.shellPreferences.density} data-compact={props.responsiveMode === "compact"}>
       <DockviewContext.Provider value={ctxValue}>
+        {props.responsiveMode === "compact" ? (
+          <CompactShellPage page={props.compactPage} onReturnToTerminal={() => props.onCompactPageChange("terminal")} />
+        ) : <>
+        <div className="shell-resize-controls" aria-label="Resize shell regions">
+          <KeyboardRegionSeparator panelId="sessions" label="Sessions" minimum={200} maximum={320} value={regionWidths.sessions} onValueChange={(value) => setRegionWidths((current) => ({ ...current, sessions: value }))} />
+          <KeyboardRegionSeparator panelId="inspector" label="Inspector" minimum={280} maximum={420} value={regionWidths.inspector} onValueChange={(value) => setRegionWidths((current) => ({ ...current, inspector: value }))} />
+        </div>
         <DockviewReact
           components={COMPONENTS}
           className="orkworks-dockview"
+          disableDnd
           defaultTabComponent={DockviewTab}
           singleTabMode="fullwidth"
           rightHeaderActionsComponent={DockviewHeaderActions}
@@ -331,18 +426,26 @@ function DockviewApp(props: DockviewAppData) {
             let saveTimer: ReturnType<typeof setTimeout> | null = null;
             const subscription = api.onDidLayoutChange(() => {
               if (disposed) return;
+              hideDockviewHeaders(api);
+              const sessionsWidth = api.getPanel("sessions")?.group.size;
+              const inspectorWidth = (api.getPanel("detail") ?? api.getPanel("capacity") ?? api.getPanel("recommendations"))?.group.size;
+              setRegionWidths((current) => ({
+                sessions: sessionsWidth ?? current.sessions,
+                inspector: inspectorWidth ?? current.inspector,
+              }));
               reportVisibility(api);
               setIsEmpty(api.totalPanels === 0);
               if (saveTimer) clearTimeout(saveTimer);
               saveTimer = setTimeout(() => {
                 if (disposed) return;
-                window.orkworks.saveLayout(
-                  JSON.stringify({
-                    v: 1,
-                    d: api.toJSON(),
-                    hiddenSignalPanels: [...props.signalPanelHiddenIdsRef.current],
-                  }),
-                );
+                const sessionsWidth = api.getPanel("sessions")?.group.size ?? 240;
+                const inspectorWidth = (api.getPanel("detail") ?? api.getPanel("capacity") ?? api.getPanel("recommendations"))?.group.size ?? 320;
+                void window.orkworks.saveShellLayout({
+                  sessionsWidth: Math.max(200, Math.min(320, sessionsWidth)),
+                  inspectorWidth: Math.max(280, Math.min(420, inspectorWidth)),
+                  sessionsVisible: api.getPanel("sessions") !== undefined && api.getPanel("sessions") !== null,
+                  density: preferencesRef.current.density,
+                });
               }, 500);
             });
             cleanupRef.current = () => {
@@ -353,42 +456,21 @@ function DockviewApp(props: DockviewAppData) {
               if (dockviewApiRef.current === api) dockviewApiRef.current = null;
             };
 
-            window.orkworks.getLayout().then((layout) => {
+            window.orkworks.getShellLayout().then((snapshot) => {
               if (disposed) return;
-              if (layout) {
-                try {
-                  const parsed = JSON.parse(layout);
-                  if (!parsed || typeof parsed !== "object") {
-                    throw new Error("unrecognized layout");
-                  }
-                  if (!("v" in parsed) && layoutNeedsMigration(parsed as Record<string, unknown>)) {
-                    console.info("[DockviewApp] migrating stored layout to redesigned default");
-                    buildDefaultLayout(api);
-                  } else {
-                    api.fromJSON(
-                      "v" in parsed ? (parsed as { d: unknown }).d : parsed,
-                    );
-                    props.signalPanelHiddenIdsRef.current = new Set(
-                      "v" in parsed && Array.isArray((parsed as { hiddenSignalPanels?: unknown }).hiddenSignalPanels)
-                        ? (parsed as { hiddenSignalPanels: unknown[] }).hiddenSignalPanels.filter(
-                            (id): id is SignalPanelId => id === "recommendations" || id === "review",
-                          )
-                        : [],
-                    );
-                  }
-                  reportVisibility(api);
-                  setIsEmpty(api.totalPanels === 0);
-                  setLayoutReady(api);
-                  return;
-                } catch (e) {
-                  console.warn("[DockviewApp] failed to restore layout, using default", e);
-                }
-              }
-              buildDefaultLayout(api);
-              props.signalPanelHiddenIdsRef.current.clear();
+              buildDefaultLayout(api, {
+                sessions: snapshot.preferences.sessionsWidth,
+                inspector: snapshot.preferences.inspectorWidth,
+              }, snapshot.preferences.sessionsVisible);
+              setRegionWidths({
+                sessions: snapshot.preferences.sessionsWidth,
+                inspector: snapshot.preferences.inspectorWidth,
+              });
+              props.onShellPreferencesLoaded(snapshot.preferences);
+              hideDockviewHeaders(api);
               reportVisibility(api);
               setIsEmpty(api.totalPanels === 0);
-              setLayoutReady(api);
+              if (snapshot.diagnostic) console.warn("[DockviewApp] shell preferences unavailable", snapshot.diagnostic);
             });
 
           }}
@@ -408,6 +490,7 @@ function DockviewApp(props: DockviewAppData) {
             </button>
           </div>
         )}
+        </>}
       </DockviewContext.Provider>
     </div>
   );

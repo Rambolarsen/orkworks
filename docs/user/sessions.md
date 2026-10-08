@@ -57,12 +57,12 @@ nothing there, scroll with OpenCode's own keys — `PageUp` / `PageDown` by
 page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
 `Ctrl+Alt+D` by half page.
 
-## Read a plan beside the terminal
+## Read a plan
 
 When a session has an associated readable Markdown plan or specification,
-choose **Review plan** in its Details card. The document opens in the reusable
-Review tab beside Terminal. **Request independent review** sends a fixed
-review request into the live session only when you choose it.
+choose **Review plan** in its Details card to open it in Review. **Request
+independent review** sends a fixed review request into the live session only
+when you choose it.
 
 ## When a signal looks wrong
 

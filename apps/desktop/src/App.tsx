@@ -19,10 +19,8 @@ import {
 import {
   PANEL_DEFAULTS,
   buildDefaultLayout,
-  synchronizeSignalPanels,
   shouldShowRecommendationsPanel,
   shouldShowReviewPanel,
-  type SignalPanelId,
 } from "./components/DockviewApp";
 import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
@@ -47,16 +45,24 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
-import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, ShellPreferences, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
 import type { UpdateStatus } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
-import { createShellNavigationState, reduceShellNavigation } from "./shellNavigation";
+import { createShellNavigationState, reduceShellNavigation, type InspectorDestination, type InspectedSubject } from "./shellNavigation";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
+  const [responsiveMode, setResponsiveMode] = useState<"wide" | "medium" | "compact">(() => {
+    if (window.matchMedia("(max-width: 859px)").matches) return "compact";
+    return window.matchMedia("(max-width: 1179px)").matches ? "medium" : "wide";
+  });
+  const [compactPage, setCompactPage] = useState<"terminal" | "sessions" | "detail" | "capacity" | "recommendations">(
+    () => window.matchMedia("(max-width: 859px)").matches ? "terminal" : "sessions",
+  );
+  const [mediumPage, setMediumPage] = useState<"terminal" | "detail" | "capacity" | "recommendations">("terminal");
   const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [shellNavigation, dispatchShellNavigation] = useReducer(
@@ -72,6 +78,36 @@ function App() {
   const [workspaceSwitchDiagnostic, setWorkspaceSwitchDiagnostic] = useState<string | null>(null);
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [shellPreferences, setShellPreferences] = useState<ShellPreferences>({
+    sessionsWidth: 240,
+    inspectorWidth: 320,
+    sessionsVisible: true,
+    density: "low",
+  });
+
+  useEffect(() => {
+    const mediumQuery = window.matchMedia("(max-width: 1179px)");
+    const compactQuery = window.matchMedia("(max-width: 859px)");
+    const updateResponsiveMode = () => {
+      const nextMode = compactQuery.matches ? "compact" : mediumQuery.matches ? "medium" : "wide";
+      setResponsiveMode(nextMode);
+      if (nextMode === "compact") setCompactPage("terminal");
+      if (nextMode === "medium") setMediumPage("terminal");
+    };
+    updateResponsiveMode();
+    mediumQuery.addEventListener("change", updateResponsiveMode);
+    compactQuery.addEventListener("change", updateResponsiveMode);
+    return () => {
+      mediumQuery.removeEventListener("change", updateResponsiveMode);
+      compactQuery.removeEventListener("change", updateResponsiveMode);
+    };
+  }, []);
+
+  useEffect(() => {
+    void window.orkworks.getShellLayout()
+      .then((snapshot) => setShellPreferences(snapshot.preferences))
+      .catch(() => {});
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("tools");
   const [updateState, setUpdateState] = useState<{
@@ -88,11 +124,6 @@ function App() {
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
   const dockviewApiRef = useRef<DockviewApi | null>(null);
-  const signalPanelHiddenIdsRef = useRef<Set<SignalPanelId>>(new Set());
-  const sessionsHiddenLayoutRef = useRef<{
-    layout: string;
-    hiddenSignalPanels: SignalPanelId[];
-  } | null>(null);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
   const workspaceLifecycleRef = useRef({ generation: 0, readyGeneration: null as number | null });
   const initialWorkspaceSnapshotRef = useRef<{
@@ -145,6 +176,8 @@ function App() {
       readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
     };
     dispatchShellNavigation({ type: "workspace-generation-changed", generation });
+    setCompactPage("terminal");
+    setMediumPage("terminal");
     if (event.state === "ready") {
       setIsSwitchingWorkspace(false);
       setWorkspaceSwitchDiagnostic(null);
@@ -398,6 +431,8 @@ function App() {
     setNewSessionDialogOpen(false);
     try {
       await workspaceSessionController.createSession(opts);
+      setCompactPage("terminal");
+      setMediumPage("terminal");
 
       const api = dockviewApiRef.current;
       if (api) {
@@ -418,13 +453,16 @@ function App() {
       sessionId: id,
       generation: workspaceLifecycleRef.current.generation,
     });
+    void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
+    if (responsiveMode === "compact") setCompactPage("terminal");
+    if (responsiveMode === "medium") setMediumPage("terminal");
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
     const api = dockviewApiRef.current;
     if (api) {
       const panel = api.getPanel("terminal");
       if (panel) panel.api.setActive();
     }
-  }, [workspaceSessionController]);
+  }, [workspaceSessionController, responsiveMode]);
 
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
@@ -529,6 +567,38 @@ function App() {
     getTerminal(activeSessionId)?.terminal.focus();
   }, [activeSessionId]);
 
+  const inspectSubject = useCallback((destination: InspectorDestination) => {
+    const subject: InspectedSubject | null = activeSessionId
+      ? { kind: "session", sessionId: activeSessionId }
+      : workspace
+        ? { kind: "workspace", workspaceKey: workspace.workspaceIdentity || workspace.path }
+        : null;
+    if (!subject) return;
+    dispatchShellNavigation({
+      type: "inspector-opened",
+      destination,
+      subject,
+      generation: workspaceLifecycleRef.current.generation,
+    });
+  }, [activeSessionId, workspace]);
+
+  const closeInspector = useCallback(() => {
+    dispatchShellNavigation({
+      type: "inspector-closed",
+      generation: workspaceLifecycleRef.current.generation,
+    });
+  }, []);
+
+  const changeCompactPage = useCallback((page: "terminal" | "sessions" | "detail" | "capacity" | "recommendations") => {
+    if (page === "terminal") closeInspector();
+    setCompactPage(page);
+  }, [closeInspector]);
+
+  const changeMediumPage = useCallback((page: "terminal" | "detail" | "capacity" | "recommendations") => {
+    if (page === "terminal") closeInspector();
+    setMediumPage(page);
+  }, [closeInspector]);
+
   const handleReviewPlan = useCallback((sessionId = activeSessionId, refreshedSessions: readonly SessionInfo[] = sessions) => {
     const activeSession = refreshedSessions.find((session) => session.id === sessionId);
     if (!shouldShowReviewPanel(activeSession)) return;
@@ -550,6 +620,8 @@ function App() {
     setFocusedRecommendationId(id);
     const api = dockviewApiRef.current;
     if (!api) return;
+    api.getPanel(PANEL_DEFAULTS.detail.component)?.api.close();
+    api.getPanel(PANEL_DEFAULTS.capacity.component)?.api.close();
     const options: Parameters<typeof api.addPanel>[0] = {
       id: "recommendations",
       component: "recommendations",
@@ -561,6 +633,7 @@ function App() {
     }
     const panel = api.getPanel("recommendations") ?? api.addPanel(options);
     panel?.api.setActive();
+    for (const group of api.groups) group.header.hidden = true;
   }, [activeSessionId, sessions]);
 
   useEffect(() => {
@@ -666,6 +739,45 @@ function App() {
         return;
       }
 
+      if (action === "reset-layout") {
+        setShellPreferences({ sessionsWidth: 240, inspectorWidth: 320, sessionsVisible: true, density: "low" });
+        setMediumPage("terminal");
+        if (responsiveMode === "compact") {
+          changeCompactPage("terminal");
+          void window.orkworks.resetShellLayout();
+          return;
+        }
+      }
+
+      if (responsiveMode === "compact" && action === "focus" && panelId) {
+        if (panelId === "terminal") {
+          changeCompactPage("terminal");
+          void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
+        } else if (panelId === "sessions") {
+          changeCompactPage(compactPage === "sessions" ? "terminal" : "sessions");
+        } else if (panelId === "detail" || panelId === "capacity" || panelId === "recommendations") {
+          if (panelId === "recommendations" && !shouldShowRecommendationsPanel(sessions.find((session) => session.id === activeSessionId))) return;
+          inspectSubject(panelId === "detail" ? "details" : panelId);
+          changeCompactPage(panelId);
+        }
+        return;
+      }
+
+      if (responsiveMode === "medium" && action === "focus" && panelId) {
+        if (panelId === "terminal") {
+          changeMediumPage("terminal");
+          void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
+          handleFocusTerminal();
+          return;
+        }
+        if (panelId === "detail" || panelId === "capacity" || panelId === "recommendations") {
+          if (panelId === "recommendations" && !shouldShowRecommendationsPanel(sessions.find((session) => session.id === activeSessionId))) return;
+          inspectSubject(panelId === "detail" ? "details" : panelId);
+          changeMediumPage(panelId);
+          return;
+        }
+      }
+
       const api = dockviewApiRef.current;
       if (!api) return;
 
@@ -677,6 +789,13 @@ function App() {
         if (panelId === "review" && !shouldShowReviewPanel(activeSession)) return;
         const existing = api.getPanel(def.component);
 
+        if (panelId === "terminal") {
+          existing?.api.setActive();
+          handleFocusTerminal();
+          void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
+          return;
+        }
+
         if (panelId === "sessions") {
           const focusList = () => {
             setTimeout(() => {
@@ -684,28 +803,11 @@ function App() {
             }, 0);
           };
           if (!existing) {
-            const snapshot = sessionsHiddenLayoutRef.current;
-            if (snapshot) {
-              try {
-                api.fromJSON(JSON.parse(snapshot.layout));
-                signalPanelHiddenIdsRef.current = new Set(snapshot.hiddenSignalPanels);
-                const restoredActiveSession = sessions.find((session) => session.id === activeSessionId);
-                synchronizeSignalPanels(
-                  api,
-                  restoredActiveSession,
-                  signalPanelHiddenIdsRef.current,
-                );
-                sessionsHiddenLayoutRef.current = null;
-                focusList();
-                return;
-              } catch {
-                sessionsHiddenLayoutRef.current = null;
-              }
-            }
             const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
               id: def.component,
               component: def.component,
             };
+            if (panelId === "sessions") Object.assign(options, { initialWidth: shellPreferences.sessionsWidth, minimumWidth: 200, maximumWidth: 320 });
             if (def.position && api.getPanel(def.position.referencePanel)) {
               const direction = def.position.direction;
               options.position = direction && direction !== "within"
@@ -713,16 +815,13 @@ function App() {
                 : { referencePanel: def.position.referencePanel };
             }
             api.addPanel(options);
+            for (const group of api.groups) group.header.hidden = true;
             focusList();
             return;
           }
           const listEl = document.getElementById("sessions-list");
           const isFocused = !!listEl && listEl.contains(document.activeElement);
           if (isFocused) {
-            sessionsHiddenLayoutRef.current = {
-              layout: JSON.stringify(api.toJSON()),
-              hiddenSignalPanels: [...signalPanelHiddenIdsRef.current],
-            };
             existing.api.close();
           } else if (!existing.api.isActive) {
             existing.api.setActive();
@@ -733,18 +832,22 @@ function App() {
           return;
         }
 
+        const inspectorIds = ["detail", "capacity", "recommendations"];
+        if (inspectorIds.includes(panelId)) {
+          for (const id of inspectorIds) {
+            if (id !== panelId) api.getPanel(PANEL_DEFAULTS[id].component)?.api.close();
+          }
+          if (existing?.api.isActive) closeInspector();
+          else inspectSubject(panelId === "detail" ? "details" : panelId as InspectorDestination);
+        }
         if (existing) {
-          if (panelId === "recommendations" || panelId === "review") {
-            signalPanelHiddenIdsRef.current.add(panelId);
-          }
-          existing.api.close();
+          if (existing.api.isActive) existing.api.close();
+          else existing.api.setActive();
         } else {
-          if (panelId === "recommendations" || panelId === "review") {
-            signalPanelHiddenIdsRef.current.delete(panelId);
-          }
-          const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
+          const options: { id: string; component: string; initialWidth?: number; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
             id: def.component,
             component: def.component,
+            ...(panelId === "detail" || panelId === "capacity" || panelId === "recommendations" ? { initialWidth: shellPreferences.inspectorWidth } : {}),
           };
           if (def.position && api.getPanel(def.position.referencePanel)) {
             const direction = def.position.direction;
@@ -753,16 +856,17 @@ function App() {
               : { referencePanel: def.position.referencePanel };
           }
           api.addPanel(options)?.api.setActive();
+          for (const group of api.groups) group.header.hidden = true;
         }
       } else if (action === "reset-layout") {
-        sessionsHiddenLayoutRef.current = null;
-        signalPanelHiddenIdsRef.current.clear();
         api.clear();
         buildDefaultLayout(api);
-        synchronizeSignalPanels(api, sessions.find((session) => session.id === activeSessionId), signalPanelHiddenIdsRef.current);
+        for (const group of api.groups) group.header.hidden = true;
+        setShellPreferences({ sessionsWidth: 240, inspectorWidth: 320, sessionsVisible: true, density: "low" });
+        void window.orkworks.resetShellLayout();
       }
     });
-  }, [handleCreateSession, activeSessionId, sessions, openSettings, checkForUpdates]);
+  }, [handleCreateSession, handleFocusTerminal, activeSessionId, sessions, openSettings, checkForUpdates, shellPreferences, responsiveMode, compactPage, inspectSubject, closeInspector, changeCompactPage, changeMediumPage]);
 
   return (
     <div className="app-shell">
@@ -849,6 +953,18 @@ function App() {
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        shellPreferences={shellPreferences}
+        responsiveMode={responsiveMode}
+        compactPage={compactPage}
+        onCompactPageChange={changeCompactPage}
+        mediumPage={mediumPage}
+        onMediumPageChange={changeMediumPage}
+        visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
+          ? shellNavigation.inspectedSubject.sessionId
+          : shellNavigation.centralSurface.kind === "terminal"
+            ? shellNavigation.centralSurface.sessionId
+            : shellNavigation.centralSurface.sessionId}
+        onShellPreferencesLoaded={setShellPreferences}
         canFixWithAi={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
         taskmasterReady={sessionAdmissionEnabled}
         unreadIds={unreadState.unreadIds}
@@ -874,7 +990,6 @@ function App() {
             onBackendUnavailable={handleBackendUnavailable}
         onRetryBackend={handleRetryBackend}
         dockviewApiRef={dockviewApiRef}
-        signalPanelHiddenIdsRef={signalPanelHiddenIdsRef}
       />
       {(backendStatus === "unreachable" || backendStatus === "exhausted" || backendStatus === "unresolved") && (
         <div className="backend-recovery-backdrop" role="alert">

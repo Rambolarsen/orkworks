@@ -2579,6 +2579,156 @@ html, body, #root {
   background: var(--border-default);
 }
 
+.shell-layout {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.shell-layout[data-density="high"] .session-row {
+  padding-block: 4px;
+}
+
+.shell-region {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.shell-region-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  background: var(--surface-1);
+}
+
+.shell-region-header h1,
+.shell-region-header h2 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.shell-region-header button {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  color: var(--text-primary);
+  background: var(--surface-0);
+}
+
+.shell-region > .panel-content,
+.shell-region > .terminal-panel,
+.shell-region > .review-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.shell-resize-controls {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: 4px var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+
+.shell-resize-separator {
+  min-width: 140px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: var(--surface-0);
+  font-size: var(--text-xs);
+  text-align: center;
+  cursor: col-resize;
+}
+
+.shell-resize-separator:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--accent-focus);
+}
+
+.shell-layout .orkworks-dockview {
+  min-height: 0;
+  flex: 1;
+}
+
+.compact-shell-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.compact-return-button {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  margin: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text-primary);
+  background: var(--surface-1);
+}
+
+.compact-shell-page > .shell-region {
+  flex: 1;
+}
+
+.orkworks-dockview .dv-resize-handle {
+  min-width: 6px;
+  min-height: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-layout *,
+  .shell-layout *::before,
+  .shell-layout *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  .shell-resize-controls {
+    padding-inline: var(--space-2);
+  }
+}
+
+@media (max-width: 859px) {
+  .shell-resize-controls,
+  .shell-layout > .orkworks-dockview {
+    display: none;
+  }
+
+  .compact-shell-page .session-list {
+    min-width: 0;
+  }
+
+  .compact-return-button {
+    min-height: 36px;
+  }
+}
+
 /* --- New Session Dialog --- */
 
 .new-session-backdrop {

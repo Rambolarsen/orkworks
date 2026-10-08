@@ -20,8 +20,8 @@ if (process.versions.electron) {
       await waitFor('window.fixture?.loads.length === 1');
     };
     const restore = async (index) => {
-      await evaluate(`fixture.loads[${index}](null)`);
-      await waitFor('fixture.apis.at(-1).getPanel("recommendations") != null');
+      await evaluate(`fixture.loads[${index}]({preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:null})`);
+      await waitFor('fixture.apis.at(-1).getPanel("terminal") != null');
     };
     try {
       // Catch the one-time initialization guard retaining an already-disposed API.
@@ -34,16 +34,16 @@ if (process.versions.electron) {
       assert.deepEqual(await evaluate('fixture.errors'), [], 'session switching must not close disposed panels');
       assert.equal(await evaluate('fixture.apiRef.current === fixture.apis[1]'), true);
       assert.equal(await evaluate('fixture.loads.length'), 2, 'replacement must request its layout');
-      await evaluate('fixture.loads[1](null)');
+      await evaluate("fixture.loads[1]({preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:null})");
       await waitFor('fixture.apis[1].getPanel("terminal") != null');
-      assert.deepEqual(await evaluate('fixture.apis[1].panels.map(p => p.id).sort()'), ['detail', 'sessions', 'terminal']);
+      assert.deepEqual(await evaluate('fixture.apis[1].panels.map(p => p.id).sort()'), ['sessions', 'terminal']);
 
       // Catch a delayed read mutating a replaced instance or its shared hidden-panel state.
       await fresh();
       await evaluate('fixture.replaceDock()');
       await waitFor('fixture.loads.length === 2');
       await restore(1);
-      await evaluate('fixture.visibility.length = 0; fixture.loads[0](JSON.stringify({v:1,d:fixture.apis[1].toJSON(),hiddenSignalPanels:["review"]}))');
+      await evaluate("fixture.visibility.length = 0; fixture.loads[0]({preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:null})");
       await new Promise(resolve => setTimeout(resolve, 50));
       assert.equal(await evaluate('fixture.apis[0].totalPanels'), 0);
       assert.deepEqual(await evaluate('[...fixture.hidden.current]'), []);
@@ -51,10 +51,18 @@ if (process.versions.electron) {
 
       // Catch unmount retaining the API or allowing an unresolved restore to publish.
       await fresh();
-      await evaluate('fixture.unmount(); fixture.loads[0](null)');
+      await evaluate("fixture.unmount(); fixture.loads[0]({preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:null})");
       await new Promise(resolve => setTimeout(resolve, 50));
       assert.equal(await evaluate('fixture.apiRef.current'), null);
       assert.equal(await evaluate('fixture.apis[0].totalPanels'), 0);
+      assert.deepEqual(await evaluate('fixture.visibility'), []);
+
+      // Removing Dockview for compact mode must release the API and its subscriptions.
+      await fresh();
+      await restore(0);
+      await evaluate('fixture.visibility.length = 0');
+      await evaluate('fixture.setCompact()');
+      await waitFor('fixture.apiRef.current === null');
       assert.deepEqual(await evaluate('fixture.visibility'), []);
 
       // Catch a pending debounced save serializing disposed Dockview state.
@@ -96,15 +104,22 @@ if (process.versions.electron) {
           window.addEventListener('error', event => fixture.errors.push(event.error?.stack || event.message));
           window.addEventListener('unhandledrejection', event => fixture.errors.push(String(event.reason)));
           window.orkworks = {
-            getLayout: () => new Promise(resolve => fixture.loads.push(resolve)),
+            getShellLayout: () => new Promise(resolve => fixture.loads.push(resolve)),
+            saveShellLayout: layout => fixture.saves.push(layout),
+            resetShellLayout: () => Promise.resolve({ok:true}),
             notifyPanelVisibility: (...args) => fixture.visibility.push(args),
             saveLayout: layout => fixture.saves.push(layout),
           };
           function Harness() {
             const [session, setSession] = useState({id:'coding', harnessId:'codex', hasOpenablePlan:false});
+            const [responsiveMode, setResponsiveMode] = useState('wide');
+            fixture.setCompact = () => setResponsiveMode('compact');
             fixture.selectShell = () => setSession({id:'shell', harnessId:'generic-shell', hasOpenablePlan:false});
             return <DockviewApp dockviewApiRef={fixture.apiRef} signalPanelHiddenIdsRef={fixture.hidden}
-              sessions={[session]} activeSessionId={session.id} debugSettings={{}} />;
+              sessions={[session]} activeSessionId={session.id} debugSettings={{showSessionIds:false}}
+              shellPreferences={{sessionsWidth:240, inspectorWidth:320, sessionsVisible:true, density:'low'}}
+              onShellPreferencesLoaded={() => {}} compactPage="terminal"
+              onCompactPageChange={() => {}} mediumPage="terminal" onMediumPageChange={() => {}} responsiveMode={responsiveMode} />;
           }
           const root = createRoot(document.getElementById('root'));
           fixture.unmount = () => root.unmount();

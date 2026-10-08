@@ -21,7 +21,7 @@ function render(overrides = {}) {
     lineChanges: { additions: 124, deletions: 37 }, ...overrides,
   };
   return renderToStaticMarkup(createElement(component.exports.default, {
-    sessions: [session], activeSessionId: session.id, harnesses: [],
+    sessions: [session], visibleSessionId: session.id, harnesses: [],
     showDebugMetadata: false, onResumeSession() {}, onApplyDebugAttention() {},
     onOpenSettings() {}, onReviewPlan() {},
   }));

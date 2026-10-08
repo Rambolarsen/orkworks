@@ -29,6 +29,64 @@ test("DockviewApp uses a shared default tab component that hides close controls"
   assert.match(source, /<DockviewDefaultTab\s+\{\.\.\.props\}\s+hideClose\s*\/>/);
 });
 
+test("fixed Dockview regions disable panel drag, hide group headers, and keep resizing enabled", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /disableDnd/);
+  assert.match(source, /header\.hidden\s*=\s*true/);
+  assert.doesNotMatch(source, /locked\s*=\s*\{?true/);
+  assert.match(source, /role="separator"/);
+  assert.match(source, /aria-valuenow=/);
+});
+
+test("Dockview shell reads bounded preferences and never restores legacy panel graphs", () => {
+  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /getShellLayout\(\)/);
+  assert.match(source, /saveShellLayout\(/);
+  assert.doesNotMatch(source, /getLayout\(\)/);
+  assert.doesNotMatch(source, /\.fromJSON\(/);
+});
+
+test("Details follows the visible subject without selecting a session", () => {
+  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+  const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(dockview, /visibleSubject/);
+  assert.match(detail, /visibleSessionId/);
+  assert.doesNotMatch(detail, /onSelectSession/);
+});
+
+test("opening an inspector records its subject through shell navigation without selecting it", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(app, /type: "inspector-opened"/);
+  assert.match(app, /const subject: InspectedSubject \| null = activeSessionId[\s\S]{0,300}kind: "workspace"/);
+  assert.match(app, /type: "inspector-opened",[\s\S]{0,200}subject,/);
+  assert.match(app, /type: "inspector-closed"/);
+});
+
+test("repeating the Terminal command keeps the central surface visible", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /panelId === "terminal"[\s\S]{0,500}(?:setActive|terminal-opened)/);
+  assert.doesNotMatch(source, /panelId === "terminal"[\s\S]{0,500}existing\.api\.close\(\)/);
+});
+
+test("responsive shell uses temporary inspector pages and one compact page below 860px", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+
+  assert.match(app, /matchMedia\("\(max-width: 1179px\)"\)/);
+  assert.match(app, /matchMedia\("\(max-width: 859px\)"\)/);
+  assert.match(dockview, /ctx\.responsiveMode === "medium" && ctx\.mediumPage !== "terminal"/);
+  assert.match(dockview, /Back to Terminal/);
+  assert.match(dockview, /<CompactShellPage page=\{props\.compactPage\}/);
+  assert.match(css, /@media \(max-width: 1180px\)/);
+  assert.match(css, /@media \(max-width: 859px\)/);
+});
+
 test("App renders DockviewApp instead of the legacy three-panel layout", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
@@ -153,25 +211,22 @@ test("ReviewPanel supports reviewTick prop and retains memoization", () => {
   assert.match(source, /export default memo\(ReviewPanel\);/);
 });
 
-test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
+test("DockviewApp default layout opens compact Sessions and Terminal with the inspector closed", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /DEFAULT_LAYOUT_PANELS:\s*ReadonlyArray<string>\s*=\s*\["terminal",\s*"sessions",\s*"detail"\]/);
+  assert.match(source, /DEFAULT_LAYOUT_PANELS:\s*ReadonlyArray<string>\s*=\s*\["terminal",\s*"sessions"\]/);
   assert.doesNotMatch(source, /DEFAULT_LAYOUT_PANELS[^=]*=[^;]*capacity/);
   assert.doesNotMatch(source, /DEFAULT_LAYOUT_PANELS[^=]*=[^;]*recommendations/);
 });
 
-test("DockviewApp migrates pre-redesign stored layouts that referenced removed panels", () => {
+test("DockviewApp retains legacy docking bytes and restores only bounded shell preferences", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /layoutNeedsMigration/);
-  assert.match(source, /migrating stored layout/);
-  assert.match(source, /!\("v" in parsed\)/);
-  assert.match(source, /"capacity"/);
-  assert.match(source, /"recommendations"/);
-  // Post-redesign layouts are versioned, so they never match the migration
-  // predicate after the user opens Capacity/Recommendations from the View menu.
-  assert.match(source, /v: 1,[\s\S]*d: api\.toJSON\(\),[\s\S]*hiddenSignalPanels/);
+  assert.match(source, /getShellLayout\(\)/);
+  assert.match(source, /snapshot\.preferences\.sessionsWidth/);
+  assert.match(source, /saveShellLayout\(/);
+  assert.doesNotMatch(source, /window\.orkworks\.getLayout\(\)/);
+  assert.doesNotMatch(source, /api\.fromJSON\(/);
 });
 
 test("App and DockviewApp share one canonical default-layout builder", () => {
@@ -183,34 +238,38 @@ test("App and DockviewApp share one canonical default-layout builder", () => {
   assert.match(app, /buildDefaultLayout\(api\)/);
 });
 
-test("DockviewApp automatically adds and removes signal panels from the active session", () => {
+test("DockviewApp leaves optional utility panels closed until an explicit command", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
   assert.match(source, /export function shouldShowRecommendationsPanel/);
   assert.match(source, /export function shouldShowReviewPanel/);
-  assert.match(source, /synchronizeSignalPanels\(\s*api,\s*activeSession,/);
-  assert.match(source, /if \(shouldShow\) \{[\s\S]*?api\.addPanel/);
-  assert.match(source, /panel\??\.api\.close\(\)/);
+  assert.match(source, /DEFAULT_LAYOUT_PANELS:[\s\S]*\["terminal",\s*"sessions"\]/);
+  assert.doesNotMatch(source, /synchronizeSignalPanels/);
 });
 
-test("DockviewApp does not reopen a signal panel while its condition stays true", () => {
+test("DockviewApp keeps panel headers hidden after programmatic region changes", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /signalPanelHiddenIdsRef/);
-  assert.match(source, /hiddenSignalPanelIds\.has\(id\)/);
+  assert.match(source, /function hideDockviewHeaders\(api: DockviewApi\)/);
+  assert.match(source, /group\.header\.hidden = true/);
+  assert.match(source, /for \(const group of api\.groups\) group\.header\.hidden = true/);
 });
 
-test("DockviewApp keeps automatically added signal panels inactive", () => {
+test("DockviewApp leaves Dockview split resizing enabled and provides keyboard controls", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /title: def\.title,[\s\S]*inactive: true/);
+  assert.match(source, /api\.onDidLayoutChange/);
+  assert.match(source, /panel\.group\.api\.setSize\(\{ width: next \}\)/);
+  assert.match(source, /role="separator"/);
+  assert.match(source, /event\.key === "ArrowLeft"/);
+  assert.doesNotMatch(source, /locked/);
 });
 
-test("DockviewApp preserves restored signal-panel visibility choices", () => {
+test("DockviewApp preserves compact Sessions visibility through bounded preferences", () => {
   const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /signalPanelHiddenIdsRef/);
-  assert.match(source, /hiddenSignalPanels/);
+  assert.match(source, /sessionsVisible: api\.getPanel\("sessions"\)/);
+  assert.match(source, /snapshot\.preferences\.sessionsVisible/);
 });
 
 test("DockviewApp does not treat the generic shell fallback as a recommendation harness", () => {
@@ -249,11 +308,12 @@ test("App reviews the session selected by a terminal plan link", () => {
   assert.match(source, /handleReviewPlan\(sessionId, refreshed\)/);
 });
 
-test("App revalidates signal panels after restoring the hidden sessions layout", () => {
+test("App never replays a saved Dockview graph when restoring Sessions", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /hiddenSignalPanels: \[\.\.\.signalPanelHiddenIdsRef\.current\]/);
-  assert.match(source, /api\.fromJSON\(JSON\.parse\(snapshot\.layout\)\);[\s\S]*synchronizeSignalPanels\([\s\S]*signalPanelHiddenIdsRef\.current/);
+  assert.doesNotMatch(source, /api\.fromJSON\(/);
+  assert.match(source, /if \(panelId === "sessions"\)/);
+  assert.match(source, /api\.addPanel\(options\)/);
 });
 
 test("DockviewApp exposes header actions for Sessions and Review panels", () => {
@@ -285,7 +345,7 @@ test("App owns reviewTick state and wires it into DockviewApp with an incrementi
   assert.match(source, /reviewTick=\{reviewTick\}/);
   // handleReviewPlan must bump the tick after activating the panel so an
   // already-open Review tab refetches instead of showing stale content.
-  assert.match(source, /setActive\(\);\s*\n\s*setReviewTick\(/);
+  assert.match(source, /setActive\(\);[\s\S]{0,160}setReviewTick\(/);
   assert.match(
     source,
     /onRefreshReview=\{\(\)\s*=>\s*setReviewTick\(\(?\w+\)?\s*=>\s*\w+\s*\+\s*1\)\}/,

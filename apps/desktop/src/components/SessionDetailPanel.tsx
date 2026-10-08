@@ -35,7 +35,7 @@ const DEBUG_ATTENTION_OPTIONS: SessionAttention[] = ["working", "idle", "needs_y
 
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];
-  activeSessionId: string | null;
+  visibleSessionId: string | null;
   harnesses: HarnessConfig[];
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
@@ -45,7 +45,7 @@ interface SessionDetailPanelProps {
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
@@ -53,7 +53,7 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
   const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
   const [workflowObservations, setWorkflowObservations] = useState<WorkflowObservationEntry[]>([]);
   const [workflowObservationsSessionId, setWorkflowObservationsSessionId] = useState<string | null>(null);
-  const active = sessions.find((s) => s.id === activeSessionId);
+  const active = sessions.find((s) => s.id === visibleSessionId);
   const now = useStableRelativeTimeNow(useCallback((currentNow: Date) => {
     if (!active) return null;
     let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, currentNow);
