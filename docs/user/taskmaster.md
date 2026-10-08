@@ -26,9 +26,10 @@ a time.
   recorded while work was happening, such as repeated obstacles or
   workarounds.
 - **Cleanup** — maintenance proposals Taskmaster generates about its own
-  backlog. A Cleanup card lists recommendations that no longer qualify for
-  their evidence (too little support, probable noise, stale, or duplicates),
-  so you can dismiss several stale cards at once with **Run cleanup**.
+  backlog. A Cleanup card lists its observation-based recommendations that
+  no longer qualify for their evidence (too little support, probable noise,
+  stale, or duplicates), so you can dismiss several stale cards at once with
+  **Run cleanup**.
   Nothing is dismissed until you approve the card.
 
 Analysis recommendations judge what your workflow is missing; Observations

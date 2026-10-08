@@ -522,7 +522,7 @@ mod tests {
             suggested_prompt: None,
             confidence: RecommendationConfidence::Medium,
             requires_approval: false,
-            dedupe_key: format!("dedupe-{id}"),
+            dedupe_key: format!("improve_workflow:v1:test:{id}"),
             created_at: "2026-09-13T10:00:00Z".into(),
             updated_at: "2026-09-13T10:00:00Z".into(),
             expires_at: None,
@@ -553,7 +553,7 @@ mod tests {
         let mut parent =
             recommendation_fixture(&parent_id, RecommendationStatus::Proposed, "session-parent");
         parent.rollup_member_ids = vec![member_id.clone()];
-        parent.rollup_member_dedupe_keys = vec!["dedupe-rollup-member".into()];
+        parent.rollup_member_dedupe_keys = vec![format!("improve_workflow:v1:test:{member_id}")];
         parent.rollup_generation = Some(7);
         let mut member =
             recommendation_fixture(&member_id, RecommendationStatus::RolledUp, "session-member");
@@ -1238,7 +1238,7 @@ mod tests {
         assert_eq!(body["rollupMemberIds"], serde_json::json!([member_id]));
         assert_eq!(
             body["rollupMemberDedupeKeys"],
-            serde_json::json!(["dedupe-rollup-member"])
+            serde_json::json!(["improve_workflow:v1:test:rollup-member"])
         );
         assert_eq!(body["rollupGeneration"], 7);
         assert!(body["rolledUpBy"].is_null());

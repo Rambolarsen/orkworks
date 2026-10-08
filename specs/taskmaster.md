@@ -854,14 +854,14 @@ Taskmaster audits its own backlog of `proposed` workflow recommendations and pro
 
 ### Classification criteria
 
-Each `proposed`, non-cleanup, non-rollup card is classified by every criterion it matches; criteria are independent and all labels are kept, in canonical order under-eligible → noise → duplicate → stale:
+Each `proposed` exact-family card — an `improve_workflow` record with an `improve_workflow:v1:` dedupe key — is classified by every criterion it matches; criteria are independent and all labels are kept, in canonical order under-eligible → noise → duplicate → stale:
 
 - `under_eligible` — fewer than two distinct qualifying observations across the card's cited evidence under the current eligibility rule (confidence ≥ `0.6`; a `high` impact citation additionally requires ≥ `0.8`). This is exactly the leftover class from the removed single-observation escape hatch.
 - `noise` — every cited observation is `source: peon` and none carries a `problemArea` (the deterministic proxy for over-detection: title-like, artifact-free Peon inference). A card with any agent-reported citation or any problem area is never noise.
 - `duplicate` — the same dedupe family already contains a newer `proposed` card (keep-newest), or a terminal sibling (accepted/completed/dismissed/superseded/failed/expired) the proposed card does not extend: its `supersedesRecommendationId` chain references neither that sibling nor any record the sibling itself supersedes.
 - `stale` — the newest `observedAt` across the cited evidence is older than 14 days (fixed constant; no runtime config in v1). A corrupt or unparseable timestamp suppresses the stale criterion entirely — a card is never auto-flagged stale on unreadable evidence age.
 
-Cards matching none of the criteria are healthy and are never proposed for dismissal. Terminal records and rollup parents are never classified (dismissing a rollup parent would strand its rolled-up members); parents count toward `scanned` but are never entries. A workspace with only healthy cards produces no card at all — an empty audit entry list is impossible by construction.
+Cards matching none of the criteria are healthy and are never proposed for dismissal. The audit scopes itself to exact-family cards deliberately — it exists to clean up the observation-cited families whose eligibility rules changed. Brain-created assessment proposals (whose support lives in repository/knowledge evidence, not cited observations) are never candidates: dismissing one would strand its dedupe family, since Brain proposal creation is skipped while any record with the key exists, including dismissed ones. Terminal records and rollup parents are never classified (dismissing a rollup parent would strand its rolled-up members); parents count toward `scanned` but are never entries. A workspace with only healthy cards produces no card at all — an empty audit entry list is impossible by construction.
 
 ### The cleanup card
 

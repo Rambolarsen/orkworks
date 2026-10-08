@@ -130,6 +130,9 @@ pub(crate) fn build_cleanup_card(
             recommendation.status == RecommendationStatus::Proposed
                 && recommendation.recommendation_type != RecommendationType::Cleanup
                 && recommendation.rollup_member_ids.is_empty()
+                && recommendation
+                    .dedupe_key
+                    .starts_with("improve_workflow:v1:")
         })
         .collect();
     let mut entries = Vec::new();
@@ -1173,6 +1176,41 @@ mod tests {
             card.workflow_improvement.supersedes_recommendation_id,
             Some("cleanup-card-1".into())
         );
+    }
+
+    #[test]
+    fn brain_created_proposals_are_outside_the_audit_scope() {
+        let mut brain = proposed_card(Vec::new());
+        brain.id = "brain-card".into();
+        brain.dedupe_key = "proactive:v1:test".into();
+        brain.repository_evidence = vec![super::super::RepositoryEvidence {
+            path: "AGENTS.md".into(),
+            sha256: "0".repeat(64),
+            excerpt: "assessment fact".into(),
+            observed_at: NOW.into(),
+        }];
+
+        assert_eq!(build_cleanup_card(&[brain], WORKSPACE, NOW, None), None);
+    }
+
+    #[test]
+    fn audit_candidates_scope_to_exact_families() {
+        let mut brain = proposed_card(Vec::new());
+        brain.id = "brain-card".into();
+        brain.dedupe_key = "proactive:v1:test".into();
+        let exact = flagged(
+            proposed_card(Vec::new()),
+            "card-under",
+            "improve_workflow:v1:tooling:under",
+        );
+
+        let card = build_cleanup_card(&[brain, exact], WORKSPACE, NOW, None).unwrap();
+
+        let audit = card.audit.as_ref().unwrap();
+        assert_eq!(audit.entries.len(), 1);
+        assert_eq!(audit.entries[0].id, "card-under");
+        assert_eq!(audit.scanned, 1);
+        assert_eq!(audit.healthy, 0);
     }
 
     #[test]
