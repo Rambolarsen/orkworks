@@ -22,8 +22,8 @@ type Pending<P> = {
   update: (payload: P, revision: number) => P | null;
   resolve: (result: ShellMemoryResult) => void;
 };
-type OversizedPrior = { backup: string; dev: number; ino: number; size: number };
-type Prior = Buffer | OversizedPrior | null;
+type RetainedPrior = { backup: string; dev: number; ino: number; size: number; kind: "regular" | "fifo" };
+type Prior = Buffer | RetainedPrior | null;
 export type ShellFileReplacer = (temporary: string, target: string, targetExists: boolean) => void;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const lockFileName = ".shell-memory.lock";
@@ -156,9 +156,21 @@ export class RevisionedShellMemory<P> {
     finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
   }
 
-  private capturePrior(): Prior {
+  private capturePrior(allowFifo = false): Prior {
     const previous = this.readTarget();
-    if (previous === "non_regular") throw new Error("Prior shell target is not a regular file");
+    if (previous === "non_regular") {
+      const target = this.path();
+      const info = lstatSync(target);
+      if (!allowFifo || !info.isFIFO()) throw new Error("Prior shell target is not a rebuildable file");
+      const backup = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.bak`);
+      try {
+        linkSync(target, backup);
+        const retained = lstatSync(backup);
+        if (!retained.isFIFO() || retained.dev !== info.dev || retained.ino !== info.ino)
+          throw new Error("FIFO backup did not preserve the prior inode");
+        return { backup, dev: retained.dev, ino: retained.ino, size: retained.size, kind: "fifo" };
+      } catch (error) { rmSync(backup, { force: true }); throw error; }
+    }
     if (previous !== "oversize") return previous;
     // A hardlink preserves an oversized prior inode for rollback without
     // buffering it or copying attacker-sized bytes. If unsupported, decline
@@ -169,14 +181,15 @@ export class RevisionedShellMemory<P> {
     try {
       linkSync(target, backup);
       const info = statSync(backup);
-      return { backup, dev: info.dev, ino: info.ino, size: info.size };
+      return { backup, dev: info.dev, ino: info.ino, size: info.size, kind: "regular" };
     } catch (error) { rmSync(backup, { force: true }); throw error; }
   }
 
-  private priorInPlace(previous: OversizedPrior): boolean {
+  private priorInPlace(previous: RetainedPrior): boolean {
     try {
-      const current = statSync(this.path());
-      return current.dev === previous.dev && current.ino === previous.ino && current.size === previous.size;
+      const current = lstatSync(this.path());
+      return current.dev === previous.dev && current.ino === previous.ino && current.size === previous.size
+        && (previous.kind === "fifo" ? current.isFIFO() : current.isFile());
     } catch { return false; }
   }
 
@@ -228,13 +241,13 @@ export class RevisionedShellMemory<P> {
     return { ok: false, diagnostic: "restore_failed" };
   }
 
-  private write(record: StoredRecord<P>): ShellMemoryResult {
+  private write(record: StoredRecord<P>, allowFifoRebuild = false): ShellMemoryResult {
     const bytes = Buffer.from(`${JSON.stringify(record)}\n`, "utf8");
     if (bytes.byteLength > this.limit) return { ok: false, diagnostic: "invalid_input" };
     // Every caller holds the shared lock. Keep the exact prior bytes so a
     // failed read-back can restore them without rewriting a normalized record.
     let previous: Prior;
-    try { previous = this.capturePrior(); }
+    try { previous = this.capturePrior(allowFifoRebuild); }
     catch { return { ok: false, diagnostic: "write_failed" }; }
     try {
       if (!this.publish(bytes)) return this.failedWrite(previous, bytes);
@@ -332,7 +345,7 @@ export class RevisionedShellMemory<P> {
     try {
       descriptor = lock(this.directory);
       if (descriptor === null) return Promise.resolve({ ok: false, diagnostic: "lock_timeout" });
-      const result = this.write({ version: 1, epoch: newEpoch(), revision: 0, payload: this.initial() });
+      const result = this.write({ version: 1, epoch: newEpoch(), revision: 0, payload: this.initial() }, true);
       this.needsRefresh = !result.ok;
       return Promise.resolve(result);
     } catch { this.needsRefresh = true; return Promise.resolve({ ok: false, diagnostic: "write_failed" }); }

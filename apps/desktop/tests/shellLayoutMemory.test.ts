@@ -58,6 +58,46 @@ test("shell layout returns a diagnostic for a FIFO record without blocking", (t)
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("confirmed shell-layout rebuild can replace a FIFO record", async (t) => {
+  if (process.platform === "win32") return t.skip("FIFOs are unavailable on Windows");
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-fifo-rebuild-"));
+  try {
+    const path = shellLayoutMemoryPath(directory);
+    try { execFileSync("mkfifo", [path]); }
+    catch { return t.skip("mkfifo is unavailable"); }
+    const memory = createShellLayoutMemory(directory);
+    assert.equal(memory.read().diagnostic, "corrupt_record");
+
+    assert.deepEqual(await memory.rebuild(true), { ok: true });
+
+    assert.equal(statSync(path).isFile(), true);
+    assert.equal(memory.read().diagnostic, null);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("failed confirmed rebuild restores the prior FIFO inode", async (t) => {
+  if (process.platform === "win32") return t.skip("FIFOs are unavailable on Windows");
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-fifo-rollback-"));
+  try {
+    const path = shellLayoutMemoryPath(directory);
+    try { execFileSync("mkfifo", [path]); }
+    catch { return t.skip("mkfifo is unavailable"); }
+    const prior = statSync(path);
+    const memory = createShellLayoutMemory(directory, (temporary, target) => {
+      renameSync(temporary, target);
+      throw new Error("injected read-back failure");
+    });
+
+    assert.deepEqual(await memory.rebuild(true), { ok: false, diagnostic: "write_failed" });
+
+    const restored = statSync(path);
+    assert.equal(restored.isFIFO(), true);
+    assert.equal(restored.dev, prior.dev);
+    assert.equal(restored.ino, prior.ino);
+    assert.equal(readdirSync(directory).some((name) => name.endsWith(".bak")), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("shell layout rejects out-of-range, non-finite, and unknown preference fields", async () => {
   const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
   try {
