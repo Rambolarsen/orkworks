@@ -61,6 +61,7 @@
 - Test: inline tests in both modified Rust files
 
 - [x] Add focused tests against the new context API proving cancellation/runtime replacement prevents input-label persistence, inference persistence, and workflow-observation writes while a current context still permits the existing successful path. Existing runtime-replacement and workflow-observation tests already pin parts of this behavior; adapt them to use the context where applicable.
+- [x] Exercise cancellation at all three production persistence boundaries with an otherwise current runtime and diagnostic lease; assert the live and durable labels, inferred metadata, and workflow-observation store remain unchanged.
 - [x] Run the new context tests before implementing the context and confirm they fail to compile because the requested API is absent; keep the existing behavioral tests as the regression oracle for the refactor.
 - [x] Replace copied `runtime_identity_is_active`/diagnostic-attempt checks with the context's common currentness methods. Keep checks inside the existing workspace/session locks where they currently close persistence races.
 - [x] Pass the context to the production `persist_peon_observation`, `persist_input_label`, and `record_peon_workflow_observations` entry points, removing their pass-through `_for_attempt` variants. Keep test-only setup paths narrowly scoped and unavailable to production callers.
@@ -79,12 +80,11 @@
 - [x] Run the lifecycle-focused review against every changed cancellation, Drop, persistence-lock, and stale-generation path; confirm existing tests still prove shutdown drain bounds, runtime replacement rejection, and lease-generation ownership.
 - [x] Start the local SonarQube stack, capture `after`, and compare `.sonar/reports/baseline.json` with `.sonar/reports/after.json`. Inspect analysis warnings and compare repository and both affected-file complexity and `ncloc`; separately inspect production/test diff lines because Rust inline tests contribute to `ncloc`.
 - [x] Confirm all positional six-field capture tuple destructuring and manual `finish_attempt_if_active` calls are gone, and all issue #401 acceptance criteria are met.
-- [ ] Run the required `/code-review low` gate, address or document each finding, and prepare a PR referencing issue #401 with the verified tests, lifecycle review, Sonar deltas, and any remaining warnings.
+- [x] Complete a medium-effort manual review of the actual PR diff, address the cancellation-persistence test gap, and have the reviewer confirm the finding is resolved. The harness did not expose the literal `/code-review medium` command; the repository's requesting-code-review workflow was used.
 
 ## Verification record
 
-- Clean-main Sonar baseline: repository ncloc 131156, complexity 17153, cognitive complexity 10952; quality gate OK.
-- Final Sonar after report: repository ncloc 131305 (+149), complexity 17151 (-2), cognitive complexity 10916 (-36); quality gate OK. `peon_runtime.rs`: ncloc +138, complexity +10, cognitive complexity -14. `session_application.rs`: ncloc +11, complexity -12, cognitive complexity -22. Rust inline tests contribute to Sonar ncloc. The pre-existing source-encoding warning remains.
-- `cargo fmt --check` passed. Clippy completed with 0 errors and the baseline 84 warnings. Focused input-label tests passed 5/5; AttemptContext tests passed 3/3.
+- Initial clean-main Sonar baseline: repository ncloc 131156, complexity 17153, cognitive complexity 10952. After main advanced, a new clean baseline was captured at `18936e0f`; the paired scan of the exact PR source had the same fingerprint as the PR scan. Current comparison: ncloc 132126 → 132420 (+294), complexity 17545 → 17544 (-1), cognitive complexity 11241 → 11205 (-36); quality gate OK. `peon_runtime.rs`: ncloc +283, complexity +11, cognitive complexity -14; the cancellation-persistence regression test accounts for about 145 ncloc. `session_application.rs`: ncloc +11, complexity -12, cognitive complexity -22. Rust inline tests contribute to ncloc. The pre-existing source-encoding warning remains.
+- `cargo fmt --check` passed. Clippy completed with 0 errors and the baseline 84 warnings. Focused input-label tests passed 5/5; AttemptContext tests passed, including the new cancellation-persistence test (1 passed).
 - The final full suite run produced one unrelated native-server fixture failure (1818 passed, 1 failed, 5 ignored); isolated rerun failed earlier with `native-unavailable`. Subsequent full-suite retries were stopped by sandbox network denial for `models.opencode.ai`. Baseline full suite passed 1819 tests with 5 ignored.
-- Lifecycle review found no concrete findings. The repository-required `/code-review low` command remains pending for PR review.
+- Lifecycle review found no remaining findings. The medium-effort reviewer identified a missing cancellation guard test; the new test passed and the reviewer confirmed the finding was resolved.
