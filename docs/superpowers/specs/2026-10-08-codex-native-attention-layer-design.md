@@ -93,7 +93,8 @@ owns `lastActivity` and updates it according to existing activity semantics.
 This whole-tuple operation prevents a direct writer from accidentally
 combining fields from two attention producers.
 
-`summary` remains a dedicated current-summary snapshot. When a non-empty,
+The proposed API follows the MVP's target current-summary snapshot contract.
+When a non-empty,
 non-whitespace summary is supplied, the sidecar updates `summary`,
 `summarySource=agent`, `summaryConfidence=1.0`, and `summaryObservedAt` together;
 the caller cannot submit the provenance fields. Explicit `null` clears all four
