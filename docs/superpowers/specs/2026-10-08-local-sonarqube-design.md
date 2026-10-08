@@ -25,14 +25,18 @@ on macOS/Linux; native Windows PowerShell uses `py -3` or `python`. Support
 Python 3.9+, native Windows file locks and user-only credential ACLs. Transfer
 snapshots through relative `podman cp` paths rather than host bind mounts.
 `up` creates private credentials outside Git, starts the services and provisions
-a local token. `down` stops containers and preserves named volumes. Startup
+a local token under a host-wide initialization lock. Validate saved tokens and
+recover revoked tokens through the saved admin password; stored credentials
+override shell environment values. Saved report labels require explicit
+`--overwrite` before replacement. `down` stops containers and preserves named volumes. Startup
 documents Podman VM memory, Compose-provider and Elasticsearch kernel limits;
 the helper does not disable bootstrap checks or silently resize a running VM.
 
 ## Snapshot and report contract
 
 Community Build has no native multi-branch analysis. Derive a separate project
-key from each canonical checkout path. Lock scans in a checkout and stage a
+key and scanner image tag from each canonical checkout path. Capture the actual
+scanner image ID in the report configuration. Lock scans in a checkout and stage a
 copy of eligible Git-listed source, including unstaged and nonignored new
 source files. Exclude credentials, generated output, platform-specific caches
 and symlinks. Hash the exact staged bytes and their relative paths; record Git

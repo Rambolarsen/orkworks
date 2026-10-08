@@ -117,6 +117,57 @@ class PortabilityTests(unittest.TestCase):
                              '/user/private/OrkWorks/sonar.env')
 
 
+class LifecycleTests(unittest.TestCase):
+    def test_compose_uses_saved_credentials_over_shell_overrides(self):
+        saved = {'SONAR_DB_PASSWORD': 'stored-password', 'SONAR_TOKEN': 'stored-token'}
+        with mock.patch.object(sonar, 'load_settings', return_value=saved), mock.patch.object(
+                sonar, 'run') as command, mock.patch.dict(os.environ, {'SONAR_DB_PASSWORD': 'shell'}):
+            sonar.compose('up', env={'SONAR_TOKEN': 'another-shell-token'})
+        environment = command.call_args.kwargs['env']
+        self.assertEqual(environment['SONAR_DB_PASSWORD'], 'stored-password')
+        self.assertEqual(environment['SONAR_TOKEN'], 'stored-token')
+
+    def test_up_owns_host_lock_through_initialization(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            private = Path(temporary) / 'sonar.env'
+            with mock.patch.object(sonar, 'default_settings_path', return_value=private), mock.patch.object(
+                    sonar, 'initialize') as initialize:
+                def attempt_competing_initializer():
+                    with self.assertRaisesRegex(ValueError, 'initialization'):
+                        sonar.up()
+                initialize.side_effect = attempt_competing_initializer
+                sonar.up()
+                initialize.assert_called_once()
+
+    def test_saved_invalid_token_is_reprovisioned(self):
+        saved = {'SONAR_ADMIN_PASSWORD': 'saved-password', 'SONAR_TOKEN': 'revoked'}
+        api = mock.Mock()
+        def request(endpoint, params=None, post=False):
+            if endpoint == 'api/authentication/validate':
+                return {'valid': False}
+            if endpoint == 'api/user_tokens/generate':
+                return {'token': 'replacement'}
+            self.fail('Unexpected API call: ' + endpoint)
+        api.request.side_effect = request
+        with mock.patch.object(sonar, 'load_settings', return_value=saved), mock.patch.object(
+                sonar, 'compose'), mock.patch.object(sonar, 'wait_for'), mock.patch.object(
+                sonar, 'Api', return_value=api), mock.patch.object(sonar, 'write_settings') as write:
+            sonar.initialize()
+        self.assertEqual(saved['SONAR_TOKEN'], 'replacement')
+        write.assert_called_once()
+
+    def test_baseline_cannot_be_overwritten_without_explicit_flag(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+                sonar, 'ROOT', Path(temporary)), mock.patch('builtins.print'):
+            sonar.save_report({'metrics': {'ncloc': 100}}, 'baseline')
+            path = Path(temporary) / '.sonar/reports/baseline.json'
+            with self.assertRaises(FileExistsError):
+                sonar.save_report({'metrics': {'ncloc': 80}}, 'baseline')
+            self.assertEqual(json.loads(path.read_text())['metrics']['ncloc'], 100)
+            sonar.save_report({'metrics': {'ncloc': 80}}, 'baseline', overwrite=True)
+            self.assertEqual(json.loads(path.read_text())['metrics']['ncloc'], 80)
+
+
 class ReportTests(unittest.TestCase):
     def test_configuration_rejects_server_settings_changed_since_scan(self):
         with self.assertRaisesRegex(ValueError, 'configuration'):

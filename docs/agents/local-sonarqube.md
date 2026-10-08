@@ -79,7 +79,10 @@ or macOS temporary-directory share is required.
 
 From macOS/Linux, run `python3 scripts/sonar.py up` in the checkout. `up` starts
 the pinned services, waits for readiness, replaces the initial admin password
-and creates a local API token. Credentials are stored outside Git:
+and creates a local API token. Startup validates saved tokens and reprovisions
+revoked tokens through the saved admin password. A host-wide initialization
+lock protects concurrent worktree setup; stored credentials override shell
+variables during Compose interpolation. Credentials are stored outside Git:
 
 | Host | Private credential file | Protection |
 | --- | --- | --- |
@@ -113,7 +116,7 @@ data use named volumes. The source snapshot lives in the disposable scanner
 container, separate from the host's Node/Electron dependencies.
 
 Community Build supports only one main analysis per project. Each canonical
-checkout gets a separate local project key, so a feature worktree does not
+checkout gets a separate local project key and scanner image tag, so a feature worktree does not
 overwrite the primary checkout's baseline. Same-checkout scans are locked.
 The Git branch and HEAD remain explicit report metadata; these local projects
 are not Sonar-native branch or pull-request analysis.
@@ -123,7 +126,8 @@ commit/dirty state, completed analysis ID, configuration identity, project/file
 metrics, open issue inventory, analysis warnings and quality gate. They become available only
 after the submitted server task succeeds. Retrieval checks the latest analysis
 before and after collection. `compare` refuses different scope, profiles, effective server settings, quality
-gate conditions or analyzer versions and preserves missing values as unknown.
+gate conditions or analyzer versions (including the actual scanner image ID) and preserves missing
+values as unknown.
 
 ```bash
 python3 scripts/sonar.py report --label current
@@ -131,7 +135,9 @@ python3 scripts/sonar.py report --label current
 
 `report` refreshes evidence for the last scanned snapshot and refuses changed
 source or a replacement analysis. Saved baseline JSON remains useful offline
-for comparisons; use distinct labels and preserve it through review.
+for comparisons. Existing labels are refused before another scan starts. Use
+distinct labels and preserve baseline evidence through review; `--overwrite`
+explicitly permits replacement when you intend to discard a saved report.
 
 ### Interpreting metrics
 

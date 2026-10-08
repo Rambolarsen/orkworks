@@ -36,6 +36,7 @@ services:
 
   scanner:
     profiles: [scan]
+    image: localhost/${SONAR_WORKTREE_ID:-orkworks-default}-sonar-scanner:local
     build:
       context: .
       dockerfile: Containerfile

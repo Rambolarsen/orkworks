@@ -77,7 +77,7 @@ skill; reviews inspect the final artifacts and cannot run until those exist.
 
 ## Verification evidence (2026-10-08)
 
-- 19 helper tests pass on macOS/Python 3.9; native Windows/Linux CI is included.
+- 23 helper tests pass on macOS/Python 3.9; native Windows/Linux CI is included.
 - Actual ARM64 Podman services started; Rust Clippy, Rust and TypeScript sensors
   completed, followed by a successful server Compute Engine task.
 - Project analysis: 195 source files (88 Rust), 362 open issues, ncloc 130969,
@@ -100,3 +100,13 @@ skill; reviews inspect the final artifacts and cannot run until those exist.
   helper CI must not be described as a completed native Windows scan.
 - No active Taskmaster recommendation matched this tooling change (209 records
   inspected); there is no matching completion to post.
+
+### PR review cycle 1
+
+Current-head automated review identified shared scanner tags, initialization
+races, shell credential precedence, baseline overwrites, misleading dirty SCM
+revision metadata and missing token validation. Fixes give each worktree an
+image tag, record its actual image ID, lock host initialization, make stored
+credentials authoritative, require explicit report overwrite, omit the SCM
+revision override and validate/reprovision saved tokens. Regression cases were
+observed failing before fixes; native CI and fresh review run on the new head.
