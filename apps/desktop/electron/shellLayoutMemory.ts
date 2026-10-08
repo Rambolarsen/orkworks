@@ -263,22 +263,12 @@ export class RevisionedShellMemory<P> {
       const read = this.readRecord();
       if (!read.record) return Promise.resolve({ ok: false, diagnostic: read.diagnostic ?? "corrupt_record" });
     }
-    if (!barrier) {
-      const retained: Pending<P>[] = [];
-      for (const pending of this.pending) {
-        if (!pending.barrier && pending.subject === subject) pending.resolve({ ok: false, diagnostic: "stale_revision" });
-        else retained.push(pending);
-      }
-      this.pending = retained;
+    const retained: Pending<P>[] = [];
+    for (const pending of this.pending) {
+      if (!pending.barrier && pending.subject === subject) pending.resolve({ ok: false, diagnostic: "stale_revision" });
+      else retained.push(pending);
     }
-    if (barrier) {
-      const retained: Pending<P>[] = [];
-      for (const pending of this.pending) {
-        if (!pending.barrier && pending.subject === subject) pending.resolve({ ok: false, diagnostic: "stale_revision" });
-        else retained.push(pending);
-      }
-      this.pending = retained;
-    }
+    this.pending = retained;
     const base = { epoch: this.snapshot!.epoch, revision: this.snapshot!.revision };
     return new Promise((resolve) => {
       this.pending.push({ base, subject, barrier, valid, update, resolve });
