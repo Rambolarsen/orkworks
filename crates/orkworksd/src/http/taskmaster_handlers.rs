@@ -491,6 +491,7 @@ mod tests {
                 dismissal_watermark: None,
             },
             completion_packet: None,
+            audit: None,
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation: None,

@@ -23,6 +23,33 @@ use std::collections::HashMap;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RecommendationType {
     ImproveWorkflow,
+    Cleanup,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AuditCriterion {
+    UnderEligible,
+    Noise,
+    Duplicate,
+    Stale,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AuditCleanupEntry {
+    pub id: String,
+    pub title: String,
+    pub criteria: Vec<AuditCriterion>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AuditCleanup {
+    pub entries: Vec<AuditCleanupEntry>,
+    pub scanned: usize,
+    pub healthy: usize,
+    pub stale_after_days: u32,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -86,6 +113,8 @@ pub(crate) struct DismissalWatermark {
     pub qualifying_count: usize,
     pub highest_impact: Impact,
     pub affected_session_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -159,6 +188,8 @@ pub(crate) struct Recommendation {
     pub workflow_improvement: WorkflowImprovement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_packet: Option<completion::CompletionPacket>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<AuditCleanup>,
     #[serde(default)]
     pub rollup_member_ids: Vec<String>,
     #[serde(default)]
@@ -494,6 +525,7 @@ pub(crate) fn evaluate_workflow_improvements(
                 dismissal_watermark: None,
             },
             completion_packet: None,
+            audit: None,
             rollup_member_ids: Vec::new(),
             rollup_member_dedupe_keys: Vec::new(),
             rollup_generation,
@@ -1102,6 +1134,7 @@ mod tests {
             qualifying_count: 2,
             highest_impact: Impact::Low,
             affected_session_ids: vec!["session-a".into(), "session-b".into()],
+            reason: None,
         });
 
         let generations = evaluate_workflow_improvements(
@@ -1655,5 +1688,64 @@ mod tests {
         );
 
         assert!(updated.is_empty());
+    }
+
+    #[test]
+    fn cleanup_card_contract_round_trips() {
+        let mut card = evaluate_workflow_improvements(
+            &[
+                observation("one", 1, "session-a", 0.8, Impact::High),
+                observation("two", 2, "session-b", 0.8, Impact::High),
+            ],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        )
+        .remove(0);
+        card.recommendation_type = RecommendationType::Cleanup;
+        card.audit = Some(AuditCleanup {
+            entries: vec![AuditCleanupEntry {
+                id: "recommendation-x".into(),
+                title: "Improve Tooling".into(),
+                criteria: vec![AuditCriterion::UnderEligible, AuditCriterion::Stale],
+            }],
+            scanned: 3,
+            healthy: 2,
+            stale_after_days: 14,
+        });
+        card.workflow_improvement.dismissal_watermark = Some(DismissalWatermark {
+            dismissed_at: "2026-10-08T00:00:00Z".into(),
+            dismissed_through_sequence: 1,
+            observation_ids: vec!["one".into()],
+            qualifying_count: 1,
+            highest_impact: Impact::High,
+            affected_session_ids: vec!["session-a".into()],
+            reason: Some("audit:under_eligible@cleanup-1".into()),
+        });
+        let json = serde_json::to_string(&card).unwrap();
+        assert!(json.contains("\"type\":\"cleanup\""));
+        assert!(json.contains("\"reason\":\"audit:under_eligible@cleanup-1\""));
+        let parsed: Recommendation = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, card);
+    }
+
+    #[test]
+    fn legacy_recommendation_files_load_without_audit_or_reason() {
+        let proposal = evaluate_workflow_improvements(
+            &[
+                observation("one", 1, "session-a", 0.8, Impact::Low),
+                observation("two", 2, "session-b", 0.8, Impact::Low),
+            ],
+            &[],
+            "workspace-1",
+            "2026-08-21T12:00:00Z",
+        )
+        .remove(0);
+        let json = serde_json::to_string(&proposal).unwrap();
+        assert!(!json.contains("\"audit\""));
+        assert!(!json.contains("\"reason\":\""));
+        let parsed: Recommendation = serde_json::from_str(&json).unwrap();
+        assert!(parsed.audit.is_none());
+        assert!(parsed.workflow_improvement.dismissal_watermark.is_none());
     }
 }
