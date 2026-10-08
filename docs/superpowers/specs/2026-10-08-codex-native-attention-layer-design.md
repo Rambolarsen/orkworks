@@ -1,4 +1,4 @@
-# Codex Native Attention Layer for Session Metadata
+# Codex Native Attention With Sidecar-Mediated Metadata Writes
 
 - Status: proposed; implementation approval and verification remain gated
 - Deciders: repository owner, Codex
@@ -10,220 +10,305 @@
 ## Context
 
 ADR 0076 requires native approval clearing to revoke its authority whenever a
-competing writer changes the attention tuple or its record-wide source. The
-sidecar can serialize cooperating `MetadataStore` writes and issue runtime-only
-write tokens. It cannot make a final check and rename atomic against a supported
-agent that directly replaces `sessions/<session-id>.json`.
+competing writer changes the attention tuple or its source, including an
+identical-value write. A sidecar revision and a final file-identity check do
+not make a clear atomic against an agent that directly replaces
+`sessions/<session-id>.json`.
 
-The MVP explicitly supports reading and writing that session JSON, watching it
-for changes, and trusting explicit agent-written records. The direct writer
-does not participate in a sidecar lock. A second check of file identity narrows
-the race but cannot close the interval between the check and rename.
+The MVP currently permits direct agent reads and writes of that JSON record.
+The sidecar cannot serialize a clear with a writer that does not participate
+in its write boundary. The selected direction is therefore to route writes
+for native-enabled sessions through the sidecar. This changes the current
+direct-write contract for those sessions and requires an explicit owner
+decision before implementation. It does not change the rollout gate: native
+clearing remains disabled until the design, implementation, and independent
+verification gates are complete.
 
-## Supported attention and metadata producers
+## Producers and write paths
 
-| Producer | Current input and authority | Proposed storage |
+| Producer | Proposed path for a native-enabled session | Authority |
 | --- | --- | --- |
-| User/manual override | Explicit user action; `user` is the highest source tier | Existing session JSON |
-| Direct agent JSON | Agent reads or replaces `sessions/<id>.json`; the MVP treats explicit agent metadata as authoritative | Existing session JSON, unchanged |
-| Harness hook/API | Validated harness events arrive through authenticated sidecar routes or the Codex report relay; sidecar currently persists their attention in session JSON | Codex live attention moves to the native layer only for an eligible native runtime; other harnesses and fallback Codex launches keep existing behavior |
-| Peon | Terminal observation and inference, source `peon` | Existing session JSON |
-| Backend inference and process lifecycle | Deterministic sidecar inference and process/runtime state | Existing session JSON |
-| Codex native observer | A validated hook candidate plus bounded exact-root native observation; it may resolve only a wait it owns | Codex native attention layer |
-| Debug injection | Debug-only temporary state injection, below normal runtime sources | Existing session JSON |
+| User/manual override | Existing sidecar action and `MetadataStore` write | `user`; highest priority |
+| Direct agent metadata writer | Versioned sidecar metadata write using the live session report token; direct JSON writes are unsupported while the session is active | `agent`; sidecar assigns source and confidence |
+| Harness hook/API | Existing authenticated sidecar routes and Codex report relay | `agent`; `attentionOrigin` identifies the harness hook |
+| Peon | Existing sidecar inference and `MetadataStore` write | `peon`; existing strict staleness rule |
+| Backend inference and process lifecycle | Existing sidecar `MetadataStore` write paths | Existing source priority |
+| Codex native observer | Sidecar application path after a validated hook candidate and bounded exact-root native observation | `agent`; `attentionOrigin=native_codex`; may clear only its owned wait |
+| Debug injection | Existing debug-only sidecar path | `debug`; existing restrictions |
 
-Session lifecycle, accepted terminal input, reset, and hook authority changes
-also update attention. In a native-enabled Codex runtime, they update the same
-Codex layer instead of clearing or replacing another producer's session JSON.
+Native attention transitions include prompt submission, permission candidates,
+native pending and resolved observations, stop, accepted committed input,
+identity reset/revocation, and runtime termination. Each transition uses the
+same per-session serialized writer boundary as agent, user, hook, Peon, and
+lifecycle writes. The sidecar remains the only process that persists the
+session JSON for an active native-enabled session.
 
 ## Decision
 
-For feature-eligible native Codex sessions, store the complete Codex live
-attention tuple in a separate, sidecar-owned record. Keep
-`sessions/<session-id>.json` as the existing source record. Setting or clearing
-the Codex layer never writes, deletes, or renames the session JSON file.
+Keep the complete session record in `sessions/<session-id>.json`; do not add a
+second attention file or merge two independently persisted records. All writes
+for an active native-enabled session go through a versioned sidecar operation.
+Direct JSON reads remain available. A direct JSON replacement is not a
+supported write path for an active native-enabled session because it bypasses
+the serialization and ownership checks. Sessions that are not native-enabled
+retain their existing behavior until a separately approved migration changes
+that contract.
 
-The proposed directory is `native-attention/<session-id>.json` beneath the
-workspace metadata root. It is separate from `sessions/`, so the session-file
-reader and watcher cannot mistake it for a `SessionMetadata` record. The new
-record contains a schema version, session ID, monotonic layer revision, the
-full Codex attention tuple, and a `live` or `final` lifecycle state. It contains
-no report bearer, native connection secret, or runtime ownership token.
+The implementation should expose authenticated `GET /sessions/:id/metadata`
+and `PATCH /sessions/:id/metadata` operations for direct agents. Native-enabled
+launches set `ORKWORKS_SESSION_METADATA_API_VERSION=1` alongside the existing
+session ID, sidecar port, and report token. When that marker is present, agents
+must use the API for all metadata mutations and must fail closed if it is
+unavailable; they must not fall back to writing the JSON file. Without the
+marker, the existing direct JSON contract remains in effect for sessions
+where native clear is disabled.
 
-All validated Codex attention transitions for an eligible native session use
-this layer: prompt submission, permission candidates, native pending and
-resolved observations, stop, accepted committed input, reset/revocation, and
-runtime termination. It stores both waiting and non-waiting Codex states. This
-prevents removal of a native wait from revealing an old `codex_hook` value left
-in the base record.
+The read response contains the current record and an opaque
+`metadataRevision`. A write carries that revision and a field-scoped patch
+whose only top-level fields are:
 
-The layer is written atomically before its state is published to live session
-views. Its writes and conditional clears serialize through the sidecar's
-per-session ownership boundary while the existing single-writer workspace
-lease is held. The ownership token is scoped to this persisted layer: every
-accepted layer write, including an identical-value write, revokes the prior
-token and increments the layer's monotonic revision. A native clear persists a
-revisioned cleared state rather than unlinking the layer while the session
-exists. A failed write does not publish a state transition and cannot authorize
-a native clear. Tokens remain process-local and are never persisted.
+- `attentionState`: the complete attention tuple with required keys
+  `observedStatus`, `attention`, `needsUserInput`, `detectedQuestion`, and
+  `suggestedOptions`. Every key must be present; nullable values use explicit
+  `null`. `false` is a value for `needsUserInput`, and an empty array is a
+  value for `suggestedOptions`. The string and enum values use the existing
+  attention/status validators. This replaces the tuple as one unit.
+- `agentMetadata`: an object containing any subset of `task`, `summary`,
+  `nextAction`, `workPhase`, `planPath`, `blockerDescription`,
+  `failedCommand`, and `failedTest`. Omitted fields are preserved; explicit
+  `null` clears nullable fields. `task` is a string; `workPhase` is one of
+  `ideation`, `implementation`, `review`, `debugging`, or `unknown`; `planPath`
+  uses the existing validated `PlanReference` shape. Other fields retain
+  their current serialized types and bounds.
 
-### Read and write boundaries
-
-`MetadataStore::read_session` remains a raw read for read-modify-write paths.
-It must not return merged native fields, because a subsequent ordinary write
-could persist those fields into the agent-owned record. Session-list and
-session-detail projections use a distinct merged read path that composes the
-raw record with the Codex layer. The public session/API shape stays unchanged.
-
-Only the sidecar owns `native-attention/`. Supported direct agents continue to
-read and write `sessions/<id>.json`; they need no lock, API, migration, or new
-file knowledge. This isolates the clear operation from those writes. It is not
-a security boundary against an actor that deliberately edits arbitrary files
-under the workspace metadata root.
-
-### Projection and precedence
-
-Projection uses the existing whole attention tuple:
-`observed_status`/`attention`, `needs_user_input`, `detected_question`, and
-`suggested_options`. It never combines individual fields from competing
+Either object may be omitted to preserve that group. The sidecar rejects
+unknown and protected fields, including session identity, lifecycle/process
+state, `metadataSource`, `metadataConfidence`, revisions, attention
+provenance, and timestamps. The sidecar owns `lastActivity` and updates it
+according to existing activity semantics. This whole-tuple operation prevents
+a direct writer from accidentally combining fields from two attention
 producers.
 
-1. A `user` tuple in the base record wins over the native layer.
-2. Explicit `agent` JSON in the base record wins over the native layer. This
-   preserves the existing MVP authority of direct agent-written JSON even when
-   its tuple has the same values as the native tuple.
-3. Otherwise, an active Codex layer is projected as `codex_hook` attention and
-   follows the existing `codex_hook` source-priority and Peon staleness rules.
-   It takes precedence over backend inference and process-only state.
-4. If no active Codex layer applies, the existing session record and source
-   priority rules apply unchanged.
+The protocol contract is:
 
-When a higher-priority user or agent tuple masks the Codex layer, the native
-observer may still retire its own candidate. The clear changes only the native
-record, so the user or agent tuple remains available to the next projection.
-This deliberately narrows ADR 0076's ownership token from the composed
-session-wide tuple to the native layer itself: a base-record write is not a
-write to that layer and does not revoke its token. The safety property is that
-base authority always wins projection and native clear never mutates it.
+1. The read returns the current record and an opaque `metadataRevision`.
+2. The write carries the revision it read and the allowlisted patch. The
+   sidecar verifies the live session report token, session ID, and expected
+   revision, then reads the latest record, applies the patch, performs the
+   source-priority and ownership decisions, and atomically writes it under a
+   per-session transaction boundary shared with native clear. The boundary
+   covers the read/check/modify/replace sequence; locking only the final rename
+   is insufficient.
+3. A revision mismatch returns a conflict without writing. The agent rereads,
+   reapplies its intended change, and retries; it must not blindly replace the
+   current record. A patch that loses the existing source-priority check
+   returns a conflict without changing the record.
+4. A patch containing `attentionState` is an attention write. The sidecar
+   checks the attention source priority, assigns `attentionSource=agent`,
+   `attentionConfidence=1.0`, and `attentionOrigin=direct_agent` rather than
+   accepting those authority fields from the request, and advances the
+   attention ownership revision even when the submitted tuple is identical.
+   A patch containing only `agentMetadata` checks the existing metadata
+   source priority, assigns `metadataSource=agent` and confidence, and leaves
+   the attention tuple, attention source/confidence/origin, update time, and
+   ownership revision unchanged. If the corresponding source is `user`, that
+   scope's patch returns a conflict without writing.
+5. Every accepted patch advances the metadata revision used for optimistic
+   concurrency. Every accepted attention/source write from any producer also
+   updates the durable attention-specific update time; work-metadata writes do
+   not refresh it.
 
-### Consistent projection
+Every persisted session-record mutation advances `metadataRevision` under the
+same per-session transaction boundary, including user, hook, Peon, backend,
+process, lifecycle, native, and API writes. The revision may be persisted as
+part of session metadata or maintained by an equivalent sidecar-owned version
+protocol, but it must survive all writes within the live session and must not
+be reused. Attention ownership revision is narrower: it advances only when
+the attention tuple or its source changes, so unrelated work-metadata writes
+do not revoke a native clear. Runtime ownership tokens stay process-local and
+are never persisted. No bearer, native connection secret, or clear token is
+stored in session metadata.
 
-The base JSON and native layer are separate files, so a merged read is not a
-cross-file transaction. Each attempt reads, in order: base identity and exact
-bytes plus parsed record; native-layer identity, revision, and exact bytes
-plus parsed record; base identity and exact bytes again; native-layer identity,
-revision, and exact bytes again. The attempt succeeds only when the base
-identity/byte pair matches and the layer identity/byte pair and monotonic
-revision match. Layer revisions never repeat while a session exists, including
-for identical-value writes and clears. Thus a native clear committed during
-projection changes the second layer observation and forces a retry. The stable
-layer revision and second base observation define the projection point; a
-subsequent native write or direct base replacement is later and appears on the
-next read or file-watcher refresh. Native-layer writes use atomic replacement.
+Native clear performs its final ownership and source checks and its atomic
+session-record replacement while holding the same per-session transaction
+boundary. It may clear only while `attentionSource` is still in the `agent`
+tier, `attentionOrigin` is `native_codex`, and the runtime token owns the
+latest attention revision. Every accepted competing attention/source write
+advances that revision, even when its values are identical. Therefore, if an
+agent write is accepted first, the clear fails its ownership check; if the
+clear commits first, the later agent write is ordered after it and becomes
+the current record. This guarantee applies to compliant in-product producers
+using the sidecar contract. Arbitrary external file replacement remains
+outside the supported protocol and cannot be made atomic by this design.
 
-On either pair changing or either read failing, the adapter retries the full
-attempt up to three times. If it cannot stabilize the base and layer, it
-returns the latest valid base record without the native overlay (or no session
-if no valid base record can be read). It never guesses that a failed or
-unstable read means the base source is lower priority. The adapter must
-distinguish an absent layer from an I/O or parse failure; only a confirmed
-initial absence can participate as revision zero.
+The authenticated agent write must be scoped to the live session represented
+by the report token and must not trust caller-selected source labels. The
+existing report token is a process-local bearer capability inherited by the
+session's child processes; it does not prove operating-system process
+identity. The endpoint must enforce the existing request-size and field
+validation bounds and must not log the token. If the token or active session
+is unavailable, the write fails without falling back to direct JSON mutation.
 
-The layer revision check orders the projection against native commits, while
-the base identity and byte check detects direct replacement or in-place
-content changes during composition. The design does not promise a transaction
-spanning files or coordination with a direct writer that changes the base
-after the final base observation. It does promise that native clear never
-overwrites the base record and that a clear committed before the layer
-recheck cannot be hidden by a successful stale projection.
+## Producer migration gate
 
-### Persistence and lifecycle
+The protocol marker is a capability declaration, not proof that an arbitrary
+process will obey it. Add a closed `sessionMetadataWriteProtocol` capability
+to the resolved built-in harness definition. Only the source-controlled
+Codex definition may advertise `sidecar-v1`, and only after its agent
+instructions and reporter helpers have migrated; user overrides cannot add
+this capability. The launch adapter derives
+`ORKWORKS_SESSION_METADATA_API_VERSION=1` from that resolved capability, and
+native-clear eligibility requires it. Legacy integrations continue to use
+the direct JSON contract and cannot enter a native-clear-eligible
+configuration. Migration tests must exercise every in-product writer path
+and verify that the generated instruction bundle and reporter helpers use
+the API. Out-of-band edits by a user or process that deliberately bypass the
+declared protocol remain outside the supported producer contract; this
+design does not claim to make arbitrary filesystem writes atomic with the
+sidecar.
 
-The layer is durable across ordinary writes and reads while its session runtime
-is live, but it is not authority that survives a sidecar restart. On orderly
-session end, the layer becomes `final`: it can supply only the existing
-`final_observed_status_snapshot` projection for the ended session, and all live
-clear authority is revoked. Restart reconciliation ends sessions under the
-existing lifecycle contract and converts orphaned `live` layers to `final`
-snapshots; a persisted `live` marker never recreates a runtime owner or clear
-token. Final snapshots do not project into current attention. Forget, delete,
-and retention paths remove the companion record with the same session
-identity as the base record. No report credential or ownership token is
-restored from disk.
+## Attention ownership, age, and projection
 
-Native-disabled and unsupported Codex configurations keep the existing direct
-launch and session-JSON behavior. There is no bulk migration of existing
-records. An eligible native runtime must initialize its layer for its own
-launch generation before projecting native attention; legacy base records stay
-readable and are never rewritten merely to create the layer.
+Keep `metadataSource` and `metadataConfidence` for general work metadata.
+Add `attentionSource`, `attentionConfidence`, `attentionOrigin`, and
+`attentionUpdatedAt` for the attention tuple, and expose these attention-
+specific fields in the session projection. `attentionOrigin` distinguishes
+`direct_agent`, `harness_hook`, `native_codex`, `user`, `peon`,
+`backend_inference`, `process`, and `debug`. Legacy records without the new
+fields derive `attentionSource` and confidence from the legacy metadata source
+and confidence, use the JSON file modification time as the initial age, and
+project `attentionOrigin=legacy_unknown`; they are never inferred to be owned
+by the native observer. In particular, legacy `metadataSource=codex_hook`
+normalizes to `attentionSource=agent` with its stored confidence and
+`legacy_unknown` origin. Other legacy source values retain their existing
+priority tier. Normalization may occur in memory; the next accepted write
+persists the new fields. If legacy file age cannot be read, Peon must preserve
+the current tuple until a valid attention write establishes a timestamp.
+Session projections keep their current one-record semantics; they do not
+compose attention from another record.
+
+The attention SourceBadge in session details must use `attentionSource` and
+`attentionConfidence`; `metadataSource` remains the provenance for general
+work metadata. This keeps the visible attribution aligned with the tuple after
+the sources split.
+
+Persist an attention-specific update time with the attention tuple and source.
+Peon's `agent` staleness check uses that time, not the session
+file's modification time. The current boundary remains strict: age 15 seconds
+blocks Peon; age greater than 15 seconds permits it. A write to unrelated
+metadata must not refresh this timestamp. Legacy records without the field
+must follow a documented compatibility rule that does not make an active
+native wait immediately stale; the implementation handoff must settle this
+rule before coding.
+
+The attention source order remains `user > agent > peon > backend_inference >
+process > unknown > debug`. Direct agent, harness-hook, and native Codex
+attention all use the `agent` tier; they are peers, not separate priority
+levels. Every accepted attention write from one of those producers revokes
+the prior native ownership token, including identical-value writes. Only
+`user` has strictly higher attention priority. The versioned read response
+exposes the metadata revision needed for writes; `attentionUpdatedAt` is
+persisted and projected for arbitration and diagnosis.
+
+The existing work-metadata source ladder continues to protect descriptive
+fields such as task, summary, and blockers. Peon applies attention and
+work-metadata source checks independently, so an agent metadata patch can
+protect its summary without refreshing or changing attention ownership.
+
+Session-list and detail projections read one canonical session record. A
+failed or malformed metadata read is an explicit projection error; it must
+not be treated as an absent record, a lower-priority source, or permission to
+show a stale cached tuple as current. A caller may retain a prior view only if
+the response marks it stale and prevents it from authorizing a native clear.
+Clear failures likewise leave persisted attention unchanged and do not publish
+a resolved state.
+
+## Lifecycle and compatibility
+
+- Native-disabled and unsupported Codex sessions keep the existing JSON
+  behavior and do not gain native clear authority.
+- Native-enabled sessions require the versioned sidecar write path for all
+  active metadata mutations, including agent writes. Read-only direct JSON
+  access remains compatible; active direct JSON writes are unsupported. The
+  atomicity guarantee covers compliant producers, not arbitrary external
+  modification of the metadata directory.
+- There is no automatic migration of old records. The versioned read path
+  must define how it presents a revision and attention timestamp for legacy
+  records before native clear can be enabled.
+- Session end revokes all live clear tokens. Restart reconciliation follows
+  the existing lifecycle contract and never restores native clear authority
+  from persisted data.
+- Forget, delete, and retention continue to operate on the single session
+  record; there is no companion attention file to orphan.
+- #763's listener ownership gate, #690's signal/configuration/platform gates,
+  and ADR 0076's native verification requirements remain independent.
 
 ## Alternatives considered
 
-### Coordinate all writers with a shared lock
+### Keep direct JSON writes and store native attention separately
 
-This would require every direct agent writer to adopt a new lock protocol or
-replace direct JSON writes with a sidecar API. An advisory lock only works for
-cooperating writers; imposing it would change the currently supported MVP
-protocol and could silently lose writes from existing agents. It is not the
-selected approach.
+A separate layer avoids overwriting the base record, but it cannot make
+session-list projections coherent with arbitrary direct replacements. A
+direct writer can read stale attention, then replace the whole JSON record
+while a native wait is active. The layer also needs separate provenance and
+staleness composition rules. This option is not selected.
 
-### Keep the record-wide tuple and leave clearing disabled
+### Keep direct JSON writes and leave native clearing disabled
 
-This is safe and remains the rollout behavior until implementation evidence is
-complete, but it does not resolve the writer gap in #690. It is the fallback
-if the layer cannot meet the acceptance evidence below.
-
-## Compatibility and limits
-
-- The `sessions/<id>.json` schema and direct agent read/write contract do not
-  change.
-- Clients continue to receive one session view with the existing attention
-  fields; the sidecar owns composition.
-- A direct `user` or `agent` tuple can mask native attention by design, in
-  accordance with metadata authority. The native observer never erases it.
-- Direct base writes do not revoke the native-layer token. ADR 0076 is amended
-  to use layer-scoped ownership; source precedence and bounded identity/content
-  rechecks protect the independently stored base record.
-- The layer serializes sidecar writers. It does not protect against deliberate
-  external modification of the new sidecar-owned path.
-- Restart ends live sessions under the existing contract. Persistence does
-  not resume native ownership, pending approvals, or clear authority.
-- #763's listener ownership gate, #690's signal/configuration/platform gates,
-  and ADR 0076's native verification requirements remain independent.
+This remains the rollout behavior until the owner approves a mediated write
+contract and its implementation evidence. It is the safe fallback if the
+versioned write path cannot be delivered without losing supported agent
+updates.
 
 ## Required implementation evidence
 
 The implementation follow-up must include behavioral tests proving:
 
-- An identical direct agent tuple written while a native candidate is active
-  remains the projected tuple after native clear.
-- A direct replacement of `sessions/<id>.json` after the native clear's final
-  authority check but before the native-layer commit is not overwritten or
-  hidden after the clear.
-- A direct replacement or in-place content change to either file during view
-  composition causes a retry; if the pair cannot be stabilized, projection
-  fails closed by omitting native attention.
-- A native clear that commits between the first layer read and the layer
-  recheck cannot return pre-clear attention as a successful stable projection.
-- The tests use an independent direct file replacement (including atomic
-  rename), not only a cooperating `MetadataStore` writer.
-- Native set/clear failure, duplicate native writes, and unrelated base
-  read-modify-write paths do not publish or persist merged fields incorrectly.
-- Projection preserves the entire user/agent tuple and uses the Codex layer
-  only over lower-priority base sources.
-- End, forget, delete, retention, and restart reconciliation do not revive
-  authority from stale layer records.
+- An API read followed by a versioned patch updates only requested fields and
+  receives a new metadata revision; an identical accepted tuple write also
+  advances the attention ownership revision.
+- `attentionState` rejects partial tuples, replaces all tuple fields together,
+  and distinguishes omitted groups from explicit-null clears.
+- A stale agent revision returns conflict and cannot replace newer metadata.
+- A write from any sidecar producer advances `metadataRevision`, so an agent
+  patch read before a native, Peon, hook, user, or lifecycle write conflicts.
+- A competing agent write and native clear are serialized: whichever commits
+  first is reflected by the next read, and an earlier agent write prevents
+  the old native owner from clearing.
+- Native clear rechecks ownership after any staged I/O and before the atomic
+  replacement while the per-session writer lock remains held.
+- Every in-product active-session writer uses the versioned sidecar contract;
+  active direct JSON replacement remains unsupported by the eligible runtime
+  contract.
+- The persisted attention update time changes on attention/source writes,
+  remains unchanged for unrelated writes, and preserves the strict Peon
+  boundary at 15 seconds versus greater than 15 seconds.
+- Agent work-metadata patches update metadata source priority without changing
+  attention source, provenance, timestamp, or native clear ownership; Peon
+  applies the two source-priority checks independently.
+- Failed or malformed session reads and failed writes do not appear as
+  missing/lower-priority attention and do not publish a resolved state.
+- User and agent source priority, tuple integrity, and projected attention
+  provenance remain correct across agent, hook, Peon, native, and lifecycle
+  writes; legacy records receive `legacy_unknown` provenance.
+- Legacy `metadataSource=codex_hook` maps to the `agent` attention tier without
+  being misidentified as a current native-owned tuple.
+- Session API projection and the details SourceBadge use the attention-specific
+  source and confidence while general metadata retains its own source fields.
+- End, restart, forget, delete, and retention do not restore native clear
+  authority from stale state.
 
 The production native-clear gate can be removed only after the written design
 and implementation handoff are approved, these tests pass on every supported
 platform, required CI and review pass on the exact PR head, and the separate
 #690 and #763 verification gates are satisfied. Reducer tests, cooperating
-writer tests, or file-identity checks alone are insufficient.
+writer tests, or revision checks alone are insufficient.
 
 ## Handoff
 
 This design changes no runtime code and does not itself enable native clearing.
-Create an implementation issue for the isolated store, attention transition
-routing, merged projections, lifecycle cleanup, and the behavioral tests above.
-Keep #690's production gate closed until that work and its separate native
-verification gates are complete.
+After owner approval, create an implementation issue for the versioned
+metadata API, producer migration, single-record serialized writes, lifecycle
+handling, staleness timestamp, projection error behavior, and the behavioral
+tests above. Keep #690's production gate closed until that work and its
+separate native verification gates are complete.
