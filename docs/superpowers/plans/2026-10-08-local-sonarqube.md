@@ -77,7 +77,7 @@ skill; reviews inspect the final artifacts and cannot run until those exist.
 
 ## Verification evidence (2026-10-08)
 
-- 23 helper tests pass on macOS/Python 3.9; native Windows/Linux CI is included.
+- 25 helper tests pass on macOS/Python 3.9; native Windows/Linux CI is included.
 - Actual ARM64 Podman services started; Rust Clippy, Rust and TypeScript sensors
   completed, followed by a successful server Compute Engine task.
 - Project analysis: 195 source files (88 Rust), 362 open issues, ncloc 130969,
@@ -110,3 +110,12 @@ image tag, record its actual image ID, lock host initialization, make stored
 credentials authoritative, require explicit report overwrite, omit the SCM
 revision override and validate/reprovision saved tokens. Regression cases were
 observed failing before fixes; native CI and fresh review run on the new head.
+
+### PR review cycle 2
+
+The fresh review identified shutdown crossing worktree ownership, relative
+credential path disagreement and runtime Clippy toolchain changes. One shared
+host lock now serializes scan, refresh and lifecycle operations and refuses
+busy shutdown; relative overrides become absolute without following symlinks;
+actual Rust/Cargo/Clippy versions are captured inside the copied-source scanner
+before analysis. Regression cases were observed failing before fixes.

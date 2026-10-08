@@ -81,7 +81,7 @@ From macOS/Linux, run `python3 scripts/sonar.py up` in the checkout. `up` starts
 the pinned services, waits for readiness, replaces the initial admin password
 and creates a local API token. Startup validates saved tokens and reprovisions
 revoked tokens through the saved admin password. A host-wide initialization
-lock protects concurrent worktree setup; stored credentials override shell
+lock coordinates service operations across worktrees; stored credentials override shell
 variables during Compose interpolation. Credentials are stored outside Git:
 
 | Host | Private credential file | Protection |
@@ -89,7 +89,8 @@ variables during Compose interpolation. Credentials are stored outside Git:
 | macOS/Linux | `~/.config/orkworks/sonar.env` | Mode 600 |
 | Windows | `%LOCALAPPDATA%\OrkWorks\sonar.env` | Inheritance removed; current user granted access via `icacls` |
 
-`SONAR_ENV_FILE` can select a different private file. Login is `admin`; open
+`SONAR_ENV_FILE` can select a different private file; relative paths resolve
+from the invoking shell before Compose changes its working directory. Login is `admin`; open
 that file privately to obtain the generated password. Preserve this file
 together with persistent service data. Startup does not erase an existing
 database to recover lost credentials.
@@ -117,7 +118,10 @@ container, separate from the host's Node/Electron dependencies.
 
 Community Build supports only one main analysis per project. Each canonical
 checkout gets a separate local project key and scanner image tag, so a feature worktree does not
-overwrite the primary checkout's baseline. Same-checkout scans are locked.
+overwrite the primary checkout's baseline. Same-checkout scans are locked. Scans, refreshes and service lifecycle commands
+also share one host lock: operations are serialized, and a busy stack is refused
+until the active operation finishes. This prevents shutdown during submission,
+processing or report collection.
 The Git branch and HEAD remain explicit report metadata; these local projects
 are not Sonar-native branch or pull-request analysis.
 
@@ -126,7 +130,7 @@ commit/dirty state, completed analysis ID, configuration identity, project/file
 metrics, open issue inventory, analysis warnings and quality gate. They become available only
 after the submitted server task succeeds. Retrieval checks the latest analysis
 before and after collection. `compare` refuses different scope, profiles, effective server settings, quality
-gate conditions or analyzer versions (including the actual scanner image ID) and preserves missing
+gate conditions or analyzer versions (including the actual scanner image ID and runtime Rust/Cargo/Clippy versions) and preserves missing
 values as unknown.
 
 ```bash
@@ -161,7 +165,8 @@ requirements and does not authorize broad refactoring on its own.
 python3 scripts/sonar.py down
 ```
 
-This removes the services, retaining named volumes. Worktree scanner dependency
+This refuses an active scan or refresh in another worktree. Once idle, it
+removes the services, retaining named volumes. Worktree scanner dependency
 volumes also persist for reuse. Removing them is an explicit housekeeping action.
 Do not use `down -v` to troubleshoot: it deletes the stored analysis database.
 

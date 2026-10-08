@@ -179,7 +179,7 @@ def default_settings_path(windows=None):
 
 def settings_file():
     override = os.environ.get('SONAR_ENV_FILE')
-    return Path(override).expanduser() if override else default_settings_path()
+    return (Path(override).expanduser() if override else default_settings_path()).absolute()
 
 
 def write_settings(path, settings):
@@ -238,10 +238,14 @@ def wait_for(check, seconds=900):
     raise ValueError('Timed out waiting for SonarQube; inspect the local container logs')
 
 
-def up():
-    lock = default_settings_path().with_suffix('.init.lock')
+def stack_lock():
+    lock = default_settings_path().with_suffix('.stack.lock')
     lock.parent.mkdir(parents=True, exist_ok=True)
-    with scan_lock(lock, 'SonarQube initialization is already running; retry after it finishes'):
+    return scan_lock(lock, 'SonarQube stack is in use; retry after the active operation finishes')
+
+
+def up():
+    with stack_lock():
         initialize()
 
 
@@ -279,7 +283,7 @@ def initialize():
     print('SonarQube ready at http://127.0.0.1:9000; credentials: ' + str(settings_file()))
 
 
-def analysis_identity(api, project, properties, image=None):
+def analysis_identity(api, project, properties, image=None, toolchain=None):
     profiles = api.request('api/qualityprofiles/search', {'project': project})['profiles']
     plugins = api.request('api/plugins/installed')['plugins']
     effective = {}
@@ -293,7 +297,7 @@ def analysis_identity(api, project, properties, image=None):
     return {'server': api.request('api/system/status')['version'],
             'plugins': sorted([p['key'], p.get('version')] for p in plugins),
             'profiles': sorted([p['key'], p['language'], p.get('rulesUpdatedAt')] for p in profiles),
-            'scanner': SCANNER_VERSION, 'scannerImage': image, 'properties': properties,
+            'scanner': SCANNER_VERSION, 'scannerImage': image, 'toolchain': toolchain, 'properties': properties,
             # Hash settings, rather than publishing possible secured values.
             'effectiveSettings': digest(json.dumps(effective, sort_keys=True).encode()),
             'qualityGate': {'name': gate, 'conditions': sorted(conditions, key=lambda c: c['metric'])}}
@@ -307,7 +311,7 @@ def verify_configuration(expected, current):
 def collect(api, state):
     project, analysis = state['project'], state['analysisId']
     verify_analysis(analysis, api.request('api/project_analyses/search', {'project': project, 'ps': 1}))
-    identity = analysis_identity(api, project, state['properties'], state.get('scannerImage'))
+    identity = analysis_identity(api, project, state['properties'], state.get('scannerImage'), state.get('toolchain'))
     verify_configuration(state.get('analyzerIdentity'), identity)
     component = api.request('api/measures/component',
                 {'component': project, 'metricKeys': ','.join(METRICS)})['component']
@@ -317,7 +321,7 @@ def collect(api, state):
     gate = api.request('api/qualitygates/project_status', {'analysisId': analysis})['projectStatus']
     # Project/file measures are latest-only APIs: detect another scan during collection.
     verify_analysis(analysis, api.request('api/project_analyses/search', {'project': project, 'ps': 1}))
-    verify_configuration(identity, analysis_identity(api, project, state['properties'], state.get('scannerImage')))
+    verify_configuration(identity, analysis_identity(api, project, state['properties'], state.get('scannerImage'), state.get('toolchain')))
     return dict(state, configuration=digest(json.dumps(identity, sort_keys=True).encode()),
                 analyzerIdentity=identity, metrics=metric_values(component.get('measures', [])),
                 files=[{'path': f['path'], 'metrics': metric_values(f.get('measures', []))} for f in files],
@@ -343,7 +347,7 @@ def scan(label, overwrite=False):
     project = project_key(ROOT)
     directory = ROOT / '.sonar'
     directory.mkdir(exist_ok=True)
-    with scan_lock(directory / 'scan.lock'):
+    with stack_lock(), scan_lock(directory / 'scan.lock'):
         with tempfile.TemporaryDirectory(prefix='orkworks-sonar-') as temporary:
             source = Path(temporary)
             state = snapshot(ROOT, source)
@@ -359,9 +363,14 @@ def scan(label, overwrite=False):
                     'scanner', 'sleep', 'infinity', env=env)
             try:
                 state['scannerImage'] = run('podman', 'inspect', '--format', '{{.Image}}', container, capture=True).strip()
-                state['analyzerIdentity'] = analysis_identity(api, project, state['properties'], state['scannerImage'])
                 # Relative paths avoid drive-letter parsing and VM host-share requirements.
                 run('podman', 'cp', './.', container + ':/workspace', cwd=source)
+                state['toolchain'] = {name: run('podman', 'exec', container, *command, capture=True).strip()
+                    for name, command in (('rustc', ('rustc', '--version', '--verbose')),
+                                          ('cargo', ('cargo', '--version')),
+                                          ('clippy', ('cargo', 'clippy', '--version')))}
+                state['analyzerIdentity'] = analysis_identity(api, project, state['properties'],
+                                                            state['scannerImage'], state['toolchain'])
                 run('podman', 'exec', container, 'bash', '-c',
                     'cd apps/desktop && pnpm install --frozen-lockfile && '
                     'cd /workspace && sonar-scanner-npm "$@"', 'scan',
@@ -411,16 +420,18 @@ def main():
         if args.command == 'up':
             up()
         elif args.command == 'down':
-            load_settings()
-            compose('down')
+            with stack_lock():
+                load_settings()
+                compose('down')
         elif args.command == 'scan':
             scan(args.label, args.overwrite)
         elif args.command == 'report':
-            state = json.loads((ROOT / '.sonar/latest.json').read_text(encoding='utf-8'))
-            with tempfile.TemporaryDirectory() as temporary:
-                if snapshot(ROOT, Path(temporary))['fingerprint'] != state['fingerprint']:
-                    raise ValueError('Working source changed since the last scan; rescan')
-            save_report(collect(Api(load_settings()), state), args.label, args.overwrite)
+            with stack_lock():
+                state = json.loads((ROOT / '.sonar/latest.json').read_text(encoding='utf-8'))
+                with tempfile.TemporaryDirectory() as temporary:
+                    if snapshot(ROOT, Path(temporary))['fingerprint'] != state['fingerprint']:
+                        raise ValueError('Working source changed since the last scan; rescan')
+                save_report(collect(Api(load_settings()), state), args.label, args.overwrite)
         else:
             print(json.dumps(compare(json.loads(args.before.read_text(encoding='utf-8')),
                                      json.loads(args.after.read_text(encoding='utf-8'))), indent=2))

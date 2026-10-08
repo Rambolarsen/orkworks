@@ -118,6 +118,29 @@ class PortabilityTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_relative_credentials_resolve_in_the_callers_directory(self):
+        previous = Path.cwd()
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(os.environ, {'SONAR_ENV_FILE': 'private/sonar.env'}):
+            try:
+                os.chdir(temporary)
+                self.assertEqual(sonar.settings_file(), Path.cwd() / 'private/sonar.env')
+            finally:
+                os.chdir(previous)
+
+    def test_stack_lock_refuses_shutdown_during_a_scan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            credential = Path(temporary) / 'sonar.env'
+            with mock.patch.object(sonar, 'default_settings_path', return_value=credential):
+                with sonar.stack_lock():
+                    script = ('import sys; sys.path.insert(0, sys.argv[1]); import sonar; '
+                              'from pathlib import Path; credential = Path(sys.argv[2]); '
+                              'sonar.default_settings_path = lambda: credential; '
+                              'sys.argv = ["sonar", "down"]; sonar.main()')
+                    check = subprocess.run([sys.executable, '-c', script,
+                        str(Path(__file__).parent), str(credential)], capture_output=True, text=True)
+                    self.assertNotEqual(check.returncode, 0)
+                    self.assertIn('stack is in use', check.stderr)
+
     def test_compose_uses_saved_credentials_over_shell_overrides(self):
         saved = {'SONAR_DB_PASSWORD': 'stored-password', 'SONAR_TOKEN': 'stored-token'}
         with mock.patch.object(sonar, 'load_settings', return_value=saved), mock.patch.object(
@@ -133,7 +156,7 @@ class LifecycleTests(unittest.TestCase):
             with mock.patch.object(sonar, 'default_settings_path', return_value=private), mock.patch.object(
                     sonar, 'initialize') as initialize:
                 def attempt_competing_initializer():
-                    with self.assertRaisesRegex(ValueError, 'initialization'):
+                    with self.assertRaisesRegex(ValueError, 'stack'):
                         sonar.up()
                 initialize.side_effect = attempt_competing_initializer
                 sonar.up()
@@ -195,6 +218,10 @@ class ReportTests(unittest.TestCase):
             else responses[endpoint])
         before = sonar.analysis_identity(api, 'project', 'scope')
         sonar.verify_configuration(json.loads(json.dumps(before)), before)
+        with self.assertRaisesRegex(ValueError, 'configuration'):
+            sonar.verify_configuration(
+                sonar.analysis_identity(api, 'project', 'scope', toolchain={'clippy': '1.98'}),
+                sonar.analysis_identity(api, 'project', 'scope', toolchain={'clippy': '1.99'}))
         settings[1]['value'] = 'restart'
         self.assertEqual(before, sonar.analysis_identity(api, 'project', 'scope'))
         settings[0]['value'] = 'false'

@@ -36,7 +36,9 @@ the helper does not disable bootstrap checks or silently resize a running VM.
 
 Community Build has no native multi-branch analysis. Derive a separate project
 key and scanner image tag from each canonical checkout path. Capture the actual
-scanner image ID in the report configuration. Lock scans in a checkout and stage a
+scanner image ID and runtime Rust/Cargo/Clippy versions in report configuration.
+A host-wide stack lock serializes scanning, refresh and lifecycle commands;
+shutdown is refused during an active operation. Lock scans in a checkout and stage a
 copy of eligible Git-listed source, including unstaged and nonignored new
 source files. Exclude credentials, generated output, platform-specific caches
 and symlinks. Hash the exact staged bytes and their relative paths; record Git
