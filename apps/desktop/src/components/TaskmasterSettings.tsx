@@ -164,7 +164,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
     <p className="settings-section-copy">Automatic background-discovery calls, including failed calls, count toward this limit. Manual Analyze now requests are unlimited. Cost depends on the selected model. The daily limit resets at midnight UTC.</p>
     <label className="taskmaster-checkbox"><input type="checkbox" disabled={scope === "workspace"} checked={draft.automaticKnowledgeUpdates} onChange={(event) => edit({ automaticKnowledgeUpdates: event.target.checked })} /> Update shared knowledge automatically</label>
     <dl className="recommendation-facts">
-      <div><dt>Analysis</dt><dd>{status.analysisStatus.replaceAll("_", " ")}</dd></div>
+      <div><dt>Analysis</dt><dd>{status.analysisStatus === "knowledge_unavailable" ? "Verified reference knowledge required" : status.analysisStatus.replaceAll("_", " ")}</dd></div>
       <div><dt>Background evaluations left today</dt><dd>{status.remainingEvaluations}</dd></div>
       <div><dt>Knowledge version</dt><dd>{status.knowledgeUpdate.version ?? status.knowledgeVersion ?? "Not loaded"}</dd></div>
       <div><dt>Last successful knowledge check</dt><dd>{status.knowledgeUpdate.lastSuccessfulUpdate ?? "Not yet checked"}</dd></div>

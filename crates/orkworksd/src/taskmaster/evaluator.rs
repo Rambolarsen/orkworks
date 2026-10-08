@@ -345,7 +345,9 @@ fn schedule_model_evaluation_with_workspace(
     trigger: TaskmasterRunTrigger,
     manual: bool,
 ) -> ScheduleResult {
-    if tokio::runtime::Handle::try_current().is_err() {
+    if super::runtime::brain_knowledge_availability().is_err()
+        || tokio::runtime::Handle::try_current().is_err()
+    {
         return ScheduleResult::Unavailable;
     }
     {
@@ -427,9 +429,17 @@ struct ScheduledRun {
     root: std::path::PathBuf,
 }
 
+/// Test the dormant engine after admission; production enters the gated worker.
 #[cfg(test)]
-fn run_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
-    run_model_evaluation_at_with_workspace(state, root, None, None, None);
+fn run_admitted_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
+    run_model_evaluation_with_context_and_workspace(
+        state,
+        root,
+        crate::taskmaster::context::collect_repository_facts,
+        None,
+        None,
+        None,
+    );
 }
 
 fn run_model_evaluation_at_with_workspace(
@@ -439,6 +449,18 @@ fn run_model_evaluation_at_with_workspace(
     analysis_lease: Option<std::fs::File>,
     scheduled_run: Option<ScheduledRun>,
 ) {
+    if let Err(reason) = super::runtime::brain_knowledge_availability() {
+        if let Some(run) = scheduled_run {
+            let mut guard = RunGuard {
+                runtime: Arc::new(TaskmasterRuntime::open(root)),
+                workspace_path: run.workspace_path,
+                id: run.id,
+                completed: false,
+            };
+            guard.finish(TaskmasterRunOutcomeState::Interrupted, Some(reason));
+        }
+        return;
+    }
     run_model_evaluation_with_context_and_workspace(
         state,
         root,
@@ -449,9 +471,9 @@ fn run_model_evaluation_at_with_workspace(
     );
 }
 
-/// The collector is invoked only after readiness and identity are established.
+/// Test-only collector injection for the dormant post-admission engine.
 #[cfg(test)]
-fn run_model_evaluation_with_context(
+fn run_admitted_model_evaluation_with_context(
     state: Arc<AppState>,
     root: std::path::PathBuf,
     collect_facts: impl FnOnce(

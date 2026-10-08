@@ -81,6 +81,11 @@ fn status_for(state: &AppState, runtime: &TaskmasterRuntime) -> SettingsStatus {
         }
         .into();
     }
+    if status.analysis_status == "ready"
+        && crate::taskmaster::runtime::brain_knowledge_availability().is_err()
+    {
+        status.analysis_status = "knowledge_unavailable".into();
+    }
     SettingsStatus {
         status,
         providers: catalog.unwrap_or_default(),
@@ -277,7 +282,7 @@ mod tests {
             );
             runtime.replace_settings(settings.clone()).unwrap();
             let expected = if state.providers.supports_inference_only(provider) {
-                "ready"
+                "knowledge_unavailable"
             } else {
                 "unsupported_capability"
             };
@@ -342,6 +347,46 @@ mod tests {
             "taskmaster-test-token".parse().unwrap(),
         );
         headers
+    }
+
+    #[tokio::test]
+    async fn analyze_reports_the_privacy_prerequisite_even_with_background_disabled() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(directory.path());
+        let runtime = runtime_for(&state);
+        let mut settings = TaskmasterSettings::default();
+        settings.enabled = false;
+        settings.selection = Some(
+            serde_json::from_value(serde_json::json!({
+                "provider":"ollama", "model":"test-model"
+            }))
+            .unwrap(),
+        );
+        runtime.replace_settings(settings).unwrap();
+        let response = super::super::taskmaster_handlers::analyze_taskmaster(
+            State(state),
+            authorized_headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["status"], "unavailable");
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains("verified reference knowledge"));
+        assert_eq!(
+            runtime.status(Some(directory.path())).remaining_evaluations,
+            8
+        );
+        assert!(runtime
+            .run_status(Some(directory.path()))
+            .unwrap()
+            .active_attempt
+            .is_none());
     }
 
     #[tokio::test]
@@ -563,7 +608,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(status_for(&state, &runtime).analysis_status, "ready");
+        assert_eq!(
+            status_for(&state, &runtime).analysis_status,
+            "knowledge_unavailable"
+        );
         assert_eq!(runtime.status(None).remaining_evaluations, 8);
     }
 }

@@ -184,3 +184,12 @@ test("executable approval displays conditional execution eligibility, not inacti
   assert.match(rendered, /selected.*background analysis/i);
   assert.doesNotMatch(rendered, /does not enable execution|execution inactive|remains inactive/i);
 });
+
+
+test("Taskmaster explains the verified knowledge prerequisite while preserving provider configuration", async (t) => {
+  const view = await fixture(t, { state: "knowledge_unavailable", provider: "codex" });
+  const tree = view.render(); await view.settle();
+  assert.match(text(tree), /Verified reference knowledge required/);
+  assert.ok(nodes(tree).some((node) => node.type === "input" && node.props.list));
+  assert.equal(view.modelRefresh(), 0);
+});

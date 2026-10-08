@@ -4,7 +4,13 @@ Open **Settings → Recommendations** to choose a Taskmaster model provider and
 model. This selection is independent of Peon. Without a configured supported
 model, the existing deterministic recommendations remain available.
 
-Background inference supports Ollama, Codex, and Claude Code. CLI profiles require
+**Brain analysis is currently unavailable** while reviewed, privacy-qualified
+signed reference knowledge is prepared. Background discovery and **Analyze now**
+do not invoke a model provider. Observation recommendations and **Fix with AI**
+remain available. A loaded knowledge version or an approved executable does not
+make reference knowledge eligible for analysis.
+
+The configured inference transports support Ollama, Codex, and Claude Code. CLI profiles require
 Codex 0.153.4 or later in the 0.x series, or Claude Code 2.1.236 or later in the
 2.x series. Each call checks the installed version before sending context;
 unrecognized versions and failed checks do not run inference. Other providers
@@ -45,8 +51,8 @@ additional terminal replay is not collected.
 
 Use **All workspaces** for defaults or **This workspace** for overrides. The
 default limit is eight background AI evaluations per UTC day across the app and at least
-one hour between automatic evaluations of a workspace. A manual **Analyze now**
-request remains available when automatic Background discovery is off. It bypasses
+one hour between automatic evaluations of a workspace. Once eligible reference knowledge is available, a manual **Analyze now**
+request can run when automatic Background discovery is off. It bypasses
 the hourly interval and the daily limit, which governs automatic Background
 discovery only. Failed automatic calls count. This
 limits usage, not the amount a provider may bill. Saving a narrower context
@@ -62,8 +68,10 @@ you complete or dismiss it, you can request another analysis. Unchanged evidence
 still does not create a duplicate recommendation.
 
 Shared reference knowledge ships with the application and updates automatically
-every six hours while the app is running. Updates are verified before use; an
-offline or failed update keeps the cached version. You can disable knowledge
+every six hours while the app is running. Signed feed updates are verified for integrity; an
+offline or failed update keeps the cached version. The current starter and legacy
+caches are ineligible for Brain analysis until the strict privacy and signed
+attestation requirements are implemented. You can disable knowledge
 updates independently of AI analysis. Settings shows version, last successful
 check, and remaining background evaluations.
 Knowledge page IDs preserve relative Markdown names, including spaces, dots,

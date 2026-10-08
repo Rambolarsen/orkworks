@@ -257,6 +257,9 @@ pub(crate) async fn analyze_taskmaster(
             Some("Configure an available Taskmaster model before requesting Brain analysis."),
         );
     };
+    if let Err(reason) = crate::taskmaster::runtime::brain_knowledge_availability() {
+        return manual_analysis_response("unavailable", None, Some(reason));
+    }
     let trust = super::inference_trust_handlers::trust_store(&state).ok();
     let available = provider_catalog::inspect(&state.harness_store, trust.as_ref())
         .ok()

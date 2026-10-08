@@ -62,7 +62,9 @@ their confidence is evidence to weigh, not a guarantee.
 - **Dismiss** declines the suggestion.
 - **Fix with AI** sends a scoped fix prompt into your currently active
   session. It requires an active session and your explicit action.
-- **Analyze now** asks the Brain to look for an improvement on demand. If one
+- **Analyze now** is currently unavailable until privacy-qualified signed reference
+  knowledge is ready. Once that prerequisite is met, it asks the Brain to look for
+  an improvement on demand. If one
   is already proposed or being implemented, Taskmaster asks you to handle that
   recommendation first. It works even when automatic Background discovery is
   off, and manual analyses are not limited by the daily analysis allowance —
