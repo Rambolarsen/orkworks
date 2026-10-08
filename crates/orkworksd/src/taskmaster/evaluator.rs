@@ -362,6 +362,11 @@ fn schedule_model_evaluation_with_workspace(
             Err(_) => return ScheduleResult::Unavailable,
         };
         let _ = runtime.recover_workspace_run(&workspace_path, &lease);
+        // Preserve deferred status recovery even while Brain admission is closed.
+        // The shared lease proves no other instance owns this stale attempt.
+        if super::runtime::brain_knowledge_availability().is_err() {
+            return ScheduleResult::Unavailable;
+        }
         let status = runtime.status(Some(&workspace_path));
         let Some(selection) = status.effective_settings.selection else {
             return ScheduleResult::Unavailable;
@@ -427,9 +432,17 @@ struct ScheduledRun {
     root: std::path::PathBuf,
 }
 
+/// Test the dormant engine after admission; production enters the gated worker.
 #[cfg(test)]
-fn run_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
-    run_model_evaluation_at_with_workspace(state, root, None, None, None);
+fn run_admitted_model_evaluation_at(state: Arc<AppState>, root: std::path::PathBuf) {
+    run_model_evaluation_with_context_and_workspace(
+        state,
+        root,
+        crate::taskmaster::context::collect_repository_facts,
+        None,
+        None,
+        None,
+    );
 }
 
 fn run_model_evaluation_at_with_workspace(
@@ -439,6 +452,18 @@ fn run_model_evaluation_at_with_workspace(
     analysis_lease: Option<std::fs::File>,
     scheduled_run: Option<ScheduledRun>,
 ) {
+    if let Err(reason) = super::runtime::brain_knowledge_availability() {
+        if let Some(run) = scheduled_run {
+            let mut guard = RunGuard {
+                runtime: Arc::new(TaskmasterRuntime::open(root)),
+                workspace_path: run.workspace_path,
+                id: run.id,
+                completed: false,
+            };
+            guard.finish(TaskmasterRunOutcomeState::Interrupted, Some(reason));
+        }
+        return;
+    }
     run_model_evaluation_with_context_and_workspace(
         state,
         root,
@@ -449,9 +474,9 @@ fn run_model_evaluation_at_with_workspace(
     );
 }
 
-/// The collector is invoked only after readiness and identity are established.
+/// Test-only collector injection for the dormant post-admission engine.
 #[cfg(test)]
-fn run_model_evaluation_with_context(
+fn run_admitted_model_evaluation_with_context(
     state: Arc<AppState>,
     root: std::path::PathBuf,
     collect_facts: impl FnOnce(

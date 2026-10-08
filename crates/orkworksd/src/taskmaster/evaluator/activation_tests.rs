@@ -1,4 +1,5 @@
-//! Exercise the production evaluator with local stores and a real fixture child.
+//! Exercise the dormant post-admission engine and production privacy admission
+//! separately, with local stores and a real fixture child.
 use super::*;
 use crate::harness::{
     definition::{BuiltinDocument, EMBEDDED_BUILTINS},
@@ -15,6 +16,25 @@ use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
+
+// Explicitly exercise the private continuation, without weakening the
+// production worker's knowledge prerequisite in tests or production.
+fn run_admitted_fixture_evaluation(
+    state: Arc<AppState>,
+    root: PathBuf,
+    workspace: Option<PathBuf>,
+    lease: Option<std::fs::File>,
+    run: Option<ScheduledRun>,
+) {
+    run_model_evaluation_with_context_and_workspace(
+        state,
+        root,
+        crate::taskmaster::context::collect_repository_facts,
+        workspace,
+        lease,
+        run,
+    );
+}
 
 struct Fixture {
     dir: tempfile::TempDir,
@@ -134,7 +154,7 @@ impl Fixture {
                 &selection.model,
             )
             .unwrap();
-        run_model_evaluation_at_with_workspace(
+        run_admitted_fixture_evaluation(
             self.state.clone(),
             self.root.clone(),
             None,
@@ -333,7 +353,7 @@ fn custom_evaluation_rechecks_readiness_before_context_and_reservation() {
             }
             _ => unreachable!(),
         }
-        run_model_evaluation_with_context(
+        run_admitted_model_evaluation_with_context(
             fixture.state.clone(),
             fixture.root.clone(),
             |_, _, _, _| {
@@ -360,7 +380,7 @@ fn custom_evaluation_discards_output_revoked_while_child_is_running() {
     fixture.approve();
     let state = fixture.state.clone();
     let root = fixture.root.clone();
-    let evaluation = std::thread::spawn(move || run_model_evaluation_at(state, root));
+    let evaluation = std::thread::spawn(move || run_admitted_model_evaluation_at(state, root));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while !fixture.marker.exists()
         && !evaluation.is_finished()
@@ -513,7 +533,7 @@ fn run_native_knowledge_evaluation(
     let id = runtime
         .queue_run(&workspace_path, trigger, "codex", "gpt-6-luna")
         .unwrap();
-    run_model_evaluation_at_with_workspace(
+    run_admitted_fixture_evaluation(
         fixture.state.clone(),
         fixture.root.clone(),
         manual.then(|| workspace_path.clone()),
@@ -581,5 +601,206 @@ fn native_analysis_rejects_citations_to_knowledge_omitted_from_prompt() {
             .iter()
             .any(|page| page["id"] == "a-7.md"));
         assert!(fixture.recommendations().is_empty());
+    }
+}
+
+// These tests enter through the production worker/scheduler rather than the
+// post-admission engine used by the transport and identity fixtures above.
+#[test]
+fn legacy_knowledge_blocks_background_and_manual_dispatch() {
+    for provider in ["custom", "codex"] {
+        for manual in [false, true] {
+            for claimed_policy in [false, true] {
+                let mut fixture = Fixture::new("success");
+                fixture.approve();
+                let runtime = TaskmasterRuntime::open(fixture.root.clone());
+                let mut stored: serde_json::Value = serde_json::from_str(include_str!(
+                    "../../../../../apps/desktop/resources/knowledge/starter.json"
+                ))
+                .unwrap();
+                if claimed_policy {
+                    stored["privacyPolicyVersion"] = json!(1);
+                    stored["verified"] = json!(true);
+                }
+                fs::write(
+                    fixture.root.join("knowledge.json"),
+                    serde_json::to_vec(&stored).unwrap(),
+                )
+                .unwrap();
+                let native_calls = Arc::new(AtomicUsize::new(0));
+                if provider == "codex" {
+                    let mut settings = runtime.status(None).settings;
+                    settings.selection = Some(
+                        serde_json::from_value(json!({"provider":"codex","model":"gpt-6-luna"}))
+                            .unwrap(),
+                    );
+                    runtime.replace_settings(settings).unwrap();
+                    Arc::get_mut(&mut fixture.state).unwrap().providers =
+                        crate::providers::ProviderManager::for_tests(
+                            crate::providers::ProviderSettingsPayload::default(),
+                            vec![crate::providers::FakeProvider::new("codex")
+                                .version("codex-cli 0.160.0")
+                                .with_counter(native_calls.clone())],
+                        );
+                }
+                run_model_evaluation_at_with_workspace(
+                    fixture.state.clone(),
+                    fixture.root.clone(),
+                    manual.then(|| fixture.dir.path().to_path_buf()),
+                    None,
+                    None,
+                );
+                assert!(
+                    !fixture.marker.exists(),
+                    "legacy knowledge must never reach the custom provider"
+                );
+                assert_eq!(
+                    native_calls.load(Ordering::SeqCst),
+                    0,
+                    "legacy knowledge must never reach the native provider"
+                );
+                assert_eq!(fixture.remaining(), 8);
+                assert!(fixture.recommendations().is_empty());
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn legacy_knowledge_is_unavailable_before_queueing_analysis() {
+    for manual in [false, true] {
+        let fixture = Fixture::new("success");
+        fixture.approve();
+        let runtime = TaskmasterRuntime::open(fixture.root.clone());
+        let starter = serde_json::from_str(include_str!(
+            "../../../../../apps/desktop/resources/knowledge/starter.json"
+        ))
+        .unwrap();
+        runtime.activate_knowledge(starter).unwrap();
+        let result = schedule_model_evaluation_with_workspace(
+            fixture.state.clone(),
+            fixture.dir.path().to_path_buf(),
+            fixture.root.clone(),
+            if manual {
+                TaskmasterRunTrigger::Manual
+            } else {
+                TaskmasterRunTrigger::Background
+            },
+            manual,
+        );
+        assert_eq!(result, ScheduleResult::Unavailable);
+        assert!(runtime
+            .run_status(Some(fixture.dir.path()))
+            .unwrap()
+            .active_attempt
+            .is_none());
+        assert_eq!(fixture.remaining(), 8);
+        assert!(!fixture.marker.exists());
+    }
+}
+
+#[test]
+fn privacy_prerequisite_interrupts_an_already_queued_analysis() {
+    let fixture = Fixture::new("success");
+    fixture.approve();
+    let runtime = TaskmasterRuntime::open(fixture.root.clone());
+    let workspace_path = fixture.dir.path().to_path_buf();
+    let lease = runtime.try_analysis_lease().unwrap().unwrap();
+    let id = runtime
+        .queue_run(
+            &workspace_path,
+            TaskmasterRunTrigger::Background,
+            "custom",
+            "vendor/opaque model;$(literal)",
+        )
+        .unwrap();
+    run_model_evaluation_at_with_workspace(
+        fixture.state.clone(),
+        fixture.root.clone(),
+        None,
+        Some(lease),
+        Some(ScheduledRun {
+            id,
+            workspace_path: workspace_path.clone(),
+            root: fixture.root.clone(),
+        }),
+    );
+    let status = runtime.run_status(Some(&workspace_path)).unwrap();
+    assert!(status.active_attempt.is_none());
+    let outcome = status.latest_outcome.unwrap();
+    assert_eq!(outcome.state, TaskmasterRunOutcomeState::Interrupted);
+    assert!(outcome
+        .error_summary
+        .unwrap()
+        .contains("verified reference knowledge"));
+    assert!(!fixture.marker.exists());
+    assert_eq!(fixture.remaining(), 8);
+}
+
+#[tokio::test]
+async fn privacy_prerequisite_preserves_deferred_run_status_recovery() {
+    for running in [false, true] {
+        let fixture = Fixture::new("success");
+        fixture.approve();
+        let runtime = TaskmasterRuntime::open(fixture.root.clone());
+        let workspace = fixture.dir.path().to_path_buf();
+        let other_instance_lease = runtime.try_analysis_lease().unwrap().unwrap();
+        let id = runtime
+            .queue_run(
+                &workspace,
+                TaskmasterRunTrigger::Background,
+                "custom",
+                "fixture",
+            )
+            .unwrap();
+        if running {
+            assert!(runtime
+                .mark_run_running(&workspace, id, "custom", "fixture")
+                .unwrap());
+        }
+        // Workspace-open recovery defers while another instance owns the lease.
+        let _ = schedule_model_evaluation_with_workspace(
+            fixture.state.clone(),
+            workspace.clone(),
+            fixture.root.clone(),
+            TaskmasterRunTrigger::Background,
+            false,
+        );
+        assert_eq!(
+            runtime
+                .run_status(Some(&workspace))
+                .unwrap()
+                .active_attempt
+                .unwrap()
+                .id,
+            id
+        );
+        drop(other_instance_lease);
+        // The next admission must recover stale status without admitting analysis.
+        assert_eq!(
+            schedule_model_evaluation_with_workspace(
+                fixture.state.clone(),
+                workspace.clone(),
+                fixture.root.clone(),
+                TaskmasterRunTrigger::Background,
+                false,
+            ),
+            ScheduleResult::Unavailable
+        );
+        let status = runtime.run_status(Some(&workspace)).unwrap();
+        assert!(status.active_attempt.is_none());
+        if running {
+            assert_eq!(
+                status.latest_outcome.unwrap().state,
+                TaskmasterRunOutcomeState::Interrupted
+            );
+        } else {
+            assert!(status.latest_outcome.is_none());
+        }
+        assert!(!fixture.marker.exists());
+        assert_eq!(fixture.fallback_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture.remaining(), 8);
+        assert!(fixture.recommendations().is_empty());
+        assert!(runtime.try_analysis_lease().unwrap().is_some());
     }
 }

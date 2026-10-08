@@ -116,6 +116,18 @@ model follow [ADR 0054](../adr/0054-taskmaster-honors-managed-cli-policy.md) and
 [knowledge specification](../../specs/taskmaster-knowledge.md). Electron main
 owns signature verification and bundle activation; the sidecar owns bounded
 analysis and evidence validation. Knowledge cannot change execution authority.
+Brain-backed analysis is currently unavailable until #529 delivers reviewed,
+privacy-qualified signed knowledge and its verified activation contract. The
+sidecar enforces this prerequisite at manual admission, scheduling, and worker
+entry, before provider preparation, context collection or usage reservation.
+The gate is closed in every build; unsigned policy fields, legacy starter/cache
+contents and executable approval cannot enable it. Manual admission and scheduling still retry
+lease-protected stale run-status recovery before refusing analysis. Already-queued
+workers become interrupted without dispatch. Deterministic observation recommendations and
+explicit Fix with AI remain available. Existing engine fixtures exercise the
+private post-admission continuation; production-admission regressions separately
+prove the gate. #529 owns matching signed manifest/payload policy proof, signed
+starter attestation, activation revalidation and the verified-bundle positive path.
 CLI analysis reuses installed logins through fixed recommendation profiles and
 honors administrator-managed policies; required hooks/context/routing are not
 bypassed. OrkWorks' context limits constrain its own collection and request.

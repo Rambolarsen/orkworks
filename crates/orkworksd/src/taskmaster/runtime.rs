@@ -46,6 +46,14 @@ const MAX_PATH_BYTES: usize = 512;
 const MAX_DAILY_EVALUATIONS: u32 = 64;
 const MAX_INTERVAL_MINUTES: u32 = 24 * 60;
 
+/// Existing Brain analysis has no privacy-qualified signed activation path yet.
+/// Keep this prerequisite closed in every build until #529 supplies matching
+/// signed manifest/payload policy proof and a compliant starter. Neither a
+/// provider approval nor a caller-supplied unsigned bundle field enables it.
+pub(crate) fn brain_knowledge_availability() -> Result<(), &'static str> {
+    Err("Brain analysis is unavailable until verified reference knowledge meets the privacy requirements. Observation recommendations remain available.")
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ContextLevel {
