@@ -97,3 +97,42 @@ written and reviewed owned-listener handoff/identity contract, including
 subsequent connections. No readiness-output, port-zero, inherited-socket or
 additional RPC contract is assumed. The prepared operator procedure must
 remain withheld until that prerequisite is implemented and verified.
+
+## Proposed Amendment — 2026-10-08 sidecar-mediated metadata writes
+
+Pending repository owner review and approval. Until accepted, the existing
+accepted ownership contract and production-clear gate remain authoritative;
+this proposal does not authorize producer-protocol or runtime changes.
+
+The proposal keeps one canonical session record and requires active metadata
+writes for native-enabled Codex sessions to pass through an authenticated,
+versioned sidecar API. The launch adapter advertises the protocol only for a
+migrated integration. Direct JSON reads remain available; direct JSON writes
+are unsupported for those active sessions. The API uses a whole attention
+tuple or an allowlisted work-metadata patch, rejects stale revisions, and
+serializes the full read/check/modify/write operation with native clear under
+the same per-session transaction boundary. Direct agent, harness-hook, and
+native Codex signals use the same `agent` attention tier; persisted
+`attentionSource`, `attentionConfidence`, and `attentionOrigin` distinguish
+attention authority from general work-metadata provenance. Every accepted
+attention write, including an identical-value write, advances the ownership
+revision. A durable attention-specific update time preserves the existing
+strict Peon staleness rule without letting unrelated metadata writes refresh
+it.
+
+The versioned agent operation uses the live session report token and session
+ID. A stale revision returns a conflict for reread and retry; the endpoint
+never falls back to direct file mutation. The token remains a bearer
+capability, not proof of OS process identity. The single-record projection
+keeps existing tuple and source-priority semantics, and metadata read/write
+failures cannot be interpreted as permission to clear or lower the source.
+
+This proposal changes the current direct-write contract for native-enabled
+sessions and therefore requires explicit owner approval before implementation.
+Until accepted, the existing JSON contract and production-clear gate remain
+authoritative. The detailed API contract, compatibility limits, timestamp
+behavior, race tests, and production-clear evidence gate are in the
+[sidecar-mediated metadata design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
+This proposal does not enable production clearing; producer migration,
+behavioral tests, #690 signal verification, and the independent #763 listener
+gate remain required.
