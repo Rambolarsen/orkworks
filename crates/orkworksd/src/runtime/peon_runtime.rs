@@ -68,103 +68,194 @@ pub(crate) struct PeonDiagnosticAttempt {
     pub(crate) runtime_identity: RuntimeIdentity,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PeonOutputCaptureIdentity {
+    pub(crate) input_generation: u64,
+    pub(crate) min_revision: u64,
+    pub(crate) first_revision: u64,
+    pub(crate) last_revision: u64,
+    pub(crate) runtime_instance_id: String,
+    pub(crate) run_generation: u64,
+}
+
+impl PeonOutputCaptureIdentity {
+    fn is_current(
+        &self,
+        input_generation: u64,
+        min_revision: u64,
+        runtime_identity: &RuntimeIdentity,
+    ) -> bool {
+        output_inference_is_current(
+            self.input_generation,
+            self.min_revision,
+            input_generation,
+            min_revision,
+        ) && self.runtime_instance_id == runtime_identity.runtime_instance_id
+            && self.run_generation == runtime_identity.run_generation
+    }
+}
+
+pub(crate) struct AttemptContext {
+    view: AttemptContextView,
+}
+
+#[derive(Clone)]
+pub(crate) struct AttemptContextView {
+    state: Arc<AppState>,
+    session_id: String,
+    attempt: PeonDiagnosticAttempt,
+    cancellation: Arc<AtomicBool>,
+}
+
+impl AttemptContext {
+    pub(crate) fn new(
+        state: Arc<AppState>,
+        session_id: String,
+        attempt: PeonDiagnosticAttempt,
+        cancellation: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            view: AttemptContextView {
+                state,
+                session_id,
+                attempt,
+                cancellation,
+            },
+        }
+    }
+
+    fn view(&self) -> AttemptContextView {
+        self.view.clone()
+    }
+
+    fn session_id(&self) -> &str {
+        self.view.session_id()
+    }
+
+    fn state(&self) -> &Arc<AppState> {
+        self.view.state()
+    }
+
+    fn attempt(&self) -> &PeonDiagnosticAttempt {
+        self.view.attempt()
+    }
+
+    fn is_current(&self) -> bool {
+        self.view.is_current()
+    }
+
+    fn complete(&self, result: &providers::ProviderRunResult) -> bool {
+        self.view.complete(result)
+    }
+
+    fn fail(
+        &self,
+        reason: &str,
+        error: &str,
+        provider_failure: Option<&ProviderFailureContext>,
+    ) -> bool {
+        self.view.fail(reason, error, provider_failure)
+    }
+
+    fn timeout(&self, provider_failure: Option<&ProviderFailureContext>) {
+        self.view.timeout(provider_failure);
+    }
+}
+
+impl Drop for AttemptContext {
+    fn drop(&mut self) {
+        self.view
+            .state
+            .peon
+            .cleanup_attempt(self.session_id(), self.attempt());
+    }
+}
+
+impl AttemptContextView {
+    pub(crate) fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    pub(crate) fn state(&self) -> &Arc<AppState> {
+        &self.state
+    }
+
+    pub(crate) fn attempt(&self) -> &PeonDiagnosticAttempt {
+        &self.attempt
+    }
+
+    pub(crate) fn is_current(&self) -> bool {
+        if self.cancellation.load(Ordering::SeqCst) {
+            return false;
+        }
+        let sessions = self.state.sessions.lock().unwrap();
+        sessions
+            .get(&self.session_id)
+            .is_some_and(|handle| self.is_current_with_session(handle))
+    }
+
+    pub(crate) fn is_current_with_session(&self, handle: &crate::SessionHandle) -> bool {
+        !self.cancellation.load(Ordering::SeqCst)
+            && handle
+                .runtime
+                .matches_identity(&self.attempt.runtime_identity)
+            && handle.info.lifecycle_phase == "active"
+            && self
+                .state
+                .peon
+                .diagnostic_attempt_is_current(&self.session_id, &self.attempt)
+    }
+
+    fn complete(&self, result: &providers::ProviderRunResult) -> bool {
+        self.is_current()
+            && self
+                .state
+                .peon
+                .complete_attempt(&self.session_id, &self.attempt, result)
+    }
+
+    fn fail(
+        &self,
+        reason: &str,
+        error: &str,
+        provider_failure: Option<&ProviderFailureContext>,
+    ) -> bool {
+        self.is_current()
+            && self.state.peon.fail_attempt(
+                &self.session_id,
+                &self.attempt,
+                reason,
+                error,
+                provider_failure.and_then(|failure| failure.provider_id.as_deref()),
+                provider_failure.and_then(|failure| failure.provider_model.as_deref()),
+            )
+    }
+
+    fn timeout(&self, provider_failure: Option<&ProviderFailureContext>) {
+        if self.is_current() {
+            self.state.peon.timeout_attempt_with_context(
+                &self.session_id,
+                &self.attempt,
+                provider_failure,
+            );
+        }
+    }
+
+    pub(crate) fn refresh_observation_count(&self, count: Option<usize>) {
+        if self.is_current() {
+            self.state
+                .peon
+                .refresh_observation_count(&self.session_id, &self.attempt, count);
+        }
+    }
+}
+
 type DiagnosticLease = (u64, RuntimeIdentity);
 
 static DIAGNOSTIC_LEASES: OnceLock<Mutex<HashMap<String, DiagnosticLease>>> = OnceLock::new();
 
 fn diagnostic_leases() -> &'static Mutex<HashMap<String, DiagnosticLease>> {
     DIAGNOSTIC_LEASES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn runtime_identity_is_active(
-    state: &AppState,
-    session_id: &str,
-    identity: &RuntimeIdentity,
-) -> bool {
-    state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(session_id)
-        .is_some_and(|handle| {
-            handle.runtime.matches_identity(identity) && handle.info.lifecycle_phase == "active"
-        })
-}
-
-fn diagnostic_attempt_is_active(
-    state: &AppState,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-) -> bool {
-    runtime_identity_is_active(state, session_id, &attempt.runtime_identity)
-        && state
-            .peon
-            .diagnostic_attempt_is_current(session_id, attempt)
-}
-
-fn fail_attempt_if_active(
-    state: &AppState,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-    reason: &str,
-    error: &str,
-    provider_failure: Option<&ProviderFailureContext>,
-) -> bool {
-    if !diagnostic_attempt_is_active(state, session_id, attempt) {
-        return false;
-    }
-    state.peon.fail_attempt(
-        session_id,
-        attempt,
-        reason,
-        error,
-        provider_failure.and_then(|failure| failure.provider_id.as_deref()),
-        provider_failure.and_then(|failure| failure.provider_model.as_deref()),
-    )
-}
-
-fn complete_attempt_if_active(
-    state: &AppState,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-    result: &providers::ProviderRunResult,
-) -> bool {
-    if !diagnostic_attempt_is_active(state, session_id, attempt) {
-        return false;
-    }
-    state.peon.complete_attempt(session_id, attempt, result)
-}
-
-fn timeout_attempt_if_active_with_context(
-    state: &AppState,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-    provider_failure: Option<&ProviderFailureContext>,
-) {
-    if diagnostic_attempt_is_active(state, session_id, attempt) {
-        state
-            .peon
-            .timeout_attempt_with_context(session_id, attempt, provider_failure);
-    }
-}
-
-fn finish_attempt_if_active(state: &AppState, session_id: &str, attempt: &PeonDiagnosticAttempt) {
-    if diagnostic_attempt_is_active(state, session_id, attempt) {
-        state.peon.finish_attempt(session_id, attempt);
-    }
-}
-
-fn refresh_observation_count_if_active(
-    state: &AppState,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-    count: Option<usize>,
-) {
-    if diagnostic_attempt_is_active(state, session_id, attempt) {
-        state
-            .peon
-            .refresh_observation_count(session_id, attempt, count);
-    }
 }
 
 impl crate::PeonState {
@@ -403,6 +494,7 @@ impl crate::PeonState {
         self.in_flight.write().unwrap().remove(session_id);
     }
 
+    #[cfg(test)]
     fn finish_attempt(&self, session_id: &str, attempt: &PeonDiagnosticAttempt) {
         let mut leases = diagnostic_leases().lock().unwrap();
         if leases.get(session_id) != Some(&(attempt.generation, attempt.runtime_identity.clone())) {
@@ -493,28 +585,18 @@ fn output_inference_is_current(
     captured_generation == current_generation && captured_min_revision == current_min_revision
 }
 
-fn apply_output_label_update(
-    state: &Arc<AppState>,
-    session_id: &str,
-    attempt: &PeonDiagnosticAttempt,
-    label_update: (String, u64),
-) {
+fn apply_output_label_update(context: &AttemptContextView, label_update: (String, u64)) {
     let (label, captured_epoch) = label_update;
-    let label_epochs = state.peon.label_epochs.read().unwrap();
-    if label_epochs.get(session_id).copied().unwrap_or(0) != captured_epoch {
+    let label_epochs = context.state.peon.label_epochs.read().unwrap();
+    if label_epochs.get(context.session_id()).copied().unwrap_or(0) != captured_epoch {
         return;
     }
-    let mut sessions = state.sessions.lock().unwrap();
-    if state
-        .peon
-        .diagnostic_attempt_is_current(session_id, attempt)
+    let mut sessions = context.state.sessions.lock().unwrap();
+    if let Some(handle) = sessions
+        .get_mut(context.session_id())
+        .filter(|handle| context.is_current_with_session(handle))
     {
-        if let Some(handle) = sessions.get_mut(session_id).filter(|handle| {
-            handle.runtime.matches_identity(&attempt.runtime_identity)
-                && handle.info.lifecycle_phase == "active"
-        }) {
-            handle.info.label = label;
-        }
+        handle.info.label = label;
     }
 }
 
@@ -668,14 +750,14 @@ where
                                 .map(|capture| {
                                     (
                                         capture.lines.clone(),
-                                        Some((
-                                            capture.input_generation,
-                                            capture.min_revision,
-                                            capture.first_revision,
-                                            capture.last_revision,
-                                            capture.runtime_instance_id,
-                                            handle.runtime.run_generation(),
-                                        )),
+                                        Some(PeonOutputCaptureIdentity {
+                                            input_generation: capture.input_generation,
+                                            min_revision: capture.min_revision,
+                                            first_revision: capture.first_revision,
+                                            last_revision: capture.last_revision,
+                                            runtime_instance_id: capture.runtime_instance_id,
+                                            run_generation: handle.runtime.run_generation(),
+                                        }),
                                         cols,
                                     )
                                 })
@@ -711,12 +793,10 @@ where
             let id = session_id.clone();
             let Some(runtime_identity) = output_boundary
                 .as_ref()
-                .map(
-                    |(_, _, _, _, runtime_instance_id, run_generation)| RuntimeIdentity {
-                        runtime_instance_id: runtime_instance_id.clone(),
-                        run_generation: *run_generation,
-                    },
-                )
+                .map(|capture| RuntimeIdentity {
+                    runtime_instance_id: capture.runtime_instance_id.clone(),
+                    run_generation: capture.run_generation,
+                })
                 .or_else(|| {
                     state
                         .sessions
@@ -734,16 +814,12 @@ where
                 state.peon.in_flight.write().unwrap().remove(&id);
                 continue;
             };
-            let attempt_cleanup = DiagnosticAttemptCleanup {
-                state: state_clone.clone(),
-                session_id: id.clone(),
-                attempt: attempt.clone(),
-            };
             let cancellation = cancellation.clone();
+            let attempt_context =
+                AttemptContext::new(state_clone.clone(), id, attempt, cancellation);
             inference_tasks.spawn(async move {
-                let _attempt_cleanup = attempt_cleanup;
-                let provider_state = state_clone.clone();
-                let cleanup_state = state_clone.clone();
+                let id = attempt_context.session_id().to_string();
+                let provider_state = attempt_context.state().clone();
                 let provider_output = output_snapshot.clone();
                 let applied_provider = provider_state.providers.get_applied();
                 let provider_failure = ProviderFailureContext {
@@ -764,49 +840,30 @@ where
                     Ok(Ok(result)) => result,
                     Ok(Err(error)) => {
                         tracing::warn!(session_id = %id, %error, "peon inference task failed");
-                        if fail_attempt_if_active(
-                            &cleanup_state,
-                            &id,
-                            &attempt,
-                            "provider_task_failed",
-                            &error.to_string(),
-                            None,
-                        ) {
-                            finish_attempt_if_active(&cleanup_state, &id, &attempt);
-                        }
+                        attempt_context.fail("provider_task_failed", &error.to_string(), None);
                         return;
                     }
                     Err(_) => {
                         tracing::warn!(session_id = %id, "peon inference timed out");
-                        timeout_attempt_if_active_with_context(
-                            &cleanup_state,
-                            &id,
-                            &attempt,
-                            Some(&provider_failure),
-                        );
+                        attempt_context.timeout(Some(&provider_failure));
                         let _ = provider_task.await;
-                        finish_attempt_if_active(&cleanup_state, &id, &attempt);
                         return;
                     }
                 };
 
-                if cancellation.load(Ordering::SeqCst) {
-                    cleanup_state.peon.cleanup_attempt(&id, &attempt);
+                if !attempt_context.is_current() {
                     return;
                 }
 
                 if provider_result.inference.is_some() {
-                    if !complete_attempt_if_active(&state_clone, &id, &attempt, &provider_result) {
+                    if !attempt_context.complete(&provider_result) {
                         return;
                     }
                 } else {
-                    if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
+                    if !attempt_context.is_current() {
                         return;
                     }
-                    fail_attempt_if_active(
-                        &state_clone,
-                        &id,
-                        &attempt,
+                    attempt_context.fail(
                         "provider_exhausted",
                         &provider_error_summary(&provider_result),
                         Some(&provider_failure_context(&provider_result)),
@@ -818,10 +875,11 @@ where
                 // runtime/attempt identity guards in the persistence methods and
                 // also make the detached path cooperatively cancel before every
                 // side effect it can still reach.
-                let post_processing_cancellation = cancellation.clone();
+                let post_context = attempt_context.view();
                 let _ = tokio::task::spawn_blocking(move || {
-                    if post_processing_cancellation.load(Ordering::SeqCst) {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                    let state_clone = post_context.state().clone();
+                    let id = post_context.session_id().to_string();
+                    if !post_context.is_current() {
                         return;
                     }
                     if matches!(mode, InferenceMode::InputLabel) {
@@ -836,14 +894,13 @@ where
                                     })
                                 })
                             {
-                                if !post_processing_cancellation.load(Ordering::SeqCst) {
+                                if post_context.is_current() {
                                     if let Some(hint) = hint.as_ref() {
                                         crate::session_application::SessionApplication::new(
-                                            state_clone.clone(),
+                                            post_context.state().clone(),
                                         )
-                                        .persist_input_label_for_attempt(
-                                            &id,
-                                            &attempt,
+                                        .persist_input_label(
+                                            &post_context,
                                             label,
                                             hint.epoch,
                                             hint.from_initial_prompt,
@@ -852,44 +909,27 @@ where
                                 }
                             }
                         }
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
                         return;
                     }
-                    if post_processing_cancellation.load(Ordering::SeqCst) {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                    if !post_context.is_current() {
                         return;
                     }
                     let active_work_hook = {
-                        let sessions = state_clone.sessions.lock().unwrap();
+                        let sessions = post_context.state().sessions.lock().unwrap();
                         sessions.get(&id).and_then(|handle| {
-                            let (
-                                generation,
-                                min_revision,
-                                _,
-                                _,
-                                runtime_instance_id,
-                                run_generation,
-                            ) = output_boundary.as_ref()?;
-                            (output_inference_is_current(
-                                *generation,
-                                *min_revision,
+                            let capture = output_boundary.as_ref()?;
+                            (capture.is_current(
                                 handle.runtime.input_generation,
                                 handle.runtime.min_peon_output_revision,
-                            ) && handle.runtime.runtime_instance_id == *runtime_instance_id
-                                && handle.runtime.run_generation() == *run_generation)
-                                .then_some(handle.active_work_hook)
+                                &handle.runtime.identity(),
+                            ))
+                            .then_some(handle.active_work_hook)
                         })
                     };
                     let Some(active_work_hook) = active_work_hook else {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
                         return;
                     };
-                    if !diagnostic_attempt_is_active(&state_clone, &id, &attempt) {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
-                        return;
-                    }
-                    if post_processing_cancellation.load(Ordering::SeqCst) {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                    if !post_context.is_current() {
                         return;
                     }
                     let inference = provider_result.inference;
@@ -921,16 +961,14 @@ where
                     });
                     let persistence =
                         crate::session_application::SessionApplication::new(state_clone.clone())
-                            .persist_peon_observation_for_attempt(
-                                &id,
-                                &attempt,
+                            .persist_peon_observation(
+                                &post_context,
                                 inference.as_ref(),
                                 provider_result.observation.as_ref(),
                                 history_summary.as_deref(),
                                 &now_iso,
                             );
-                    if post_processing_cancellation.load(Ordering::SeqCst) {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                    if !post_context.is_current() {
                         return;
                     }
                     let inference_persisted = persistence.inference_persisted;
@@ -938,31 +976,21 @@ where
                     let label_update = persistence.label_update;
                     let captured_workspace_path = persistence.workspace_path;
                     if let Some(inf) = inference.as_ref() {
-                        if let Some((
-                            _input_generation,
-                            _min_revision,
-                            first_revision,
-                            last_revision,
-                            runtime_instance_id,
-                            run_generation,
-                        )) = output_boundary.as_ref()
-                        {
-                            if post_processing_cancellation.load(Ordering::SeqCst) {
-                                finish_attempt_if_active(&state_clone, &id, &attempt);
+                        if let Some(capture) = output_boundary.as_ref() {
+                            if !post_context.is_current() {
                                 return;
                             }
                             let result = crate::session_application::SessionApplication::new(
                                 state_clone.clone(),
                             )
-                            .record_peon_workflow_observations_for_attempt(
-                                &id,
+                            .record_peon_workflow_observations(
                                 captured_workspace_path.as_deref(),
-                                &attempt,
+                                &post_context,
                                 &crate::session_application::PeonObservationOutputRange {
-                                    runtime_instance_id: runtime_instance_id.clone(),
-                                    run_generation: *run_generation,
-                                    first_revision: *first_revision,
-                                    last_revision: *last_revision,
+                                    runtime_instance_id: capture.runtime_instance_id.clone(),
+                                    run_generation: capture.run_generation,
+                                    first_revision: capture.first_revision,
+                                    last_revision: capture.last_revision,
                                 },
                                 &output_snapshot,
                                 &inf.workflow_observations,
@@ -972,36 +1000,23 @@ where
                         }
                     }
 
-                    if accepted_observation && !post_processing_cancellation.load(Ordering::SeqCst)
-                    {
+                    if accepted_observation && post_context.is_current() {
                         crate::taskmaster::evaluator::schedule_evaluation(state_clone.clone());
                     }
-                    if post_processing_cancellation.load(Ordering::SeqCst) {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                    if !post_context.is_current() {
                         return;
                     }
                     if output_range_completed {
-                        if let Some((
-                            generation,
-                            min_revision,
-                            _,
-                            last_revision,
-                            runtime_instance_id,
-                            run_generation,
-                        )) = output_boundary
-                        {
+                        if let Some(capture) = output_boundary {
                             if let Some(handle) = state_clone.sessions.lock().unwrap().get_mut(&id)
                             {
-                                if output_inference_is_current(
-                                    generation,
-                                    min_revision,
+                                if capture.is_current(
                                     handle.runtime.input_generation,
                                     handle.runtime.min_peon_output_revision,
-                                ) && handle.runtime.runtime_instance_id == runtime_instance_id
-                                    && handle.runtime.run_generation() == run_generation
-                                    && handle.info.lifecycle_phase == "active"
+                                    &handle.runtime.identity(),
+                                ) && post_context.is_current_with_session(handle)
                                 {
-                                    handle.runtime.min_peon_output_revision = last_revision;
+                                    handle.runtime.min_peon_output_revision = capture.last_revision;
                                     handle.runtime.peon_output_capture = None;
                                 }
                             }
@@ -1019,35 +1034,23 @@ where
                                     .session_observation_count(&id)
                                     .ok()
                             });
-                        refresh_observation_count_if_active(
-                            &state_clone,
-                            &id,
-                            &attempt,
-                            observation_count,
-                        );
+                        post_context.refresh_observation_count(observation_count);
                     }
                     if let Some(label) = label_update {
-                        if post_processing_cancellation.load(Ordering::SeqCst) {
-                            finish_attempt_if_active(&state_clone, &id, &attempt);
-                            return;
+                        if post_context.is_current() {
+                            apply_output_label_update(&post_context, label);
                         }
-                        apply_output_label_update(&state_clone, &id, &attempt, label);
                     }
 
-                    if post_processing_cancellation.load(Ordering::SeqCst) {
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
+                    if !post_context.is_current() {
                         return;
                     }
                     let sessions = state_clone.sessions.lock().unwrap();
-                    if !sessions.get(&id).is_some_and(|handle| {
-                        handle.runtime.matches_identity(&attempt.runtime_identity)
-                            && handle.info.lifecycle_phase == "active"
-                    }) || !state_clone
-                        .peon
-                        .diagnostic_attempt_is_current(&id, &attempt)
+                    if !sessions
+                        .get(&id)
+                        .is_some_and(|handle| post_context.is_current_with_session(handle))
                     {
                         drop(sessions);
-                        finish_attempt_if_active(&state_clone, &id, &attempt);
                         return;
                     }
                     state_clone
@@ -1078,7 +1081,6 @@ where
                             .insert(id.clone(), tokio::time::Instant::now());
                     }
                     drop(sessions);
-                    finish_attempt_if_active(&state_clone, &id, &attempt);
                 })
                 .await;
             });
@@ -1140,20 +1142,6 @@ where
                     .apply_idle_timeout(id);
             }
         }
-    }
-}
-
-struct DiagnosticAttemptCleanup {
-    state: Arc<AppState>,
-    session_id: String,
-    attempt: PeonDiagnosticAttempt,
-}
-
-impl Drop for DiagnosticAttemptCleanup {
-    fn drop(&mut self) {
-        self.state
-            .peon
-            .cleanup_attempt(&self.session_id, &self.attempt);
     }
 }
 
@@ -1257,11 +1245,11 @@ mod tests {
             .peon
             .begin_attempt(session_id, runtime_identity)
             .expect("output attempt should start");
+        let context = attempt_context(state.clone(), session_id, &attempt);
         let inference = peon::parse_inference(r#"{"status":"working","confidence":0.85}"#);
         let persistence = crate::session_application::SessionApplication::new(state.clone())
-            .persist_peon_observation_for_attempt(
-                session_id,
-                &attempt,
+            .persist_peon_observation(
+                &context.view(),
                 inference.as_ref(),
                 None,
                 Some("Old inferred topic"),
@@ -1273,7 +1261,7 @@ mod tests {
 
         crate::session_application::SessionApplication::new(state.clone())
             .reset_session_topic(session_id);
-        apply_output_label_update(&state, session_id, &attempt, label_update);
+        apply_output_label_update(&context.view(), label_update);
 
         let placeholder = crate::session_types::placeholder_label(session_id);
         assert_eq!(
@@ -1359,6 +1347,7 @@ mod tests {
             .peon
             .begin_attempt(session_id, runtime_identity)
             .expect("initial prompt attempt should start");
+        let context = attempt_context(state.clone(), session_id, &attempt);
 
         assert!(
             crate::session_application::SessionApplication::new(state.clone())
@@ -1366,13 +1355,7 @@ mod tests {
         );
         assert!(
             !crate::session_application::SessionApplication::new(state.clone())
-                .persist_input_label_for_attempt(
-                    session_id,
-                    &attempt,
-                    "late startup topic".into(),
-                    0,
-                    true,
-                )
+                .persist_input_label(&context.view(), "late startup topic".into(), 0, true,)
         );
         assert_eq!(
             state.sessions.lock().unwrap()[session_id].info.label,
@@ -1396,9 +1379,8 @@ mod tests {
         crate::test_support::swap_workspace(state.as_ref(), switched_workspace.path());
         assert!(
             !crate::session_application::SessionApplication::new(state.clone())
-                .persist_input_label_for_attempt(
-                    session_id,
-                    &attempt,
+                .persist_input_label(
+                    &context.view(),
                     "late startup topic after workspace switch".into(),
                     0,
                     true,
@@ -1412,9 +1394,8 @@ mod tests {
         *state.workspace.lock().unwrap() = None;
         assert!(
             !crate::session_application::SessionApplication::new(state.clone())
-                .persist_input_label_for_attempt(
-                    session_id,
-                    &attempt,
+                .persist_input_label(
+                    &context.view(),
                     "late startup topic without workspace".into(),
                     0,
                     true,
@@ -1431,6 +1412,19 @@ mod tests {
             runtime_instance_id: name.to_string(),
             run_generation: generation,
         }
+    }
+
+    fn attempt_context(
+        state: Arc<AppState>,
+        session_id: &str,
+        attempt: &PeonDiagnosticAttempt,
+    ) -> AttemptContext {
+        AttemptContext::new(
+            state,
+            session_id.to_string(),
+            attempt.clone(),
+            Arc::new(AtomicBool::new(false)),
+        )
     }
 
     fn spawn_test_peon_loop(
@@ -1624,6 +1618,182 @@ mod tests {
     }
 
     #[test]
+    fn peon_output_capture_identity_rejects_stale_input_and_runtime_generations() {
+        let identity = PeonOutputCaptureIdentity {
+            input_generation: 3,
+            min_revision: 12,
+            first_revision: 15,
+            last_revision: 21,
+            runtime_instance_id: "runtime-a".to_string(),
+            run_generation: 7,
+        };
+        let runtime = RuntimeIdentity {
+            runtime_instance_id: "runtime-a".to_string(),
+            run_generation: 7,
+        };
+
+        assert!(identity.is_current(3, 12, &runtime));
+        assert!(!identity.is_current(4, 12, &runtime));
+        assert!(!identity.is_current(3, 13, &runtime));
+        assert!(!identity.is_current(
+            3,
+            12,
+            &RuntimeIdentity {
+                runtime_instance_id: "runtime-b".to_string(),
+                run_generation: 7,
+            }
+        ));
+        assert!(!identity.is_current(
+            3,
+            12,
+            &RuntimeIdentity {
+                runtime_instance_id: "runtime-a".to_string(),
+                run_generation: 8,
+            }
+        ));
+    }
+
+    #[test]
+    fn attempt_context_currentness_includes_cancellation() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "attempt-context-cancellation";
+        let runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let runtime_identity = runtime.identity();
+        state.sessions.lock().unwrap().insert(
+            session_id.to_string(),
+            crate::SessionHandle {
+                info: test_session_info(
+                    session_id,
+                    "Attempt context cancellation",
+                    dir.path().display().to_string(),
+                    "running",
+                    "now",
+                ),
+                kill_tx: tokio::sync::watch::channel(false).0,
+                output_buffer: peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+                active_work_hook: false,
+            },
+        );
+        state.peon.mark_candidate(session_id);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, runtime_identity)
+            .expect("diagnostic attempt should start");
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let context =
+            AttemptContext::new(state, session_id.to_string(), attempt, cancellation.clone());
+        assert!(context.is_current());
+
+        cancellation.store(true, Ordering::SeqCst);
+
+        assert!(!context.is_current());
+    }
+
+    #[test]
+    fn attempt_context_drop_releases_its_lease_and_preserves_terminal_diagnostics() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "attempt-context-drop";
+        state.peon.mark_candidate(session_id);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        let attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity("context-drop", 1))
+            .expect("diagnostic attempt should start");
+        state.peon.timeout_attempt(session_id, &attempt);
+        let context = AttemptContext::new(
+            state.clone(),
+            session_id.to_string(),
+            attempt.clone(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+
+        drop(context);
+
+        assert!(!diagnostic_leases().lock().unwrap().contains_key(session_id));
+        assert!(!state.peon.in_flight.read().unwrap().contains(session_id));
+        assert_eq!(
+            state.peon.diagnostics.read().unwrap()[session_id]
+                .snapshot
+                .scheduler_state,
+            crate::session_types::PeonSchedulerState::Failed
+        );
+    }
+
+    #[test]
+    fn stale_attempt_context_drop_cannot_release_a_newer_session_lease() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let session_id = "attempt-context-stale-drop";
+        state.peon.mark_candidate(session_id);
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        let first_attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity("context-stale", 1))
+            .expect("first attempt should start");
+        let first_context = AttemptContext::new(
+            state.clone(),
+            session_id.to_string(),
+            first_attempt.clone(),
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        state.peon.timeout_attempt(session_id, &first_attempt);
+
+        state
+            .peon
+            .in_flight
+            .write()
+            .unwrap()
+            .insert(session_id.to_string());
+        state.peon.mark_candidate(session_id);
+        let second_attempt = state
+            .peon
+            .begin_attempt(session_id, test_runtime_identity("context-stale", 1))
+            .expect("second attempt should start");
+
+        drop(first_context);
+
+        assert_eq!(
+            diagnostic_leases().lock().unwrap().get(session_id),
+            Some(&(
+                second_attempt.generation,
+                second_attempt.runtime_identity.clone()
+            ))
+        );
+        assert!(state.peon.in_flight.read().unwrap().contains(session_id));
+        assert_eq!(
+            state.peon.diagnostics.read().unwrap()[session_id].attempt_generation,
+            second_attempt.generation
+        );
+    }
+
+    #[test]
     fn timed_out_runtime_completion_is_rejected_after_runtime_replacement() {
         let _lease_guard = diagnostic_test_guard();
         let dir = tempfile::tempdir().unwrap();
@@ -1710,11 +1880,8 @@ mod tests {
             attempts: Vec::new(),
             runtime: HashMap::new(),
         };
-        assert!(!diagnostic_attempt_is_active(
-            &state,
-            session_id,
-            &old_attempt
-        ));
+        let old_context = attempt_context(state.clone(), session_id, &old_attempt);
+        assert!(!old_context.is_current());
         assert!(!state
             .peon
             .complete_attempt(session_id, &old_attempt, &result));
@@ -1733,9 +1900,8 @@ mod tests {
         let application = crate::session_application::SessionApplication::new(state.clone());
         assert!(
             !application
-                .persist_peon_observation_for_attempt(
-                    session_id,
-                    &old_attempt,
+                .persist_peon_observation(
+                    &old_context.view(),
                     result.inference.as_ref(),
                     None,
                     None,
@@ -1758,10 +1924,9 @@ mod tests {
                 "now",
                 "now",
             ));
-        let observation_result = application.record_peon_workflow_observations_for_attempt(
-            session_id,
+        let observation_result = application.record_peon_workflow_observations(
             Some(dir.path()),
-            &old_attempt,
+            &old_context.view(),
             &crate::session_application::PeonObservationOutputRange {
                 runtime_instance_id: old_attempt.runtime_identity.runtime_instance_id.clone(),
                 run_generation: old_attempt.runtime_identity.run_generation,
