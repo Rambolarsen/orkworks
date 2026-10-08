@@ -77,13 +77,15 @@ whose only top-level fields are:
   to `needs_you`, `stale`/`done` to `idle`, and `working`/`idle`/`blocked`/
   `failed`/`capped` to the same value; `null` remains `null`). This replaces
   the complete attention tuple as one unit.
-- `agentMetadata`: a non-empty object containing any subset of `task`, `summary`,
-  `nextAction`, `workPhase`, `planPath`, `blockerDescription`,
-  `failedCommand`, and `failedTest`. Omitted fields are preserved; explicit
-  `null` clears nullable fields. `task` is a string; `workPhase` is one of
-  `ideation`, `implementation`, `review`, `debugging`, or `unknown`. `summary`
-  and `planPath` use the atomic rules below. Other fields retain their current
-  serialized types and bounds.
+- `agentMetadata`: a non-empty object containing any of three independent
+  scopes: `workFields`, `summary`, and `planPath`. `workFields`, when present,
+  is a complete snapshot containing `task`, `nextAction`, `workPhase`,
+  `blockerDescription`, `failedCommand`, and `failedTest`; every key is required
+  and nullable fields use explicit `null`. This complete snapshot is necessary
+  because general work metadata has one record-wide source and freshness
+  scope. `summary` and `planPath` are independently patchable and use their
+  atomic rules below. Unknown fields and an empty `agentMetadata` object are
+  rejected.
 
 Either object may be omitted to preserve that group, but a write must include
 at least one non-empty group. An empty `agentMetadata` object or a patch with
@@ -142,11 +144,12 @@ The protocol contract is:
    observation immediately. A null status with residual prompt fields is
    invalid. The clear still advances the attention ownership revision.
    This group does not change `metadataSource`, `metadataConfidence`, or
-   `workMetadataUpdatedAt`. A patch containing `agentMetadata` independently
-   checks the existing work-metadata source priority, assigns
-   `metadataSource=agent` and confidence, and advances
-   `workMetadataUpdatedAt`; summary provenance changes as one unit, and a
-   user-selected plan cannot be changed by the agent patch. If a request
+   `workMetadataUpdatedAt`. Within `agentMetadata`, only a complete
+   `workFields` snapshot checks the work-metadata source priority, assigns
+   `metadataSource=agent` and confidence, and advances `workMetadataUpdatedAt`.
+   A summary-only or plan-only patch changes only its own provenance scope and
+   cannot promote or refresh retained work fields. A user-selected plan cannot
+   be changed by the agent patch. If a request
    contains both groups, both source checks and updates run under the same
    transaction and commit atomically. If either scope loses its source check,
    the whole request returns a conflict without writing.
@@ -196,15 +199,18 @@ to the resolved built-in harness definition. Only the source-controlled
 Codex definition may advertise `sidecar-v1`, and only after its agent
 instructions and reporter helpers have migrated; user overrides cannot add
 this capability. The launch adapter derives
-`ORKWORKS_SESSION_METADATA_API_VERSION=1` from that resolved capability, and
-native-clear eligibility requires it. It may advertise the capability only
-when an authenticated metadata GET and a sidecar-defined validation-only
-PATCH have both been verified from the agent's actual execution context under
-the effective sandbox profile. The PATCH preflight checks the route, method,
-token, revision, and schema without mutating session metadata; a sidecar-only
-loopback probe is insufficient. If the child cannot reach either operation
-or that reachability cannot be verified, the marker is absent and native
-clear stays disabled. The existing Codex report mailbox remains identity-only
+`ORKWORKS_SESSION_METADATA_API_VERSION=1` from that resolved capability. This
+marker requires API-only writes and fail-closed behavior; it does not itself
+enable native clear. Native-clear eligibility starts disabled and is activated
+only after a bootstrap handshake succeeds from the actual agent execution
+context under the effective sandbox profile. The handshake performs an
+authenticated metadata GET and a sidecar-defined validation-only PATCH. The
+PATCH checks the route, method, token, revision, and schema without mutating
+session metadata; a sidecar-only loopback probe is insufficient. Agent
+instructions and reporter helpers must perform this handshake before any
+metadata mutation. If it fails, the session remains API-only and native clear
+stays disabled; the agent must not fall back to direct JSON writes. The
+existing Codex report mailbox remains identity-only
 and is not a metadata-write transport. A future mailbox-based metadata
 transport needs its own protocol design and approval before it can enable
 this capability.
@@ -274,7 +280,7 @@ transitions keep the ordinary source check. The versioned read response
 exposes the metadata revision needed for writes; `attentionUpdatedAt` is
 persisted and projected for arbitration and diagnosis.
 
-The authenticated child-context eligibility check verifies both metadata
+The authenticated child-context bootstrap handshake verifies both metadata
 read and write reachability under the effective sandbox profile. It performs
 an authenticated GET and a sidecar-defined validation-only PATCH through the
 same metadata endpoint, session token, and child execution context. The
@@ -287,7 +293,8 @@ and field validators, then returns `200` with
 source-priority mutation and does not persist fields or advance metadata,
 attention, or work-metadata revisions/timestamps. A follow-up GET must return
 the same revision. If either operation is blocked or cannot be verified, the
-protocol marker is absent and native clear remains disabled.
+API marker remains present, API writes remain required, and native clear
+remains disabled.
 
 When lifecycle code snapshots observed attention into
 `endingObservedStatusSnapshot` or `finalObservedStatusSnapshot`, the snapshot
@@ -300,10 +307,11 @@ snapshot creation, serialization, and recovery are part of the migration and
 require lifecycle coverage.
 
 The existing work-metadata source ladder continues to protect descriptive
-fields such as task, summary, and blockers. Peon applies attention and
-work-metadata source checks independently, using their respective timestamps,
-so an agent attention write cannot keep an old work summary fresh and an agent
-metadata patch cannot refresh or change attention ownership.
+fields such as task, next action, and blockers. Peon applies attention,
+work-metadata, summary, and plan provenance checks in their respective scopes,
+so an agent attention or summary write cannot keep stale descriptive work
+fields fresh, and an agent metadata patch cannot refresh or change attention
+ownership.
 
 Session-list and detail projections read one canonical session record. A
 failed or malformed metadata read is an explicit projection error; it must
@@ -391,11 +399,18 @@ The implementation follow-up must include behavioral tests proving:
 - `workMetadataUpdatedAt` changes on work-metadata writes, remains unchanged
   for attention-only writes, and independently controls the work-metadata
   source staleness check.
-- The version marker is withheld unless the child-context authenticated GET
-  and validation-only PATCH both succeed under the effective sandbox profile.
-  The preflight makes no record mutation, preserves all revisions/timestamps,
-  and the following read confirms the same revision; the identity-only report
-  mailbox does not satisfy this transport requirement.
+- The API version marker is set for the migrated built-in capability without
+  depending on child-context reachability. Native-clear eligibility remains
+  disabled until the agent-context authenticated GET and validation-only PATCH
+  succeed under the effective sandbox profile. The handshake makes no record
+  mutation and preserves revisions/timestamps; failure leaves API-only writes
+  required and native clear disabled. The identity-only report mailbox does
+  not satisfy this transport requirement.
+- Summary-only and plan-only writes leave `metadataSource`,
+  `metadataConfidence`, and `workMetadataUpdatedAt` unchanged. Any descriptive
+  work-field update supplies the complete `workFields` snapshot; partial
+  snapshots are rejected atomically, so retained Peon fields are never
+  promoted to agent provenance by omission.
 - Agent work-metadata patches update metadata source priority without changing
   attention source, provenance, timestamp, or native clear ownership; Peon
   applies the two source-priority checks independently.

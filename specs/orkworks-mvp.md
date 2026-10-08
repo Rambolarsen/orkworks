@@ -227,12 +227,20 @@ Proposed, feature-gated Codex native approval sessions keep their complete
 attention tuple in the canonical session JSON. A migrated integration
 advertises `ORKWORKS_SESSION_METADATA_API_VERSION=1`; its agents must use the
 authenticated versioned sidecar read/patch API for all metadata mutations,
-with no direct JSON fallback. Patches replace the complete attention tuple or
-change an allowlisted set of work fields; omitted fields are preserved and
-explicit `null` clears nullable values. The API rejects stale revisions and
-the sidecar serializes the full read/check/modify/replace operation with native
-clear. Legacy integrations retain direct JSON behavior and cannot enable
-native clear. General work metadata retains `metadataSource` and
+with no direct JSON fallback. The marker declares the API-required write
+protocol; native-clear eligibility remains disabled until an authenticated
+GET and validation-only PATCH succeed from the agent's effective execution
+context. A failed handshake keeps API writes required, fails closed on writes,
+and leaves native clear disabled. Patches replace the complete attention tuple
+or update separately scoped summary, plan, or descriptive work metadata. A
+descriptive work update supplies its complete field snapshot because general
+work metadata has record-wide provenance; partial snapshots are rejected.
+Summary and plan updates use their existing independent provenance and cannot
+promote retained work fields. Explicit `null` clears nullable values. The API
+rejects stale revisions and the sidecar serializes the full
+read/check/modify/replace operation with native clear. Legacy integrations
+retain direct JSON behavior and cannot enable native clear. General work
+metadata retains `metadataSource` and
 `metadataConfidence`; the attention tuple has separate `attentionSource`,
 `attentionConfidence`, `attentionOrigin`, and `attentionUpdatedAt` fields.
 Direct agent, harness-hook, and Codex native attention writes share the
