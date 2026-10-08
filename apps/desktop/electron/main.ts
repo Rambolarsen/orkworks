@@ -1985,7 +1985,7 @@ app.whenReady().then(async () => {
     if (typeof path !== "string") throw new Error("Invalid workspace path");
     const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), path, workspaceNavigationMemory);
     if (result.navigation && !result.navigation.ok) {
-      throw new Error("Workspace shortcut was removed, but its navigation state could not be cleared.");
+      throw new Error("Workspace navigation state could not be cleared. Try removing the workspace shortcut again.");
     }
     return toWorkspaceHistorySnapshot(result.history);
   });

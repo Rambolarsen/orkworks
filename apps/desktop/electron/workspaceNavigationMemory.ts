@@ -85,14 +85,17 @@ export async function forgetRememberedWorkspaceWithNavigation(
   if (canonical !== null && canonical !== identity) return { history: before, navigation: null };
 
   const wasRemembered = historyContains(before, identity);
-  const history = wasRemembered ? forgetWorkspacePath(directory, identity) : before;
-  if (history.diagnostic || historyContains(history, identity)) return { history, navigation: null };
   if (!wasRemembered) {
     const stored = navigation.read();
-    if (stored.diagnostic) return { history, navigation: { ok: false, diagnostic: stored.diagnostic } };
+    if (stored.diagnostic) return { history: before, navigation: { ok: false, diagnostic: stored.diagnostic } };
     if (!stored.entries.some((entry) => entry.workspaceIdentity === identity)) {
-      return { history, navigation: null };
+      return { history: before, navigation: null };
     }
   }
-  return { history, navigation: await navigation.delete(identity, 0, () => true) };
+  const deleted = await navigation.delete(identity, 0, () => true);
+  if (!deleted.ok) return { history: before, navigation: deleted };
+  // The stores are independent. Retain the visible shortcut when navigation
+  // deletion fails; after it succeeds, a history failure remains retryable.
+  const history = wasRemembered ? forgetWorkspacePath(directory, identity) : before;
+  return { history, navigation: deleted };
 }

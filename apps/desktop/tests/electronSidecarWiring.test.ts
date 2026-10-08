@@ -474,6 +474,7 @@ test("open-remembered-workspace forgets stale paths that fail pre-sidecar valida
 test("explicit and restoration forgets couple validated history removal to navigation deletion", () => {
   assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", async \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory\)/);
+  assert.match(mainSource, /Workspace navigation state could not be cleared\. Try removing the workspace shortcut again\./);
   const start = mainSource.indexOf("async function restoreWorkspace(");
   const end = mainSource.indexOf("\n  async function", start + 10);
   assert.ok(start >= 0 && end > start);

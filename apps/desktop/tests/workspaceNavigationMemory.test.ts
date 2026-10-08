@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, workspaceNavigationMemoryPath } from "../electron/workspaceNavigationMemory.ts";
-import { readWorkspaceMemory, rememberWorkspacePath, workspaceMemoryPath } from "../electron/workspaceMemory.ts";
+import { forgetWorkspacePath, readWorkspaceMemory, rememberWorkspacePath, workspaceMemoryPath } from "../electron/workspaceMemory.ts";
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "ork-navigation-"));
@@ -373,19 +373,41 @@ test("forget retry clears exactly one navigation entry after the first deletion 
     const first = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
     assert.equal(first.history.diagnostic, null);
     assert.deepEqual(first.navigation, { ok: false, diagnostic: "write_failed" });
-    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, [currentIdentity]);
-    assert.deepEqual(navigation.read().entries.map((entry) => entry.workspaceIdentity), [currentIdentity, olderIdentity]);
-
-    const read = navigation.read;
-    navigation.read = () => ({ entries: [], revision: 0, diagnostic: "lock_timeout" });
-    const unreadableRetry = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
-    assert.deepEqual(unreadableRetry.navigation, { ok: false, diagnostic: "lock_timeout" });
-    navigation.read = read;
+    assert.deepEqual(first.history.recentWorkspacePaths, [currentIdentity, olderIdentity],
+      "a rejected IPC leaves the existing visible history snapshot retryable");
+    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, [currentIdentity, olderIdentity]);
     assert.deepEqual(navigation.read().entries.map((entry) => entry.workspaceIdentity), [currentIdentity, olderIdentity]);
 
     const retried = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
     assert.equal(retried.navigation?.ok, true);
+    assert.deepEqual(retried.history.recentWorkspacePaths, [currentIdentity]);
+    assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, [currentIdentity]);
     assert.deepEqual(navigation.read().entries, [{ workspaceIdentity: currentIdentity, lastCentralSurface: "terminal" }]);
+  } finally { f.close(); }
+});
+
+test("navigation-only exact-key retry survives a prior partial forget", async () => {
+  const f = fixture();
+  try {
+    const workspace = join(f.directory, "workspace");
+    mkdirSync(workspace);
+    const identity = realpathSync.native(workspace);
+    rememberWorkspacePath(f.directory, identity);
+    const navigation = createWorkspaceNavigationMemory(f.directory);
+    navigation.read();
+    await navigation.complete(identity, 1, () => true, "review");
+    forgetWorkspacePath(f.directory, identity);
+
+    const read = navigation.read;
+    navigation.read = () => ({ entries: [], revision: 0, diagnostic: "lock_timeout" });
+    const unreadableRetry = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation);
+    assert.deepEqual(unreadableRetry.navigation, { ok: false, diagnostic: "lock_timeout" });
+    navigation.read = read;
+    assert.deepEqual(navigation.read().entries.map((entry) => entry.workspaceIdentity), [identity]);
+
+    const retried = await forgetRememberedWorkspaceWithNavigation(f.directory, identity, navigation);
+    assert.equal(retried.navigation?.ok, true);
+    assert.deepEqual(navigation.read().entries, []);
   } finally { f.close(); }
 });
 
