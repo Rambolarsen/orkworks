@@ -329,13 +329,14 @@ must retain its provenance and remove it from active selection evidence.
 
 ## Hierarchy UI
 
-**Placement revised by the user, 2026-10-05.** Explore a central tree or
-branching timeline in place of the terminal while viewing the workflow, with
-a compact session switcher. The earlier Sessions-embedded proposal is no longer
-the target. [#755](https://github.com/Rambolarsen/orkworks/issues/755) establishes
-the future shell direction before [#746's UI contract](2026-10-04-agent-hierarchy-ui-design.md)
-can be finalized. No tab-based or draggable-panel layout is selected by this
-product proposal.
+**Placement accepted by the user, 2026-10-08.** Show the workflow in a central
+branching timeline by default, with a tree presentation available, in place of
+the terminal. Keep a compact session switcher. The earlier Sessions-embedded
+proposal is no longer the target. The accepted shell and navigation contract is
+in [#755](https://github.com/Rambolarsen/orkworks/issues/755) and
+[ADR 0078](../../adr/0078-fixed-desktop-shell-and-central-navigation.md); it
+removes tab-based panel management and drag-and-drop rearrangement. The
+hierarchy projection still requires final agreement in [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 
 The central overview presents the parent and its declared children.
 Planned tasks use a visibly planned state; a spawned child becomes an agent

@@ -632,7 +632,18 @@ desktop verification remains tracked by #525.
 
 ## Dockview panel layout
 
-The renderer uses Dockview for sessions, session detail, terminal, and optional utility panels. `DockviewApp` owns the panel registration and passes app state through a React context to panel components. The single reusable Review tab joins Terminal's tab group on demand and renders selected-session plan/spec content as Markdown via `react-markdown`/`remark-gfm` — plan/spec paths are sidecar-enforced to end in `.md` (see `resolve_openable_plan_reference` and `normalize_reported_plan_path` in the sidecar), so the Review tab does not need to branch on file type. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket attach channel. Inactive sessions do not need to stay attached to keep their PTYs running; only the active terminal stays attached. The session detail panel includes read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` fields for the selected session, plus debug-only `OrkWorks session ID` / `Harness session ID` fields and the read-only `Peon diagnostics` block when `Show debug metadata` is enabled.
+The current renderer uses Dockview for Sessions, session details, Terminal, and optional utility panels. `DockviewApp` owns panel registration and passes app state through React context to panel components. The reusable Review tab joins Terminal's tab group on demand and renders selected-session plan/spec content as Markdown via `react-markdown`/`remark-gfm` — plan/spec paths are sidecar-enforced to end in `.md` (see `resolve_openable_plan_reference` and `normalize_reported_plan_path` in the sidecar), so Review does not need to branch on file type. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket attach channel. Inactive sessions do not need to stay attached to keep their PTYs running; only the active terminal stays attached. The session detail panel includes read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` fields for the selected session, plus debug-only `OrkWorks session ID` / `Harness session ID` fields and the read-only `Peon diagnostics` block when `Show debug metadata` is enabled.
+
+**Approved shell target (not implemented):** [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md)
+replaces user-arranged Dockview panels with compact Sessions, one central
+Terminal/Review/eligible Workflow surface, and an optional contextual inspector.
+The target retains Dockview 8.3.1 for fixed-region resizing, disables panel
+drag-and-drop, and hides group headers. Electron will own bounded installation
+shell preferences and canonical-workspace navigation memory; legacy
+`layout.json` remains untouched. See the
+[accepted shell design](../superpowers/specs/2026-10-05-application-shell-navigation-design.md)
+and [implementation plan](../superpowers/plans/2026-10-08-application-shell-redesign.md).
+This target does not change sidecar PTY lifetime or authorize Workflow actions.
 
 On Windows, Electron uses a hidden title bar with native window controls overlaid on the 38px app header. The OrkWorks icon sits before the workspace name; CSS reserves the native controls area. The application menu is auto-hidden and remains accessible with Alt. macOS and Linux retain their existing chrome.
 

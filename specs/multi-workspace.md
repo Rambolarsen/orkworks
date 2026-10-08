@@ -8,10 +8,11 @@ Tracking: [issue #541](https://github.com/Rambolarsen/orkworks/issues/541)
 
 Let an OrkWorks installation remember several workspace locations and let a
 user run separate workspaces concurrently without making one application
-process coordinate them. Each OrkWorks instance owns at most one workspace,
-one sidecar lifecycle, and one visible session context, preserving the
-single-active-context rule in
-[ADR 0013](../docs/adr/0013-single-active-context-primitive.md).
+process coordinate them. Each OrkWorks instance owns at most one workspace and
+one sidecar lifecycle. The shell shows one central context at a time under
+[ADR 0078](../docs/adr/0078-fixed-desktop-shell-and-central-navigation.md):
+Terminal, Review, or an eligible Workflow surface. One selected terminal and
+the absence of peer-instance focus authority remain invariant.
 
 This is a proposed extension to the [MVP](orkworks-mvp.md). The active
 architecture decision is [ADR 0060](../docs/adr/0060-independent-workspace-instances.md),

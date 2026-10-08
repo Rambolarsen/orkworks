@@ -1,6 +1,6 @@
 # Replace `react-resizable-panels` with `dockview` for draggable panel layout
 
-- Status: accepted
+- Status: superseded by ADR 0078
 - Deciders: user
 - Date: 2026-06-17
 
@@ -35,3 +35,10 @@ All panels draggable. Default layout ships as described but users can rearrange 
 - **Harder**: Adds ~100KB bundle weight (dockview). Slightly more complex initialization code.
 - **Harder**: Full panel docking means testing must cover repositioning, not just fixed layout.
 - `react-resizable-panels` is removed as a dependency.
+
+## Superseded — 2026-10-08
+
+[ADR 0078](0078-fixed-desktop-shell-and-central-navigation.md) replaces the
+user-arranged Dockview panels and tab navigation. Dockview remains the layout
+engine for fixed, resizable regions; the desktop disables its drag-and-drop
+and hides its group headers.

@@ -62,24 +62,25 @@ Use normal engineering terminology for every other concept. Peon and
 Taskmaster are the only intentional product-specific worker names; do not
 expand the fantasy naming without an explicit spec update.
 
-## Single-active-context UX invariant
+## Single-central-context UX invariant
 
-A session is the unit of context, and switching sessions is the context-switch
-operation. The sessions list is the multi-view across sessions; the active
-terminal is deliberately singular. Do not propose, plan, or build tiled,
-split, stacked, or picture-in-picture terminal views.
+The desktop shell shows one central context at a time: Terminal, Review, or an
+eligible Workflow overview. There remains one selected terminal, and selecting
+an actual session explicitly switches to that session's Terminal. The compact
+Sessions list carries cross-session awareness; inspecting a workflow node,
+restoring a surface, or opening an inspector does not select or acknowledge a
+session.
 
-Parallel terminal rendering degrades context rather than improving visibility:
-it divides attention and consumes space without improving situational
-awareness. Put cross-session awareness in the sessions list (legibility,
-attention state, last activity, and agent-action summary) and the focused
-session's detail panel. The same one-active-context rule applies to future
-context-bearing surfaces such as editors and agent transcripts.
+Do not propose, plan, or build tiled, split, stacked, or picture-in-picture
+terminal views. Do not add app-panel drag-and-drop, floating, docking, tab
+reordering, or tab-based shell navigation. Fixed region resizing remains
+available. Navigation restore is presentation state only and never resumes a
+session, run, or action.
 
 When improving situational awareness or throughput, favor fast context
 switching—keyboard navigation, MRU ordering, and jump-to-session search—not
-parallel visibility. See [ADR 0013](../adr/0013-single-active-context-primitive.md)
-for the decision and consequences.
+parallel visibility. See [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md)
+for the accepted shell and navigation contract.
 
 ## Related context
 

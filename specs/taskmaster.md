@@ -1258,7 +1258,11 @@ Accepting a recommendation that starts a session should use the existing session
 
 ## Desktop UI
 
-Taskmaster should appear as a Dockview panel and as a concise recommendation surface in the existing action overview.
+Taskmaster recommendations should be available through the optional contextual
+inspector or a labeled compact page, and appear as a concise category in the
+workspace Actions overview. Their presentation does not create a new authority
+path: recommendation actions retain their existing explicit approval and exact
+session-targeting rules.
 
 A recommendation card shows:
 
@@ -1355,7 +1359,7 @@ Taskmaster should produce the action intent, then delegate harness/model ranking
 The repo-wide Review Queue proposal (`specs/review-queue.md`) is superseded by
 `specs/session-plan-review.md`; the artifact-inbox design is not in product
 scope. Session-owned plan/spec review — surfaced through the selected-session
-Review tab and explicit review-prompt handoff — is the mechanism Taskmaster may
+central Review surface and explicit review-prompt handoff — is the mechanism Taskmaster may
 observe evidence from, but Taskmaster remains a workflow recommendation engine:
 
 - Session plan/spec review: session-owned artifact review
@@ -1384,9 +1388,9 @@ The action overview continues to answer what needs attention now. Taskmaster rec
 - stronger-model escalation rule
 - loop guards
 
-### Phase 3 — Desktop panel
+### Phase 3 — Desktop recommendation surface
 
-- Taskmaster Dockview panel
+- Recommendations inspector or compact page in the fixed desktop shell
 - recommendation cards
 - evidence details
 - dismiss and refresh

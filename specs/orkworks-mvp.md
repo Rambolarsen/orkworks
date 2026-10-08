@@ -257,7 +257,7 @@ write-before-publish. OrkWorks never edits tracked/shareable configuration,
 Alongside Peon's LLM-based inference, some harnesses expose deterministic, higher-confidence signals that OrkWorks can consume directly instead of inferring them from terminal output:
 
 - **Attention state** (`waiting_for_input` and related statuses): a harness's own notification mechanism — e.g. Claude Code's `Notification` hook — can call `POST /sessions/:id/attention` on the sidecar. Writes use `metadataSource: "agent"` with `metadataConfidence: 1.0` and respect the same priority/staleness rule Peon already respects: they cannot overwrite fresh `user` or fresh `agent` metadata, but always outrank `peon`/`backend_inference`/`process`/`unknown`.
-- **Session plan/spec association**: a harness may report an optional workspace-relative Markdown `planPath` independently of attention state; JSON `null` clears it and omission preserves it. When no harness path exists, OrkWorks may conservatively associate a valid printed path below `docs/superpowers/plans/` or `specs/`. The renderer receives availability and validated document content, never a filesystem path, and displays it in the reusable Review tab. Electron main may request the one user-approved fixed review prompt through its per-sidecar secret; the sidecar revalidates the artifact before PTY input. See [ADR 0025](../docs/adr/0025-authenticated-session-plan-handoff.md) and [ADR 0034](../docs/adr/0034-user-approved-session-review-prompt.md).
+- **Session plan/spec association**: a harness may report an optional workspace-relative Markdown `planPath` independently of attention state; JSON `null` clears it and omission preserves it. When no harness path exists, OrkWorks may conservatively associate a valid printed path below `docs/superpowers/plans/` or `specs/`. The renderer receives availability and validated document content, never a filesystem path, and displays it in the single central Review surface with an explicit return destination. Electron main may request the one user-approved fixed review prompt through its per-sidecar secret; the sidecar revalidates the artifact before PTY input. See [ADR 0025](../docs/adr/0025-authenticated-session-plan-handoff.md) and [ADR 0034](../docs/adr/0034-user-approved-session-review-prompt.md).
 - **Harness-native session ID and Codex label enrichment**: a harness-specific mechanism (env var, hook JSON, structured JSONL event) reports the session's native ID via `POST /sessions/:id/harness-session`, tagged with a source string and confidence. This is the same generic capture endpoint used for OpenCode's `OPENCODE_SESSION_ID`, Claude Code's hook `session_id`, and Codex's hook `session_id`; when a Codex report also authenticates with `ORKWORKS_REPORT_TOKEN`, the sidecar may read the exact native thread from the supported local `state_5.sqlite` store and use `threads.name`, then `threads.title`, as the automatic session label. Unsupported or unavailable data preserves the existing label; prompt and rollout JSONL parsing is out of scope. See `skills/adding-harness/`.
 - **Codex hook report transport under network sandboxing**: Codex hooks may be unable to POST to OrkWorks' loopback sidecar when command networking is sandboxed. For Codex only, the sidecar may give the session a private, temporary report mailbox and consume native harness-session reports from that mailbox. The mailbox relays identity reports only; it does not grant loopback or outbound network access to ordinary Codex commands. The sidecar applies the same in-memory reporting-token authentication, hook fingerprint/provenance checks, and Codex identity-reset rules as the HTTP route. The reporting token is never written to a mailbox file. Attention and other reports retain their existing transport. The mailbox path is a session reporting capability, not proof of which child process wrote a report; see [ADR 0069](../docs/adr/0069-codex-session-id-hook-report-mailbox.md).
 - **Codex identity and resume integrity**: Codex CLI subagents are internal to their owning CLI session; they do not create OrkWorks sessions or receive independent OrkWorks session IDs. Retain the first accepted native Codex session ID; a different ID may replace it only on an authenticated root `SessionStart` with `source=clear` after OrkWorks recorded the explicit reset. Resume only with that exact ID and only when the corresponding thread row and rollout file exist in the supported local Codex store. Missing or unsaved IDs never fall back to another Codex conversation. See [ADR 0068](../docs/adr/0068-codex-subagents-share-owning-session-identity.md).
@@ -607,10 +607,14 @@ The first useful MVP should include:
 - Electron app shell
 - On Windows, one integrated 38px header replaces the separate native title bar: OrkWorks icon at the far left, workspace name and switch action, connection status, and native minimize/maximize/close controls at the right. Preserve dragging, resizing, and keyboard menu access (Alt reveals the auto-hidden application menu). macOS and Linux retain their existing window chrome.
 - React + TypeScript UI
-- VS Code-like three-column layout
-- left sidebar with workspaces/sessions
-- center embedded terminal
-- right sidebar with action overview, capacity, and recommendation panels
+- fixed, resizable shell with a compact Sessions sidebar, one central context,
+  and an optional contextual inspector
+- central context shows Terminal, the reusable Review surface, or Workflow when
+  a validated and separately gated orchestration projection is available
+- no user-arranged panels, drag-and-drop docking, floating panels, or tab-based
+  navigation; users resize fixed regions and navigate through explicit controls
+- details follow the visible subject; Actions, Capacity, and Recommendations
+  are available through the optional inspector or a labeled compact page
 - Electron launches Rust backend sidecar
 - frontend communicates with backend over localhost HTTP/WebSocket
 - secure preload bridge
@@ -624,11 +628,11 @@ The first useful MVP should include:
 - implement `hotkeys` as the first settings section
 - support the currently implemented shortcuts only:
   - new session
-  - sessions panel shortcut
-  - detail panel shortcut
-  - terminal panel shortcut
-  - capacity panel shortcut
-  - recommendations panel shortcut
+  - Sessions switcher shortcut
+  - current-subject Details shortcut
+  - selected Terminal/history shortcut
+  - Capacity inspector/page shortcut
+  - Recommendations inspector/page shortcut
   - reset layout shortcut
 - default hotkeys must match the shipped accelerators
 - build Electron menu accelerators from saved settings rather than hard-coded constants
@@ -718,9 +722,10 @@ The first useful MVP should include:
 - show confidence/source in UI
 - never send terminal input automatically
 
-#### Right Sidebar
+#### Actions overview
 
-The right sidebar should answer:
+The Actions overview, available from the optional inspector or a compact page,
+should answer:
 
 > What do I need to look at right now?
 

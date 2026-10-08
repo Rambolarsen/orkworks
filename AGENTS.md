@@ -290,7 +290,7 @@ Provider process cleanup uses Windows Job APIs through the existing
 when changing inference transports. See [provider process ownership](docs/agents/architecture.md)
 and the [ADR 0055 amendment](docs/adr/0055-json-taskmaster-inference-adapters.md).
 
-Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The desktop UI uses Dockview draggable panels around xterm.js terminal sessions, and renders plan/spec content in the Review tab as Markdown via `react-markdown`/`remark-gfm`. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state. The desktop `pnpm dev` command builds the debug sidecar before launching Electron so development runs use the current Rust implementation.
+The current Electron + React/TypeScript frontend (`apps/desktop/`) communicates with a Rust sidecar (`crates/orkworksd/`) over a dynamic localhost HTTP/WebSocket port. The approved shell redesign replaces the current Dockview draggable panels with fixed, resizable regions and explicit navigation among one central Terminal, Review, or eligible Workflow surface; it is not implemented yet. The sidecar manages PTY sessions, Git context, the metadata protocol (under `~/.orkworks/workspaces/<hash>/`), Peon observation, and Taskmaster recommendation state. The desktop `pnpm dev` command builds the debug sidecar before launching Electron so development runs use the current Rust implementation.
 
 An ADR earns a bullet below only while it is `accepted` (not superseded), constrains how agents should write code, and has no independent prose summary elsewhere — once another doc gains prose coverage of an already-inlined ADR, its bullet collapses to a pointer. See [`docs/adr/README.md`](docs/adr/README.md) for the full historical index, including superseded decisions, and [`docs/agents/architecture.md`](docs/agents/architecture.md) for the full inter-component breakdown (port discovery, preload bridge, API data flow, Rust modules, panel layout).
 
@@ -359,11 +359,13 @@ full protocol detail.
 
 ## Product design principles
 
-These are load-bearing constraints on desktop UI work. A session is context;
-switching sessions is the context-switch primitive. Keep one active terminal and
-do not build multi-terminal, tiled, split, stacked, or picture-in-picture
-views. Improve situational awareness through fast context switching, not
-parallel visibility. See [ADR 0013](docs/adr/0013-single-active-context-primitive.md)
+These are load-bearing constraints on desktop UI work. Keep one visible central
+context at a time: Terminal, Review, or an eligible Workflow overview. Keep one
+selected terminal; never build multi-terminal, tiled, split, stacked, or
+picture-in-picture views. Sessions remains the compact cross-session switcher.
+Do not restore a session or grant an action through shell navigation. App panels
+are not draggable, dockable, floating, reorderable, or tab-managed; fixed region
+resizing remains available. See [ADR 0078](docs/adr/0078-fixed-desktop-shell-and-central-navigation.md)
 and [product boundaries and terminology](docs/agents/product-boundaries.md).
 
 ## APM and agent plugins
