@@ -376,6 +376,13 @@ test("forget retry clears exactly one navigation entry after the first deletion 
     assert.deepEqual(readWorkspaceMemory(f.directory).recentWorkspacePaths, [currentIdentity]);
     assert.deepEqual(navigation.read().entries.map((entry) => entry.workspaceIdentity), [currentIdentity, olderIdentity]);
 
+    const read = navigation.read;
+    navigation.read = () => ({ entries: [], revision: 0, diagnostic: "lock_timeout" });
+    const unreadableRetry = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
+    assert.deepEqual(unreadableRetry.navigation, { ok: false, diagnostic: "lock_timeout" });
+    navigation.read = read;
+    assert.deepEqual(navigation.read().entries.map((entry) => entry.workspaceIdentity), [currentIdentity, olderIdentity]);
+
     const retried = await forgetRememberedWorkspaceWithNavigation(f.directory, olderIdentity, navigation);
     assert.equal(retried.navigation?.ok, true);
     assert.deepEqual(navigation.read().entries, [{ workspaceIdentity: currentIdentity, lastCentralSurface: "terminal" }]);

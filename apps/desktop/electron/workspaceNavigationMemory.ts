@@ -89,7 +89,8 @@ export async function forgetRememberedWorkspaceWithNavigation(
   if (history.diagnostic || historyContains(history, identity)) return { history, navigation: null };
   if (!wasRemembered) {
     const stored = navigation.read();
-    if (stored.diagnostic || !stored.entries.some((entry) => entry.workspaceIdentity === identity)) {
+    if (stored.diagnostic) return { history, navigation: { ok: false, diagnostic: stored.diagnostic } };
+    if (!stored.entries.some((entry) => entry.workspaceIdentity === identity)) {
       return { history, navigation: null };
     }
   }
