@@ -60,6 +60,7 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 | `ModelBinding` | `schemaVersion` (1), `mode` (`pinned` or `tool-managed`), `modelId` (required for pinned, null for tool-managed), `policyId` (adapter-recognized policy), `policyDigest`, `adapterGeneration` (opaque adapter/capability identity, stable across observer restarts); part of the immutable configuration |
 | `AssignmentConfiguration` | `schemaVersion`, `configurationId`, `repositoryId`, `repositoryBinding`, `sourceWorktreeBinding`, `workspaceId`, `parentSessionId`, `planId`, `planRevision`, `taskId`, `assignmentKind`, `roleTemplate`, `taskCategory`, `assignment`, `rules`, `requirementManifests`, `skills`, `skillResources`, `rubric`, `harness`, `capabilityEvidence`, `model`, `permissions`, `renderedInstructions`, `renderedInstructionsDigest`, `configurationDigest` |
 | `VersionRetirement` | Separate source-catalog tombstone, never part of an assignment digest: `schemaVersion`, `sourceIdentity`, `artifactKind`, `artifactId`, `version`, `contentDigest`, `retiredAt`, `reason` |
+| `RetirementLedgerControl` | Workspace-scoped state, separate from assignment digests: `schemaVersion` (1), `retirementSelectionAvailable` (boolean; initially true), `exhaustedAt` (UTC or null) |
 
 `configurationId` is stable only within the immutable plan revision. A changed
 configuration gets a new ID and digest. Repository/workspace/plan/task identities
@@ -268,8 +269,14 @@ silently erase or weaken an inherited rule. Resolving a conflict requires changi
 the source rules and proposing a new configuration. The stored `precedence` is a
 unique zero-based render-order index assigned from the root router's declared
 order, followed by applicable scoped sources from shallowest to deepest; sources
-at the same scope without a declared order are sorted by normalized source path in
-UTF-8 byte order. This order is digest-bound but never resolves a contradiction.
+at the same scope without a declared order are sorted by `sourcePath` bytes, then
+by `sourceIdentity` bytes to break any path tie. A
+`RuleSnapshot.sourcePath` is a nonempty UTF-8 path relative to the root identified
+by `provenance.sourceIdentity` (the repository root for repository sources, or
+the declared catalog root for other sources). Its wire form uses `/` separators,
+the exact on-disk component spelling, and no Unicode normalization or case
+folding. Reject absolute paths, `\\`, empty, `.` or `..` components, NUL, and
+invalid UTF-8. This order is digest-bound but never resolves a contradiction.
 
 Each applicable rule and role template has one reviewed `RequirementManifest`
 for this assignment. Its `sourceId`/`sourceDigest` bind the exact source snapshot;
@@ -469,15 +476,19 @@ login, a resume recipe, model availability, tool installation, or working hooks.
 Key it by exact tool version/executable identity, adapter version, platform,
 instruction mechanism, effective settings digest, role, and profile digest.
 `verified` requires primary schema/reference, exact version evidence, and a
-reproducible bounded capability fixture for the exact combination. It is the only
-decision that can make that exact profile eligible for user approval; approval and
-the launch-time checks below are still required. `limited` means evidence covers
-only a narrower capability set than the requested profile; it is ineligible, and
-any narrowed proposal requires new profile/configuration digests and its own
-evidence decision. `unverified` means evidence is absent, incomplete, ambiguous,
-or stale. `unsupported` means evidence establishes that a required behavior for
-the exact profile cannot be enforced. Neither `limited`, `unverified`, nor
-`unsupported` can launch a restricted role.
+reproducible bounded capability fixture for the exact combination and
+`effectiveProfileDigest`. It is the only decision that can make that exact
+effective profile eligible for user approval; approval and the launch-time checks
+below are still required. The requested and effective profiles may differ only
+by an assignment-satisfying narrowing described above. Such a narrowing can be
+`verified` when the evidence exactly covers the resulting effective profile and
+the user approves that effective profile. `limited` means evidence covers only a
+narrower capability set than the effective profile; it is ineligible until the
+effective profile and its configuration/evidence digests are updated to the
+covered set and reassessed. `unverified` means evidence is absent, incomplete,
+ambiguous, or stale. `unsupported` means evidence establishes that a required
+behavior for the exact effective profile cannot be enforced. Neither `limited`,
+`unverified`, nor `unsupported` can launch a restricted role.
 
 ### Immutable capability evidence snapshot
 
@@ -611,7 +622,7 @@ Proposed version-1 limits, measured as UTF-8 bytes unless stated otherwise:
 | Configuration | 1 MiB serialized descriptor plus its inline snapshots; rendered content counts within that bound |
 | Plan | 128 tasks and 2 MiB total approved definition, inclusive of every configuration; lower existing/upstream limit always wins |
 | Template catalog | 64 role-template versions per workspace, including pinned historical versions; 1 MiB total |
-| Version retirement ledger | 4,096 role-template/skill retirement entries per workspace and 1 MiB serialized; never evict tombstones |
+| Version retirement ledger | 4,096 role-template/skill retirement entries per workspace and 1 MiB serialized including reserved fail-closed control-marker capacity; never evict tombstones |
 | Capability evidence | One inline snapshot, at most 64 KiB included in the 1 MiB configuration; ten surface checks, 16 references, 2 KiB per reason/source reference; fixture artifacts at most 64 KiB each / 1 MiB total per snapshot, retained separately; no raw production transcripts |
 | Blocker/delivery records | At most 16 KiB per record, 16 evidence references and 16 skill delivery entries; idempotency/rate/aggregate retention belong to #742/#743 |
 | Admission | Reject oversized/unsupported input before writing or launching; never truncate mandatory content or evict referenced snapshots |
@@ -645,11 +656,15 @@ Editing a template/skill creates a new version/digest. Separate, bounded
 2^31−1, matching `RoleTemplateSnapshot.version`. For `artifactKind: skill`,
 `version` is a nonempty UTF-8 string of at most 128 bytes, matching
 `SkillSnapshot.version`; compare it byte-for-byte without normalization. Reject
-any variant whose kind and version type/range do not match. The retirement
-identity is the tuple `(sourceIdentity, artifactKind, artifactId, version,
-contentDigest)`; a same-named version with different content is a separate
-identity. The stable `sourceIdentity` is the catalog identity in snapshot
-provenance, not its changing source revision or file path. A tombstone is written
+any variant whose kind and version type/range do not match. The retirement lookup
+key is `(sourceIdentity, artifactKind, artifactId, version)`;
+`contentDigest` records the exact retired snapshot for audit, but is not part of
+the lookup key because provenance/source revisions can change a snapshot digest
+without changing its artifact version. Once this key is retired, any later
+snapshot with the same key is ineligible, even if its digest differs; changed
+content requires a new version. The stable `sourceIdentity` is the catalog
+identity in snapshot provenance, not its changing source revision or file path.
+A tombstone is written
 only through an Electron-authorized user action; callers cannot supply or claim
 retirement authority. Tombstones are durable and monotonic: a retired identity
 cannot be reactivated; corrected or replacement content needs a new version/digest. The
@@ -665,9 +680,21 @@ A reviewed capability-evidence invalidation can independently make an old versio
 ineligible for resume. Retired versions remain available for interpreting retained
 history. The catalog owner is the source identified by provenance, with state
 stored under the existing workspace metadata owner/lease; restart cannot restore
-an active version from a stale source file. When the retirement ledger reaches its
-bound, reject the retirement action without changing catalog state; report the
-failure and never evict tombstones or referenced snapshots.
+an active version from a stale source file. The workspace's
+`RetirementLedgerControl` starts with `retirementSelectionAvailable: true` and
+`exhaustedAt: null`; proposals and the UI read it from that lease-protected
+state. If adding a tombstone would exceed either ledger bound, reject the
+retirement action, preserve all tombstones, and
+persist a workspace-level `retirementSelectionAvailable: false` marker from
+capacity reserved inside the 1 MiB bound, and set `exhaustedAt` to the current
+UTC time. While false, block every new role-template or skill selection and every
+new proposal that depends on one; report the exhausted retirement ledger in the
+proposal UI. Existing approved configurations and history remain readable and
+subject to their normal launch/resume checks. A later
+versioned migration may restore selection only after validating and preserving
+every tombstone within a newly declared bounded ledger; until that migration
+commits atomically, selection remains unavailable. Never evict tombstones or
+referenced snapshots.
 Referenced snapshots survive normal session retention while their plan/allocation
 records remain protected. On explicit eligible plan deletion, remove unreferenced
 configuration blobs after ownership checks; never remove plan-owned worktrees
@@ -748,6 +775,8 @@ authorize a production launch.
 | Skill version `v6.3.0` | Accept as a label within 128 UTF-8 bytes; reject empty or oversized labels and non-string versions |
 | Template/rubric/task numeric version | Reject non-integers and values outside 1 through 2^31−1 |
 | Version-retirement discriminator/type mismatch | Reject a string role-template version, numeric skill version, empty/oversized skill label, or out-of-range template version |
+| Same-scope rule path ordering | Normalize to the specified source-root-relative UTF-8 wire form and byte-sort; reject invalid paths; use `sourceIdentity` bytes as the tie-breaker |
+| Rule path uses absolute form, `\\`, empty/`.`/`..` component, or invalid UTF-8 | Reject before precedence assignment; do not case-fold or Unicode-normalize valid path components |
 | Role profile with unspecified task scope | Keep every permission denied; role ceiling alone grants no paths, commands, sources, or tools |
 | Referenced resource missing, changed or placed in rules | Reject missing/invalid closure or drift; preserve skill ownership and include exact resource bytes in digest/delivery |
 | Evidence digest valid but fixture missing, binding different or revoked | Reject approval/launch; a matching hash alone cannot establish verified eligibility |
@@ -762,6 +791,9 @@ authorize a production launch.
 | `planRevision`/`preparationRevision` boundaries | Accept 1 and 64; reject 0 and 65, matching #742's shared identity bound |
 | Binding repository rules conflict at root and scoped path | Block the configuration with both source IDs; version 1 has no scoped override operation |
 | Retired skill/template version selected for a new proposal | Reject selection with the retirement reason; preserve existing approved snapshot/history |
+| Retirement ledger reaches either bound | Preserve tombstones, persist unavailable-selection marker, and block all new skill/template selections until bounded migration succeeds |
+| Retired artifact reappears after a source revision or with changed bytes at the same version | Reject by `(sourceIdentity, artifactKind, artifactId, version)`; digest change does not reactivate the version |
+| Acceptable effective profile is narrower than requested | Verify against the exact effective-profile digest and allow approval only after user sees and approves that effective profile |
 | Missing mandatory skill, conflicting repository rule, oversized context | Reject; no automatic skill removal or truncation |
 | Selected optional skill supplied in startup context | Loaded receipt only after adapter confirms delivery; no native invocation claim |
 | Hook records a terminal mention or unknown tool event | Unknown/reported usage; cannot create a native observed-use record |
