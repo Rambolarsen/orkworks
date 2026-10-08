@@ -68,9 +68,12 @@ for an active native-enabled session go through a versioned sidecar operation.
 Direct JSON reads remain available. A direct JSON replacement is not a
 supported write path for an active native-enabled session because it bypasses
 the serialization and ownership checks. Sessions that are not native-enabled
-retain their existing behavior. The new write contract applies only after the
-producer migration and eligibility handshake succeed; until then, native
-clearing remains disabled.
+retain their existing behavior. Setting the protocol marker after producer
+migration and the static launch-eligibility checks activates the API-only write
+contract immediately. The child-context handshake is a separate gate for
+native-clear eligibility; while it is pending or if it fails, agent metadata
+writes fail closed and direct JSON writes remain unsupported. Native clearing
+also remains disabled until the independent production gates pass.
 
 The implementation should expose authenticated `GET /sessions/:id/metadata`
 and `PATCH /sessions/:id/metadata` operations for direct agents. Only a

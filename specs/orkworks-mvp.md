@@ -766,8 +766,10 @@ After launch, the agent must complete the authenticated metadata GET and
 validation-only PATCH handshake from its actual execution context before any
 metadata mutation. Until the implementation and producer migration are
 complete, the handshake succeeds, and the independent #690/#763 verification
-gates pass, native clearing remains disabled and current sessions retain the
-existing write behavior. The
+gates pass, native clearing remains disabled. Sessions without the protocol
+marker retain direct JSON behavior; a session with the marker remains API-only
+while the handshake is pending or fails, and agent metadata writes fail closed
+instead of falling back to direct JSON. The
 specification approval does not authorize runtime changes under #761; see the
 [sidecar-mediated metadata design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md)
 and [ADR 0076](../docs/adr/0076-codex-owned-native-approval-observer.md).
