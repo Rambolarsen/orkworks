@@ -74,8 +74,12 @@ evidence. Context recall is not proof of continued loading.
 `selected`, `loaded`, and usage are separate dimensions. A selected skill can
 remain delivery-unconfirmed. A use report without a delivery receipt remains a
 reported claim and cannot confirm delivery. An observation event cannot imply
-delivery; loading requires a separate `delivery_receipt` event. Neither
-`reported_used` nor inferred text may be relabeled
+delivery; loading requires a separate `delivery_receipt` event. For a skill
+with `resourceIds`, that receipt binds every resource ID and content digest in
+the approved transitive closure, as well as the canonical rendered-context
+digest. Loading is confirmed only when the complete closure matches the
+assignment snapshot; a partial resource set leaves delivery unconfirmed.
+Neither `reported_used` nor inferred text may be relabeled
 `observed_used`.
 
 Usage records are append-only evidence events. The effective projection for a
@@ -150,8 +154,20 @@ caller-supplied `source`, `confidence`, or `observed` fields.
 
 ## Event contract
 
-The following JSON is illustrative. Server-owned IDs and bindings are returned
-in the receipt and are not trusted from the request.
+Before ingestion, launch preparation provisions each eligible producer with an
+assignment-bound stream descriptor containing its opaque `producerStreamId`,
+initial sequence `1`, producer kind, and exact configuration, launch, adapter,
+and evidence-store generations. The child reporter receives only its
+self-report stream descriptor through the session-scoped reporting capability;
+the adapter stream descriptor is delivered over the separate sidecar-internal
+integration channel. Neither descriptor grants authority to select provenance
+or event kinds. The sidecar records the provisioned descriptor durably before
+launch and rejects unknown streams. A failed launch may leave an unused stream,
+which is retained as bounded metadata and expires with its assignment binding.
+
+The following JSON is illustrative. The stream descriptor was provisioned
+before the first event. Server-owned IDs and bindings are returned in the
+receipt and are not trusted from the request.
 
 ```json
 {
@@ -243,7 +259,11 @@ projection and aggregates exclude it and mark it corrected.
 Unknown event kinds and unknown schema versions fail closed. A delivery receipt
 must include the exact delivery mechanism and content digest. An observed event
 must identify the adapter's documented invocation event type and a stable
-source event reference. Adapter source sequence maps to `producerSequence`;
+source event reference. For native invocation events, this reference is an
+adapter-issued immutable event ID in a documented namespace scoped to the
+exact adapter identity/version, configuration digest, and launch generation;
+the namespace and normalization are part of the verified capability entry.
+Adapter source sequence maps to `producerSequence`;
 coverage `fromSequence`, `throughSequence`, and gap ranges all use this same
 stream-local sequence, while the returned sequence is workspace-local storage
 order. One stream is scoped to one configuration, launch generation, producer
@@ -283,6 +303,19 @@ successful process start is not a delivery receipt. Unsupported usage
 observation leaves usage `unknown`; it is not replaced with terminal parsing,
 model inference, or child claims.
 
+Coverage is explicit per assignment and adapter generation. `complete` is
+permitted only after a server-fenced finalization handshake: the adapter asks
+the sidecar to close its observation interval; the sidecar atomically records
+the assignment's terminal boundary and final expected source sequence, closes
+new event writes for that stream, and returns a finalization nonce. The adapter
+then submits a final coverage record naming that nonce and boundary through
+the adapter-only integration channel. The sidecar accepts it only for the
+closed stream and only if all sequences through the boundary are present or
+explicitly represented as gaps. It may be submitted after the child assignment
+closes, but cannot add invocation or delivery events or reopen writes. Missing
+handshake/coverage leaves the interval `interrupted` or `partial`; it never
+defaults to complete. This operation is generation-bound and idempotent.
+
 Coverage is explicit per assignment and adapter generation:
 
 ```json
@@ -292,6 +325,7 @@ Coverage is explicit per assignment and adapter generation:
     "usageObservation": "partial",
     "fromSequence": 1,
     "throughSequence": 18,
+    "finalizationNonce": "fin_01J9EXAMPLE7N8R3Y6K2M4P0Q1A",
     "gaps": [{ "from": 9, "through": 10, "reason": "adapter_restart" }]
   }
 }
@@ -308,6 +342,19 @@ projection unknown where evidence is absent.
 ## Replay, ordering, and conflicts
 
 The pair `(producerStreamId, producerSequence)` determines a unique `eventId`.
+For native `observed_invocation` events, the server additionally reserves a
+cross-stream replay key `(adapter identity, adapter version, configurationDigest,
+launchGeneration, sourceEventNamespace, sourceEventId)` for the full evidence
+retention window. An exact replay under a restarted stream returns the original
+receipt marked `duplicate_source_event`; it does not append an event or change
+aggregates. A reused key with a different canonical payload hash returns
+`409 source_event_conflict` and marks adapter coverage incomplete. The key is
+reserved atomically with the event, survives event trimming as a bounded
+tombstone, and is removed only when the corresponding assignment evidence and
+replay retention expire or repository evidence is explicitly cleared. The
+verified capability entry must guarantee source-event ID stability across
+restarts; without that guarantee, cross-generation native deduplication cannot
+be claimed and coverage remains partial.
 The server hashes the canonical validated payload and stores the hash with the
 event:
 
@@ -371,6 +418,10 @@ the server must not truncate fields into a different accepted payload.
 | Producer sequence | Integer `1..=2,147,483,647`; stream exhaustion requires a new launch/plan binding, never wraparound |
 | Retained assignment bindings per workspace | 1,000 |
 | Producer streams per workspace | 2,000 |
+| Native source-event replay keys per workspace | 10,000 |
+| Source-event namespace / ID | 128 UTF-8 bytes each |
+| Finalization records per assignment | 1 |
+| Finalization nonce | 128 ASCII bytes |
 | Events in one request | 1 |
 | Skills in one configuration | 16, matching #741 |
 | Evidence events per assignment | 256 |
@@ -378,6 +429,7 @@ the server must not truncate fields into a different accepted payload.
 | Retained events per workspace | 10,000 |
 | Retained event bytes per workspace | 10 MiB |
 | Per-skill aggregates per workspace | 10,000 |
+| Aggregate assignment bindings per workspace | 10,000 |
 | Aggregate bytes per workspace | 2 MiB |
 | Accepted reports per workspace | 60 per rolling minute |
 | Attempts per valid capability | 120 per rolling minute, charged before JSON parsing and assignment lookup; includes replay and rejected requests |
