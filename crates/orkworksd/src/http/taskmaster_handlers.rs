@@ -298,6 +298,19 @@ pub(crate) async fn analyze_taskmaster(
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditResponse {
+    recommendation: Option<Recommendation>,
+}
+
+pub(crate) async fn run_recommendation_audit(State(state): State<Arc<AppState>>) -> Response {
+    match SessionApplication::new(state).run_recommendation_audit() {
+        Ok(recommendation) => Json(AuditResponse { recommendation }).into_response(),
+        Err(error) => store_error(error),
+    }
+}
+
 pub(crate) async fn list_recommendations(State(state): State<Arc<AppState>>) -> Response {
     let (recommendations, diagnostics) = match SessionApplication::new(state).list_recommendations()
     {
@@ -881,6 +894,76 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let response = list_recommendations(State(test_app_state_with_workspace(dir.path()))).await;
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    fn seed_audit_candidate(state: &std::sync::Arc<crate::AppState>, id: &str) -> String {
+        let mut card = recommendation_fixture(id, RecommendationStatus::Proposed, "audit-session");
+        let recent = (chrono::Utc::now() - chrono::Duration::days(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        card.evidence[0].observed_at = recent;
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .put(&card)
+            .unwrap();
+        card.id
+    }
+
+    #[tokio::test]
+    async fn run_audit_returns_the_built_cleanup_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let flagged = seed_audit_candidate(&state, "audit-under");
+
+        let response = run_recommendation_audit(State(state)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["recommendation"].is_object());
+        assert_eq!(body["recommendation"]["type"], "cleanup");
+        let entries = body["recommendation"]["audit"]["entries"]
+            .as_array()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["id"], flagged);
+        assert_eq!(
+            entries[0]["criteria"],
+            serde_json::json!(["under_eligible"])
+        );
+    }
+
+    #[tokio::test]
+    async fn run_audit_returns_null_when_every_proposed_card_is_healthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let response =
+            run_recommendation_audit(State(test_app_state_with_workspace(dir.path()))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["recommendation"].is_null());
+    }
+
+    #[tokio::test]
+    async fn run_audit_returns_null_without_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        *state.workspace.lock().unwrap() = None;
+
+        let response = run_recommendation_audit(State(state)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(body["recommendation"].is_null());
     }
 
     #[tokio::test]
