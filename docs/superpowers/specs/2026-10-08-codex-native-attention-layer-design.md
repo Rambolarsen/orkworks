@@ -92,6 +92,18 @@ whose only top-level fields are:
   atomic rules below. Unknown fields and an empty `agentMetadata` object are
   rejected.
 
+After field-level validation, the sidecar validates prompt fields against
+`observedStatus` as one tuple. `waiting_for_input` requires
+`needsUserInput=true`, but the question and options may be absent. `blocked`,
+`failed`, and `capped` may also have `needsUserInput=true`; `working`, `idle`,
+`stale`, and `done` may not. A non-empty `detectedQuestion` requires
+`needsUserInput=true`; non-empty `suggestedOptions` require a non-empty
+question. When `needsUserInput` is false or null, the question must be null
+and options must be null or empty. A null `observedStatus` also requires an
+empty prompt tuple. Whitespace-only questions are invalid. These rules keep
+valid `blocked`-plus-input tuples and reject contradictory combinations
+atomically without changing metadata or provenance.
+
 Either object may be omitted to preserve that group, but a write must include
 at least one non-empty group. An empty `agentMetadata` object or a patch with
 both groups omitted is rejected without changing fields, provenance, ages, or
@@ -277,7 +289,14 @@ the prior native ownership token, including identical-value writes. Only
 runtime ownership token remains current, regardless of elapsed time. It
 becomes eligible for normal source arbitration only after its owner resolves
 or revokes it. Ordinary agent and hook attention retain the strict boundary:
-age 15 seconds blocks Peon; age greater than 15 seconds permits it.
+age 15 seconds blocks Peon; age greater than 15 seconds permits it. A live
+validated Codex `PermissionRequest` hook-owned wait is also exempt from
+age-based Peon overwrite while its matching runtime hook authority remains
+current, including when native observation is unavailable or ambiguous.
+Hook revocation, an accepted committed-input transition, a later accepted
+hook resolution, or session lifecycle end revokes that protection. Other
+harness-hook attention keeps the strict age boundary, and Peon may continue
+updating non-attention metadata while either Codex wait is protected.
 
 Accepted committed terminal input is a trusted runtime transition. When it
 supersedes either a native-owned approval wait or a validated Codex
@@ -379,6 +398,12 @@ The implementation follow-up must include behavioral tests proving:
 - `attentionState` rejects partial tuples, replaces all tuple fields together,
   derives canonical `attention` from `observedStatus`, and distinguishes
   omitted groups from explicit-null clears.
+- Cross-field validation covers every accepted `observedStatus`: waiting
+  requires input; blocked, failed, and capped may carry input; working, idle,
+  stale, and done may not. Questions require input, options require a
+  non-empty question, and null status requires an empty prompt tuple. Tests
+  preserve `blocked` plus input and status-only waiting, and reject working
+  plus input, question with input false, and options without a question.
 - Empty patches and empty `agentMetadata` groups are rejected without changing
   data, provenance, timestamps, or revisions. A complete agent attention clear
   relinquishes the `agent` source tier, revokes native ownership, and permits
@@ -404,9 +429,12 @@ The implementation follow-up must include behavioral tests proving:
 - The persisted attention update time changes on attention/source writes,
   remains unchanged for unrelated writes, and preserves the strict Peon
   boundary at 15 seconds versus greater than 15 seconds for ordinary agent and
-  hook attention. A live native-owned approval wait remains protected from
-  Peon past that boundary until owner resolution/revocation; accepted committed
-  terminal input can supersede it, revoke ownership, and commit `working`.
+  hook attention. Live native-owned and validated Codex hook-owned
+  PermissionRequest waits remain protected from Peon past that boundary while
+  their respective runtime authority remains current; Peon can still update
+  non-attention metadata. Hook/native resolution, accepted committed input,
+  authority revocation, and session end remove that protection. Other
+  harness-hook waits retain ordinary age arbitration.
 - `workMetadataUpdatedAt` changes on work-metadata writes, remains unchanged
   for attention-only writes, and independently controls the work-metadata
   source staleness check.
