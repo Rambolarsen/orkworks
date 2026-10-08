@@ -1,17 +1,10 @@
 use chrono::{DateTime, Duration, Utc};
 
-#[allow(unused_imports)]
-use crate::workflow_observations::{Impact, ObservationKind, ObservationSource};
+use crate::workflow_observations::{Impact, ObservationSource};
 
-#[allow(unused_imports)]
-use super::{
-    active_workflow_recommendation, evaluate_workflow_improvements, AuditCleanup,
-    AuditCleanupEntry, AuditCriterion, Recommendation, RecommendationConfidence,
-    RecommendationStatus, RecommendationType, TargetSurface, WorkflowImprovement,
-    WorkflowObservationEvidence,
-};
+use super::{AuditCriterion, Recommendation, WorkflowObservationEvidence};
 
-#[allow(unused_imports)]
+#[allow(dead_code)]
 pub(crate) const STALE_AFTER_DAYS: u32 = 14;
 
 /// Precomputed per-dedupe-key context the classifier needs, built once by the
@@ -22,7 +15,6 @@ pub(crate) struct FamilyContext {
     pub has_unextended_terminal_sibling: bool,
 }
 
-#[allow(dead_code)]
 fn qualifies(evidence: &WorkflowObservationEvidence) -> bool {
     evidence.confidence >= 0.6
         && (evidence.reported_impact != Impact::High || evidence.confidence >= 0.8)
@@ -57,14 +49,20 @@ pub(crate) fn classify(
     if family.has_newer_proposed_sibling || family.has_unextended_terminal_sibling {
         criteria.push(AuditCriterion::Duplicate);
     }
-    let parsed: Vec<_> = recommendation
+    let parseable: Option<Vec<_>> = recommendation
         .evidence
         .iter()
-        .filter_map(|evidence| DateTime::parse_from_rfc3339(&evidence.observed_at).ok())
-        .map(|parsed| parsed.with_timezone(&Utc))
+        .map(|evidence| {
+            DateTime::parse_from_rfc3339(&evidence.observed_at)
+                .ok()
+                .map(|parsed| parsed.with_timezone(&Utc))
+        })
         .collect();
-    if let Some(oldest) = parsed.iter().min() {
-        if now.signed_duration_since(*oldest) >= Duration::days(STALE_AFTER_DAYS.into()) {
+    if let Some(newest) = parseable
+        .as_deref()
+        .and_then(|timestamps| timestamps.iter().max())
+    {
+        if now.signed_duration_since(*newest) > Duration::days(STALE_AFTER_DAYS.into()) {
             criteria.push(AuditCriterion::Stale);
         }
     }
@@ -73,11 +71,18 @@ pub(crate) fn classify(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, Utc};
+    use chrono::{Duration, TimeZone, Utc};
 
-    use super::*;
-    #[allow(unused_imports)]
-    use crate::workflow_observations::ObservationSource;
+    use super::{classify, FamilyContext, STALE_AFTER_DAYS};
+    use crate::taskmaster::{
+        active_workflow_recommendation, evaluate_workflow_improvements, AuditCleanup,
+        AuditCleanupEntry, AuditCriterion, Recommendation, RecommendationConfidence,
+        RecommendationStatus, RecommendationType, TargetSurface, WorkflowImprovement,
+        WorkflowObservationEvidence,
+    };
+    use crate::workflow_observations::{
+        Impact, ObservationKind, ObservationSource, WorkflowObservation,
+    };
 
     const WORKSPACE: &str = "workspace-1";
     const NOW: &str = "2026-10-08T12:00:00Z";
@@ -93,7 +98,7 @@ mod tests {
         impact: Impact,
         source: ObservationSource,
         problem_area: Option<&str>,
-    ) -> crate::workflow_observations::WorkflowObservation {
+    ) -> WorkflowObservation {
         crate::workflow_observations::WorkflowObservation {
             id: id.into(),
             sequence,
@@ -110,11 +115,7 @@ mod tests {
         }
     }
 
-    fn evidence_card(evidence: Vec<WorkflowObservationEvidence>) -> Recommendation {
-        super_test_recommendation(evidence)
-    }
-
-    fn super_test_recommendation(evidence: Vec<WorkflowObservationEvidence>) -> Recommendation {
+    fn proposed_card(evidence: Vec<WorkflowObservationEvidence>) -> Recommendation {
         let observation_ids: Vec<String> = evidence
             .iter()
             .map(|item| item.observation_id.clone())
@@ -200,7 +201,7 @@ mod tests {
 
     #[test]
     fn under_eligible_fires_below_the_two_qualifying_citation_floor() {
-        let card = evidence_card(vec![
+        let card = proposed_card(vec![
             evidence(
                 "one",
                 &recent(),
@@ -231,7 +232,7 @@ mod tests {
 
     #[test]
     fn not_under_eligible_when_two_citations_qualify() {
-        let card = evidence_card(vec![
+        let card = proposed_card(vec![
             evidence(
                 "one",
                 &recent(),
@@ -262,7 +263,7 @@ mod tests {
 
     #[test]
     fn noise_when_every_citation_is_unscoped_peon() {
-        let card = evidence_card(vec![
+        let card = proposed_card(vec![
             evidence(
                 "one",
                 &recent(),
@@ -320,7 +321,7 @@ mod tests {
             None,
         );
         for peer in [scoped, agent] {
-            let card = evidence_card(vec![unscoped_peon(), peer.clone()]);
+            let card = proposed_card(vec![unscoped_peon(), peer.clone()]);
             let criteria = classify(
                 &card,
                 &FamilyContext {
@@ -354,11 +355,12 @@ mod tests {
     }
 
     #[test]
-    fn stale_when_oldest_evidence_exceeds_the_window() {
-        let card = evidence_card(vec![
+    fn stale_when_newest_evidence_exceeds_the_window() {
+        let stale_observed = stale_observed_at(20);
+        let card = proposed_card(vec![
             evidence(
                 "one",
-                &stale_observed_at(20),
+                &stale_observed,
                 0.8,
                 Impact::Medium,
                 ObservationSource::Agent,
@@ -366,7 +368,7 @@ mod tests {
             ),
             evidence(
                 "two",
-                &recent(),
+                &stale_observed,
                 0.8,
                 Impact::Medium,
                 ObservationSource::Peon,
@@ -385,8 +387,73 @@ mod tests {
     }
 
     #[test]
+    fn mixed_freshness_card_with_a_recent_citation_is_not_stale() {
+        let card = proposed_card(vec![
+            evidence(
+                "one",
+                &stale_observed_at(20),
+                0.8,
+                Impact::Medium,
+                ObservationSource::Agent,
+                Some("build"),
+            ),
+            evidence(
+                "two",
+                &stale_observed_at(2),
+                0.8,
+                Impact::Medium,
+                ObservationSource::Peon,
+                Some("build"),
+            ),
+        ]);
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            Utc::now(),
+        );
+        assert!(!criteria.contains(&AuditCriterion::Stale));
+    }
+
+    #[test]
+    fn stale_window_boundary_is_exclusive() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap();
+        let boundary_observed =
+            (now - Duration::days(14)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let card = proposed_card(vec![
+            evidence(
+                "one",
+                &boundary_observed,
+                0.8,
+                Impact::Medium,
+                ObservationSource::Agent,
+                Some("build"),
+            ),
+            evidence(
+                "two",
+                &boundary_observed,
+                0.8,
+                Impact::Medium,
+                ObservationSource::Peon,
+                Some("build"),
+            ),
+        ]);
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            now,
+        );
+        assert!(!criteria.contains(&AuditCriterion::Stale));
+    }
+
+    #[test]
     fn not_stale_inside_the_window() {
-        let card = evidence_card(vec![
+        let card = proposed_card(vec![
             evidence(
                 "one",
                 &stale_observed_at(5),
@@ -416,8 +483,40 @@ mod tests {
     }
 
     #[test]
-    fn unparseable_or_empty_evidence_never_classifies_stale() {
-        for evidence in [
+    fn any_unparseable_timestamp_blocks_stale_classification() {
+        let ancient_observed = stale_observed_at(20);
+        let card = proposed_card(vec![
+            evidence(
+                "one",
+                &ancient_observed,
+                0.8,
+                Impact::Medium,
+                ObservationSource::Agent,
+                Some("build"),
+            ),
+            evidence(
+                "two",
+                "not-a-timestamp",
+                0.8,
+                Impact::Medium,
+                ObservationSource::Peon,
+                Some("build"),
+            ),
+        ]);
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            Utc::now(),
+        );
+        assert!(!criteria.contains(&AuditCriterion::Stale));
+    }
+
+    #[test]
+    fn all_unparseable_timestamps_block_stale_classification() {
+        let card = proposed_card(vec![
             evidence(
                 "one",
                 "not-a-timestamp",
@@ -431,27 +530,130 @@ mod tests {
                 "",
                 0.8,
                 Impact::Medium,
+                ObservationSource::Peon,
+                Some("build"),
+            ),
+        ]);
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            Utc::now(),
+        );
+        assert!(criteria.is_empty());
+    }
+
+    #[test]
+    fn empty_evidence_never_classifies_stale() {
+        let card = proposed_card(Vec::new());
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            Utc::now(),
+        );
+        assert!(!criteria.contains(&AuditCriterion::Stale));
+    }
+
+    #[test]
+    fn two_citations_sharing_one_observation_id_count_once_for_the_floor() {
+        let card = proposed_card(vec![
+            evidence(
+                "one",
+                &recent(),
+                0.8,
+                Impact::Medium,
                 ObservationSource::Agent,
                 Some("build"),
             ),
-        ] {
-            let card = evidence_card(vec![evidence]);
-            assert_eq!(
-                classify(
-                    &card,
-                    &FamilyContext {
-                        has_newer_proposed_sibling: false,
-                        has_unextended_terminal_sibling: false
-                    },
-                    Utc::now()
-                ),
-                vec![AuditCriterion::UnderEligible]
-            );
-        }
+            evidence(
+                "one",
+                &recent(),
+                0.9,
+                Impact::Medium,
+                ObservationSource::Peon,
+                Some("build"),
+            ),
+        ]);
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            Utc::now(),
+        );
+        assert_eq!(criteria, vec![AuditCriterion::UnderEligible]);
+    }
+
+    #[test]
+    fn high_impact_below_point_eight_confidence_fails_qualification() {
+        let card = proposed_card(vec![
+            evidence(
+                "one",
+                &recent(),
+                0.7,
+                Impact::High,
+                ObservationSource::Agent,
+                Some("build"),
+            ),
+            evidence(
+                "two",
+                &recent(),
+                0.8,
+                Impact::Medium,
+                ObservationSource::Peon,
+                Some("build"),
+            ),
+        ]);
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            Utc::now(),
+        );
+        assert_eq!(criteria, vec![AuditCriterion::UnderEligible]);
+    }
+
+    #[test]
+    fn high_impact_at_point_eight_confidence_qualifies() {
+        let card = proposed_card(vec![
+            evidence(
+                "one",
+                &recent(),
+                0.8,
+                Impact::High,
+                ObservationSource::Agent,
+                Some("build"),
+            ),
+            evidence(
+                "two",
+                &recent(),
+                0.8,
+                Impact::Medium,
+                ObservationSource::Peon,
+                Some("build"),
+            ),
+        ]);
+        let criteria = classify(
+            &card,
+            &FamilyContext {
+                has_newer_proposed_sibling: false,
+                has_unextended_terminal_sibling: false,
+            },
+            Utc::now(),
+        );
+        assert!(!criteria.contains(&AuditCriterion::UnderEligible));
     }
 
     fn healthy_card() -> Recommendation {
-        evidence_card(vec![
+        proposed_card(vec![
             evidence(
                 "one",
                 &recent(),
@@ -473,7 +675,7 @@ mod tests {
 
     #[test]
     fn healthy_card_matches_nothing() {
-        let card = evidence_card(vec![
+        let card = proposed_card(vec![
             WorkflowObservationEvidence {
                 sequence: 10,
                 ..evidence(
@@ -512,7 +714,7 @@ mod tests {
 
     #[test]
     fn criteria_multiply_in_canonical_order() {
-        let card = evidence_card(vec![
+        let card = proposed_card(vec![
             evidence(
                 "one",
                 &stale_observed_at(20),
@@ -597,11 +799,10 @@ mod tests {
         assert!(classify(&cards[0], &family, Utc::now()).is_empty());
     }
 
-    #[test]
-    fn cleanup_cards_do_not_block_brain_analyses() {
-        let mut proposed = super_test_recommendation(Vec::new());
+    fn cleanup_proposed_card(dedupe_key: &str) -> Recommendation {
+        let mut proposed = proposed_card(Vec::new());
         proposed.recommendation_type = RecommendationType::Cleanup;
-        proposed.dedupe_key = "taskmaster_audit:v1".into();
+        proposed.dedupe_key = dedupe_key.into();
         proposed.audit = Some(AuditCleanup {
             entries: vec![AuditCleanupEntry {
                 id: "sub".into(),
@@ -610,8 +811,20 @@ mod tests {
             }],
             scanned: 1,
             healthy: 0,
-            stale_after_days: super::STALE_AFTER_DAYS,
+            stale_after_days: STALE_AFTER_DAYS,
         });
-        assert!(active_workflow_recommendation(&[proposed]).is_none());
+        proposed
+    }
+
+    #[test]
+    fn cleanup_cards_do_not_block_brain_analyses() {
+        assert!(active_workflow_recommendation(&[cleanup_proposed_card("cleanup:v1")]).is_none());
+    }
+
+    #[test]
+    fn cleanup_type_gate_survives_a_brain_dedupe_key() {
+        assert!(
+            active_workflow_recommendation(&[cleanup_proposed_card("proactive:v1:test")]).is_none()
+        );
     }
 }
