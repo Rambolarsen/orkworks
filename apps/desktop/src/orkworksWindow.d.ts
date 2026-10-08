@@ -70,7 +70,7 @@ export type InitialWorkspaceSnapshot = {
 };
 
 export type AcceptRecommendationOptions = {
-  sessionId: string;
+  sessionId?: string;
   prompt?: string;
   packetRevision?: number;
   evidenceFingerprint?: string;
@@ -176,7 +176,7 @@ declare global {
       refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string) => Promise<string[]>;
       requestTaskmasterAnalysis: () => Promise<import("./api").ManualTaskmasterAnalysisResponse>;
       dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;
-      acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<WorkflowRecommendation>;
+      acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<unknown>;
       applyDebugAttention: (id: string, attention: SessionAttention, message?: string) => Promise<void>;
       getInferenceTrust: () => Promise<import("./inferenceTrust").InferenceAdapterView[]>;
       approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<boolean>;

@@ -12,6 +12,8 @@ import {
   formatPacketReadiness,
   formatPacketEvidence,
   formatTargetSurface,
+  formatAuditCriterion,
+  formatAuditSummary,
   recommendationOrigin,
   filterPanelRecommendations,
   panelEmptyMessage,
@@ -143,6 +145,25 @@ test("Taskmaster presentation helpers format labels and recurrence", () => {
   assert.equal(formatRecurrence(recommendation), "2 occurrences across 2 sessions");
 });
 
+test("Cleanup audit helpers format criteria badges and the counts summary", () => {
+  assert.equal(formatAuditCriterion("under_eligible"), "Under Eligible");
+  assert.equal(formatAuditCriterion("stale"), "Stale");
+  const cleanup = recommendationWithDedupeKey("cleanup:v1", {
+    type: "cleanup",
+    evidence: [],
+    audit: {
+      entries: [
+        { id: "rec-1", title: "Card one", criteria: ["under_eligible", "stale"] },
+      ],
+      scanned: 3,
+      healthy: 2,
+      staleAfterDays: 14,
+    },
+  } as Partial<WorkflowRecommendation>);
+  assert.equal(formatAuditSummary(cleanup), "3 proposed scanned · 2 healthy · stale window 14 days");
+  assert.equal(formatAuditSummary({ ...cleanup, audit: null }), "");
+});
+
 function recommendationWithDedupeKey(
   dedupeKey: string,
   overrides: Partial<WorkflowRecommendation> = {},
@@ -166,6 +187,8 @@ test("Recommendation origin is derived from the dedupe key prefix", () => {
     recommendationOrigin("improve_workflow:v1:instructions:fingerprint"),
     "observations",
   );
+  assert.equal(recommendationOrigin("cleanup:v1"), "cleanup");
+  assert.equal(recommendationOrigin("cleanup:v1:generation"), "cleanup");
   assert.equal(recommendationOrigin("handoff"), null);
   assert.equal(recommendationOrigin("proactive:v2:x"), null);
 });
@@ -200,6 +223,20 @@ test("Panel filter shows every origin on All and only matching origins otherwise
     executingRollup.id,
   ]);
   assert.deepEqual(visible("observations"), [observations.id]);
+});
+
+test("Cleanup origin maps to the cleanup chip and stays proposed-visible under All", () => {
+  const cleanup = recommendationWithDedupeKey("cleanup:v1");
+  const all = [cleanup, recommendationWithDedupeKey("handoff")];
+
+  const visible = (filter: PanelOriginFilter) =>
+    filterPanelRecommendations(all, filter).map((item) => item.id);
+
+  assert.deepEqual(visible("all"), [cleanup.id, "rec-handoff-proposed"]);
+  assert.deepEqual(visible("cleanup"), [cleanup.id]);
+  assert.deepEqual(visible("analysis"), []);
+  assert.deepEqual(visible("observations"), []);
+  assert.equal(panelEmptyMessage("cleanup"), "Run an audit to review stale recommendations.");
 });
 
 test("Empty state names the active origin filter, not just 'no recommendations yet'", () => {

@@ -22,6 +22,7 @@ import {
 } from "../taskmaster.ts";
 import { formatTaskmasterRunStatus, formatTaskmasterRunTimestamp, type TaskmasterRunStatus } from "../taskmasterSettings.ts";
 import EmptyState from "./EmptyState";
+import CleanupAuditBlock from "./CleanupAuditBlock";
 import RecommendationEvidence from "./RecommendationEvidence";
 
 interface RecommendationsPanelProps {
@@ -30,6 +31,7 @@ interface RecommendationsPanelProps {
   canFixWithAi: boolean;
   onSelectSession?: (id: string) => void;
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
+  onRunCleanup?: (recommendation: WorkflowRecommendation) => void | PromiseLike<unknown>;
   focusedRecommendationId?: string | null;
 }
 
@@ -83,8 +85,10 @@ function RecommendationCard({
   onDismiss,
   onSelectSession,
   onFixWithAi,
+  onRunCleanup,
   canFixWithAi,
   dismissing,
+  cleanupRunning,
   error,
   focused,
 }: {
@@ -92,22 +96,25 @@ function RecommendationCard({
   onDismiss: (id: string) => void;
   onSelectSession?: (id: string) => void;
   onFixWithAi?: (recommendation: WorkflowRecommendation) => void;
+  onRunCleanup?: (recommendation: WorkflowRecommendation) => void;
   canFixWithAi: boolean;
   dismissing: boolean;
+  cleanupRunning: boolean;
   error?: string;
   focused?: boolean;
 }) {
   const improvement = recommendation.workflowImprovement;
   const origin = recommendationOrigin(recommendation.dedupeKey);
+  const isCleanup = recommendation.type === "cleanup";
   return (
     <article className={`recommendation-card${focused ? " recommendation-card--focused" : ""}`}>
       <header className="recommendation-card-header">
         <div>
           <h3>{recommendation.title}</h3>
-          <span className="recommendation-target">{formatTargetSurface(improvement.targetSurface)}</span>
+          {!isCleanup && <span className="recommendation-target">{formatTargetSurface(improvement.targetSurface)}</span>}
           {origin && (
             <span className={`recommendation-origin recommendation-origin--${origin}`}>
-              {origin === "analysis" ? "Analysis" : "Observations"}
+              {origin === "analysis" ? "Analysis" : origin === "cleanup" ? "Cleanup" : "Observations"}
             </span>
           )}
         </div>
@@ -123,6 +130,56 @@ function RecommendationCard({
       </div>
       <p className="recommendation-proposal">{improvement.proposedImprovement}</p>
       <p className="recommendation-reason">{recommendation.reason.join(" ")}</p>
+      {isCleanup
+        ? <CleanupAuditBlock recommendation={recommendation} />
+        : <WorkflowEvidenceBlocks
+            recommendation={recommendation}
+            improvement={improvement}
+            onSelectSession={onSelectSession}
+           />}
+      {error && <p className="recommendation-error" role="alert">{error}</p>}
+      {recommendation.status === "proposed" && (
+        <div className="recommendation-actions">
+          {isCleanup ? (
+            <button
+              className="recommendation-fix"
+              type="button"
+              disabled={dismissing || cleanupRunning}
+              onClick={() => onRunCleanup?.(recommendation)}
+            >
+              {cleanupRunning ? "Running…" : "Run cleanup"}
+            </button>
+          ) : (
+            <button
+              className="recommendation-fix"
+              type="button"
+              disabled={dismissing || !canFixWithAi}
+              title={canFixWithAi ? undefined : "Open a session to send this fix to"}
+              onClick={() => onFixWithAi?.(recommendation)}
+            >
+              Fix with AI
+            </button>
+          )}
+          <button className="recommendation-dismiss" type="button" disabled={dismissing || cleanupRunning} onClick={() => onDismiss(recommendation.id)}>
+            {dismissing ? "Dismissing…" : "Dismiss"}
+          </button>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function WorkflowEvidenceBlocks({
+  recommendation,
+  improvement,
+  onSelectSession,
+}: {
+  recommendation: WorkflowRecommendation;
+  improvement: WorkflowRecommendation["workflowImprovement"];
+  onSelectSession?: (id: string) => void;
+}) {
+  return (
+    <>
       <ResurfacedLineage recommendation={recommendation} />
       {recommendation.rollupMemberIds.length > 0 && (
         <p className="recommendation-rollup-meta">
@@ -161,34 +218,19 @@ function RecommendationCard({
         ))}
       </div>
       <RecommendationEvidence recommendation={recommendation} onSelectSession={onSelectSession} />
-      {error && <p className="recommendation-error" role="alert">{error}</p>}
-      {recommendation.status === "proposed" && (
-        <div className="recommendation-actions">
-          <button
-            className="recommendation-fix"
-            type="button"
-            disabled={dismissing || !canFixWithAi}
-            title={canFixWithAi ? undefined : "Open a session to send this fix to"}
-            onClick={() => onFixWithAi?.(recommendation)}
-          >
-            Fix with AI
-          </button>
-          <button className="recommendation-dismiss" type="button" disabled={dismissing} onClick={() => onDismiss(recommendation.id)}>
-            {dismissing ? "Dismissing…" : "Dismiss"}
-          </button>
-        </div>
-      )}
-    </article>
+    </>
   );
 }
 
-function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, focusedRecommendationId }: RecommendationsPanelProps) {
+function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onSelectSession, onFixWithAi, onRunCleanup, focusedRecommendationId }: RecommendationsPanelProps) {
   const [recommendations, setRecommendations] = useState<WorkflowRecommendation[]>([]);
   const [originFilter, setOriginFilter] = useState<PanelOriginFilter>("all");
   const [diagnostics, setDiagnostics] = useState<ObservationDiagnostic[]>([]);
   const [error, setError] = useState<string>();
   const [dismissing, setDismissing] = useState<string>();
   const [dismissErrors, setDismissErrors] = useState<Record<string, string>>({});
+  const [cleanupRunning, setCleanupRunning] = useState<string>();
+  const [cleanupErrors, setCleanupErrors] = useState<Record<string, string>>({});
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysisMessage, setAnalysisMessage] = useState<string>();
   const [analysisError, setAnalysisError] = useState<string>();
@@ -372,6 +414,25 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     }
   }
 
+  async function runCleanup(recommendation: WorkflowRecommendation) {
+    if (!hasWorkspace || !taskmasterReady || cleanupRunning) return;
+    const generation = refreshGeneration.current;
+    setCleanupRunning(recommendation.id);
+    setCleanupErrors((current) => ({ ...current, [recommendation.id]: "" }));
+    try {
+      await onRunCleanup?.(recommendation);
+      if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
+      await refresh();
+    } catch (cause) {
+      setCleanupErrors((current) => ({
+        ...current,
+        [recommendation.id]: cause instanceof Error ? cause.message : "Couldn't run the cleanup.",
+      }));
+    } finally {
+      setCleanupRunning(undefined);
+    }
+  }
+
   const visibleRecommendations = hasWorkspace && taskmasterReady
     ? filterPanelRecommendations(
         recommendations,
@@ -387,7 +448,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         <div><h2>Recommendations</h2><p>Evidence-backed workflow improvements.</p></div>
         <div className="recommendations-panel-actions">
           <div className="recommendation-origin-filter" role="group" aria-label="Filter by origin">
-            {(["all", "analysis", "observations"] as const).map((value) => (
+            {(["all", "analysis", "observations", "cleanup"] as const).map((value) => (
               <button
                 key={value}
                 type="button"
@@ -395,7 +456,7 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
                 aria-pressed={originFilter === value}
                 onClick={() => setOriginFilter(value)}
               >
-                {value === "all" ? "All" : value === "analysis" ? "Analysis" : "Observations"}
+                {value === "all" ? "All" : value === "analysis" ? "Analysis" : value === "cleanup" ? "Cleanup" : "Observations"}
               </button>
             ))}
           </div>
@@ -434,9 +495,11 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
           onDismiss={dismiss}
           onSelectSession={onSelectSession}
           onFixWithAi={onFixWithAi}
+          onRunCleanup={runCleanup}
           canFixWithAi={canFixWithAi}
           dismissing={dismissing === recommendation.id}
-          error={dismissErrors[recommendation.id] || undefined}
+          cleanupRunning={cleanupRunning === recommendation.id}
+          error={dismissErrors[recommendation.id] || cleanupErrors[recommendation.id] || undefined}
           focused={recommendation.id === focusedRecommendationId}
         />
       ))}

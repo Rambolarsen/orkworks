@@ -14,10 +14,13 @@ export function formatImpact(impact: Impact): string {
 
 // Mirrors the Rust classifier in crates/orkworksd/src/taskmaster/mod.rs's
 // is_brain_workflow_recommendation — keep prefixes in sync between the two.
-export type RecommendationOrigin = "analysis" | "observations";
+export type RecommendationOrigin = "analysis" | "observations" | "cleanup";
 export type PanelOriginFilter = "all" | RecommendationOrigin;
 
 export function recommendationOrigin(dedupeKey: string): RecommendationOrigin | null {
+  if (dedupeKey === "cleanup:v1" || dedupeKey.startsWith("cleanup:v1:")) {
+    return "cleanup";
+  }
   if (dedupeKey.startsWith("proactive:v1:") || dedupeKey.startsWith("rollup:v1:")) {
     return "analysis";
   }
@@ -52,7 +55,22 @@ export function panelEmptyMessage(originFilter: PanelOriginFilter): string {
   if (originFilter === "all") return "No workflow recommendations yet.";
   return originFilter === "analysis"
     ? "No Analysis recommendations match this filter."
-    : "No Observations recommendations match this filter.";
+    : originFilter === "cleanup"
+      ? "Run an audit to review stale recommendations."
+      : "No Observations recommendations match this filter.";
+}
+
+export function formatAuditCriterion(criterion: string): string {
+  return criterion
+    .split("_")
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function formatAuditSummary(recommendation: WorkflowRecommendation): string {
+  const audit = recommendation.audit;
+  if (!audit) return "";
+  return `${audit.scanned} proposed scanned · ${audit.healthy} healthy · stale window ${audit.staleAfterDays} days`;
 }
 
 export function formatTargetSurface(surface: TargetSurface): string {
