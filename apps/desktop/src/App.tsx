@@ -1,5 +1,5 @@
 import orkworksIcon from "../build/icon-dark.svg?no-inline";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import DockviewApp from "./components/DockviewApp";
 import NewSessionDialog from "./components/NewSessionDialog";
@@ -52,12 +52,19 @@ import { shouldEnableSessionPolling, type BackendStatus } from "./backendPolling
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
+import { createShellNavigationState, reduceShellNavigation } from "./shellNavigation";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
   const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [shellNavigation, dispatchShellNavigation] = useReducer(
+    reduceShellNavigation,
+    createShellNavigationState({ workspaceGeneration: 0, activeSessionId: null }),
+  );
+  const shellNavigationRef = useRef(shellNavigation);
+  shellNavigationRef.current = shellNavigation;
+  const activeSessionId = shellNavigation.activeSessionId;
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [workspaceHistoryDiagnostic, setWorkspaceHistoryDiagnostic] = useState<WorkspaceHistoryDiagnostic | null>(null);
@@ -100,7 +107,24 @@ function App() {
         setActiveHarnessIds(info?.activeHarnessIds ?? []);
       },
       onSessions: (next) => setSessions([...next]),
-      onActiveSession: setActiveSessionId,
+      onActiveSession: (sessionId) => {
+        const generation = workspaceLifecycleRef.current.generation;
+        const currentNavigation = shellNavigationRef.current;
+        if (
+          sessionId === null &&
+          currentNavigation.activeSessionId !== null &&
+          currentNavigation.workspaceGeneration === generation
+        ) {
+          dispatchShellNavigation({
+            type: "target-missing",
+            target: { kind: "session", sessionId: currentNavigation.activeSessionId },
+            reason: "The selected session is no longer available.",
+            generation,
+          });
+        } else {
+          dispatchShellNavigation({ type: "session-restored", sessionId, generation });
+        }
+      },
       onError: ({ message }) => pushToast("error", message),
       deps: {
         // Controller pruning keeps terminal attachments for sessions whose lifecycle !== "dead".
@@ -119,6 +143,7 @@ function App() {
       generation,
       readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
     };
+    dispatchShellNavigation({ type: "workspace-generation-changed", generation });
     if (event.state === "ready") {
       setIsSwitchingWorkspace(false);
       setWorkspaceSwitchDiagnostic(null);
@@ -260,6 +285,12 @@ function App() {
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
   const activeSession = sessions.find((session) => session.id === activeSessionId);
 
+  useEffect(() => {
+    if (shellNavigation.visibleFallbackReason) {
+      pushToast("info", shellNavigation.visibleFallbackReason);
+    }
+  }, [shellNavigation.visibleFallbackReason]);
+
   const handleSaveActiveHarnesses = useCallback(async (ids: string[], scope?: IntegrationKey): Promise<ActiveHarnessSaveResult> => {
     const result = scope
       ? await window.orkworks.enableHarnessIntegrationImmediate(ids, scope.adapterId, scope.targetId)
@@ -381,6 +412,11 @@ function App() {
 
   const handleSelectSession = useCallback((id: string) => {
     if (!workspaceSessionController.selectSession(id)) return;
+    dispatchShellNavigation({
+      type: "session-selected",
+      sessionId: id,
+      generation: workspaceLifecycleRef.current.generation,
+    });
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
     const api = dockviewApiRef.current;
     if (api) {

@@ -53,6 +53,7 @@ export type ShellNavigationEvent =
     }
   | { type: "inspector-closed"; generation: number }
   | { type: "workspace-generation-changed"; generation: number }
+  | { type: "session-restored"; sessionId: string | null; generation: number }
   | {
       type: "target-missing";
       target:
@@ -100,11 +101,12 @@ function subjectMatchesTarget(
   subject: InspectedSubject | null,
   target: Extract<ShellNavigationEvent, { type: "target-missing" }>['target'],
 ): boolean {
-  if (!subject || subject.kind !== target.kind) return false;
-  if (subject.kind === "session" && target.kind === "session") {
-    return subject.sessionId === target.sessionId;
+  if (!subject) return false;
+  if (target.kind === "session") {
+    return (subject.kind === "session" || subject.kind === "artifact") &&
+      subject.sessionId === target.sessionId;
   }
-  if (subject.kind === "artifact" && target.kind === "artifact") {
+  if (subject.kind === "artifact") {
     return subject.sessionId === target.sessionId && subject.artifactId === target.artifactId;
   }
   return false;
@@ -119,10 +121,12 @@ export function reduceShellNavigation(
     return {
       ...state,
       workspaceGeneration: event.generation,
-      centralSurface: { kind: "terminal", sessionId: state.activeSessionId },
+      activeSessionId: null,
+      acknowledgedSessionIds: [],
+      centralSurface: { kind: "terminal", sessionId: null },
       inspector: null,
       inspectedSubject: null,
-      focusTarget: terminalFocus(state.activeSessionId),
+      focusTarget: { kind: "sessions" },
       returnTarget: null,
       inspectorReturnFocus: null,
       visibleFallbackReason: null,
@@ -144,6 +148,20 @@ export function reduceShellNavigation(
         inspector: null,
         inspectedSubject: null,
         focusTarget: { kind: "terminal", sessionId: event.sessionId },
+        returnTarget: null,
+        inspectorReturnFocus: null,
+        visibleFallbackReason: null,
+      };
+    }
+    case "session-restored": {
+      if (state.activeSessionId === event.sessionId) return state;
+      return {
+        ...state,
+        activeSessionId: event.sessionId,
+        centralSurface: { kind: "terminal", sessionId: event.sessionId },
+        inspector: null,
+        inspectedSubject: null,
+        focusTarget: terminalFocus(event.sessionId),
         returnTarget: null,
         inspectorReturnFocus: null,
         visibleFallbackReason: null,
@@ -224,8 +242,16 @@ export function reduceShellNavigation(
         state.centralSurface.sessionId === event.target.sessionId &&
         (event.target.kind === "session" || state.centralSurface.artifactId === event.target.artifactId);
       const inspectedMatches = subjectMatchesTarget(state.inspectedSubject, event.target);
-      const returnMatches = state.returnTarget?.sessionId === event.target.sessionId;
-      if (!reviewMatches && !inspectedMatches && !returnMatches) return state;
+      const activeTerminalMatches = event.target.kind === "session" &&
+        state.centralSurface.kind === "terminal" &&
+        state.centralSurface.sessionId === event.target.sessionId;
+      const activeSelectionMatches = event.target.kind === "session" &&
+        state.activeSessionId === event.target.sessionId;
+      const returnMatches = event.target.kind === "session" &&
+        state.returnTarget?.sessionId === event.target.sessionId;
+      if (!reviewMatches && !inspectedMatches && !activeTerminalMatches && !activeSelectionMatches && !returnMatches) {
+        return state;
+      }
 
       const sessionIsMissing = event.target.kind === "session";
       const activeSessionId = sessionIsMissing && state.activeSessionId === event.target.sessionId
@@ -234,21 +260,24 @@ export function reduceShellNavigation(
       const fallbackSessionId = sessionIsMissing
         ? activeSessionId
         : (state.activeSessionId === event.target.sessionId ? event.target.sessionId : activeSessionId);
-      const mustLeaveReview = reviewMatches;
+      const mustLeaveCentral = reviewMatches || activeTerminalMatches;
       return {
         ...state,
         activeSessionId,
-        centralSurface: mustLeaveReview
+        acknowledgedSessionIds: sessionIsMissing
+          ? state.acknowledgedSessionIds.filter((sessionId) => sessionId !== event.target.sessionId)
+          : state.acknowledgedSessionIds,
+        centralSurface: mustLeaveCentral
           ? { kind: "terminal", sessionId: fallbackSessionId }
           : state.centralSurface,
         inspector: inspectedMatches ? null : state.inspector,
         inspectedSubject: inspectedMatches ? null : state.inspectedSubject,
-        focusTarget: mustLeaveReview
+        focusTarget: mustLeaveCentral
           ? terminalFocus(fallbackSessionId)
           : inspectedMatches
             ? state.inspectorReturnFocus ?? terminalFocus(activeSessionId)
             : state.focusTarget,
-        returnTarget: returnMatches || mustLeaveReview ? null : state.returnTarget,
+        returnTarget: returnMatches || mustLeaveCentral ? null : state.returnTarget,
         inspectorReturnFocus: inspectedMatches ? null : state.inspectorReturnFocus,
         visibleFallbackReason: event.reason,
       };
