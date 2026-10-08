@@ -7,6 +7,28 @@ const preloadSource = readFileSync(new URL("../electron/preload.ts", import.meta
 const rendererTypes = readFileSync(new URL("../src/orkworksWindow.d.ts", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
+test("shell persistence IPC derives navigation identity from ready lifecycle and accepts only a surface", () => {
+  assert.match(mainSource, /createShellLayoutMemory\(app\.getPath\("userData"\)\)/);
+  assert.match(mainSource, /createWorkspaceNavigationMemory\(app\.getPath\("userData"\)\)/);
+  assert.match(mainSource, /ipcMain\.handle\("complete-workspace-navigation", async \(_event, surface: unknown\)/);
+  assert.match(mainSource, /latestBackendLifecycle\.workspace\.workspaceIdentity/);
+  assert.match(mainSource, /backendGeneration/);
+  assert.match(preloadSource, /completeWorkspaceNavigation: \(surface: LastCentralSurface\)/);
+  assert.match(rendererTypes, /completeWorkspaceNavigation: \(surface: LastCentralSurface\)/);
+});
+
+test("both shell rebuild IPC handlers gate writes on distinct native confirmations", () => {
+  assert.match(mainSource, /ipcMain\.handle\("rebuild-shell-layout", async \(\) => confirmShellMemoryRebuild\("layout",/);
+  assert.match(mainSource, /ipcMain\.handle\("rebuild-workspace-navigation", async \(\) => confirmShellMemoryRebuild\("navigation",/);
+  assert.match(mainSource, /dialog\.showMessageBox\(owner, options\)/);
+  assert.match(preloadSource, /rebuildShellLayout: \(\): Promise<ShellMemoryRebuildResult> => ipcRenderer\.invoke\("rebuild-shell-layout"\)/);
+  assert.match(preloadSource, /rebuildWorkspaceNavigation: \(\): Promise<ShellMemoryRebuildResult> => ipcRenderer\.invoke\("rebuild-workspace-navigation"\)/);
+  assert.match(rendererTypes, /rebuildShellLayout: \(\) => Promise<ShellMemoryRebuildResult>/);
+  assert.match(rendererTypes, /rebuildWorkspaceNavigation: \(\) => Promise<ShellMemoryRebuildResult>/);
+  assert.doesNotMatch(mainSource, /rebuild-shell-layout", \(_event, confirmed/);
+  assert.doesNotMatch(mainSource, /rebuild-workspace-navigation", \(_event, confirmed/);
+});
+
 test("Electron main centralizes initial and workspace sidecar startup", () => {
   assert.match(mainSource, /import \{ createSidecarLifecycle/);
   assert.equal(mainSource.match(/createSidecarLifecycle\(/g)?.length, 1);
@@ -445,15 +467,27 @@ test("open-remembered-workspace forgets stale paths that fail pre-sidecar valida
   assert.ok(start >= 0 && end > start, "open-remembered-workspace handler not found");
   const handler = mainSource.slice(start, end);
   assert.match(handler, /result\.failure\.code === "invalid_destination"/);
-  assert.match(handler, /forgetWorkspacePath\(app\.getPath\("userData"\), path\)/);
+  assert.match(handler, /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory\)/);
   assert.match(handler, /throw new Error\(result\.failure\.message\)/);
+});
+
+test("explicit and restoration forgets couple validated history removal to navigation deletion", () => {
+  assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", async \(_event, path: unknown\) => \{/);
+  assert.match(mainSource, /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory\)/);
+  assert.match(mainSource, /Workspace navigation state could not be cleared\. Try removing the workspace shortcut again\./);
+  assert.match(mainSource, /forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), path, workspaceNavigationMemory,\s*\(\) => confirmShellMemoryRebuild\("navigation"/);
+  assert.match(mainSource, /if \(result\.cancelled\) return toWorkspaceHistorySnapshot\(result\.history\);/);
+  const start = mainSource.indexOf("async function restoreWorkspace(");
+  const end = mainSource.indexOf("\n  async function", start + 10);
+  assert.ok(start >= 0 && end > start);
+  assert.match(mainSource.slice(start, end), /await forgetRememberedWorkspaceWithNavigation\(app\.getPath\("userData"\), rejectedPath, workspaceNavigationMemory\)/);
 });
 
 test("workspace history IPC channels are wired through main, preload, and the renderer contract", () => {
   assert.match(mainSource, /ipcMain\.handle\("get-workspace-history", \(\) =>/);
   assert.match(mainSource, /ipcMain\.handle\("pin-workspace-path", \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /ipcMain\.handle\("unpin-workspace-path", \(_event, path: unknown\) => \{/);
-  assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", \(_event, path: unknown\) => \{/);
+  assert.match(mainSource, /ipcMain\.handle\("forget-workspace-path", async \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /ipcMain\.handle\("open-remembered-workspace", async \(_event, path: unknown\) => \{/);
   assert.match(mainSource, /workspaceSwitchCoordinator\.getCurrentWorkspacePath\(\) === path\) return null;/);
   assert.match(mainSource, /await workspaceSwitchCoordinator\.switchWorkspace\(path\);/);
