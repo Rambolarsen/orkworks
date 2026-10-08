@@ -278,7 +278,12 @@ by `provenance.sourceIdentity` (the repository root for repository sources, or
 the declared catalog root for other sources). Its wire form uses `/` separators,
 the exact on-disk component spelling, and no Unicode normalization or case
 folding. Reject absolute paths, `\\`, empty, `.` or `..` components, NUL, and
-invalid UTF-8. This order is digest-bound but never resolves a contradiction.
+invalid UTF-8. Applicability is determined by the root router's declared source
+and path scopes plus the captured rule content; render order alone does not make
+two rules conflict. A conflict exists only when both applicable rules prescribe
+incompatible outcomes for the same action and affected resource. If the relevant
+scope cannot be resolved from those sources, block approval. This order is
+digest-bound but never resolves a contradiction.
 
 Each applicable rule and role template has one reviewed `RequirementManifest`
 for this assignment. Its `sourceId`/`sourceDigest` bind the exact source snapshot;
@@ -677,12 +682,20 @@ lookup key. Repeating a retirement for an existing key returns that immutable
 record unchanged, without appending or changing its timestamp, digest, or reason;
 a conflicting `contentDigest` for the same key is rejected as version reuse.
 Retirement writes, proposal invalidation, and approval checks serialize under the
-workspace metadata lease. Writing a retirement invalidates every pending
-unapproved proposal containing that key. Approval also atomically rechecks each
-selected template/skill key and `retirementSelectionAvailable`; reject approval
-if any key is retired or selection is unavailable. Tombstones are durable and
-monotonic: a retired identity cannot be reactivated; corrected or replacement
-content needs a new version/digest. The
+workspace mutation transaction. The workspace lease prevents a second sidecar
+owner; it does not serialize concurrent request handlers in that owner. A
+process-local/store transaction lock must cover proposal creation, retirement,
+pending-proposal invalidation, and approval check through durable commit. Proposal
+creation checks `retirementSelectionAvailable` and each selected key while holding
+that lock. Retirement appends its tombstone and invalidates every pending
+unapproved proposal containing the key in one durable transaction. Approval holds
+the same lock while it rereads the proposal, rechecks each selected template/skill
+key and ledger availability, and commits the approval; reject approval if any key
+is retired or selection is unavailable. Persist each transaction atomically so a
+crash cannot publish only its tombstone, invalidation, or approval subset. Do not
+hold the lock while waiting for user input. Tombstones are durable and monotonic:
+a retired identity cannot be reactivated; corrected or replacement content needs
+a new version/digest. The
 catalog/source identity is taken from snapshot provenance, so retirement does not
 affect a same-named skill from another source. Missing or unreadable catalog state
 blocks new proposals that depend on it and is reported as an unavailable
@@ -806,8 +819,10 @@ authorize a production launch.
 | Tool-managed model changes within approved policy | Preserve known/reported/unknown observation; no change to immutable policy and no known-model cohort inferred |
 | `planRevision`/`preparationRevision` boundaries | Accept 1 and 64; reject 0 and 65, matching #742's shared identity bound |
 | Binding repository rules conflict at root and scoped path | Block the configuration with both source IDs; version 1 has no scoped override operation |
+| Root requires pnpm for repository dependencies; desktop scope bootstraps Corepack with global `npm install -g corepack` | Treat as different effect scopes; do not infer permission to use npm/yarn for project dependencies |
+| Root requires pnpm for repository dependencies; scoped source requires npm for project dependencies | Block the conflict; the nested source itself states that the root owns the pnpm-only rule |
 | Retired skill/template version selected for a new proposal | Reject selection with the retirement reason; preserve existing approved snapshot/history |
-| Retire a skill/template referenced by a pending proposal | Invalidate that proposal; an approval racing retirement must fail the same lease-serialized lookup |
+| Retirement races approval of a pending proposal | Use the shared workspace transaction: retirement first invalidates/rejects approval; approval first commits, then the existing approved configuration remains under normal launch checks |
 | Retry retirement for an existing key | Return the original tombstone unchanged and consume no additional ledger capacity; reject a conflicting digest |
 | Retirement ledger reaches either bound | Preserve tombstones, persist unavailable-selection marker, and block all new skill/template selections until bounded migration succeeds |
 | Retired artifact reappears after a source revision or with changed bytes at the same version | Reject by `(sourceIdentity, artifactKind, artifactId, version)`; digest change does not reactivate the version |
