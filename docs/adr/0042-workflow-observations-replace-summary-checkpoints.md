@@ -3,7 +3,9 @@
 - Status: accepted (the reachable-status clause of the "Embedded
   recommendation evidence" decision below is superseded by ADR 0045; the
   "no accept/execute action" and "dismissible only" clauses are superseded
-  by ADR 0048)
+  by ADR 0048; the single-observation high-impact clause of the
+  deterministic-correlation decision below is superseded on 2026-10-08 by
+  recurrence-only eligibility in `specs/taskmaster.md` § Eligibility)
 - Deciders: Rambolarsen
 - Date: 2026-08-14
 
@@ -81,10 +83,11 @@ decisions and replaces the durable-summary-checkpoint mechanism:
   readable for now.
 - **Exact deterministic Taskmaster correlation**: Taskmaster evaluates
   accepted observations within the active workspace, five seconds after the
-  latest accepted observation. A cluster qualifies when it contains at least
-  two distinct observations sharing a fingerprint with individual confidence
-  at least `0.6`, or one observation with `reportedImpact: high` and
-  confidence at least `0.8`. Each observation kind maps to one fixed target
+  latest accepted observation. A cluster qualifies when it contains at
+  least two distinct observations sharing a fingerprint with individual
+  confidence at least `0.6` (the original single-observation high-impact
+  escape hatch was removed on 2026-10-08; see the status note above).
+  Each observation kind maps to one fixed target
   surface and recommendation-text template; version 1 never combines
   different fingerprints.
 - **Embedded recommendation evidence**: a qualifying cluster produces the
