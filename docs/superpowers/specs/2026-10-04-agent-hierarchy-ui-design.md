@@ -56,7 +56,7 @@ Read against merged baseline `0c6562a1`:
 | `apps/desktop/src/workspaceSessionController.ts` | Foreground/admission/polling generations reject stale results; restore only a remembered active ID matching a non-dead session | Fence hierarchy state by workspace/runtime generation; reveal a restored child without selecting its parent |
 | `apps/desktop/src/App.tsx`, `sessionUnread.ts` | Actual session selection clears its unread/acknowledges attention | Group inspection/collapse and skill evidence must not acknowledge other sessions |
 | `apps/desktop/src/api.ts` | Canonical renderer `SessionInfo` has lifecycle, attention and terminal outcome; no hierarchy/skill/evaluation contract yet | Add a separate proposed read projection; join to canonical session data by validated ID |
-| `apps/desktop/src/domain/session.ts` | Separate legacy vocabulary includes `waiting_for_input`, distinct from current `needs_you` | Do not use this model to invent another attention ladder |
+| `apps/desktop/src/domain/session.ts` | At the investigation baseline, an unused legacy vocabulary included `waiting_for_input`; the model was subsequently removed under [#405](https://github.com/Rambolarsen/orkworks/issues/405) | Do not use this model to invent another attention ladder |
 | `apps/desktop/src/components/HarnessIcon.tsx` | Coding-tool glyph, grayscale, accessible display name and generic fallback | Portrait indicates role; preserve the coding-tool glyph as separate metadata |
 
 ### Uncertainty and blind-spot checkpoint

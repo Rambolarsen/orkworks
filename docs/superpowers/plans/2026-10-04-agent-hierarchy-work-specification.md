@@ -692,7 +692,6 @@ rtk git commit -m "docs: specify repository-scoped configuration learning and sk
 - Read: `apps/desktop/src/sessionSort.ts`.
 - Read: `apps/desktop/src/workspaceSessionController.ts`.
 - Read: `apps/desktop/src/api.ts`.
-- Read: `apps/desktop/src/domain/session.ts`.
 
 **Interfaces:**
 - Consumes: Existing session lifecycle/selection/unread state and the product node design; final field agreement consumes configuration, usage, and evaluation contracts; final placement/navigation consumes accepted #755 shell direction and authoritative reconciliation.
