@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
 import fsExt from "fs-ext";
@@ -22,6 +22,8 @@ type Pending<P> = {
   update: (payload: P, revision: number) => P | null;
   resolve: (result: ShellMemoryResult) => void;
 };
+type OversizedPrior = { backup: string; dev: number; ino: number; size: number };
+type Prior = Buffer | OversizedPrior | null;
 export type ShellFileReplacer = (temporary: string, target: string, targetExists: boolean) => void;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const lockFileName = ".shell-memory.lock";
@@ -94,11 +96,29 @@ export class RevisionedShellMemory<P> {
   }
 
   private path(): string { return join(this.directory, this.fileName); }
-  private load(): Loaded<P> {
-    if (!existsSync(this.path())) return { record: null, diagnostic: null };
+  private readTarget(): Buffer | "oversize" | null {
+    if (!existsSync(this.path())) return null;
+    const descriptor = openSync(this.path(), "r");
     try {
-      const bytes = readFileSync(this.path());
-      if (bytes.byteLength > this.limit) return { record: null, diagnostic: "corrupt_record" };
+      if (fstatSync(descriptor).size > this.limit) return "oversize";
+      // A file can grow after fstat. The extra byte detects that race without
+      // ever allocating or reading more than the record bound plus one.
+      const bytes = Buffer.allocUnsafe(this.limit + 1);
+      let length = 0;
+      while (length < bytes.byteLength) {
+        const count = readSync(descriptor, bytes, length, bytes.byteLength - length, null);
+        if (count === 0) break;
+        length += count;
+      }
+      return length > this.limit ? "oversize" : bytes.subarray(0, length);
+    } finally { closeSync(descriptor); }
+  }
+
+  private load(): Loaded<P> {
+    try {
+      const bytes = this.readTarget();
+      if (bytes === null) return { record: null, diagnostic: null };
+      if (bytes === "oversize") return { record: null, diagnostic: "corrupt_record" };
       const value: unknown = JSON.parse(decoder.decode(bytes));
       if (value !== null && typeof value === "object" && !Array.isArray(value)
         && "version" in value && value.version !== 1) return { record: null, diagnostic: "unsupported_version" };
@@ -110,7 +130,7 @@ export class RevisionedShellMemory<P> {
     } catch { return { record: null, diagnostic: "corrupt_record" }; }
   }
 
-  private publish(bytes: Buffer, replacer: ShellFileReplacer = this.replacer): Buffer {
+  private publish(bytes: Buffer, replacer: ShellFileReplacer = this.replacer): boolean {
     const temporary = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`);
     let descriptor: number | null = null;
     try {
@@ -124,28 +144,60 @@ export class RevisionedShellMemory<P> {
       fsyncSync(descriptor);
       closeSync(descriptor); descriptor = null;
       replacer(temporary, this.path(), existsSync(this.path()));
-      return readFileSync(this.path());
+      // Candidate and restore payloads fit the record bound. A misbehaving
+      // replacer or external writer can still publish a larger target.
+      const observed = this.readTarget();
+      return Buffer.isBuffer(observed) && observed.equals(bytes);
     }
     finally { if (descriptor !== null) closeSync(descriptor); rmSync(temporary, { force: true }); }
   }
 
-  private failedWrite(previous: Buffer | null, attempted: Buffer): ShellMemoryResult {
+  private capturePrior(): Prior {
+    const previous = this.readTarget();
+    if (previous !== "oversize") return previous;
+    // A hardlink preserves an oversized prior inode for rollback without
+    // buffering it or copying attacker-sized bytes. If unsupported, decline
+    // the rebuild before publication.
+    const target = this.path();
+    if (!lstatSync(target).isFile()) throw new Error("Oversized prior target is not a regular file");
+    const backup = join(this.directory, `.${this.fileName}.${process.pid}.${randomBytes(8).toString("hex")}.bak`);
+    try {
+      linkSync(target, backup);
+      const info = statSync(backup);
+      return { backup, dev: info.dev, ino: info.ino, size: info.size };
+    } catch (error) { rmSync(backup, { force: true }); throw error; }
+  }
+
+  private priorInPlace(previous: OversizedPrior): boolean {
+    try {
+      const current = statSync(this.path());
+      return current.dev === previous.dev && current.ino === previous.ino && current.size === previous.size;
+    } catch { return false; }
+  }
+
+  private failedWrite(previous: Prior, attempted: Buffer): ShellMemoryResult {
     // A compliant peer cannot write while our retained lock is held. Still,
     // never roll back a valid but unexpected record: it may be a newer write
     // from a noncompliant external actor. The exact attempted bytes identify
     // our own publication even if the replacer threw after publishing it.
-    try {
-      const currentBytes = readFileSync(this.path());
-      if (!currentBytes.equals(attempted)) {
-        const observed = this.load();
-        if (observed.record) return { ok: false, diagnostic: "write_failed" };
+    if (previous !== null && !Buffer.isBuffer(previous) && this.priorInPlace(previous)) {
+      return { ok: false, diagnostic: "write_failed" };
+    }
+    let currentBytes: Buffer | "oversize" | null;
+    try { currentBytes = this.readTarget(); }
+    catch { return { ok: false, diagnostic: "restore_failed" }; }
+    if (currentBytes === "oversize") return { ok: false, diagnostic: "write_failed" };
+    if (currentBytes !== null && !currentBytes.equals(attempted)) {
+      const observed = this.load();
+      if (observed.record) return { ok: false, diagnostic: "write_failed" };
+      try {
         const parsed: unknown = JSON.parse(decoder.decode(currentBytes));
         if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
           && ("version" in parsed || "epoch" in parsed || "revision" in parsed)) {
           return { ok: false, diagnostic: "write_failed" };
         }
-      }
-    } catch { /* Missing or malformed bytes may be restored below. */ }
+      } catch { /* Malformed JSON or UTF-8 may be restored below. */ }
+    }
     if (previous === null) {
       // Initialization had no prior record. After excluding a recognizable
       // competing record above, restore the prior absence under the same lock.
@@ -155,11 +207,18 @@ export class RevisionedShellMemory<P> {
       } catch { /* Absence could not be confirmed. */ }
       return { ok: false, diagnostic: "restore_failed" };
     }
+    if (!Buffer.isBuffer(previous)) {
+      try {
+        this.restoreReplacer(previous.backup, this.path(), existsSync(this.path()));
+        if (this.priorInPlace(previous)) return { ok: false, diagnostic: "write_failed" };
+      } catch { /* The prior inode could not be confirmed at the target. */ }
+      return { ok: false, diagnostic: "restore_failed" };
+    }
     try {
-      if (existsSync(this.path()) && readFileSync(this.path()).equals(previous)) {
+      if (currentBytes !== null && Buffer.isBuffer(currentBytes) && currentBytes.equals(previous)) {
         return { ok: false, diagnostic: "write_failed" };
       }
-      if (this.publish(previous, this.restoreReplacer).equals(previous)) return { ok: false, diagnostic: "write_failed" };
+      if (this.publish(previous, this.restoreReplacer)) return { ok: false, diagnostic: "write_failed" };
     } catch { /* The caller must know preservation could not be verified. */ }
     return { ok: false, diagnostic: "restore_failed" };
   }
@@ -169,14 +228,15 @@ export class RevisionedShellMemory<P> {
     if (bytes.byteLength > this.limit) return { ok: false, diagnostic: "invalid_input" };
     // Every caller holds the shared lock. Keep the exact prior bytes so a
     // failed read-back can restore them without rewriting a normalized record.
-    let previous: Buffer | null;
-    try { previous = existsSync(this.path()) ? readFileSync(this.path()) : null; }
+    let previous: Prior;
+    try { previous = this.capturePrior(); }
     catch { return { ok: false, diagnostic: "write_failed" }; }
     try {
-      if (!this.publish(bytes).equals(bytes)) return this.failedWrite(previous, bytes);
+      if (!this.publish(bytes)) return this.failedWrite(previous, bytes);
       this.snapshot = record;
       return { ok: true };
     } catch { return this.failedWrite(previous, bytes); }
+    finally { if (previous !== null && !Buffer.isBuffer(previous)) rmSync(previous.backup, { force: true }); }
   }
 
   readRecord(): Loaded<P> {

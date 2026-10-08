@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -141,5 +141,135 @@ test("first-use candidate published before replacer throws restores prior absenc
     });
     assert.equal(memory.read().diagnostic, "write_failed");
     assert.equal(existsSync(shellLayoutMemoryPath(directory)), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("oversized shell record is diagnosed and rebuilt without unbounded target reads", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    writeFileSync(target, "old record");
+    truncateSync(target, 4 * 1024 * 1024);
+    const moduleUrl = new URL("../electron/shellLayoutMemory.ts", import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const target = process.argv[1];
+      const originalRead = fs.readFileSync;
+      let targetReads = 0;
+      fs.readFileSync = (...args) => {
+        if (args[0] === target) targetReads += 1;
+        return originalRead(...args);
+      };
+      syncBuiltinESMExports();
+      const { createShellLayoutMemory } = await import(${JSON.stringify(moduleUrl)});
+      const memory = createShellLayoutMemory(process.argv[2]);
+      const diagnostic = memory.read().diagnostic;
+      const rebuilt = await memory.rebuild(true);
+      if (diagnostic !== 'corrupt_record' || !rebuilt.ok || targetReads !== 0) {
+        console.error(JSON.stringify({ diagnostic, rebuilt, targetReads }));
+        process.exitCode = 1;
+      }
+    `;
+    const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script, target, directory], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    assert.ok(statSync(target).size <= 16 * 1024);
+    assert.equal(readdirSync(directory).some((name) => name.endsWith(".bak")), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("a record that grows after size preflight is read only to the bound plus one", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    writeFileSync(target, "old record");
+    truncateSync(target, 4 * 1024 * 1024);
+    const moduleUrl = new URL("../electron/shellLayoutMemory.ts", import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const { createShellLayoutMemory } = await import(${JSON.stringify(moduleUrl)});
+      const originalStat = fs.fstatSync;
+      const originalRead = fs.readSync;
+      let bytesRead = 0;
+      fs.fstatSync = (...args) => ({ ...originalStat(...args), size: 0 });
+      fs.readSync = (...args) => {
+        const count = originalRead(...args);
+        bytesRead += count;
+        return count;
+      };
+      syncBuiltinESMExports();
+      const diagnostic = createShellLayoutMemory(process.argv[1]).read().diagnostic;
+      if (diagnostic !== 'corrupt_record' || bytesRead !== 16 * 1024 + 1) {
+        console.error(JSON.stringify({ diagnostic, bytesRead }));
+        process.exitCode = 1;
+      }
+    `;
+    const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script, directory], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("failed confirmed rebuild restores an oversized prior inode", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    writeFileSync(target, "old record");
+    truncateSync(target, 4 * 1024 * 1024);
+    const prior = statSync(target);
+    const memory = createShellLayoutMemory(directory, (temporary, destination) => {
+      const malformed = `${temporary}.malformed`;
+      writeFileSync(malformed, "{mismatch");
+      renameSync(malformed, destination);
+    });
+    assert.equal(memory.read().diagnostic, "corrupt_record");
+    assert.deepEqual(await memory.rebuild(true), { ok: false, diagnostic: "write_failed" });
+    const restored = statSync(target);
+    assert.equal(restored.ino, prior.ino);
+    assert.equal(restored.size, prior.size);
+    assert.equal(readdirSync(directory).some((name) => name.endsWith(".bak")), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("unsupported oversized backup leaves the record untouched", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    writeFileSync(target, "old record");
+    truncateSync(target, 4 * 1024 * 1024);
+    const prior = statSync(target);
+    const moduleUrl = new URL("../electron/shellLayoutMemory.ts", import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      fs.linkSync = () => { throw new Error('hardlinks unavailable'); };
+      syncBuiltinESMExports();
+      const { createShellLayoutMemory } = await import(${JSON.stringify(moduleUrl)});
+      const result = await createShellLayoutMemory(process.argv[1]).rebuild(true);
+      if (result.ok || result.diagnostic !== 'write_failed') process.exitCode = 1;
+    `;
+    const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script, directory], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    const after = statSync(target);
+    assert.equal(after.ino, prior.ino);
+    assert.equal(after.size, prior.size);
+    assert.equal(readdirSync(directory).some((name) => name.endsWith(".bak")), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("malformed UTF-8 read-back still restores the prior bounded record", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    let replacements = 0;
+    const memory = createShellLayoutMemory(directory, (temporary, target) => {
+      replacements += 1;
+      writeFileSync(target, replacements === 2 ? Buffer.from([0xff]) : readFileSync(temporary));
+    });
+    memory.read();
+    const target = shellLayoutMemoryPath(directory);
+    const prior = readFileSync(target);
+    const result = await memory.save({ sessionsWidth: 250, inspectorWidth: 320, sessionsVisible: true, density: "low" });
+    assert.deepEqual(result, { ok: false, diagnostic: "write_failed" });
+    assert.deepEqual(readFileSync(target), prior);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
