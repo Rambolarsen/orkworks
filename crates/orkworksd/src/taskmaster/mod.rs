@@ -1,3 +1,4 @@
+pub(crate) mod audit;
 pub(crate) mod completion;
 #[cfg(test)]
 pub(crate) mod completion_tests;
