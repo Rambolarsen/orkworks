@@ -81,9 +81,14 @@ An accepted report is bound to all of the following server-resolved values:
 The child cannot choose or override those authority-bearing fields. The
 sidecar derives the reporting session from the same session-scoped bearer
 capability used by the workflow-reporting pattern, then resolves that session
-to its active immutable assignment. A report is accepted only while the
-assignment is admitted and its plan/run authority is current. The capability is
-not serialized in configuration, report bodies, logs, or evidence records.
+to its active immutable assignment. A `reported_use` event is therefore an
+authenticated self-report from the assigned OrkWorks session. The bearer does
+not prove which same-user process emitted the request: under #610 and ADR 0077,
+same-user processes may inspect or replay environment bearers. Preserve this
+limitation in provenance and UI copy; do not describe self-reports as
+process-authenticated. A report is accepted only while the assignment is
+admitted and its plan/run authority is current. The capability is not
+serialized in configuration, report bodies, logs, or evidence records.
 
 Every request also carries the expected plan revision, assignment revision,
 task attempt, runtime generation, and adapter generation. The server compares
@@ -116,7 +121,6 @@ in the receipt and are not trusted from the request.
 ```json
 {
   "schemaVersion": 1,
-  "eventId": "01J9EXAMPLE7N8R3Y6K2M4P0Q1A",
   "expected": {
     "planRevision": 4,
     "assignmentRevision": 2,
@@ -124,6 +128,9 @@ in the receipt and are not trusted from the request.
     "runtimeGeneration": 3,
     "adapterGeneration": 1
   },
+  "producerStreamId": "rs_01J9EXAMPLE7N8R3Y6K2M4P0Q1A",
+  "producerSequence": 18,
+  "eventId": "rs_01J9EXAMPLE7N8R3Y6K2M4P0Q1A:18",
   "skillSnapshotId": "skill-snapshot-graph-planning-7f2a",
   "kind": "reported_use",
   "occurredAt": "2026-10-07T14:23:10Z",
@@ -134,11 +141,21 @@ in the receipt and are not trusted from the request.
 }
 ```
 
-`eventId` is an opaque client-generated idempotency key with at least 128 bits
-of randomness. `occurredAt` is advisory and bounded; the server records its
-own `receivedAt` and monotonic sequence. `evidenceRef` is an optional opaque
+`producerStreamId` is an opaque ID issued by the sidecar for one assignment,
+producer kind, and adapter generation; the authenticated route selects the
+authoritative stream, and callers cannot create or reset it. `producerSequence`
+is a positive, monotonically increasing integer in that stream. `eventId` is
+the deterministic string `<producerStreamId>:<producerSequence>`, validated by
+the server. The adapter and session reporter must persist and retry the same
+sequence/event ID until acknowledged. A sequence gap is recorded as incomplete
+coverage. The server records its own `receivedAt` and workspace-monotonic
+`workspaceSequence`, distinct from the producer's sequence. `occurredAt` is
+advisory; it must be UTC RFC3339 with at most 32 ASCII
+bytes and may be no more than five minutes ahead of server receipt time. The UI
+orders by server `receivedAt`, never by this producer-supplied value.
+`evidenceRef` is an optional opaque
 reference/digest to a bounded, redacted evidence object, never arbitrary
-transcript text. The server returns the accepted event ID, assigned sequence,
+transcript text. The server returns the accepted event ID, workspace sequence,
 effective provenance, and whether it was newly accepted or replayed.
 
 The event kinds are closed:
@@ -151,7 +168,18 @@ The event kinds are closed:
 Unknown event kinds and unknown schema versions fail closed. A delivery receipt
 must include the exact delivery mechanism and content digest. An observed event
 must identify the adapter's documented invocation event type and a stable
-source event reference. Skill mentions in prompts, terminal output, shell
+source event reference. Adapter source sequence maps to `producerSequence`;
+coverage `fromSequence`, `throughSequence`, and gap ranges all use this same
+stream-local sequence, while the returned sequence is workspace-local storage
+order. One stream is scoped to one assignment, producer kind, and adapter
+generation. Sequences start at 1 and are strictly increasing. A restart creates
+a new generation and stream; it cannot reuse the old stream or claim coverage
+across the restart. Producers submit in sequence order. The server rejects a
+lower sequence unless it is an exact replay with a retained matching event or
+tombstone; a higher sequence is accepted and its skipped interval is marked as
+a gap.
+
+Skill mentions in prompts, terminal output, shell
 history, logs, summaries, or arbitrary tool arguments do not qualify as an
 invocation event. Adapters that cannot distinguish invocation from mention
 must report no invocation coverage.
@@ -202,26 +230,35 @@ projection unknown where evidence is absent.
 
 ## Replay, ordering, and conflicts
 
-The event ID is unique within an assignment and retained through the replay
-window. The server hashes the canonical validated payload and stores the hash
-with the event:
+The pair `(producerStreamId, producerSequence)` determines a unique `eventId`.
+The server hashes the canonical validated payload and stores the hash with the
+event:
 
 - same event ID and same payload hash returns the original receipt as an
   idempotent replay; it does not append a second event or increment counts;
 - same event ID with different payload returns `409 idempotency_conflict`;
+- the same producer sequence with a different event ID or payload returns
+  `409 producer_sequence_conflict` while its record/tombstone is retained;
 - stale revision/generation returns `409 stale_assignment`; a terminally closed
   assignment returns `410 assignment_closed`; neither persists the event;
-- out-of-order sequence references are accepted only when the adapter contract
-  defines reorder behavior; the server records received order and marks a gap.
+- a lower producer sequence with no matching retained event/tombstone returns
+  `410 producer_sequence_expired`; it cannot be accepted as a new event;
+- a higher sequence is accepted with an explicit gap marker; producers cannot
+  submit out of order or move a stream backwards.
 
 Idempotency tombstones survive ordinary record trimming and assignment
-completion for 24 hours. After that window an event may be rejected as
-`410 replay_window_expired`; it must not be treated as a new event. Deleting an
-assignment or workspace revokes its report capability immediately, so a late
-retry cannot resurrect deleted evidence. A failed response after durable
-commit is safe to retry with the same event ID. Persist event, tombstone, and
-aggregate update atomically or recover them from the durable event log before
-serving projections.
+completion for 24 hours. The durable per-stream high-water sequence survives
+for the assignment's retention period, even after an individual tombstone
+expires. Thus an old sequence whose tombstone has expired is rejected as
+`410 producer_sequence_expired`, not accepted as a new event; the receipt is
+available only while its matching event/tombstone remains. A new sequence
+represents a new report even if its prose or evidence resembles an earlier
+report. Deleting an assignment or workspace revokes its report capability and
+stream immediately, so a late retry cannot resurrect deleted evidence. A failed
+response after durable commit is safe to retry with the same event ID and
+sequence. Persist event, tombstone, high-water mark, and aggregate update
+atomically or recover them from the durable event log before serving
+projections.
 
 ## Bounds, rate limits, and retention
 
@@ -233,33 +270,52 @@ the server must not truncate fields into a different accepted payload.
 | --- | ---: |
 | JSON request body | 16 KiB |
 | Event ID / opaque reference ID | 128 UTF-8 bytes |
-| Skill snapshot ID | 256 UTF-8 bytes |
+| Producer stream ID | 64 ASCII bytes |
+| `occurredAt` | UTC RFC3339, at most 32 ASCII bytes, at most 5 minutes in the future |
+| Skill snapshot ID | 128 ASCII bytes, matching #741's `SkillSnapshot.id` |
 | Evidence digest | 128 ASCII bytes |
 | Evidence reference object | 512 bytes |
+| Retained assignment identity/binding row | 2 KiB |
+| Plan/assignment revisions, task attempt, runtime/adapter generations | Positive integers `1..=2,147,483,647` |
+| Producer sequence | Positive integer `1..=9,007,199,254,740,991` |
+| Retained assignment bindings per workspace | 1,000 |
+| Producer streams per workspace | 2,000 |
 | Events in one request | 1 |
 | Skills in one assignment | 32 |
 | Evidence events per assignment | 256 |
 | Retained event bytes per assignment | 256 KiB |
 | Retained events per workspace | 10,000 |
 | Retained event bytes per workspace | 10 MiB |
+| Per-skill aggregates per workspace | 10,000 |
+| Aggregate bytes per workspace | 2 MiB |
 | Accepted reports per workspace | 60 per rolling minute |
 | Idempotency tombstones per workspace | 100,000 |
 
-On assignment/workspace count or byte pressure, trim oldest non-protected event
-payloads first and preserve a compact aggregate plus event-ID tombstone through
-the 24-hour replay window. Do not trim the approved assignment/skill snapshot,
-latest coverage state, deletion marker, or tombstones still within the replay
-window. If tombstone capacity cannot preserve the full replay window under the
-rate cap, reject new events with `429 evidence_capacity` before accepting them.
+On assignment/workspace count or byte pressure, trim oldest raw event payloads
+first and preserve compact aggregates, per-stream high-water marks, and
+event-ID tombstones through the 24-hour replay window. Raw history has a
+30-day maximum TTL, not a minimum residency guarantee: workspace/assignment
+byte or count pressure may evict raw events sooner. Do not trim the approved
+assignment/skill identity, latest coverage state, deletion marker, active
+high-water marks, or tombstones still within the replay window. The 180-day
+aggregate/history TTL is also an upper bound; the 1,000 assignment and 10,000
+aggregate caps take precedence. When no expired binding/aggregate can be
+evicted, reject new evidence with `429 evidence_capacity`; do not silently drop
+an unexpired aggregate or weaken a replay guarantee. If tombstone capacity
+cannot preserve the full replay window under the rate cap, reject new events
+with `429 evidence_capacity` before accepting them.
 The workspace rate cap admits at most 86,400 IDs in a 24-hour window; the
 100,000 compact-tombstone bound preserves headroom for clock and cleanup lag.
 Apply this cap before allocating a tombstone or event record.
 
-Retain raw bounded evidence events for 30 days after the assignment reaches a
-terminal state, then delete event payloads and evidence references. Retain
-bounded per-skill aggregates and assignment/configuration identity for up to
-180 days after terminal state for local comparison, subject to repository
-deletion. On repository/workspace deletion, remove events, aggregates,
+Retain raw bounded evidence events for at most 30 days after the assignment
+reaches a terminal state, subject to earlier eviction under the stated storage
+caps; then delete event payloads and evidence references. Retain bounded
+per-skill aggregates and assignment/configuration identity for at most 180 days
+after terminal state for local comparison, subject to the stated caps and
+repository deletion. If assignment/aggregate capacity is full and all records
+are still within their retention period, reject new evidence until capacity is
+available or the user clears repository evidence history. On repository/workspace deletion, remove events, aggregates,
 references, and assignment-linked history; retain only a minimal deletion
 watermark sufficient to reject late writes for 24 hours, then remove it. Users
 must be able to clear evidence history for a repository without deleting
@@ -296,8 +352,8 @@ without it. Hashes do not make sensitive source material safe to retain.
 | `401` | Missing, invalid, or revoked report capability. |
 | `403` | Authenticated session is not the assigned producer for this event kind. |
 | `404` | Assignment or skill snapshot is not visible in this workspace. |
-| `409` | Idempotency conflict, stale revision/generation, or gap-policy conflict. |
-| `410` | Assignment closed, replay window expired, or workspace deletion fenced the report. |
+| `409` | Idempotency conflict, producer-sequence conflict, or stale revision/generation. |
+| `410` | Assignment closed, producer sequence expired, or workspace deletion fenced the report. |
 | `413` | Request exceeds a byte/count bound. |
 | `429` | Rate or evidence capacity limit; includes bounded retry guidance. |
 | `503` | Store degraded or durable commit unavailable; retry only with the same event ID. |
@@ -311,9 +367,10 @@ paths or on-disk storage details.
 - A child submits `reported_use`, the server commits it, and the response is
   lost. Retrying the same event ID and payload returns `200` and the original
   sequence; the count remains one.
-- An adapter restarts and reports sequence 12 after sequence 8. Unless its
-  verified contract provides bounded reordering, the server marks the interval
-  unknown and records partial coverage; it does not infer no usage in the gap.
+- An adapter stream reports sequence 12 after sequence 8. The server accepts
+  sequence 12, records 9–11 as a gap, and marks that interval unknown; it does
+  not infer no usage in the gap. The restarted adapter uses a new stream and
+  cannot claim continuity from sequence 8.
 - A parent proposes a revised plan after research. Reports tied to the prior
   assignment/plan revision fail stale-generation validation. The new assignment
   gets new IDs and cannot inherit prior reports.
@@ -334,8 +391,8 @@ not inspect raw event files or authenticate producers. For each skill, expose:
   "label": "orchestrating-task-graphs",
   "delivery": { "state": "selected_unconfirmed", "source": null },
   "usage": {
-    "reported": { "state": "recorded", "count": 1, "lastAt": "2026-10-07T14:23:10Z" },
-    "observed": { "state": "unknown", "count": null, "coverage": "unsupported" }
+    "reported": { "state": "recorded", "source": "assigned_session_self_report", "processOriginVerified": false, "count": 1, "lastAt": "2026-10-07T14:23:10Z" },
+    "observed": { "state": "unknown", "source": "adapter_native_event", "count": null, "coverage": "unsupported" }
   }
 }
 ```
@@ -345,7 +402,8 @@ Badge behavior follows the parent design's refinement:
 - selected badges are outlined;
 - confirmed-loaded badges are filled;
 - a recorded reported or observed use briefly highlights the badge, with a
-  visible source label in details;
+  visible source label in details; self-report copy says “reported by assigned
+  session” and does not imply same-user process identity verification;
 - a usage report alone can highlight an outlined badge but cannot confirm load;
 - delivery-unconfirmed has an accessible text label, not color alone;
 - missing use remains `unknown`, never “unused” or numeric zero;
