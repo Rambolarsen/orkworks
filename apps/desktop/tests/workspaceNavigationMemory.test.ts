@@ -87,6 +87,22 @@ test("deletion barrier cancels pre-barrier saves and preserves a revisioned cont
   } finally { f.close(); }
 });
 
+test("deletion barrier keeps an earlier save for a different workspace", async () => {
+  const f = fixture();
+  try {
+    const memory = createWorkspaceNavigationMemory(f.directory);
+    memory.read();
+    assert.equal((await memory.complete("/canonical/a", 1, () => true, "terminal")).ok, true);
+
+    const unrelatedSave = memory.complete("/canonical/b", 1, () => true, "review");
+    const deletion = memory.delete("/canonical/a", 1, () => true);
+
+    assert.equal((await unrelatedSave).ok, true);
+    assert.equal((await deletion).ok, true);
+    assert.deepEqual(memory.read().entries, [{ workspaceIdentity: "/canonical/b", lastCentralSurface: "review" }]);
+  } finally { f.close(); }
+});
+
 test("protected oversize entry rejects save without deleting prior bytes or entries", async () => {
   const f = fixture();
   try {
