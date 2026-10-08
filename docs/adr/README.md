@@ -86,3 +86,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0076](./0076-codex-owned-native-approval-observer.md) | Codex approval status from a runtime-owned native server | accepted |
 | [0077](./0077-taskmaster-orchestrated-child-sessions.md) | Orchestrated children use the ordinary session runtime | accepted scope; runtime gated |
 | [0078](./0078-fixed-desktop-shell-and-central-navigation.md) | Fixed desktop shell with central navigation | accepted |
+| [0079](./0079-local-sonarqube-analysis.md) | Local SonarQube analysis uses isolated checkout snapshots | accepted |

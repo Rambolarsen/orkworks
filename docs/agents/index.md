@@ -25,6 +25,7 @@ needed.
   documentation, decision, and maintenance workflow reference.
 - [Site maintenance](site-maintenance.md) — Public-site content, generated facts,
   publishing, and scheduled documentation proposals.
+- [Local SonarQube analysis](local-sonarqube.md) — Free local complexity measurements, snapshot scans and simplification workflow.
 - [APM and agent plugins](apm.md) — APM-managed dependencies, generated
   assets, and agent-plugin operations.
 - [Subagent model policy](subagent-model-policy.md) — Default model tier and

@@ -6,7 +6,7 @@
 #
 # Matches release.yml: Node 22, pnpm 11 (corepack), Rust stable.
 
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim AS dev
 
 # System build deps for the Rust sidecar: libgit2-sys builds a vendored libgit2
 # via cmake + a C toolchain; git2's default `https` feature links openssl-sys,
@@ -47,3 +47,9 @@ WORKDIR /workspace
 
 # Keep the service alive for `compose exec`; `compose run --rm` overrides this.
 CMD ["sleep", "infinity"]
+
+# Optional local analysis stage; the normal compose service targets dev.
+FROM dev AS sonar
+RUN mkdir -p /opt/sonar-scanner && pnpm --dir /opt/sonar-scanner add @sonar/scan@5.0.1
+ENV PATH=/opt/sonar-scanner/node_modules/.bin:$PATH
+CMD ["sonar-scanner-npm"]
