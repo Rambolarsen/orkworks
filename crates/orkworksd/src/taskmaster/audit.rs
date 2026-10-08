@@ -2,14 +2,16 @@ use chrono::{DateTime, Duration, Utc};
 
 use crate::workflow_observations::{Impact, ObservationSource};
 
-use super::{AuditCriterion, Recommendation, WorkflowObservationEvidence};
+use super::{
+    stable_id, AuditCleanup, AuditCleanupEntry, AuditCriterion, Recommendation,
+    RecommendationConfidence, RecommendationStatus, RecommendationType, TargetSurface,
+    WorkflowImprovement, WorkflowObservationEvidence,
+};
 
-#[allow(dead_code)]
 pub(crate) const STALE_AFTER_DAYS: u32 = 14;
 
 /// Precomputed per-dedupe-key context the classifier needs, built once by the
 /// caller so `classify` stays pure and cheap.
-#[allow(dead_code)]
 pub(crate) struct FamilyContext {
     pub has_newer_proposed_sibling: bool,
     pub has_unextended_terminal_sibling: bool,
@@ -20,7 +22,6 @@ fn qualifies(evidence: &WorkflowObservationEvidence) -> bool {
         && (evidence.reported_impact != Impact::High || evidence.confidence >= 0.8)
 }
 
-#[allow(dead_code)]
 pub(crate) fn classify(
     recommendation: &Recommendation,
     family: &FamilyContext,
@@ -69,11 +70,217 @@ pub(crate) fn classify(
     criteria
 }
 
+fn is_terminal(status: RecommendationStatus) -> bool {
+    matches!(
+        status,
+        RecommendationStatus::Accepted
+            | RecommendationStatus::Completed
+            | RecommendationStatus::Dismissed
+            | RecommendationStatus::Superseded
+            | RecommendationStatus::Expired
+            | RecommendationStatus::Failed
+    )
+}
+
+fn supersedes_chain_contains(
+    recommendations: &[Recommendation],
+    start: &Recommendation,
+    target: &str,
+) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    let mut cursor = start
+        .workflow_improvement
+        .supersedes_recommendation_id
+        .clone();
+    while let Some(id) = cursor {
+        if id == target {
+            return true;
+        }
+        if !visited.insert(id.clone()) {
+            return false;
+        }
+        cursor = recommendations
+            .iter()
+            .find(|recommendation| recommendation.id == id)
+            .and_then(|recommendation| {
+                recommendation
+                    .workflow_improvement
+                    .supersedes_recommendation_id
+                    .clone()
+            });
+    }
+    false
+}
+
+/// Audits the workspace's proposed recommendations and, when any card is
+/// under-eligible/noise/duplicate/stale, builds the cleanup card that
+/// proposes dismissing them. Pure: persistence stays with the caller.
+pub(crate) fn build_cleanup_card(
+    recommendations: &[Recommendation],
+    workspace_id: &str,
+    now: &str,
+    prior: Option<&Recommendation>,
+) -> Option<Recommendation> {
+    let now_parsed = DateTime::parse_from_rfc3339(now)
+        .map(|parsed| parsed.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now());
+    let proposed: Vec<&Recommendation> = recommendations
+        .iter()
+        .filter(|recommendation| {
+            recommendation.status == RecommendationStatus::Proposed
+                && recommendation.recommendation_type != RecommendationType::Cleanup
+                && recommendation.rollup_member_ids.is_empty()
+        })
+        .collect();
+    let mut entries = Vec::new();
+    let mut under_eligible = 0;
+    let mut noise = 0;
+    let mut duplicate = 0;
+    let mut stale = 0;
+    for candidate in &proposed {
+        let family = FamilyContext {
+            has_newer_proposed_sibling: proposed.iter().any(|sibling| {
+                sibling.id != candidate.id
+                    && sibling.dedupe_key == candidate.dedupe_key
+                    && (sibling.created_at.as_str(), sibling.id.as_str())
+                        > (candidate.created_at.as_str(), candidate.id.as_str())
+            }),
+            has_unextended_terminal_sibling: recommendations.iter().any(|sibling| {
+                sibling.dedupe_key == candidate.dedupe_key
+                    && is_terminal(sibling.status)
+                    && !supersedes_chain_contains(recommendations, candidate, &sibling.id)
+            }),
+        };
+        let criteria = classify(candidate, &family, now_parsed);
+        if criteria.is_empty() {
+            continue;
+        }
+        for criterion in &criteria {
+            match criterion {
+                AuditCriterion::UnderEligible => under_eligible += 1,
+                AuditCriterion::Noise => noise += 1,
+                AuditCriterion::Duplicate => duplicate += 1,
+                AuditCriterion::Stale => stale += 1,
+            }
+        }
+        entries.push(AuditCleanupEntry {
+            id: candidate.id.clone(),
+            title: candidate.title.clone(),
+            criteria,
+        });
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    let healthy = proposed.len() - entries.len();
+    let terminal_cleanup = recommendations
+        .iter()
+        .filter(|recommendation| {
+            recommendation.recommendation_type == RecommendationType::Cleanup
+                && is_terminal(recommendation.status)
+        })
+        .max_by(|left, right| {
+            left.updated_at
+                .cmp(&right.updated_at)
+                .then(left.id.cmp(&right.id))
+        });
+    let (id, chain_depth, created_at, supersedes) = if let Some(prior) = prior {
+        (
+            prior.id.clone(),
+            prior.chain_depth,
+            prior.created_at.clone(),
+            prior
+                .workflow_improvement
+                .supersedes_recommendation_id
+                .clone(),
+        )
+    } else if let Some(terminal) = terminal_cleanup {
+        (
+            format!(
+                "recommendation-{}",
+                stable_id("cleanup:v1", &[terminal.id.clone()])
+            ),
+            terminal.chain_depth.saturating_add(1),
+            now.to_string(),
+            Some(terminal.id.clone()),
+        )
+    } else {
+        (
+            format!("recommendation-{}", stable_id("cleanup:v1", &[])),
+            0,
+            now.to_string(),
+            None,
+        )
+    };
+    let proposed_improvement = format!(
+        "Dismiss {} proposed recommendations audited as under-eligible/noise/duplicate/stale.",
+        entries.len()
+    );
+    Some(Recommendation {
+        id,
+        workspace_id: workspace_id.to_string(),
+        chain_id: "cleanup:v1".into(),
+        chain_depth,
+        recommendation_type: RecommendationType::Cleanup,
+        status: RecommendationStatus::Proposed,
+        priority: Impact::Medium,
+        title: "Recommendation cleanup".into(),
+        summary: proposed_improvement.clone(),
+        reason: vec![format!(
+            "{} proposed scanned; {} healthy; criteria counts: under_eligible {}, noise {}, duplicate {}, stale {}.",
+            proposed.len(),
+            healthy,
+            under_eligible,
+            noise,
+            duplicate,
+            stale
+        )],
+        evidence: Vec::new(),
+        repository_evidence: Vec::new(),
+        knowledge_evidence: Vec::new(),
+        source_session_ids: Vec::new(),
+        target_session_id: None,
+        suggested_harness_id: None,
+        suggested_model: None,
+        suggested_working_directory: None,
+        suggested_prompt: None,
+        confidence: RecommendationConfidence::Medium,
+        requires_approval: true,
+        dedupe_key: "cleanup:v1".into(),
+        created_at,
+        updated_at: now.to_string(),
+        expires_at: None,
+        workflow_improvement: WorkflowImprovement {
+            proposed_improvement,
+            target_surface: TargetSurface::Documentation,
+            observation_ids: Vec::new(),
+            recurrence_count: 0,
+            affected_session_ids: Vec::new(),
+            impact: Impact::Medium,
+            expected_benefit: "Fewer stale cards, less noise in the recommendations panel.".into(),
+            supersedes_recommendation_id: supersedes,
+            dismissal_watermark: None,
+        },
+        completion_packet: None,
+        audit: Some(AuditCleanup {
+            entries,
+            scanned: proposed.len(),
+            healthy,
+            stale_after_days: STALE_AFTER_DAYS,
+        }),
+        rollup_member_ids: Vec::new(),
+        rollup_member_dedupe_keys: Vec::new(),
+        rollup_generation: None,
+        rolled_up_by: None,
+        proposed_change: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, TimeZone, Utc};
 
-    use super::{classify, FamilyContext, STALE_AFTER_DAYS};
+    use super::{build_cleanup_card, classify, stable_id, FamilyContext, STALE_AFTER_DAYS};
     use crate::taskmaster::{
         active_workflow_recommendation, evaluate_workflow_improvements, AuditCleanup,
         AuditCleanupEntry, AuditCriterion, Recommendation, RecommendationConfidence,
@@ -826,5 +1033,199 @@ mod tests {
         assert!(
             active_workflow_recommendation(&[cleanup_proposed_card("proactive:v1:test")]).is_none()
         );
+    }
+
+    fn flagged(mut card: Recommendation, id: &str, dedupe_key: &str) -> Recommendation {
+        card.id = id.into();
+        card.dedupe_key = dedupe_key.into();
+        card
+    }
+
+    #[test]
+    fn builds_cleanup_card_with_entries_and_counts() {
+        let under_eligible = flagged(
+            proposed_card(Vec::new()),
+            "card-under",
+            "improve_workflow:v1:tooling:under",
+        );
+        let noise = flagged(
+            proposed_card(vec![
+                evidence(
+                    "one",
+                    &recent(),
+                    0.8,
+                    Impact::Medium,
+                    ObservationSource::Peon,
+                    None,
+                ),
+                evidence(
+                    "two",
+                    &recent(),
+                    0.8,
+                    Impact::Medium,
+                    ObservationSource::Peon,
+                    None,
+                ),
+            ]),
+            "card-noise",
+            "improve_workflow:v1:tooling:noise",
+        );
+        let healthy = flagged(
+            healthy_card(),
+            "card-healthy",
+            "improve_workflow:v1:tooling:healthy",
+        );
+        let mut terminal = flagged(
+            healthy_card(),
+            "card-terminal",
+            "improve_workflow:v1:tooling:terminal",
+        );
+        terminal.status = RecommendationStatus::Dismissed;
+
+        let card = build_cleanup_card(
+            &[under_eligible, noise, healthy, terminal],
+            WORKSPACE,
+            NOW,
+            None,
+        )
+        .unwrap();
+
+        let audit = card.audit.as_ref().unwrap();
+        assert_eq!(audit.entries.len(), 2);
+        assert_eq!(audit.entries[0].id, "card-under");
+        assert_eq!(
+            audit.entries[0].criteria,
+            vec![AuditCriterion::UnderEligible]
+        );
+        assert_eq!(audit.entries[1].id, "card-noise");
+        assert_eq!(audit.entries[1].criteria, vec![AuditCriterion::Noise]);
+        assert_eq!(audit.scanned, 3);
+        assert_eq!(audit.healthy, 1);
+        assert_eq!(audit.stale_after_days, STALE_AFTER_DAYS);
+        assert!(card.requires_approval);
+        assert_eq!(card.priority, Impact::Medium);
+        assert_eq!(card.confidence, RecommendationConfidence::Medium);
+        assert!(card.evidence.is_empty());
+        assert_eq!(card.workflow_improvement.recurrence_count, 0);
+        assert_eq!(
+            card.workflow_improvement.target_surface,
+            TargetSurface::Documentation
+        );
+        assert!(card
+            .workflow_improvement
+            .proposed_improvement
+            .starts_with("Dismiss 2 proposed recommendations"));
+        assert_eq!(card.dedupe_key, "cleanup:v1");
+        assert_eq!(card.chain_depth, 0);
+        assert_eq!(
+            card.id,
+            format!("recommendation-{}", stable_id("cleanup:v1", &[]))
+        );
+        assert!(card.reason[0].contains("3 proposed scanned; 1 healthy;"));
+        assert!(card.reason[0].contains("under_eligible 1, noise 1, duplicate 0, stale 0"));
+    }
+
+    #[test]
+    fn replaces_in_place_keeping_prior_identity() {
+        let mut prior = cleanup_proposed_card("cleanup:v1");
+        prior.id = "cleanup-card-1".into();
+        prior.chain_depth = 2;
+        prior.created_at = "2026-10-01T00:00:00Z".into();
+        prior.workflow_improvement.supersedes_recommendation_id = Some("cleanup-card-0".into());
+        let under_eligible = flagged(
+            proposed_card(Vec::new()),
+            "card-under",
+            "improve_workflow:v1:tooling:under",
+        );
+
+        let card = build_cleanup_card(&[under_eligible], WORKSPACE, NOW, Some(&prior)).unwrap();
+
+        assert_eq!(card.id, "cleanup-card-1");
+        assert_eq!(card.created_at, "2026-10-01T00:00:00Z");
+        assert_eq!(card.updated_at, NOW);
+        assert_eq!(card.chain_depth, 2);
+        assert_eq!(
+            card.workflow_improvement.supersedes_recommendation_id,
+            Some("cleanup-card-0".into())
+        );
+        assert_eq!(card.audit.as_ref().unwrap().entries.len(), 1);
+    }
+
+    #[test]
+    fn regenerates_fresh_card_after_terminal_prior() {
+        let mut terminal = cleanup_proposed_card("cleanup:v1");
+        terminal.id = "cleanup-card-1".into();
+        terminal.status = RecommendationStatus::Dismissed;
+        terminal.chain_depth = 3;
+        let under_eligible = flagged(
+            proposed_card(Vec::new()),
+            "card-under",
+            "improve_workflow:v1:tooling:under",
+        );
+
+        let card =
+            build_cleanup_card(&[under_eligible, terminal.clone()], WORKSPACE, NOW, None).unwrap();
+
+        assert_ne!(card.id, terminal.id);
+        assert_eq!(card.created_at, NOW);
+        assert_eq!(card.chain_depth, 4);
+        assert_eq!(
+            card.workflow_improvement.supersedes_recommendation_id,
+            Some("cleanup-card-1".into())
+        );
+    }
+
+    #[test]
+    fn returns_none_when_every_proposed_card_is_healthy() {
+        let healthy = flagged(
+            healthy_card(),
+            "card-healthy",
+            "improve_workflow:v1:tooling:healthy",
+        );
+        let card = build_cleanup_card(&[healthy], WORKSPACE, NOW, None);
+        assert!(card.is_none());
+    }
+
+    #[test]
+    fn unextended_terminal_sibling_flags_duplicate_but_superseded_chain_does_not() {
+        let mut terminal = flagged(
+            proposed_card(vec![evidence(
+                "one",
+                &recent(),
+                0.8,
+                Impact::Medium,
+                ObservationSource::Agent,
+                Some("build"),
+            )]),
+            "card-terminal",
+            "improve_workflow:v1:tooling:shared",
+        );
+        terminal.status = RecommendationStatus::Completed;
+        let mut extended = flagged(
+            healthy_card(),
+            "card-extended",
+            "improve_workflow:v1:tooling:shared",
+        );
+        extended.workflow_improvement.supersedes_recommendation_id = Some("card-terminal".into());
+        let mut unextended = flagged(
+            healthy_card(),
+            "card-unextended",
+            "improve_workflow:v1:tooling:shared",
+        );
+        unextended.created_at = "2026-10-07T00:00:00Z".into();
+
+        let card = build_cleanup_card(
+            &[terminal.clone(), extended, unextended],
+            WORKSPACE,
+            NOW,
+            None,
+        )
+        .unwrap();
+
+        let audit = card.audit.as_ref().unwrap();
+        assert_eq!(audit.scanned, 2);
+        assert_eq!(audit.entries.len(), 1);
+        assert_eq!(audit.entries[0].id, "card-unextended");
+        assert_eq!(audit.entries[0].criteria, vec![AuditCriterion::Duplicate]);
     }
 }

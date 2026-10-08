@@ -861,7 +861,7 @@ fn unique_session_ids(evidence: &[WorkflowObservationEvidence]) -> Vec<String> {
     ids
 }
 
-fn stable_id(dedupe_key: &str, observation_ids: &[String]) -> String {
+pub(crate) fn stable_id(dedupe_key: &str, observation_ids: &[String]) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     dedupe_key.hash(&mut hasher);
