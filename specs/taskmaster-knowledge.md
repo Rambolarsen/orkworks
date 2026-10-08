@@ -48,12 +48,19 @@ remain available.
 The signing private key is a publishing secret; the app pins the public key.
 Missing signing configuration blocks publication, never verification.
 
-The app packages a reviewed starter snapshot and checks for updates at startup
-when due, then every six hours while running. Verify signature, digest, format,
-size bounds, and content before atomic activation; retain the previous working
-snapshot. Failures and offline operation preserve cached knowledge. Knowledge
-is reference data, never executable tools, permission policy, or authority over
-repository instructions. Application-binary auto-update remains out of scope.
+The app packages a reviewed starter snapshot in a signed envelope with its
+signed manifest attestation, verified by the same pinned public key as feed
+bundles. The starter's manifest entry must match its payload version, sequence,
+digest, format, and `privacyPolicyVersion`; it must also carry the supported
+assessment capability when the publisher's reviewed content qualifies. There
+is no unsigned-JSON or app-packaging trust bypass. On a fresh offline install,
+the verified packaged starter is eligible without contacting the feed. The app
+checks for updates at startup when due, then every six hours while running.
+Verify signature, digest, format, size bounds, and content before atomic
+activation; retain the previous working snapshot. Failures and offline
+operation preserve cached knowledge. Knowledge is reference data, never
+executable tools, permission policy, or authority over repository instructions.
+Application-binary auto-update remains out of scope.
 
 Bundle eligibility has no independent wall-clock age cutoff. A compatible
 active bundle remains usable offline while its signature, digest, format, and
@@ -169,8 +176,10 @@ and result identity; an Analyze now result is never presented as an assessment.
 Assess only as broadly as needed to identify one evidence-backed next
 improvement. Brain concepts are guidance, not a checklist or a 14-concept
 scorecard. Return at most one proposal or an explicit no-proposal result with
-its uncertainty. A credible proposal must cite current repository fact hashes
-and relevant Brain page IDs. Bounded excerpts prove presence only; omitted
+its uncertainty. A credible proposal must cite at least one current repository
+fact hash and at least one relevant Brain page ID from the selected eligible
+bundle; reject a proposed result with an empty page-ID list. A no-proposal
+result may cite no Brain pages. Bounded excerpts prove presence only; omitted
 files and text remain unknown. Mark command-based verification as unverified.
 Do not run commands or scripts, read extra terminal replay, raise the context
 level, write an assessment page to Brain, or upload workspace evidence/results.
@@ -189,11 +198,13 @@ or it lacks the capability, the action reports unavailable. It does not fall
 back to a duplicate prompt, private Brain pages, or an assumed publication.
 The action becomes available only after #529's curated export, generated
 compliant starter snapshot, and verified signed publication deliver the
-required guidance, signed `privacyPolicyVersion`, and capability marker. Verify
-#529's tracked acceptance criteria cover these payload fields before
-implementation; resolve any gap in #529 first. This prerequisite gates runtime
-availability; missing, privacy-ineligible, or unverified guidance must fail
-closed.
+required guidance, signed `privacyPolicyVersion`, and capability marker. The
+starter must ship as a signed envelope plus matching signed manifest
+attestation, so a fresh offline install follows the same verification path as
+feed bundles. Verify #529's tracked acceptance criteria cover these fields and
+the starter attestation before implementation; resolve any gap in #529 first.
+This prerequisite gates runtime availability; missing, privacy-ineligible, or
+unverified guidance must fail closed.
 
 Use the existing Brain-derived `improve_workflow` recommendation identity
 (`proactive:v1:`), deduplication, dismissal, active-recommendation, acceptance,
@@ -221,9 +232,13 @@ uncited workspace files. Replace the report on a new assessment; do not expire
 it by age. Deleting that workspace's local metadata deletes its report. Reports
 never leave the local OrkWorks installation.
 
-Before accepting a result, revalidate workspace identity, effective settings,
-provider/harness identity, bundle version, the complete bounded input snapshot,
-and every cited repository fact and page. The cache key and stored input identity
+Before returning or using an assessment-derived proposal, revalidate workspace
+identity, effective settings, provider/harness identity, bundle version, the
+complete bounded input snapshot, and every cited repository fact and page. This
+applies before recommendation list/get responses, active-recommendation
+admission responses, acceptance, and the **Fix with AI** handoff, without
+requiring an intervening status poll. Suppress stale proposals and refuse their
+acceptance or handoff. The cache key and stored input identity
 cover all data supplied to the model: permitted observations, every collected
 repository fact (including uncited facts), the pre-run recommendation snapshot,
 selected knowledge pages, context settings and exclusions, workspace generation,
@@ -239,9 +254,14 @@ stale results after a workspace, any input evidence, or relevant configuration
 change. A reduction in effective context access, a new exclusion, or a mismatch
 in any stored input identity logically invalidates the report and prevents it
 from being returned. The read-only status request never deletes or rewrites
-state: access-setting mutations redact disallowed evidence before replying, and
-other stale reports are removed by the next state-changing assessment or
-workspace cleanup.
+state: access-setting mutations redact disallowed evidence before replying.
+Global context or exclusion reductions redact every affected workspace-local
+report and assessment-derived recommendation before the settings response;
+workspace override changes affect only the matching workspace. Persisted data
+for unopened affected workspaces must be reconciled before any later status,
+recommendation, acceptance, or Fix with AI response can expose or use it. Other
+stale reports are removed by the next state-changing assessment or workspace
+cleanup.
 
 When a novel proposal creates a recommendation, persistence is crash-consistent
 with the existing recommendation store. Before upserting the recommendation,
@@ -257,7 +277,9 @@ within the same 64 KiB serialized cap.
 
 When invalidation affects an assessment-derived Brain recommendation, supersede
 any still-proposed recommendation, remove it from the active recommendation
-surface, and prevent **Fix with AI** from using stale evidence. When effective
+surface, and prevent **Fix with AI** from using stale evidence. For this
+assessment-derived subset only, `superseded` is terminal and valid only after
+`proposed`; it cannot later be accepted or executed. When effective
 access narrowing makes evidence disallowed, redact its immutable snapshot from
 the report and every lifecycle record that retains it, including proposed,
 superseded, dismissed, accepted, executing, and completed recommendations.
@@ -392,7 +414,7 @@ brain connections and exporting local lessons are deferred.
 - Manual analysis requests work with background discovery disabled, bypass the workspace cooldown and the daily allowance, and return any active Brain recommendation without invoking a provider.
 - All Brain-backed provider analysis, including background discovery, **Analyze now**, and **Assess workflow**, remains unavailable until the active verified bundle carries signed payload `privacyPolicyVersion: 1`, matching the signed manifest, and meets the strict exclusion policy; #529 delivers the compliant starter/export/publication. **Assess workflow** additionally requires the signed `taskmaster-assessment-v1` capability. Deterministic observation recommendations continue. A compatible eligible cached bundle remains usable offline with no independent age cutoff.
 - Assessments use only the selected workspace and current permitted context, share the single-analysis lease and active Brain recommendation gate, and do not consume the background daily allowance or workspace cooldown.
-- Assessment reports are capped at 64 KiB serialized with one latest report per workspace under its workspace metadata root; their input identity covers every supplied observation, fact, pre-run recommendation, selected page, and effective setting while excluding only their own derived recommendation by stable ID. Stale inputs suppress reports on read and supersede proposed derived recommendations; access-setting mutations redact disallowed evidence before replying, and other stale reports are deleted by the next state-changing assessment or workspace cleanup. Workspace metadata deletion removes reports, and no prompt, uncited files, or report is sent to Brain.
+- Assessment reports are capped at 64 KiB serialized with one latest report per workspace under its workspace metadata root; their input identity covers every supplied observation, fact, pre-run recommendation, selected page, and effective setting while excluding only their own derived recommendation by stable ID. Stale inputs suppress reports and derived proposals on every recommendation list/get/active-response/acceptance/Fix with AI path, without requiring a status poll; invalidated proposed assessment recommendations transition to terminal `superseded`. Access-setting mutations redact disallowed evidence before replying, including every workspace affected by a global default reduction; unopened workspace records are reconciled before later exposure or use. Other stale reports are deleted by the next state-changing assessment or workspace cleanup. Workspace metadata deletion removes reports, and no prompt, uncited files, or report is sent to Brain.
 - Workspace/configuration switches discard stale results, and context exclusions
   apply to symlinks, ignored files, credentials, caches, and model requests.
 - Changing Taskmaster selection leaves Peon configuration and inference intact.
