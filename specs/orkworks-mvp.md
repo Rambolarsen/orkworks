@@ -217,6 +217,18 @@ Valid metadata sources:
 
 Peon must not overwrite higher-priority metadata unless the higher-priority metadata is stale or explicitly cleared.
 
+Proposed, feature-gated Codex native approval sessions store their complete
+Codex attention tuple in a sidecar-owned layer rather than rewriting the
+session JSON. In the merged view, the base `user` or explicit `agent` tuple
+remains authoritative; otherwise, native Codex attention follows the existing
+`codex_hook` priority and Peon staleness rules, and precedes backend inference
+and process-only state. Raw reads for updates never include the projected
+layer. Projection reads and rechecks base JSON identity and exact contents,
+plus native-layer identity, monotonic revision, and exact contents, retrying
+up to three times; if it cannot stabilize both records, it omits the native
+layer. Unsupported and native-disabled sessions keep the existing JSON
+behavior. See the [native attention layer design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
+
 ### Resolved harness capabilities and integrations
 
 OrkWorks resolves versioned, embedded built-in harness definitions together
@@ -696,6 +708,12 @@ The first useful MVP should include:
 - infer state when JSON is missing or stale
 - append basic event logs to `events/<session-id>.ndjson`
 - record bounded, sequenced workflow observations to `workflow-observations/<session-id>.ndjson` through the shared recording module (see "Workflow observations" above)
+
+The proposed, feature-gated Codex native approval path adds a sidecar-owned
+`native-attention/<session-id>.json` companion record. It does not replace
+`sessions/<session-id>.json`, is never written by direct agent JSON producers,
+and is composed only in session views. It grants no live authority after a
+sidecar restart. See the [native attention layer design](../docs/superpowers/specs/2026-10-08-codex-native-attention-layer-design.md).
 
 #### Git Context Detection
 

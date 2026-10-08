@@ -372,9 +372,19 @@ reviewed handoff/identity contract; controlled fake fixtures cannot enable it.
 Native clearing has a separate unfenced-writer gate. Sidecar revisions and
 completed-file identity checks do not make a final check/rename atomic with
 supported direct agent-written JSON. Existing JSON authority remains intact;
-[#761](https://github.com/Rambolarsen/orkworks/issues/761) tracks the required
-written producer contract. The [verification record](../superpowers/verification/2026-10-05-codex-native-approval-status.md)
-lists the remaining configuration, signal and platform gates.
+[#761](https://github.com/Rambolarsen/orkworks/issues/761) now has a proposed
+contract: eligible native Codex sessions keep their full attention tuple in a
+separate `native-attention/<session-id>.json` sidecar record, and session views
+merge it without changing raw agent-owned session JSON. Its write token is
+scoped to the native record; `user`/`agent` base tuples take precedence, and
+merged reads recheck base identity and contents plus the layer identity,
+monotonic revision, and contents before including the layer. This design is
+not yet implemented or enabled. Its owner review, implementation follow-up,
+direct replacement race tests, and the separate #690/#763 gates remain
+required. The
+[design](../superpowers/specs/2026-10-08-codex-native-attention-layer-design.md)
+and [verification record](../superpowers/verification/2026-10-05-codex-native-approval-status.md)
+list the remaining requirements.
 
 Codex session identity stays bound to the conversation OrkWorks launched:
 differing Codex hook IDs are ignored, except for an authenticated root
