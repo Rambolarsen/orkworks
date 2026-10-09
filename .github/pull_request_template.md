@@ -17,9 +17,10 @@
      any PR touching apps/desktop/ or crates/orkworksd/. It may run in this
      session or a separate remote Codex session. Always pass an explicit effort:
      /code-review low is the default and expected (diff-scoped, no repo-wide
-     exploration). For a remote review, record the reviewed PR head SHA, effort,
-     and findings disposition here or link the review artifact; a later push
-     requires a fresh review. Escalate to medium effort or higher only for
+     exploration). For a remote review, record the reviewed code head SHA, effort,
+     and findings disposition here or link the review artifact. A later code
+     change requires a fresh review; docs-only commits do not invalidate it
+     when the code diff is unchanged. Escalate to medium effort or higher only for
      bigger/riskier changes such as architecture/runtime, concurrency/lifecycle,
      protocol/schema/migration, security-sensitive work, or unusually large
      diffs — prefer splitting the PR over escalating the review. Summarize the
