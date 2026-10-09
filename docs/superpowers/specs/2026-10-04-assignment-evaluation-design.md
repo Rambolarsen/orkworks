@@ -41,12 +41,15 @@ implementation. For example, a code assignment might declare `changes`
 (`workspace_changes`) and `checks` (`verification_report`); a research
 assignment might declare `findings` (`research_report`). These are illustrative
 names chosen for each assignment, not a fixed catalog.
-The worker reports a manifest through #742's authenticated task-scoped
-authority. The sidecar derives the assignment identities from that authority;
-the payload cannot choose them. The manifest has exactly one `present` or
-`missing` entry for each declared artifact. A present entry names an approved
-worktree-relative path or immutable server-held report/artifact ID and version,
-plus a SHA-256 content digest. Undeclared outputs are rejected.
+The worker reports a manifest through a dedicated assignment-scoped capability
+using #742's task-scoped authority model. It is separate from #742's
+`ResearchReportCapability` and binds the exact attempt, assignment
+configuration, sidecar generation, and active worker launch generation. The
+sidecar derives the assignment identities from that authority; the payload
+cannot choose them. The manifest has exactly one `present` or `missing` entry
+for each declared artifact. A present entry names an approved worktree-relative
+path or immutable server-held report/artifact ID and version, plus a SHA-256
+content digest. Undeclared outputs are rejected.
 
 The sidecar resolves each reference within the approved scope, verifies its
 bytes and digest, sorts entries by artifact ID, canonicalizes the manifest
@@ -141,6 +144,18 @@ separately approved as criteria.
 A review must come from either a declared `review` or `verification` assignment
 in an approved plan, with a rubric-eligible role, or an explicit user review
 through the user-authorized path.
+
+The current #740 capability register has no verified eligible reviewer
+profile. Until #740 supplies version-specific evidence and #741 binds an
+eligible profile, child reports are ineligible; an initial runtime slice may
+support explicit user review only. If child review is later enabled, its report
+uses a separate reviewer-scoped capability bound to the reviewer assignment
+and configuration, exact result subject, and current result revision. It cannot
+reuse the worker's result-report capability or #742's research-report
+capability. Assignment capabilities follow #742's generation-checking,
+revocation, and authenticated-retry rules; review the exact transport and
+record alignment with #742 before implementation. User evaluations use the
+Electron-authorized user-provenance path and never impersonate a child.
 
 A child reviewer is eligible only when the sidecar verifies that:
 
@@ -268,13 +283,14 @@ A future implementation must verify at least these cases:
 
 1. All required criteria satisfied and quality `3` derives Meets requirements;
    optional criteria do not affect it.
-2. Any uncontested known failure derives Needs rework despite unrelated
-   unassessed evidence; missing required evidence without a known failure
-   derives Unassessed.
+2. A known missing declared output or any other uncontested failure derives
+   Needs rework despite unrelated unassessed evidence; unknown output presence
+   or missing required evidence without a known failure derives Unassessed.
 3. Empty/optional-only legacy criteria cannot pass; lifecycle status alone never
    sets quality or completeness.
-4. Self-review, parent synthesis, undeclared reviewers, contributors, stale
-   output, or unverified read-only scope cannot qualify as child review.
+4. Self-review, parent synthesis, undeclared reviewers, unverified reviewer
+   profiles, contributors, stale output, or unverified read-only scope cannot
+   qualify as child review.
 5. Conflicting reviews are preserved and never averaged; corrections are
    immutable/idempotent, and invalidation freezes the stream.
 6. Stale, malformed, duplicate-with-changed-payload, oversized, unauthenticated,
