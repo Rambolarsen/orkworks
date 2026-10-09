@@ -43,8 +43,8 @@ If a separate task or follow-up needs its own coding context — not just watchi
 the PR this session opened, or the check-in budget above has expired — finish
 or pause the current task, report the handoff point, and stop and let the user
 start a separate session from the appropriate repository root or sibling
-worktree. For code changes that need parallel isolation, use the sibling-worktree
-path below and let the new coding session start there. When review is required,
+worktree. For code changes that need parallel isolation, use the sibling-worktree path
+below and let the new coding session start there. When review is required,
 use the repository's explicit `/code-review <effort>` gate in this session or
 verify the user-started remote Codex review as described above.
 
