@@ -127,11 +127,13 @@ remove this compatibility work to reduce the complexity score.
 
 **Files:**
 - Modify `apps/desktop/src/components/ReviewPanel.tsx`, `SessionDetailPanel.tsx`, `DockviewApp.tsx`, and `App.tsx`.
+- Modify `apps/desktop/electron/menuTemplate.ts` and its menu-command test so Review remains reachable through the approved View menu without a new accelerator.
 - Modify the Review and terminal-link tests in `apps/desktop/tests/`.
 
 - [ ] Use the shared destination controls/host and medium/compact temporary-page return primitives from #779. #780 owns all Review-specific entry controls, rendering, exact selected-session/artifact binding, and return behavior; do not expose Review until every responsive destination has a working path.
 - [ ] At logical content widths of at least 1180px, replace Terminal in the central region with Review and provide a labeled return to the exact selected session's Terminal/history.
 - [ ] At 860–1179px, keep Sessions visible when it fits, show Review in the central region, and provide a labeled return to that same Terminal/history. Below 860px, show Review as the single content page with an explicit return target. Apply the thresholds to effective width at 200% text zoom.
+- [ ] Make Review reachable through both a labeled button and the View menu, preserving existing accelerator assignments and adding no global accelerator; test the menu command routes to the same validated Review entry path.
 - [ ] Preserve the exact Review subject and bounded return descriptor when width crosses a breakpoint; target loss shows a safe explanation/fallback and never selects or acknowledges a replacement session.
 - [ ] Keep the current artifact path validation, changed/unreadable states, refresh behavior, and one reusable document. Opening a different session must invalidate the old Review subject.
 - [ ] Keep Request independent review as the existing explicit button action. Read, refresh, close, and restore do not submit the prompt.
@@ -142,11 +144,12 @@ remove this compatibility work to reduce the complexity score.
 
 **Files:**
 - No runtime files in this task.
-- Keep #755 and the affected implementation issues aligned with reviewed amendments. Verify the acceptance gates for #610, #741, #743, #744, and #746 before creating any Workflow issue.
+- Keep #755 open through the reviewed execution handoff and remaining #746 projection gates, as required by the accepted shell design. Keep affected issue scopes aligned. Verify #610, #741, #743, #744, and #746 before creating any Workflow issue.
 
 - [x] Created #778 for Tasks 1–2, #779 for shared shell hosting/command mapping, #780 for Review-specific responsive navigation, and #805 for the ordinary Actions overview/counts/Show next action. Keep their dependencies and references to #755 explicit.
+- [ ] Do not declare the ordinary shell complete or rollout-ready until #805 is complete and its source-count, availability, and Show next action acceptance criteria pass.
 - [ ] Create a separate Workflow issue only after #610 and the accepted #746/#741/#743/#744 contracts are verified. That issue owns Workflow reducer transitions, entry points, projection, tree/timeline presentation, and related persistence; reference #755 and #746 and record the evidence/ownership contracts and checkbox criteria.
-- [ ] Keep workflow inspection separate from session selection and launch approval. No shell navigation code may create a run, launch a task, approve a proposal, or fabricate missing projection data.
+- [ ] Keep #755 and #746 open until the reviewed execution handoff and remaining #746 projection gates are complete. Keep workflow inspection separate from session selection and launch approval; no shell navigation code may create a run, launch a task, approve a proposal, or fabricate missing projection data.
 
 ## Verification and handoff
 
