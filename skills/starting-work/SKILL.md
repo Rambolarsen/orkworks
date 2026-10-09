@@ -30,15 +30,23 @@ elapsed time. Do not reset the budget repeatedly within the same session, and
 still require ownership or explicit authorization before modifying the PR
 branch.
 
-Do not launch another coding harness from an active session. If a separate
-task or follow-up needs its own context — not just watching the PR this
-session opened, or the check-in budget above has expired — finish or pause
-the current task, report the handoff point, and stop and let the user start
-a separate session from the appropriate repository root or sibling worktree.
-For code changes that need parallel isolation, use the sibling-worktree path
-below and let the new session start there; never launch the second harness
-inside the current session. Use the repository's explicit `/code-review low`
-gate in the current session when review is required.
+Do not launch another coding harness from an active session. The user may
+start a separate remote Codex session for review only; it must not edit, commit,
+or push. Give it the PR and current code head, and have it return a completed
+`/code-review <effort>` result that identifies the reviewed code SHA, effort,
+findings, and dispositions. Record or link that evidence in the PR description.
+The owning session must verify that the reviewed code diff matches the current
+code diff. A later code change needs a fresh review; a docs-only follow-up does
+not when the code diff is unchanged.
+
+If a separate task or follow-up needs its own coding context — not just watching
+the PR this session opened, or the check-in budget above has expired — finish
+or pause the current task, report the handoff point, and stop and let the user
+start a separate session from the appropriate repository root or sibling
+worktree. For code changes that need parallel isolation, use the sibling-worktree path
+below and let the new coding session start there. When review is required,
+use the repository's explicit `/code-review <effort>` gate in this session or
+verify the user-started remote Codex review as described above.
 
 ## Preflight: establish checkout ownership
 
