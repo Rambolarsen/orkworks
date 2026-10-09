@@ -90,6 +90,7 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `adding-harness` | Checklist for adding or changing a harness adapter |
 | `working-on-recommendation` | Resolves a Taskmaster recommendation, scopes the work, and reports verified completion |
 | `writing-skills` | TDD-based skill creation following the Agent Skills standard |
+| `reviewing-plans` | Delivery complexity assessment and scope, simplicity, clarity, and verification checks before plan handoff |
 | `troubleshooting-github-connectivity` | Separates stale RTK output, network failures, and GitHub authentication errors |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
 | `surfacing-blind-spots` | Planning checkpoint, end-of-session self-critique, and quality-improvement audit for investigated quality risks |
@@ -103,6 +104,19 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `orchestrating-task-graphs` | Multi-agent task-graph orchestration: fake-edge test before fan-out, separate diverse verifiers, one owned merge |
 
 The five audit skills (`surfacing-blind-spots` plus the four above) share the guardrail filter and issue format defined in `skills/surfacing-blind-spots/` and rotate weekly via `.github/workflows/quality-audit.yml`.
+
+### Plan review routing
+
+Root `AGENTS.md` requires the repo-owned
+[`reviewing-plans`](https://github.com/Rambolarsen/orkworks/blob/main/skills/reviewing-plans/SKILL.md)
+skill before drafting or substantially revising implementation plans and before
+execution or handoff of new, revised, or received plans. This includes plans
+produced by external `writing-plans`. The rule applies through the existing
+[harness instruction entry points](harness-instruction-coverage.md); it is an
+agent instruction, not a runtime hook or evidence that every harness complies.
+Agents can read the committed skill by its explicit path, even when it is not
+listed in a session's skill catalog. No change to APM's external skill or its
+generated copies is needed.
 
 ### Anthropic Agent Skills (standard)
 
