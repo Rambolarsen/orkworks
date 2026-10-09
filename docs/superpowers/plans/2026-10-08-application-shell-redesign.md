@@ -15,9 +15,9 @@
 | Slice | Evidence | Next action |
 | --- | --- | --- |
 | Tasks 1–2: reducer and persistence | [#778](https://github.com/Rambolarsen/orkworks/issues/778) closed by merged [PR #784](https://github.com/Rambolarsen/orkworks/pull/784), commit `6739461b88c79451f4578d6ea654b5e8359a3792` | Reuse the delivered modules and tests. Verify their integration in the remaining slices. |
-| Task 3: fixed shell | [#779](https://github.com/Rambolarsen/orkworks/issues/779), draft [PR #796](https://github.com/Rambolarsen/orkworks/pull/796), head `e7e4aa4703751b5711c392113589bfd316402ff6` | Coordinate amendments with that branch's owner. Manual walkthroughs and `/code-review low` remain pending in its PR body. |
-| Task 4: central Review | [#780](https://github.com/Rambolarsen/orkworks/issues/780) open; depends on #778 and #779 | Resolve the compact/medium Review boundary recorded in PR #796 before dependent integration. An open issue alone does not establish that nobody is working on it. |
-| Task 5: ordinary-shell issue split | #778, #779 and #780 already created under [#755](https://github.com/Rambolarsen/orkworks/issues/755) | Keep these issues in sync; do not create duplicates. Workflow remains separately gated. |
+| Task 3: fixed shell | [#779](https://github.com/Rambolarsen/orkworks/issues/779), draft [PR #796](https://github.com/Rambolarsen/orkworks/pull/796), head `e7e4aa4703751b5711c392113589bfd316402ff6` | Apply the clarified issue boundary on the active branch with its owner. Manual walkthroughs and `/code-review low` remain pending in the PR body. |
+| Task 4: central Review | [#780](https://github.com/Rambolarsen/orkworks/issues/780) open; depends on #778 and #779 | Implement Review-specific entry, rendering, and return through #779's shared host at all breakpoints using the updated criteria. |
+| Task 5: ordinary-shell issue split | #778, #779, #780 and the scoped Actions follow-up #805 are tracked under [#755](https://github.com/Rambolarsen/orkworks/issues/755) | Keep the shared shell, Review, and ordinary Actions scopes separate. Workflow remains separately gated. |
 
 Check live issue/PR state and current code before resuming. Checked boxes below
 record merged delivery, not a fresh test run. PR #784 reports focused checks and
@@ -31,27 +31,31 @@ PTY, Review or approval authority. Keep Workflow behind its existing prerequisit
 
 | Dimension | Rating | Evidence and response |
 | --- | --- | --- |
-| Dependencies | 3 | Renderer, Electron storage, menus and terminal/Review interfaces must agree. Reuse #784 and coordinate #779/#780 ownership before changing their boundary. |
+| Dependencies | 3 | Renderer, Electron storage, menus and terminal/Review interfaces must agree. Reuse #784; #779 provides shared shell hosting, #780 owns Review, and #805 owns ordinary Actions. |
 | Blast radius | 4 | The shell affects session navigation, focus, terminal attachment and responsive views. Verify exact-session returns and input isolation in each affected view. |
 | State changes | 3 | New bounded presentation records coexist with legacy `layout.json`. Keep the accepted storage protocol and its existing preservation/concurrency tests. |
 | Reversibility | Unknown | Storage tests preserve legacy and invalid bytes; an application downgrade/recovery rehearsal is not recorded here. Verify recovery before declaring rollout ready. |
-| Uncertainty | 4 | Installed Dockview interaction/accessibility evidence and the compact Review boundary remain incomplete. Close the bounded checks below before dependent integration or merge. |
+| Uncertainty | 3 | Review ownership is assigned to #780 at all breakpoints, and ordinary Actions has its own #805 issue. Installed Dockview interaction/accessibility and runtime continuity evidence remain incomplete. |
 
 **Total: Incomplete — Reversibility is Unknown.**
 
-**Plan quality: Investigate.** The remaining work needs two decisions: where the
-approved ordinary Actions behavior will be delivered, and how #779/#780 divide
-compact/medium Review navigation. Resolve these with the active owners under #755;
-update the affected issue criteria and this plan before implementing that work.
-This amendment does not authorize changes to PR #796's branch or waive its gates.
+**Plan quality: Investigate.** The delivery decisions are resolved: #805 owns
+ordinary Actions after #779, and #780 owns Review-specific entry, rendering and
+return behavior at wide, medium and compact widths on the shared hosting supplied
+by #779. The affected issue criteria and this plan now state that boundary. The
+remaining investigation is implementation evidence: verify installed Dockview
+interaction/accessibility and terminal continuity, and rehearse downgrade recovery
+with a disposable profile before rollout. This amendment does not change PR #796's
+branch or waive its walkthrough/review gates.
 
 The review's least certain point was which requirements were already delivered.
 Inspection confirms that `shellNavigation.ts` already includes `actions`, storage
 tests preserve legacy bytes, and PR #796's Electron fixture exercises real
 Dockview instance replacement/unmount. Those facts do not establish Actions UI
-coverage, split interaction/accessibility, or end-to-end PTY continuity. The
-previous all-unchecked task list also hid completed work; the status table fixes
-that before anyone resumes execution.
+coverage, split interaction/accessibility, or end-to-end PTY continuity. Ordinary
+Actions is now scoped to #805, and the previously unclear Review boundary is
+assigned to #780 across all layout modes. The previous all-unchecked task list
+also hid completed work; the status table fixes that before anyone resumes.
 
 ## Global Constraints
 
@@ -109,13 +113,13 @@ remove this compatibility work to reduce the complexity score.
 - Modify `apps/desktop/src/components/DockviewApp.tsx`, `src/App.tsx`, `src/App.css`, `src/components/SessionListPanel.tsx`, and `src/components/SessionDetailPanel.tsx`.
 - Modify `apps/desktop/electron/menuTemplate.ts` and the existing menu/Dockview tests.
 
-- [ ] Before changing the active slice, agree ownership under #755 for the approved ordinary Actions overview, persistent source-separated action counts, and Show next action. The reducer destination exists; #779 and #780 do not currently name the complete UI behavior. Update the relevant issue criteria or create a scoped follow-up after agreement. Do not mark the ordinary shell complete without this coverage. Keep run-specific Actions sources behind the Workflow gates.
+- [ ] Keep this issue limited to the shared fixed-shell framework and ordinary command mapping. The responsive destination controls/host and medium/compact temporary-page return primitives belong here; Review-specific controls/rendering/returns belong to #780, and the ordinary Actions overview, counts and “Show next action” belong to #805. Do not expose a control before its destination is implemented. Keep run-specific Actions sources behind the Workflow gates.
 - [ ] Build compact Sessions, central content, and optional contextual inspector regions. Set Dockview `disableDnd`; hide each group's Dockview header; keep split resizing enabled and expose keyboard-operable separators.
 - [ ] Route existing Sessions, Detail, Terminal, Capacity, Recommendations, and Reset Layout commands to the approved meanings without assigning new global accelerators. Repeated commands must not hide the only central surface.
-- [ ] Add labeled Terminal/Review navigation affordances and contextual inspector controls. Do not expose a Workflow entry point or tree/timeline control in these ordinary-shell tasks.
+- [ ] Provide the shared destination-control framework and contextual inspector controls. #779 exposes only working destinations; #780 adds the Review-specific control and content, and #805 adds the ordinary Actions entry/content. Do not expose a Workflow entry point or tree/timeline control in these ordinary-shell tasks.
 - [ ] Make `SessionDetailPanel` follow the visible subject. Inspecting a task never changes selected session or focus in xterm; opening that session's terminal is a separate explicit action.
-- [ ] Apply the approved responsive rules at 1180px, 860px, and effective 200% text-zoom width; below the compact threshold, expose one temporary content page at a time with an explicit return target.
-- [ ] Add focused tests for Dockview drag/drop disabled, hidden headers, resize availability, one central context, command mappings, and no selection/unread change during inspection. For ordinary Actions, verify canonical session attention followed by recommendations in displayed order, labeled unavailable/partial sources, visible counts when Sessions/inspector are hidden, and inspection/Show next action without selection, acknowledgement or approval. Closing Actions restores the prior valid subject and invoker focus.
+- [ ] Apply the approved responsive rules at logical content widths of at least 1180px, 860–1179px, and below 860px, including effective width at 200% text zoom. At medium and compact widths, expose one temporary page at a time with a labeled return target.
+- [ ] Add focused tests for Dockview drag/drop disabled, hidden headers, resize availability, one central context, command mappings, responsive temporary-page returns, and no selection/unread change during inspection. Actions-specific source ordering, counts, unavailable/partial states, and Show next action tests belong to #805.
 - [ ] Verify Terminal → compact utility page → Terminal with the same selected runtime: output continues while hidden, history is preserved, attachment refits, no second runtime starts, and navigation keystrokes never reach the PTY. Coordinate the corresponding Review check with Task 4.
 - [ ] Run the full desktop Node suite and `pnpm exec tsc --noEmit` from `apps/desktop/`; perform keyboard, screen-reader, reduced-motion, 200% zoom, narrow-width, and Windows/macOS/Linux chrome walkthroughs before merging.
 
@@ -123,24 +127,29 @@ remove this compatibility work to reduce the complexity score.
 
 **Files:**
 - Modify `apps/desktop/src/components/ReviewPanel.tsx`, `SessionDetailPanel.tsx`, `DockviewApp.tsx`, and `App.tsx`.
+- Modify `apps/desktop/electron/menuTemplate.ts` and its menu-command test so Review remains reachable through the approved View menu without a new accelerator.
 - Modify the Review and terminal-link tests in `apps/desktop/tests/`.
 
-- [ ] Before integration, agree the #779/#780 boundary for Review controls and compact/medium destinations. Record which slice provides each usable entry/return path; do not merge a control that leads to an unsupported destination.
-- [ ] Make Review replace Terminal in the central region and store a bounded return destination for the exact selected session.
+- [ ] Use the shared destination controls/host and medium/compact temporary-page return primitives from #779. #780 owns all Review-specific entry controls, rendering, exact selected-session/artifact binding, and return behavior; do not expose Review until every responsive destination has a working path.
+- [ ] At logical content widths of at least 1180px, replace Terminal in the central region with Review and provide a labeled return to the exact selected session's Terminal/history.
+- [ ] At 860–1179px, keep Sessions visible when it fits, show Review in the central region, and provide a labeled return to that same Terminal/history. Below 860px, show Review as the single content page with an explicit return target. Apply the thresholds to effective width at 200% text zoom.
+- [ ] Make Review reachable through both a labeled button and the View menu, preserving existing accelerator assignments and adding no global accelerator; test the menu command routes to the same validated Review entry path.
+- [ ] Preserve the exact Review subject and bounded return descriptor when width crosses a breakpoint; target loss shows a safe explanation/fallback and never selects or acknowledges a replacement session.
 - [ ] Keep the current artifact path validation, changed/unreadable states, refresh behavior, and one reusable document. Opening a different session must invalidate the old Review subject.
 - [ ] Keep Request independent review as the existing explicit button action. Read, refresh, close, and restore do not submit the prompt.
 - [ ] Test Review-to-Terminal returns, target drift, session forgetting, workspace switching, and exactly-once explicit prompt submission. Verify Terminal → Review → Terminal on the same selected runtime: output continues while hidden, history survives, reattachment refits, no second runtime starts, and document/navigation keys do not reach the PTY. Exercise wide, medium and compact entry/return paths.
 - [ ] Run the full desktop Node suite and TypeScript check.
 
-### Task 5: Issue tracking — ordinary split delivered; Workflow gated
+### Task 5: Issue tracking — ordinary shell split; Workflow gated
 
 **Files:**
 - No runtime files in this task.
-- Keep #755 and the affected implementation issues aligned with reviewed amendments. Verify the acceptance gates for #610, #741, #743, #744, and #746 before creating any Workflow issue.
+- Keep #755 open through the reviewed execution handoff and remaining #746 projection gates, as required by the accepted shell design. Keep affected issue scopes aligned. Verify #610, #741, #743, #744, and #746 before creating any Workflow issue.
 
-- [x] Created #778 for Tasks 1–2, #779 for Task 3, and #780 for Task 4, with dependencies and references to #755. Preserve these separate delivery scopes.
+- [x] Created #778 for Tasks 1–2, #779 for shared shell hosting/command mapping, #780 for Review-specific responsive navigation, and #805 for the ordinary Actions overview/counts/Show next action. Keep their dependencies and references to #755 explicit.
+- [ ] Do not declare the ordinary shell complete or rollout-ready until #805 is complete and its source-count, availability, and Show next action acceptance criteria pass.
 - [ ] Create a separate Workflow issue only after #610 and the accepted #746/#741/#743/#744 contracts are verified. That issue owns Workflow reducer transitions, entry points, projection, tree/timeline presentation, and related persistence; reference #755 and #746 and record the evidence/ownership contracts and checkbox criteria.
-- [ ] Keep workflow inspection separate from session selection and launch approval. No shell navigation code may create a run, launch a task, approve a proposal, or fabricate missing projection data.
+- [ ] Keep #755 and #746 open until the reviewed execution handoff and remaining #746 projection gates are complete. Keep workflow inspection separate from session selection and launch approval; no shell navigation code may create a run, launch a task, approve a proposal, or fabricate missing projection data.
 
 ## Verification and handoff
 
