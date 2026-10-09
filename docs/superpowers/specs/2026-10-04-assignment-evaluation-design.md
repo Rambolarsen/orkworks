@@ -30,7 +30,11 @@ result revision/digest, the reviewer assignment/session/configuration, approved
 snapshots, and immutable evidence references. A changed assignment or rubric
 requires a new approved revision.
 
-The approved output contract declares up to 32 stable artifact IDs and kinds.
+The expected output contract is specific to each assignment; there is no global
+catalog of artifact IDs or kinds. This proposal requires the approved contract
+to name its expected artifacts and caps the list at 32. The current #741 draft
+has an expected-output-contract field but does not yet define this structured
+ID/kind schema, so reconcile the schema and cap with #741 before implementation.
 The worker reports a manifest through #742's authenticated task-scoped
 authority. The sidecar derives the assignment identities from that authority;
 the payload cannot choose them. The manifest has exactly one `present` or
