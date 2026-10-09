@@ -266,9 +266,11 @@ Evaluation binds to the result/artifact revision actually inspected. If that
 result changes, preserve the earlier evaluation as historical and require a
 new evaluation before describing the changed result as reviewed. Disagreement
 between credible evaluations is visible and escalated rather than averaged away.
-Worker self-assessments remain separate from reviewer assessments. Evaluation
-of a reviewer must come from another declared reviewer or the user, and cannot
-be a self-awarded quality score.
+Worker self-assessments remain separate from reviewer assessments. A
+review-role agent never evaluates its own work. If reviewer performance is
+evaluated, the user provides the terminal disposition; the orchestrator does
+not recursively assign another reviewer. Without the user's assessment,
+reviewer-performance evaluation remains Unassessed.
 
 Quality and completeness are evaluation evidence. They do not replace user
 acceptance, merge approval, or the baseline's parent-reported dependency gate.
@@ -293,18 +295,21 @@ comparison about one optional skill, hold the role, task category/scope,
 coding tool/model, role-template version, rubric, effective permission profile,
 and other selected skills fixed while allowing that candidate skill's presence
 or version to vary. Do not attribute a result to that skill when other relevant
-configuration factors also changed. Exclude unknown usage from rate calculations
-and display the unknown count alongside the denominator. Do not equate use
-frequency with quality or automatically assign every loaded skill the task's
-quality score. Multiple skills, prompts, models, permissions, and task
-difficulty can explain a result.
+configuration factors also changed. Exclude unknown usage from rate
+calculations and display the unknown count alongside the denominator. A zero reported/observed event count is not evidence of non-use. Because
+#743 defines no definitive negative-use evidence, v1 makes
+no skill-omission recommendation on non-use grounds. Any future use of
+negative-use evidence requires a separately reviewed protocol that defines a
+complete observation opportunity, including adapter coverage and interval.
+Do not equate use frequency with quality or automatically assign every loaded
+skill the task's quality score. Multiple skills, prompts, models, permissions,
+and task difficulty can explain a result.
 
 Use a learning loop of run, independent evaluation, comparison with similar work,
 and improvement of a later configuration. A single run can raise a suggestion;
 repeated comparable evidence supports changing optional skills, role instructions,
 or task scope. Neither frequency of use alone nor unknown usage establishes
-that a skill helps or should be removed. Repeated established non-use can suggest
-a future trial without an optional skill; mandatory skills remain included.
+that a skill helps or should be removed. Mandatory skills remain included.
 Numeric evidence thresholds, cohort eligibility, usage-rate denominators, and
 the treatment of assignments that cannot be matched on these dimensions are
 specified by #745.
