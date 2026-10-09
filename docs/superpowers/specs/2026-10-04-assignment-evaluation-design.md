@@ -35,6 +35,10 @@ catalog of artifact IDs or kinds. This proposal requires the approved contract
 to name its expected artifacts and caps the list at 32. The current #741 draft
 has an expected-output-contract field but does not yet define this structured
 ID/kind schema, so reconcile the schema and cap with #741 before implementation.
+For example, a code assignment might declare `changes` (`workspace_changes`)
+and `checks` (`verification_report`); a research assignment might declare
+`findings` (`research_report`). These are illustrative names chosen for each
+assignment, not a fixed catalog.
 The worker reports a manifest through #742's authenticated task-scoped
 authority. The sidecar derives the assignment identities from that authority;
 the payload cannot choose them. The manifest has exactly one `present` or
@@ -158,6 +162,10 @@ result. Source identity is authenticated; payload claims cannot establish
 authority. A reviewer who contributed to the output under another declared
 assignment is ineligible for that output.
 
+If reviewer work itself needs evaluation, the user is the terminal evaluator.
+Do not assign another reviewer recursively; without user disposition, leave
+that evaluation Unassessed.
+
 Keep eligible evaluations separate. If current, credible evaluations disagree on
 a criterion, quality rating, or material fact, preserve and show both with the
 disputed field and evidence. Do not average, prefer the newest opinion, or
@@ -171,6 +179,12 @@ subject. The sidecar assigns the stream ID; revision 1 starts it. A correction
 appends an immutable revision to that stream using expected-revision/digest
 compare-and-swap. Different reviewers create independent streams. The derived
 result binds the exact stream heads and dispositions it used.
+
+Each `AssignmentEvaluation` stores schema version, stream ID/revision, exact
+assignment and result bindings, criteria/rubric references, outcomes, quality,
+evidence, reviewer/source identity, observation time, and authenticated
+idempotency metadata. Its canonical content digest is immutable; the reporter
+cannot set the derived overall result.
 
 A correction requires the original eligible reviewer identity and a valid scoped
 capability. Resumed reviewers must pass #742 identity/configuration checks and
