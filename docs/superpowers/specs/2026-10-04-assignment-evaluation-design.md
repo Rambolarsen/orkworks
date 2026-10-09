@@ -31,14 +31,16 @@ snapshots, and immutable evidence references. A changed assignment or rubric
 requires a new approved revision.
 
 The expected output contract is specific to each assignment; there is no global
-catalog of artifact IDs or kinds. This proposal requires the approved contract
-to name its expected artifacts and caps the list at 32. The current #741 draft
-has an expected-output-contract field but does not yet define this structured
-ID/kind schema, so reconcile the schema and cap with #741 before implementation.
-For example, a code assignment might declare `changes` (`workspace_changes`)
-and `checks` (`verification_report`); a research assignment might declare
-`findings` (`research_report`). These are illustrative names chosen for each
-assignment, not a fixed catalog.
+catalog of artifact IDs or kinds. Each declared artifact has a unique,
+assignment-local `id` and a `kind`; IDs and kinds use #741's nonempty ASCII
+identifier rule (at most 128 bytes). Every declared artifact is required for a
+passing result, and the contract contains at most 32 artifacts. The current
+#741 draft has an expected-output-contract field but does not yet define this
+structured ID/kind schema, so reconcile the schema and cap with #741 before
+implementation. For example, a code assignment might declare `changes`
+(`workspace_changes`) and `checks` (`verification_report`); a research
+assignment might declare `findings` (`research_report`). These are illustrative
+names chosen for each assignment, not a fixed catalog.
 The worker reports a manifest through #742's authenticated task-scoped
 authority. The sidecar derives the assignment identities from that authority;
 the payload cannot choose them. The manifest has exactly one `present` or
@@ -66,13 +68,14 @@ changed, or unsupported outputs cannot support a passing result. A later
 manifest creates a new revision; earlier evaluations remain history and cannot
 restore current status or learning eligibility.
 
-Every required declared output must be present and verifiable to pass; a known
-missing output makes its linked criterion unsatisfied, while unknown presence is
-unassessed. Direct filesystem changes are not automatically revisions. The
-implementation must revalidate declared outputs before claiming a current
-result; this proves content freshness, not authorship or OS-level confinement. A
-Git commit alone is not the result identity because it may contain unrelated
-changes or omit non-file outputs.
+Every declared output must be present and verifiable to pass. A known missing
+output establishes Needs rework directly; it need not be linked to a criterion.
+Unknown presence or an inaccessible, changed, or unsupported output is
+Unassessed unless another uncontested failure exists. Direct filesystem changes
+are not automatically revisions. The implementation must revalidate declared
+outputs before claiming a current result; this proves content freshness, not
+authorship or OS-level confinement. A Git commit alone is not the result
+identity because it may contain unrelated changes or omit non-file outputs.
 
 ## Criteria, completeness, and quality
 
@@ -117,7 +120,7 @@ Derive one overall result from current evidence:
 
 | Result | Rule |
 | --- | --- |
-| **Needs rework** | A current, uncontested required criterion is unsatisfied or quality is below `3`. |
+| **Needs rework** | A current, uncontested required criterion is unsatisfied, quality is below `3`, or a declared output is known missing. |
 | **Unassessed** | No failure is established, but a required criterion or quality is unassessed, the result is stale, no eligible reviewer exists, or credible evidence conflicts. |
 | **Meets requirements** | Every required criterion is satisfied, quality is `3`, evidence is current, and no relevant conflict or invalidation remains. |
 
