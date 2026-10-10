@@ -22,11 +22,15 @@ authorize a merge. It does not change ordinary Peon behavior.
 
 ## Assignment and result identity
 
-Evaluation binds the workspace, run, task/attempt, approved configuration,
-exact result revision, criteria and rubric versions, reviewer identity, and
-immutable evidence references. These values come from approved state, not
-display labels or reporter claims. A changed assignment or rubric requires a
-new approved revision.
+Evaluation binds the #741/#742 assignment identity
+`(workspaceId, runId, planId, planRevision, taskId, taskVersion, reservationId,
+parentSessionId, childSessionId, configurationId, configurationDigest)`, plus
+the exact result revision, criteria and rubric versions, reviewer identity,
+and immutable evidence references. These values come from approved state, not
+display labels or reporter claims. A change to any assignment-identity member
+or rubric requires a new approved revision. `sidecarGeneration` and
+`launchGeneration` fence report authority but do not change the assignment
+identity.
 
 The output contract is assignment-specific, with no global artifact catalog.
 It declares at most 32 unique artifact IDs and kinds, using #741's identifier
@@ -40,37 +44,42 @@ with #741 before code. Example declarations include `changes`
 (`research_report`).
 
 The worker reports one `present` or `missing` entry per declaration through an
-authenticated attempt-scoped capability that follows #742's authority model.
-It binds the attempt, approved configuration, sidecar generation, and active
-worker launch generation; the payload cannot choose those identities. A
-present entry names an approved worktree-relative path or immutable
-server-held artifact ID/version, its size, and content digest. Undeclared or
-over-cap outputs are rejected. Exact retries with the same key return the
+authenticated capability bound to that assignment identity and its active
+sidecar and launch generations; the payload cannot choose those identities.
+It follows #742's authority model. A present entry names an approved
+worktree-relative path or immutable server-held artifact ID/version, its size,
+and content digest. Undeclared or over-cap outputs are rejected. Exact retries
+with the same key return the
 stored receipt before checking whether the predecessor is still current;
 changed content under that key conflicts. The key is scoped to reporter,
-attempt, and operation.
+assignment identity, active launch generation, and operation.
 
 The sidecar must resolve and open file paths within the approved output scope,
 reject symlink or junction targets outside it, and preserve the opened-object
-binding for hashing and later revalidation. No out-of-scope file may be read or
-pinned as an artifact.
+binding for hashing. On every freshness check, it resolves and opens the
+declared path again within scope, verifies that it still names the same object,
+then hashes that open handle. A missing or replaced path, changed bytes, or
+unprovable binding makes the result stale and Unassessed; no out-of-scope file
+may be read or pinned.
 
 Every manifest submission carries the caller's expected current result
 revision and digest; the initial state uses `expectedResultRevision: no-head`
 with no digest. The sidecar compares both with the current head before
-assigning an immutable revision, rejecting stale predecessors. Exact
-idempotent retries are resolved before this comparison. Each attempt allows
-at most 32 result revisions;
-exhaustion is visible and cannot wrap or reset. Evaluations bind the current
-revision and digest. Before any consumer treats a
-result as current, the implementation revalidates its referenced output bytes
-and revision; if it cannot establish freshness, the result is Unassessed. A known
-missing output establishes Needs rework directly; inaccessible, changed,
-unknown, or unsupported output is Unassessed unless another uncontested
-failure exists. A later result revision makes earlier evaluations historical.
-The implementation plan chooses the transaction or revalidation boundary;
-either way, stale writes cannot restore a current result. This validates
-content freshness, not authorship or OS-level confinement.
+assigning an immutable revision, rejecting stale predecessors. After the sidecar
+authenticates the active launch generation, an exact idempotent retry is
+resolved before this comparison. The 32-revision limit is per assignment
+identity and persists across resumes; resumed writes require the new launch
+generation. A changed assignment identity creates a new subject. Exhaustion
+is visible and cannot wrap or reset. Evaluations bind the current revision and
+digest. Before any
+consumer treats a result as current, the implementation revalidates its
+referenced output bytes and revision; if it cannot establish freshness, the
+result is Unassessed. A known missing output establishes Needs rework directly;
+inaccessible, changed, unknown, or unsupported output is Unassessed unless
+another uncontested failure exists. A later result revision makes earlier
+evaluations historical. The implementation plan chooses the transaction or
+revalidation boundary; stale writes cannot restore a current result. This
+validates content freshness, not authorship or OS-level confinement.
 
 ## Criteria, completeness, and quality
 
@@ -89,7 +98,8 @@ Completeness is the percentage of required criteria satisfied, but only when
 every required criterion has been assessed. Otherwise show the
 satisfied/unsatisfied/unassessed counts and leave the percentage Unassessed.
 Never shrink the denominator or calculate `0 / 0`. A known, uncontested
-unsatisfied criterion remains a failure even if other criteria are unassessed.
+unsatisfied required criterion remains a failure even if other required
+criteria are unassessed.
 Legacy assignments without required criteria cannot pass; absent other known
 failures, they are Unassessed.
 
@@ -129,7 +139,7 @@ Derive one overall result from current evidence:
 | Result | Rule |
 | --- | --- |
 | **Needs rework** | A current, uncontested required criterion is unsatisfied, quality is below `3`, a current, uncontested required-rework finding is present, or a declared output is known missing. |
-| **Unassessed** | No failure is established, but a required criterion or quality is unassessed, the result is stale, no eligible reviewer exists, or credible evidence conflicts. |
+| **Unassessed** | No failure is established, but a required criterion or quality is unassessed, the result is stale, no eligible reviewer exists, or relevant credible evidence conflicts. |
 | **Meets requirements** | Every required criterion is satisfied, quality is `3`, evidence is current, and no relevant conflict or invalidation remains. |
 
 A disputed failure is not established; report Unassessed unless another
@@ -182,11 +192,18 @@ evaluate that review; the user is the terminal evaluator. Without user
 disposition, leave that evaluation Unassessed. This preserves the parent
 design's reviewer-of-review path without unbounded recursion.
 
-Keep eligible evaluations separate. If current, credible evaluations disagree
-on a criterion, finding, or material fact, preserve both and report Unassessed
-unless another uncontested failure establishes Needs rework. For ratings,
-preserve each value and apply the below-3 threshold above; never average
-conflicting reviews or prefer one by time or seniority.
+Keep eligible evaluations separate. Disagreement on a required criterion, a
+finding, or a material fact relevant to a required criterion or quality outcome
+reports Unassessed unless another
+uncontested failure establishes Needs rework. Optional-only disagreements are
+detail and do not affect the overall result. A reviewer contests a finding with
+up to 32 `findingDisputes` per revision; each cites the target
+`(reviewerAssignmentIdentity, evaluationRevision, findingId)` and one evidence
+reference already in the disputing evaluation. The target must be a different
+eligible evaluation for the same assignment and result revision. A dispute is
+current only while both referenced revisions are current; correction needs a
+new dispute. Without an explicit dispute, findings are separate. Preserve
+ratings; do not average or prefer by time or seniority.
 
 ## Revisions, correction, and invalidation
 
@@ -223,15 +240,17 @@ later versions from sharing a digest namespace.
 
 ## Bounds, retention, and deletion
 
-Use #741's limits of 32 criteria and 16 rubric dimensions. Also cap each
-attempt at 32 result revisions and each subject at 32 artifacts and 16
-evaluation revisions; allow at most 32 findings
-and 80 evidence references per evaluation revision, enough for the maximum
-criteria, dimensions, and findings. Cap the manifest at 64 KiB, an
-evaluation/disposition at 512 KiB, each reference at 1 KiB, and
-rationale/finding/correction text at 2 KiB. Enforce finite aggregate
-run/workspace admission quotas; reject exhausted capacity visibly without
-evicting history. Output and aggregate quota values must be reconciled with #741
+Use #741's limits of 32 criteria and 16 rubric dimensions. Each assignment
+identity allows at most 32 result revisions across resumes, 32 output
+artifacts, and 16 evaluation revisions. Each evaluation revision allows at
+most 32 findings, 32 finding disputes, and
+112 evidence references per evaluation revision, enough for maximum criteria,
+dimensions, findings, and distinct dispute evidence. Cap
+the manifest and each evaluation/disposition at 512 KiB, each reference at
+1 KiB, and rationale/finding/correction text at 2 KiB.
+Enforce finite aggregate run/workspace admission quotas; reject exhausted
+capacity visibly without evicting history. Output and aggregate quota values
+must be reconciled with #741
 and #745 before implementation. Per-artifact bytes and aggregate rehash work
 have finite approved caps bounded by server hard limits; exceeding either
 makes the output unsupported.
@@ -265,21 +284,28 @@ A future implementation must verify that:
    evidenced rating below `3`, a below-standard dimension, or a required-rework
    finding is a failure even when other dimensions are unassessed. Optional
    criteria, lifecycle state, or empty legacy criteria cannot create a pass.
-2. Exact retries return their saved receipt before stale-predecessor rejection;
-   changed payloads, malformed, unauthenticated, oversized, or cross-subject
+2. Exact retries using the active launch generation return their saved receipt
+   before stale-predecessor rejection; changed, malformed, unauthenticated,
+   oversized, or cross-subject
    reports fail closed. Missing dimension coverage or invalid evidence cannot
-   support a pass. File links cannot escape the approved scope. Results cannot
-   remain current for any consumer after referenced bytes change.
+   support a pass. File links cannot escape the approved scope, and each
+   freshness check detects removed or replaced paths. Results cannot remain
+   current for any consumer after referenced bytes change. A resume retains the
+   assignment subject and revision count but requires its new launch generation;
+   changing the assignment identity creates a new subject.
 3. Scores compare across assignments only under the same rubric ID/version or
-   an approved normalization rule. Findings retain location, severity,
-   evidence, and required-rework status without prohibited sensitive content.
+   an approved normalization rule. Optional-criterion disagreement affects
+   detail only. Finding disputes bind the exact reviewer/evaluation-revision/
+   finding tuple and reuse cited evidence; disputed failures are not established.
+   Findings retain location, severity, evidence, and required-rework status without
+   prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
    output, or unverified read-only scope cannot qualify as child review.
    Reviewer-of-review depth is bounded and ends with user authority.
 5. Corrections preserve reporter provenance; ended child capabilities cannot
    correct or impersonate a reviewer. Concurrent corrections and invalidations
    cannot restore an invalidated evaluation or exclude a newer revision.
-6. Per-attempt result-revision and record caps reject excess work visibly, as
+6. Per-assignment result-revision and record caps reject excess work visibly, as
    do aggregate run/workspace quotas. Retention removes only eligible complete
    historical subjects; deletion fences old writes and purges evaluation
    content.
