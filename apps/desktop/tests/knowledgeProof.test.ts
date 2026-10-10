@@ -231,10 +231,21 @@ test('strict JSON rejects escaped duplicate keys, unsafe numbers, fractions, exp
   }
 });
 
-test('strict JSON rejects lone surrogate escapes and nesting beyond 32 levels', () => {
+test('strict JSON counts root object, root array, and alternating container depth boundaries', () => {
+  const nested = (shape: 'object' | 'array' | 'alternating', targetDepth: number): string => {
+    let value = '0';
+    for (let depth = targetDepth; depth >= 1; depth--) {
+      const objectContainer = shape === 'object' || (shape === 'alternating' && depth % 2 === 1);
+      value = objectContainer ? `{"next":${value}}` : `[${value}]`;
+    }
+    return value;
+  };
+
   assert.throws(() => parseStrictJson(Buffer.from('{"text":"\\ud800"}')));
-  assert.throws(() => parseStrictJson(Buffer.from(`${'['.repeat(33)}0${']'.repeat(33)}`)));
-  assert.deepEqual(parseStrictJson(Buffer.from(`${'['.repeat(32)}0${']'.repeat(32)}`)), JSON.parse(`${'['.repeat(32)}0${']'.repeat(32)}`));
+  for (const shape of ['object', 'array', 'alternating'] as const) {
+    for (const depth of [31, 32]) assert.doesNotThrow(() => parseStrictJson(Buffer.from(nested(shape, depth))), `${shape} depth ${depth}`);
+    assert.throws(() => parseStrictJson(Buffer.from(nested(shape, 33))), `${shape} depth 33`);
+  }
 });
 
 test('strict JSON accepts escaped surrogate pairs and valid lexical content in unknown fields', () => {
@@ -243,6 +254,17 @@ test('strict JSON accepts escaped surrogate pairs and valid lexical content in u
     unknown: { nested: [0, true, null] },
   });
   assert.doesNotThrow(() => verifyKnowledgeActivation(fixture('unknown-valid-fields.json'), testPublicKey));
+});
+
+test('signed unknown metadata follows the shared container-depth corpus', () => {
+  for (const shape of ['object', 'array', 'alternating']) {
+    for (const depth of [31, 32]) {
+      const name = `depth-${shape}-${depth}.json`;
+      assert.doesNotThrow(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
+    }
+    const name = `depth-${shape}-33.json`;
+    assert.throws(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
+  }
 });
 
 test('signed knowledge accepts zero and maximum safe sequences', () => {

@@ -749,6 +749,34 @@ mod tests {
         assert!(super::strict_json::parse::<serde_json::Value>(&[0xff], 1024).is_err());
         assert!(super::strict_json::parse::<serde_json::Value>(b"{} {}", 1024).is_err());
         assert!(super::strict_json::parse::<serde_json::Value>(b"{}", 1).is_err());
+
+        fn nested_json(shape: &str, target_depth: usize) -> Vec<u8> {
+            let mut value = "0".to_owned();
+            for depth in (1..=target_depth).rev() {
+                let object_container =
+                    shape == "object" || (shape == "alternating" && depth % 2 == 1);
+                value = if object_container {
+                    format!("{{\"next\":{value}}}")
+                } else {
+                    format!("[{value}]")
+                };
+            }
+            value.into_bytes()
+        }
+        for shape in ["object", "array", "alternating"] {
+            for depth in [31, 32] {
+                let json = nested_json(shape, depth);
+                assert!(
+                    super::strict_json::parse::<serde_json::Value>(&json, 1024).is_ok(),
+                    "rejected {shape} depth {depth}"
+                );
+            }
+            let json = nested_json(shape, 33);
+            assert!(
+                super::strict_json::parse::<serde_json::Value>(&json, 1024).is_err(),
+                "accepted {shape} depth 33"
+            );
+        }
     }
 
     fn paired_maximum_envelope_activation() -> Vec<u8> {

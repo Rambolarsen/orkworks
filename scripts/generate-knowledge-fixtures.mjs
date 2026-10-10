@@ -461,6 +461,25 @@ const applicability129 = makeBundle('applicability-129', 74, { pages: [{
 writeActivation('applicability-129.json', signedPair(applicability129));
 writeActivation('version-129.json', signedPair(makeBundle('v'.repeat(129), 75)));
 
+const nestedMetadata = (shape, totalDepth) => {
+  let value = 0;
+  for (let containerDepth = totalDepth; containerDepth >= 2; containerDepth--) {
+    const objectContainer = shape === 'objects'
+      || (shape === 'alternating' && containerDepth % 2 === 1);
+    value = objectContainer ? { next: value } : [value];
+  }
+  return value;
+};
+for (const [shape, label] of [['objects', 'object'], ['arrays', 'array'], ['alternating', 'alternating']]) {
+  for (const depth of [31, 32, 33]) {
+    const version = `depth-${label}-${depth}`;
+    const bundle = makeBundle(version, 230 + (shape === 'objects' ? 0 : shape === 'arrays' ? 10 : 20) + depth);
+    const metadata = JSON.stringify(nestedMetadata(shape, depth));
+    const payloadBytes = Buffer.from(`${JSON.stringify(bundle).slice(0, -1)},"depthProof":${metadata}}`);
+    writeActivation(`depth-${label}-${depth}.json`, signedPair(bundle, { payloadBytes }));
+  }
+}
+
 const withUnknownPayload = (version, suffix) => {
   const bundle = makeBundle(version, 76);
   const payloadBytes = Buffer.from(`${JSON.stringify(bundle).slice(0, -1)},${suffix}}`);
@@ -481,6 +500,8 @@ safeWrite('test-public-key.pem', publicKey);
 
 const fixtureOutcomes = [
   { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'valid signed proof, immutable snapshot, idempotent re-attestation, or inclusive schema limit', files: ['valid-activation.json', 'same-bundle-newer-manifest.json', 'maximum-id-length.json', 'maximum-page-limits.json', 'maximum-capabilities.json', 'sequence-zero.json', 'sequence-max-safe.json', 'escaped-surrogate-content.json', 'string-boundaries-128.json', 'unknown-valid-fields.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'signed unknown metadata accepts object-only, array-only, and alternating container depths 31 and 32', files: ['depth-object-31.json', 'depth-object-32.json', 'depth-array-31.json', 'depth-array-32.json', 'depth-alternating-31.json', 'depth-alternating-32.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'signed unknown metadata rejects object-only, array-only, and alternating container depth 33', files: ['depth-object-33.json', 'depth-array-33.json', 'depth-alternating-33.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'unsigned or incorrectly attested content cannot activate', files: ['unsigned-bundle.json', 'wrong-key.json', 'wrong-signature.json', 'wrong-digest.json', 'wrong-policy.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'activation, envelope, UTF-8, base64, BOM, and signed-payload schema rules are strict', files: ['duplicate-envelope-field.json', 'duplicate-payload-field.json', 'unknown-envelope-field.json', 'unknown-activation-field.json', 'malformed-utf8.json', 'noncanonical-base64.json', 'bom-activation.json', 'bom-envelope-activation.json', 'bom-payload-activation.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'page metadata, relationships, IDs, and provenance satisfy the signed bundle contract', files: ['invalid-metadata.json', 'invalid-parent-null.json', 'invalid-applicability-null.json', 'invalid-provenance-null.json', 'invalid-page-digest.json', 'missing-related-page.json', 'duplicate-related-ids.json', 'unsupported-page-type.json', 'invalid-provenance-credentials.json', 'invalid-provenance-fragment.json', 'invalid-provenance-empty-fragment.json', 'invalid-provenance-empty-credentials.json', 'invalid-provenance-uppercase-scheme.json', 'invalid-provenance-uppercase-host.json', 'invalid-provenance-default-port.json', 'invalid-provenance-missing-root-slash.json', 'invalid-provenance-dot-segment.json', 'invalid-provenance-lowercase-escape.json', 'invalid-provenance-invalid-escape.json', 'invalid-provenance-short-escape.json', 'invalid-provenance-backslash.json', 'invalid-provenance-unicode-host.json', 'invalid-provenance-unicode-path.json', 'invalid-provenance-space.json', 'invalid-provenance-control.json', 'invalid-provenance-empty-url.json', 'invalid-provenance-http.json', 'provenance-url-overflow.json', 'unsafe-id.json', 'unsafe-related-id.json', 'parent-cycle.json', 'duplicate-page-ids.json', 'invalid-id-space.json', 'invalid-id-colon.json', 'invalid-id-control.json', 'invalid-id-unicode.json', 'invalid-id-percent.json', 'invalid-id-backslash.json', 'invalid-id-emptySegment.json', 'invalid-id-dotSegment.json', 'invalid-id-dotdotSegment.json', 'invalid-id-leadingDotSegment.json', 'invalid-id-dotFileSegment.json', 'invalid-id-uppercaseExtension.json', 'invalid-id-leadingSlash.json', 'invalid-id-leadingHyphen.json', 'invalid-id-tooLong.json'] },
