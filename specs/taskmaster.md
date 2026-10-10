@@ -863,6 +863,13 @@ Taskmaster audits its own backlog of `proposed` workflow recommendations and pro
 
 `POST /taskmaster/audit/recommendations` (sidecar route, same localhost port and workspace-scoped binding as the other Taskmaster routes) runs one deterministic pass over the live recommendation list and returns the cleanup card, or `null` when every `proposed` card is healthy (or no workspace is open). Only one active cleanup card may exist per workspace: running the audit while one is `proposed` replaces it in place (same id, refreshed entries and counts, as immutable identity fields are preserved); running it after the previous card reached a terminal state creates a fresh generation whose `supersedesRecommendationId` names the terminal predecessor. The card cites no workflow-observation evidence and fabricates no recurrences — its own claims derive from the audit counts (`scanned`, `healthy`) and the per-entry criteria list.
 
+If an audit finds no cleanup entries while a cleanup card is `proposed`, it
+atomically retires that card as `superseded`, updates `updatedAt`, preserves
+the terminal record as history, and returns `null`. This records that a newer
+audit replaced the proposal with a healthy result; it does not dismiss any
+listed recommendation. A healthy audit without an active cleanup card remains
+a no-op.
+
 ### Classification criteria
 
 Each `proposed` exact-family card — an `improve_workflow` record with an `improve_workflow:v1:` dedupe key — is classified by every criterion it matches; criteria are independent and all labels are kept, in canonical order under-eligible → noise → duplicate → stale:

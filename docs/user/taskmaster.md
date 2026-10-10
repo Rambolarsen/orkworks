@@ -39,6 +39,9 @@ a time.
   **Run cleanup**.
   Nothing is dismissed until you approve the card.
 
+  If a later audit finds that every recommendation is healthy, it retires the
+  older cleanup proposal without dismissing its listed recommendations.
+
 Analysis recommendations judge what your workflow is missing; Observations
 recommendations target what already went wrong (and an Analysis rollup may
 bundle both angles). Both are suggestions you review and act on yourself.

@@ -187,6 +187,11 @@ with criteria from the `AuditCriterion` set `under_eligible | noise |
 duplicate | stale`, in canonical order), `scanned`, `healthy`, and
 `staleAfterDays`. `AuditCleanup` exists only on `cleanup`-type records.
 
+When a fresh audit finds no entries, any active proposed cleanup card becomes
+`superseded` and remains as terminal history; its audited recommendations are
+unchanged. A subsequent non-empty audit creates a new generation linked to
+that terminal predecessor.
+
 `DismissalWatermark` gains an additive optional `reason`. The ordinary user
 dismiss route never writes it; the cleanup-accept batch writes
 `audit:<first-criterion>@<cleanup-card-id>` so a bulk dismissal is auditable
