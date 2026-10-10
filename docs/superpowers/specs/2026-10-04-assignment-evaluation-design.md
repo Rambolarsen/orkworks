@@ -107,8 +107,9 @@ may be read or pinned.
 
 Before authorized cleanup removes a clean, quiescent plan-owned worktree under
 #610, the sidecar must seal each accepted path-backed output needed by any
-retained current result or evaluation, whether or not an evaluation already
-exists for that result. After the run is terminal and its write capabilities
+retained current result or evaluation, or any retained learning input. This
+includes an evaluation made historical by a later result revision. After the
+run is terminal and its write capabilities
 are revoked, sealing reopens the path within scope, verifies the accepted size
 and digest, and copies the bounded bytes from that opened handle into immutable
 storage bound to the same assignment and output declaration. A sealed output is
@@ -117,8 +118,8 @@ from that stored object; removal of its original worktree path does not make it
 missing or change the result/evaluation digest. The pin uses the same content
 digest, is charged to the existing artifact and workspace quotas, and remains
 subject to retention and purge rules. Cleanup cannot remove a worktree while a
-retained current result or evaluation depends on an output that has not been
-sealed. If
+retained current result, evaluation, or learning input depends on an output
+that has not been sealed. If
 sealing detects changed, absent, or inaccessible bytes, the result is stale or
 known missing under the rules above, and the user must resolve the affected
 current evaluation before cleanup; authorized cleanup itself never creates a
@@ -456,11 +457,14 @@ evaluation stream identity and reporter source, evaluation revision and
 predecessor (revision/digest or explicit `no-head`), `criteriaSnapshotDigest`,
 `rubricSnapshotDigest`, all criterion outcomes, quality-dimension outcomes and
 rating, their rationales and evidence references, all findings and disputes,
-and any `reviewedEvaluationRef`. Each collection is ordered by its stable ID;
+and any `reviewedEvaluationRef`. Each collection with a stable ID is ordered by
+that ID;
 `findingDisputes`, which have no separate ID, are ordered by the #741 canonical
 JSON bytes of their unique `(reviewerIdentity, evaluationRevision, findingId)`
 target tuple;
-evidence-reference order within an outcome is canonicalized by reference ID.
+evidence references within each outcome are ordered by the #741 canonical JSON
+bytes of the complete source-bound reference. Duplicate references within one
+outcome are rejected.
 The disposition digest includes assignment identity, result revision,
 evaluation stream identity, target evaluation revision/digest, disposition
 revision 1, action `invalidated`, and actor `user`; it has no predecessor. The
@@ -578,7 +582,8 @@ A future implementation must verify that:
    output are rejected; report evidence resolves the exact source identity even
    when report IDs or content digests are reused. A server-held artifact from
    another assignment or declaration is rejected even if its ID, size, and
-   digest are valid. All
+   digest are valid. Evidence-reference order does not change an evaluation
+   digest, and duplicate references within one outcome are rejected. All
    filesystem operations run in an isolated,
    fixed-capacity worker with bounded admission and deadlines; a timed-out
    worker cannot block sidecar control paths or cause unbounded replacement
@@ -590,9 +595,10 @@ A future implementation must verify that:
    assignment subject and revision count but requires its new launch generation;
    changing the assignment identity creates a new subject. Authorized cleanup
    of a clean, quiescent plan-owned worktree seals every accepted output needed
-   by a retained current result or evaluation, including results not yet
-   evaluated, before removing the path; the same digest remains current from
-   its immutable pin. Changed or unavailable bytes cannot be sealed, and
+   by a retained current result, evaluation, or learning input, including an
+   evaluation made historical by a later result revision, before removing the
+   path; the same digest remains current from its immutable pin. Changed or
+   unavailable bytes cannot be sealed, and
    cleanup cannot erase a live dependency or turn authorized cleanup into
    Needs rework.
 3. Scores compare across assignments only under the same rubric ID, version,
