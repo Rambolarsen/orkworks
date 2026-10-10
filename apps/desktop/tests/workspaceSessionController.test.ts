@@ -299,17 +299,17 @@ test("adopts the restored workspace before polling after a failed switch and ret
   controller.dispose();
 });
 
-test("deleting the active session clears it before publishing the refreshed snapshot", async () => {
+test("deleting the active session clears it deliberately before publishing the refreshed snapshot", async () => {
   const events: string[] = [];
   const controller = createWorkspaceSessionController({
     deps: deps({ listSessions: async () => [session("active")] }),
-    onActiveSession: (id) => events.push(`active:${id}`),
+    onActiveSession: (id, cause) => events.push(`active:${id}${cause?.deliberate ? ":deliberate" : ""}`),
     onSessions: () => events.push("sessions"),
   });
   controller.selectSession("active");
   events.length = 0;
   await controller.deleteSession("active", false);
-  assert.deepEqual(events, ["active:null", "sessions"]);
+  assert.deepEqual(events, ["active:null:deliberate", "sessions"]);
   controller.dispose();
 });
 

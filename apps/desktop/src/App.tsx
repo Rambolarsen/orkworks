@@ -108,7 +108,7 @@ function App() {
         setActiveHarnessIds(info?.activeHarnessIds ?? []);
       },
       onSessions: (next) => setSessions([...next]),
-      onActiveSession: (sessionId) => {
+      onActiveSession: (sessionId, { deliberate } = {}) => {
         const generation = workspaceLifecycleRef.current.generation;
         const currentNavigation = shellNavigationRef.current;
         if (
@@ -119,7 +119,7 @@ function App() {
           dispatchShellNavigation({
             type: "target-missing",
             target: { kind: "session", sessionId: currentNavigation.activeSessionId },
-            reason: "The selected session is no longer available.",
+            reason: deliberate ? null : "The selected session is no longer available.",
             generation,
           });
         } else {

@@ -59,7 +59,7 @@ export type ShellNavigationEvent =
       target:
         | { kind: "session"; sessionId: string }
         | { kind: "artifact"; sessionId: string; artifactId: string };
-      reason: string;
+      reason: string | null;
       generation: number;
     }
   | {
