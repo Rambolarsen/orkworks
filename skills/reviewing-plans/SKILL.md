@@ -5,74 +5,69 @@ description: Use before drafting or substantially revising an implementation pla
 
 # Reviewing Plans
 
-Keep the plan as small and clear as the agreed outcome allows. Assess delivery
-complexity separately from plan quality: necessary work can be complex and
-still have a good plan.
+Keep plans clear; assess complexity separately from plan quality.
 
 ## Before drafting
 
-Read the agreed requirements and relevant repository evidence. State the
-outcome and mandatory constraints. Reuse investigated findings from
-`surfacing-blind-spots` when available.
+Read requirements and evidence; state the outcome and constraints. Reuse
+`surfacing-blind-spots` findings.
 
-Rate each dimension 1–5 with one concrete reason. Use 2 or 4 between the
-anchors. Missing evidence is **Unknown**, never an invented score. Known
-unknowns can still justify a high uncertainty rating. For example, untested
-rollback means Reversibility is Unknown; it does not prove recovery is hard.
+## Plan shape
+
+Use OKF v0.2 metadata (`type`, `title`, `description`, `tags`, `status`). Lead
+with the user outcome and plain-language pass condition. Link issues, specs,
+concepts, and related plans; state their relation and dependencies, not copied
+content.
+
+Split only independently valuable outcomes with their own acceptance checks.
+Give each a plan; use a short index for multiple outcomes, status, order, and
+dependencies. Keep coupled steps together when they share an end-to-end check;
+length alone is not a reason to split. Keep each plan readable on its own. Put
+clear implementation details in issues/specs, but retain scope, safety,
+compatibility, recovery, and verification constraints. Simplify repetition and
+jargon, never requirements.
+
+Rate each dimension 1–5 with a reason; use 2 or 4 between anchors. Missing
+evidence is **Unknown**, not guessed. Unknown rollback makes reversibility
+Unknown.
 
 | Dimension | 1: Low | 3: Moderate | 5: High |
 | --- | --- | --- | --- |
-| Dependencies | One owner; no coordinated rollout | Several known interfaces or owners | Several independent releases or unresolved coordination |
-| Blast radius | Isolated behavior | Shared component with known callers | Core behavior across many consumers |
-| State changes | No persisted state or contract change | Additive change with compatibility work | Destructive migration or breaking contract |
-| Reversibility | Local revert; no data recovery | Coordinated rollback with known steps | Recovery requires manual data repair or loses data |
-| Uncertainty | Existing, verified approach | Bounded questions answerable by inspection | Key behavior needs experiments or remains unverified |
+| Dependencies | One owner | Known interfaces/owners | Independent releases or unresolved coordination |
+| Blast radius | Isolated | Shared component | Core behavior across consumers |
+| State changes | None | Additive with compatibility | Destructive or breaking |
+| Reversibility | Local revert | Known coordinated rollback | Manual repair or data loss |
+| Uncertainty | Verified approach | Bounded inspection | Unverified key behavior |
 
-Show individual ratings and reasons. Sum out of 25 only when all five are
-scored; otherwise mark the total incomplete. These are local judgment anchors,
-not measured probabilities. There are no automatic approval or RFC thresholds;
-a total must not hide a serious individual concern.
+Show ratings and reasons. Sum only with all five; otherwise mark incomplete.
+Scores are judgment aids, not approval thresholds; call out serious concerns.
 
-Name a response to each concern that changes the approach: reuse, a specific
-investigation, a smaller delivery step, or compatibility/recovery verification.
-If implementation depends on an unresolved assumption, plan a bounded
-investigation with an observable result before committing to dependent steps.
-Carry mandatory requirements forward when proposing phases; scope changes
-need user agreement.
+For each concern, name an approach change: reuse, investigation, smaller
+delivery, or compatibility/recovery check. Resolve assumptions before dependent
+work; preserve mandatory requirements in every phase. Scope changes need user
+agreement.
 
 ## Before execution or handoff
 
-Check the actual draft, including external `writing-plans` output, received
-plans, and substantial revisions. Reassess complexity when the approach or
-evidence changes.
+Review drafts, received plans, `writing-plans` output, and substantial
+revisions. Reassess complexity when evidence changes.
 
-- **Scope:** Every task serves the agreed outcome or a necessary prerequisite.
-  Remove unrelated cleanup and speculative features. Preserve approved
-  requirements when simplifying.
-- **Simplicity:** Justify new layers, dependencies, and coordinated changes.
-  Keep needed compatibility, recovery, and verification work.
-- **Clarity:** Name the action, affected component, and expected behavior.
-  Replace “handle appropriately” with the actual decision.
-- **Verification:** Give relevant files or interfaces, checks, expected
-  results, and a stopping point. Brevity must not conceal missing details.
-  Include implementation code only to resolve a material ambiguity. Remove
-  repeated facts and generic template boilerplate.
+- **Scope and simplicity:** Every task serves the outcome or prerequisite.
+  Remove unrelated work; justify new layers. Preserve requirements and needed
+  compatibility, recovery, and verification.
+- **Clarity:** Name the action and behavior plainly; replace vague directions
+  with the actual decision.
+- **Verification:** State the check and expected result. Link to detail instead
+  of repeating it, but do not hide ambiguity or a missing check.
 
-Fix issues within the agreed scope before handoff. If information or approval
-is missing, state what is needed and hold the affected implementation steps.
-Scores never grant implementation approval or bypass repository gates.
+Fix issues before handoff. Name missing evidence or approval and hold dependent
+work. Scores never grant approval or bypass gates.
 
 ## Report
 
-Include the rating table, **Total: n/25** or **Total: Incomplete** with the
-unknown dimensions, and **Plan quality: Ready / Revise / Investigate** with a
-reason and next action. Put this in the plan, or the response for read-only
-reviews. Ready means ready for the next applicable approval or execution gate.
-
-For example: **Investigate — rollback is Unknown.** Rehearse mixed-version
-compatibility and recovery in staging before choosing rollout order. Keep all
-supported clients in scope. Replace “roll back if necessary” with verified
-steps.
+Report in the plan or review: ratings, total (`n/25` or `Incomplete` with
+unknowns), and plan quality (`Ready / Revise / Investigate`) with reason and
+next action. Ready means ready for the next gate.
 
 Do not create a second assessment document or require a written plan merely
 to run this skill on a small bounded change.
