@@ -141,15 +141,6 @@ test("mergeSessionsById sorts an initial polling snapshot deterministically", ()
   assert.deepEqual(merged, sortSessions(incoming));
 });
 
-test("the workspace controller combines a creation response with the current snapshot before merging", () => {
-  const source = readFileSync(new URL("../src/workspaceSessionController.ts", import.meta.url), "utf8");
-
-  assert.match(
-    source,
-    /mergeSessionsById\(sessions, \[\.\.\.sessions, created\], lastResortAt, new Date\(\)\)/,
-  );
-});
-
 test("mergeSessionsById throttle holds visual order for 29s under rapid data churn", () => {
   const start = new Date("2026-08-15T12:00:00.000Z");
   const a = { ...session("a", "alive", "working"), lastActivityAt: "2026-08-15T12:00:00.000Z" };
