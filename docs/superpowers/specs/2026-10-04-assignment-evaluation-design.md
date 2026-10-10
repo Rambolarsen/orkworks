@@ -154,19 +154,23 @@ do not affect completeness or the overall result.
 An evaluation provides exactly one `satisfied`, `unsatisfied`, or `unassessed`
 outcome for every approved criterion, with a bounded rationale. Satisfied and
 unsatisfied outcomes require evidence; an unassessed outcome may omit evidence
-and records why it could not be assessed. Evidence references must identify
-their source; a bare content digest is not a valid reference. A non-report
-reference binds the exact approved source assignment identity, result
-revision/digest, output declaration ID/kind, and content digest. The sidecar
-resolves the declared path or server-held artifact ID/version from that result
-manifest; the reference cannot select another path, artifact, or assignment.
-A report evidence reference instead binds report ID/version/digest and also
-binds the full immutable source identity from #742: workspace, run, plan and
-revision, task and version, reservation, child session, configuration digest,
-sidecar and launch generations, report ID/version, and content digest. The
-sidecar resolves these fields from the stored report; caller-supplied identity
-cannot select a different source. This lets scope, correction, and invalidation
-checks target the exact report even when IDs or bytes are reused elsewhere.
+and records why it could not be assessed. In the evaluation record, each
+`EvidenceReference` is exactly one sidecar-derived `sourceKey`, a 64-character
+lowercase SHA-256 hex value; a bare content digest or caller-chosen object ID
+is not valid. A source key is lowercase SHA-256 over
+`orkworks.assignment-evidence-source.v1\n` followed by #741 canonical JSON
+bytes for the immutable source descriptor. For a result output, that descriptor
+contains its source kind, exact approved assignment identity, result revision
+and digest, output declaration ID/kind, source variant, size, and content
+digest. For a research report, it contains the full immutable #742 report
+identity, including workspace, run, plan/revision, task/version, reservation,
+child session, configuration digest, sidecar/launch generations, report
+ID/version, and content digest. The sidecar derives and resolves the key from
+the stored result or report; callers cannot select another source. Reused IDs
+or identical bytes from different assignments therefore remain distinct. A
+key collision with a different descriptor is rejected. Corrections and
+invalidations are checked against the resolved source record; a corrected
+source requires a new source key.
 Missing, duplicate, or unknown criterion IDs make the report malformed and it is
 rejected.
 
@@ -243,7 +247,7 @@ Derive one overall result from current evidence:
 
 | Result | Rule |
 | --- | --- |
-| **Needs rework** | A current, uncontested required criterion is unsatisfied, quality is below `3`, a current, uncontested required-rework finding is present, or a declared output is known missing. |
+| **Needs rework** | A current, uncontested required criterion is unsatisfied, quality is below `3`, a required output is known missing, or a current, uncontested required-rework finding has a valid failing impact target. |
 | **Unassessed** | No failure is established, but a required criterion or quality is unassessed, the result is stale, no eligible reviewer exists, or relevant credible evidence conflicts. |
 | **Meets requirements** | Every required criterion is satisfied, quality is `3`, evidence is current, and no relevant conflict or invalidation remains. |
 
@@ -268,6 +272,13 @@ retry metadata, including the sidecar-derived `rubricSnapshotDigest`; the server
 derives the overall result. Each finding has a
 stable ID, concise description, location, severity, evidence reference, and
 whether it requires rework, matching the approved review-role output contract.
+A required-rework finding also names one or more unique `requiredImpactTargets`:
+an approved required criterion, rubric dimension, or result-level rating. Each
+target must have a corresponding current failure in the same evaluation
+(`unsatisfied`, `below standard`, or rating below `3`); optional criteria are
+never valid targets. There are at most 49 targets, the maximum combined set of
+32 criteria, 16 dimensions, and one rating. Reject a required-rework finding
+with no valid target. Optional-only findings cannot affect the overall result.
 Rationale, findings, and corrections must not contain credentials, secrets,
 hidden reasoning, full prompts, or complete transcripts; use safe, immutable
 evidence references.
@@ -295,6 +306,13 @@ worker—establishes these facts. If it cannot establish the contributor set or
 read-only scope, the child report is ineligible and the result stays Unassessed
 pending user review. This is assignment-level separation, not OS isolation; a
 parent summary alone is not independent review.
+
+For a reviewer-of-review chain, the sidecar applies the same independence and
+read/write-scope checks against the original worker result and every earlier
+child-review assignment in that chain, not only the immediately reviewed
+reviewer assignment. A child reviewer who contributed to the original result
+or can write its output scope cannot make that result eligible through a later
+review; one ineligible child link makes the full chain ineligible.
 
 Child reports use a reviewer-scoped capability bound to the reviewer
 assignment/configuration and exact result revision. It is separate from the
@@ -516,8 +534,17 @@ capacity from a closed ineligible subject, #745 must also
 provide an explicit Electron-authorized user purge. A subject is closed only
 after its owning run is terminal and all writer capabilities are revoked; it is
 ineligible when none of its results can be selected as current or used as
-learning input. Purge requires the exact subject identity and expected current
-head, is serialized against writes, and is allowed only when no retained record,
+learning input. Each assignment subject has a sidecar-issued, monotonically
+increasing `subjectRevision` using checked `u64` arithmetic. Advance it
+atomically with every accepted result revision, evaluation submission or
+correction, invalidation/disposition, user-stream-slot change, and retained
+learning-dependency addition or removal. Purge requires the exact
+subject identity and the `subjectRevision` observed by the caller; after
+serializing against writes, it compares that revision before deleting and
+conflicts if any listed mutation occurred meanwhile. It never wraps; if the
+revision is exhausted, further subject writes and purge fail visibly. This
+concurrency token is not part of immutable record digests and is removed with
+the purged subject. A purge is allowed only when no retained record,
 learning input, or reviewer credibility link depends on the subject or its
 pinned evidence. It atomically
 removes that subject's result manifests and receipts, evaluations,
@@ -563,7 +590,9 @@ A future implementation must verify that:
    dimensions cannot create a pass. A legacy empty rubric remains Unassessed
    only if no independent failure establishes Needs rework. Correcting
    optional-only evidence cannot
-   change the overall result; correcting required evidence makes only its
+   change the overall result; an optional-only `requiresRework` finding or a
+   finding with no matching required impact outcome cannot force Needs rework.
+   Correcting required evidence makes only its
    dependent outcome Unassessed and the result is recomputed. An optional source
    used only for optional detail cannot downgrade an otherwise passing required
    result.
@@ -582,8 +611,10 @@ A future implementation must verify that:
    output are rejected; report evidence resolves the exact source identity even
    when report IDs or content digests are reused. A server-held artifact from
    another assignment or declaration is rejected even if its ID, size, and
-   digest are valid. Evidence-reference order does not change an evaluation
-   digest, and duplicate references within one outcome are rejected. All
+   digest are valid. Valid maximum-length source identities resolve through a
+   bounded 64-character source key and fit the reference cap. Evidence-reference
+   order does not change an evaluation digest, and duplicate references within
+   one outcome are rejected. All
    filesystem operations run in an isolated,
    fixed-capacity worker with bounded admission and deadlines; a timed-out
    worker cannot block sidecar control paths or cause unbounded replacement
@@ -626,7 +657,11 @@ A future implementation must verify that:
    that reviewer-of-review report affects the original evaluation only when a
    terminal user evaluation assesses the exact reviewer-of-review evaluation
    and derives Meets requirements. No further child reviewer is eligible. A
-   direct terminal user assessment also binds the exact child evaluation
+   reviewer-of-review that contributed to the original worker output or lacks
+   read-only access to that output is ineligible even if independent of the
+   immediately reviewed child assignment; terminal user assessment cannot
+   restore that chain's eligibility. A direct terminal user assessment also
+   binds the exact child evaluation
    revision/digest. Every chain is acyclic and bounded to two child evaluations
    plus the terminal user; changing any named result/evaluation revision or
    digest invalidates only dependent links, which must then be re-established.
@@ -655,13 +690,15 @@ A future implementation must verify that:
    retries return the saved receipt and stale invalidations cannot replace a
    newer evaluation.
    Retention preserves evidence referenced by any current evaluation
-   regardless of outcome and every result/evaluation/disposition in the
-   `reviewerAssessmentRef` chain of current evaluations; it removes only
-   eligible complete historical subjects without such dependencies.
+   regardless of outcome, every result/evaluation/disposition in the
+   `reviewerAssessmentRef` chain of current evaluations, and source records
+   referenced by retained learning inputs; it removes only eligible complete
+   historical subjects without such dependencies.
    Explicit user purge releases a closed ineligible subject only when no
    retained record, learning input, or reviewer credibility link depends on it;
-   it fences writes, removes the subject and solely pinned evidence atomically,
-   and fails without deletion when provenance is still needed. Quota pressure
+   it compares the caller's expected `subjectRevision` after write
+   serialization, removes the subject and solely pinned evidence atomically,
+   and conflicts on any intervening subject mutation. Quota pressure
    never triggers silent eviction; repeated purges of absent subjects return
    the same not-found/no-op result and retain no tombstone. Workspace deletion purges result manifests,
    receipts, evaluations, dispositions, and pinned evidence.
