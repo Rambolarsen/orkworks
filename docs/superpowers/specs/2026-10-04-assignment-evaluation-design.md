@@ -73,7 +73,8 @@ implied by possession of an artifact ID. Undeclared or over-cap outputs are
 rejected. Exact retries with the same key return the
 stored receipt before checking whether the predecessor is still current;
 changed content under that key conflicts. The key is scoped to reporter,
-assignment identity, active launch generation, and operation.
+assignment identity, the active authority-generation variant (child launch
+generation or parent runtime generation), and operation.
 
 The sidecar must open file paths with one atomic descriptor-relative operation
 from a retained handle to the exact approved output root for this assignment.
@@ -154,9 +155,13 @@ Every manifest submission carries the caller's expected current result
 revision and digest; the initial state uses `expectedResultRevision: no-head`
 with no digest. The sidecar compares both with the current head before
 assigning an immutable revision, rejecting stale predecessors. After the sidecar
-authenticates the active launch generation, an exact idempotent retry is
+authenticates the active authority generation (child launch generation or
+parent runtime generation), an exact idempotent retry in that generation is
 resolved before this comparison. The 32-revision limit is per assignment
-identity and persists across resumes; resumed writes require the new launch
+identity and persists across resumes; resumed child writes require the new
+launch generation, and resumed root writes require the new parent runtime
+generation. The authority-generation variant is part of the retry scope, so a
+receipt from a revoked generation cannot satisfy a retry in the resumed
 generation. A changed assignment identity creates a new subject. Exhaustion
 is visible and cannot wrap or reset. Evaluations bind the current revision and
 digest. Before any
@@ -521,7 +526,8 @@ canonical JSON bytes, prefixed respectively by `orkworks.assignment-result.v1\n`
 `orkworks.assignment-evaluation.v1\n`, or
 `orkworks.assignment-disposition.v1\n` (each ends in one literal LF). The
 result digest covers exactly: assignment identity, result revision, predecessor
-(revision/digest or explicit `no-head`), active launch generation, and the
+(revision/digest or explicit `no-head`), active authority generation (child
+launch generation or parent runtime generation), and the
 output entries ordered by declaration ID. Each entry contains declaration ID,
 kind, and state; a present entry also contains its source variant (approved
 path or immutable artifact ID/version), size, and content digest. The
@@ -657,7 +663,11 @@ A future implementation must verify that:
    used only for optional detail cannot downgrade an otherwise passing required
    result.
 2. Exact retries using the active `AssignmentResultCapability` generation
-   return their saved receipt before stale-predecessor rejection; a
+   return their saved receipt before stale-predecessor rejection; child results
+   scope the key to the active child launch generation, while root results scope
+   it to the active parent runtime generation. After resume, the revoked
+   generation cannot use its old receipt; the new generation has a separate key
+   scope and writes compare-and-swap against the current result head. A
    `ResearchReportCapability` cannot submit result manifests. Concurrent first
    evaluations with different idempotency keys cannot both create a stream head;
    new streams compare-and-swap the explicit no-head state. Changed, malformed,
