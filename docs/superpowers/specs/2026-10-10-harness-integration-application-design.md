@@ -59,6 +59,24 @@ The intended caller interface is:
 | Reconcile unreferenced integrations | Integration keys and expected workspace path | Typed cleanup outcome |
 | Check prompt-attention launch readiness | Harness ID and executable | Conservative readiness boolean |
 
+Inspect and List are observations with an existing reconciliation side effect:
+for eligible Claude/Copilot targets, discovering a missing or drifted prompt
+hook can revoke session prompt authority and clear the prompt tuple under the
+existing source rules. They do not install, repair or uninstall configuration,
+and they do not activate prompt authority. Document this side effect on the
+Rust interface methods themselves. Launch readiness is only a conservative
+boolean query and performs no revocation.
+
+Inspect completes any required captured revocation before returning its status
+or adapter failure. A revocation failure takes precedence over that status or
+failure and maps to the existing HTTP 500 response. List attempts every captured
+revocation in collection order, including after another attempt fails and before
+returning a later group's revalidation error. Any revocation failure takes
+precedence over the later revalidation error; otherwise return that error,
+without a partial list. Successful prior revocations are not rolled back.
+Listing may await subsequent group probes after capturing an earlier snapshot;
+preserve this existing timing, without adding new suspension points.
+
 Use enums for target, mutation and the harness/grouped result distinction.
 Group mutation requests retain required document and active-selection revisions;
 legacy harness requests retain their existing contract. Encode this distinction
@@ -173,6 +191,11 @@ FakeHome, controlled executable and AppState fixtures. Cover:
   fencing, and existing behavior when required revocation fails after mutation.
 - Workspace listing attempts every captured revocation and finalizes captured
   effects before surfacing a later group's revalidation failure.
+- Direct Inspect/List tests assert authority demotion and prompt-tuple handling
+  under the existing source rules without configuration mutation. Assert that
+  revocation failure takes precedence over adapter failure or a later listing
+  revalidation failure, that successful prior revocations remain applied, and
+  that launch-readiness queries leave authority unchanged.
 
 Move orchestration tests to the application interface as their behavior moves;
 retain focused HTTP tests for request validation, authorization, exact conflict
@@ -208,6 +231,33 @@ This continues ADR 0030's integration-specific choreography decision. Clarify
 its ownership in a dated amendment before implementation, keep its accepted
 status, update the architecture reference and review the ADR index/README;
 do not supersede it merely because the implementation moves.
+
+## Independent design review
+
+A fresh-context `gpt-6-luna` agent at high reasoning effort reviewed design
+commit `a1e2f15c4d5f271b2f081a2b313ac42cd9c8594d` using the repository's
+`reviewing-plans` skill. It inspected the actual orchestration, callers and
+tests. One finding requested that inspection side effects and failure ordering
+be stated at the interface. The existing sequencing guarantee was retained and
+made explicit above, with direct verification criteria. No other actionable
+findings were reported. The same reviewer rechecked the clarification against
+source and reported no remaining actionable findings.
+
+The review assessed complexity separately from design quality:
+
+| Dimension | Rating | Evidence |
+| --- | --- | --- |
+| Dependencies | 3/5 | Known HTTP, session application, AppState, registry, probe and adapter interactions |
+| Blast radius | 5/5 | Integration inspection/mutation and configuration/attention handling across consumers |
+| State changes | 3/5 | Existing configuration writes and authority revocation must be preserved; no new format |
+| Reversibility | 2/5 | Code extraction and ADR amendment are revertible without a format migration |
+| Uncertainty | 3/5 | Inspected sequencing, with partial failures and lock behavior requiring verification |
+
+Total: **16/25**, as assessed by the reviewer; the score neither grants owner
+approval nor replaces implementation verification. Initial quality was
+**Revise** for the interface clarification; recheck quality is **Ready for owner
+review**. The revised design still requires owner review before implementation
+planning.
 
 ## Approval and next step
 
