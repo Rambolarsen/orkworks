@@ -40,7 +40,7 @@ interface SessionDetailPanelProps {
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
-  onReviewPlan: () => void;
+  onReviewPlan?: () => void;
   onOpenRecommendation?: (id: string) => void;
   showDebugMetadata: boolean;
 }
@@ -181,11 +181,11 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
       </div>
 
       {/* Surface 2 — action zone: the one app-only move, never a duplicate of the terminal. */}
-      {(active.recommendation || actionZone.kind !== "none" || active.hasOpenablePlan) && (
+      {(active.recommendation || actionZone.kind !== "none" || (active.hasOpenablePlan && onReviewPlan)) && (
         <div className="detail-actions">
           {active.recommendation && <div className="recommendation-text">{active.recommendation}</div>}
 
-          {active.hasOpenablePlan && (
+          {active.hasOpenablePlan && onReviewPlan && (
             <div className="resume-chooser">
               <div className="resume-chooser-title">
                 {tone === "needs-you" ? "Plan ready for review" : "Plan available"}
@@ -249,7 +249,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
             </div>
           )}
 
-          {actionZone.kind === "plan" && !active.hasOpenablePlan && (
+          {actionZone.kind === "plan" && !active.hasOpenablePlan && onReviewPlan && (
             <button
               className="detail-button detail-button--primary"
               type="button"

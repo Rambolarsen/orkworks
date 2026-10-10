@@ -1,7 +1,7 @@
 import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { DockviewApi } from "dockview-react";
-import DockviewApp from "./components/DockviewApp";
+import ApplicationShell, { shouldShowRecommendationsPanel, type ShellCommand, type ShellCommandRequest, type ShellDestination } from "./components/ApplicationShell";
+import { useShellPreferences } from "./useShellPreferences";
 import NewSessionDialog from "./components/NewSessionDialog";
 import FixWithAiDialog from "./components/FixWithAiDialog";
 import SettingsModal from "./components/SettingsModal";
@@ -16,12 +16,6 @@ import {
   trackUnread,
   type UnreadState,
 } from "./sessionUnread";
-import {
-  PANEL_DEFAULTS,
-  buildDefaultLayout,
-  shouldShowRecommendationsPanel,
-  shouldShowReviewPanel,
-} from "./components/DockviewApp";
 import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
 import { activeNewSessionHarnesses } from "./newSessionDialogState";
@@ -45,7 +39,7 @@ import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, get
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
-import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, ShellPreferences, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
+import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
 import type { UpdateStatus } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
@@ -55,14 +49,11 @@ import { createShellNavigationState, reduceShellNavigation, type InspectorDestin
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
-  const [responsiveMode, setResponsiveMode] = useState<"wide" | "medium" | "compact">(() => {
-    if (window.matchMedia("(max-width: 859px)").matches) return "compact";
-    return window.matchMedia("(max-width: 1179px)").matches ? "medium" : "wide";
-  });
-  const [compactPage, setCompactPage] = useState<"terminal" | "sessions" | "detail" | "capacity" | "recommendations">(
-    () => window.matchMedia("(max-width: 859px)").matches ? "terminal" : "sessions",
-  );
-  const [mediumPage, setMediumPage] = useState<"terminal" | "detail" | "capacity" | "recommendations">("terminal");
+  const { preferences: shellPreferences, change: changeShellPreferences, reset: resetShellPreferences } = useShellPreferences();
+  const [shellCommandRequest, setShellCommandRequest] = useState<ShellCommandRequest | null>(null);
+  const requestShellCommand = useCallback((command: ShellCommand, reveal = false) => {
+    setShellCommandRequest(previous => ({ command, sequence: (previous?.sequence ?? 0) + 1, reveal }));
+  }, []);
   const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [shellNavigation, dispatchShellNavigation] = useReducer(
@@ -78,36 +69,6 @@ function App() {
   const [workspaceSwitchDiagnostic, setWorkspaceSwitchDiagnostic] = useState<string | null>(null);
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [shellPreferences, setShellPreferences] = useState<ShellPreferences>({
-    sessionsWidth: 240,
-    inspectorWidth: 320,
-    sessionsVisible: true,
-    density: "low",
-  });
-
-  useEffect(() => {
-    const mediumQuery = window.matchMedia("(max-width: 1179px)");
-    const compactQuery = window.matchMedia("(max-width: 859px)");
-    const updateResponsiveMode = () => {
-      const nextMode = compactQuery.matches ? "compact" : mediumQuery.matches ? "medium" : "wide";
-      setResponsiveMode(nextMode);
-      if (nextMode === "compact") setCompactPage("terminal");
-      if (nextMode === "medium") setMediumPage("terminal");
-    };
-    updateResponsiveMode();
-    mediumQuery.addEventListener("change", updateResponsiveMode);
-    compactQuery.addEventListener("change", updateResponsiveMode);
-    return () => {
-      mediumQuery.removeEventListener("change", updateResponsiveMode);
-      compactQuery.removeEventListener("change", updateResponsiveMode);
-    };
-  }, []);
-
-  useEffect(() => {
-    void window.orkworks.getShellLayout()
-      .then((snapshot) => setShellPreferences(snapshot.preferences))
-      .catch(() => {});
-  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("tools");
   const [updateState, setUpdateState] = useState<{
@@ -118,12 +79,10 @@ function App() {
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
-  const [reviewTick, setReviewTick] = useState(0);
   const [harnesses, setHarnesses] = useState<HarnessConfigEntry[]>([]);
   const [harnessDocumentRevision, setHarnessDocumentRevision] = useState<string | null>(null);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
-  const dockviewApiRef = useRef<DockviewApi | null>(null);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
   const workspaceLifecycleRef = useRef({ generation: 0, readyGeneration: null as number | null });
   const initialWorkspaceSnapshotRef = useRef<{
@@ -176,8 +135,6 @@ function App() {
       readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
     };
     dispatchShellNavigation({ type: "workspace-generation-changed", generation });
-    setCompactPage("terminal");
-    setMediumPage("terminal");
     if (event.state === "ready") {
       setIsSwitchingWorkspace(false);
       setWorkspaceSwitchDiagnostic(null);
@@ -254,11 +211,7 @@ function App() {
       return;
     }
     const deps = {
-      panelCountProvider: () => {
-        const api = dockviewApiRef.current;
-        if (!api) return 0;
-        try { return api.size; } catch { return 0; }
-      },
+      panelCountProvider: () => document.querySelectorAll("[data-shell-region]").length,
       liveTerminalCountProvider: () => getLiveTerminalCount(),
       liveTerminalIdsProvider: () => getLiveTerminalIds(),
     };
@@ -272,7 +225,7 @@ function App() {
       window.clearInterval(timer);
       (window as unknown as { __orkworksCaptureRendererHealth?: unknown }).__orkworksCaptureRendererHealth = undefined;
     };
-  }, [settings?.debug?.rendererHealthLogMs, dockviewApiRef]);
+  }, [settings?.debug?.rendererHealthLogMs]);
 
   useEffect(() => () => workspaceSessionController.dispose(), [workspaceSessionController]);
 
@@ -431,18 +384,11 @@ function App() {
     setNewSessionDialogOpen(false);
     try {
       await workspaceSessionController.createSession(opts);
-      setCompactPage("terminal");
-      setMediumPage("terminal");
-
-      const api = dockviewApiRef.current;
-      if (api) {
-        const panel = api.getPanel("terminal");
-        if (panel) panel.api.setActive();
-      }
+      requestShellCommand("terminal");
     } catch {
       pushToast("error", "Couldn't start a new session.");
     }
-  }, [workspaceSessionController]);
+  }, [workspaceSessionController, requestShellCommand]);
 
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
@@ -454,15 +400,8 @@ function App() {
       generation: workspaceLifecycleRef.current.generation,
     });
     void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
-    if (responsiveMode === "compact") setCompactPage("terminal");
-    if (responsiveMode === "medium") setMediumPage("terminal");
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
-    const api = dockviewApiRef.current;
-    if (api) {
-      const panel = api.getPanel("terminal");
-      if (panel) panel.api.setActive();
-    }
-  }, [workspaceSessionController, responsiveMode]);
+  }, [workspaceSessionController]);
 
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
@@ -589,65 +528,18 @@ function App() {
     });
   }, []);
 
-  const changeCompactPage = useCallback((page: "terminal" | "sessions" | "detail" | "capacity" | "recommendations") => {
-    if (page === "terminal") closeInspector();
-    setCompactPage(page);
-  }, [closeInspector]);
-
-  const changeMediumPage = useCallback((page: "terminal" | "detail" | "capacity" | "recommendations") => {
-    if (page === "terminal") closeInspector();
-    setMediumPage(page);
-  }, [closeInspector]);
-
-  const handleReviewPlan = useCallback((sessionId = activeSessionId, refreshedSessions: readonly SessionInfo[] = sessions) => {
-    const activeSession = refreshedSessions.find((session) => session.id === sessionId);
-    if (!shouldShowReviewPanel(activeSession)) return;
-    const api = dockviewApiRef.current;
-    if (!api) return;
-    const panel = api.getPanel("review") ?? api.addPanel({
-      id: "review", component: "review", title: "Review",
-      position: { referencePanel: "terminal" },
-    });
-    panel?.api.setActive();
-    setReviewTick((tick) => tick + 1);
-  }, [activeSessionId, sessions]);
-
   const [focusedRecommendationId, setFocusedRecommendationId] = useState<string | null>(null);
 
   const handleOpenRecommendation = useCallback((id: string) => {
-    const activeSession = sessions.find((session) => session.id === activeSessionId);
-    if (!shouldShowRecommendationsPanel(activeSession)) return;
+    if (!shouldShowRecommendationsPanel(sessions.find(session => session.id === activeSessionId))) return;
     setFocusedRecommendationId(id);
-    const api = dockviewApiRef.current;
-    if (!api) return;
-    api.getPanel(PANEL_DEFAULTS.detail.component)?.api.close();
-    api.getPanel(PANEL_DEFAULTS.capacity.component)?.api.close();
-    const options: Parameters<typeof api.addPanel>[0] = {
-      id: "recommendations",
-      component: "recommendations",
-      title: PANEL_DEFAULTS.recommendations.title,
-    };
-    const position = PANEL_DEFAULTS.recommendations.position;
-    if (position && api.getPanel(position.referencePanel)) {
-      options.position = position;
-    }
-    const panel = api.getPanel("recommendations") ?? api.addPanel(options);
-    panel?.api.setActive();
-    for (const group of api.groups) group.header.hidden = true;
-  }, [activeSessionId, sessions]);
+    requestShellCommand("recommendations", true);
+  }, [activeSessionId, sessions, requestShellCommand]);
 
-  useEffect(() => {
-    const onSelected = (event: Event) => {
-      const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
-      if (typeof sessionId !== "string") return;
-      if (!workspaceSessionController.selectSession(sessionId)) return;
-      void refreshSessions().then((refreshed) => {
-        if (refreshed) handleReviewPlan(sessionId, refreshed);
-      });
-    };
-    window.addEventListener("orkworks:terminal-plan-selected", onSelected);
-    return () => window.removeEventListener("orkworks:terminal-plan-selected", onSelected);
-  }, [handleReviewPlan, refreshSessions]);
+  const handleInspect = useCallback((destination: ShellDestination | null) => {
+    if (destination) inspectSubject(destination);
+    else closeInspector();
+  }, [inspectSubject, closeInspector]);
 
   const handleResumeSession = useCallback(async (id: string) => {
     try {
@@ -721,152 +613,23 @@ function App() {
     });
   }, [activeSessionId, backendStatus, sessionAdmissionEnabled, workspaceSessionController]);
 
-  useEffect(() => {
-    return window.orkworks.onMenuCommand(({ action, panelId }) => {
-      if (action === "check-for-updates") {
-        void openSettings("updates");
-        void checkForUpdates();
-        return;
+  useEffect(() => window.orkworks.onMenuCommand(({ action, panelId }) => {
+    if (action === "check-for-updates") {
+      void openSettings("updates");
+      void checkForUpdates();
+      return;
+    }
+    if (action === "open-settings") void openSettings();
+    else if (action === "new-session") void handleCreateSession();
+    else if (action === "reset-layout") requestShellCommand("reset-layout");
+    else if (action === "focus" && panelId) {
+      const destination = panelId === "detail" ? "details" : panelId;
+      if (["sessions", "terminal", "details", "capacity", "recommendations"].includes(destination)) {
+        requestShellCommand(destination as ShellCommand);
+        if (destination === "terminal") void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
       }
-
-      if (action === "open-settings") {
-        openSettings();
-        return;
-      }
-
-      if (action === "new-session") {
-        handleCreateSession();
-        return;
-      }
-
-      if (action === "reset-layout") {
-        setShellPreferences({ sessionsWidth: 240, inspectorWidth: 320, sessionsVisible: true, density: "low" });
-        setMediumPage("terminal");
-        if (responsiveMode === "compact") {
-          changeCompactPage("terminal");
-          void window.orkworks.resetShellLayout();
-          return;
-        }
-      }
-
-      if (responsiveMode === "compact" && action === "focus" && panelId) {
-        if (panelId === "terminal") {
-          changeCompactPage("terminal");
-          void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
-        } else if (panelId === "sessions") {
-          changeCompactPage(compactPage === "sessions" ? "terminal" : "sessions");
-        } else if (panelId === "detail" || panelId === "capacity" || panelId === "recommendations") {
-          if (panelId === "recommendations" && !shouldShowRecommendationsPanel(sessions.find((session) => session.id === activeSessionId))) return;
-          inspectSubject(panelId === "detail" ? "details" : panelId);
-          changeCompactPage(panelId);
-        }
-        return;
-      }
-
-      if (responsiveMode === "medium" && action === "focus" && panelId) {
-        if (panelId === "terminal") {
-          changeMediumPage("terminal");
-          void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
-          handleFocusTerminal();
-          return;
-        }
-        if (panelId === "detail" || panelId === "capacity" || panelId === "recommendations") {
-          if (panelId === "recommendations" && !shouldShowRecommendationsPanel(sessions.find((session) => session.id === activeSessionId))) return;
-          inspectSubject(panelId === "detail" ? "details" : panelId);
-          changeMediumPage(panelId);
-          return;
-        }
-      }
-
-      const api = dockviewApiRef.current;
-      if (!api) return;
-
-      if (action === "focus" && panelId) {
-        const def = PANEL_DEFAULTS[panelId];
-        if (!def) return;
-        const activeSession = sessions.find((session) => session.id === activeSessionId);
-        if (panelId === "recommendations" && !shouldShowRecommendationsPanel(activeSession)) return;
-        if (panelId === "review" && !shouldShowReviewPanel(activeSession)) return;
-        const existing = api.getPanel(def.component);
-
-        if (panelId === "terminal") {
-          existing?.api.setActive();
-          handleFocusTerminal();
-          void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
-          return;
-        }
-
-        if (panelId === "sessions") {
-          const focusList = () => {
-            setTimeout(() => {
-              document.getElementById("sessions-list")?.focus({ preventScroll: true });
-            }, 0);
-          };
-          if (!existing) {
-            const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
-              id: def.component,
-              component: def.component,
-            };
-            if (panelId === "sessions") Object.assign(options, { initialWidth: shellPreferences.sessionsWidth, minimumWidth: 200, maximumWidth: 320 });
-            if (def.position && api.getPanel(def.position.referencePanel)) {
-              const direction = def.position.direction;
-              options.position = direction && direction !== "within"
-                ? { referencePanel: def.position.referencePanel, direction }
-                : { referencePanel: def.position.referencePanel };
-            }
-            api.addPanel(options);
-            for (const group of api.groups) group.header.hidden = true;
-            focusList();
-            return;
-          }
-          const listEl = document.getElementById("sessions-list");
-          const isFocused = !!listEl && listEl.contains(document.activeElement);
-          if (isFocused) {
-            existing.api.close();
-          } else if (!existing.api.isActive) {
-            existing.api.setActive();
-            focusList();
-          } else {
-            focusList();
-          }
-          return;
-        }
-
-        const inspectorIds = ["detail", "capacity", "recommendations"];
-        if (inspectorIds.includes(panelId)) {
-          for (const id of inspectorIds) {
-            if (id !== panelId) api.getPanel(PANEL_DEFAULTS[id].component)?.api.close();
-          }
-          if (existing?.api.isActive) closeInspector();
-          else inspectSubject(panelId === "detail" ? "details" : panelId as InspectorDestination);
-        }
-        if (existing) {
-          if (existing.api.isActive) existing.api.close();
-          else existing.api.setActive();
-        } else {
-          const options: { id: string; component: string; initialWidth?: number; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
-            id: def.component,
-            component: def.component,
-            ...(panelId === "detail" || panelId === "capacity" || panelId === "recommendations" ? { initialWidth: shellPreferences.inspectorWidth } : {}),
-          };
-          if (def.position && api.getPanel(def.position.referencePanel)) {
-            const direction = def.position.direction;
-            options.position = direction && direction !== "within"
-              ? { referencePanel: def.position.referencePanel, direction }
-              : { referencePanel: def.position.referencePanel };
-          }
-          api.addPanel(options)?.api.setActive();
-          for (const group of api.groups) group.header.hidden = true;
-        }
-      } else if (action === "reset-layout") {
-        api.clear();
-        buildDefaultLayout(api);
-        for (const group of api.groups) group.header.hidden = true;
-        setShellPreferences({ sessionsWidth: 240, inspectorWidth: 320, sessionsVisible: true, density: "low" });
-        void window.orkworks.resetShellLayout();
-      }
-    });
-  }, [handleCreateSession, handleFocusTerminal, activeSessionId, sessions, openSettings, checkForUpdates, shellPreferences, responsiveMode, compactPage, inspectSubject, closeInspector, changeCompactPage, changeMediumPage]);
+    }
+  }), [handleCreateSession, openSettings, checkForUpdates, requestShellCommand]);
 
   return (
     <div className="app-shell">
@@ -946,32 +709,31 @@ function App() {
           </section>
         </div>
       )}
-      <DockviewApp
+      <ApplicationShell
         backendStatus={backendStatus}
         workspace={workspace}
         isSwitchingWorkspace={isSwitchingWorkspace}
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         activeSessionId={activeSessionId}
-        shellPreferences={shellPreferences}
-        responsiveMode={responsiveMode}
-        compactPage={compactPage}
-        onCompactPageChange={changeCompactPage}
-        mediumPage={mediumPage}
-        onMediumPageChange={changeMediumPage}
+        preferences={shellPreferences}
+        onPreferencesChange={changeShellPreferences}
+        onResetPreferences={resetShellPreferences}
+        inspector={shellNavigation.inspector === "actions" ? null : shellNavigation.inspector}
+        onInspect={handleInspect}
+        commandRequest={shellCommandRequest}
+        workspaceGeneration={shellNavigation.workspaceGeneration}
         visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
           ? shellNavigation.inspectedSubject.sessionId
           : shellNavigation.centralSurface.kind === "terminal"
             ? shellNavigation.centralSurface.sessionId
             : shellNavigation.centralSurface.sessionId}
-        onShellPreferencesLoaded={setShellPreferences}
         canFixWithAi={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
         taskmasterReady={sessionAdmissionEnabled}
         unreadIds={unreadState.unreadIds}
         acknowledgedIds={unreadState.acknowledgedIds}
         harnesses={harnesses}
         resumeTick={resumeTick}
-        reviewTick={reviewTick}
         onSelectSession={handleSelectSession}
         focusedRecommendationId={focusedRecommendationId}
         onOpenRecommendation={handleOpenRecommendation}
@@ -981,15 +743,12 @@ function App() {
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
-        onRefreshReview={() => setReviewTick((tick) => tick + 1)}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
         onOpenSettings={() => openSettings("providers")}
         onOpenWorkspace={handleOpenWorkspace}
-        onReviewPlan={handleReviewPlan}
             onBackendUnavailable={handleBackendUnavailable}
         onRetryBackend={handleRetryBackend}
-        dockviewApiRef={dockviewApiRef}
       />
       {(backendStatus === "unreachable" || backendStatus === "exhausted" || backendStatus === "unresolved") && (
         <div className="backend-recovery-backdrop" role="alert">

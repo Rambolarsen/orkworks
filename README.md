@@ -65,11 +65,12 @@ process groups and Windows Job objects. See [ADR 0055](docs/adr/0055-json-taskma
 for the transport contract; native Windows desktop validation remains tracked in
 [issue #525](https://github.com/Rambolarsen/orkworks/issues/525).
 
-The application shell redesign is approved in [ADR 0078](docs/adr/0078-fixed-desktop-shell-and-central-navigation.md)
-and its [design](docs/superpowers/specs/2026-10-05-application-shell-navigation-design.md).
-The current desktop still uses draggable Dockview panels; implementation is
-tracked under [#755](https://github.com/Rambolarsen/orkworks/issues/755) and
-remains subject to review of the [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
+The source desktop uses a fixed React/CSS Grid shell with Sessions, Terminal,
+and one optional inspector, following [ADR 0078](docs/adr/0078-fixed-desktop-shell-and-central-navigation.md)
+and [ADR 0082](docs/adr/0082-react-grid-desktop-shell.md). Utility pages replace
+Terminal at narrower widths without ending its session. Review and Actions
+navigation remain follow-up work under [#755](https://github.com/Rambolarsen/orkworks/issues/755).
+This describes source behavior, not the contents of published installers.
 
 The accepted [brain-informed Taskmaster design](specs/taskmaster-knowledge.md)
 adds independently updated reference knowledge, a separate analysis model, and
@@ -84,7 +85,7 @@ administrator-managed policies, including required hooks and managed routing
 
 ```text
 orkworks/
-├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js desktop UI
+├─ apps/desktop/          # Electron + React/TypeScript + CSS Grid + xterm.js desktop UI
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
 │  ├─ adr/                # Architecture Decision Records
@@ -95,8 +96,8 @@ orkworks/
 
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
-- Desktop UI uses Dockview draggable panels for sessions, detail, terminal, and recommendations; Capacity is a non-Providers stub surface
-- The Review tab renders selected-session plan/spec content as Markdown via `react-markdown`/`remark-gfm`
+- Desktop UI uses fixed, resizable Sessions, Terminal, and inspector regions; Capacity is a non-Providers stub surface
+- The retained Review component renders Markdown via `react-markdown`/`remark-gfm`; its new shell destination is deferred to #780
 - New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; harness definitions resolve from embedded built-ins plus sparse versioned overrides in `~/.orkworks/harnesses.json`
 - Antigravity CLI is the supported Google coding tool (`agy`); retired Gemini CLI records and settings remain readable for compatibility but cannot start new sessions
 - Session labels are stable topics, re-seeded only after a harness-declared fresh-conversation command; delayed old-topic inference cannot overwrite the reset placeholder (ADR 0040)

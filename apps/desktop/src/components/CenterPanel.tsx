@@ -54,9 +54,9 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
     } catch {
       /* xterm not yet measured */
     }
-    const listEl = document.getElementById("sessions-list");
-    const listHasFocus = !!listEl && listEl.contains(document.activeElement);
-    if (!handle.ended && !handle.unavailable && !listHasFocus) {
+    const focused = document.activeElement;
+    const mayFocus = !focused || focused === document.body || container.contains(focused);
+    if (!handle.ended && !handle.unavailable && mayFocus) {
       handle.terminal.focus();
     }
   }, []);

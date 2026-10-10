@@ -688,28 +688,44 @@ continues using an owned process group. See the 2026-09-12 amendment to
 [ADR 0055](../adr/0055-json-taskmaster-inference-adapters.md); native Windows
 desktop verification remains tracked by #525.
 
-## Dockview panel layout
+## Fixed desktop shell
 
-The current renderer uses Dockview for Sessions, session details, Terminal, and optional utility panels. `DockviewApp` owns panel registration and passes app state through React context to panel components. The reusable Review tab joins Terminal's tab group on demand and renders selected-session plan/spec content as Markdown via `react-markdown`/`remark-gfm` — plan/spec paths are sidecar-enforced to end in `.md` (see `resolve_openable_plan_reference` and `normalize_reported_plan_path` in the sidecar), so Review does not need to branch on file type. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket attach channel. Inactive sessions do not need to stay attached to keep their PTYs running; only the active terminal stays attached. The session detail panel includes read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` fields for the selected session, plus debug-only `OrkWorks session ID` / `Harness session ID` fields and the read-only `Peon diagnostics` block when `Show debug metadata` is enabled.
+`ApplicationShell` owns fixed React/CSS Grid regions: Sessions, one central
+Terminal or temporary utility page, and at most one inspector. Dockview is
+removed under [ADR 0082](../adr/0082-react-grid-desktop-shell.md), which supersedes
+the library choice in [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md).
+Pointer and keyboard separators resize bounded regions. At medium widths a
+utility replaces the central content; compact widths show one page at a time.
+Navigation preserves selected-session identity and restores focus to the invoker
+when a temporary page closes. Review (#780), Actions (#805), and gated Workflow
+navigation are separate delivery slices; no Review control is exposed yet.
 
-**Approved shell target (not implemented):** [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md)
-replaces user-arranged Dockview panels with compact Sessions, one central
-Terminal/Review/eligible Workflow surface, and an optional contextual inspector.
-The target retains Dockview 8.3.1 for fixed-region resizing, disables panel
-drag-and-drop, and hides group headers. Electron will own bounded installation
-shell preferences and canonical-workspace navigation memory; legacy
-`layout.json` remains untouched. See the
+`TerminalPanel` hosts the active live PTY through `CenterPanel` and xterm.js.
+The renderer terminal registry keeps that runtime and its WebSocket draining
+when responsive navigation detaches the terminal DOM. Returning reattaches the
+same runtime. Sidecar PTY lifetime remains independent of renderer attachment.
+Inactive sessions need no renderer attachment to keep their PTYs running.
+
+Electron owns bounded installation shell preferences and canonical-workspace
+navigation memory. The renderer hydrates preferences without writing defaults,
+debounces resize saves, and serializes reset before subsequent saves. Legacy
+`layout.json` remains untouched and is not restored by the new shell. The native
+View menu and toolbar route through the same shell commands.
+
+The titlebar shows the active workspace name and workspace-switch action.
+On Windows, Electron uses a hidden title bar with native window controls overlaid
+on the 38px app header; CSS reserves the controls area. The application menu is
+auto-hidden and remains accessible with Alt. macOS and Linux retain their chrome.
+
+Session details retain read-only coding-tool, provider, model, and provider-state
+fields, with session IDs and Peon diagnostics behind debug settings. Session
+sorting and attention routing remain lifecycle-aware: only alive sessions receive
+live attention, while dead sessions remain historical context.
+
+PTY handles text I/O; native harness voice bypasses PTY entirely. Source behavior
+here does not establish availability in published installers. See the
 [accepted shell design](../superpowers/specs/2026-10-05-application-shell-navigation-design.md)
-and [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
-This target does not change sidecar PTY lifetime or authorize Workflow actions.
-
-On Windows, Electron uses a hidden title bar with native window controls overlaid on the 38px app header. The OrkWorks icon sits before the workspace name; CSS reserves the native controls area. The application menu is auto-hidden and remains accessible with Alt. macOS and Linux retain their existing chrome.
-
-The titlebar shows the active workspace name and a workspace-switch action when a repo is open. A `ViewMenu` component in the titlebar provides per-panel shortcuts/toggles plus a "Reset Layout" action. Panel layouts persist to Electron userData via `layout.json` and restore on startup via Dockview's `toJSON()`/`fromJSON()` serialization.
-
-The Sessions panel uses Dockview's native header chrome rather than an inner duplicated panel header. In the single-tab case, `DockviewApp` enables Dockview's full-width tab/header mode and renders the "new session" action in the header's right-actions slot so the header still behaves like a tab while matching the rest of the workspace subheader styling. Dockview tabs use a shared default tab component that hides the built-in close affordance; panel visibility is managed through the View menu and shortcuts instead of per-tab close buttons. Session sorting and attention routing are lifecycle-aware: only alive sessions receive live attention, while dead sessions remain as historical context.
-
-- PTY handles only text I/O; voice (native harness) bypasses PTY entirely
+for the complete target and remaining accessibility/platform evidence gates.
 
 ## Update triggers
 

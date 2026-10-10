@@ -59,10 +59,11 @@ page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
 
 ## Read a plan
 
-When a session has an associated readable Markdown plan or specification,
-choose **Review plan** in its Details card to open it in Review. **Request
-independent review** sends a fixed review request into the live session only
-when you choose it.
+The source shell currently defers the Review destination and its plan-opening
+controls to [issue #780](https://github.com/Rambolarsen/orkworks/issues/780).
+Plan metadata remains available to the session; use your coding tool to read it
+until the destination is implemented. Published installers may have the earlier
+Review tab.
 
 ## When a signal looks wrong
 

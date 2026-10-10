@@ -32,12 +32,6 @@ importers:
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0(patch_hash=a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf)
-      dockview:
-        specifier: ^8.3.1
-        version: 8.3.1
-      dockview-react:
-        specifier: ^8.3.1
-        version: 8.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       electron-updater:
         specifier: 6.8.9
         version: 6.8.9(supports-color@7.2.0)
@@ -757,18 +751,6 @@ packages:
 
   dmg-builder@26.15.3:
     resolution: {integrity: sha512-O3zJUFUYHJKgzPqioHxfxzBzlSC1eXCSr79gMSBKBP5AgjjpmrydMsMLotEg9fAJF36vdUncb+4ndRNxoPdlSQ==}
-
-  dockview-core@8.3.1:
-    resolution: {integrity: sha512-6Loais9hlIRo25sTQSWGWlgbPr22ddoLBzpGDFaTnocawnC45twp5f2S2WxUz5/HPa/a65I4yxKUqZa8xrcc5Q==}
-
-  dockview-react@8.3.1:
-    resolution: {integrity: sha512-siezdOZ5izcdEn7TSYeWc+mC3hPgyW6rK6QHd6+L6PCRUKdB0WkGABtLtHmLn4Dr3VCm6C2+cv1qSCqJBeiFyA==}
-    peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
-  dockview@8.3.1:
-    resolution: {integrity: sha512-2odBC9cDKcVCVx8Db86vq9s9JZKzbgvdkxDzcfsrD9nORLc5UqhLgLvVcJguorBv7CyEpKDzFO1JVLYWJCYrJA==}
 
   dotenv-expand@11.0.7:
     resolution: {integrity: sha512-zIHwmZPRshsCdpMDyVsqGmgyP0yT8GAgXUnkdAoJisxvf33k7yO6OuoKmcTGuXPWSsm8Oh88nZicRLA9Y0rUeA==}
@@ -2523,18 +2505,6 @@ snapshots:
     transitivePeerDependencies:
       - electron-builder-squirrel-windows
       - supports-color
-
-  dockview-core@8.3.1: {}
-
-  dockview-react@8.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
-    dependencies:
-      dockview: 8.3.1
-      react: 19.3.0
-      react-dom: 19.3.0(react@19.3.0)
-
-  dockview@8.3.1:
-    dependencies:
-      dockview-core: 8.3.1
 
   dotenv-expand@11.0.7:
     dependencies:

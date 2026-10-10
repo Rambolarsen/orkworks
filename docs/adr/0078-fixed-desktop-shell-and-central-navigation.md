@@ -7,7 +7,7 @@ tags: ["orkworks", "architecture"]
 
 # Fixed desktop shell with central navigation
 
-- Status: accepted
+- Status: accepted; library choice superseded by [ADR 0082](0082-react-grid-desktop-shell.md)
 - Deciders: user
 - Date: 2026-10-08
 
