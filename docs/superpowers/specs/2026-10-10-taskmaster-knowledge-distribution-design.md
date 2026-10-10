@@ -3,13 +3,13 @@ type: Design
 title: Privacy-qualified Taskmaster knowledge distribution
 description: Reviewed Brain export, signed offline and feed knowledge, and verified Taskmaster admission for issue 529.
 tags: [orkworks, taskmaster, knowledge, privacy, distribution]
-status: proposed
+status: accepted
 ---
 
 # Privacy-qualified Taskmaster knowledge distribution
 
 - Date: 2026-10-10
-- Status: proposed; approach approved in chat, written-design review pending
+- Status: accepted; revised written design approved by the owner in chat on 2026-10-10
 - Tracking: [#529](https://github.com/Rambolarsen/orkworks/issues/529)
 - Runtime prerequisite: [#782](https://github.com/Rambolarsen/orkworks/issues/782), completed with admission deliberately closed
 - Dependent assessment: [#769](https://github.com/Rambolarsen/orkworks/issues/769), related to [#738](https://github.com/Rambolarsen/orkworks/issues/738)
