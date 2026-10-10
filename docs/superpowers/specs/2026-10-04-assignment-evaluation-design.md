@@ -64,25 +64,37 @@ The worker reports one `present` or `missing` entry per declaration through
 its `AssignmentResultCapability`; the payload cannot choose the identity or
 active sidecar and launch generations. A present entry names an approved
 worktree-relative path or immutable server-held artifact ID/version, its size,
-and content digest. Undeclared or over-cap outputs are rejected. Exact retries
-with the same key return the
+and content digest. A server-held artifact must have been created under this
+exact assignment identity and output declaration ID/kind. The sidecar verifies
+that binding and the artifact's immutable version, size, and digest; a reference
+produced by another assignment is unsupported in version 1. Cross-assignment
+artifact reuse requires a separately approved source declaration and is not
+implied by possession of an artifact ID. Undeclared or over-cap outputs are
+rejected. Exact retries with the same key return the
 stored receipt before checking whether the predecessor is still current;
 changed content under that key conflicts. The key is scoped to reporter,
 assignment identity, active launch generation, and operation.
 
 The sidecar must resolve and open file paths within the approved output scope,
 reject symlink or junction targets outside it, and preserve the opened-object
-binding for hashing. Only regular files are supported. The implementation must
-use platform-appropriate nonblocking handle operations and verify the opened
-object is regular before reading; if it cannot establish the type without
-blocking, the output is unsupported. On every freshness check, it resolves and
-opens the declared path again within scope, verifies that it still names the
-same object, then hashes that open handle. A declared required artifact that is
-absent at submission or confirmed absent during freshness checking is known
-missing and establishes Needs rework. A replaced path, changed bytes,
-inaccessible path, or
-unprovable binding is stale and Unassessed; no out-of-scope file may be read or
-pinned.
+binding for hashing. Only regular files are supported. Every potentially
+blocking filesystem operation—including path resolution, open, metadata checks,
+reads, and hashing—runs in an isolated worker with a fixed finite concurrency
+limit, bounded admission, and a deadline. The sidecar request and lifecycle
+paths never wait for that worker past the deadline. Nonblocking flags do not
+count as a cancellation or latency guarantee. If an operation misses its
+deadline, the output is unsupported and Unassessed; a stuck worker remains
+charged against the finite capacity until it exits or the owning sidecar is
+restarted. The implementation must not spawn replacement workers or queue
+unbounded work around a stuck operation. Exact worker, queue, and deadline
+limits are fixed hard limits in the reviewed implementation plan before code.
+On every freshness check, the worker resolves and opens the declared path again
+within scope, verifies that it still names the same object, then hashes that
+open handle. A declared required artifact that is absent at submission or
+confirmed absent during freshness checking is known missing and establishes
+Needs rework. A replaced path, changed bytes, inaccessible path, timed-out
+operation, or unprovable binding is stale/unsupported and Unassessed; no
+out-of-scope file may be read or pinned.
 
 Every manifest submission carries the caller's expected current result
 revision and digest; the initial state uses `expectedResultRevision: no-head`
@@ -128,9 +140,14 @@ Legacy assignments without required criteria cannot pass; absent other known
 failures, they are Unassessed.
 
 The approved, versioned, role-specific rubric has an ID, version, evaluator
-role, and 1–16 required quality dimensions with stable IDs. New assignments
-cannot use an empty rubric; a legacy assignment with no dimensions cannot pass
-and remains Unassessed. For each dimension the reviewer assigns `meets`,
+role, and 1–16 required quality dimensions with stable IDs. The sidecar derives
+`rubricSnapshotDigest` as lowercase SHA-256 over `orkworks.rubric-snapshot.v1\n`
+followed by #741's canonical JSON bytes for the exact approved `RubricSnapshot`
+(`id`, `version`, `dimensions`, and `evaluatorRole`). It is immutable
+assignment context, not reviewer input, and is included in each evaluation's
+immutable identity/digest. New assignments cannot use an empty rubric; a legacy
+assignment with no dimensions cannot pass and remains Unassessed. For each
+dimension the reviewer assigns `meets`,
 `below standard`, or `unassessed`, plus one
 result-level rating. `Meets` and `below standard` outcomes and an assessed
 result-level rating require evidence; an unassessed dimension or rating may
@@ -139,8 +156,12 @@ makes quality Unassessed; an assessed dimension with missing evidence also
 makes quality Unassessed. An evidenced, current rating below `3` or a
 below-standard dimension establishes a quality failure even if another
 dimension is unassessed. Dimension scores are not averaged.
-Comparisons across assignments require the same rubric ID and version unless
-an explicit, versioned normalization rule is approved:
+Comparisons across assignments require the same rubric ID, version, and
+`rubricSnapshotDigest`, unless an explicit, versioned normalization rule is
+approved. Matching labels or reusing an ID/version does not make different
+dimension descriptions or evaluator roles equivalent. Configuration learning
+must keep different snapshot digests in separate cohorts unless that approved
+normalization applies.
 
 | Rating | Meaning |
 | --- | --- |
@@ -183,9 +204,19 @@ partial work keeps its lifecycle status: assess available evidence, and leave
 the rest unassessed. A blocker explains missing work but does not satisfy a
 criterion.
 
+Across multiple eligible current evaluations, an `unassessed` required
+criterion, quality dimension, or rating is not an abstention: it blocks a pass
+even when another evaluation supplies an assessed outcome. With no established
+failure, the aggregate is Unassessed. A current, uncontested failure still
+establishes Needs rework despite other unassessed outcomes. Conflicting assessed
+outcomes follow the disagreement rule above; a success versus unassessed is
+Unassessed, while an unassessed opinion cannot erase an otherwise uncontested
+failure.
+
 An evaluation record stores criterion and dimension outcomes, quality, findings
 and required rework, evidence, reviewer/source identity, observation time, and
-retry metadata; the server derives the overall result. Each finding has a
+retry metadata, including the sidecar-derived `rubricSnapshotDigest`; the server
+derives the overall result. Each finding has a
 stable ID, concise description, location, severity, evidence reference, and
 whether it requires rework, matching the approved review-role output contract.
 Rationale, findings, and corrections must not contain credentials, secrets,
@@ -235,15 +266,24 @@ disposition, leave that evaluation Unassessed. This preserves the parent
 design's reviewer-of-review path without unbounded recursion.
 
 A child-authored evaluation affects the worker result only while it has a
-current terminal user assessment of the reviewer's own assignment result. The
-sidecar resolves a `reviewerAssessmentRef` to the exact reviewer assignment
-identity, result revision/digest, and user evaluation stream/revision/digest.
-The linked user evaluation must derive Meets requirements. A missing, stale,
-invalidated, Unassessed, or Needs rework reviewer assessment makes that child
-evaluation ineligible; derive the worker result from remaining current
-evaluations. A new reviewer-result revision or a correction/invalidation of its
-user evaluation invalidates the link, so the dependent child evaluation cannot
-remain current. User-authored evaluations of the worker do not need this
+current terminal user assessment of the reviewer's own assignment result that
+also covers that exact child evaluation. The terminal user evaluation stores a
+sidecar-resolved `reviewedEvaluationRef` naming the worker assignment,
+`reviewerIdentity`, evaluation revision, and digest the user assessed. The child
+evaluation is committed and digested before this user evaluation is submitted,
+so the reference is acyclic and cannot be part of the child evaluation it
+names. The sidecar derives `reviewerAssessmentRef` as an eligibility projection
+linking that exact child evaluation to the reviewer assignment identity, result
+revision/digest, and terminal user evaluation stream/revision/digest; it is not
+a reviewer-supplied field in the child evaluation record or its digest. Both
+references must agree, and the linked user evaluation must derive Meets
+requirements. A missing, stale, invalidated, Unassessed, or Needs rework
+reviewer assessment makes that child evaluation ineligible; derive the worker
+result from remaining current evaluations. A new reviewer-result revision, a
+correction/invalidation of the terminal user evaluation, or a new child
+evaluation revision invalidates the link. A replacement child evaluation needs
+a new terminal user assessment naming its exact digest before it can affect the
+worker result. User-authored evaluations of the worker do not need this
 reviewer-assessment link.
 
 Keep eligible evaluations separate. Disagreement on a required criterion, a
@@ -301,9 +341,23 @@ revision makes earlier evaluations historical; they never become current
 again. Before using an evaluation as current evidence, revalidate each
 referenced report's current correction and invalidation state as well as its
 existence, scope, version, and digest. A corrected or invalidated source makes
-dependent evaluations historical and ineligible for current results or
-learning; evaluate again against the current evidence instead of silently
-rebinding the old evaluation.
+only the criterion, dimension, rating, finding, or dispute outcome that cites
+that source stale: stale cited evidence makes that outcome Unassessed, and a
+stale dispute is ineffective. Other outcomes remain current when all of their
+own evidence and identity bindings are current. Never silently rebind an old
+reference to a corrected source; a reviewer must submit a new evaluation to
+change the affected outcome. Recompute the overall result from the remaining
+current outcomes. When a corrected source supports only an optional criterion
+or informational finding, that detail becomes stale but cannot change
+completeness or the overall result. If it also supports a required criterion or
+quality outcome, only those affected outcomes become Unassessed, subject to
+known-failure precedence. Learning consumes only current outcome evidence under
+#745; stale outcomes are ineligible without discarding unrelated current
+outcomes from the same evaluation. If a stale outcome belongs to a terminal
+reviewer assessment and makes that assessment stop deriving Meets
+requirements, any child evaluation linked to it becomes ineligible. A stale
+optional-only outcome that leaves the terminal assessment at Meets requirements
+does not break the link; this dependency does not stale unrelated outcomes.
 
 ## Record digests
 
@@ -312,9 +366,11 @@ canonical JSON bytes, prefixed respectively by `orkworks.assignment-result.v1\n`
 `orkworks.assignment-evaluation.v1\n`, or
 `orkworks.assignment-disposition.v1\n` (each ends in one literal LF). The
 digest input includes immutable identity, predecessor revision/digest, and
-semantic fields; it omits the record's own digest, bearer credentials, mutable
-status, and observation time. The fixed domains prevent these record kinds or
-later versions from sharing a digest namespace.
+semantic fields, including `rubricSnapshotDigest` and any
+`reviewedEvaluationRef`; it omits the record's own digest, bearer credentials,
+mutable status, observation time, and sidecar-derived eligibility projections
+such as `reviewerAssessmentRef`. The fixed domains prevent these record kinds
+or later versions from sharing a digest namespace.
 
 ## Bounds, retention, and deletion
 
@@ -376,7 +432,11 @@ A future implementation must verify that:
    evidenced rating below `3`, a below-standard dimension, or a required-rework
    finding is a failure even when other dimensions are unassessed. Optional
    criteria, lifecycle state, empty legacy criteria, or a rubric with no quality
-   dimensions cannot create a pass.
+   dimensions cannot create a pass. Correcting optional-only evidence cannot
+   change the overall result; correcting required evidence makes only its
+   dependent outcome Unassessed and the result is recomputed. An optional source
+   used only for optional detail cannot downgrade an otherwise passing required
+   result.
 2. Exact retries using the active `AssignmentResultCapability` generation
    return their saved receipt before stale-predecessor rejection; a
    `ResearchReportCapability` cannot submit result manifests. Concurrent first
@@ -386,13 +446,25 @@ A future implementation must verify that:
    dimension coverage or invalid evidence cannot support a pass; unassessed
    criteria and dimensions may omit evidence with a bounded reason. File links
    cannot escape the approved scope, and each freshness check detects removed
-   or replaced paths. Non-regular filesystem objects are rejected without
-   blocking before hashing. Results cannot remain
+   or replaced paths. A server-held artifact from another assignment or
+   declaration is rejected even if its ID, size, and digest are valid. All
+   filesystem operations run in an isolated,
+   fixed-capacity worker with bounded admission and deadlines; a timed-out
+   worker cannot block sidecar control paths or cause unbounded replacement
+   workers. Non-regular filesystem objects are rejected without hashing.
+   A deliberately stalled filesystem operation returns by the caller deadline,
+   and repeated stalled operations never exceed the worker/admission bounds.
+   Results cannot remain
    current for any consumer after referenced bytes change. A resume retains the
    assignment subject and revision count but requires its new launch generation;
    changing the assignment identity creates a new subject.
-3. Scores compare across assignments only under the same rubric ID/version or
-   an approved normalization rule. Optional-criterion disagreement affects
+3. Scores compare across assignments only under the same rubric ID, version,
+   and canonical `rubricSnapshotDigest`, or an approved normalization rule.
+   Matching ID/version with changed snapshot content cannot pool scores; equal
+   digests can compare, and an approved normalization follows its own versioned
+   rule. A satisfied versus unassessed required outcome or rating derives
+   Unassessed, while an independent current failure still derives Needs rework.
+   Optional-criterion disagreement affects
    detail only. Finding disputes bind the exact child or user
    `reviewerIdentity`, evaluation revision, and finding ID and reuse cited
    evidence; all finding and dispute evidence is revalidated for current source
@@ -408,9 +480,12 @@ A future implementation must verify that:
    output, or unverified read-only scope cannot qualify as child review.
    Reviewer-of-review depth is bounded and ends with user authority. A
    child-authored evaluation requires a current `reviewerAssessmentRef` to the
-   exact reviewer result and its terminal user evaluation deriving Meets
-   requirements; changing or invalidating either source removes the child
-   evaluation's eligibility.
+   exact reviewer result and terminal user evaluation deriving Meets
+   requirements. That user evaluation binds the exact child evaluation
+   revision/digest it assessed; a changed child evaluation cannot inherit the
+   prior assessment, and the linkage is acyclic. Changing the child evaluation
+   digest without a new terminal assessment makes it ineligible even when the
+   reviewer assignment result is unchanged.
 5. Corrections preserve reporter provenance; user corrections use
    Electron-authorized compare-and-swap on their `userReviewId`; a replacement
    stream can start after invalidation while user capacity remains. Ended child
@@ -430,8 +505,14 @@ A future implementation must verify that:
    merge.
 8. Child and root result identities resolve from their respective approved
    configuration; child launch and parent runtime resumes require their new
-   authority generations. Corrected or invalidated source reports cannot keep
-   dependent evaluations current. The dedicated `AssignmentResultCapability`
+   authority generations. When a source report is corrected or invalidated,
+   only outcomes citing it become stale; unrelated current outcomes remain
+   usable, and optional-only changes cannot alter the overall result.
+   Staleness that makes a terminal reviewer assessment stop deriving Meets
+   requirements removes eligibility from dependent child evaluations; stale
+   optional-only detail does not when the assessment still derives Meets.
+   Server-held artifacts are bound to the exact
+   assignment and output declaration. The dedicated `AssignmentResultCapability`
    is distinct from `ResearchReportCapability` and any run bearer. Each of the
    32 permitted result revisions can receive a child evaluation and a user
    evaluation within the 12-child/4-user partition of the 16-revision
