@@ -28,6 +28,10 @@ import type { UpdateStatus } from "../orkworksWindow";
 
 type HotkeyAction = keyof HotkeySettings;
 
+type ToolSaveRequest =
+  | { kind: "modal"; ids: string[]; key?: undefined }
+  | { kind: "tool"; ids: string[]; harnessId: string; key: IntegrationKey };
+
 export type SettingsSection = "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "updates" | "debug";
 
 const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
@@ -142,23 +146,17 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   const [manualModelOverride, setManualModelOverride] = useState(false);
   const peonVerificationGeneration = useRef(0);
   const modalLifecycleGeneration = useRef(0);
-  const toolsSaveGeneration = useRef(0);
+  const currentToolSaveRef = useRef<ToolSaveRequest | null>(null);
   const integrationStatusRequestGeneration = useRef(0);
   const [activeDraft, setActiveDraft] = useState<string[]>(() =>
     normalizeActiveHarnessIds(harnesses, activeHarnessIds),
   );
   const [activeSaveStatus, setActiveSaveStatus] = useState<string | null>(null);
-  // A per-tool immediate-enable only busies its own row (Toggle, command-path
-  // control, status display); a full modal-wide Save busies every row and the
-  // Save button itself. Kept as one value (rather than a boolean plus an id)
-  // because only the most recently started save-family operation is ever
-  // "current" — the toolsSaveGeneration guard below already treats any
-  // earlier one as superseded, so this mirrors that by always reflecting
-  // whichever operation started last.
-  type SaveActivity = { kind: "idle" } | { kind: "modal" } | { kind: "tool"; harnessId: string };
-  const [saveActivity, setSaveActivity] = useState<SaveActivity>({ kind: "idle" });
+  // The same request owns both rendered busy state and synchronous stale-result
+  // checks. Starting another save or closing the modal revokes that ownership.
+  const [toolSave, setToolSave] = useState<ToolSaveRequest | null>(null);
   function rowBusy(harnessId: string): boolean {
-    return saveActivity.kind === "modal" || (saveActivity.kind === "tool" && saveActivity.harnessId === harnessId);
+    return toolSave?.kind === "modal" || (toolSave?.kind === "tool" && toolSave.harnessId === harnessId);
   }
   const [detectionGenerations, setDetectionGenerations] = useState<Record<string, number>>({});
   const [detectionStatuses, setDetectionStatuses] = useState<Record<string, IntegrationStatusResult | undefined>>({});
@@ -180,7 +178,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
 
   function invalidateAsyncState() {
     modalLifecycleGeneration.current += 1;
-    toolsSaveGeneration.current += 1;
+    currentToolSaveRef.current = null;
     integrationStatusRequestGeneration.current += 1;
     peonVerificationGeneration.current += 1;
     if (verificationTimer.current) {
@@ -428,7 +426,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     setManualModelOverride(false);
     setActiveDraft(normalizeActiveHarnessIds(harnesses, activeHarnessIds));
     setActiveSaveStatus(null);
-    setSaveActivity({ kind: "idle" });
+    setToolSave(null);
     setIntegrationStatuses({});
     setIntegrationOperationFailures({});
     setIntegrationStatusGeneration((current) => current + 1);
@@ -472,72 +470,51 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     setActiveDraft(nextDraft);
     if (!turningOn) return;
     const key = integrationKeyForHarness(h);
-    if (key) void enableToolImmediate(nextDraft, h.id, key);
+    if (key) void saveTools({ kind: "tool", ids: nextDraft, harnessId: h.id, key });
   }
 
   function updateIntegrationFailures(results: Record<string, ActiveHarnessIntegrationResult>) {
     setIntegrationOperationFailures((current) => mergeIntegrationOperationFailures(current, results));
   }
 
-  async function saveActiveHarnessesHandler() {
-    const lifecycleGeneration = modalLifecycleGeneration.current;
-    const requestGeneration = ++toolsSaveGeneration.current;
+  async function saveTools(request: ToolSaveRequest) {
+    currentToolSaveRef.current = request;
+    setToolSave(request);
     setActiveSaveStatus(null);
-    setSaveActivity({ kind: "modal" });
+    const isCurrent = () => currentToolSaveRef.current === request;
+    const failureMessage = request.kind === "modal"
+      ? "Couldn't save active coding tools."
+      : "Couldn't enable this coding tool.";
     try {
-      const normalizedActiveDraft = normalizeActiveHarnessIds(harnesses, activeDraft);
-      const result = await onSaveActiveHarnesses(normalizedActiveDraft);
-      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      if (result.activeHarnesses.outcome === "persisted") {
-        updateIntegrationFailures(result.integrations);
-        refreshDetections([
-          ...new Set(Object.values(result.integrations).flatMap((operation) => operation.consumerHarnessIds)),
-        ]);
-        setActiveDraft(normalizedActiveDraft);
+      if (request.kind === "tool") {
+        const detection = await getHarnessDetectionStatus(request.harnessId);
+        if (!isCurrent()) return;
+        setDetectionStatuses((current) => ({ ...current, [request.harnessId]: detection }));
+        if (!isDetectedResult(detection)) {
+          setActiveDraft((current) => current.filter((id) => id !== request.harnessId));
+          setActiveSaveStatus(detection.ok ? "This coding tool is no longer available." : detection.error);
+          return;
+        }
+      }
+      const normalizedIds = normalizeActiveHarnessIds(harnesses, request.ids);
+      const result = await onSaveActiveHarnesses(normalizedIds, request.key);
+      if (!isCurrent()) return;
+      if (result.activeHarnesses.outcome !== "persisted") {
+        setActiveSaveStatus(result.activeHarnesses.message ?? failureMessage);
         return;
       }
-      setActiveSaveStatus(result.activeHarnesses.message ?? "Couldn't save active coding tools.");
+      updateIntegrationFailures(result.integrations);
+      refreshDetections([
+        ...new Set(Object.values(result.integrations).flatMap((operation) => operation.consumerHarnessIds)),
+      ]);
+      setActiveDraft(normalizedIds);
     } catch {
-      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setActiveSaveStatus("Couldn't save active coding tools.");
+      if (isCurrent()) setActiveSaveStatus(failureMessage);
     } finally {
-      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setSaveActivity({ kind: "idle" });
-    }
-  }
-
-  async function enableToolImmediate(ids: string[], harnessId: string, key: IntegrationKey) {
-    const lifecycleGeneration = modalLifecycleGeneration.current;
-    const requestGeneration = ++toolsSaveGeneration.current;
-    setActiveSaveStatus(null);
-    setSaveActivity({ kind: "tool", harnessId });
-    try {
-      const detection = await getHarnessDetectionStatus(harnessId);
-      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setDetectionStatuses((current) => ({ ...current, [harnessId]: detection }));
-      if (!isDetectedResult(detection)) {
-        setActiveDraft((current) => current.filter((id) => id !== harnessId));
-        setActiveSaveStatus(detection.ok ? "This coding tool is no longer available." : detection.error);
-        return;
+      if (isCurrent()) {
+        currentToolSaveRef.current = null;
+        setToolSave(null);
       }
-      const normalizedIds = normalizeActiveHarnessIds(harnesses, ids);
-      const result = await onSaveActiveHarnesses(normalizedIds, key);
-      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      if (result.activeHarnesses.outcome === "persisted") {
-        updateIntegrationFailures(result.integrations);
-        refreshDetections([
-          ...new Set(Object.values(result.integrations).flatMap((operation) => operation.consumerHarnessIds)),
-        ]);
-        setActiveDraft(normalizedIds);
-        return;
-      }
-      setActiveSaveStatus(result.activeHarnesses.message ?? "Couldn't enable this coding tool.");
-    } catch {
-      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setActiveSaveStatus("Couldn't enable this coding tool.");
-    } finally {
-      if (requestGeneration !== toolsSaveGeneration.current || lifecycleGeneration !== modalLifecycleGeneration.current) return;
-      setSaveActivity({ kind: "idle" });
     }
   }
 
@@ -980,10 +957,10 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={saveActiveHarnessesHandler}
-                      disabled={saveActivity.kind === "modal"}
+                      onClick={() => void saveTools({ kind: "modal", ids: activeDraft })}
+                      disabled={toolSave?.kind === "modal"}
                     >
-                      {saveActivity.kind === "modal" ? "Saving..." : "Save"}
+                      {toolSave?.kind === "modal" ? "Saving..." : "Save"}
                     </Button>
                     <Button variant="primary" size="sm" onClick={openNewHarnessEditor}>
                       Add custom coding tool
