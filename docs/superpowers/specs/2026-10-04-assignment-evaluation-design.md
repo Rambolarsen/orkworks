@@ -29,199 +29,199 @@ authorize a merge. It does not change ordinary Peon behavior.
 
 ## Assignment and result identity
 
-Evaluation binds one of the approved assignment identity variants, plus the
-exact result revision, sidecar-derived criteria and rubric snapshot digests,
-reviewer identity, and immutable evidence references. A child result uses the
-#741/#742 identity
-`(workspaceId, runId, planId, planRevision, taskId, taskVersion,
-reservationId, parentSessionId, childSessionId, configurationId,
-configurationDigest)`. A root orchestrator result uses
-`(workspaceId, runId, rootAssignmentId, parentSessionId, bootstrapId,
-bootstrapConfigurationDigest)` from its UI-approved
-`OrchestratorBootstrapConfiguration`; root assignments have no child task,
-reservation, or child session. These values come from approved state, not
-display labels or reporter claims. A change to any assignment-identity member
-or rubric requires a new approved revision. `sidecarGeneration` and the
-active child `launchGeneration` or parent runtime generation fence report
-authority but do not change the assignment identity.
+An evaluation binds one approved assignment identity, the exact accepted result
+revision/digest, sidecar-derived criteria and rubric snapshot digests, reviewer
+identity, and immutable evidence. The tagged child/root values defined under
+[Canonical records](#canonical-records) are #744's encoding of identities resolved
+from #741/#742 approved state; those documents do not currently define a tagged
+assignment-identity schema. Display labels and reporter claims cannot supply
+identity. Changing an identity member or rubric requires a new approved
+assignment. Runtime generations fence authority without changing the assignment
+subject. Root results use explicit user review; v1 child reviewers evaluate only
+child results.
 
-Result manifests use an `AssignmentResultCapability`, separate from #742's
-`ResearchReportCapability`. The sidecar binds it to the approved result
-identity and its sidecar/authority generation, and it grants only
-result-manifest submission and receipt reads. For a path-backed final result,
-its submission right remains usable after the producer terminates, its
-worktree write authority is revoked, and user-confirmed quiescence is recorded;
-this narrow grant cannot write to the worktree. It permits one accepted result
-revision for that authority generation plus exact idempotent retries. A resume
-revokes an unused old-generation submission right and creates a separate grant
-for the new generation. For child results it binds the child assignment,
-sidecar generation, and launch generation; for root results it binds the
-bootstrap identity, sidecar generation, and parent runtime generation that
-produced the result.
-It grants no research-report, evaluation, or orchestration action. Resume and
-revocation follow #742's generation-bound mechanics. Reconcile the new result
-scope with #742 before implementation; a run bearer or execution grant is not
-report authority. Root orchestrator results use the explicit user-review path;
-version 1 does not allow a child reviewer to evaluate a root result.
+### Declared outputs and authorized sources
 
-The output contract is assignment-specific, with no global artifact catalog.
-It declares at most 32 unique artifact IDs and kinds, using #741's identifier
-rule. Reconcile this schema and limit with #741. Every declaration is required
-to pass and includes an explicit finite byte cap. The approved configuration
-also has a finite total rehash-work cap; values above the server's hard limits
-are rejected. An output that exceeds a cap is unsupported and cannot establish
-a pass. Exact hard limits are an implementation-plan decision to reconcile
-with #741 before code. Example declarations include `changes`
-(`workspace_changes`) and `checks` (`verification_report`). A `research_report`
-declaration is unsupported in version 1 unless #742 adds an exact output
-declaration ID/kind binding to its immutable report identity, or #744 defines
-and approves an assignment/declaration-bound artifact wrapper. A bare #742
-report identity cannot satisfy an output declaration. Reconcile and verify
-this binding with #742 before implementation; until then, reports may be cited
-as evidence but cannot be submitted as declared result outputs.
+The approved assignment declares at most 32 unique output IDs/kinds, using
+#741's identifier rule. Each `OutputDeclaration` has exactly `id`, `kind`,
+`maxBytes`, and `source`. `maxBytes` is a positive finite integer. `source` is
+either `{"kind":"workspace-path","path":<exact approved root-relative file>}`
+or `{"kind":"server-artifact"}`. A path declaration must be within the
+assignment's effective `readPaths` and approved output scope; a worker that
+creates it also needs the corresponding effective write permission. Reject a
+configuration that cannot authorize the required read. The root is the child's
+allocated plan-owned worktree, or the root's approved `sourceWorktreeBinding`.
+Use #741's descendant-path rules; the reporter cannot select another path or
+root. A file's existence beneath a worktree never authorizes reading it.
 
-The worker reports one `present` or `missing` entry per declaration through
-its `AssignmentResultCapability`; the payload cannot choose the identity or
-active sidecar and launch generations. A present entry names an approved
-worktree-relative path or immutable server-held artifact ID/version, its size,
-and content digest. A server-held artifact must have been created under this
-exact assignment identity and output declaration ID/kind. The sidecar verifies
-that binding and the artifact's immutable version, size, and digest; a reference
-produced by another assignment is unsupported in version 1. Cross-assignment
-artifact reuse requires a separately approved source declaration and is not
-implied by possession of an artifact ID. Undeclared or over-cap outputs are
-rejected. Exact retries with the same key return the
-stored receipt before checking whether the predecessor is still current;
-changed content under that key conflicts. The key is scoped to reporter,
-assignment identity, the active authority-generation variant (child launch
-generation or parent runtime generation), and operation.
+All declarations are required to pass. The configuration also declares a finite
+total rehash-work cap. Reject declarations above server hard limits. Exact hard
+limits and this declaration schema must be reconciled with #741 before code.
+`workspace_changes` and `verification_report` may be declared kinds; v1 path
+sources are regular files, not directory trees. A server artifact is created
+under the exact producing assignment and declaration ID/kind, with an immutable
+ID/version, size and digest. Another assignment's artifact cannot satisfy the
+declaration. Cross-assignment artifact reuse needs a separately approved source
+contract and is unsupported in v1.
 
-The result manifest also preserves available time/cost evidence in an optional
-`timeCostEvidence` array of at most 32 sidecar-resolved records. Each record is
-exactly one of:
+A child assignment producing an evaluation declares an `assignment_evaluation`
+server-artifact output and the exact target result as an approved input. Its
+review capability binds that output declaration as well as the target result.
+Accepting an evaluation atomically publishes its immutable canonical record as
+an artifact owned by the reviewer assignment/declaration and returns the
+artifact ID/version, byte size and content digest. Artifact versions are the
+evaluation revisions for that stream; one declaration binds one target result
+and reviewer stream. The reviewer includes the selected immutable artifact
+version in its own candidate manifest. Publication is a scoped reporting action,
+not a product-file write, and requires no shell or worktree write capability.
+The artifact content is the canonical `AssignmentEvaluation` object below;
+its content digest is SHA-256 of those bytes without a domain prefix. Its
+evaluation digest uses the evaluation domain. Both values are verified.
+User-authored evaluations are server records and do not impersonate a child
+output. A bare #742 research report cannot satisfy a result output declaration
+until #742 supplies the assignment/declaration-bound immutable artifact wrapper.
+Reports may instead be evidence under the source contract below.
 
-- `{"kind":"elapsed","valueMs":<u64>,"authorityGeneration":{"kind":"child-launch","generation":<ID>}}` or the same object with `kind:"parent-runtime"`.
-  The sidecar measures elapsed milliseconds with a monotonic clock from that
-  generation's accepted start to its terminal event.
-- `{"kind":"cost","amountMicros":<u64>,"currency":<3 uppercase ASCII letters>,"usageRecordId":<sidecar-resolved ID>,"usageDigest":<64 lowercase SHA-256 hex>}`.
-  The sidecar resolves this to an authenticated immutable provider-usage
-  record containing provider, model, and pricing-revision identity, then
-  derives millionths of the currency unit from that pricing revision.
+### Candidate submission and sidecar finalization
 
-At most one elapsed record is allowed per active authority generation. Cost
-records may represent distinct provider/model/pricing-revision tuples; reject
-duplicate source records. Each bounded ID follows #741's identifier rule.
-Order the array by ascending UTF-8 `kind`, then by usage record ID for cost or
-the tagged authority generation for elapsed; this order is part of the result
-digest.
-Values are non-negative integers with no floating-point encoding. Missing
-evidence is omitted, never represented as zero; caller-entered estimates or
-unverifiable provider records are rejected. Each record is at most 512 bytes
-and is included in the result manifest digest and existing 512 KiB cap. These
-metrics are descriptive evidence, do not change completeness or quality, and
-must remain available alongside both scores to #745. The implementation plan
-must identify the current authenticated provider-usage source and reconcile
-its identity with #742 before implementation; when none exists, cost remains
-absent rather than fabricated.
+The live producer submits one immutable `AssignmentResultCandidate` per authority
+generation through a distinct `AssignmentResultCapability`. The sidecar binds
+that capability to the approved assignment and active child-launch or
+parent-runtime generation. It grants only candidate submission and receipt
+reads, not evaluation, research reporting, orchestration, or filesystem access.
+Submission supplies one present/missing output per declaration and the expected
+accepted-result predecessor. Identity and generation come from the capability;
+body values must match. The sidecar validates declarations, approved sources,
+finite caps and server-artifact ownership before persisting the candidate.
+An accepted candidate is a proposal to snapshot these exact bytes, not an
+accepted result or a claim that the bytes have been inspected.
 
-The sidecar must open file paths with one atomic descriptor-relative operation
-from a retained handle to the exact approved output root for this assignment.
-For a child assignment, that root is the absolute worktree path bound to its
-plan-owned worktree group, not the active workspace root or source checkout.
-For a root assignment, it is the canonical repository root in the
-`sourceWorktreeBinding` captured by its UI-approved bootstrap. The sidecar
-derives the root from the approved assignment and allocation; the reporter
-cannot select or change it. Bind the root to the assignment identity and the
-approved worktree snapshot, and verify those bindings before each operation.
-The operation must enforce
-beneath-root containment and no-follow semantics for the full path resolution,
-rejecting symlinks, junctions, and other reparse points at every component. Do
-not resolve a path and then open it by name, or compose separate path-based
-checks and opens. Preserve the resulting handle for type checks and hashing.
-Use this procedure when creating the accepted output snapshot. A result with
-path-backed outputs is accepted only after the producer is terminal, its write
-capability is revoked, and user-confirmed quiescence is recorded under #610 and
-#742.
-While quiescent, the sidecar reads each bounded output and copies it into an
-immutable assignment/declaration-bound object. Copying stages the snapshot
-outside the dependency boundary; publication of the verified snapshot, result
-head, and dependency-index entries is one atomic commit. It verifies the size
-and digest of both the opened source and the completed object before accepting
-the result;
-any mismatch, or any restoration of write authority before snapshot acceptance,
-discards the snapshot and rejects the submission. This prevents a same-named
-path in the main checkout from satisfying an output declared in a child
-worktree and closes writes racing the
-hash or snapshot copy.
-If the platform cannot provide atomic handle-relative containment and no-follow
-semantics, reject path-backed output before reading any bytes; do not fall back
-to path-based checks. Only regular files with no hard-link aliases are
-supported: prove a link count of one from the opened handle before reading,
-verify it remains one after copying, and check again before snapshot admission.
-If the
-platform or filesystem cannot prove this before reading, do not read the bytes;
-if a later check is unavailable or the count changes, discard the read bytes
-and do not accept or pin the output. Every potentially
-blocking filesystem operation—including path resolution, open, metadata checks,
-reads, and hashing—runs in an isolated worker with a fixed finite concurrency
-limit, bounded admission, and a deadline. The sidecar request and lifecycle
-paths never wait for that worker past the deadline. Nonblocking flags do not
-count as a cancellation or latency guarantee. If an operation misses its
-deadline, the output is unsupported and Unassessed; a stuck worker remains
-charged against the finite capacity until it exits or the owning sidecar is
-restarted. The implementation must not spawn replacement workers or queue
-unbounded work around a stuck operation. Exact worker, queue, and deadline
-limits are fixed hard limits in the reviewed implementation plan before code.
-After acceptance, the immutable snapshot is the authoritative output version;
-freshness checks read and verify that snapshot, never the mutable worktree path.
-The path, size, and digest remain in the result manifest as provenance for the
-snapshot. A different filesystem object at that path with the same size and
-digest is equivalent because this contract establishes content freshness, not
-authorship or object-lifetime identity. A required artifact confirmed absent
-before snapshot acceptance is known missing and establishes Needs rework. An
-inaccessible path, timed-out operation, changed source during snapshotting, or
-unprovable path/content binding is unsupported and Unassessed; no out-of-scope
-file may be read or pinned. A later worktree edit cannot silently change an
-accepted result; a new output requires a new result revision and snapshot.
+Resolve an exact retry after authenticating the current capability/generation
+and before predecessor checks. A changed payload under the same key conflicts.
+A second candidate in the same generation conflicts unless it is an exact
+retry. Retry keys are scoped to reporter, assignment, authority generation and
+operation. Compare-and-swap the expected accepted-result predecessor before
+storing the candidate. At most 32 candidate submissions may be accepted across
+all resumes of an assignment, including candidates later rejected or superseded;
+this bounds their records and receipts as well as the 32-result-revision limit.
+Exhaustion never wraps or resets. Validation failures do not create a candidate.
 
-Before a dependent successor receives writable ownership of a reused
-plan-owned worktree under #610, the sidecar confirms that every retained
-path-backed output has an accepted immutable snapshot. Snapshot admission,
-retained learning-dependency admission/removal, retention, cleanup, and worktree
-ownership transfer serialize through the workspace dependency transaction
-boundary defined below. Complete the snapshot and dependency scan before
-durably transferring group ownership or granting successor write access. If a
-required snapshot is missing or cannot be verified, block handoff; the
-successor must not overwrite, remove, or otherwise gain write access to the
-worktree until the dependency is resolved. Accepted snapshots remain bound to
-their assignment and declaration, are charged to existing artifact and
-workspace quotas, and remain subject to retention and purge rules. Since
-freshness uses the immutable snapshot, later successor edits and authorized
-worktree cleanup cannot change a predecessor result. Cleanup itself never
-creates a new Needs rework outcome.
+Producer termination revokes its capability, following #742; no dead process
+must submit a final result and no post-exit producer grant survives. The durable
+candidate remains pending for **sidecar finalization**. For a path-backed
+candidate, after observing the exact producer's terminal state, revoking its
+write authority and recording the #610/#742 user quiescence acknowledgement,
+the sidecar snapshots path outputs and verifies server outputs. An artifact-only
+candidate may finalize while the producer remains live because all its output
+versions are already immutable; it requires no worktree read or extra quiescence
+action. In either case the sidecar derives the available time/cost records. It rechecks the candidate's predecessor and atomically publishes the
+verified snapshots, accepted result revision/digest, dependency edges and
+finalization receipt. The receipt names the candidate digest. Repeating
+finalization resolves that receipt without creating another revision. The
+sidecar performs path-backed finalization under the recorded user-authorized
+quiescence transition; artifact-only finalization follows the authenticated
+candidate submission. Neither needs a further producer request or impersonates
+the producer. A rejection is also recorded as a durable finalization outcome,
+so retries do not repeat failed work or create a result revision.
 
-Every manifest submission carries the caller's expected current result
-revision and digest; the initial state uses `expectedResultRevision: no-head`
-with no digest. The sidecar compares both with the current head before
-assigning an immutable revision, rejecting stale predecessors. After the sidecar
-authenticates the active authority generation (child launch generation or
-parent runtime generation), an exact idempotent retry in that generation is
-resolved before this comparison. The 32-revision limit is per assignment
-identity and persists across resumes; resumed child writes require the new
-launch generation, and resumed root writes require the new parent runtime
-generation. The authority-generation variant is part of the retry scope, so a
-receipt from a revoked generation cannot satisfy a retry in the resumed
-generation. A changed assignment identity creates a new subject. Exhaustion
-is visible and cannot wrap or reset. Evaluations bind the current revision and
-digest. Before any consumer treats a result as current, the implementation
-verifies each immutable output snapshot and confirms the result is still the
-current revision; a failed snapshot check makes that output Unassessed. A
-required output confirmed missing before snapshot acceptance establishes Needs
-rework directly; unsupported snapshot creation is Unassessed unless another
-uncontested failure exists. A later result revision makes earlier evaluations
-historical. Snapshot publication and result-head advancement are atomic; stale
-writes cannot restore a current result. This validates content freshness, not
-authorship or OS-level confinement.
+A resume before acceptance supersedes the pending old-generation candidate and
+invalidates its quiescence evidence; the new live runtime needs a fresh grant,
+a new candidate and fresh acknowledgement. Restoration of write authority,
+changed bytes, stale predecessors or unverifiable bindings rejects finalization
+without changing the accepted result head. There is no automatic producer retry
+or relaunch. A separately authorized resume or revised assignment is needed to
+produce a replacement. A restarted sidecar may finalize a durable candidate
+only after freshly reconciling its approved identity, exact terminal producer,
+write revocation and user acknowledgement; missing recovery evidence blocks
+finalization and never restores producer authority. Run completion does not
+discard a pending candidate. A subject is not closed until its pending candidate
+has an accepted/rejected finalization outcome, been superseded, or been
+explicitly abandoned through the
+Electron-authorized user path.
+
+### Snapshot admission and freshness
+
+The sidecar derives the root from the approved allocation/source-worktree
+binding and revalidates that binding before each snapshot operation; a reporter
+cannot supply the root. Open each declared file with one atomic descriptor-
+relative operation from a retained handle to that exact approved root. Before
+opening, validate
+the declared path against the effective read scope and output declaration.
+Enforce beneath-root containment and no-follow semantics for every component;
+reject symlinks, junctions and reparse points. Never resolve a name and then
+open it by name or compose separate path checks and opens. Preserve the opened
+handle for type, size and digest checks. If the platform cannot provide this
+operation, reject the path source before reading any bytes.
+
+Only regular files with no hard-link aliases are supported. Prove a link count
+of one from the opened handle before reading, after copying and before admission.
+If a required proof is unavailable or changes, discard the snapshot. While the
+producer remains quiescent, copy each bounded output into an immutable
+assignment/declaration-bound object; verify both source and completed object
+against the candidate size/digest. Stage copying outside the dependency
+transaction and publish the verified snapshot with the result atomically.
+Every potentially blocking filesystem operation runs in an isolated worker
+with fixed finite concurrency, bounded admission and a deadline. Control and
+lifecycle requests never wait beyond that deadline. A stuck worker remains
+charged until it exits or the sidecar restarts; do not spawn replacements or
+queue unbounded work around it. Exact worker/queue/deadline limits are fixed
+implementation-plan decisions. Nonblocking flags do not prove bounded latency.
+
+A declared output verified absent at finalization is known missing and establishes
+Needs rework. Publish it as a missing accepted output, including when the
+candidate claimed presence; retain the candidate digest as provenance of the
+rejected presence claim. An inaccessible, changed, oversized, timed-out or unprovably bound
+output is unsupported: do not publish an accepted snapshot or infer missingness;
+show Unassessed for the pending/rejected candidate unless an independent failure
+is established. A `missing` entry is confirmed against the declared path or the server
+assignment/declaration artifact index before it establishes failure; a producer's
+assertion alone is not proof. If the claimed-missing source exists, reject the
+candidate rather than silently selecting its bytes.
+No out-of-scope bytes may be read or pinned.
+
+Accepted snapshots are authoritative. Freshness checks verify those immutable
+objects and the accepted result head, never the mutable worktree path. Preserve
+path/size/digest provenance in the manifest. A failed immutable-object check makes
+the supported output/outcomes Unassessed; it does not silently rebind evidence to
+new bytes. Later worktree edits, equivalent replacements and authorized cleanup
+cannot change an accepted result or manufacture Needs rework. New output needs a
+new result revision. Result-head publication is atomic; stale finalization cannot
+restore an earlier head. This establishes content freshness, not authorship or
+OS confinement.
+
+Before a dependent successor gains writable ownership under #610, confirm all
+retained path outputs have verified immutable snapshots. Snapshot publication,
+dependency admission/removal, retention, cleanup and ownership transfer use the
+dependency boundary below. Scan before durable ownership transfer or successor
+write access; unresolved required snapshots block handoff. Snapshots count
+against artifact/workspace quotas and retention rules.
+
+### Descriptive time and cost evidence
+
+The accepted result always has a `timeCostEvidence` array, empty when nothing is
+available, with at most 32 sidecar-resolved records. Aligning with #745's proposed
+units, a record is exactly one of:
+
+- `{"kind":"elapsed","elapsedMilliseconds":<integer 0..604800000>,"authorityGeneration":<the result's tagged generation>}`.
+- `{"kind":"cost","costMicroUsd":<integer 0..1000000000000>,"providerId":<ID>,"modelId":<ID>,"pricingSnapshotId":<ID>,"usageRecordId":<ID>,"usageDigest":<Digest>}`.
+
+There is at most one elapsed record, measured with a monotonic clock from that
+generation's accepted start to terminal event. An unavailable/cross-restart or
+over-limit duration is omitted, never estimated from timestamps. A cost source
+must be an authenticated immutable provider usage record reporting USD and
+binding the provider, model and pricing snapshot. Preserve its ID/digest; reject
+duplicate usage sources, estimates and unverifiable or unconvertible amounts.
+Cost remains absent until the implementation plan identifies and approves that
+usage source; #742 currently supplies no provider-billing contract. No new usage
+collection authority is implied. Each record is at most 512 bytes. Integers are
+lossless, nonnegative and never encoded as floats. Sort by UTF-8 `kind`, then
+`usageRecordId` for cost; an elapsed record has no secondary sort key.
+
+The complete array participates in the result digest and 512 KiB result cap.
+Missing evidence is absence, never zero. Metrics remain alongside both scores,
+do not affect completeness/quality, and are compared only under #745's matching
+provider/model/pricing/cohort rules. #745 must reconcile its now-stale exclusion
+of #744 metrics before consuming them; this spec does not enable shared learning.
 
 ## Criteria, completeness, and quality
 
@@ -234,46 +234,27 @@ An evaluation provides exactly one `satisfied`, `unsatisfied`, or `unassessed`
 outcome for every approved criterion, with a bounded rationale. Satisfied and
 unsatisfied outcomes require evidence; an unassessed outcome may omit evidence
 and records why it could not be assessed. In the evaluation record, each
-`EvidenceReference` is exactly one sidecar-derived `sourceKey`, a 64-character
-lowercase SHA-256 hex value; a bare content digest or caller-chosen object ID
-is not valid. A source key is lowercase SHA-256 over
-`orkworks.assignment-evidence-source.v1\n` followed by #741 canonical JSON
-bytes for the exact version 1 source-descriptor object. It has exactly these
-camelCase properties, with no omitted or additional properties:
-`schemaVersion: 1`, `sourceKind`, `assignmentIdentity`, `resultRevision`,
-`resultDigest`, `declarationId`, `declarationKind`, `sourceVariant`,
-`sizeBytes`, and `contentDigest`. `sourceKind` is `assignment-result-output`;
-`assignmentIdentity` is the exact tagged #741 assignment-identity value.
-`sourceVariant` is exactly one of `{"kind":"workspace-path","path":<approved
-workspace-relative path>}` or `{"kind":"server-artifact","artifactId":<ID>,
-"version":<version>}`. The remaining values are copied from the accepted
-result manifest and its declaration, using #741's canonical JSON types and
-integer encoding. For a research report, the descriptor has exactly
-`schemaVersion: 1`, `sourceKind: "research-report"`, `reportIdentity`,
-`sizeBytes`, and `contentDigest`; `reportIdentity` is the exact tagged #742
-immutable report identity, including workspace, run, plan/revision,
-task/version, reservation, child session, configuration digest,
-sidecar/launch generations, and report ID/version. All property names,
-nested identity encodings, and source-variant encodings above are normative;
-canonical JSON object-key ordering and scalar encoding follow #741. The sidecar
-derives and resolves the key from the stored result or report; callers cannot
-select another source. Reused IDs or identical bytes from different assignments
-therefore remain distinct. A key collision with a different descriptor is
-rejected. A report source is current only while its exact immutable report
-version is the current head defined by #742; a corrected report requires a new
-source key. #742 must define a per-report correction head with an expected
-predecessor version and digest, atomic compare-and-swap, and exact-retry
-resolution before the head check. Concurrent corrections have one winner;
-stale predecessors conflict, and arrival time or numeric version alone never
-selects the current report. Until this head contract is approved in #742 and
-reconciled here, #744 cannot use correction state to establish current source
-evidence and implementation is blocked. #744 defines no independent
-source-report invalidation operation or authority. Withdrawing a report
-without a corrected replacement is unsupported until separately specified in
-#742 and reconciled here. This source correction rule is distinct from #744
-evaluation-stream invalidation below. Before implementation, verify that the
-tagged identity values and their canonical encodings exactly match #741 and
-#742; any required schema change must be reconciled there first.
+`EvidenceReference` is one sidecar-derived `sourceKey`, a 64-character lowercase
+SHA-256 hex value. Bare content digests and caller-chosen object IDs are invalid.
+A source key is SHA-256 over `orkworks.assignment-evidence-source.v1\n` (one
+literal LF) followed by #741 canonical JSON for the exact `EvidenceSource`
+object defined below. Assignment and report source descriptors have complete
+local schemas; no nonexistent tagged identity is imported from #741/#742.
+The sidecar derives and resolves keys from stored records. Identical bytes or
+reused IDs in different assignments remain distinct; a collision with a
+different descriptor is rejected. A source must belong to the same workspace;
+v1 does not admit cross-workspace result/evaluation references.
+
+A report descriptor resolves an immutable #742 report and must match its stored
+identity, size and content digest. A corrected report gets a new source key.
+Report evidence is current only while its exact immutable version is the
+current correction head. #742 must define expected-version/digest CAS,
+exact-retry resolution before head checks, and atomic correction publication;
+arrival time or numeric version alone cannot select that head. Until that
+contract is approved and reconciled, research-report evidence cannot establish
+a current #744 outcome. #744 adds no independent report invalidation authority;
+withdrawal without replacement remains unsupported until #742 specifies it.
+These report-source gates are distinct from evaluation invalidation below.
 Missing, duplicate, or unknown criterion IDs make the report malformed and it is
 rejected.
 
@@ -352,7 +333,7 @@ Derive one overall result from current evidence:
 | --- | --- |
 | **Needs rework** | A current, uncontested required criterion is unsatisfied, quality is below `3`, a required output is known missing, or a current, uncontested required-rework finding has a valid failing impact target. |
 | **Unassessed** | No failure is established, but a required criterion or quality is unassessed, the result is stale, no eligible reviewer exists, or relevant credible evidence conflicts. |
-| **Meets requirements** | Every required criterion is satisfied, quality is `3`, evidence is current, and no relevant conflict or invalidation remains. |
+| **Meets requirements** | Every declared output is present/verified, every required criterion is satisfied, quality is `3`, evidence is current, and no declared relevant conflict or invalidation remains. |
 
 A disputed failure is not established; report Unassessed unless another
 uncontested failure exists. Blocked, cancelled, interrupted, unsupported, or
@@ -369,10 +350,10 @@ outcomes follow the disagreement rule above; a success versus unassessed is
 Unassessed, while an unassessed opinion cannot erase an otherwise uncontested
 failure.
 
-An evaluation record stores criterion and dimension outcomes, quality, findings
-and required rework, evidence, reviewer/source identity, observation time, and
-retry metadata, including the sidecar-derived `rubricSnapshotDigest`; the server
-derives the overall result. Each finding has a
+An evaluation record stores criterion/dimension outcomes, quality, findings,
+required rework, evidence, reviewer/source identity and the sidecar-derived
+`rubricSnapshotDigest`. Observation time and retry metadata accompany the
+record outside its canonical object; the server derives the overall result. Each finding has a
 stable ID, concise description, location, severity, evidence reference, and
 whether it requires rework, matching the approved review-role output contract.
 A required-rework finding also names one or more unique `requiredImpactTargets`:
@@ -398,118 +379,86 @@ evidence references.
 The result manifest preserves available elapsed-time and provider-cost
 evidence under the bounded `timeCostEvidence` contract above. #745 may consume
 these exact values and provenance but cannot redefine their units or promote
-missing evidence into zero or an estimate. The implementation gate requires
-reconciliation of the authenticated usage-record source with #742.
+missing evidence into zero or an estimate. Cost remains absent until an authenticated usage-record source is approved,
+and #745 consumption remains subject to the shared-learning gate below.
 
 ## Reviewer eligibility and disagreement
 
 A child-result review comes from a declared `review` or `verification`
-assignment with an eligible rubric role, or from an explicit user-authorized
-review. Root-result reviews use the user-authorized path only. Worker
-self-assessment stays separate and cannot affect the result. The current #740
-register has no verified child-review profile, so child reports are ineligible
-until #740 provides version-specific evidence and #741 binds an eligible
-profile. Until then, runtime review uses the explicit user path.
+assignment with an eligible rubric role, or from explicit user review. Root
+results use user review only. Worker self-assessment stays separate and cannot
+affect the result. #740 currently has no verified child-review profile; child
+reports remain ineligible until version-specific evidence and #741's approved
+profile establish support. Until then, runtime review uses the user path.
 
-An eligible child reviewer of a child result must have a different task,
-allocation, session, and configuration from the worker; be outside the
-potential-contributor set derived from approved allocations and effective write
-scopes; and have read access to the exact result without write access to its
-output scope. The sidecar—not the
-worker—establishes these facts. If it cannot establish the contributor set or
-read-only scope, the child report is ineligible and the result stays Unassessed
-pending user review. This is assignment-level separation, not OS isolation; a
-parent summary alone is not independent review.
+A child reviewer must have a different task, allocation, session and configuration
+from the worker, be outside the potential-contributor set derived from approved
+allocations/effective write scopes, and have approved read access to the exact
+result without write access to its output scope. The sidecar establishes these
+facts; if it cannot, the report is ineligible pending user review. Parent
+synthesis alone is not independent review. These are assignment-level controls,
+not OS isolation.
 
-For a reviewer-of-review chain, the sidecar applies the same independence and
-read/write-scope checks against the original worker result and every earlier
-child-review assignment in that chain, not only the immediately reviewed
-reviewer assignment. A child reviewer who contributed to the original result
-or can write its output scope cannot make that result eligible through a later
-review; one ineligible child link makes the full chain ineligible.
+The reviewer-scoped `AssignmentEvaluationCapability` binds the reviewer
+assignment/configuration, active sidecar/launch generation, exact target result
+revision/digest, and its declared evaluation output. It permits evaluation
+submission and receipt/artifact reads only; it grants neither product writes nor
+worker-result submission. Follow #742's generation, revocation and retry rules.
+Accepting a child evaluation and publishing its declared immutable output are
+one atomic reporting action. User reviews use Electron authorization and user
+provenance. Resolve adapter transport and #741/#742 record alignment before code.
 
-Child reports use a reviewer-scoped capability bound to the reviewer
-assignment/configuration and exact result revision. It is separate from the
-worker's reporting capability and #742's `ResearchReportCapability`; follow
-#742's generation, revocation, and retry rules. Resolve exact transport and
-record alignment with #742 before implementation. User reviews use the
-Electron-authorized user-provenance path and never impersonate a child.
+Each evaluation stream has a server-resolved `reviewerIdentity`: the exact child
+reviewer assignment or a UI-issued `userReviewId`. It is stable for that stream,
+not arbitrary display text. A user correction to child review starts a separate
+user stream; it never impersonates or changes the child's report.
 
-Each evaluation stream has a server-resolved `reviewerIdentity`: either the
-assigned reviewer's `reviewerAssignmentIdentity` or a UI-issued `userReviewId`
-for an explicit user-authorized review. The ID is stable for that stream and
-cannot be supplied as arbitrary display text. A user correction to a child
-review is a separate user-authorized evaluation stream, never a revision that
-impersonates the child.
+**Reviewer performance assessment is optional and user-provided.** A user may
+evaluate a reviewer's declared result, with `reviewedEvaluationRef` naming the
+exact evaluation artifact inspected. Without that user assessment, reviewer
+performance is Unassessed. Do not assign a child reviewer to evaluate another
+reviewer's evaluation; reject such a child capability or submission. Performance outcomes, missing assessments, corrections
+and invalidations of those assessments do not grant/revoke the original review's
+eligibility or affect its worker target. There is no reviewer-certification
+chain. Original review eligibility follows the independent-role, provenance,
+current-result and evidence rules above. The user may separately correct or
+invalidate the original review through the normal user path. This implements
+the parent design's optional performance disposition without recursive review.
 
-A reviewer cannot evaluate their own work. A reviewer may be evaluated by a
-different declared reviewer or the user. Do not assign a further child to
-evaluate that review; the user is the terminal evaluator. Without user
-disposition, leave that evaluation Unassessed. This preserves the parent
-design's reviewer-of-review path without unbounded recursion.
+Keep eligible current evaluations separate. Aggregate assessed conflicts by
+approved required criterion, quality-dimension ID and result-level rating; never
+average or prefer time/seniority. An unassessed required outcome blocks a pass
+but cannot erase an otherwise uncontested failure. Optional-only conflicts do
+not affect the overall result.
 
-An evaluation that assesses a reviewer's work carries a sidecar-resolved
-`reviewedEvaluationRef` naming the exact assignment, reviewer stream, evaluation
-revision, and digest it assessed. The referenced evaluation is committed and
-digested first, so the reference is acyclic. This applies to child
-reviewer-of-review reports and to terminal user assessments; it is part of the
-assessor's evaluation digest and cannot be supplied as unverified display text.
+Material-fact conflicts must be **declared** by a reviewer/user, not inferred from
+matching prose or finding IDs. Represent a material uncertainty as `unassessed`
+on each affected criterion/dimension/rating, with rationale and available source
+evidence; contest an existing finding with `findingDisputes`. That makes the
+conflict visible and invokes the aggregate rules. A caller who identifies a
+material contradiction must not simultaneously assert that its affected target
+is satisfied/meets without resolving it. The sidecar validates declared targets
+and references, not natural-language truth. No automatic semantic claim detector
+or shared cross-review finding-ID namespace is promised.
 
-A child-authored evaluation affects its target result only while its current
-evaluation projection contains a sidecar-derived `reviewerAssessmentRef`. That
-reference binds the exact reviewer assignment identity and result revision/
-digest whose aggregate was assessed, the target child evaluation's
-`(reviewerIdentity, evaluationRevision, evaluationDigest)`, and an ordered list
-of the exact evaluations establishing the assessment path. Each list entry
-identifies its assignment or `userReviewId`, reviewer identity, evaluation
-revision, and digest; its `reviewedEvaluationRef` must name the preceding exact
-evaluation. The path is either one terminal user evaluation directly assessing
-the child evaluation, or one declared reviewer-of-review followed by a terminal
-user evaluation assessing that exact reviewer-of-review evaluation. The
-reviewer-of-review report must derive Meets requirements before the terminal
-user assessment can qualify the path. No further child reviewer is allowed:
-the maximum path is two child evaluations followed by one terminal user
-evaluation. Every reference must agree with its sidecar-resolved projection.
-The `reviewerAssessmentRef` is server-derived, is not reviewer-supplied, and is
-excluded from evaluation digests. Each referenced report and result must remain
-current and every evaluation in the path must derive Meets requirements. In
-addition, for each reviewer assignment/result whose work is being assessed, the
-sidecar derives the aggregate from all eligible current evaluation streams
-using the multi-evaluation rules below. That exact aggregate must derive Meets
-requirements before the reviewer can establish credibility.
-A favorable evaluation selected by the chain, including a terminal user
-assessment, cannot override another current evaluation that makes the aggregate
-Unassessed or Needs rework. Recompute this aggregate before using a credibility
-chain and whenever a result, evaluation, correction, invalidation, or cited
-evidence changes. A missing, stale, invalidated, Unassessed, or Needs rework link
-makes the dependent child evaluation ineligible; derive the target result from
-remaining current evaluations. A result revision, correction/invalidation, or
-replacement evaluation breaks only links that name that changed
-revision/digest. A replacement evaluation needs a newly assessed chain through
-the terminal user before it can affect its target result. User-authored
-evaluations of ordinary worker results do not need this reviewer-assessment
-chain.
+Each revision allows up to 32 finding disputes. A dispute names exactly the
+other evaluation's `(reviewerIdentity, evaluationRevision, findingId)` and one
+source key already cited in the disputing evaluation. Targets must be unique,
+eligible, current evaluations for the same assignment/result revision. Finding
+IDs are unique only within one stream/revision. Reusing an ID in a correction
+means the same logical finding; a materially different finding gets a new ID.
+Disputes bind exact revisions and do not carry to corrections. Without a declared
+dispute, findings remain separate; shared required-impact targets still aggregate
+through their criterion/dimension/rating outcomes. A current dispute of a
+required-rework finding makes its affected required targets disputed and
+Unassessed unless another independent, uncontested failure establishes Needs
+rework. An informational/optional-only dispute changes detail only.
 
-Keep eligible evaluations separate. Disagreement on a required criterion, a
-required-rework finding, or a material fact relevant to a required criterion
-or quality outcome reports Unassessed unless another uncontested failure
-establishes Needs rework. Optional-only disagreements and disputes about
-findings that do not require rework are detail and do not affect the overall
-result. A reviewer contests a finding with
-up to 32 `findingDisputes` per revision; each cites the target
-`(reviewerIdentity, evaluationRevision, findingId)` and one evidence
-reference already in the disputing evaluation. Each target tuple may appear at
-most once per disputing evaluation revision. The target must be a different
-eligible evaluation for the same assignment and result revision. A dispute is
-current only while both referenced revisions and the evidence for the target
-finding and dispute remain current and verifiable; correction needs a new
-dispute. If dispute evidence becomes stale, the dispute no longer suppresses a
-current finding. Reject duplicate finding IDs within an evaluation revision.
-Reusing an ID in a correction means it is the same logical finding; a
-materially different finding gets a new ID. Disputes always name an exact
-revision and do not carry forward to a correction. Without an explicit
-dispute, findings are separate.
-Preserve ratings; do not average or prefer by time or seniority.
+A dispute is effective only while the target revision and both its finding and
+dispute evidence remain current/verifiable. Stale dispute evidence cannot
+suppress a current finding; stale finding evidence cannot establish failure.
+The user resolves remaining material conflict by a new/corrected user evaluation
+or explicit invalidation of the conflicting original stream, preserving history.
 
 ## Revisions, correction, and invalidation
 
@@ -560,7 +509,9 @@ has an accepted invalidation.
 When #742 ends a run and revokes child authority, that child can no longer
 correct its review. The user may submit a separate user-authorized evaluation;
 the user never impersonates the child. Invalidation preserves the report and
-provenance and excludes it from current results and learning. A later result
+provenance and excludes it from current results and learning. Freshness and
+eligibility changes affect derived projections, never immutable outcome fields
+or digests. A later result
 revision makes earlier evaluations historical; they never become current
 again. Before using an evaluation as current evidence, revalidate each
 referenced report's current correction state under #742 as well as its
@@ -577,385 +528,337 @@ completeness or the overall result. If it also supports a required criterion or
 quality outcome, only those affected outcomes become Unassessed, subject to
 known-failure precedence. Learning consumes only current outcome evidence under
 #745; stale outcomes are ineligible without discarding unrelated current
-outcomes from the same evaluation. If a stale outcome belongs to a terminal
-reviewer assessment and makes that assessment stop deriving Meets
-requirements, any child evaluation linked to it becomes ineligible. A stale
-optional-only outcome that leaves the terminal assessment at Meets requirements
-does not break the link; this dependency does not stale unrelated outcomes.
+outcomes from the same evaluation. Optional user assessment of reviewer
+performance follows the same freshness rules for its own outcomes; it never
+changes the original review's eligibility.
+
+## Canonical records
+
+These are normative version 1 logical JSON objects, not route definitions.
+Every named field is present; `null` is used only where explicitly allowed.
+Reject additional properties, duplicate JSON keys, unknown tags, duplicate IDs,
+invalid references and values outside the stated bounds before persistence.
+`ID` means #741's nonempty ASCII `[A-Za-z0-9._-]`, at most 128 bytes; `Digest`
+is exactly 64 lowercase SHA-256 hex characters. Revisions/counters are plain
+lossless decimal JSON integers without signs, leading zeros, fractions or
+exponents, never strings or rounded JavaScript Numbers. `u64` is 0..2^64-1;
+positive artifact versions are 1..2^64-1. Result revisions are 1..32, evaluation
+revisions 1..16, plan revisions 1..64 and task versions 1..2^31-1. Runtime
+generation values use #742's opaque 64-character lowercase hexadecimal encoding,
+not numeric counters. `Text` is UTF-8, bounded to 2 KiB; outcome rationales are
+nonempty. All records also obey the aggregate byte caps below.
+
+### Identities and references
+
+| Type | Exact properties / variants |
+| --- | --- |
+| `AssignmentIdentity` child | `kind: "child"`, `workspaceId: ID`, `runId: ID`, `planId: ID`, `planRevision`, `taskId: ID`, `taskVersion`, `reservationId: ID`, `parentSessionId: ID`, `childSessionId: ID`, `configurationId: ID`, `configurationDigest: Digest` |
+| `AssignmentIdentity` root | `kind: "root"`, `workspaceId: ID`, `runId: ID`, `rootAssignmentId: ID`, `parentSessionId: ID`, `bootstrapId: ID`, `bootstrapConfigurationDigest: Digest` |
+| `AuthorityGeneration` | `kind: "child-launch"` or `"parent-runtime"`, `sidecarGeneration: Digest`, `generation: Digest`; tag must match the assignment variant |
+| `ResultPredecessor` | `{"kind":"no-head"}` or `{"kind":"revision","resultRevision":<revision>,"resultDigest":<Digest>}` |
+| `EvaluationPredecessor` | `{"kind":"no-head"}` or `{"kind":"revision","evaluationRevision":<revision>,"evaluationDigest":<Digest>}` |
+| `ReviewerIdentity` | `{"kind":"child","assignmentIdentity":<child AssignmentIdentity>}` or `{"kind":"user","userReviewId":<ID>}` |
+| `ReporterSource` | `{"kind":"child","authorityGeneration":<child-launch AuthorityGeneration>}` or `{"kind":"user"}`; must agree with authenticated reviewer identity |
+| `EvaluationReference` | `assignmentIdentity`, `resultRevision`, `resultDigest`, `reviewerIdentity`, `evaluationRevision`, `evaluationDigest`, with the types above |
+| `SourceVariant` | `{"kind":"workspace-path","path":<approved exact root-relative path>}` or `{"kind":"server-artifact","artifactId":<ID>,"version":<positive artifact version>}` |
+| `RequiredImpactTarget` | `{"kind":"criterion","id":<required criterion ID>}`, `{"kind":"quality-dimension","id":<dimension ID>}`, or `{"kind":"rating"}` |
+
+Child identity values come from the approved assignment/allocation and #742's
+runtime records; root values come from the approved bootstrap/run. The sidecar
+copies values into these local wrappers without adding fields to #741/#742
+source records. Unknown/absent identity members cannot be inferred. Reconcile
+these exact mappings with those owners before implementation; the canonical
+schemas themselves are fully defined here.
+
+### Candidate, result and evidence sources
+
+`OutputEntry` is exactly one of:
+
+- `{"declarationId":<ID>,"declarationKind":<ID>,"state":"missing"}`.
+- `{"declarationId":<ID>,"declarationKind":<ID>,"state":"present","source":<SourceVariant>,"sizeBytes":<u64>,"contentDigest":<Digest>}`.
+
+A present entry's source kind/path must match its approved declaration; size
+must fit its cap. Missing entries acquire known-missing status only through the
+sidecar's finalization checks. A nonexistent server artifact cannot be a present
+entry. Output arrays have exactly one entry per approved declaration, sorted by
+UTF-8 declaration ID. Each accepted output resolves an immutable
+assignment/result/declaration-bound object; physical pin location is metadata,
+not a semantic record field.
+
+`AssignmentResultCandidate` has exactly `schemaVersion: 1`,
+`assignmentIdentity: AssignmentIdentity`, `predecessor: ResultPredecessor`,
+`authorityGeneration: AuthorityGeneration`, and `outputs: OutputEntry[]`.
+`AssignmentResult` has exactly those properties plus `resultRevision`,
+`candidateDigest: Digest`, and `timeCostEvidence`, whose complete record shapes
+and order are defined above. Candidate identity/generation/predecessor/entries
+are preserved, except a sidecar-confirmed absence changes a claimed-present
+entry to `missing`. No present output may be replaced with different bytes. A failed candidate does
+not acquire an accepted result revision.
+
+`EvidenceSource` is exactly one of:
+
+- Output: `schemaVersion: 1`, `sourceKind: "assignment-result-output"`,
+  `assignmentIdentity: AssignmentIdentity`, `resultRevision`, `resultDigest`,
+  `declarationId: ID`, `declarationKind: ID`, `source: SourceVariant`,
+  `sizeBytes: u64`, `contentDigest: Digest`.
+- Report: `schemaVersion: 1`, `sourceKind: "research-report"`,
+  `reportIdentity: ReportIdentity`, `sizeBytes: u64`, `contentDigest: Digest`.
+
+`ReportIdentity` has exactly `workspaceId: ID`, `runId: ID`, `planId: ID`,
+`planRevision`, `taskId: ID`, `reservationId: ID`, `childSessionId: ID`,
+`configurationDigest: Digest`, `sidecarGeneration: Digest`,
+`launchGeneration: Digest`, `reportId: ID`, and `reportVersion` (integer 1..8).
+Workspace identity is sidecar-derived; the remaining values map to #742's
+immutable report descriptor. The descriptor's content digest must equal the
+source `contentDigest`. This local source-kind tag discriminates the identity;
+it does not presume an upstream tagged report schema. Report freshness remains
+gated on #742's correction-head contract.
+
+### Evaluation and disposition
+
+An `Outcome` has exactly `outcome`, `rationale: Text`, and
+`evidenceReferences: Digest[]`. `CriterionOutcome` adds `criterionId: ID` and
+uses `satisfied | unsatisfied | unassessed`. `QualityDimensionOutcome` adds
+`dimensionId: ID` and uses `meets | below-standard | unassessed`.
+`RatingOutcome` has exactly `rating` (integer 0..3 or string `unassessed`),
+`rationale: Text`, and `evidenceReferences: Digest[]`. Assessed outcomes require
+at least one current evidence reference; unassessed outcomes may have none.
+Each array of evidence references is a unique set sorted by UTF-8 source key.
+There is no separate nested `Outcome` property in the criterion/dimension
+objects; the listed properties are directly on each object.
+
+A `Finding` has exactly `id: ID`, `description: Text`, `location: Text`,
+`severity: ID`, `evidenceReference: Digest`, `requiresRework: boolean`, and
+`requiredImpactTargets: RequiredImpactTarget[]`. Description/location together
+are at most 2 KiB. Severity is a descriptive label; it does not itself
+determine pass/failure. The impact array is empty for an
+informational finding; a required-rework finding has 1..49 unique valid failing
+targets under the rules above. Sort targets by UTF-8 `(kind, id)`, with absent
+rating ID treated as empty. `FindingDispute` has exactly `target` and
+`evidenceReference: Digest`; `target` has exactly `reviewerIdentity`,
+`evaluationRevision`, and `findingId: ID`. The source key must also be cited in
+an outcome, rating or finding of that disputing evaluation.
+
+`AssignmentEvaluation` has exactly `schemaVersion: 1`, `assignmentIdentity`,
+`resultRevision`, `resultDigest`, `reviewerIdentity`, `reporterSource`,
+`evaluationRevision`, `predecessor: EvaluationPredecessor`,
+`criteriaSnapshotDigest: Digest`, `rubricSnapshotDigest: Digest`,
+`criterionOutcomes: CriterionOutcome[]`,
+`qualityDimensionOutcomes: QualityDimensionOutcome[]`, `rating: RatingOutcome`,
+`findings: Finding[]`, `findingDisputes: FindingDispute[]`,
+`correctionReason: Text | null`, and
+`reviewedEvaluationRef: EvaluationReference | null`.
+Types of previously named identities/revisions/digests are those above. Initial
+revisions have a no-head predecessor and null correction reason; corrections
+have the exact preceding revision/digest and a nonempty reason. The performance
+reference is nonnull only for optional user-authored assessment of a reviewer's
+result; it must resolve an evaluation artifact in that exact result. It is never
+an eligibility reference. Other evaluations use null.
+
+Criterion/dimension arrays cover exactly the approved IDs and sort by those
+UTF-8 IDs; findings sort by ID. Disputes sort by canonical JSON bytes of their
+unique target object. All collections are present, including empty arrays.
+Canonical quality outcome tags are `below-standard`; prose “below standard”
+means that tag. Observation time and transport receipts are separate metadata.
+
+`AssignmentEvaluationDisposition` has exactly `schemaVersion: 1`,
+`assignmentIdentity`, `resultRevision`, `reviewerIdentity`,
+`evaluationRevision`, `evaluationDigest`, `dispositionRevision: 1`,
+`action: "invalidated"`, and `actor: "user"`. It has no predecessor. The target
+result/stream/revision resolves the immutable evaluated result and current
+stream head; no caller-selected actor is accepted.
 
 ## Record digests
 
-Version 1 record digests are lowercase SHA-256 hex over the #741 recursive
-canonical JSON bytes, prefixed respectively by `orkworks.assignment-result.v1\n`,
-`orkworks.assignment-evaluation.v1\n`, or
-`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). The
-result digest covers exactly: assignment identity, result revision, predecessor
-(revision/digest or explicit `no-head`), active authority generation (child
-launch generation or parent runtime generation), and the
-output entries ordered by declaration ID. Each entry contains declaration ID,
-kind, and state; a present entry also contains its source variant (approved
-path or immutable artifact ID/version), size, and content digest. The
-evaluation digest covers exactly: assignment identity, result revision/digest,
-evaluation stream identity and reporter source, evaluation revision and
-predecessor (revision/digest or explicit `no-head`), `criteriaSnapshotDigest`,
-`rubricSnapshotDigest`, all criterion outcomes, quality-dimension outcomes and
-rating, their rationales and evidence references, all findings and disputes,
-and any `reviewedEvaluationRef`. Each collection with a stable ID is ordered by
-that ID;
-`findingDisputes`, which have no separate ID, are ordered by the #741 canonical
-JSON bytes of their unique `(reviewerIdentity, evaluationRevision, findingId)`
-target tuple;
-evidence references within each outcome are ordered by the #741 canonical JSON
-bytes of the complete source-bound reference. Duplicate references within one
-outcome are rejected.
-The disposition digest includes assignment identity, result revision,
-evaluation stream identity, target evaluation revision/digest, disposition
-revision 1, action `invalidated`, and actor `user`; it has no predecessor. The
-sidecar-derived overall result, completeness percentage, artifact pin location,
-`reviewerAssessmentRef`, and other eligibility projections are excluded. All
-record digests also omit their own digest, bearer credentials, request
-idempotency keys and retry/receipt metadata, mutable status, and observation
-time. No unlisted semantic field may affect a version 1 digest; changing this
-input shape requires a new domain version. The fixed domains prevent these
-record kinds or later versions from sharing a digest namespace.
+Apply #741's recursive canonical serializer: object keys sorted by UTF-8 bytes,
+validated array order retained, compact deterministic UTF-8 JSON escaping, and
+lossless decimal integers. Hash the **entire exact logical object** above with
+SHA-256 after the corresponding UTF-8 prefix (each ends in one literal LF):
+
+| Object | Domain prefix |
+| --- | --- |
+| `AssignmentResultCandidate` | `orkworks.assignment-result-candidate.v1\n` |
+| `AssignmentResult` | `orkworks.assignment-result.v1\n` |
+| `AssignmentEvaluation` | `orkworks.assignment-evaluation.v1\n` |
+| `AssignmentEvaluationDisposition` | `orkworks.assignment-disposition.v1\n` |
+| `EvidenceSource` | `orkworks.assignment-evidence-source.v1\n` |
+
+There is no separately constructed digest-input inventory. In particular the
+accepted result hashes its complete `timeCostEvidence`, and evaluation hashes
+all nested outcomes/rationales/evidence, findings/targets/disputes, correction
+reason, and nullable performance reference. Digests themselves are stored as
+metadata outside the hashed object. Overall result, completeness percentage,
+physical pin location, eligibility projections, subject revision, observation
+time, credentials, request idempotency keys and receipt metadata are excluded
+because they are not object properties. No unlisted semantic field affects a
+v1 digest; changing the shape requires a new domain version. The approved
+criteria/rubric snapshot digest algorithms remain those defined above.
+The implementation plan must supply shared cross-language byte/hash fixtures
+for every variant, nesting, null, order and maximum integer; canonicalization
+cannot compensate for a missing field schema.
 
 ## Bounds, retention, and deletion
 
-Use #741's limits of 32 criteria and 16 rubric dimensions. Each assignment
-identity allows at most 32 result revisions across resumes and 32 output
-artifacts. Each result revision allows at most 16 evaluation revisions:
-child-authored streams share at most 12 revisions, and user-authored streams
-share the remaining 4 revisions, including corrections. Each user stream allows
-at most 2 revisions. A replacement stream may start only after the previous
-stream is invalidated and while user capacity remains. Child streams cannot
-consume the user allocation. Since each stream needs an initial revision, the
-four-revision budget also bounds the total number of user streams. The
-assignment-wide cap is 512 across its 32 result revisions, permitting every
-result revision to receive an initial child evaluation and a user evaluation.
-Each evaluation revision allows at most 32 findings, 32 finding disputes, and
-113 evidence references per evaluation revision, enough for maximum criteria,
-dimensions, findings, distinct dispute evidence, and a separate result-level
-rating reference. Cap
-the manifest and each evaluation/disposition at 512 KiB, each reference at
-1 KiB, and rationale/finding/correction text at 2 KiB.
-Enforce finite aggregate run/workspace admission quotas; reject exhausted
-capacity visibly without evicting history. Output and aggregate quota values
-must be reconciled with #741
-and #745 before implementation. Per-artifact bytes and aggregate rehash work
-have finite approved caps bounded by server hard limits; exceeding either
-makes the output unsupported.
+Use #741's 32-criterion and 16-dimension limits. Each assignment has at most
+32 accepted candidates across resumes, 32 accepted result revisions and 32
+output declarations. Each result revision allows at most 16 evaluation
+revisions: child streams share 12 and user streams share 4, including
+corrections/replacements. Each user stream allows at most 2 revisions. A
+replacement starts only after invalidation and while user capacity remains;
+child streams cannot consume it. The assignment-wide evaluation cap is 512,
+allowing each of 32 accepted results an initial child and user evaluation.
+Each evaluation has at most 32 findings, 32 disputes and 113 evidence-reference
+occurrences across its outcomes/rating/findings/disputes. Each reference is a
+64-character source key and fits the 1 KiB reference cap. Candidate, result,
+evaluation and disposition records are each at most 512 KiB; each
+rationale/finding/correction text is at most 2 KiB. Per-output bytes and aggregate
+rehash work obey finite approved caps bounded by server limits.
 
-Reject over-limit reports visibly and never silently drop conflict evidence,
-corrections, or provenance. Retention belongs to #745, which may remove a
-complete eligible historical subject and its pinned evidence only when no
-current evaluation, reviewer-assessment chain, or retained learning input
-depends on the subject or evidence. It must retain evidence referenced by any
-current evaluation, regardless of its derived result, and every result,
-evaluation, and disposition record named by a current evaluation's
-`reviewerAssessmentRef` chain, even when those records' own assignment subjects
-are otherwise historical. Ordinary retention must apply the same learning-
-input dependency guard as explicit purge. To release capacity from a closed
-subject, #745 must also provide an explicit Electron-authorized user purge. A
-subject is closed only after its owning run is terminal, worktree write
-authority is revoked, and all final result-submission grants are used or
-expired/revoked. A pending final submission keeps the subject open. Automatic
-retention may remove only historical
-subjects whose results cannot be selected as current or used as learning
-input. Explicit purge is a separate user-authorized final deletion: for a
-closed subject with no incoming retained dependency, it atomically clears that
-subject's own current-result selection and deletes its result history. Any
-other consumer's current selection is an incoming dependency and blocks purge.
-Each assignment subject has a sidecar-issued, monotonically
-increasing `subjectRevision` using checked `u64` arithmetic. Advance it
-atomically with every accepted result revision, evaluation submission or
-correction, invalidation/disposition, user-stream-slot change, and retained
-learning-dependency addition or removal. Purge requires the exact
-subject identity and the `subjectRevision` observed by the caller; after
-serializing against writes, it compares that revision before deleting and
-conflicts if any listed mutation occurred meanwhile. It never wraps; if the
-revision is exhausted, further subject writes and purge fail visibly. This
-concurrency token is not part of immutable record digests and is removed with
-the purged subject. A purge is allowed only when no retained record, learning
-input, reviewer credibility link, or current selection by another consumer
-depends on the subject or its pinned evidence. Under the same dependency
-boundary, it atomically clears the
-subject's own current-result selection and removes its result manifests and
-receipts, evaluations,
-dispositions, and solely referenced pinned evidence; otherwise it fails without
-deleting anything. A repeated purge of an absent subject returns the same
-not-found/no-op result as any absent target; the API does not promise to
-distinguish a prior purge from a subject that never existed. It cannot recreate
-history. No tombstone is retained after this explicit provenance deletion, and
-the released records no longer count toward admission quotas. Retention must
-never purge automatically to make room or silently discard provenance. The
-sidecar maintains an authoritative incoming-dependency index for retained
-records, learning inputs, reviewer-credibility references, and current result
-selections. Publishing or removing a dependency edge is atomic with its owning
-record. Snapshot publication and the edge mutation share the same transaction.
-The edge mutation and the final scan plus action for ordinary retention,
-explicit purge, worktree cleanup, and worktree ownership transfer
-serialize through one workspace dependency transaction boundary. Hold the
-boundary from scan through deletion, sealing, cleanup, or durable ownership
-transfer. A concurrent reference either commits first and makes a destructive
-operation retain, refuse, or seal its target, or the operation commits first
-and a later reference must resolve the retained immutable target or fail. No
-accepted learning input may depend on mutable worktree bytes. A subject
-revision alone is not a fence for dependencies owned by another subject. Keep
-this boundary to dependency-edge changes and the final scan/action windows;
-ordinary unrelated evaluation writes need not serialize globally. The
-implementation plan must define index recovery and transactional boundaries
-before implementing these operations.
-Workspace deletion fences new and in-flight result/evaluation writes, then
-purges every assignment-result manifest revision and receipt, evaluation,
-disposition, and pinned-evidence record. The deletion fence prevents stale
-writers from recreating deleted records; no assignment-result or evaluation
-tombstone survives. If evidence is gone, a retained projection cannot claim a
-current reviewed result. Ordinary non-orchestrated sessions acquire no
-assignment evaluations.
+Enforce finite aggregate run/workspace admission quotas. Reconcile values with
+#741/#745 before code; include staged candidates and immutable reviewer artifacts
+in their producing assignment's quota. Reject exhausted capacity visibly without
+silently dropping conflicts, corrections or provenance. No automatic eviction
+makes room for new reports.
+
+### Local dependency boundary and subject purge
+
+The sidecar maintains an authoritative incoming-dependency index for retained
+records, current selections and approved learning inputs. Publishing/removing
+an edge is atomic with its owning record and snapshot publication. Edge changes
+and the final scan/action for retention, explicit purge, workspace deletion,
+worktree cleanup and ownership transfer serialize through the workspace
+dependency boundary. Hold it from the final scan through deletion, sealing,
+cleanup or durable ownership transfer. A reference either commits first and
+protects its target, or follows the operation and resolves a retained immutable
+target or fails. Subject revision alone cannot fence another subject's edges.
+Keep copying and unrelated ordinary writes outside this narrow boundary.
+The implementation plan defines index recovery and transactional seams before
+code; no learning input may depend on mutable worktree bytes.
+
+Ordinary retention belongs to #745 and may remove only a complete historical
+subject whose results cannot be current/learning input and whose records/evidence
+have no incoming retained dependency. Retain every source needed by any current
+evaluation regardless of outcome, including optional user performance records;
+those records protect only their exact references and do not create credibility
+chains. Apply the same incoming-learning guard to retention and explicit purge.
+
+Explicit Electron-authorized purge may remove a closed subject's own current
+result selection and history only when no other retained record, consumer
+selection or learning input depends on it. A subject is closed after its run is
+terminal, write authority and reporting grants are revoked, and all pending
+candidates have accepted/rejected finalization outcomes, are superseded, or
+are explicitly abandoned. Purge compares the exact
+identity and caller-observed `subjectRevision` under the boundary, then atomically
+clears its selection and deletes its candidates/manifests/receipts, evaluations,
+dispositions and solely referenced pinned evidence; otherwise delete nothing.
+`subjectRevision` is sidecar-issued checked u64, advanced with candidate
+admission/finalization/supersession/abandonment, accepted result/evaluation writes,
+correction, invalidation, user-slot change and retained-edge additions/removals.
+Overflow visibly blocks further mutations and purge; it never wraps. The token
+is metadata, excluded from record digests and removed by purge. An absent target
+returns the same not-found/no-op result whether previously purged or nonexistent.
+No tombstone remains and no deleted history can be recreated by stale reporting.
+
+### Workspace deletion and repository learning gate
+
+Workspace deletion is **not** an unconditional purge of protected evidence.
+It first durably fences new/in-flight candidate, finalization, evaluation and
+dependency writes under the workspace lease. Follow #745's
+`pendingWorkspaceDeletion`, all-subject learning fences and durable
+`learning_reconciled` / `sources_reconciled` phases. Repository-learning and
+workspace stores are separate transactions, with #745's repository-then-workspace
+lock order; a workspace-only scan cannot authorize deleting a source protected
+by a repository family or surviving workspace.
+
+After learning contributions/cards reconcile, release only dependencies no
+longer needed. A source still required by another current result, reviewer
+performance record or retained learning family must remain protected. Before
+deleting its workspace metadata, the #744 custodian must durably transfer that
+immutable source, its identity/provenance and authoritative dependency record
+to custody independent of the deleting metadata. Transfer must preserve exact
+references, incoming-edge guards and recoverability; it cannot rewrite a digest
+or turn a missing source into a reviewed result. If that custody operation is
+not defined/available, retain the workspace fence and metadata and report pending
+deletion. Never claim success after deleting protected bytes. Purge only eligible
+sources, verify surviving dependencies, then advance #745's source phase and
+remove metadata. Restart resumes durable phases, keeps writes fenced and never
+revives producer capabilities. No assignment-result/evaluation tombstone remains
+after successful deletion; custody records for protected sources are retained
+sources, not deleted-subject tombstones.
+
+**Shared learning remains gated.** This contract supports workspace-local
+result/evaluation references only. Repository-shared #745 input admission and
+cross-workspace source custody require one jointly reviewed ownership, dependency
+publication, locking and crash-recovery contract before implementation. Until
+then do not admit shared learning dependencies; if a retained dependency already
+exists or cannot be reconciled, keep deletion pending. #745's learning-only
+terminal projections do not replace protected source provenance. Deferring shared
+consumption leaves independent evaluation usable and does not weaken #745's
+deletion requirement. Ordinary non-orchestrated sessions acquire no assignment
+evaluations.
 
 ## Product boundaries and verification
 
 Assignment evaluation is separate from Taskmaster `CoordinationResult` and the
-`CompletionPacket` for `ImproveWorkflow` recommendations. It cannot advance
-undeclared dependencies or mark user acceptance, merge readiness, or
-integration. #746 may show the overall result by default and details on request;
-presentation must distinguish Unassessed from failure and missing usage from
-zero quality. #745 defines learning eligibility. Stale, invalidated,
-conflicting, blocked, interrupted, or sparse evidence cannot be treated as a
-clean learning signal, and evaluation cannot change an active configuration.
+`CompletionPacket` for `ImproveWorkflow`. It cannot launch/retry work, widen
+permissions, advance undeclared dependencies, accept work, declare merge
+readiness or authorize integration. #746 may show the overall result with
+details on request; distinguish Unassessed from failure. #745 defines learning
+eligibility: stale, invalidated, conflicting, blocked/interrupted or sparse
+evidence is not a clean signal, and evaluation cannot change active configuration.
 
-A future implementation must verify that:
+A future implementation must verify these contract cases:
 
-1. Complete evidence derives Meets requirements; any uncontested failure,
-   including a required artifact confirmed absent before snapshot acceptance,
-   derives Needs rework; inaccessible or stale output or
-   required criterion/quality evidence without a known failure derives
-   Unassessed. Stale finding evidence downgrades only that finding and the
-   overall result is recomputed. An
-   evidenced rating below `3`, a below-standard dimension, or a required-rework
-   finding is a failure even when other dimensions are unassessed. Optional
-   criteria, lifecycle state, empty legacy criteria, or a rubric with no quality
-   dimensions cannot create a pass. A legacy empty rubric remains Unassessed
-   only if no independent failure establishes Needs rework. Correcting
-   optional-only evidence cannot
-   change the overall result; an optional-only `requiresRework` finding or a
-   finding with no matching required impact outcome cannot force Needs rework.
-   Required impact-target arrays sort by their tagged `(kind, id)` key before
-   digesting, so equivalent target sets have the same evaluation digest. A
-   target whose eligible current outcomes conflict cannot establish Needs
-   rework through its finding; absent a separate uncontested failure, the
-   result is Unassessed.
-   Correcting required evidence makes only its
-   dependent outcome Unassessed and the result is recomputed. An optional source
-   used only for optional detail cannot downgrade an otherwise passing required
-   result.
-2. Exact retries using the active `AssignmentResultCapability` generation
-   return their saved receipt before stale-predecessor rejection; child results
-   scope the key to the active child launch generation, while root results scope
-   it to the active parent runtime generation. After resume, the revoked
-   generation cannot use its old receipt; the new generation has a separate key
-   scope and writes compare-and-swap against the current result head. A
-   `ResearchReportCapability` cannot submit result manifests. Concurrent first
-   evaluations with different idempotency keys cannot both create a stream head;
-   new streams compare-and-swap the explicit no-head state. Changed, malformed,
-   unauthenticated, oversized, or cross-subject reports fail closed. Missing
-   dimension coverage or invalid evidence cannot support a pass; unassessed
-   criteria and dimensions may omit evidence with a bounded reason. One
-   race-safe, atomic open relative to the retained handle for the exact approved
-   assignment output root enforces beneath-root containment and no-follow
-   semantics for the full path; a child output resolves under its allocated
-   plan-owned worktree, never the active workspace or source checkout, and the
-   reporter cannot choose that root. Symlinks, junctions, and other reparse
-   points are rejected at every component. A
-   concurrent link swap cannot make the worker read or pin bytes outside scope;
-   platforms without this operation reject path-backed output before reading.
-   Hard links without a
-   proven single-link identity are rejected before reading or snapshotting.
-   Before acceptance, absent required paths establish Needs rework and changed,
-   inaccessible, or concurrently written bytes reject the snapshot as
-   Unassessed. After acceptance, later path changes do not alter the immutable
-   result snapshot; replacing a path with identical content preserves the
-   snapshot as well. Bare content digests and references to
-   another assignment's output are rejected; report evidence resolves the exact
-   source identity even when report IDs or content digests are reused. A
-   server-held artifact from another assignment or declaration is rejected even
-   if its ID, size, and
-   digest are valid. Valid maximum-length source identities resolve through a
-   bounded 64-character source key and fit the reference cap. Evidence-reference
-   order does not change an evaluation digest, and duplicate references within
-   one outcome are rejected. Canonical descriptor fixtures for both source
-   variants produce the same source key after reload and in each supported
-   language; changing any bound identity, declaration, source variant, size,
-   version, or content digest changes the key. All
-   filesystem operations run in an isolated,
-   fixed-capacity worker with bounded admission and deadlines; a timed-out
-   worker cannot block sidecar control paths or cause unbounded replacement
-   workers. Non-regular filesystem objects are rejected without hashing.
-   A deliberately stalled filesystem operation returns by the caller deadline,
-   and repeated stalled operations never exceed the worker/admission bounds.
-   Results cannot remain current after their immutable snapshot changes or
-   fails verification. A resume retains the
-   assignment subject and revision count but requires its new launch generation;
-   changing the assignment identity creates a new subject. Before a dependent
-   successor receives a reused plan-owned worktree, the predecessor is terminal,
-   its write capability is revoked, user-confirmed quiescence is recorded, and
-   every accepted path output has a verified immutable snapshot. Learning-input
-   admission/removal, ordinary retention, cleanup, and ownership transfer share
-   the dependency boundary; a concurrent dependency either commits first and is
-   included in the final check or resolves only an immutable snapshot after
-   transfer. The successor cannot acquire the worktree if a required snapshot
-   or dependency check fails. Authorized cleanup verifies that all retained
-   dependencies resolve to immutable snapshots before removing the path.
-   Neither handoff nor cleanup can erase a live dependency or turn authorized
-   cleanup into Needs rework.
-3. Scores compare across assignments only under the same rubric ID, version,
-   and canonical `rubricSnapshotDigest`, or an approved normalization rule.
-   Matching ID/version with changed snapshot content cannot pool scores; equal
-   digests can compare, and an approved normalization follows its own versioned
-   rule. A satisfied versus unassessed required outcome or rating derives
-   Unassessed, while an independent current failure still derives Needs rework.
-   Optional-criterion disagreement affects
-   detail only. Finding disputes bind the exact child or user
-   `reviewerIdentity`, evaluation revision, and finding ID and reuse cited
-   evidence; all finding and dispute evidence is revalidated for current source
-   correction state under #742 before it affects the result. Stale finding
-   evidence downgrades only that finding; recompute the overall result from
-   remaining current outcomes. Stale dispute evidence cannot suppress a current
-   finding. Duplicate
-   finding IDs are rejected, disputes do not carry to corrections, and
-   informational finding disputes do not affect the overall result. Disputed
-   failures are not established.
-   Findings retain location, severity, evidence, and required-rework status
-   without prohibited sensitive content.
-4. Self-review, parent synthesis, unverified profiles, contributors, stale
-   output, or unverified read-only scope cannot qualify as child review; root
-   results can be reviewed only through the user-authorized path.
-   A different declared reviewer may assess a child reviewer's exact evaluation;
-   that reviewer-of-review report affects the original evaluation only when a
-   terminal user evaluation assesses the exact reviewer-of-review evaluation
-   and derives Meets requirements. No further child reviewer is eligible. A
-   reviewer-of-review that contributed to the original worker output or lacks
-   read-only access to that output is ineligible even if independent of the
-   immediately reviewed child assignment; terminal user assessment cannot
-   restore that chain's eligibility. Each reviewer assignment/result's
-   aggregate across all eligible current evaluations must also derive Meets
-   requirements; a favorable terminal assessment cannot override conflicting
-   current evaluations. Aggregate changes immediately revoke dependent review
-   credibility until the aggregate again derives Meets requirements. If the
-   chain-selected review and terminal user assessment both derive Meets but
-   another eligible current evaluation makes the reviewer assignment aggregate
-   Unassessed or Needs rework, the dependent worker review is ineligible. A
-   direct
-   terminal user assessment also
-   binds the exact child evaluation
-   revision/digest. Every chain is acyclic and bounded to two child evaluations
-   plus the terminal user; changing any named result/evaluation revision or
-   digest invalidates only dependent links, which must then be re-established.
-   Each eligible child evaluation's sidecar-derived `reviewerAssessmentRef`
-   binds the exact reviewer assignment result and target evaluation, plus the
-   ordered reviewer-of-review and terminal-user evaluation references, each by
-   identity, revision, and digest. Replacing, correcting, invalidating, or
-   disqualifying any referenced item immediately removes the dependent
-   evaluation from the aggregate until its credibility path is re-established.
-   The reference protects all linked result/evaluation/disposition records from
-   retention.
-5. Corrections preserve reporter provenance; user corrections use
-   Electron-authorized compare-and-swap on their `userReviewId`; a replacement
-   stream can start after invalidation while user capacity remains. Ended child
-   capabilities cannot correct or impersonate a reviewer. Concurrent
-   corrections and invalidations cannot restore an invalidated evaluation or
-   exclude a newer revision. Initial/replacement user stream creation uses one
-   per-result active-stream CAS slot, so concurrent IDs have one winner and
-   consume the revision budget atomically. Result and evaluation digest inputs
-   contain exactly the documented logical fields, including a
-   `criteriaSnapshotDigest` over the approved #741 `CriterionSnapshot[]` and
-   stable collection order,
-   and exclude derived scores, eligibility projections, receipts, and request
-   metadata; a change to any hashed field changes the digest.
-6. Per-assignment result-revision and record caps reject excess work visibly,
-   preserve the user-review revision allocation, allow replacements until its
-   four-revision budget is exhausted, and include the result-level rating
-   evidence reference; aggregate run/workspace quotas also reject excess work.
-   Each accepted invalidation creates exactly one immutable disposition bound
-   to the assignment, result, stream, evaluation revision/digest, and user
-   authority. Its digest inputs and no-predecessor revision are defined; exact
-   retries return the saved receipt and stale invalidations cannot replace a
-   newer evaluation.
-   Retention preserves evidence referenced by any current evaluation
-   regardless of outcome, every result/evaluation/disposition in the
-   `reviewerAssessmentRef` chain of current evaluations, and source records
-   referenced by retained learning inputs; it removes only eligible complete
-   historical subjects without such dependencies.
-   Ordinary retention deletes only historical subjects. Explicit user purge
-   may delete a closed subject's current result only under explicit user
-   authorization and when no other retained record, learning input, current
-   selection, or reviewer credibility link depends on it; it clears the
-   subject's own current-result selection atomically with deletion.
-   It compares the caller's expected `subjectRevision` after write
-   serialization and shares an atomic dependency boundary with cross-subject
-   reference admission/removal, ordinary retention, worktree cleanup, and
-   worktree transfer. A concurrent reference either commits first and blocks
-   deletion/transfer until the dependency is retained or sealed, or the
-   operation commits first and the reference must resolve an immutable
-   retained target or fail. Race coverage includes cross-subject reference
-   admission against explicit purge and ordinary retention, and learning-input
-   admission against worktree transfer. Purge removes the subject and solely
-   pinned evidence atomically and conflicts on any intervening subject
-   mutation.
-   Quota pressure
-   never triggers silent eviction; repeated purges of absent subjects return
-   the same not-found/no-op result and retain no tombstone. Workspace deletion purges result manifests,
-   receipts, evaluations, dispositions, and pinned evidence.
-7. Evaluation cannot launch/retry work, widen permissions, change
-   configuration, advance dependencies, accept work for the user, or approve a
-   merge.
-8. Child and root result identities resolve from their respective approved
-   configuration; child launch and parent runtime resumes require their new
-   authority generations. #742's report correction head uses expected-head
-   compare-and-swap with exact retry resolution; concurrent corrections have
-   one winner and stale predecessors conflict. Acceptance coverage races two
-   corrections from one predecessor, proves one winner, returns that receipt
-   for an exact retry, and resolves the same head after reload. Until #742
-   defines and reconciles this head, report correction freshness cannot be
-   consumed by #744. When a
-   source report is corrected under #742,
-   only outcomes citing it become stale; unrelated current outcomes remain
-   usable, and optional-only changes cannot alter the overall result.
-   Staleness that makes a terminal reviewer assessment stop deriving Meets
-   requirements removes eligibility from dependent child evaluations; stale
-   optional-only detail does not when the assessment still derives Meets.
-   Path-backed results are accepted only after producer write authority is
-   revoked and quiescence is confirmed; each output is copied into an immutable
-   assignment/declaration-bound snapshot and both source and snapshot digests
-   are verified. Concurrent writes reject snapshot creation, and later
-   worktree edits cannot change an accepted result. Available elapsed/cost
-   evidence is bounded, sidecar-resolved, included in the result digest, and
-   preserved for #745; absent cost evidence is omitted, not fabricated. These
-   metrics retain authenticated provenance and do not affect either score.
-   Server-held artifacts are bound to the exact assignment and output
-   declaration; a bare #742 report identity without an output declaration
-   ID/kind binding cannot satisfy a declared output. The
-   dedicated `AssignmentResultCapability`
-   is distinct from `ResearchReportCapability` and any run bearer. Each of the
-   32 permitted result revisions can receive a child evaluation and a user
-   evaluation within the 12-child/4-user partition of the 16-revision
-   per-result evaluation cap. User replacements can continue after invalidation
-   until the four-revision allocation is exhausted; each user stream has at most
-   two revisions, and the total budget bounds the number of streams.
+| Case | Required behavior |
+| --- | --- |
+| Complete, current independent evaluation | All declared outputs verified, all required criteria satisfied, quality 3 and no declared relevant conflict yields Meets requirements |
+| Known failure with other unknowns | Uncontested required failure, evidenced rating below 3/dimension below standard, or sidecar-confirmed missing output yields Needs rework |
+| Missing/stale/disputed evidence, unsupported output or no eligible reviewer | Unassessed absent a separate established failure; lifecycle status stays separate |
+| Empty legacy required criteria/rubric | Cannot pass or divide by zero; independent failures still establish Needs rework |
+| Optional-only result, finding or stale source | Changes detail without downgrading an otherwise passing required result |
+| Same target satisfied versus unassessed / contradictory assessed outcomes | Unassessed; an unassessed opinion cannot erase a separate uncontested failure |
+| Same-failure ratings 0/1/2 versus threshold conflict 2/3 | Preserve ratings; first establishes failure, second is disputed/Unassessed absent another failure |
+| Required-rework finding with no valid failing impact target / optional target | Reject; a finding cannot bypass aggregate conflict on its target |
+| Material-fact conflict with different finding IDs | Reviewer/user declares affected outcomes unassessed or an exact finding dispute; sidecar does not infer semantic equivalence from prose/IDs |
+| Current finding disputed with stale evidence / source correction | Ineffective dispute cannot suppress current failure; stale finding cannot establish failure; corrections stale only dependent outcomes |
+| Worker/root candidate submitted while producer lives | Stage path-backed candidate until quiescence; artifact-only candidate may finalize immediately; root identity is bootstrap-bound |
+| Producer ends before final result | Revoke its grant; sidecar finalizes staged candidate after exact terminal/revocation/quiescence checks without another producer request |
+| Resume, changed bytes or predecessor races finalization | Supersede/reject candidate, preserve accepted head; fresh generation/acknowledgement required, no automatic retry |
+| Restart with pending candidate | Reconcile exact identity/terminal/revocation/acknowledgement or block; never revive credentials |
+| Exact active-generation retry / changed same-key payload / revoked generation | Return saved receipt before predecessor check / conflict / reject before receipt lookup |
+| Child evaluation publication with no product-write capability | Atomically store canonical evaluation and declaration-bound immutable artifact; receipt can populate reviewer's candidate |
+| Wrong assignment/declaration artifact or bare research report as output | Reject; artifact possession or identical content does not authorize reuse |
+| Narrow readPaths with a broad worktree root | Reject undeclared/out-of-read-scope path before opening; root containment is insufficient |
+| Symlink/reparse/hard-link escape or platform without required atomic operation | Reject before reading/pinning; no path-based fallback |
+| Concurrent source mutation, stalled filesystem operation or exhausted worker capacity | Reject unsupported snapshot, bound request latency/capacity, preserve head; no unbounded replacement workers |
+| Accepted snapshot versus later worktree edit/cleanup | Verify immutable object/current head; mutable path changes cannot alter accepted result |
+| Worktree handoff racing reference admission | Serialize dependency scan/ownership transfer, block unresolved snapshots and retain all immutable dependencies |
+| Independent child review with no user performance grade | Review may affect worker result; reviewer performance remains Unassessed and cannot gate eligibility |
+| Child attempts reviewer-of-review / user performance correction | Reject recursive child review; user performance changes only its own result, never original review eligibility |
+| User correction/invalidation and concurrent stream creation | Preserve provenance; CAS current head/slot; stale mutation conflicts; invalidation freezes stream |
+| Research report corrected under #742 | Only citing outcomes stale; source use blocked until approved correction-head CAS/currentness contract exists |
+| Canonical reload/cross-language fixtures | Every tagged/nested shape, null, integer and ordering produces identical bytes/digest; duplicate/unknown fields fail |
+| Changed metric or semantic field | Result/evaluation digest changes; full timeCostEvidence is hashed; request metadata/projections do not affect hashes |
+| Unavailable metric source | Omit evidence, never fabricate zero/estimate; USD/millisecond provenance and #745 comparison boundaries remain |
+| Candidate/result/evaluation/quota exhaustion | Reject visibly, preserve history and 12-child/4-user revision partition; no silent eviction |
+| Retention/subject purge racing an incoming dependency | Same boundary protects current sources; exact subjectRevision CAS; purge deletes only unreferenced closed history |
+| Workspace deletion with surviving source consumer | #745 learning/source phases and custody transfer complete first, or retain fence/metadata and report pending |
+| Unavailable cross-workspace custody/shared learning contract | Reject shared admission; never substitute a workspace-only transaction or delete protected evidence |
 
 ## Implementation gate
 
-No runtime plan is approved here. Write one only after written review of this
-contract and #741, reconciliation of #740's capability disposition, and
-alignment with #610 and authoritative specs/ADRs. Resolve output-byte ceilings,
-reviewer recursion, post-run result submission, report correction-head CAS,
-and authenticated usage-record provenance against #741/#742 and the parent
-product contract. The plan chooses concrete storage and transaction seams for
-the normative snapshot, dependency-index, retention, purge, and worktree
-transfer rules above; it cannot defer their race outcomes. It also specifies
-#745 retention and #746 projection from verified module seams. Code references
-here are investigation pointers, not implementation commitments.
+This is a proposed written contract, not runtime implementation approval.
+Before a runtime plan, review #741/#742 mappings, output declarations and the
+new scoped candidate/evaluation reporting actions; reconcile #740's capability
+evidence, #610, authoritative specs/ADRs, #745 retention/custody and #746
+projection. The parent scope supplies independent review and optional terminal
+user performance assessment; this contract adds no recursive review or mandatory
+certification. Define finite artifact/rehash/worker/run/workspace limits,
+canonical byte fixtures, sidecar finalization/recovery and dependency-index seams
+before code. Research-report freshness waits on #742's correction-head contract;
+provider costs stay absent until their authenticated source is approved; shared
+learning stays gated on the joint custody contract. A plan cannot defer the
+normative race outcomes above or silently enable unsupported adapters.
 
-User approval of this spec approves only the written contract—not runtime
-implementation, role support, assignment launches, automated evaluation, or
-changes to ordinary Peon/session behavior.
+Approval approves only the written contract, not role support, launches,
+automated evaluation, changes to ordinary Peon/session behavior or runtime code.
