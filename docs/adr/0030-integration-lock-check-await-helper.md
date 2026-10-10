@@ -47,3 +47,28 @@ entrypoints through `run_integration_action`.
 - The highest-risk lock/await/revalidate choreography now has one owner.
 - Existing `409 Conflict` semantics and identity keys remain unchanged.
 - Runtime `spawn_blocking` workspace readers stay explicit and unchanged.
+
+## Amendment — application ownership (2026-10-10)
+
+The accepted lock-check-drop-await-relock decision remains in force.
+[Issue #816](https://github.com/Rambolarsen/orkworks/issues/816) moves its owner
+from HTTP handlers to `harness_integration_application.rs`, following the
+[approved extraction design](../superpowers/specs/2026-10-10-harness-integration-application-design.md).
+The concrete application coordinates existing state and adapters; it does not
+introduce another integration registry, session map or authority store.
+
+Legacy harness and grouped-key operations retain separate private helpers
+because grouped operations also revalidate document and active-selection
+revisions under the projection lock. Both preserve probe-outside-lock ordering
+and revalidate identity before configuration access. Application errors carry
+domain facts; HTTP handlers retain status codes, request parsing and serialization.
+
+Inspection can demote stale prompt authority. Mutation finalizes required
+revocation synchronously after configuration work, with no added asynchronous
+gap. Workspace listing retains snapshot collection order and revocation-failure
+precedence. Cleanup and the synchronous launch-readiness query retain their
+existing policies; readiness does not revoke authority.
+
+This amendment changes ownership and interface visibility, not observable
+behavior, failure semantics, storage or authorization. Adapter internals and
+unrelated blocking workspace readers remain outside this decision.

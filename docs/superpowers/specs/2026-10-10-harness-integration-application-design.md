@@ -3,13 +3,13 @@ type: Design
 title: Harness integration application module
 description: Move existing harness-integration orchestration behind a typed Rust application interface while preserving transport and runtime behavior.
 tags: [harness, integration, architecture]
-status: proposed
+status: accepted
 ---
 
 # Harness integration application module
 
-Written design review pending. The owner approved pursuing this extraction on
-2026-10-10; this document is the concrete design for review before code.
+The owner approved this written design on 2026-10-10 after independent review
+and its clarification, with “looks good. keep going”.
 Tracked by [#816](https://github.com/Rambolarsen/orkworks/issues/816).
 
 ## Outcome
@@ -256,13 +256,12 @@ The review assessed complexity separately from design quality:
 Total: **16/25**, as assessed by the reviewer; the score neither grants owner
 approval nor replaces implementation verification. Initial quality was
 **Revise** for the interface clarification; recheck quality is **Ready for owner
-review**. The revised design still requires owner review before implementation
+review**. The owner subsequently approved the revised design before implementation
 planning.
 
 ## Approval and next step
 
-Owner review of this written design is required before implementation planning
-and code. After approval, write and review the scoped implementation plan,
-including complexity evidence and the behavior checks above. Implementation
-and documentation belong to one logical PR for #816. No runtime code has been
-changed as part of preparing this design.
+Owner review of the written design is complete. Execute the reviewed
+[implementation plan](../plans/2026-10-10-harness-integration-application.md),
+including the behavior checks above. Implementation and documentation belong
+to one logical PR for #816.
