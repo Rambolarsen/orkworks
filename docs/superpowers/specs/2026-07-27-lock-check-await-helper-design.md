@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Narrow helper for integration-handler lock/revalidate/await"
+description: "Design history: Narrow helper for integration-handler lock/revalidate/await."
+tags: ["orkworks", "design"]
+---
+
 # Narrow helper for integration-handler lock/revalidate/await
 
 ## Context

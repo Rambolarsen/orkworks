@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Observed-status/attention writes owned by one runtime module"
+description: "Architecture decision record: Observed-status/attention writes owned by one runtime module."
+tags: ["orkworks", "architecture"]
+---
+
 # Observed-status/attention writes owned by one runtime module
 
 - Status: accepted

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Main-process-owned app settings and menu accelerators"
+description: "Architecture decision record: Main-process-owned app settings and menu accelerators."
+tags: ["orkworks", "architecture"]
+---
+
 # Main-process-owned app settings and menu accelerators
 
 - Status: accepted

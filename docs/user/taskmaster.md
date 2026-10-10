@@ -1,3 +1,10 @@
+---
+type: "User Guide"
+title: "Turn workflow friction into a next step"
+description: "User guide to turn workflow friction into a next step in OrkWorks."
+tags: ["orkworks", "user-guide"]
+---
+
 # Turn workflow friction into a next step
 
 Taskmaster looks across recorded workflow observations and suggests

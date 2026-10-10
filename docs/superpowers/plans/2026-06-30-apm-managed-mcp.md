@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "APM-Managed MCP Configuration Implementation Plan"
+description: "Implementation plan: APM-Managed MCP Configuration Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # APM-Managed MCP Configuration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

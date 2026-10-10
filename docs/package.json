@@ -3,12 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "docs:dev": "vitepress dev",
-    "docs:build": "vitepress build",
-    "docs:preview": "vitepress preview"
+    "docs:dev": "pnpm docs:check && vitepress dev",
+    "docs:build": "pnpm docs:check && vitepress build",
+    "docs:preview": "vitepress preview",
+    "docs:check": "node .vitepress/okf.mjs"
   },
   "devDependencies": {
     "vitepress": "^1.6.4",
-    "vue": "^3.5.43"
+    "vue": "^3.5.43",
+    "yaml": "^2.9.1"
   }
 }

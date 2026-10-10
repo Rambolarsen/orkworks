@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session list stability"
+description: "Design history: Session list stability."
+tags: ["orkworks", "design"]
+---
+
 # Session list stability
 
 ## Decision

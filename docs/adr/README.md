@@ -1,3 +1,10 @@
+---
+type: "Reference"
+title: "Architecture Decision Records"
+description: "Index and authoring guidance for architecture decision records."
+tags: ["orkworks", "architecture"]
+---
+
 # Architecture Decision Records
 
 This directory contains Architecture Decision Records (ADRs) for OrkWorks.

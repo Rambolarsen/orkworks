@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Codex needs-you clear"
+description: "Design history: Codex needs-you clear."
+tags: ["orkworks", "design"]
+---
+
 # Codex needs-you clear
 
 ## Problem

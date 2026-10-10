@@ -1,8 +1,15 @@
+---
+type: "Process Guide"
+title: "Site maintenance"
+description: "Agent guidance for site maintenance."
+tags: ["orkworks", "agents"]
+---
+
 # Site maintenance
 
 The public site helps prospective users try OrkWorks. It uses VitePress and
 GitHub Pages; repository Markdown remains the source of truth. The homepage
-lives in `docs/index.md` and its presentation in `docs/.vitepress/theme/`.
+lives in `docs/home.md` and its presentation in `docs/.vitepress/theme/`.
 User guides live in `docs/user/`. Technical material is linked from
 `docs/developers.md`.
 
@@ -28,8 +35,9 @@ release. Facts are rendered into static HTML; visitors do not call GitHub’s AP
 
 ## Prose needs evidence and review
 
-PR CI builds the site with dead-link checking and runs the release/tool-list
-tests on every PR. `scripts/doc-check.sh` warns when desktop behavior, backend
+Local docs builds and PR CI first enforce the [OKF authoring profile](documentation-format.md),
+then build the site with dead-link checking. PR CI also runs the release/tool-list
+and OKF regression tests on every PR. `scripts/doc-check.sh` warns when desktop behavior, backend
 code, registry, or packaging changes arrive without a public-guide update.
 These warnings remain informational; they do not prove semantic accuracy.
 
@@ -49,7 +57,7 @@ PR validation before merging (for example by pushing a reviewed change).
 ## Verify changes
 
 ```bash
-node --test docs/.vitepress/site-facts.test.mjs scripts/docs-audit-scope.test.mjs
+node --test docs/.vitepress/*.test.mjs scripts/docs-audit-scope.test.mjs
 cd docs
 pnpm install --frozen-lockfile
 pnpm docs:build

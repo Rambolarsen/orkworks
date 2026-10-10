@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "PR 764 Review Fixes Implementation Plan"
+description: "Implementation plan: PR 764 Review Fixes Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # PR 764 Review Fixes Implementation Plan
 
 > **For agentic workers:** Execute inline in this session. Keep the regressions test-first and review the resulting PR head before merge.

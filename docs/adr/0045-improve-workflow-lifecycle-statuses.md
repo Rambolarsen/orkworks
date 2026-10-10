@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "improve_workflow recommendation lifecycle statuses"
+description: "Architecture decision record: improve_workflow recommendation lifecycle statuses."
+tags: ["orkworks", "architecture"]
+---
+
 # improve_workflow recommendation lifecycle statuses
 
 - Status: superseded by [ADR 0048](./0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md)

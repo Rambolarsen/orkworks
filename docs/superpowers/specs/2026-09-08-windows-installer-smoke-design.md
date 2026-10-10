@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Windows Installer Smoke-Test Design"
+description: "Design history: Windows Installer Smoke-Test Design."
+tags: ["orkworks", "design"]
+---
+
 # Windows Installer Smoke-Test Design
 
 - Status: proposed

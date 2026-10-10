@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Ollama Harness Pass-Through Validation"
+description: "Design history: Ollama Harness Pass-Through Validation."
+tags: ["orkworks", "design"]
+---
+
 # Ollama Harness Pass-Through Validation
 
 - Date: 2026-06-24

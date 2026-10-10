@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "APM-Managed MCP Configuration Design"
+description: "Design history: APM-Managed MCP Configuration Design."
+tags: ["orkworks", "design"]
+---
+
 # APM-Managed MCP Configuration Design
 
 - Date: 2026-06-30

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Startup Finalization Design"
+description: "Design history: Session Startup Finalization Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Startup Finalization Design
 
 ## Goal

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex hook installation uses a portable, home-relative reporter path"
+description: "Architecture decision record: Codex hook installation uses a portable, home-relative reporter path."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex hook installation uses a portable, home-relative reporter path
 
 - Status: superseded by [ADR 0043](./0043-local-harness-hook-configuration.md)

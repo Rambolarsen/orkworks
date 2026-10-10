@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Dockview Header Unification — Design"
+description: "Design history: Dockview Header Unification — Design."
+tags: ["orkworks", "design"]
+---
+
 # Dockview Header Unification — Design
 
 > **Date:** 2026-06-18

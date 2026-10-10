@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Git context detection first, not workflow control"
+description: "Architecture decision record: Git context detection first, not workflow control."
+tags: ["orkworks", "architecture"]
+---
+
 # Git context detection first, not workflow control
 
 - Status: accepted

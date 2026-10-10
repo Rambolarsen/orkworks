@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Taskmaster knowledge distribution and independent analysis"
+description: "Architecture decision record: Taskmaster knowledge distribution and independent analysis."
+tags: ["orkworks", "architecture"]
+---
+
 # Taskmaster knowledge distribution and independent analysis
 
 - Status: superseded by [ADR 0054](0054-taskmaster-honors-managed-cli-policy.md)

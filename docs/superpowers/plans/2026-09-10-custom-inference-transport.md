@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Custom Inference Transport Implementation Plan"
+description: "Implementation plan: Custom Inference Transport Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Custom Inference Transport Implementation Plan
 
 > **For agentic workers:** Use executing-plans inline. Root owns all edits; preserve the existing dirty feature worktree.

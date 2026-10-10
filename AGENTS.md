@@ -131,6 +131,10 @@ This per-PR exception is checked by `scripts/branch-protection-policy-check.sh`.
 
 ## Verification and documentation
 
+All Markdown under `docs/` follows the [OKF 0.2 authoring profile](docs/agents/documentation-format.md).
+Add new concepts to their directory index; `pnpm --dir docs docs:check` and
+the docs build enforce metadata and index coverage, including historical plans.
+
 Use `verification-before-completion` before completion claims, commits, pushes,
 and PRs. Run checks appropriate to the changed surface; after code
 implementation use `bash scripts/verify-repo.sh`. Required CI routing lives in

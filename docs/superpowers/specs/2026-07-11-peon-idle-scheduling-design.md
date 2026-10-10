@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Peon idle scheduling design"
+description: "Design history: Peon idle scheduling design."
+tags: ["orkworks", "design"]
+---
+
 # Peon idle scheduling design
 
 ## Goal

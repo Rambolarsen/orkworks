@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Panel Persist & Restore — Implementation Plan"
+description: "Implementation plan: Panel Persist & Restore — Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Panel Persist & Restore — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

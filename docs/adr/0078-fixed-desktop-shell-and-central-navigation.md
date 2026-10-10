@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Fixed desktop shell with central navigation"
+description: "Architecture decision record: Fixed desktop shell with central navigation."
+tags: ["orkworks", "architecture"]
+---
+
 # Fixed desktop shell with central navigation
 
 - Status: accepted

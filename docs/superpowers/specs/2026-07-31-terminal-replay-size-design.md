@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal replay size design"
+description: "Design history: Terminal replay size design."
+tags: ["orkworks", "design"]
+---
+
 # Terminal replay size design
 
 ## Goal

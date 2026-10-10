@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Release Signing and Notarization Design"
+description: "Design history: Release Signing and Notarization Design."
+tags: ["orkworks", "design"]
+---
+
 # Release Signing and Notarization Design
 
 **Date:** 2026-09-14

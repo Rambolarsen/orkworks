@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Alternate-buffer wheel input survives xterm dampening"
+description: "Architecture decision record: Alternate-buffer wheel input survives xterm dampening."
+tags: ["orkworks", "architecture"]
+---
+
 # Alternate-buffer wheel input survives xterm dampening
 
 - Status: superseded by [ADR 0074](0074-accumulate-alternate-buffer-trackpad-input.md)

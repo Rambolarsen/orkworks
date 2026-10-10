@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Harness-declared session-label reset commands"
+description: "Architecture decision record: Harness-declared session-label reset commands."
+tags: ["orkworks", "architecture"]
+---
+
 # Harness-declared session-label reset commands
 
 - Status: accepted

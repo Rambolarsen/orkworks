@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Live-resize persistence for the per-session .terminal-size sidecar"
+description: "Architecture decision record: Live-resize persistence for the per-session .terminal-size sidecar."
+tags: ["orkworks", "architecture"]
+---
+
 # Live-resize persistence for the per-session `.terminal-size` sidecar
 
 - Status: accepted

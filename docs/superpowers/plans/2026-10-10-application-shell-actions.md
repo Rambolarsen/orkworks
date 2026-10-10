@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Delivery plan: ordinary Actions overview"
+description: "Implementation plan: Delivery plan: ordinary Actions overview."
+tags: ["orkworks", "plans"]
+---
+
 # Delivery plan: ordinary Actions overview
 
 **Issue:** [#805](https://github.com/Rambolarsen/orkworks/issues/805)  

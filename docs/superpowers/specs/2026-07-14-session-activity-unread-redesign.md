@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Activity and Unread Result Redesign"
+description: "Design history: Session Activity and Unread Result Redesign."
+tags: ["orkworks", "design"]
+---
+
 # Session Activity and Unread Result Redesign
 
 Date: 2026-07-14

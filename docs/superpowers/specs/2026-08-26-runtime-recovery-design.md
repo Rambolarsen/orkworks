@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Runtime Recovery Design"
+description: "Design history: Runtime Recovery Design."
+tags: ["orkworks", "design"]
+---
+
 # Runtime Recovery Design
 
 ## Context

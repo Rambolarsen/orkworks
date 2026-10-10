@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Claude and Copilot Prompt Authority Implementation Plan"
+description: "Implementation plan: Claude and Copilot Prompt Authority Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Claude and Copilot Prompt Authority Implementation Plan
 
 > **For agentic workers:** Execute inline in this session using the approved issue scope; keep each step test-first and independently reviewable.

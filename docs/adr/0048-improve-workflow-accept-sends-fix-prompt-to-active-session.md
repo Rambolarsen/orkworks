@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "improve_workflow gains an explicit accept action that sends a fix prompt to the active session"
+description: "Architecture decision record: improve_workflow gains an explicit accept action that sends a fix prompt to the active session."
+tags: ["orkworks", "architecture"]
+---
+
 # improve_workflow gains an explicit accept action that sends a fix prompt to the active session
 
 - Status: accepted

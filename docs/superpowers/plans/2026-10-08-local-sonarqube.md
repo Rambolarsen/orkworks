@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Local SonarQube Implementation Plan"
+description: "Implementation plan: Local SonarQube Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Local SonarQube Implementation Plan
 
 > **For agentic workers:** Use executing-plans to implement this plan inline.

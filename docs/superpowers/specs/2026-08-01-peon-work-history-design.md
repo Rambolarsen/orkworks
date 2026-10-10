@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Peon work-history design"
+description: "Design history: Peon work-history design."
+tags: ["orkworks", "design"]
+---
+
 # Peon work-history design
 
 ## Goal

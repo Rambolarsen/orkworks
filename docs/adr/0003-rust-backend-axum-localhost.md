@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Rust backend sidecar with Axum over localhost HTTP/WebSocket"
+description: "Architecture decision record: Rust backend sidecar with Axum over localhost HTTP/WebSocket."
+tags: ["orkworks", "architecture"]
+---
+
 # Rust backend sidecar with Axum over localhost HTTP/WebSocket
 
 - Status: accepted

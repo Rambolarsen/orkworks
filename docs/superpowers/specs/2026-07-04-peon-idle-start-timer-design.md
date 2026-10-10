@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Peon Idle Start Timer Design"
+description: "Design history: Peon Idle Start Timer Design."
+tags: ["orkworks", "design"]
+---
+
 # Peon Idle Start Timer Design
 
 > **Date:** 2026-07-04

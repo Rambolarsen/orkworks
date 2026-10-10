@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Input-generation staleness guard Implementation Plan"
+description: "Implementation plan: Input-generation staleness guard Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Input-generation staleness guard Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

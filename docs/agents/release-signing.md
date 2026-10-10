@@ -1,3 +1,10 @@
+---
+type: "Process Guide"
+title: "Signed release operations"
+description: "Agent guidance for signed release operations."
+tags: ["orkworks", "agents"]
+---
+
 # Signed release operations
 
 This runbook covers the stable and nightly release workflow in

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Independent OrkWorks Workspace Instances"
+description: "Design history: Independent OrkWorks Workspace Instances."
+tags: ["orkworks", "design"]
+---
+
 # Independent OrkWorks Workspace Instances
 
 Status: proposed design; written-spec review required before implementation

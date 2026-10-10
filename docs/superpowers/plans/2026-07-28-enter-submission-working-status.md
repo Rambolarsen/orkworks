@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Enter Submission Working Status Implementation Plan"
+description: "Implementation plan: Enter Submission Working Status Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Enter Submission Working Status Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

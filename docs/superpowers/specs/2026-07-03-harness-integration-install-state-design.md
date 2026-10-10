@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness Integration Install State Design"
+description: "Design history: Harness Integration Install State Design."
+tags: ["orkworks", "design"]
+---
+
 # Harness Integration Install State Design
 
 - Date: 2026-07-03

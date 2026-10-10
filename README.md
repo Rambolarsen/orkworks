@@ -10,6 +10,10 @@ Local-first mission control for AI coding sessions. Peons observe individual ses
 
 **Documentation:** https://rambolarsen.github.io/orkworks/
 
+Repository documentation is an [OKF 0.2 knowledge bundle](docs/index.md).
+The [authoring profile](docs/agents/documentation-format.md) and automated checks
+keep guides, decisions, plans, and design history in that format.
+
 ## State
 
 APM project bootstrapped — agent skills, hooks, and plugins are installed via [APM](https://github.com/anthropics/apm) at the repo root. M1 (Electron app shell + Rust sidecar scaffold) is implemented, and the alpha release pipeline now packages desktop artifacts through GitHub Actions + electron-builder. Subsequent milestones are tracked as GitHub issues.

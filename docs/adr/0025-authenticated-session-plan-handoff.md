@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Authenticated session plan handoff"
+description: "Architecture decision record: Authenticated session plan handoff."
+tags: ["orkworks", "architecture"]
+---
+
 # Authenticated session plan handoff
 
 - Status: accepted

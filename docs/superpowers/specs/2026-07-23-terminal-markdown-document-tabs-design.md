@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal Markdown Document Tabs"
+description: "Design history: Terminal Markdown Document Tabs."
+tags: ["orkworks", "design"]
+---
+
 # Terminal Markdown Document Tabs
 
 **Date:** 2026-07-23

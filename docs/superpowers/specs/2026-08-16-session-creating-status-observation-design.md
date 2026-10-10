@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session-Creating Status Observation Design"
+description: "Design history: Session-Creating Status Observation Design."
+tags: ["orkworks", "design"]
+---
+
 # Session-Creating Status Observation Design
 
 ## Goal

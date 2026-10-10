@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Session Projection Implementation Plan"
+description: "Implementation plan: Session Projection Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Session Projection Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended) or superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

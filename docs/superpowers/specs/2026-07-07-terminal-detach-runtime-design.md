@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal Detach Runtime Design"
+description: "Design history: Terminal Detach Runtime Design."
+tags: ["orkworks", "design"]
+---
+
 # Terminal Detach Runtime Design
 
 > **Date:** 2026-07-07

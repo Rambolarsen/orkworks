@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Prompt-attention authority is event-validated for Claude and Copilot; Aider stays on Peon fallback"
+description: "Architecture decision record: Prompt-attention authority is event-validated for Claude and Copilot; Aider stays on Peon fallback."
+tags: ["orkworks", "architecture"]
+---
+
 # Prompt-attention authority is event-validated for Claude and Copilot; Aider stays on Peon fallback
 
 - Status: accepted

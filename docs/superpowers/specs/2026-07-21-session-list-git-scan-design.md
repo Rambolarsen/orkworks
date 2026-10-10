@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session List Git Scan Performance Design"
+description: "Design history: Session List Git Scan Performance Design."
+tags: ["orkworks", "design"]
+---
+
 # Session List Git Scan Performance Design
 
 Date: 2026-07-21

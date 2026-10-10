@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness-Verified Working State Design"
+description: "Design history: Harness-Verified Working State Design."
+tags: ["orkworks", "design"]
+---
+
 # Harness-Verified Working State Design
 
 ## Goal

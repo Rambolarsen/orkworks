@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Claude PostToolUse plan-path transport"
+description: "Architecture decision record: Claude PostToolUse plan-path transport."
+tags: ["orkworks", "architecture"]
+---
+
 # Claude `PostToolUse` plan-path transport
 
 - Status: accepted

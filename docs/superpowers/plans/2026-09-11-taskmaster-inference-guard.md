@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster inference guard implementation plan"
+description: "Implementation plan: Taskmaster inference guard implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster inference guard implementation plan
 
 > **For agentic workers:** Use executing-plans to implement this sequential

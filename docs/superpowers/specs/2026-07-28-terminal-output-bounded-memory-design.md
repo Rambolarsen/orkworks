@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Bounded Terminal-Output Memory Design"
+description: "Design history: Bounded Terminal-Output Memory Design."
+tags: ["orkworks", "design"]
+---
+
 # Bounded Terminal-Output Memory Design
 
 ## Goal

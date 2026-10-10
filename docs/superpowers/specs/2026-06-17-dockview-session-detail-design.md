@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Dockview Session Awareness — Design"
+description: "Design history: Dockview Session Awareness — Design."
+tags: ["orkworks", "design"]
+---
+
 # Dockview Session Awareness — Design
 
 > **Issue:** #10 Dockview session detail and attention prioritization

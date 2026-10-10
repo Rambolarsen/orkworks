@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Peon scope expands to per-repo"
+description: "Architecture decision record: Peon scope expands to per-repo."
+tags: ["orkworks", "architecture"]
+---
+
 # Peon scope expands to per-repo
 
 - Status: accepted

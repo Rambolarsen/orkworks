@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Codex Session ID Integrity Implementation Plan"
+description: "Implementation plan: Codex Session ID Integrity Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Codex Session ID Integrity Implementation Plan
 
 > **For agentic workers:** Execute this plan inline, one task at a time. Use test-driven development for every behavior change.

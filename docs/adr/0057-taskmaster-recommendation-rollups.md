@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Taskmaster recommendation rollups"
+description: "Architecture decision record: Taskmaster recommendation rollups."
+tags: ["orkworks", "architecture"]
+---
+
 # Taskmaster recommendation rollups
 
 - Status: proposed

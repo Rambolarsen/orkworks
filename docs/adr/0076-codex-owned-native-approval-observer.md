@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex approval status from a runtime-owned native server"
+description: "Architecture decision record: Codex approval status from a runtime-owned native server."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex approval status from a runtime-owned native server
 
 - Status: accepted (implementation and version-specific rollout gated)

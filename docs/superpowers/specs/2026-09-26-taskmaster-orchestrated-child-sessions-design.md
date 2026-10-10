@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster orchestrated child sessions"
+description: "Design history: Taskmaster orchestrated child sessions."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster orchestrated child sessions
 
 - Status: accepted launch scope; detailed contracts and runtime implementation remain gated

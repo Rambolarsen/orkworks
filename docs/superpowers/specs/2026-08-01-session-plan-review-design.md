@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Plan Review Design"
+description: "Design history: Session Plan Review Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Plan Review Design
 
 The Details panel owns a session's review request. A single Review tab, adjacent to Terminal, is only the reader; it follows the selected session's validated Markdown artifact. The card is available for every session with an artifact, with urgency-specific copy only when the session needs the user.

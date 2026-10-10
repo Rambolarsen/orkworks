@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex subagents share the owning OrkWorks session identity"
+description: "Architecture decision record: Codex subagents share the owning OrkWorks session identity."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex subagents share the owning OrkWorks session identity
 
 - Status: accepted

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Output Recency Design"
+description: "Design history: Session Output Recency Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Output Recency Design
 
 Date: 2026-07-29

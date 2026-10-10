@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Committed Terminal Input Implies Working"
+description: "Design history: Committed Terminal Input Implies Working."
+tags: ["orkworks", "design"]
+---
+
 # Committed Terminal Input Implies Working
 
 Date: 2026-07-21

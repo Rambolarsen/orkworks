@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal Input Backpressure Design"
+description: "Design history: Terminal Input Backpressure Design."
+tags: ["orkworks", "design"]
+---
+
 # Terminal Input Backpressure Design
 
 > **Date:** 2026-07-14

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Settings Coding-Tool Detection Status Implementation Plan"
+description: "Implementation plan: Settings Coding-Tool Detection Status Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Settings Coding-Tool Detection Status Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

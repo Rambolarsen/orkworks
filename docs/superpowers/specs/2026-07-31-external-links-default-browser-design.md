@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "External Links in Default Browser Design"
+description: "Design history: External Links in Default Browser Design."
+tags: ["orkworks", "design"]
+---
+
 # External Links in Default Browser Design
 
 ## Goal

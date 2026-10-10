@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "PR 526 review corrections"
+description: "Implementation plan: PR 526 review corrections."
+tags: ["orkworks", "plans"]
+---
+
 # PR 526 review corrections
 
 Starting revision: `b7ab2534ac846dffdf65acc13ae31d6007a277fc`.

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Independent workspace instances"
+description: "Architecture decision record: Independent workspace instances."
+tags: ["orkworks", "architecture"]
+---
+
 # Independent workspace instances
 
 - Status: accepted

@@ -3,7 +3,7 @@ type: Design
 title: Harness integration application module
 description: Move existing harness-integration orchestration behind a typed Rust application interface while preserving transport and runtime behavior.
 tags: [harness, integration, architecture]
-status: accepted
+workflow_status: accepted
 ---
 
 # Harness integration application module

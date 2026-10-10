@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Brain-informed Taskmaster implementation"
+description: "Implementation plan: Brain-informed Taskmaster implementation."
+tags: ["orkworks", "plans"]
+---
+
 # Brain-informed Taskmaster implementation
 
 Goal: implement [the approved specification](../../../specs/taskmaster-knowledge.md)

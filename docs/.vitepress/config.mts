@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, resolve } from 'node:path'
 import { defineConfig } from 'vitepress'
+import { repositoryOnlyLinks } from './repository-links.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -46,10 +47,11 @@ export default defineConfig({
     'docs/superpowers/plans/**',
     'docs/adr/template.md',
   ],
-  // Serve docs/index.md as the site home page.
+  // Serve docs/home.md as the site home page.
   rewrites: {
-    'docs/index.md': 'index.md',
+    'docs/home.md': 'index.md',
   },
+  markdown: { config: repositoryOnlyLinks },
   // Dead-link checking stays ON (build fails on dead links). These entries
   // only apply to links that are already dead: links into code files, and
   // links to repo markdown deliberately excluded from the site.

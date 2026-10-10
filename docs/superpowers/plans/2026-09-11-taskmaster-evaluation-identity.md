@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster evaluation identity implementation plan"
+description: "Implementation plan: Taskmaster evaluation identity implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster evaluation identity implementation plan
 
 > **For agentic workers:** Use executing-plans; root is the sole writer.

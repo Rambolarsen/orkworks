@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Inference Definitions Implementation Plan"
+description: "Implementation plan: Taskmaster Inference Definitions Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Inference Definitions Implementation Plan
 
 > **For agentic workers:** Use executing-plans inline for this sequential slice. Root is the sole writer; the owner requested design review, patching, then implementation. Do not dispatch implementation workers.

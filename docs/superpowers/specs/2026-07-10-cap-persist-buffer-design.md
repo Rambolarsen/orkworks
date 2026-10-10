@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Cap PTY Partial-Line Persistence Buffer Design"
+description: "Design history: Cap PTY Partial-Line Persistence Buffer Design."
+tags: ["orkworks", "design"]
+---
+
 # Cap PTY Partial-Line Persistence Buffer Design
 
 ## Goal

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: ".orkworks/ metadata protocol directory structure"
+description: "Architecture decision record: .orkworks/ metadata protocol directory structure."
+tags: ["orkworks", "architecture"]
+---
+
 # `.orkworks/` metadata protocol directory structure
 
 - Status: superseded by [0018](./0018-global-metadata-store.md)

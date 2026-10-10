@@ -1,3 +1,10 @@
+---
+type: "User Guide"
+title: "Update OrkWorks"
+description: "User guide to update OrkWorks in OrkWorks."
+tags: ["orkworks", "user-guide"]
+---
+
 # Update OrkWorks
 
 Packaged OrkWorks builds check a fixed GitHub release feed for this repository.

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Clarification and research-to-execution lifecycle"
+description: "Design history: Clarification and research-to-execution lifecycle."
+tags: ["orkworks", "design"]
+---
+
 # Clarification and research-to-execution lifecycle
 
 - Status: proposed contract; continuity direction approved, written contract review pending

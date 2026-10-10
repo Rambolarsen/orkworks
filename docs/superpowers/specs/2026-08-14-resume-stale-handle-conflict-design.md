@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Resume Stale-Handle Conflict Design"
+description: "Design history: Resume Stale-Handle Conflict Design."
+tags: ["orkworks", "design"]
+---
+
 # Resume Stale-Handle Conflict Design
 
 ## Problem

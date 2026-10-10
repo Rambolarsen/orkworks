@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster macOS Child-Launch Boundary Feasibility Plan"
+description: "Implementation plan: Taskmaster macOS Child-Launch Boundary Feasibility Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster macOS Child-Launch Boundary Feasibility Plan
 
 > **For agentic workers:** This is a research-only record. It does not authorize production child launches or changes to the runner implementation.

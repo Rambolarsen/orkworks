@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Local SonarQube and repository simplification"
+description: "Design history: Local SonarQube and repository simplification."
+tags: ["orkworks", "design"]
+---
+
 # Local SonarQube and repository simplification
 
 Approved by the owner in the 2026-10-08 session; implementation tracked in

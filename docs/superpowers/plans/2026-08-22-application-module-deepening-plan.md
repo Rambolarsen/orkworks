@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Application Module Deepening Implementation Plan"
+description: "Implementation plan: Application Module Deepening Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Application Module Deepening Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

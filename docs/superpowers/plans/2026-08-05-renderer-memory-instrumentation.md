@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Renderer Memory Instrumentation & Lifecycle Invariants Implementation Plan"
+description: "Implementation plan: Renderer Memory Instrumentation & Lifecycle Invariants Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Renderer Memory Instrumentation & Lifecycle Invariants Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

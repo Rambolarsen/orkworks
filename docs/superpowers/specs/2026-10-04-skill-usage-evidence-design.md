@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Skill delivery and usage evidence protocol"
+description: "Design history: Skill delivery and usage evidence protocol."
+tags: ["orkworks", "design"]
+---
+
 # Skill delivery and usage evidence protocol
 
 > **Status:** Proposed component contract for written review. This document does

@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Independent workspace instance validation plan"
+description: "Validation evidence and context: Independent workspace instance validation plan."
+tags: ["orkworks", "validation"]
+---
+
 # Independent workspace instance validation plan
 
 Status: partially verified implementation contract; native ownership gates remain open

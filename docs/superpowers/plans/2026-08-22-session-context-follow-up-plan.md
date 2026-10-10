@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Session Context Follow-up Plan"
+description: "Implementation plan: Session Context Follow-up Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Session Context Follow-up Plan
 
 ## Audit result

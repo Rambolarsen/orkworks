@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Move metadata store from workspace directory to global config directory"
+description: "Architecture decision record: Move metadata store from workspace directory to global config directory."
+tags: ["orkworks", "architecture"]
+---
+
 # Move metadata store from workspace directory to global config directory
 
 - Status: accepted

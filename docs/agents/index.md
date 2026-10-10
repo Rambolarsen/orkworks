@@ -1,7 +1,3 @@
----
-okf_version: "0.2"
----
-
 # Agent Knowledge Bundle
 
 Durable agent-facing project knowledge is organized into the concepts below.
@@ -23,8 +19,12 @@ needed. This index is a routing map; do not load the entire bundle for every tas
 
 ## Development and agent operations
 
+- [Documentation format](documentation-format.md) — OKF 0.2 authoring rules
+  and automated checks for all documentation under `docs/`.
+
 - [Development workflow](development-workflow.md) — Issue, planning,
   documentation, decision, and maintenance workflow reference.
+- [Release signing](release-signing.md) — Signing, notarization, and release-secret setup.
 - [Site maintenance](site-maintenance.md) — Public-site content, generated facts,
   publishing, and scheduled documentation proposals.
 - [Local SonarQube analysis](local-sonarqube.md) — Free local complexity measurements, snapshot scans and simplification workflow.

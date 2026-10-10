@@ -1,3 +1,10 @@
+---
+type: "User Guide"
+title: "Follow your sessions"
+description: "User guide to follow your sessions in OrkWorks."
+tags: ["orkworks", "user-guide"]
+---
+
 # Follow your sessions
 
 Start with one session, then add another when you have independent work to do.

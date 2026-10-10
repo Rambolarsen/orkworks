@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Deletion & Retention Policy"
+description: "Design history: Session Deletion & Retention Policy."
+tags: ["orkworks", "design"]
+---
+
 # Session Deletion & Retention Policy
 
 **Date:** 2026-06-20

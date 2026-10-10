@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "UI Substrate Redesign — Implementation Plan"
+description: "Implementation plan: UI Substrate Redesign — Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # UI Substrate Redesign — Implementation Plan
 
 **Date**: 2026-06-19

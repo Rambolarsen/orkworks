@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Application shell: delivery map"
+description: "Implementation plan: Application shell: delivery map."
+tags: ["orkworks", "plans"]
+---
+
 # Application shell: delivery map
 
 This is the short guide to what the shell work gives users and how the pieces

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "JSON-defined Taskmaster inference adapters"
+description: "Design history: JSON-defined Taskmaster inference adapters."
+tags: ["orkworks", "design"]
+---
+
 # JSON-defined Taskmaster inference adapters
 
 Status: accepted for implementation after owner-requested subagent review

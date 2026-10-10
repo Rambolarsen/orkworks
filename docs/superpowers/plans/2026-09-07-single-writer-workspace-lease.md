@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Single-writer workspace lease"
+description: "Implementation plan: Single-writer workspace lease."
+tags: ["orkworks", "plans"]
+---
+
 # Single-writer workspace lease
 
 ## Goal

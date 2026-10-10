@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster rollup review fixes implementation plan"
+description: "Implementation plan: Taskmaster rollup review fixes implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster rollup review fixes implementation plan
 
 > **For agentic workers:** Execute the scoped regression/fix tasks below using the existing Superpowers TDD and verification workflows.

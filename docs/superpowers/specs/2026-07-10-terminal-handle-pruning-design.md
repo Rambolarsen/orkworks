@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal Handle Pruning Design"
+description: "Design history: Terminal Handle Pruning Design."
+tags: ["orkworks", "design"]
+---
+
 # Terminal Handle Pruning Design
 
 ## Goal

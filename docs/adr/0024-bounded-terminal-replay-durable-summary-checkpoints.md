@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Bounded terminal replay with durable summary checkpoints"
+description: "Architecture decision record: Bounded terminal replay with durable summary checkpoints."
+tags: ["orkworks", "architecture"]
+---
+
 # Bounded terminal replay with durable summary checkpoints
 
 - Status: superseded by [ADR 0042](./0042-workflow-observations-replace-summary-checkpoints.md)

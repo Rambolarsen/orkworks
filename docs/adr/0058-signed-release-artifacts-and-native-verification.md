@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Signed release artifacts and native verification"
+description: "Architecture decision record: Signed release artifacts and native verification."
+tags: ["orkworks", "architecture"]
+---
+
 # Signed release artifacts and native verification
 
 - Status: accepted

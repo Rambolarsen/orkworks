@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Dead-session replay design"
+description: "Design history: Dead-session replay design."
+tags: ["orkworks", "design"]
+---
+
 # Dead-session replay design
 
 ## Goal

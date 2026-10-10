@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster custom activation implementation plan"
+description: "Implementation plan: Taskmaster custom activation implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster custom activation implementation plan
 
 > **For agentic workers:** Use executing-plans; root is the sole writer.

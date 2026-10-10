@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster native bindings implementation plan"
+description: "Implementation plan: Taskmaster native bindings implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster native bindings implementation plan
 
 > **For agentic workers:** Use executing-plans; root owns all edits.

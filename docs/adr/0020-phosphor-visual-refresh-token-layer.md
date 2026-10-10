@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Phosphor visual refresh: cool-graphite + lime token layer"
+description: "Architecture decision record: Phosphor visual refresh: cool-graphite + lime token layer."
+tags: ["orkworks", "architecture"]
+---
+
 # Phosphor visual refresh: cool-graphite + lime token layer
 
 - Status: accepted

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster model refresh and analysis status"
+description: "Design history: Taskmaster model refresh and analysis status."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster model refresh and analysis status
 
 Date: 2026-09-29

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Claude and Copilot Prompt Authority Review Fixes Implementation Plan"
+description: "Implementation plan: Claude and Copilot Prompt Authority Review Fixes Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Claude and Copilot Prompt Authority Review Fixes Implementation Plan
 
 > **For agentic workers:** Execute inline in this session with test-first steps and review checkpoints.

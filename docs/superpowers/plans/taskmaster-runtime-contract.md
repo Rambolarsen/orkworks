@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster runtime implementation contract"
+description: "Implementation plan: Taskmaster runtime implementation contract."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster runtime implementation contract
 
 Applies with specs/taskmaster-knowledge.md (issue #503). Root owns desktop and

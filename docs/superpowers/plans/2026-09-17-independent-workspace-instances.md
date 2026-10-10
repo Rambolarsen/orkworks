@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Independent Workspace Instances Implementation Plan"
+description: "Implementation plan: Independent Workspace Instances Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Independent Workspace Instances Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

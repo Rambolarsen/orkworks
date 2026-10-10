@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Immutable daily prereleases"
+description: "Architecture decision record: Immutable daily prereleases."
+tags: ["orkworks", "architecture"]
+---
+
 # Immutable daily prereleases
 
 - Status: accepted

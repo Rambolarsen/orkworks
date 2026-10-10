@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Peon: observer-only inference in MVP"
+description: "Architecture decision record: Peon: observer-only inference in MVP."
+tags: ["orkworks", "architecture"]
+---
+
 # Peon: observer-only inference in MVP
 
 - Status: accepted

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Peon Model Picker Design"
+description: "Design history: Peon Model Picker Design."
+tags: ["orkworks", "design"]
+---
+
 # Peon Model Picker Design
 
 - Date: 2026-06-22

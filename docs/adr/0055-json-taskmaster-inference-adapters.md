@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "JSON-defined Taskmaster inference adapters"
+description: "Architecture decision record: JSON-defined Taskmaster inference adapters."
+tags: ["orkworks", "architecture"]
+---
+
 # JSON-defined Taskmaster inference adapters
 
 - Status: accepted

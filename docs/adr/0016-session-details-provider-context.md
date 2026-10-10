@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Session details provider context"
+description: "Architecture decision record: Session details provider context."
+tags: ["orkworks", "architecture"]
+---
+
 # Session details provider context
 
 - Status: superseded by 0017 (Settings surface)

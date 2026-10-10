@@ -1,0 +1,205 @@
+# Implementation plans
+
+Dated implementation plans; consult authoritative specs and issues for current scope.
+
+## Documents
+
+- [M4: Session Metadata Protocol — Implementation Plan](2026-06-16-m4-session-metadata-protocol.md) — Implementation plan: M4: Session Metadata Protocol — Implementation Plan.
+- [M5: Git Context Detection — Implementation Plan](2026-06-16-m5-git-context-detection.md) — Implementation plan: M5: Git Context Detection — Implementation Plan.
+- [M6: Peon — Observer Inference Implementation Plan](2026-06-16-m6-peon.md) — Implementation plan: M6: Peon — Observer Inference Implementation Plan.
+- [Peon Review Fixes Implementation Plan](2026-06-16-peon-review-fixes.md) — Implementation plan: Peon Review Fixes Implementation Plan.
+- [Dockview Session Detail — Implementation Plan](2026-06-17-dockview-session-detail.md) — Implementation plan: Dockview Session Detail — Implementation Plan.
+- [Harness Adapters and Resumable Sessions Implementation Plan](2026-06-17-harness-adapters-resumable-sessions.md) — Implementation plan: Harness Adapters and Resumable Sessions Implementation Plan.
+- [Panel Persist & Restore — Implementation Plan](2026-06-17-panel-persist-restore.md) — Implementation plan: Panel Persist & Restore — Implementation Plan.
+- [Dockview Header Unification Implementation Plan](2026-06-18-dockview-header-unification.md) — Implementation plan: Dockview Header Unification Implementation Plan.
+- [App Settings Hotkeys Implementation Plan](2026-06-19-app-settings-hotkeys.md) — Implementation plan: App Settings Hotkeys Implementation Plan.
+- [UI Substrate Redesign — Implementation Plan](2026-06-19-ui-substrate-redesign.md) — Implementation plan: UI Substrate Redesign — Implementation Plan.
+- [Release Pipeline — Implementation Plan](2026-06-20-release-pipeline.md) — Implementation plan: Release Pipeline — Implementation Plan.
+- [Session Deletion & Retention Policy — Implementation Plan](2026-06-20-session-deletion.md) — Implementation plan: Session Deletion & Retention Policy — Implementation Plan.
+- [Provider Ops and Peon Fallback Implementation Plan](2026-06-21-provider-ops-peon-fallback.md) — Implementation plan: Provider Ops and Peon Fallback Implementation Plan.
+- [Peon Model Picker Implementation Plan](2026-06-22-peon-model-picker.md) — Implementation plan: Peon Model Picker Implementation Plan.
+- [Session Aggregate DDD Extraction Implementation Plan](2026-06-22-session-aggregate-ddd-extraction.md) — Implementation plan: Session Aggregate DDD Extraction Implementation Plan.
+- [Session Details Provider Context Implementation Plan](2026-06-22-session-details-provider-context.md) — Implementation plan: Session Details Provider Context Implementation Plan.
+- [Hermes Harness Adapter Implementation Plan](2026-06-23-hermes-harness-adapter.md) — Implementation plan: Hermes Harness Adapter Implementation Plan.
+- [Ollama Provider Wiring Implementation Plan](2026-06-23-ollama-provider-wiring.md) — Implementation plan: Ollama Provider Wiring Implementation Plan.
+- [OpenCode OpenRouter Pass-Through Implementation Plan](2026-06-23-opencode-openrouter-pass-through.md) — Implementation plan: OpenCode OpenRouter Pass-Through Implementation Plan.
+- [Terminology Domain Migration Implementation Plan](2026-06-25-terminology-domain-migration.md) — Implementation plan: Terminology Domain Migration Implementation Plan.
+- [Harness Session ID Capture Implementation Plan](2026-06-26-harness-session-id-capture.md) — Implementation plan: Harness Session ID Capture Implementation Plan.
+- [Harness Usage Limit Detection Implementation Plan](2026-06-28-harness-usage-limit-detection.md) — Implementation plan: Harness Usage Limit Detection Implementation Plan.
+- [Session Online/Offline Resume Implementation Plan](2026-06-28-session-online-offline-resume.md) — Implementation plan: Session Online/Offline Resume Implementation Plan.
+- [APM-Managed MCP Configuration Implementation Plan](2026-06-30-apm-managed-mcp.md) — Implementation plan: APM-Managed MCP Configuration Implementation Plan.
+- [orkworksd main.rs Structural Refactor Implementation Plan](2026-06-30-orkworksd-main-rs-structural-refactor.md) — Implementation plan: orkworksd main.rs Structural Refactor Implementation Plan.
+- [Session Details Debug IDs Implementation Plan](2026-06-30-session-details-debug-ids.md) — Implementation plan: Session Details Debug IDs Implementation Plan.
+- [PR CI Implementation Plan](2026-07-02-pr-ci-implementation.md) — Implementation plan: PR CI Implementation Plan.
+- [APM And Superpowers Hook Fix Implementation Plan](2026-07-03-apm-superpowers-hook-fix.md) — Implementation plan: APM And Superpowers Hook Fix Implementation Plan.
+- [Harness Integration Install State Implementation Plan](2026-07-03-harness-integration-install-state.md) — Implementation plan: Harness Integration Install State Implementation Plan.
+- [Harness Registry Unification Implementation Plan](2026-07-03-harness-registry-unification.md) — Implementation plan: Harness Registry Unification Implementation Plan.
+- [Resume Capacity Checking Implementation Plan](2026-07-03-resume-capacity-checking.md) — Implementation plan: Resume Capacity Checking Implementation Plan.
+- [Session Lifecycle Phase Implementation Plan](2026-07-03-session-lifecycle-phase-implementation-plan.md) — Implementation plan: Session Lifecycle Phase Implementation Plan.
+- [Docs Site (VitePress on GitHub Pages) Implementation Plan](2026-07-04-docs-site-implementation-plan.md) — Implementation plan: Docs Site (VitePress on GitHub Pages) Implementation Plan.
+- [PR112 Provider Registry Fix Implementation Plan](2026-07-04-pr112-provider-registry-fix.md) — Implementation plan: PR112 Provider Registry Fix Implementation Plan.
+- [Codex Capped Clear Implementation Plan](2026-07-05-codex-capped-clear.md) — Implementation plan: Codex Capped Clear Implementation Plan.
+- [Peon Ollama Settings Verification Implementation Plan](2026-07-05-peon-ollama-settings-verification-implementation-plan.md) — Implementation plan: Peon Ollama Settings Verification Implementation Plan.
+- [Terminal Single-Attach Implementation Plan](2026-07-05-terminal-single-attach.md) — Implementation plan: Terminal Single-Attach Implementation Plan.
+- [Session State Injection Implementation Plan](2026-07-06-session-state-injection-implementation-plan.md) — Implementation plan: Session State Injection Implementation Plan.
+- [PTY Output Backpressure Implementation Plan](2026-07-07-pty-output-backpressure.md) — Implementation plan: PTY Output Backpressure Implementation Plan.
+- [Terminal Detach Runtime Implementation Plan](2026-07-07-terminal-detach-runtime-implementation-plan.md) — Implementation plan: Terminal Detach Runtime Implementation Plan.
+- [Codex Stop Hook JSON Implementation Plan](2026-07-09-codex-stop-hook-json.md) — Implementation plan: Codex Stop Hook JSON Implementation Plan.
+- [Session Row Meta Compaction Implementation Plan](2026-07-09-session-row-meta-compaction.md) — Implementation plan: Session Row Meta Compaction Implementation Plan.
+- [Cap PTY Partial-Line Persistence Buffer Implementation Plan](2026-07-10-cap-persist-buffer.md) — Implementation plan: Cap PTY Partial-Line Persistence Buffer Implementation Plan.
+- [PR 153 Review Fixes Implementation Plan](2026-07-10-pr-153-review-fixes.md) — Implementation plan: PR 153 Review Fixes Implementation Plan.
+- [Terminal Handle Pruning Implementation Plan](2026-07-10-terminal-handle-pruning.md) — Implementation plan: Terminal Handle Pruning Implementation Plan.
+- [Peon Idle Scheduling Implementation Plan](2026-07-11-peon-idle-scheduling.md) — Implementation plan: Peon Idle Scheduling Implementation Plan.
+- [Session Launch Workspace Context Implementation Plan](2026-07-11-session-launch-workspace-context.md) — Implementation plan: Session Launch Workspace Context Implementation Plan.
+- [Simplified Session Lifecycle Implementation Plan](2026-07-12-simplified-session-lifecycle-implementation-plan.md) — Implementation plan: Simplified Session Lifecycle Implementation Plan.
+- [Primary main Ownership Implementation Plan](2026-07-13-primary-main-ownership.md) — Implementation plan: Primary main Ownership Implementation Plan.
+- [Session List Duplicate Prevention Implementation Plan](2026-07-13-session-list-duplicate-prevention.md) — Implementation plan: Session List Duplicate Prevention Implementation Plan.
+- [Session Startup Attention Grace Implementation Plan](2026-07-13-session-startup-attention-grace-plan.md) — Implementation plan: Session Startup Attention Grace Implementation Plan.
+- [Harness-Verified Working State Implementation Plan](2026-07-14-harness-work-state.md) — Implementation plan: Harness-Verified Working State Implementation Plan.
+- [Session Activity and Unread Result Redesign Implementation Plan](2026-07-14-session-activity-unread-redesign.md) — Implementation plan: Session Activity and Unread Result Redesign Implementation Plan.
+- [Session Grouping by Recent Activity Implementation Plan](2026-07-14-session-group-by-activity.md) — Implementation plan: Session Grouping by Recent Activity Implementation Plan.
+- [Terminal Input Backpressure Implementation Plan](2026-07-14-terminal-input-backpressure.md) — Implementation plan: Terminal Input Backpressure Implementation Plan.
+- [Single-Key Work Signal Implementation Plan](2026-07-17-single-key-work-signal.md) — Implementation plan: Single-Key Work Signal Implementation Plan.
+- [Terminal Input Clears Attention Implementation Plan](2026-07-19-terminal-input-clears-attention.md) — Implementation plan: Terminal Input Clears Attention Implementation Plan.
+- [Committed Terminal Input Implies Working Implementation Plan](2026-07-21-committed-input-working.md) — Implementation plan: Committed Terminal Input Implies Working Implementation Plan.
+- [Input-generation staleness guard Implementation Plan](2026-07-21-input-generation-staleness-guard.md) — Implementation plan: Input-generation staleness guard Implementation Plan.
+- [Session List Git Scan Performance Implementation Plan](2026-07-21-session-list-git-scan.md) — Implementation plan: Session List Git Scan Performance Implementation Plan.
+- [Session Plan Handoff Implementation Plan](2026-07-21-session-plan-handoff.md) — Implementation plan: Session Plan Handoff Implementation Plan.
+- [Harness Capability System Implementation Plan](2026-07-22-harness-capability-system.md) — Implementation plan: Harness Capability System Implementation Plan.
+- [Read-only Terminal Replay Implementation Plan](2026-07-22-read-only-terminal-replay.md) — Implementation plan: Read-only Terminal Replay Implementation Plan.
+- [Retire the Shadow Hook Installer Implementation Plan](2026-07-24-retire-shadow-hook-installer.md) — Implementation plan: Retire the Shadow Hook Installer Implementation Plan.
+- [Generic Harness Integration UI Implementation Plan](2026-07-25-generic-harness-integration-ui.md) — Implementation plan: Generic Harness Integration UI Implementation Plan.
+- [Harness Tool Detection Implementation Plan](2026-07-25-harness-tool-detection.md) — Implementation plan: Harness Tool Detection Implementation Plan.
+- [Harness Tool Version Detection Implementation Plan](2026-07-26-harness-tool-version-detection.md) — Implementation plan: Harness Tool Version Detection Implementation Plan.
+- [Harness Version Probe Cache Implementation Plan](2026-07-27-harness-version-probe-cache.md) — Implementation plan: Harness Version Probe Cache Implementation Plan.
+- [Lock-check await helper Implementation Plan](2026-07-27-lock-check-await-helper.md) — Implementation plan: Lock-check await helper Implementation Plan.
+- [Unread Notification Dot Implementation Plan](2026-07-27-unread-notification-dot.md) — Implementation plan: Unread Notification Dot Implementation Plan.
+- [Bounded Terminal Output Memory Implementation Plan](2026-07-28-bounded-terminal-output-memory.md) — Implementation plan: Bounded Terminal Output Memory Implementation Plan.
+- [Enter Submission Working Status Implementation Plan](2026-07-28-enter-submission-working-status.md) — Implementation plan: Enter Submission Working Status Implementation Plan.
+- [PR-aware session labels Implementation Plan](2026-07-28-pr-aware-session-labels.md) — Implementation plan: PR-aware session labels Implementation Plan.
+- [Session Output Recency Implementation Plan](2026-07-29-session-output-recency.md) — Implementation plan: Session Output Recency Implementation Plan.
+- [Cross-Harness Scoped Instructions Implementation Plan](2026-07-31-cross-harness-scoped-instructions.md) — Implementation plan: Cross-Harness Scoped Instructions Implementation Plan.
+- [Dead-session replay Implementation Plan](2026-07-31-dead-session-replay.md) — Implementation plan: Dead-session replay Implementation Plan.
+- [External Links in Default Browser Implementation Plan](2026-07-31-external-links-default-browser.md) — Implementation plan: External Links in Default Browser Implementation Plan.
+- [Harness Instruction Coverage Implementation Plan](2026-07-31-harness-instruction-coverage.md) — Implementation plan: Harness Instruction Coverage Implementation Plan.
+- [Session List Stability Implementation Plan](2026-07-31-session-list-stability.md) — Implementation plan: Session List Stability Implementation Plan.
+- [Terminal Replay Size Implementation Plan](2026-07-31-terminal-replay-size.md) — Implementation plan: Terminal Replay Size Implementation Plan.
+- [Claude Code working hook](2026-08-01-claude-working-hook.md) — Implementation plan: Claude Code working hook.
+- [Peon work-history implementation plan](2026-08-01-peon-work-history.md) — Implementation plan: Peon work-history implementation plan.
+- [Session Plan Review Implementation Plan](2026-08-01-session-plan-review.md) — Implementation plan: Session Plan Review Implementation Plan.
+- [Terminal External Links Implementation Plan](2026-08-01-terminal-external-links.md) — Implementation plan: Terminal External Links Implementation Plan.
+- [Recorded Terminal-Size Cue Implementation Plan](2026-08-03-recorded-terminal-size-cue.md) — Implementation plan: Recorded Terminal-Size Cue Implementation Plan.
+- [Codex Hooks Shared-File Ownership Implementation Plan](2026-08-04-codex-hooks-shared-file.md) — Implementation plan: Codex Hooks Shared-File Ownership Implementation Plan.
+- [Codex needs-you clear Implementation Plan](2026-08-04-codex-needs-you-clear.md) — Implementation plan: Codex needs-you clear Implementation Plan.
+- [Hook-reported plan paths Implementation Plan](2026-08-04-hook-reported-plan-paths.md) — Implementation plan: Hook-reported plan paths Implementation Plan.
+- [Renderer Memory Instrumentation & Lifecycle Invariants Implementation Plan](2026-08-05-renderer-memory-instrumentation.md) — Implementation plan: Renderer Memory Instrumentation & Lifecycle Invariants Implementation Plan.
+- [Terminal Plan Links Implementation Plan](2026-08-09-terminal-plan-links.md) — Implementation plan: Terminal Plan Links Implementation Plan.
+- [Remove Stale Codex Ponytail Hooks Implementation Plan](2026-08-11-remove-stale-codex-ponytail-hooks.md) — Implementation plan: Remove Stale Codex Ponytail Hooks Implementation Plan.
+- [Antigravity CLI Harness Migration Implementation Plan](2026-08-12-antigravity-cli-harness-migration.md) — Implementation plan: Antigravity CLI Harness Migration Implementation Plan.
+- [Session Label Reset Commands Implementation Plan](2026-08-13-session-label-reset-commands.md) — Implementation plan: Session Label Reset Commands Implementation Plan.
+- [Provider Settings Migration Implementation Plan](2026-08-14-provider-settings-migration.md) — Implementation plan: Provider Settings Migration Implementation Plan.
+- [Resume Stale-Handle Conflict Implementation Plan](2026-08-14-resume-stale-handle-conflict.md) — Implementation plan: Resume Stale-Handle Conflict Implementation Plan.
+- [Workflow Observation Feedback Loop Implementation Plan](2026-08-14-workflow-observation-feedback-loop.md) — Implementation plan: Workflow Observation Feedback Loop Implementation Plan.
+- [Release Artifact Verification Implementation Plan](2026-08-15-release-artifact-verification.md) — Implementation plan: Release Artifact Verification Implementation Plan.
+- [Session Startup Finalization Implementation Plan](2026-08-15-session-startup-finalization.md) — Implementation plan: Session Startup Finalization Implementation Plan.
+- [Session list sort by recency, throttled — Implementation Plan](2026-08-16-session-sort-recency.md) — Implementation plan: Session list sort by recency, throttled — Implementation Plan.
+- [Copilot Label Reset Commands Implementation Plan](2026-08-20-copilot-label-reset-commands.md) — Implementation plan: Copilot Label Reset Commands Implementation Plan.
+- [Taskmaster Review Fixes Implementation Plan](2026-08-21-taskmaster-review-fixes.md) — Implementation plan: Taskmaster Review Fixes Implementation Plan.
+- [Application Module Deepening Implementation Plan](2026-08-22-application-module-deepening-plan.md) — Implementation plan: Application Module Deepening Implementation Plan.
+- [Session Context Follow-up Plan](2026-08-22-session-context-follow-up-plan.md) — Implementation plan: Session Context Follow-up Plan.
+- [Claude Windows Hooks Implementation Plan](2026-08-24-claude-windows-hooks.md) — Implementation plan: Claude Windows Hooks Implementation Plan.
+- [Global Scrollbar Styling Implementation Plan](2026-08-24-global-scrollbar-styling.md) — Implementation plan: Global Scrollbar Styling Implementation Plan.
+- [Harness Version Status Implementation Plan](2026-08-25-harness-version-status.md) — Implementation plan: Harness Version Status Implementation Plan.
+- [Provider Model Selection Implementation Plan](2026-08-25-provider-model-selection.md) — Implementation plan: Provider Model Selection Implementation Plan.
+- [Session Projection Implementation Plan](2026-08-25-session-projection.md) — Implementation plan: Session Projection Implementation Plan.
+- [Runtime Recovery Fix-Wave Implementation Plan](2026-08-26-runtime-recovery-fix-wave.md) — Implementation plan: Runtime Recovery Fix-Wave Implementation Plan.
+- [Runtime Recovery Latest-Fix Implementation Plan](2026-08-26-runtime-recovery-latest-fix.md) — Implementation plan: Runtime Recovery Latest-Fix Implementation Plan.
+- [Runtime Recovery Implementation Plan](2026-08-26-runtime-recovery.md) — Implementation plan: Runtime Recovery Implementation Plan.
+- [Codex Hook Trust Status Implementation Plan](2026-08-27-codex-hook-trust-status.md) — Implementation plan: Codex Hook Trust Status Implementation Plan.
+- [Debug-Only Peon Diagnostics Implementation Plan](2026-08-27-peon-diagnostics.md) — Implementation plan: Debug-Only Peon Diagnostics Implementation Plan.
+- [Settings Coding-Tool Detection Status Implementation Plan](2026-08-27-settings-coding-tool-detection-plan.md) — Implementation plan: Settings Coding-Tool Detection Status Implementation Plan.
+- [Copilot Native Voice Capability Implementation Plan](2026-08-28-copilot-native-voice.md) — Implementation plan: Copilot Native Voice Capability Implementation Plan.
+- [Dim Dead Sessions Implementation Plan](2026-08-28-dim-dead-sessions.md) — Implementation plan: Dim Dead Sessions Implementation Plan.
+- [Active Coding Tool Hook Toggle Implementation Plan](2026-08-29-active-coding-tool-hook-toggle.md) — Implementation plan: Active Coding Tool Hook Toggle Implementation Plan.
+- [Review Tab Plan File Refresh Implementation Plan](2026-08-30-review-tab-plan-refresh.md) — Implementation plan: Review Tab Plan File Refresh Implementation Plan.
+- [Custom Harness Configuration Implementation Plan](2026-08-31-custom-harness-config.md) — Implementation plan: Custom Harness Configuration Implementation Plan.
+- [Substantial PR Review Reruns Implementation Plan](2026-09-02-substantial-pr-review-reruns.md) — Implementation plan: Substantial PR Review Reruns Implementation Plan.
+- [Codex Deterministic Attention Signals Implementation Plan](2026-09-07-codex-attention-signals.md) — Implementation plan: Codex Deterministic Attention Signals Implementation Plan.
+- [Peon Codex Model and Effort Discovery Implementation Plan](2026-09-07-peon-codex-model-effort.md) — Implementation plan: Peon Codex Model and Effort Discovery Implementation Plan.
+- [Single-writer workspace lease](2026-09-07-single-writer-workspace-lease.md) — Implementation plan: Single-writer workspace lease.
+- [Taskmaster Recommendation Handoff Implementation Plan](2026-09-07-taskmaster-recommendation-handoff.md) — Implementation plan: Taskmaster Recommendation Handoff Implementation Plan.
+- [Agent Knowledge Bundle Implementation Plan](2026-09-08-agent-knowledge-bundle.md) — Implementation plan: Agent Knowledge Bundle Implementation Plan.
+- [Windows Installer Smoke Test Implementation Plan](2026-09-08-windows-installer-smoke.md) — Implementation plan: Windows Installer Smoke Test Implementation Plan.
+- [Brain-informed Taskmaster implementation](2026-09-09-taskmaster-knowledge.md) — Implementation plan: Brain-informed Taskmaster implementation.
+- [Custom Inference Transport Implementation Plan](2026-09-10-custom-inference-transport.md) — Implementation plan: Custom Inference Transport Implementation Plan.
+- [Custom Inference Approval Flow Implementation Plan](2026-09-10-inference-approval-ui.md) — Implementation plan: Custom Inference Approval Flow Implementation Plan.
+- [Taskmaster Inference Definitions Implementation Plan](2026-09-10-inference-definition-slice.md) — Implementation plan: Taskmaster Inference Definitions Implementation Plan.
+- [Inference Trust Foundation Implementation Plan](2026-09-10-inference-trust-slice.md) — Implementation plan: Inference Trust Foundation Implementation Plan.
+- [Taskmaster provider selection foundation](2026-09-10-taskmaster-provider-selection.md) — Implementation plan: Taskmaster provider selection foundation.
+- [Taskmaster custom activation implementation plan](2026-09-11-taskmaster-custom-activation.md) — Implementation plan: Taskmaster custom activation implementation plan.
+- [Taskmaster evaluation identity implementation plan](2026-09-11-taskmaster-evaluation-identity.md) — Implementation plan: Taskmaster evaluation identity implementation plan.
+- [Taskmaster guarded spawn implementation plan](2026-09-11-taskmaster-guarded-spawn.md) — Implementation plan: Taskmaster guarded spawn implementation plan.
+- [Taskmaster inference guard implementation plan](2026-09-11-taskmaster-inference-guard.md) — Implementation plan: Taskmaster inference guard implementation plan.
+- [Taskmaster native bindings implementation plan](2026-09-11-taskmaster-native-bindings.md) — Implementation plan: Taskmaster native bindings implementation plan.
+- [Taskmaster Windows fixture preparation](2026-09-11-taskmaster-windows-fixtures.md) — Implementation plan: Taskmaster Windows fixture preparation.
+- [Coding Tool Settings Implementation Plan](2026-09-11-windows-tool-settings.md) — Implementation plan: Coding Tool Settings Implementation Plan.
+- [PR 526 review corrections](2026-09-12-pr-526-review-fixes.md) — Implementation plan: PR 526 review corrections.
+- [Windows dialog drag review fix](2026-09-12-windows-dialog-drag.md) — Implementation plan: Windows dialog drag review fix.
+- [Windows Integrated Header Implementation Plan](2026-09-12-windows-header.md) — Implementation plan: Windows Integrated Header Implementation Plan.
+- [Multi-workspace validation plan](2026-09-13-multi-workspace-validation.md) — Implementation plan: Multi-workspace validation plan.
+- [Pull Request Babysitting Skill Implementation Plan](2026-09-13-pr-babysitting-skill.md) — Implementation plan: Pull Request Babysitting Skill Implementation Plan.
+- [Taskmaster Recommendation Rollups Implementation Plan](2026-09-13-taskmaster-recommendation-rollups.md) — Implementation plan: Taskmaster Recommendation Rollups Implementation Plan.
+- [Windows Analysis Lease Contention Implementation Plan](2026-09-13-windows-analysis-lease-contention.md) — Implementation plan: Windows Analysis Lease Contention Implementation Plan.
+- [Windows Terminal Plan-Path Links Implementation Plan (historical)](2026-09-13-windows-terminal-plan-links.md) — Implementation plan: Windows Terminal Plan-Path Links Implementation Plan (historical).
+- [Release Signing and Notarization Implementation Plan](2026-09-14-release-signing.md) — Implementation plan: Release Signing and Notarization Implementation Plan.
+- [Taskmaster rollup review fixes implementation plan](2026-09-14-rollup-review-fixes.md) — Implementation plan: Taskmaster rollup review fixes implementation plan.
+- [Daily Release Implementation Plan](2026-09-15-daily-release.md) — Implementation plan: Daily Release Implementation Plan.
+- [Process Ownership Proof Implementation Plan](2026-09-15-process-ownership-proof.md) — Implementation plan: Process Ownership Proof Implementation Plan.
+- [Process Ownership Review Remediation Implementation Plan](2026-09-16-process-ownership-review-remediation.md) — Implementation plan: Process Ownership Review Remediation Implementation Plan.
+- [Desktop Updater Implementation Plan](2026-09-17-desktop-updater.md) — Implementation plan: Desktop Updater Implementation Plan.
+- [Independent Workspace Instances Implementation Plan](2026-09-17-independent-workspace-instances.md) — Implementation plan: Independent Workspace Instances Implementation Plan.
+- [Recent Workspace Switcher (Pin/Remove) Implementation Plan](2026-09-19-recent-workspace-switcher.md) — Implementation plan: Recent Workspace Switcher (Pin/Remove) Implementation Plan.
+- [Windows Recommendation Handoff Fix Implementation Plan](2026-09-19-windows-recommendation-directory-sync-fix.md) — Implementation plan: Windows Recommendation Handoff Fix Implementation Plan.
+- [Codex Native Session Labels Implementation Plan](2026-09-24-codex-native-session-labels.md) — Implementation plan: Codex Native Session Labels Implementation Plan.
+- [Taskmaster Coordinator Design Review Fixes Implementation Plan](2026-09-24-taskmaster-coordinator-design-review-fixes.md) — Implementation plan: Taskmaster Coordinator Design Review Fixes Implementation Plan.
+- [Taskmaster Coordinator Foundation Implementation Plan](2026-09-24-taskmaster-coordinator-foundation.md) — Implementation plan: Taskmaster Coordinator Foundation Implementation Plan.
+- [Master-Session Parallel Runner Implementation Plan](2026-09-25-master-session-parallel-runner.md) — Implementation plan: Master-Session Parallel Runner Implementation Plan.
+- [Codex Session ID Integrity Implementation Plan](2026-09-26-codex-session-id-integrity.md) — Implementation plan: Codex Session ID Integrity Implementation Plan.
+- [OpenCode Prompt Attention Implementation Plan](2026-09-26-opencode-prompt-attention.md) — Implementation plan: OpenCode Prompt Attention Implementation Plan.
+- [Taskmaster Manual Brain Analysis Implementation Plan](2026-09-26-taskmaster-manual-brain-analysis.md) — Implementation plan: Taskmaster Manual Brain Analysis Implementation Plan.
+- [Taskmaster macOS Child-Launch Boundary Feasibility Plan](2026-09-26-taskmaster-native-child-launch.md) — Implementation plan: Taskmaster macOS Child-Launch Boundary Feasibility Plan.
+- [Taskmaster Orchestrated Child Sessions Implementation Plan](2026-09-26-taskmaster-orchestrated-child-sessions.md) — Implementation plan: Taskmaster Orchestrated Child Sessions Implementation Plan.
+- [Taskmaster Recovery Review Fixes](2026-09-26-taskmaster-recovery-review-cycle4.md) — Implementation plan: Taskmaster Recovery Review Fixes.
+- [Codex Session ID Fallback Implementation Plan](2026-09-27-codex-session-id-fallback.md) — Implementation plan: Codex Session ID Fallback Implementation Plan.
+- [Codex Session ID Relay Implementation Plan](2026-09-28-codex-session-id-relay.md) — Implementation plan: Codex Session ID Relay Implementation Plan.
+- [Taskmaster Model Refresh Implementation Plan](2026-09-30-taskmaster-model-refresh.md) — Implementation plan: Taskmaster Model Refresh Implementation Plan.
+- [Taskmaster Analysis Run Status Implementation Plan](2026-09-30-taskmaster-run-status.md) — Implementation plan: Taskmaster Analysis Run Status Implementation Plan.
+- [Codex Permission Diagnostic Implementation Plan](2026-10-01-codex-permission-diagnostic.md) — Implementation plan: Codex Permission Diagnostic Implementation Plan.
+- [Rollup proposedChange Implementation Plan](2026-10-01-rollup-proposed-change.md) — Implementation plan: Rollup proposedChange Implementation Plan.
+- [Claude and Copilot Prompt Authority Implementation Plan](2026-10-02-claude-copilot-prompt-authority.md) — Implementation plan: Claude and Copilot Prompt Authority Implementation Plan.
+- [Claude and Copilot Prompt Authority Review Fixes Implementation Plan](2026-10-03-claude-copilot-prompt-authority-review-fixes.md) — Implementation plan: Claude and Copilot Prompt Authority Review Fixes Implementation Plan.
+- [Live Uncommitted Change Counts Implementation Plan](2026-10-03-live-change-counts.md) — Implementation plan: Live Uncommitted Change Counts Implementation Plan.
+- [Session-creation Git scan implementation plan](2026-10-03-session-create-git-worker.md) — Implementation plan: Session-creation Git scan implementation plan.
+- [Taskmaster PTY delivery implementation plan](2026-10-03-taskmaster-pty-delivery.md) — Implementation plan: Taskmaster PTY delivery implementation plan.
+- [Terminal Trackpad Bursts Implementation Plan](2026-10-03-terminal-trackpad-bursts.md) — Implementation plan: Terminal Trackpad Bursts Implementation Plan.
+- [Agent Hierarchy Specification Implementation Plan](2026-10-04-agent-hierarchy-work-specification.md) — Implementation plan: Agent Hierarchy Specification Implementation Plan.
+- [Copilot role capability probe plan](2026-10-04-copilot-role-capability-probes.md) — Implementation plan: Copilot role capability probe plan.
+- [Repository identity specification task](2026-10-04-repository-identity-specification.md) — Implementation plan: Repository identity specification task.
+- [Codex native approval status Implementation Plan](2026-10-05-codex-native-approval-status.md) — Implementation plan: Codex native approval status Implementation Plan.
+- [PR 764 Review Cycle 6 Implementation Plan](2026-10-07-pr764-review-cycle-six.md) — Implementation plan: PR 764 Review Cycle 6 Implementation Plan.
+- [PR 764 Review Fixes Implementation Plan](2026-10-07-pr764-review-fixes.md) — Implementation plan: PR 764 Review Fixes Implementation Plan.
+- [Taskmaster Brain-guided Assessment Implementation Plan](2026-10-07-taskmaster-brain-guided-assessment.md) — Implementation plan: Taskmaster Brain-guided Assessment Implementation Plan.
+- [Application shell: delivery map](2026-10-08-application-shell-redesign.md) — Implementation plan: Application shell: delivery map.
+- [Local SonarQube Implementation Plan](2026-10-08-local-sonarqube.md) — Implementation plan: Local SonarQube Implementation Plan.
+- [Peon AttemptContext Implementation Plan](2026-10-08-peon-attempt-context.md) — Implementation plan: Peon AttemptContext Implementation Plan.
+- [Taskmaster privacy prerequisite implementation plan](2026-10-08-taskmaster-privacy-gate.md) — Implementation plan: Taskmaster privacy prerequisite implementation plan.
+- [Taskmaster Recommendation Audit Implementation Plan](2026-10-08-taskmaster-recommendation-audit.md) — Implementation plan: Taskmaster Recommendation Audit Implementation Plan.
+- [Proposals Require Recurrence: Taskmaster Qualification Threshold Implementation Plan](2026-10-08-taskmaster-recurrence-floor.md) — Implementation plan: Proposals Require Recurrence: Taskmaster Qualification Threshold Implementation Plan.
+- [Delivery plan: ordinary Actions overview](2026-10-10-application-shell-actions.md) — Implementation plan: Delivery plan: ordinary Actions overview.
+- [Delivery plan: fixed shell and shared navigation](2026-10-10-application-shell-fixed-shell.md) — Implementation plan: Delivery plan: fixed shell and shared navigation.
+- [Delivery plan: Review and return to the same terminal](2026-10-10-application-shell-review.md) — Implementation plan: Delivery plan: Review and return to the same terminal.
+- [Harness integration application extraction](2026-10-10-harness-integration-application.md) — Extract existing Rust integration orchestration behind a typed application interface and preserve every existing transport and runtime behavior.
+- [Repository Identity Runtime Implementation Plan](2026-10-10-repository-identity-runtime.md) — Implementation plan: Repository Identity Runtime Implementation Plan.
+- [Privacy-qualified Taskmaster knowledge implementation](2026-10-10-taskmaster-knowledge-distribution.md) — Deliver issue 529 through a reviewed Brain publisher, independently verified activation, and packaged offline/live evidence.
+- [Taskmaster runtime implementation contract](taskmaster-runtime-contract.md) — Implementation plan: Taskmaster runtime implementation contract.
+- [Taskmaster runtime implementation report](taskmaster-runtime-report.md) — Implementation plan: Taskmaster runtime implementation report.

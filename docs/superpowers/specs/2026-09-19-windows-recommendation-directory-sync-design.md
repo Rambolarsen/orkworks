@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Windows recommendation handoff directory-sync design"
+description: "Design history: Windows recommendation handoff directory-sync design."
+tags: ["orkworks", "design"]
+---
+
 # Windows recommendation handoff directory-sync design
 
 ## Problem

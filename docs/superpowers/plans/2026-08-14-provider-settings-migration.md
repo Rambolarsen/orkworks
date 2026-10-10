@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Provider Settings Migration Implementation Plan"
+description: "Implementation plan: Provider Settings Migration Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Provider Settings Migration Implementation Plan
 
 > For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement task-by-task.

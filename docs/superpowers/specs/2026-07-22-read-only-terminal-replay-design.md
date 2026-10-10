@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Read-only terminal replay for remembered sessions"
+description: "Design history: Read-only terminal replay for remembered sessions."
+tags: ["orkworks", "design"]
+---
+
 # Read-only terminal replay for remembered sessions
 
 ## Problem

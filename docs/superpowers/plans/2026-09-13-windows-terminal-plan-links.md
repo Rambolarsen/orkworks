@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Windows Terminal Plan-Path Links Implementation Plan (historical)"
+description: "Implementation plan: Windows Terminal Plan-Path Links Implementation Plan (historical)."
+tags: ["orkworks", "plans"]
+---
+
 # Windows Terminal Plan-Path Links Implementation Plan (historical)
 
 > Implemented on 2026-09-13. Verification passed for the renderer/Dockview

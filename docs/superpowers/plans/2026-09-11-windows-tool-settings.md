@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Coding Tool Settings Implementation Plan"
+description: "Implementation plan: Coding Tool Settings Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Coding Tool Settings Implementation Plan
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task.

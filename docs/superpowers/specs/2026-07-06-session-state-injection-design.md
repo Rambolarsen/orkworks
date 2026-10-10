@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session State Injection Design"
+description: "Design history: Session State Injection Design."
+tags: ["orkworks", "design"]
+---
+
 # Session State Injection Design
 
 - Date: 2026-07-06

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Agent hierarchy interaction and visual presentation"
+description: "Design history: Agent hierarchy interaction and visual presentation."
+tags: ["orkworks", "design"]
+---
+
 # Agent hierarchy interaction and visual presentation
 
 - Status: proposed interaction/projection contract; written review and upstream agreement pending

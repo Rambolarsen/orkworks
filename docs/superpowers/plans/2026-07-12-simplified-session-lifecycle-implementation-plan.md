@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Simplified Session Lifecycle Implementation Plan"
+description: "Implementation plan: Simplified Session Lifecycle Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Simplified Session Lifecycle Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

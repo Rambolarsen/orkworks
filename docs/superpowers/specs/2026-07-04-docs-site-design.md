@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Docs Site (Companion Webpage) Design"
+description: "Design history: Docs Site (Companion Webpage) Design."
+tags: ["orkworks", "design"]
+---
+
 # Docs Site (Companion Webpage) Design
 
 **Date:** 2026-07-04

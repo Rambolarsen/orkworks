@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Provider-Scoped Peon Model Selection"
+description: "Design history: Provider-Scoped Peon Model Selection."
+tags: ["orkworks", "design"]
+---
+
 # Provider-Scoped Peon Model Selection
 
 ## Problem

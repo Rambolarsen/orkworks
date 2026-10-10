@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session label reset commands design"
+description: "Design history: Session label reset commands design."
+tags: ["orkworks", "design"]
+---
+
 # Session label reset commands design
 
 ## Context

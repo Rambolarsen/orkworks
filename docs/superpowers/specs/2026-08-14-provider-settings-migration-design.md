@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Provider Settings Migration Design"
+description: "Design history: Provider Settings Migration Design."
+tags: ["orkworks", "design"]
+---
+
 # Provider Settings Migration Design
 
 ## Goal

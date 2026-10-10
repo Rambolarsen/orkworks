@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Live session cwd via cross-platform sysinfo probe"
+description: "Architecture decision record: Live session cwd via cross-platform sysinfo probe."
+tags: ["orkworks", "architecture"]
+---
+
 # Live session cwd via cross-platform sysinfo probe
 
 - Status: accepted

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster recommendation audit (bulk review/cleanup) — design"
+description: "Design history: Taskmaster recommendation audit (bulk review/cleanup) — design."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster recommendation audit (bulk review/cleanup) — design
 
 Date: 2026-10-08

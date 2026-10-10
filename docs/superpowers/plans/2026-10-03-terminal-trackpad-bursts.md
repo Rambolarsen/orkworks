@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Terminal Trackpad Bursts Implementation Plan"
+description: "Implementation plan: Terminal Trackpad Bursts Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Terminal Trackpad Bursts Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

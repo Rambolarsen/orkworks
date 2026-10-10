@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Daily release implementation design"
+description: "Design history: Daily release implementation design."
+tags: ["orkworks", "design"]
+---
+
 # Daily release implementation design
 
 **Status:** approved in-session; amended after adversarial review

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Recovery Review Fixes"
+description: "Implementation plan: Taskmaster Recovery Review Fixes."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Recovery Review Fixes
 
 > **For agentic workers:** Execute this plan inline in the current PR worktree.

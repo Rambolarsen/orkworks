@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Agent role configuration and coding-tool permissions"
+description: "Design history: Agent role configuration and coding-tool permissions."
+tags: ["orkworks", "design"]
+---
+
 # Agent role configuration and coding-tool permissions
 
 - Status: proposed contract; drafting authorized, written contract review pending

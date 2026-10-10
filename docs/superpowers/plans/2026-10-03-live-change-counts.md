@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Live Uncommitted Change Counts Implementation Plan"
+description: "Implementation plan: Live Uncommitted Change Counts Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Live Uncommitted Change Counts Implementation Plan
 
 > **For agentic workers:** Use executing-plans to implement this approved plan inline, with test-first checks and independent diff review.

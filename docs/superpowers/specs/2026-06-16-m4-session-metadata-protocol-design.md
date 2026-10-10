@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "M4: Session Metadata Protocol — Design"
+description: "Design history: M4: Session Metadata Protocol — Design."
+tags: ["orkworks", "design"]
+---
+
 # M4: Session Metadata Protocol — Design
 
 ## Overview

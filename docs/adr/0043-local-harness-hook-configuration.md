@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Harness hook configuration is local; doc checks use a committed shared source"
+description: "Architecture decision record: Harness hook configuration is local; doc checks use a committed shared source."
+tags: ["orkworks", "architecture"]
+---
+
 # Harness hook configuration is local; doc checks use a committed shared source
 
 - Status: accepted

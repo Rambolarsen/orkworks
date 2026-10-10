@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Codex Native Attention With Sidecar-Mediated Metadata Writes"
+description: "Design history: Codex Native Attention With Sidecar-Mediated Metadata Writes."
+tags: ["orkworks", "design"]
+---
+
 # Codex Native Attention With Sidecar-Mediated Metadata Writes
 
 - Status: owner-approved written design; producer-protocol implementation and

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Multi-workspace validation plan"
+description: "Implementation plan: Multi-workspace validation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Multi-workspace validation plan
 
 The proposed [validation contract](../../validation/multi-workspace.md) now lives

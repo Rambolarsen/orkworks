@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Settings Coding-Tool Detection Status Design"
+description: "Design history: Settings Coding-Tool Detection Status Design."
+tags: ["orkworks", "design"]
+---
+
 # Settings Coding-Tool Detection Status Design
 
 ## Goal

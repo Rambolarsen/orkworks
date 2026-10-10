@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Prompt attention authority for Claude Code, Copilot CLI, and Aider"
+description: "Design history: Prompt attention authority for Claude Code, Copilot CLI, and Aider."
+tags: ["orkworks", "design"]
+---
+
 # Prompt attention authority for Claude Code, Copilot CLI, and Aider
 
 ## Status

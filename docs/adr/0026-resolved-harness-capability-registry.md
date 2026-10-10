@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Resolved harness capability registry"
+description: "Architecture decision record: Resolved harness capability registry."
+tags: ["orkworks", "architecture"]
+---
+
 # Resolved harness capability registry
 
 - Status: accepted

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal Input Clears Attention"
+description: "Design history: Terminal Input Clears Attention."
+tags: ["orkworks", "design"]
+---
+
 # Terminal Input Clears Attention
 
 ## Purpose

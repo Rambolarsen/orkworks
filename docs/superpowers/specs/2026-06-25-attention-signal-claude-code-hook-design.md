@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Attention Signal: Claude Code Notification Hook Design"
+description: "Design history: Attention Signal: Claude Code Notification Hook Design."
+tags: ["orkworks", "design"]
+---
+
 # Attention Signal: Claude Code Notification Hook Design
 
 - Date: 2026-06-25

@@ -1,3 +1,10 @@
+---
+type: "Template"
+title: "[short title of solved problem and solution]"
+description: "Template for recording architecture decisions and their consequences."
+tags: ["orkworks", "architecture"]
+---
+
 # [short title of solved problem and solution]
 
 - Status: proposed | accepted | deprecated | superseded

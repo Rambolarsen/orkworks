@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex native session names enrich automatic session labels"
+description: "Architecture decision record: Codex native session names enrich automatic session labels."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex native session names enrich automatic session labels
 
 - Status: accepted

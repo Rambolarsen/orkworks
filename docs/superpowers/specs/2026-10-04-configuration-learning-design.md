@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Repository-scoped configuration learning and skill improvements"
+description: "Design history: Repository-scoped configuration learning and skill improvements."
+tags: ["orkworks", "design"]
+---
+
 # Repository-scoped configuration learning and skill improvements
 
 - Status: repository-identity contract accepted; learning/history contract proposed for review; runtime and platform evidence gated

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Inference Trust Foundation Implementation Plan"
+description: "Implementation plan: Inference Trust Foundation Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Inference Trust Foundation Implementation Plan
 
 > **For agentic workers:** Use executing-plans inline. Root owns all writes. This continues the approved adapter architecture, not a new design approval cycle.

@@ -3,7 +3,7 @@ type: Design
 title: Privacy-qualified Taskmaster knowledge distribution
 description: Reviewed Brain export, signed offline and feed knowledge, and verified Taskmaster admission for issue 529.
 tags: [orkworks, taskmaster, knowledge, privacy, distribution]
-status: accepted
+workflow_status: accepted
 ---
 
 # Privacy-qualified Taskmaster knowledge distribution

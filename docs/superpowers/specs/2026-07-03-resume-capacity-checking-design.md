@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Resume Capacity Checking"
+description: "Design history: Resume Capacity Checking."
+tags: ["orkworks", "design"]
+---
+
 # Resume Capacity Checking
 
 **Date:** 2026-07-03

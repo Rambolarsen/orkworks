@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "One sidecar per open workspace"
+description: "Architecture decision record: One sidecar per open workspace."
+tags: ["orkworks", "architecture"]
+---
+
 # One sidecar per open workspace
 
 - Status: superseded by [ADR 0060](./0060-independent-workspace-instances.md)

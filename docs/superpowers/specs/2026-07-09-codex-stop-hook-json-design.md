@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Codex Stop Hook JSON Design"
+description: "Design history: Codex Stop Hook JSON Design."
+tags: ["orkworks", "design"]
+---
+
 # Codex Stop Hook JSON Design
 
 ## Goal

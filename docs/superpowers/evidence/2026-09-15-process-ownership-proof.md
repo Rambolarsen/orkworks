@@ -1,3 +1,10 @@
+---
+type: "Verification Record"
+title: "Process ownership proof — Task 7 evidence and status"
+description: "Verification evidence: Process ownership proof — Task 7 evidence and status."
+tags: ["orkworks", "verification"]
+---
+
 # Process ownership proof — Task 7 evidence and status
 
 Status: fix round 1 evidence consolidation; issue #545 remains open.

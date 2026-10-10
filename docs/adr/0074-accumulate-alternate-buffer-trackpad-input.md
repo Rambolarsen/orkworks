@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Accumulate alternate-buffer trackpad input"
+description: "Architecture decision record: Accumulate alternate-buffer trackpad input."
+tags: ["orkworks", "architecture"]
+---
+
 # Accumulate alternate-buffer trackpad input
 
 - Status: accepted

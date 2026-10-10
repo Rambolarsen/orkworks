@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Codex native approval status Implementation Plan"
+description: "Implementation plan: Codex native approval status Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Codex native approval status Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

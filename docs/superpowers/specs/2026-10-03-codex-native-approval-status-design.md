@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Codex approval attention from an owned native runtime"
+description: "Design history: Codex approval attention from an owned native runtime."
+tags: ["orkworks", "design"]
+---
+
 # Codex approval attention from an owned native runtime
 
 Status: **approved for implementation on 2026-10-05; production verification gates remain open**.

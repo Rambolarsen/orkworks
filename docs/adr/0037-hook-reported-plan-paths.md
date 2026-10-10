@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Hook-reported plan paths"
+description: "Architecture decision record: Hook-reported plan paths."
+tags: ["orkworks", "architecture"]
+---
+
 # Hook-reported plan paths
 
 - Status: accepted

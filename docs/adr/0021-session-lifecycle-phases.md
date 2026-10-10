@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Explicit session lifecycle phases with frozen final observed state"
+description: "Architecture decision record: Explicit session lifecycle phases with frozen final observed state."
+tags: ["orkworks", "architecture"]
+---
+
 # Explicit session lifecycle phases with frozen final observed state
 
 - Status: superseded by [ADR 0023](./0023-simplified-session-lifecycle.md)

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "App Settings and Configurable Hotkeys — Design"
+description: "Design history: App Settings and Configurable Hotkeys — Design."
+tags: ["orkworks", "design"]
+---
+
 # App Settings and Configurable Hotkeys — Design
 
 > **Date:** 2026-06-18

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Lock-check await helper Implementation Plan"
+description: "Implementation plan: Lock-check await helper Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Lock-check await helper Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

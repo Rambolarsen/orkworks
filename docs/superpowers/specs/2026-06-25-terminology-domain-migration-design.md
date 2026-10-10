@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "OrkWorks Terminology and Domain Boundary Migration Design"
+description: "Design history: OrkWorks Terminology and Domain Boundary Migration Design."
+tags: ["orkworks", "design"]
+---
+
 # OrkWorks Terminology and Domain Boundary Migration Design
 
 ## Summary

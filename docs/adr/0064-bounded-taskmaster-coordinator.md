@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "ADR 0064: Bounded Taskmaster coordinator uses approved root plans"
+description: "Architecture decision record: ADR 0064: Bounded Taskmaster coordinator uses approved root plans."
+tags: ["orkworks", "architecture"]
+---
+
 # ADR 0064: Bounded Taskmaster coordinator uses approved root plans
 
 - Status: superseded by [ADR 0077](0077-taskmaster-orchestrated-child-sessions.md) as the accepted replacement scope; runtime implementation remains gated

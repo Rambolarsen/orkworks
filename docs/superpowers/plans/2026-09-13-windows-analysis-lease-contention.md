@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Windows Analysis Lease Contention Implementation Plan"
+description: "Implementation plan: Windows Analysis Lease Contention Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Windows Analysis Lease Contention Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
