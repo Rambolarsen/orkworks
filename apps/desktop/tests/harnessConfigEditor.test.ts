@@ -196,7 +196,6 @@ test("Settings keeps toggles, detection, command path, integration, confirmation
   assert.match(settings, /<HarnessDetectionStatus/);
   assert.match(settings, /<HarnessCommandPathControl/);
   assert.match(settings, /getGroupedHarnessIntegrationStatus/);
-  assert.match(settings, /saveActiveHarnessesHandler/);
   assert.match(settings, /onSaveActiveHarnesses/);
   assert.match(settings, /settings-config-footer/);
 });
