@@ -7,10 +7,11 @@ description: Use before drafting or substantially revising an implementation pla
 
 Keep plans clear; assess complexity separately from plan quality.
 
-## Before drafting
+## Before drafting or reviewing
 
 Read requirements and evidence; state the outcome and constraints. Reuse
-`surfacing-blind-spots` findings.
+`surfacing-blind-spots` findings. For received plans, establish or validate these
+inputs and initial complexity ratings at the start of the review.
 
 ## Plan shape
 
@@ -54,7 +55,9 @@ revisions. Reassess complexity when evidence changes.
 
 - **Scope and simplicity:** Every task serves the outcome or prerequisite.
   Remove unrelated work; justify new layers. Preserve requirements and needed
-  compatibility, recovery, and verification.
+  compatibility, recovery, and verification. Map each mandatory requirement to
+  a delivery step and verification check; resolve uncovered requirements before
+  marking the plan Ready.
 - **Clarity:** Name the action and behavior plainly; replace vague directions
   with the actual decision.
 - **Verification:** State the check and expected result. Link to detail instead
