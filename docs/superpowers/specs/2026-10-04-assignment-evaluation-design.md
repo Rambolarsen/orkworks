@@ -159,18 +159,31 @@ and records why it could not be assessed. In the evaluation record, each
 lowercase SHA-256 hex value; a bare content digest or caller-chosen object ID
 is not valid. A source key is lowercase SHA-256 over
 `orkworks.assignment-evidence-source.v1\n` followed by #741 canonical JSON
-bytes for the immutable source descriptor. For a result output, that descriptor
-contains its source kind, exact approved assignment identity, result revision
-and digest, output declaration ID/kind, source variant, size, and content
-digest. For a research report, it contains the full immutable #742 report
-identity, including workspace, run, plan/revision, task/version, reservation,
-child session, configuration digest, sidecar/launch generations, report
-ID/version, and content digest. The sidecar derives and resolves the key from
-the stored result or report; callers cannot select another source. Reused IDs
-or identical bytes from different assignments therefore remain distinct. A
-key collision with a different descriptor is rejected. Corrections and
-invalidations are checked against the resolved source record; a corrected
-source requires a new source key.
+bytes for the exact version 1 source-descriptor object. It has exactly these
+camelCase properties, with no omitted or additional properties:
+`schemaVersion: 1`, `sourceKind`, `assignmentIdentity`, `resultRevision`,
+`resultDigest`, `declarationId`, `declarationKind`, `sourceVariant`,
+`sizeBytes`, and `contentDigest`. `sourceKind` is `assignment-result-output`;
+`assignmentIdentity` is the exact tagged #741 assignment-identity value.
+`sourceVariant` is exactly one of `{"kind":"workspace-path","path":<approved
+workspace-relative path>}` or `{"kind":"server-artifact","artifactId":<ID>,
+"version":<version>}`. The remaining values are copied from the accepted
+result manifest and its declaration, using #741's canonical JSON types and
+integer encoding. For a research report, the descriptor has exactly
+`schemaVersion: 1`, `sourceKind: "research-report"`, `reportIdentity`,
+`sizeBytes`, and `contentDigest`; `reportIdentity` is the exact tagged #742
+immutable report identity, including workspace, run, plan/revision,
+task/version, reservation, child session, configuration digest,
+sidecar/launch generations, and report ID/version. All property names,
+nested identity encodings, and source-variant encodings above are normative;
+canonical JSON object-key ordering and scalar encoding follow #741. The sidecar
+derives and resolves the key from the stored result or report; callers cannot
+select another source. Reused IDs or identical bytes from different assignments
+therefore remain distinct. A key collision with a different descriptor is
+rejected. Corrections and invalidations are checked against the resolved source
+record; a corrected source requires a new source key. Before implementation,
+verify that the tagged identity values and their canonical encodings exactly
+match #741 and #742; any required schema change must be reconciled there first.
 Missing, duplicate, or unknown criterion IDs make the report malformed and it is
 rejected.
 
@@ -273,12 +286,21 @@ derives the overall result. Each finding has a
 stable ID, concise description, location, severity, evidence reference, and
 whether it requires rework, matching the approved review-role output contract.
 A required-rework finding also names one or more unique `requiredImpactTargets`:
-an approved required criterion, rubric dimension, or result-level rating. Each
-target must have a corresponding current failure in the same evaluation
+an approved required criterion, rubric dimension, or result-level rating. A
+target has the exact tagged form `{"kind":"criterion","id":<stable ID>}`,
+`{"kind":"quality-dimension","id":<stable ID>}`, or
+`{"kind":"rating"}`. The array is a set serialized in ascending UTF-8 byte
+order by `(kind, id)`, with an absent rating ID treated as the empty string.
+Each target must have a corresponding current failure in that evaluation
 (`unsatisfied`, `below standard`, or rating below `3`); optional criteria are
-never valid targets. There are at most 49 targets, the maximum combined set of
-32 criteria, 16 dimensions, and one rating. Reject a required-rework finding
-with no valid target. Optional-only findings cannot affect the overall result.
+never valid targets. To derive Needs rework, the same target must also be an
+uncontested aggregate failure across eligible current evaluations. If assessed
+outcomes conflict for a target, a finding pointing to it cannot override that
+conflict; the aggregate remains Unassessed unless another uncontested failure
+establishes Needs rework. There are at most 49 targets, the maximum combined
+set of 32 criteria, 16 dimensions, and one rating. Reject a required-rework
+finding with no valid target. Optional-only findings cannot affect the overall
+result.
 Rationale, findings, and corrections must not contain credentials, secrets,
 hidden reasoning, full prompts, or complete transcripts; use safe, immutable
 evidence references.
@@ -592,6 +614,11 @@ A future implementation must verify that:
    optional-only evidence cannot
    change the overall result; an optional-only `requiresRework` finding or a
    finding with no matching required impact outcome cannot force Needs rework.
+   Required impact-target arrays sort by their tagged `(kind, id)` key before
+   digesting, so equivalent target sets have the same evaluation digest. A
+   target whose eligible current outcomes conflict cannot establish Needs
+   rework through its finding; absent a separate uncontested failure, the
+   result is Unassessed.
    Correcting required evidence makes only its
    dependent outcome Unassessed and the result is recomputed. An optional source
    used only for optional detail cannot downgrade an otherwise passing required
@@ -614,7 +641,10 @@ A future implementation must verify that:
    digest are valid. Valid maximum-length source identities resolve through a
    bounded 64-character source key and fit the reference cap. Evidence-reference
    order does not change an evaluation digest, and duplicate references within
-   one outcome are rejected. All
+   one outcome are rejected. Canonical descriptor fixtures for both source
+   variants produce the same source key after reload and in each supported
+   language; changing any bound identity, declaration, source variant, size,
+   version, or content digest changes the key. All
    filesystem operations run in an isolated,
    fixed-capacity worker with bounded admission and deadlines; a timed-out
    worker cannot block sidecar control paths or cause unbounded replacement
