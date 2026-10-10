@@ -11,7 +11,8 @@ import unittest
 
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/pr-review.yml"
-SECRET = "private-fixture-text-DO-NOT-LOG\n::error::injected"
+# Synthetic adversarial content, never an account credential.
+FIXTURE_TEXT = "private-fixture-text-DO-NOT-LOG\n::error::injected"
 
 
 class ReviewDiagnosticsTests(unittest.TestCase):
@@ -35,7 +36,7 @@ class ReviewDiagnosticsTests(unittest.TestCase):
             "PATH": os.environ["PATH"],
             "RUNNER_TEMP": str(self.root),
             "EXECUTION_FILE": str(self.execution) if path is None else str(path),
-            "CLAUDE_CODE_OAUTH_TOKEN": SECRET,
+            "CLAUDE_CODE_OAUTH_TOKEN": FIXTURE_TEXT,
             "PYTHONPATH": str(self.root),
         }
         # A checkout/runner-temp module must not shadow the standard library.
@@ -46,7 +47,7 @@ class ReviewDiagnosticsTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
-        self.assertNotIn(SECRET, result.stdout)
+        self.assertNotIn(FIXTURE_TEXT, result.stdout)
         self.assertNotIn(str(self.root), result.stdout)
         summary = json.loads(result.stdout)
         self.assertEqual(summary["diagnostic"], "claude-review")
@@ -58,13 +59,13 @@ class ReviewDiagnosticsTests(unittest.TestCase):
                     num_turns=1, total_cost_usd=0, **overrides)
 
     def test_first_turn_rate_limit_survives_misleading_success_subtype(self):
-        summary = self.run_diagnostic([self.result(api_error_status=429, result=SECRET)])
+        summary = self.run_diagnostic([self.result(api_error_status=429, result=FIXTURE_TEXT)])
         self.assertEqual(summary["classification"], "rate-limited")
         self.assertEqual(summary["api_error_status"], 429)
         self.assertTrue(summary["zero_cost"])
 
     def test_string_status_and_model_text_cannot_claim_a_rate_limit(self):
-        summary = self.run_diagnostic([self.result(api_error_status="429", result="HTTP 429 " + SECRET)])
+        summary = self.run_diagnostic([self.result(api_error_status="429", result="HTTP 429 " + FIXTURE_TEXT)])
         self.assertEqual(summary["classification"], "first-turn-zero-cost")
         self.assertIsNone(summary["api_error_status"])
 
@@ -80,7 +81,7 @@ class ReviewDiagnosticsTests(unittest.TestCase):
         message = self.result()
         message.update(is_error=False, num_turns=3, total_cost_usd=1)
         self.assertEqual(self.run_diagnostic([message])["classification"], "missing-structured-output")
-        message["structured_output"] = {"report": SECRET}
+        message["structured_output"] = {"report": FIXTURE_TEXT}
         self.assertEqual(self.run_diagnostic([message])["classification"], "completed")
 
     def test_numeric_and_boolean_contracts(self):
@@ -94,7 +95,7 @@ class ReviewDiagnosticsTests(unittest.TestCase):
                 message = self.result()
                 message["total_cost_usd"] = invalid
                 self.assertIsNone(self.run_diagnostic([message])["zero_cost"])
-        for invalid in (True, "429", 429.0, 99, 600, {"status": SECRET}):
+        for invalid in (True, "429", 429.0, 99, 600, {"status": FIXTURE_TEXT}):
             with self.subTest(status=invalid):
                 self.assertIsNone(self.run_diagnostic([self.result(api_error_status=invalid)])["api_error_status"])
         message = self.result()
@@ -102,10 +103,10 @@ class ReviewDiagnosticsTests(unittest.TestCase):
         self.assertEqual(self.run_diagnostic([message])["classification"], "unknown-result")
 
     def test_arbitrary_fields_and_unknown_subtype_are_not_exposed(self):
-        message = self.result(result=SECRET, errors=[SECRET], session_id=SECRET,
-                              modelUsage={SECRET: SECRET}, structured_output={"report": SECRET})
-        message["subtype"] = SECRET
-        summary = self.run_diagnostic([{"type": "assistant", "message": SECRET}, message])
+        message = self.result(result=FIXTURE_TEXT, errors=[FIXTURE_TEXT], session_id=FIXTURE_TEXT,
+                              modelUsage={FIXTURE_TEXT: FIXTURE_TEXT}, structured_output={"report": FIXTURE_TEXT})
+        message["subtype"] = FIXTURE_TEXT
+        summary = self.run_diagnostic([{"type": "assistant", "message": FIXTURE_TEXT}, message])
         self.assertEqual(summary["classification"], "unknown-result")
         self.assertIsNone(summary["subtype"])
 
@@ -114,7 +115,7 @@ class ReviewDiagnosticsTests(unittest.TestCase):
         self.assertEqual(self.run_diagnostic(path="")["classification"], "missing-execution-file")
 
     def test_malformed_and_unexpected_json(self):
-        for content in (SECRET, "[" * 2000, "{\"type\":\"result\"}", "[]", "[null,42]",
+        for content in (FIXTURE_TEXT, "[" * 2000, "{\"type\":\"result\"}", "[]", "[null,42]",
                         json.dumps([self.result(), self.result()])):
             with self.subTest(content=content[:30]):
                 self.execution.write_text(content, encoding="utf-8")
