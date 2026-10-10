@@ -333,9 +333,10 @@ That projection contains no foreign workspace ID, session ID, bearer, lifecycle
 detail, or session-bound action. Only the owning workspace may expose the full
 Taskmaster record or route accept, `Fix with AI`, and completion through its
 own session-bound API. Dismissal updates the repository-shared watermark under
-the shared store transaction from any matching active binding. Workspace-
-specific observation recommendations remain workspace-local. Retirement
-forbids normal history reads, rebinding, and recommendation acceptance.
+the shared store transaction from any matching active binding, through the
+owner-mediated mutation protocol below. Workspace-specific observation
+recommendations remain workspace-local. Retirement forbids normal history
+reads, rebinding, and recommendation acceptance.
 Electron may expose an exact-binding, deletion-only “forget retired repository
 history” operation:
 it releases only source dependencies named by exact workspace and subject
@@ -343,16 +344,79 @@ references under compare-and-swap, records `cleanup_pending`, and retries
 idempotently after a crash. Retirement alone neither forgets nor transfers
 history.
 
-Workspace deletion uses an ordered, recoverable owner-loss protocol. First, a
-compare-and-swap in the repository store records an idempotent deletion
-transaction ID and `owner_loss_pending`, and blocks projections and all card
-actions. Next, the owner's Taskmaster graph transaction terminally supersedes
-the nonterminal workspace-local card with reason `owner_workspace_deleted` and
-releases any executing reservation. Then the repository store records a
-bounded terminal digest and clears the owner binding. Only after that final
-commit may workspace metadata be deleted. Recovery resumes from the durable
+Repository family state and workspace Taskmaster graphs are separate stores;
+their writes are never described as one graph transaction. Dismissal,
+evidence invalidation, forgetting, source expiry, below-eligibility
+supersession, and owner deletion use one bounded `pendingCardMutation` fence
+per family. Under the repository lock, persist the operation ID, kind, typed
+reason, expected family generation, owner binding, card ID and graph digest
+before changing either store. That marker immediately suppresses the card from
+all matching projections and makes its owner record unavailable to list/detail
+actions and accept, dismiss, `Fix with AI`, and completion routes. Every owner
+route acquires locks in repository-then-workspace order and rechecks the family
+generation and pending marker before reading or mutating the graph.
+
+Only the owning workspace API may mutate its Taskmaster graph. A dismissal
+requested from a sibling stores the bounded pending intent; it does not write a
+foreign graph. The owner sidecar reconciles pending intents after acquiring its
+workspace lease, compare-and-swaps the expected record, and commits the typed
+graph transition and immutable watermark/snapshot in its existing recoverable
+graph transaction. The repository store then commits the matching watermark or
+terminal digest and clears the fence. Evidence invalidation writes the source
+fence, removes the contribution from current summaries, and installs fences for
+every affected family in one repository transaction before the owner graph is
+changed; only after each owner graph transaction commits may the repository
+store clear that family's fence. If an owner sidecar is unavailable, the family
+remains hidden and non-actionable until that owner resumes and recovery
+completes. An accept reservation already in progress must resolve before a
+competing mutation can transition the card; a rejected compare-and-swap clears
+the pending intent with an explicit conflict and never records a dismissal or
+supersession that did not occur. Recovery inspects the graph status and digest
+to finish a committed transition idempotently. If either store is unavailable
+or the expected graph cannot be reconciled, retain the fence and fail closed;
+never expose a stale proposed card or report a partial mutation as complete.
+Encode the marker as canonical CBOR schema v1 with fixed field order:
+`[1, operation_id, kind_code, reason_code, phase_code, expected_generation,
+owner_binding_digest, card_id_digest, graph_digest]`. `operation_id` is 16
+random bytes. Encode `kind_code` as u8 (`0=dismiss`, `1=evidence_invalidation`,
+`2=forget`, `3=source_expiry`, `4=eligibility_supersession`, `5=owner_loss`);
+`reason_code` as u8 (`0=user_dismissed`, `1=evidence_invalidated`,
+`2=learning_history_forgotten`, `3=source_expired`, `4=below_eligibility`,
+`5=owner_workspace_deleted`); and `phase_code` as u8 (`0=fenced`,
+`1=graph_committed`, `2=repository_committed`). Generation is an unsigned
+64-bit integer. Each binding,
+card, and graph digest is exactly 32 bytes of SHA-256. The authoritative owner
+binding remains in the family state and must hash to `owner_binding_digest`;
+the marker never carries a foreign workspace/session ID. Canonical CBOR
+encoding uses definite-length arrays/byte strings and shortest-form integers
+per RFC 8949 deterministic encoding, and is capped at 160 bytes including
+schema and array overhead. Only these kind/reason pairs are valid: `dismiss` +
+`user_dismissed`, `evidence_invalidation` + `evidence_invalidated`, `forget` +
+`learning_history_forgotten`, `source_expiry` + `source_expired`,
+`eligibility_supersession` + `below_eligibility`, and `owner_loss` +
+`owner_workspace_deleted`. Reject every other pair before writing the fence.
+The
+serializer asserts that exact bound and the family state's 512-byte control
+reservation before every write. Unknown enum/schema values or oversized
+encodings fail closed.
+
+As one step in the workspace deletion sequence specified below, each affected
+owner card is processed only after the workspace deletion marker and
+all-subject fences are durable. The owner-loss protocol records an
+idempotent `owner_loss` `pendingCardMutation` by repository-store compare and
+swap. The generic pending descriptor, including its bounded
+operation ID, typed kind/reason, expected family generation, owner binding,
+card ID, graph digest, and phase, serializes to at most 512 bytes; only one
+mutation may be pending for a family at a time. Next, the owner's Taskmaster
+graph transaction terminally supersedes the nonterminal workspace-local card
+with reason `owner_workspace_deleted` and releases any executing reservation.
+Before clearing the owner binding, the repository store commits the card's
+bounded terminal evidence projection and digest under the same pending marker.
+Only after that final commit may workspace metadata be deleted. Recovery
+resumes from the durable
 phase; if the graph transition already committed, its expected status/digest
-makes the retry idempotent. Once `owner_loss_pending` is durable, the deletion
+makes the retry idempotent. Once the `owner_loss` pending marker is durable, the
+deletion
 request is committed and recovery proceeds forward; cancellation is permitted
 only before that marker. If corruption or I/O failure prevents recovery, keep
 the workspace metadata and pending marker, block deletion and card actions,
@@ -366,6 +430,46 @@ workspace may create a fresh workspace-local successor bound only to that
 workspace's current active session, with explicit predecessor lineage; it must
 never adopt or replay the deleted workspace's target session.
 
+Workspace deletion first writes a durable `pendingWorkspaceDeletion` marker
+into workspace metadata under its workspace lease. The marker contains a
+16-byte operation ID and phase; it blocks new source/learning writes and keeps
+the metadata available for recovery. Under the repository lock, deletion then
+publishes one atomic fence transaction covering every learning subject owned
+by that exact workspace binding. First recover any already-pending subject or
+family mutation; deletion never overwrites another operation's fence. The
+workspace marker rejects new subject mutations until deletion finishes. Each
+subject fence carries the operation ID,
+workspace-binding digest, expected store generation, and phase in the existing
+512-byte correction/fence slot; the complete transaction fits the reserved
+512 KiB for at most 1,000 subjects. Repository summaries suppress all fenced
+subjects. If the complete fence set cannot be published atomically, keep the
+workspace metadata marker and expose no deletion success; no subject source
+may be purged. A workspace with no learning subjects needs no repository
+fence transaction.
+
+After the all-subject fence commits, tombstone/remove each learning
+contribution, recompute affected aggregates, and install each affected
+family's `pendingCardMutation` before exposing any updated summary. Owner graph
+transitions and terminal projections reconcile next. Only when these commits
+finish does the workspace metadata marker advance to `learning_reconciled`.
+
+Next release only source dependencies made unnecessary by that deletion. A
+source still required by another current result, reviewer chain, or learning
+family remains protected. The #744 custodian must move that source and its
+dependency record to durable storage independent of the deleting workspace
+metadata before that metadata can be removed; if it cannot, keep the deletion
+fence and workspace metadata until the dependency is safely released. Then
+purge eligible #743/#744 workspace sources and verify that no protected
+dependency was removed before advancing to `sources_reconciled`. Keep each
+subject fence until its source purge or protected-source custody transfer is
+durably verified; then clear that subject fence. Only after both learning and
+source phases are durable and every affected summary/card has reconciled may
+the workspace deletion marker clear and metadata be deleted. Recovery resumes
+the persisted phases idempotently; every earlier
+phase keeps writes/summary reads fenced. This requires an explicit #743/#744
+deletion-custody contract update before implementation; until then, workspace
+deletion cannot claim atomic learning cleanup or remove its metadata.
+
 This repository-scoped recommendation owner and its cross-workspace projection
 are proposed contract changes, not behavior already provided by the current
 workspace-local recommendation store. Before implementation, the Taskmaster
@@ -374,9 +478,9 @@ its recovery protocol; until that prerequisite is accepted, repository-shared
 recommendations are not implementable under the existing contract.
 
 The repository store keeps a compact `LearningFamilyState`, not copies of
-terminal Taskmaster cards. Each family state is at most 4 KiB, and a repository
-binding supports at most 128 family states (512 KiB total) within the separate
-2 MiB normal-record budget below; that 512 KiB is not additive. A resurfacing
+terminal Taskmaster cards. Each family state is at most 12 KiB, and a
+repository binding supports at most 128 family states (1.5 MiB total) within
+the 2 MiB normal-record budget below; that 1.5 MiB is not additive. A resurfacing
 watermark retains exact subject IDs, evaluation digests, revisions, and `runIds`
 for up to six represented subjects. Subject and run IDs are ASCII and at most
 128 bytes, evaluation digests are 64 lowercase hex bytes, and revisions are
@@ -387,14 +491,30 @@ field names and punctuation. A learning family may create at most four full
 `ImproveWorkflow` records in its owning workspace graph over its lifetime,
 counting proposed and every terminal outcome. At that lifetime cap,
 retain the immutable records, seal the family against successor cards, and
-preserve one bounded terminal digest per card (SHA-256 card-ID digest, terminal
-status/reason, and 64-byte transition digest) in its family state; each encoded
-digest is at most 256 bytes. Never prune or rewrite Taskmaster history. The
-lifetime count survives owner loss and workspace deletion. The family control
-fields, including one pending owner-loss transaction, are at most 512 serialized
+preserve one bounded terminal entry per card in its family state. Each entry
+contains a SHA-256 card-ID digest, terminal status/reason, and 64-byte
+transition digest (encoded digest at most 256 bytes), plus the evidence
+projection below. Never prune or rewrite Taskmaster history. The
+lifetime count survives owner loss and workspace deletion. A terminal digest
+may carry a privacy-safe `terminalEvidenceProjection` of at most 1,536
+canonical CBOR bytes. The projection preserves the bounded typed finding
+descriptor: descriptor version, target surface, logical target ID (at most 64
+ASCII bytes), finding-class enum, stable criterion/dimension ID (at most 64
+ASCII bytes), task-category token (at most 32 ASCII bytes), and up to four
+sorted scope tags (each at most 32 ASCII bytes). It also stores the finding
+fingerprint, criteria/rubric digests, terminal reason, source-set digest,
+support/run counts, and up to three exact recurrence entries. Each entry holds
+SHA-256 subject-ID and run-ID digests, subject revision, configuration and
+evaluation digests, the #744 overall-result enum, and the applicable
+criterion/dimension outcome enum. It contains no source payload,
+prompt, secret, or workspace/session ID. This projection is captured from the
+sealed Taskmaster snapshot before owner metadata deletion and remains
+explanation-only; it never enters active learning. It makes the compact
+terminal history inspectable after the owner graph is removed. The family
+control fields, including one pending card mutation, are at most 512 serialized
 bytes. The worst-case budget is six subject entries (2,496 bytes), four
-terminal digests (1,024 bytes), and control fields (512 bytes), totaling 4,032
-bytes within the 4 KiB cap. The serializer checks the complete encoded size
+terminal entries (4 × 1,792 = 7,168 bytes), and control fields (512 bytes),
+totaling 10,176 bytes within the 12 KiB cap. The serializer checks the complete encoded size
 before every commit and reserves capacity for the next permitted transition.
 An invalid field or exhausted reservation makes the family unavailable and
 blocks card actions and workspace deletion until recovery; it never drops a
@@ -537,13 +657,19 @@ If the required support is absent, report “insufficient comparable evidence”
 and leave task-fit ordering unchanged. These thresholds are conservative v1
 defaults, not tunable repository policy.
 
-Once both arms meet that threshold, compare only the fraction of eligible
-assignments whose #744 overall result is `Meets requirements`, using exact
-integer cross-multiplication rather than rounded percentages. An arm with the
-higher fraction may be preferred; equal fractions are a tie and leave ordering
-neutral. `Needs rework` is the non-meeting outcome. `Unassessed` assignments
-are excluded from both arm counts and the denominator, and an arm that then
-falls below the threshold cannot win. Do not add criterion, completeness,
+For one optional logical-skill candidate within an exact comparison set, form
+the complete arm set from the skill-absent arm and every exact candidate
+snapshot arm. Compare every eligible arm's fraction of assignments whose #744
+overall result is `Meets requirements`, using exact integer cross-multiplication
+rather than rounded percentages. A learned preference requires the skill-absent
+arm and at least one present-skill snapshot arm to meet the per-arm minimum of
+three eligible assignments across two runs. If either side of that baseline
+comparison is unavailable, learning is neutral. Among all eligible arms,
+prefer the arm with a unique highest fraction; if two or more arms share the
+highest fraction, leave ordering neutral. Ineligible arms cannot win or break a
+tie. `Needs rework` is the non-meeting outcome. `Unassessed` assignments are
+excluded from each arm count and denominator, and an arm that then falls below
+the threshold cannot win. Do not add criterion, completeness,
 quality-dimension, finding-severity, time, cost, or usage values into a
 composite or tie-breaker. Those facts remain separate explanatory details.
 Thus a mixed criterion/quality vector affects learning only through #744's
@@ -639,14 +765,16 @@ bootstrap, prompt, skill file, or permission profile automatically.
 
 ## Explainable future configuration choices
 
-For a supported cohort, prefer only the optional-skill arm with stronger
-eligible outcomes under the exact `Meets requirements` fraction rule above.
-If outcomes tie or no arm meets the threshold, learning is neutral and
+For a supported cohort, compare the absent arm and every eligible exact
+optional-skill snapshot arm together under the exact `Meets requirements`
+fraction rule above. Only a unique highest arm, with an eligible absent arm
+and at least one eligible present arm, may inform ordering. Tied leaders,
+missing baseline support, or no qualifying arm leave learning neutral and
 ordinary task-fit/user-preference ordering decides. Conflicting outcomes are
-`Unassessed` under #744 and do not enter either fraction. Usage frequency alone
-never ranks configurations. Preserve the reason and matched/unknown counts
-with the later proposal so a reviewer can see whether its evidence still
-applies. A newly invalidated source causes the proposal to be rebuilt or
+`Unassessed` under #744 and do not enter their arm fraction. Usage frequency
+alone never ranks configurations. Preserve the reason and matched/unknown
+counts with the later proposal so a reviewer can see whether its evidence
+still applies. A newly invalidated source causes the proposal to be rebuilt or
 withdrawn before approval; it never silently keeps the old ranking.
 
 One run can raise a hypothesis to investigate or a one-off configuration
@@ -666,7 +794,24 @@ do not create a second queue, acceptance API, draft-mutation path, or
 promotion lifecycle. Extend that record with a typed, bounded learning-evidence
 projection referencing exact assignment/evaluation digests and recurrence
 counts. Keep these references distinct from `WorkflowObservationEvidence`;
-never relabel assignment evaluations as observations.
+never relabel assignment evaluations as observations. While proposed, the
+projection names pinned live source references. Before a terminal transition
+releases any source dependency, the owner graph transaction seals a typed,
+immutable `learningEvidenceSnapshot` into the terminal `ImproveWorkflow`
+record. It contains the canonical finding descriptor and fingerprint, target
+surface and exact target snapshot identity, criteria/rubric digests,
+derivation version and source-set digest, support and distinct-run counts, and
+the exact selected source entries demonstrating recurrence: subject
+ID/revision, run ID, assignment configuration and comparison-arm digests,
+evaluation digest, overall result, and applicable criterion/dimension ID and
+outcome. Include usage summaries only when they are part of the finding. The
+canonical serialized snapshot is at most 8 KiB and contains no raw artifacts,
+source files, prompts/transcripts, secrets, or foreign workspace/session IDs;
+if it cannot fit, fail the transition closed and retain source dependencies.
+The sealed snapshot is historical explanation only: exclude it from
+eligibility, aggregation, dismissal-watermark, and resurfacing inputs. Explicit
+forgetting may remove its explanatory payload while retaining bounded terminal
+status and lineage, so a forget request cannot be defeated by graph history.
 
 Learning-finding identity is versioned and server-derived from a canonical
 descriptor containing repository epoch/ID, target surface, target logical
@@ -762,8 +907,11 @@ before implementation. The transition is distinct from user dismissal
 and carries a reason (`evidence_invalidated`, `learning_history_forgotten`,
 `source_expired`, `below_eligibility`, or `owner_workspace_deleted`) plus the
 replacement or source-set digest when available. Invalidation and supersession
-commit in the same graph transaction, and a superseded card cannot be
-accepted. Normal accepted/executing transitions are serialized by the
+commit together in the owner graph transaction, and a superseded card cannot
+be accepted. The pending repository fence spans that graph transaction and
+the later repository-store commit; it clears only after both stores reconcile.
+Seal terminal-card evidence before releasing its source dependencies. Normal
+accepted/executing transitions are serialized by the
 canonical store; owner deletion is the explicit typed terminal exception, not
 a silent rewrite. The durable pending marker blocks stale reads/actions across
 the graph/store boundary until both commits reconcile. Deletion never transfers
@@ -779,9 +927,20 @@ and a separate 512 KiB reserved correction/fence budget per repository binding
 (2.5 MiB total);
 each subject record is at most 8 KiB, each aggregate is at most 64 KiB, and
 there are at most 64 live cohort aggregates. Counts are checked before
-publication. The reserved budget holds one fixed-size invalidation fence of at
-most 512 bytes for every possible subject; ordinary contributions cannot use
-it. If that reserve or any consistency bound is exhausted, fail closed and
+publication. The reserved budget holds one fixed 512-byte maximum
+`SubjectFenceEnvelope` for every possible subject; ordinary contributions
+cannot use it. The canonical envelope is `[1, forget_tombstone?, active?]`.
+The persistent forget tombstone is at most 192 bytes and retains only subject
+ID, subject revision, and forget generation. At most one transient active
+fence may coexist with it: either a subject mutation fence (at most 160 bytes)
+or a workspace-deletion fence (at most 96 bytes, including its workspace
+binding digest, operation ID, expected generation, and phase). Their combined
+canonical encoding and envelope overhead must fit 512 bytes, enforced before
+every publication. Deletion first recovers any active fence, then atomically
+replaces only the transient slot while preserving the forget tombstone. It
+clears the tombstone only after the corresponding source is actually purged;
+thus an old tombstone cannot consume a second slot or be overwritten by
+deletion. If that reserve or any consistency bound is exhausted, fail closed and
 serve no summary that could contain stale learning. At normal-capacity
 pressure, reject new learning contributions with a visible capacity state;
 never evict a retained dependency, lower a threshold, or silently discard the
@@ -794,7 +953,12 @@ maximum. At that limit, remove the contribution and recompute affected
 aggregates before releasing any #743/#744 dependency. If another current
 evaluation, reviewer-credibility chain, or retained learning contribution
 still depends on an evaluation/result, preserve it under the source contract
-until that dependency is explicitly removed. Raw skill events still obey
+until that dependency is explicitly removed. Workspace deletion releases only
+that workspace's learning dependencies. It must not purge a protected source
+still needed by another current result, reviewer chain, or learning
+dependency. The #744 source custodian retains such sources independently of
+deleted workspace metadata; if it cannot, workspace deletion stays pending
+until dependency custody is safely transferred or released. Raw skill events still obey
 #743's shorter 30-day maximum; a learning contribution whose usage source has
 expired becomes unknown for usage and cannot recreate that source from an
 aggregate. Never retain a learning aggregate past the source evidence needed
@@ -818,12 +982,14 @@ subject revision and the absence of current-result, reviewer-chain, or other
 learning dependencies. If a dependency remains, report it and leave the
 protected source intact while its learning tombstone continues to block reuse.
 Forgetting does not reset repository identity, reassign records, or affect
-other repository IDs. Workspace deletion purges
-that workspace's assignment/usage sources and atomically removes its learning
-contributions from the shared repository store; it does not erase other
-worktrees' contributions. If the cross-store transaction cannot commit,
-deletion remains fenced and reports recovery-required rather than leaving a
-summary that cites deleted evidence.
+other repository IDs. Workspace deletion removes that workspace's learning
+contributions and releases only its source dependencies through the fenced
+protocol; it does not erase other worktrees' contributions or purge sources
+protected by another dependency. Workspace metadata may be removed only after
+protected-source custody is independent of that metadata and every affected
+owner graph and repository family state has reconciled. If the cross-store
+transaction cannot commit, deletion remains fenced and reports
+recovery-required rather than leaving a summary that cites deleted evidence.
 
 Examples:
 
@@ -887,6 +1053,16 @@ silently initialize a fresh store or fall back to stale cached advice.
 - One eligible assignment can raise only a labeled hypothesis; fewer than
   three eligible subjects per arm or fewer than two runs per arm cannot
   change selection preference; exact threshold cases pass.
+- Across the absent arm and multiple present snapshot arms, a unique highest
+  eligible exact fraction wins; ties among any top arms are neutral, and an
+  unavailable or under-supported absent baseline prevents a preference.
+- For eligible absent, snapshot-v1, and snapshot-v2 arms, verify each global
+  outcome: v1 uniquely highest selects v1; absent uniquely highest selects
+  absent; tied v1/v2 leaders are neutral. An under-threshold v2 arm cannot
+  win or break a tie. Results do not depend on pairwise comparison order.
+- Compare all eligible arms in one exact comparison set, never by outcome-
+  ordered pairwise traversal; an under-supported present arm cannot win or
+  break a tie.
 - Selection compares exact `Meets requirements` fractions: higher wins,
   equal fractions are neutral, `Unassessed` is excluded, and mixed quality /
   completeness dimensions never become an undocumented tie-breaker.
@@ -925,15 +1101,47 @@ silently initialize a fresh store or fall back to stale cached advice.
   terminally supersedes the old card, releases executing reservations, and
   permits only a freshly bound successor after local reevaluation, never
   adoption of the old target session. Four lifetime cards seal a family while
-  preserving their bounded digests and immutable graph history. I/O failure
-  after `owner_loss_pending` keeps workspace metadata and blocks deletion until
+  preserving their bounded terminal projections and digests after owner graph
+  deletion. I/O failure after the `owner_loss` pending marker keeps workspace
+  metadata and blocks deletion until
   forward recovery; cancellation is accepted only before the marker.
+- Inject crashes after workspace-deletion fence publication, learning-subject
+  tombstoning, affected-card graph commits, protected-source custody transfer,
+  eligible source purge, and final fence clear. At every point, workspace
+  metadata remains until recovery completes; no summary cites purged evidence,
+  and an evaluation/reviewer source with another live dependency remains
+  protected under independent #744 custody.
+- At maximum subject capacity with retained forget tombstones, workspace
+  deletion atomically composes each tombstone with its transient deletion
+  fence inside the 512-byte envelope; no tombstone is overwritten and the
+  operation does not require an unavailable second fence slot. Injected
+  envelope overflow fails before publication and leaves all sources intact.
+- An interrupted sibling dismissal, invalidation, forgetting, expiry, or
+  below-eligibility transition leaves the affected family hidden until owner
+  recovery commits the expected graph transition and repository finalization;
+  a compare-and-swap conflict does not create a false terminal status.
+- Workspace deletion releases only its own source dependencies. A source with
+  another current-result/reviewer dependency survives deletion only when #744
+  custody is independent of deleted metadata; otherwise deletion stays
+  pending. Deleted learning contributions cannot rehydrate from preserved
+  sources.
+- A terminal card's bounded immutable learning snapshot retains exact
+  recurrence evidence after ordinary source expiry/purge; release sources only
+  after sealing succeeds. Snapshot overflow fails closed, and terminal
+  snapshots never re-enter active learning. After owner graph deletion, the
+  retained projection still names the typed finding class, affected criterion
+  or dimension, task category/scope, and each cited assignment's overall and
+  finding outcome; the maximum descriptor plus three entries fits 1,536 bytes.
 - Dismissed learning watermarks retain exact run IDs; when six-source watermark
   bounds, the four-card lifetime cap, or the 128-family state cap is reached,
   resurfacing is disabled for that family or new learning-family cards are
   refused visibly, never by truncating exact history. Maximum encoded entry,
-  digest, and control-field sizes fit within 4 KiB; injected overflow fails
-  closed without dropping retained data or completing a card action.
+  terminal projection, digest, and control-field sizes fit within 12 KiB;
+  injected overflow fails closed without dropping retained data or completing
+  a card action. Canonical CBOR pending mutations fit within 160 bytes for
+  every enum variant, use shortest-form integers and definite lengths, accept
+  only the six listed kind/reason pairs, and reject invalid cross-pairs before
+  any store write.
 - Learning-card target validation accepts exactly `skill`, `instructions`, and
   `documentation`; `tooling`, `test`, and unknown future values are rejected.
 - Optional time/cost inputs are rejected by current #744 unless its reviewed
