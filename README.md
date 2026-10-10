@@ -289,7 +289,7 @@ The observation loop itself is tuned via environment variables on `orkworksd`:
 
 Managed via APM in `apm.yml` at the repo root. Running `apm install` from the repo root populates skills and hooks for all configured targets (claude, codex, copilot, opencode).
 
-Development agents should follow `AGENTS.md`, including the requirement to invoke and follow relevant Superpowers skills before implementation, debugging, review, verification, commit, push, or PR work. The root file routes subsystem work: read [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md) before desktop changes, [`crates/orkworksd/AGENTS.md`](crates/orkworksd/AGENTS.md) before sidecar changes, and both for cross-component work.
+Development agents follow [`AGENTS.md`](AGENTS.md): read task-relevant context, use skills when their concrete phase applies, and size preparation to the change. Clear routine work proceeds after a brief approach; written designs and concise plans are reserved for meaningful design choices, coordination, handoff, and high-risk work. The root file routes subsystem work: read [`apps/desktop/AGENTS.md`](apps/desktop/AGENTS.md) before desktop changes, [`crates/orkworksd/AGENTS.md`](crates/orkworksd/AGENTS.md) before sidecar changes, and both for cross-component work.
 
 OpenCode must be started from the repo root, or with the repo root as the project path, so it loads the project `opencode.json`:
 

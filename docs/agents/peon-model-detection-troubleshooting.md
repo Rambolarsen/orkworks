@@ -365,3 +365,64 @@ the first step that resolves the report.
 
 Unverified ideas for further recovery steps are not listed here; adding them
 requires evidence from later affected workflows, not hypothesis.
+
+## Recommendation handling
+
+When Peon reports a workflow observation or a Taskmaster recommendation about
+"Peon model detection" or a bare phrasing such as "Model detection is blocked"
+/ "Model detection failed", a rate-limit obstacle such as "rate limit
+reached", or a recommendation asks you to remove or document a
+capacity-related obstacle such as "Tracing signal capacity in Claude harness
+to OpenCode", verify whether it is self-referential noise before
+treating it as a product defect: sessions working on OrkWorks itself put Peon's
+own prompt-example vocabulary into terminal output, generic evidence such
+as "Terminal output" is low-specificity — it grounds only when those words
+literally appear in the captured output, which says nothing about cause — and
+specific-looking error excerpts such as "Error message: Model detection
+failed" ground the same way while matching no OrkWorks code path.
+Follow
+[`docs/agents/peon-model-detection-troubleshooting.md`](peon-model-detection-troubleshooting.md).
+The applied provider/model in Settings is authoritative for inference; the
+Peon-detected session model is best-effort, first-detection-wins, and has no
+manual override. For harnesses with configured capacity patterns, a genuine
+limit whose banner text matches those patterns surfaces, for a live
+session, through the capped attention status (reset hint only when the
+banner carries one) and, for an enabled provider entry, the provider state
+on the providers API and new-session dialog — which can also reflect a
+capped configured state rather than the live scan; a grounded workflow
+observation of this kind can still corroborate a real cap. Do not resume
+or reopen another session as a workaround.
+
+When Peon or a Taskmaster rollup repeats a workflow recommendation (or
+reports the same obstacle more than twice in one session), treat the
+recommendation's `proposedImprovement` as unverified: reproduce the raw
+grounding from the session's own artifacts (terminal replay, real
+configuration files, or issue text) and verify the described gap against it
+before acting on the recommendation — a grounded `missing_context` or
+`assumption` recommendation may target repository context that does not
+exist yet, so the gate is a verified gap, not a pre-existing named rule.
+Repeated evidence that consists of page or plan titles, spinner frame
+labels, or user-configured model instructions — with no concrete artifact
+matching the described problem area — counts as an over-detection
+recurrence to report, not as confirmation of the recommendation.
+A confirmed-noise determination is reported through the
+recommendation-completion summary with that evidence; the completion
+request follows [Taskmaster recommendation tie-off](development-workflow.md#taskmaster-recommendation-tie-off)
+above and the [`working-on-recommendation`](https://github.com/Rambolarsen/orkworks/blob/main/skills/working-on-recommendation/SKILL.md)
+skill. A specific counter-proposal (for example, a named runbook gap) may
+be raised separately in the existing improvement issues; it is not an
+instruction to edit AGENTS.md or other repo-level files during the
+current task.
+
+### Workflow-improvement trials from Taskmaster
+
+A "trial" recommendation whose change would document an experiment in
+`AGENTS.md` must name what is being trialled: it must point at an
+identified recurring behavior and name the observed artifacts it grounds
+in. Adding a trial note to `AGENTS.md` — a file loaded into every agent's
+context — based only on repeated Peon detections of spinner or page-title
+text is not a trial; it is noise amplification. Only accept a trial
+recommendation for `AGENTS.md` when it identifies a specific behavior, a
+measured recurrence source, and a defined success measure. Repeated
+recommendations of this shape with title-like evidence are reported as
+over-detection recurrences per the section above, not implemented.

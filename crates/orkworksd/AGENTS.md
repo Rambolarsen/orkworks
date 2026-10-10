@@ -4,7 +4,8 @@ Read the root [`AGENTS.md`](../../AGENTS.md) first. These instructions apply bef
 
 ## Validation
 
-Run these commands from the repository root:
+For Rust implementation changes, run these commands from the repository root.
+Docs-only edits use the root guide's documentation checks:
 
 ```bash
 cargo build --manifest-path crates/orkworksd/Cargo.toml
@@ -39,6 +40,6 @@ PR CI runs `cargo fmt --check` as a blocking gate, so format before committing.
 
 ## Protocol and architecture references
 
-The root [metadata-protocol constraints](../../AGENTS.md#metadata-protocol) remain authoritative, including provenance, retention, detached runtime, and explicit-approval rules. Read [`docs/agents/architecture.md`](../../docs/agents/architecture.md) for inter-component flow and [`docs/agents/domain-entities.md`](../../docs/agents/domain-entities.md) before changing `SessionMetadata`, session status/lifecycle vocabulary, or related session/API mappings.
+The scoped [metadata-protocol constraints](../../docs/agents/runtime-contracts.md#metadata-protocol) remain authoritative, including provenance, retention, detached runtime, and explicit-approval rules. Read the relevant sections of [`docs/agents/architecture.md`](../../docs/agents/architecture.md) for inter-component flow and [`docs/agents/domain-entities.md`](../../docs/agents/domain-entities.md) before changing `SessionMetadata`, session status/lifecycle vocabulary, or related session/API mappings.
 
 For cross-component work, also read [`apps/desktop/AGENTS.md`](../../apps/desktop/AGENTS.md).
