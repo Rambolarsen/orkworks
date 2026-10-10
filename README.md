@@ -16,6 +16,11 @@ APM project bootstrapped — agent skills, hooks, and plugins are installed via 
 
 ## Architecture
 
+Harness integration orchestration uses a typed Rust application module; HTTP
+handlers retain parsing and protocol mapping. See the
+[application boundary in ADR 0030](docs/adr/0030-integration-lock-check-await-helper.md#amendment--application-ownership-2026-10-10)
+and [Rust module reference](docs/agents/architecture.md).
+
 The approved [Codex approval attention design](docs/superpowers/specs/2026-10-03-codex-native-approval-status-design.md)
 uses a runtime-owned native server and passive observer with a two-second grace.
 The serial payload gate for [#690](https://github.com/Rambolarsen/orkworks/issues/690)

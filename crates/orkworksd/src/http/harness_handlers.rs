@@ -46,7 +46,7 @@ struct HarnessMutationResponse {
     document_revision: HarnessDocumentRevision,
     harness: HarnessConfigEntry,
     #[serde(skip_serializing_if = "Option::is_none")]
-    integration_cleanup: Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
+    integration_cleanup: Option<crate::harness_integration_application::IntegrationCleanupResponse>,
 }
 
 #[derive(Serialize)]
@@ -54,7 +54,7 @@ struct HarnessMutationResponse {
 struct HarnessDeleteResponse {
     document_revision: HarnessDocumentRevision,
     #[serde(skip_serializing_if = "Option::is_none")]
-    integration_cleanup: Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
+    integration_cleanup: Option<crate::harness_integration_application::IntegrationCleanupResponse>,
 }
 
 #[derive(Serialize)]
@@ -384,11 +384,10 @@ async fn delete_harness_at(
                 None
             } else {
                 Some(
-                    crate::http::integration_handlers::reconcile_unreferenced_integrations(
-                        &state,
-                        cleanup_keys,
-                        cleanup_workspace_path.clone(),
+                    crate::harness_integration_application::HarnessIntegrationApplication::new(
+                        state.clone(),
                     )
+                    .reconcile_unreferenced(cleanup_keys, cleanup_workspace_path.clone())
                     .await,
                 )
             };
@@ -496,11 +495,10 @@ pub(crate) async fn remove_harness_profile(
                 None
             } else {
                 Some(
-                    crate::http::integration_handlers::reconcile_unreferenced_integrations(
-                        &state,
-                        cleanup_keys,
-                        cleanup_workspace_path.clone(),
+                    crate::harness_integration_application::HarnessIntegrationApplication::new(
+                        state.clone(),
                     )
+                    .reconcile_unreferenced(cleanup_keys, cleanup_workspace_path.clone())
                     .await,
                 )
             };
@@ -551,7 +549,7 @@ fn mutation_response_with_cleanup(
     mutation: crate::harness::store::HarnessMutation,
     id: &str,
     status: StatusCode,
-    integration_cleanup: Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
+    integration_cleanup: Option<crate::harness_integration_application::IntegrationCleanupResponse>,
 ) -> axum::response::Response {
     let Some(harness) = mutation.registry.get(id) else {
         return internal_error("updated harness was not resolved");
@@ -1190,20 +1188,25 @@ mod tests {
             .and_then(|workspace| workspace.metadata.read_workspace_memory())
             .unwrap()
             .active_harness_revision;
-        let install = crate::http::integration_handlers::install_grouped_integration(
-            State(state.clone()),
-            axum::extract::Path(("copilot".into(), "workspace".into())),
-            Bytes::from(
-                serde_json::json!({
-                    "expectedDocumentRevision": created["documentRevision"],
-                    "expectedActiveHarnessRevision": active_revision,
-                })
-                .to_string(),
-            ),
+        let install = crate::harness_integration_application::HarnessIntegrationApplication::new(
+            state.clone(),
         )
-        .await
-        .into_response();
-        assert_eq!(install.status(), StatusCode::OK);
+        .mutate(
+            crate::harness_integration_application::IntegrationMutationRequest::Group {
+                key: IntegrationKey {
+                    adapter_id: "copilot".into(),
+                    target_id: "workspace".into(),
+                },
+                mutation: crate::harness_integration_application::IntegrationMutation::Install,
+                expected: crate::harness_integration_application::IntegrationRevisionExpectation {
+                    document_revision: state.harness_store.snapshot().unwrap().document_revision,
+                    active_harness_revision: active_revision,
+                    workspace_path: None,
+                },
+            },
+        )
+        .await;
+        assert!(install.is_ok());
 
         let removed = remove_harness_profile(
             State(state.clone()),
