@@ -121,7 +121,7 @@ export default function ApplicationShell(props: Props) {
         else { captureInvoker(command); setSessionsPage(true); props.onInspect(null); requestFocus("sessions"); }
       } else if (layout.sessionsVisible && (focused || toggleSessions)) {
         props.onPreferencesChange({ ...props.preferences, sessionsVisible: false });
-        requestFocus("terminal");
+        requestFocus(temporaryUtility ? "page" : "terminal");
       } else {
         captureInvoker(command);
         props.onPreferencesChange({ ...props.preferences, sessionsVisible: true });

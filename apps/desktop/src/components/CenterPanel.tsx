@@ -40,6 +40,7 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
       child.style.visibility = child === handle.wrapper ? "visible" : "hidden";
     }
 
+    handle.resizeObserver.observe(handle.wrapper);
     activeIdRef.current = id;
 
     const { disableStdin, cursorBlink } = computeTerminalInteractivity({
@@ -83,21 +84,21 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
 
     if (getTerminal(sessionId)) {
       attachTerminal(sessionId);
-      return;
+    } else {
+      void attachTerminalAfterBackendReady(
+        () => window.orkworks.getBackendUrl(),
+        () => cancelled,
+        (baseUrl) => {
+          ensureTerminal(sessionId, baseUrl);
+          attachTerminal(sessionId);
+        },
+        onBackendUnavailable,
+      );
     }
-
-    void attachTerminalAfterBackendReady(
-      () => window.orkworks.getBackendUrl(),
-      () => cancelled,
-      (baseUrl) => {
-        ensureTerminal(sessionId, baseUrl);
-        attachTerminal(sessionId);
-      },
-      onBackendUnavailable,
-    );
 
     return () => {
       cancelled = true;
+      getTerminal(sessionId)?.resizeObserver.disconnect();
     };
   }, [backendStatus, sessionId, attachTerminal, onBackendUnavailable]);
 

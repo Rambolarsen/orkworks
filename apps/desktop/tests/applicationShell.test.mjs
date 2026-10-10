@@ -62,6 +62,31 @@ if (process.versions.electron) {
           await waitFor('document.querySelector("[data-shell-region=utility]")');
           await click('terminal');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
+        } else if (scenario === 'utility-sessions-focus') {
+          await win.setContentSize(1000,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          await evaluate('fixture.command("sessions")');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await evaluate('fixture.command("sessions")');
+          await waitFor('!document.querySelector("[data-shell-region=sessions]")');
+          assert.equal(await evaluate('document.activeElement.hasAttribute("data-shell-page-heading")'),true,'hiding Sessions focuses the remaining utility');
+          assert.equal(await evaluate('document.activeElement.textContent'),'Details');
+        } else if (scenario === 'hidden-resize') {
+          await win.setContentSize(1000,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          await evaluate('fixture.detachedFits=0;fixture.oldGrid=[fixture.runtime().terminal.cols,fixture.runtime().terminal.rows];const handle=fixture.runtime();const fit=handle.fitAddon.fit.bind(handle.fitAddon);handle.fitAddon.fit=()=>{if(!handle.wrapper.isConnected)fixture.detachedFits++;fit()};void 0');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))');
+          assert.equal(await evaluate('fixture.detachedFits'),0,'detached presentation must not fit the live PTY');
+          assert.deepEqual(await evaluate('[fixture.runtime().terminal.cols,fixture.runtime().terminal.rows]'),await evaluate('fixture.oldGrid'));
+          await click('terminal');
+          await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+          await win.setContentSize(1050,700);
+          await waitFor('fixture.runtime().terminal.cols>fixture.oldGrid[0]');
         } else if (scenario === 'backend-loss') {
           await win.setContentSize(1000,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
@@ -161,7 +186,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -190,6 +215,8 @@ if (process.versions.electron) {
           function Harness() {
             const [inspector,setInspector]=useState(null);
             const [backendStatus,setBackendStatus]=useState('connected');
+            const [commandRequest,setCommandRequest]=useState(null);
+            fixture.command=command=>setCommandRequest(old=>({command,sequence:(old?.sequence||0)+1}));
             fixture.setBackendStatus=setBackendStatus;
             const [activeSessionId,setActiveSessionId]=useState('coding');
             fixture.activeSessionId=activeSessionId;
@@ -197,7 +224,7 @@ if (process.versions.electron) {
             return <ApplicationShell sessions={['coding','other'].map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))}
               workspace={{name:'Test',path:'/tmp/test'}} activeSessionId={activeSessionId} workspaceGeneration={0}
               backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
-              preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>{}}
+              commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>{}}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
               onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
