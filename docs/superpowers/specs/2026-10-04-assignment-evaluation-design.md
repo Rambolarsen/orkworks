@@ -77,7 +77,12 @@ assignment identity, active launch generation, and operation.
 
 The sidecar must resolve and open file paths within the approved output scope,
 reject symlink or junction targets outside it, and preserve the opened-object
-binding for hashing. Only regular files are supported. Every potentially
+binding for hashing. Only regular files with no hard-link aliases are
+supported: prove a link count of one from the opened handle before reading,
+verify it remains one after hashing, and check again before sealing. If the
+platform or filesystem cannot prove this before reading, do not read the bytes;
+if a later check is unavailable or the count changes, discard the read bytes
+and do not accept or pin the output. Every potentially
 blocking filesystem operation—including path resolution, open, metadata checks,
 reads, and hashing—runs in an isolated worker with a fixed finite concurrency
 limit, bounded admission, and a deadline. The sidecar request and lifecycle
@@ -89,20 +94,25 @@ restarted. The implementation must not spawn replacement workers or queue
 unbounded work around a stuck operation. Exact worker, queue, and deadline
 limits are fixed hard limits in the reviewed implementation plan before code.
 On every freshness check, the worker resolves and opens the declared path again
-within scope, verifies that it still names the same object, then hashes that
-open handle. A declared required artifact that is absent at submission or
-confirmed absent during freshness checking is known missing and establishes
-Needs rework. A replaced path, changed bytes, inaccessible path, timed-out
-operation, or unprovable binding is stale/unsupported and Unassessed; no
-out-of-scope file may be read or pinned.
+within scope, then hashes that open handle and compares its size and digest
+with the accepted result. The output's durable identity is its approved path,
+size, and content digest; a different filesystem object at that path with the
+same size and digest is equivalent because this contract establishes content
+freshness, not authorship or object-lifetime identity. A declared required
+artifact that is absent at submission or confirmed absent during freshness
+checking is known missing and establishes Needs rework. A replaced path with
+changed bytes, inaccessible path, timed-out operation, or unprovable
+path/content binding is stale/unsupported and Unassessed; no out-of-scope file
+may be read or pinned.
 
 Before authorized cleanup removes a clean, quiescent plan-owned worktree under
 #610, the sidecar must seal each accepted path-backed output needed by any
 retained current result or evaluation, whether or not an evaluation already
 exists for that result. After the run is terminal and its write capabilities
-are revoked, sealing reopens the path within scope, verifies the accepted object
-identity and digest, and copies the bounded bytes into immutable storage bound
-to the same assignment and output declaration. A sealed output is revalidated
+are revoked, sealing reopens the path within scope, verifies the accepted size
+and digest, and copies the bounded bytes from that opened handle into immutable
+storage bound to the same assignment and output declaration. A sealed output is
+revalidated
 from that stored object; removal of its original worktree path does not make it
 missing or change the result/evaluation digest. The pin uses the same content
 digest, is charged to the existing artifact and workspace quotas, and remains
@@ -144,7 +154,13 @@ An evaluation provides exactly one `satisfied`, `unsatisfied`, or `unassessed`
 outcome for every approved criterion, with a bounded rationale. Satisfied and
 unsatisfied outcomes require evidence; an unassessed outcome may omit evidence
 and records why it could not be assessed. Evidence references bind an immutable
-content digest or report ID/version/digest.
+content digest or report ID/version/digest. A report evidence reference also
+binds the full immutable source identity from #742: workspace, run, plan and
+revision, task and version, reservation, child session, configuration digest,
+sidecar and launch generations, report ID/version, and content digest. The
+sidecar resolves these fields from the stored report; caller-supplied identity
+cannot select a different source. This lets scope, correction, and invalidation
+checks target the exact report even when IDs or bytes are reused elsewhere.
 Missing, duplicate, or unknown criterion IDs make the report malformed and it is
 rejected.
 
@@ -332,7 +348,8 @@ findings that do not require rework are detail and do not affect the overall
 result. A reviewer contests a finding with
 up to 32 `findingDisputes` per revision; each cites the target
 `(reviewerIdentity, evaluationRevision, findingId)` and one evidence
-reference already in the disputing evaluation. The target must be a different
+reference already in the disputing evaluation. Each target tuple may appear at
+most once per disputing evaluation revision. The target must be a different
 eligible evaluation for the same assignment and result revision. A dispute is
 current only while both referenced revisions and the evidence for the target
 finding and dispute remain current and verifiable; correction needs a new
@@ -433,6 +450,9 @@ predecessor (revision/digest or explicit `no-head`), `criteriaSnapshotDigest`,
 `rubricSnapshotDigest`, all criterion outcomes, quality-dimension outcomes and
 rating, their rationales and evidence references, all findings and disputes,
 and any `reviewedEvaluationRef`. Each collection is ordered by its stable ID;
+`findingDisputes`, which have no separate ID, are ordered by the #741 canonical
+JSON bytes of their unique `(reviewerIdentity, evaluationRevision, findingId)`
+target tuple;
 evidence-reference order within an outcome is canonicalized by reference ID.
 The disposition digest includes assignment identity, result revision,
 evaluation stream identity, target evaluation revision/digest, disposition
@@ -541,8 +561,10 @@ A future implementation must verify that:
    unauthenticated, oversized, or cross-subject reports fail closed. Missing
    dimension coverage or invalid evidence cannot support a pass; unassessed
    criteria and dimensions may omit evidence with a bounded reason. File links
-   cannot escape the approved scope, and each freshness check detects removed
-   or replaced paths. A server-held artifact from another assignment or
+   cannot escape the approved scope; hard links without a proven single-link
+   identity are rejected before reading or sealing. Freshness detects removed
+   paths or changed content; replacing a file with identical content preserves
+   the result. A server-held artifact from another assignment or
    declaration is rejected even if its ID, size, and digest are valid. All
    filesystem operations run in an isolated,
    fixed-capacity worker with bounded admission and deadlines; a timed-out
