@@ -62,15 +62,17 @@ accepted scope decision is [ADR 0077](../../adr/0077-taskmaster-orchestrated-chi
 - [x] Validate the concrete draft with `rtk git diff --check`, `rtk proxy bash scripts/doc-check.sh` and `rtk proxy pnpm --dir docs docs:build`; inspect output.
 - [x] Obtain written scope acceptance; then update #610's criteria and retire #617 as superseded, without closing #610 or claiming eligibility.
 
-## Repository identity draft: 2026-10-04
+## Repository identity contract: 2026-10-10
 
-The early #745 input has a [proposed repository-identity contract](../specs/2026-10-04-configuration-learning-design.md)
-and [documentation task plan](2026-10-04-repository-identity-specification.md).
-It specifies local common-directory registration, replacement/relocation
-behavior, exact configuration/approval/resume binding and finite persistence.
-Written contract review, filesystem/platform evidence and executable code
-planning remain open. It does not complete #745's downstream learning/history
-scope or satisfy baseline unit 4's reviewed identity prerequisite yet.
+The repository-identity portion of #745 is accepted in [ADR 0080](../../adr/0080-repository-identity-across-worktrees.md)
+and specified in [the identity contract](../specs/2026-10-04-configuration-learning-design.md).
+Its local registry substrate is tracked separately by [#810](https://github.com/Rambolarsen/orkworks/issues/810)
+with an exact [gated runtime plan](2026-10-10-repository-identity-runtime.md).
+The contract binds both repository-family identity and the exact source
+worktree; those bindings supplement the selected workspace identity and lease.
+Native identity/durable-publication evidence and approval of the #810 plan
+remain open. This does not complete #745's downstream learning/history scope
+or make unit 4 ready for implementation.
 
 ## Runtime planning boundaries
 
@@ -86,7 +88,7 @@ the table is dependency order, not an instruction to dispatch parallel writers.
 | 1. Data-only run/plan persistence | Accepted alignment and reviewed #741/#742 identities/bounds | Immutable run/bootstrap/plan definitions; separate execution state; bounded admission/replay fence; no runtime authority | New `taskmaster/orchestration.rs`, `orchestration_store.rs`; `metadata.rs`; existing coordinator persistence only where compatible | Digest stability; strict cross-language counters/generations; invalid/malformed/over-limit load rejection; crash-safe admission; forgotten-ID replay rejection; ordinary deserialization |
 | 2. Configuration/adapter eligibility | #740 version-specific role/delivery/resume/event evidence and reviewed #741 composition/digests | Closed exact-profile eligibility and startup binding with deny reasons | `harness/definition.rs`, `registry.rs`, compiled integrations; isolated adapter fixtures | Required rules/skills delivered; instruction/model/path/action drift denies; inherited shell/network/MCP bypass probes; no silent fallback; exact resume and event-loop continuation |
 | 3. Run authority and UI approval | Units 1–2 and reviewed #742 lifecycle | Volatile generation-bound run bearer; server-held exact-plan grant; UI creation/resume/approval/revocation | `session_application.rs`, `http/session_handlers.rs`, new `http/orchestration_handlers.rs`, `runtime/terminal_runtime.rs`, main/router; narrow Electron-main/preload methods | Ordinary-only generic creation; bearer cannot approve/launch without grant; exact input/config revalidation; old grant rejection; token filtering; cancellation/launch race; parent resume and between-stage planning |
-| 4. Worktree allocation and ordinary child admission | Units 1–3, approved launch definition and the reviewed repository-identity-across-worktrees portion of #745 required by #741 | Durable allocation/reservation and one child linked to exact run/plan/task/group | `git.rs`, `session_application.rs`, `metadata.rs`, `runtime/workspace_gc.rs`, `retention.rs` | Resolved repository/worktree binding; foreign or ambiguous identity denies before allocation/launch; clean base; exact branch/path collision denial; intent before mutation; concurrent duplicate launch; recovery before/after spawn; no foreign adoption/relaunch; run cap includes prior plans/reservations; terminal+acknowledged same-group reuse; serialized child-resume/group handoff and capacity; predecessor resume denied after durable successor reservation |
+| 4. Worktree allocation and ordinary child admission | Units 1–3, approved launch definition, completed #810 repository-identity substrate and reviewed #741/#742 consumers | Durable allocation/reservation and one child linked to exact run/plan/task/group | `git.rs`, `session_application.rs`, `metadata.rs`, `runtime/workspace_gc.rs`, `retention.rs` | Resolved repository/worktree binding; foreign or ambiguous identity denies before allocation/launch; clean base; exact branch/path collision denial; intent before mutation; concurrent duplicate launch; recovery before/after spawn; no foreign adoption/relaunch; run cap includes prior plans/reservations; terminal+acknowledged same-group reuse; serialized child-resume/group handoff and capacity; predecessor resume denied after durable successor reservation |
 | 5. Turn readiness, coordination and recovery | Units 1–4; verified turn-event adapter | Authenticated readiness evidence; version-bound parent outcomes; declared batch/dependency gates | `http/orchestration_handlers.rs`, orchestration owner; reporter scripts/integrations and ordinary terminal reconciliation | Receipt/UI races; missed receipt fallback; exit never means success; stale/conflicting outcomes rejected; atomic completion; failed/blocked pause; no retries; ordinary children survive parent exit |
 | 6. Preparation/report continuation | Units 1–5 and reviewed #742 report/event contracts | Bounded clarification/research reports/input manifests; same-parent event tool; synthesis/proposal transition | Orchestration owner, scoped report/event handlers and adapter; narrow UI answer/proposal methods | Report producer generations before dedupe; receipt distinct from task result; corrected inputs invalidate proposals; event gaps refresh; research completion removes grant but preserves planning; final completion and exact UI research-only/decline-execution finish fence all run authority; unsettled allocation/finish races denied |
 | 7. Usage/evaluation/history | Final #743/#744 contracts; #745 consumes both | Dedicated skill evidence and independent assignment evaluation, then repository-local future advice | Separate scoped evidence/evaluation/history owners; no workflow-observation format reuse | Delivery distinct from usage; missing remains unknown; authenticated bounded replay/retention/deletion; result-revision binding; conflicts not averaged; advice cannot change active approval/profile |

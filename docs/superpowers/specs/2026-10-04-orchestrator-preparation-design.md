@@ -274,10 +274,10 @@ Version 1 uses the configuration contract's ID/digest/canonicalization rules.
 
 | Record | Required binding |
 | --- | --- |
-| `OrchestrationRunDefinition` | `schemaVersion`, `runId`, workspace/repository/parent identity, UI-authorized goal and `goalDigest`, sidecar-assigned `admissionEpoch`/`runSequence`, `bootstrapConfigurationDigest`, `maxParallelChildren`, `runDefinitionDigest` |
+| `OrchestrationRunDefinition` | `schemaVersion`, `runId`, workspace/parent identity, `repositoryBindingDigest`, `sourceWorktreeBindingDigest`, UI-authorized goal and `goalDigest`, sidecar-assigned `admissionEpoch`/`runSequence`, `bootstrapConfigurationDigest`, `maxParallelChildren`, `runDefinitionDigest` |
 | `OrchestrationRunState` | Run version, closed lifecycle state, input revision/digest, ordered plan references, current plan, current parent runtime generation; mutable evidence separate from the definition |
 | `PreparationRevision` | Run ID, strictly increasing revision, decision, exact question/answer/report/review references and digests, input manifest digest; immutable once referenced by a plan |
-| `ParentPlanBinding` | Run/parent/plan/revision identities, run definition and bootstrap configuration digests, preparation revision/input digest; included in the exact approved plan definition |
+| `ParentPlanBinding` | Run/parent/plan/revision identities, run definition, bootstrap configuration, repository binding and source-worktree binding digests, preparation revision/input digest; included in the exact approved plan definition |
 | `PlanExecutionGrant` | Server-held grant ID, run/parent/runtime/sidecar generation, exact approved plan revision and definition digest, UI approval ID, grant state (`active`, `paused`, `revoked`); never a child-held credential |
 
 For `runDefinitionDigest`, canonicalize the immutable run definition without
@@ -294,8 +294,12 @@ The parent's startup instructions, role, mandatory skills, model policy and
 permissions are reviewed at UI-authorized creation and snapshotted in a separate
 `OrchestratorBootstrapConfiguration`. It uses the role contract's snapshot,
 composition, digest and adapter rules; it is run-bound rather than future-plan-
-bound. `ParentPlanBinding` links each later plan to those unchanged bytes.
-The child `AssignmentConfiguration` remains plan/task-bound.
+bound. The complete repository and source-worktree binding descriptors are
+immutable bootstrap inputs; the run definition and each `ParentPlanBinding`
+retain their exact digests. Preparation input manifests cannot replace them.
+`ParentPlanBinding` links each later plan to those unchanged bytes. The child
+`AssignmentConfiguration` remains plan/task-bound and carries the same exact
+repository and source-worktree bindings.
 
 A plan's tasks and incoming child reports are coordination data. Reading a new
 approved plan does not replace the parent's system/startup instructions or loaded

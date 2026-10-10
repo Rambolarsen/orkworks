@@ -66,15 +66,17 @@ Content digests are lowercase SHA-256 hex, exactly 64 characters.
 configuration gets a new ID and digest. Repository/workspace/plan/task identities
 are those supplied by the approved baseline, never guessed from a display name.
 The [repository-identity portion of #745](2026-10-04-configuration-learning-design.md)
-is now a proposed review input; an unresolved binding prevents comparison and
-launch. Its proposed amendment adds required `repositoryBinding` and `sourceWorktreeBinding`
-to both child and bootstrap configurations and binds its digest into the run and every exact
-plan/parent binding. The complete descriptor participates in canonical digests,
-inclusive byte bounds and protected snapshot retention; `repositoryId` must
-match it. The source worktree snapshot binds the existing root and private Git
-directory objects; another same-family worktree cannot replace that source.
-Its digest is also retained by every plan/parent binding. Existing records without the reviewed binding cannot become eligible
-through path/name inference. This amendment and platform evidence remain gated.
+is accepted by [ADR 0080](../../adr/0080-repository-identity-across-worktrees.md);
+an unresolved binding prevents comparison and launch. The accepted contract
+requires `repositoryBinding` and `sourceWorktreeBinding` in child and bootstrap
+configurations and their digests in the run and every exact plan/parent binding.
+The complete descriptor participates in canonical digests, inclusive byte
+bounds and protected snapshot retention; `repositoryId` must match it. The
+source worktree snapshot binds the existing root and private Git directory
+objects; another same-family worktree cannot replace that source. Existing
+records without the binding cannot become eligible through path/name inference.
+This identity sub-contract does not accept the rest of #741: consumer review,
+platform evidence, and adapter eligibility remain gated.
 
 `assignmentKind` is `child` for the plan-bound `AssignmentConfiguration`. The
 parent uses the separate run bootstrap and plan binding below. `assignment` includes a short
