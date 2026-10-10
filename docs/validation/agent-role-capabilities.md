@@ -307,3 +307,7 @@ model-call schemas carry turn/final-result metadata, not those content receipts;
 logical dispatch may include several provider attempts. Read-time event filters
 and observer cursor waiting establish neither pre-storage exclusion nor parent
 model continuation. All six profiles and live-batch gates remain unchanged.
+
+## Probe 0 transport qualification follow-up — 2026-10-06
+
+A single owner-approved qualification probe ran against Copilot 1.0.90 (quota refused the model call). Native OTel with granular capture settings delivered system-instruction and effective-tool-inventory evidence; response exclusion, skill-body delivery and the built-in MCP discovery question remain open. See [Probe 0 report](copilot-probe0-transport-qualification.md). All six role profiles remain unverified/no-go.

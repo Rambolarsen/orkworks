@@ -1,0 +1,4 @@
+Three single-turn runs, no retry, each under 120 s, same env construction as Probe 0 (disposable COPILOT_HOME with the same capture settings, COPILOT_OTEL_FILE_EXPORTER_PATH, COPILOT_DEBUG_NONCE unset), fixture inputs/ with git init.
+argv: copilot --no-auto-update --available-tools view grep glob skill --deny-tool shell write url [--disable-builtin-mcps] -s -p "Reply with the single word OK. Do not use tools."
+c1: cwd=<fixture>/scope, flag  | c2: cwd=<fixture>, no flag | c3: cwd=<empty non-git dir>, flag
+All three: exit 0, stdout empty, quota error on stderr.
