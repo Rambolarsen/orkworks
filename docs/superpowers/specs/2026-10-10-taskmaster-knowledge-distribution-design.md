@@ -153,7 +153,7 @@ A rerun reuses identical archived bytes; a version or sequence collision with
 different bytes fails. Advance the public manifest only after the referenced
 immutable bundle exists in the assembled site.
 
-Treat the archive as untrusted input on every build. Before staging retained
+Treat the archive as untrusted input on every build. Pin an owner-approved initially empty archive root, require no-force/no-delete branch protection, and verify complete linear ancestry plus preservation of every prior immutable publication inventory. Removing an entire bundle/manifest/receipt set must fail even when the remaining records are internally consistent; missing history cannot bootstrap an existing archive. Before staging retained
 artifacts, verify their signatures, supported privacy policy, manifest/digest
 bindings, safe paths, bounded schema, and the private export receipt that records
 the reviewed source identity. An arbitrary artifact-branch file, a legacy bundle
