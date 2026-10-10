@@ -21,6 +21,64 @@ if (process.versions.electron) {
     };
     try {
       await fresh();
+      const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
+      const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
+      if (scenario !== 'baseline') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        if (scenario === 'sessions-toggle') {
+          await click('sessions');
+          await waitFor('!document.querySelector("[data-shell-region=sessions]")');
+          await click('sessions');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await click('sessions');
+          await waitFor('!document.querySelector("[data-shell-region=sessions]")');
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await click('sessions');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await click('sessions');
+          await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        } else if (scenario === 'sessions-browse') {
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await click('sessions');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true}))');
+          await waitFor('fixture.selections===1');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true,'arrow selection keeps compact Sessions mounted');
+          assert.equal(await evaluate('document.activeElement.id'),'sessions-list');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true}))');
+          await waitFor('fixture.selections===2');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
+          await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
+        } else if (scenario === 'focus') {
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await click('sessions');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
+          await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          await click('terminal');
+          await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
+        } else if (scenario === 'backend-loss') {
+          await win.setContentSize(1000,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          await evaluate('fixture.oldRuntime=fixture.runtime();fixture.setBackendStatus("unreachable")');
+          await waitFor('fixture.oldRuntime.disposed');
+          await evaluate('fixture.setBackendStatus("connected")');
+          await click('terminal');
+          await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+          assert.notEqual(await evaluate('fixture.runtime()===fixture.oldRuntime'),true);
+          assert.equal(await evaluate('fixture.socketCount'),2);
+          assert.equal(await evaluate('fixture.runtime().unavailable'),false);
+        }
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      }
       await waitFor('document.querySelector("[data-shell-region=terminal]")');
       await waitFor('fixture.runtime()?.terminal.element?.isConnected');
       assert.equal(await evaluate('document.querySelectorAll("[data-shell-region]").length'), 2);
@@ -91,6 +149,7 @@ if (process.versions.electron) {
 
     } finally {
       win.destroy();
+      app.quit();
     }
     app.quit();
   }).catch(error => { console.error(error); app.exit(1); });
@@ -102,7 +161,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  test('fixed shell destinations preserve selection and restore keyboard focus', async () => {
+  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -125,18 +184,22 @@ if (process.versions.electron) {
             close(){}
           };
           fixture.output=text=>fixture.socket.onmessage({data:new TextEncoder().encode(text).buffer});
-          fixture.runtime=()=>getTerminal('coding');
+          fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345')};
           function Harness() {
             const [inspector,setInspector]=useState(null);
+            const [backendStatus,setBackendStatus]=useState('connected');
+            fixture.setBackendStatus=setBackendStatus;
+            const [activeSessionId,setActiveSessionId]=useState('coding');
+            fixture.activeSessionId=activeSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
-            return <ApplicationShell sessions={[{id:'coding',name:'Coding',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:'Coding'}]}
-              workspace={{name:'Test',path:'/tmp/test'}} activeSessionId="coding" workspaceGeneration={0}
-              backendStatus="connected" harnesses={[]} debugSettings={{showSessionIds:false}}
+            return <ApplicationShell sessions={['coding','other'].map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))}
+              workspace={{name:'Test',path:'/tmp/test'}} activeSessionId={activeSessionId} workspaceGeneration={0}
+              backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
               preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>{}}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
-              onSelectSession={()=>fixture.selections++} onFocusTerminal={()=>{}} />;
+              onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
@@ -146,17 +209,17 @@ if (process.versions.electron) {
           builder.onResolve({filter:/^@xterm\/addon-webgl$/},()=>({path:'webgl',namespace:'no-gpu'}));
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
-          builder.onResolve({ filter: /^\.\/(SessionListPanel|SessionDetailPanel|CapacityPanel|RecommendationsPanel)$/ },
+          builder.onResolve({ filter: /^\.\/(SessionDetailPanel|CapacityPanel|RecommendationsPanel)$/ },
             args => ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
-            args => ({ contents: args.path.endsWith('SessionListPanel') ? 'import React from "react";export default function Panel(props){return <div id="sessions-list" tabIndex={0} onKeyDown={e=>{if(e.key==="Enter")props.onFocusTerminal()}}>Sessions</div>}' : 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
+            () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 
         } }],
       });
       const fixture = join(directory, 'index.html');
       writeFileSync(fixture, '<style>' + (bundle.outputFiles.find(f=>f.path.endsWith('.css'))?.text||'') + '</style><div id="root" style="height:650px;display:flex"></div><script>' + bundle.outputFiles.find(f=>!f.path.endsWith('.css')).text + '</script>');
       const electron = require('electron');
-      const env = { ...process.env, ORKWORKS_SHELL_FIXTURE: fixture };
+      const env = { ...process.env, ORKWORKS_SHELL_FIXTURE: fixture, ORKWORKS_SHELL_SCENARIO: scenario };
       delete env.ELECTRON_RUN_AS_NODE;
       const args = [fileURLToPath(import.meta.url)];
       if (process.platform === 'linux') args.unshift('--no-sandbox');

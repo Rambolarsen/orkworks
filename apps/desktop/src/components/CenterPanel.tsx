@@ -55,7 +55,9 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
       /* xterm not yet measured */
     }
     const focused = document.activeElement;
-    const mayFocus = !focused || focused === document.body || container.contains(focused);
+    // Shell navigation focuses this safe heading before the passive DOM attachment.
+    const requestedTerminalFocus = focused instanceof HTMLElement && focused.matches("[data-shell-terminal-focus]");
+    const mayFocus = !focused || focused === document.body || container.contains(focused) || requestedTerminalFocus;
     if (!handle.ended && !handle.unavailable && mayFocus) {
       handle.terminal.focus();
     }

@@ -11,6 +11,7 @@ import TerminalPanel from "./TerminalPanel";
 import CapacityPanel from "./CapacityPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
 import RegionSeparator from "./RegionSeparator";
+import { disposeAllTerminals } from "../terminalStore";
 
 export type ShellDestination = "details" | "capacity" | "recommendations";
 export type ShellCommand = "sessions" | "terminal" | "reset-layout" | ShellDestination;
@@ -102,7 +103,7 @@ export default function ApplicationShell(props: Props) {
     props.onInspect(null);
     requestFocus("return");
   };
-  const runCommand = (command: ShellCommand, reveal = false) => {
+  const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
     if (command === "reset-layout") {
       setSessionsPage(false);
       props.onInspect(null);
@@ -116,9 +117,9 @@ export default function ApplicationShell(props: Props) {
       const list = document.getElementById("sessions-list");
       const focused = list?.contains(document.activeElement) === true;
       if (compact) {
-        if (sessionsPage && focused) closePage();
+        if (sessionsPage && (focused || toggleSessions)) closePage();
         else { captureInvoker(command); setSessionsPage(true); props.onInspect(null); requestFocus("sessions"); }
-      } else if (layout.sessionsVisible && focused) {
+      } else if (layout.sessionsVisible && (focused || toggleSessions)) {
         props.onPreferencesChange({ ...props.preferences, sessionsVisible: false });
         requestFocus("terminal");
       } else {
@@ -173,6 +174,11 @@ export default function ApplicationShell(props: Props) {
   }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, props.onFocusTerminal]);
 
   useEffect(() => {
+    // Hidden terminal presentation has no CenterPanel effect to observe backend loss.
+    if (props.backendStatus !== "connected") disposeAllTerminals();
+  }, [props.backendStatus]);
+
+  useEffect(() => {
     for (const [id, visible] of Object.entries({ sessions: showSessions, terminal: showTerminal,
       detail: props.inspector === "details" && (showInspector || temporaryUtility),
       capacity: props.inspector === "capacity" && (showInspector || temporaryUtility),
@@ -209,7 +215,7 @@ export default function ApplicationShell(props: Props) {
       event.preventDefault(); event.stopPropagation(); closePage();
     }}>
     <nav className="shell-toolbar" aria-label="Content navigation">
-      <button type="button" data-shell-command="sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions")}><PanelLeft size={15} aria-hidden="true" />Sessions</button>
+      <button type="button" data-shell-command="sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={15} aria-hidden="true" />Sessions</button>
       <div className="shell-context"><span>{session?.label || "Terminal"}</span><span className="shell-context-scope">{session?.harness || "No session selected"}</span></div>
       <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>
       <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
@@ -225,14 +231,14 @@ export default function ApplicationShell(props: Props) {
         {showSessionsPage && props.workspace && <button className="shell-new-session" type="button" onClick={props.onCreateSession}>New session</button>}
         <SessionListPanel workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
           unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
-          onSelectSession={id => { setSessionsPage(false); props.onSelectSession(id); }}
+          onSelectSession={props.onSelectSession}
           onKillSession={props.onKillSession} onForgetSession={props.onForgetSession}
           onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={props.onOpenWorkspace} />
       </section>}
       {layout.sessionsVisible && <RegionSeparator label="Sessions" minimum={200} maximum={layout.sessionsMaximum} value={layout.sessionsWidth}
         onChange={value => props.onPreferencesChange({ ...props.preferences, sessionsWidth: value })} />}
       {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
-        <header className="shell-region-header"><h1 tabIndex={-1}>Terminal</h1></header>
+        <header className="shell-region-header"><h1 data-shell-terminal-focus tabIndex={-1}>Terminal</h1></header>
         <TerminalPanel key={`${session?.id ?? "none"}-${props.resumeTick}`} backendStatus={props.backendStatus} session={session}
           onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} />
       </section>}

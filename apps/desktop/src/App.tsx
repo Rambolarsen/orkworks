@@ -45,7 +45,7 @@ import { shouldEnableSessionPolling, type BackendStatus } from "./backendPolling
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
-import { createShellNavigationState, reduceShellNavigation, type InspectorDestination, type InspectedSubject } from "./shellNavigation";
+import { createShellNavigationState, reduceShellNavigation, resolveInspectorSubject, type InspectorDestination } from "./shellNavigation";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
@@ -507,11 +507,8 @@ function App() {
   }, [activeSessionId]);
 
   const inspectSubject = useCallback((destination: InspectorDestination) => {
-    const subject: InspectedSubject | null = activeSessionId
-      ? { kind: "session", sessionId: activeSessionId }
-      : workspace
-        ? { kind: "workspace", workspaceKey: workspace.workspaceIdentity || workspace.path }
-        : null;
+    const subject = resolveInspectorSubject(destination, activeSessionId,
+      workspace ? workspace.workspaceIdentity || workspace.path : null);
     if (!subject) return;
     dispatchShellNavigation({
       type: "inspector-opened",

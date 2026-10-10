@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   createShellNavigationState,
   reduceShellNavigation,
+  resolveInspectorSubject,
 } from "../src/shellNavigation.ts";
 
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
@@ -295,3 +296,20 @@ test("App sends controller-confirmed active-session loss through visible navigat
   assert.ok(/shellNavigation\.visibleFallbackReason/.test(appSource));
   assert.ok(/pushToast\("info", shellNavigation\.visibleFallbackReason\)/.test(appSource));
 });
+
+for (const destination of ["capacity", "recommendations", "actions"] as const) {
+  test(`${destination} remains workspace-scoped when the active session disappears`, () => {
+    const subject = resolveInspectorSubject(destination, "session-a", "workspace-a");
+    assert.deepEqual(subject, { kind: "workspace", workspaceKey: "workspace-a" });
+    const inspected = reduceShellNavigation(createShellNavigationState({workspaceGeneration:4,activeSessionId:"session-a"}), {
+      type:"inspector-opened",destination,subject:subject!,generation:4,
+    });
+    assert.equal(inspected.activeSessionId, "session-a");
+    assert.deepEqual(inspected.acknowledgedSessionIds, []);
+    const missing = reduceShellNavigation(inspected, {
+      type:"target-missing",target:{kind:"session",sessionId:"session-a"},reason:"Gone",generation:4,
+    });
+    assert.equal(missing.inspector,destination);
+    assert.deepEqual(missing.inspectedSubject,{kind:"workspace",workspaceKey:"workspace-a"});
+  });
+}

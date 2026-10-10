@@ -16,15 +16,6 @@ test("Details follows the visible subject without selecting a session", () => {
   assert.doesNotMatch(detail, /onSelectSession/);
 });
 
-test("opening an inspector records its subject through shell navigation without selecting it", () => {
-  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(app, /type: "inspector-opened"/);
-  assert.match(app, /const subject: InspectedSubject \| null = activeSessionId[\s\S]{0,300}kind: "workspace"/);
-  assert.match(app, /type: "inspector-opened",[\s\S]{0,200}subject,/);
-  assert.match(app, /type: "inspector-closed"/);
-});
-
 test("TerminalPanel uses read-only replay only for dead sessions", () => {
   const source = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
 

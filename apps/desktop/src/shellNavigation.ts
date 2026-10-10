@@ -16,6 +16,17 @@ export type InspectedSubject =
   | { kind: "artifact"; sessionId: string; artifactId: string }
   | { kind: "workspace"; workspaceKey: string };
 
+export function resolveInspectorSubject(
+  destination: InspectorDestination,
+  activeSessionId: string | null,
+  workspaceKey: string | null,
+): InspectedSubject | null {
+  if (destination === "details" && activeSessionId) {
+    return { kind: "session", sessionId: activeSessionId };
+  }
+  return workspaceKey ? { kind: "workspace", workspaceKey } : null;
+}
+
 export type FocusTarget =
   | { kind: "sessions" }
   | { kind: "terminal"; sessionId: string }
