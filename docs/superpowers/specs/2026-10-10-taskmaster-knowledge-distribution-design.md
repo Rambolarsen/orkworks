@@ -76,6 +76,8 @@ An unchanged reviewed page may publish automatically; any source-byte change
 requires renewed review and an updated approved hash. New and unclassified pages
 are excluded by default.
 
+Stable public IDs apply across publications, not just within a bundle. Use the canonical repository-relative source path in the fixed Brain repository as source identity. Record exact source-path/public-ID pairs in private receipts and reconstruct cumulative ownership from independently verified archive history before exporting/signing a candidate. Reject changing an existing source's ID or reusing its ID for another source, including after omission or deprecation; unchanged/reintroduced pairs remain valid. Source moves have no implicit migration, and `index.md` remains reserved. Only the verified initially empty archive root permits empty ownership. The private mapping never enters Pages or the application bundle.
+
 An owner-reviewed export change includes the proposed public artifact diff,
 not just a path inventory. Review prose, headings, link labels and destinations,
 code blocks, frontmatter, provenance, and relationship labels for private names,
@@ -336,7 +338,7 @@ outcome and separately from update errors.
 | Strict exclusions; no exceptions | Brain policy and reviewed allowlist | Mistakenly allowlisted excluded classes fail; owner-reviewed exported artifact diff |
 | Direct reviewed export, default exclusion | Brain exporter | Exact-byte hash mismatch and new/unclassified pages cannot publish |
 | Content privacy | Review and final-artifact validation | Private markers in prose, labels, metadata, URLs and provenance do not appear in any public artifact |
-| Hierarchy, stable IDs, maturity, applicability, provenance, index | Export schema and generated index | Deterministic output; internal IDs/links resolve only inside bundle; client round-trip preserves metadata |
+| Hierarchy, stable IDs, maturity, applicability, provenance, index | Export schema, generated index and cumulative private receipt ownership | Cross-publication rename/reuse/omission rejection and valid reintroduction; deterministic output; internal IDs/links resolve only inside bundle; client round-trip preserves metadata |
 | Generated starter and source revision | Publisher receipt and resource import | Starter matches signed publication bytes; private receipt records source revision and version |
 | Signed publication and pinned key | Publisher and both verifiers | Missing key fails before mutation; wrong key/signature/digest/manifest is rejected |
 | Automatic immutable distribution | Durable archive and existing Pages workflow | First-run bootstrap; retained-artifact/receipt verification; cancellation recovery; older compatible URLs and unchanged bytes; idempotent rerun |
