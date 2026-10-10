@@ -25,6 +25,22 @@ test("menu template uses accelerators from settings", () => {
   assert.equal(findMenuItem(template, "reset-layout")?.accelerator, "CmdOrCtrl+Alt+Backspace");
 });
 
+test("shell menu entries keep their existing identities and act as destinations instead of panel checkboxes", () => {
+  const template = buildMenuTemplate({
+    appName: "OrkWorks",
+    platform: "darwin",
+    settings: DEFAULT_SETTINGS,
+    sendCommand: () => {},
+  });
+
+  for (const id of ["sessions", "detail", "terminal", "capacity", "recommendations"]) {
+    const item = findMenuItem(template, id);
+    assert.ok(item, `${id} remains available`);
+    assert.notEqual(item.type, "checkbox");
+    assert.equal(item.id, id);
+  }
+});
+
 test("menu template omits optional reset layout accelerator when unset", () => {
   const template = buildMenuTemplate({
     appName: "OrkWorks",

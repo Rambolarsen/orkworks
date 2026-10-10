@@ -87,3 +87,5 @@ Decision records and their original rationale and consequences.
 - [Signed Taskmaster knowledge activation proof](0081-signed-taskmaster-knowledge-activation-proof.md) — Architecture decision record: Signed Taskmaster knowledge activation proof.
 - [Architecture Decision Records](README.md) — Index and authoring guidance for architecture decision records.
 - [\[short title of solved problem and solution\]](template.md) — Template for recording architecture decisions and their consequences.
+
+- [React and CSS Grid desktop shell](0082-react-grid-desktop-shell.md) — Replacement of Dockview with explicit React regions and accessible resizing.

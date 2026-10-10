@@ -573,14 +573,14 @@ test("Fix with AI is gated on the active session actually being alive, not merel
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
   );
-  const dockview = readFileSync(
-    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+  const shell = readFileSync(
+    new URL("../src/components/ApplicationShell.tsx", import.meta.url),
     "utf8",
   );
 
   assert.match(panel, /canFixWithAi: boolean/);
   assert.doesNotMatch(panel, /activeSessionId/);
-  assert.match(dockview, /\.lifecycle === "alive"/);
+  assert.match(shell, /\.lifecycle === "alive"/);
 });
 
 test("Recommendations polls authenticated Taskmaster run status without coupling it to recommendation errors", () => {
@@ -675,7 +675,7 @@ test("App runs accepted Fix with AI feedback only after the handoff generation g
   const selection = app.slice(selectionStart, selectionEnd);
   assert.match(selection, /workspaceSessionController\.selectSession\(id\)/);
   assert.match(selection, /acknowledgeSession\(clearUnread\(prev, id\), id\)/);
-  assert.match(selection, /panel\.api\.setActive\(\)/);
+  assert.match(selection, /type: "session-selected"/);
 });
 
 test("a resurfaced recommendation is visibly marked instead of reading as a first-time finding", () => {
@@ -830,14 +830,9 @@ test("debug attention injection uses the main generation-bound bridge", () => {
   assert.doesNotMatch(handler, /getBackendUrl\(\)/);
 });
 
-test("recommendation history links add the panel without requiring an absent reference panel", () => {
+test("recommendation history links explicitly reveal the shared destination", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const handlerIndex = app.indexOf("const handleOpenRecommendation");
-  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, []);", handlerIndex));
-
-  assert.match(handlerBlock, /const position = PANEL_DEFAULTS\.recommendations\.position/);
-  assert.match(handlerBlock, /if \(position && api\.getPanel\(position\.referencePanel\)\)/);
-  assert.match(handlerBlock, /options\.position = position/);
+  assert.match(app, /requestShellCommand\("recommendations", true\)/);
 });
 
 test("recommendation history labels expose a distinguishing id suffix", () => {
@@ -1057,13 +1052,13 @@ test("Recommendations panel links affected sessions through the shared selection
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
   );
-  const dockview = readFileSync(
-    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+  const shell = readFileSync(
+    new URL("../src/components/ApplicationShell.tsx", import.meta.url),
     "utf8",
   );
 
   assert.match(panel, /onSelectSession\?\./);
-  assert.match(dockview, /onSelectSession=\{ctx\.onSelectSession\}/);
+  assert.match(shell, /onSelectSession=\{props\.onSelectSession\}/);
 });
 
 test("SessionDetailPanel gates Peon diagnostics behind debug metadata", () => {
@@ -1100,14 +1095,14 @@ test("Recommendations panel does not poll the sidecar before a workspace is load
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
   );
-  const dockview = readFileSync(
-    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+  const shell = readFileSync(
+    new URL("../src/components/ApplicationShell.tsx", import.meta.url),
     "utf8",
   );
 
   assert.match(panel, /hasWorkspace: boolean/);
   assert.match(panel, /if \(!hasWorkspace\) \{/);
-  assert.match(dockview, /hasWorkspace=\{!!ctx\.workspace && !ctx\.isSwitchingWorkspace\}/);
+  assert.match(shell, /hasWorkspace=\{!!props\.workspace && !props\.isSwitchingWorkspace\}/);
 });
 
 test("Recommendations polling also pauses across a workspace switch, not just initial startup", () => {
@@ -1119,14 +1114,14 @@ test("Recommendations polling also pauses across a workspace switch, not just in
   // this PR set out to fix, just via the sidecar-restart path instead of
   // app startup. isSwitchingWorkspace must be true for that whole window.
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const dockview = readFileSync(
-    new URL("../src/components/DockviewApp.tsx", import.meta.url),
+  const shell = readFileSync(
+    new URL("../src/components/ApplicationShell.tsx", import.meta.url),
     "utf8",
   );
 
   assert.match(app, /setIsSwitchingWorkspace\(true\)/);
   assert.match(app, /setIsSwitchingWorkspace\(false\)/);
-  assert.match(dockview, /isSwitchingWorkspace: boolean/);
+  assert.match(shell, /isSwitchingWorkspace: boolean/);
 });
 
 test("Recommendations panel drops the previous workspace's data instead of leaving it displayed mid-switch", () => {

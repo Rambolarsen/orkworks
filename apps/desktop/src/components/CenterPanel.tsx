@@ -40,6 +40,7 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
       child.style.visibility = child === handle.wrapper ? "visible" : "hidden";
     }
 
+    handle.resizeObserver.observe(handle.wrapper);
     activeIdRef.current = id;
 
     const { disableStdin, cursorBlink } = computeTerminalInteractivity({
@@ -54,9 +55,11 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
     } catch {
       /* xterm not yet measured */
     }
-    const listEl = document.getElementById("sessions-list");
-    const listHasFocus = !!listEl && listEl.contains(document.activeElement);
-    if (!handle.ended && !handle.unavailable && !listHasFocus) {
+    const focused = document.activeElement;
+    // Shell navigation focuses this safe heading before the passive DOM attachment.
+    const requestedTerminalFocus = focused instanceof HTMLElement && focused.matches("[data-shell-terminal-focus]");
+    const mayFocus = !focused || focused === document.body || container.contains(focused) || requestedTerminalFocus;
+    if (!handle.ended && !handle.unavailable && mayFocus) {
       handle.terminal.focus();
     }
   }, []);
@@ -81,21 +84,21 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
 
     if (getTerminal(sessionId)) {
       attachTerminal(sessionId);
-      return;
+    } else {
+      void attachTerminalAfterBackendReady(
+        () => window.orkworks.getBackendUrl(),
+        () => cancelled,
+        (baseUrl) => {
+          ensureTerminal(sessionId, baseUrl);
+          attachTerminal(sessionId);
+        },
+        onBackendUnavailable,
+      );
     }
-
-    void attachTerminalAfterBackendReady(
-      () => window.orkworks.getBackendUrl(),
-      () => cancelled,
-      (baseUrl) => {
-        ensureTerminal(sessionId, baseUrl);
-        attachTerminal(sessionId);
-      },
-      onBackendUnavailable,
-    );
 
     return () => {
       cancelled = true;
+      getTerminal(sessionId)?.resizeObserver.disconnect();
     };
   }, [backendStatus, sessionId, attachTerminal, onBackendUnavailable]);
 

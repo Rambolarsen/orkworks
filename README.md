@@ -65,11 +65,12 @@ process groups and Windows Job objects. See [ADR 0055](docs/adr/0055-json-taskma
 for the transport contract; native Windows desktop validation remains tracked in
 [issue #525](https://github.com/Rambolarsen/orkworks/issues/525).
 
-The application shell redesign is approved in [ADR 0078](docs/adr/0078-fixed-desktop-shell-and-central-navigation.md)
-and its [design](docs/superpowers/specs/2026-10-05-application-shell-navigation-design.md).
-The current desktop still uses draggable Dockview panels; implementation is
-tracked under [#755](https://github.com/Rambolarsen/orkworks/issues/755) and
-remains subject to review of the [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
+The source desktop uses a fixed React/CSS Grid shell with Sessions, Terminal,
+and one optional inspector, following [ADR 0078](docs/adr/0078-fixed-desktop-shell-and-central-navigation.md)
+and [ADR 0082](docs/adr/0082-react-grid-desktop-shell.md). Utility pages replace
+Terminal at narrower widths without ending its session. Review and Actions
+navigation remain follow-up work under [#755](https://github.com/Rambolarsen/orkworks/issues/755).
+This describes source behavior, not the contents of published installers.
 
 The accepted [brain-informed Taskmaster design](specs/taskmaster-knowledge.md)
 adds independently updated reference knowledge, a separate analysis model, and
@@ -84,7 +85,7 @@ administrator-managed policies, including required hooks and managed routing
 
 ```text
 orkworks/
-├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js desktop UI
+├─ apps/desktop/          # Electron + React/TypeScript + CSS Grid + xterm.js desktop UI
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
 │  ├─ adr/                # Architecture Decision Records
@@ -95,8 +96,8 @@ orkworks/
 
 - Electron launches Rust sidecar; UI talks to it over localhost HTTP/WebSocket
 - `nodeIntegration: false`, `contextIsolation: true`
-- Desktop UI uses Dockview draggable panels for sessions, detail, terminal, and recommendations; Capacity is a non-Providers stub surface
-- The Review tab renders selected-session plan/spec content as Markdown via `react-markdown`/`remark-gfm`
+- Desktop UI uses fixed, resizable Sessions, Terminal, and inspector regions; Capacity is a non-Providers stub surface
+- The retained Review component renders Markdown via `react-markdown`/`remark-gfm`; its new shell destination is deferred to #780
 - New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; harness definitions resolve from embedded built-ins plus sparse versioned overrides in `~/.orkworks/harnesses.json`
 - Antigravity CLI is the supported Google coding tool (`agy`); retired Gemini CLI records and settings remain readable for compatibility but cannot start new sessions
 - Session labels are stable topics, re-seeded only after a harness-declared fresh-conversation command; delayed old-topic inference cannot overwrite the reset placeholder (ADR 0040)
@@ -110,7 +111,7 @@ orkworks/
 - Each independent instance owns at most one sidecar, which takes an exclusive OS lease on its workspace metadata directory before loading or reconciling sessions; another owner receives a conflict instead of being inspected or terminated (see [ADR 0052](docs/adr/0052-single-writer-workspace-lease.md) and [ADR 0060](docs/adr/0060-independent-workspace-instances.md))
 - Resumed PTY runtimes carry an internal generation so delayed callbacks from a retired runtime cannot alter its replacement (see [ADR 0041](docs/adr/0041-session-runtime-generation-ownership.md))
 - Raw terminal replay is bounded to the newest 1,000 lines and 1 MiB; dead sessions display that saved output read-only, while accepted session summaries are retained as durable checkpoints (see [ADR 0024](docs/adr/0024-bounded-terminal-replay-durable-summary-checkpoints.md)). (design, not yet implemented — see issue #313) A current-summary snapshot (`summary`/`summarySource`/`summaryConfidence`/`summaryObservedAt`) is planned to replace that checkpoint log, with durable workflow-friction evidence recorded separately as `WorkflowObservation`s for Taskmaster (see [ADR 0042](docs/adr/0042-workflow-observations-replace-summary-checkpoints.md))
-- Session plans/specs appear in a reusable Review tab; the renderer receives availability and document content, never a filesystem path. The sole terminal-input exception is a user-clicked, fixed review prompt that asks the active agent to delegate to a subagent when possible (see [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md), [ADR 0034](docs/adr/0034-user-approved-session-review-prompt.md))
+- The retained session plan/spec Review component and explicit review-prompt API remain defined by [ADR 0025](docs/adr/0025-authenticated-session-plan-handoff.md) and [ADR 0034](docs/adr/0034-user-approved-session-review-prompt.md). Current source builds expose no Review tab, plan-opening controls, or terminal plan links until [#780](https://github.com/Rambolarsen/orkworks/issues/780) supplies the destination; published installers may retain the earlier Review tab.
 - Harness capabilities and workspace integration status resolve from one immutable registry; custom JSON controls declarative capabilities while a sidecar-owned allowlisted compatibility profile may preserve an existing compiled binding during duplication; Settings exposes revision-aware custom/override editing without exposing hook or profile authority to editable JSON, and the existing Electron-main confirmation boundary still owns integration mutations (see [ADR 0026](docs/adr/0026-resolved-harness-capability-registry.md))
 - Harness version-probe results use bounded TTL caching with generation-aware invalidation; integration actions still revalidate identity after a probe (see [ADR 0028](docs/adr/0028-generation-aware-harness-version-probe-cache.md))
 - Codex sessions capture their native session ID through the generated/local six-event hook bundle (`SessionStart`, `UserPromptSubmit`, `PermissionRequest`, capture-only `PreToolUse` and `PostToolUse`, and `Stop`), enabling exact resume and deterministic turn attention. Any owned event can provide the first ID if `SessionStart` was missed; replacing it still requires a recorded `/clear` and an authenticated root `SessionStart`. Internal Codex CLI subagents remain under their parent OrkWorks session and get no separate OrkWorks ID. Resume requires the exact thread's saved local rollout; OrkWorks never falls back to the latest conversation. `SessionStart` itself remains identity-only; `UserPromptSubmit` reports `working`, `PermissionRequest` reports `waiting_for_input`, and `Stop` reports `idle` for the matching live session. `PreToolUse` and `PostToolUse` capture bounded, redacted diagnostic records only and do not change attention behavior. The capture-only events change the bundle fingerprint, so users re-approve through `/hooks` after the integration updates (see [ADR 0051](docs/adr/0051-codex-deterministic-attention-hooks.md) and [ADR 0068](docs/adr/0068-codex-subagents-share-owning-session-identity.md))

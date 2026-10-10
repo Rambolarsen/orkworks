@@ -6,7 +6,7 @@ import { installTerminalWheelHandler } from "./terminalWheel";
 import { orkworksTerminalTheme } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
 import { writeTerminalReplay, recordedReplaySize } from "./terminalReplay";
-import { createTerminalPlanLinkProvider, terminalLinkHandler } from "./terminalLinks";
+import { terminalLinkHandler } from "./terminalLinks";
 import {
   parseTerminalControlMessage,
   shouldReplayTerminalOutputOnClose,
@@ -71,10 +71,6 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
-  term.registerLinkProvider(createTerminalPlanLinkProvider(term, async (path) => {
-    await window.orkworks.selectTerminalPlan(id, path);
-    window.dispatchEvent(new CustomEvent("orkworks:terminal-plan-selected", { detail: { sessionId: id } }));
-  }));
 
   try {
     const webglAddon = new WebglAddon();
@@ -104,6 +100,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     if (fitRaf !== null) cancelAnimationFrame(fitRaf);
     fitRaf = requestAnimationFrame(() => {
       fitRaf = null;
+      if (!wrapper.isConnected || wrapper.clientWidth === 0 || wrapper.clientHeight === 0) return;
       try {
         fitAddon.fit();
       } catch (err) {
@@ -111,7 +108,6 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
       }
     });
   });
-  resizeObserver.observe(wrapper);
 
   const handle: TerminalHandle = {
     id,
@@ -131,10 +127,12 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   let receivedData = false;
 
   ws.onopen = () => {
-    try {
-      fitAddon.fit();
-    } catch {
-      /* ignore */
+    if (wrapper.isConnected && wrapper.clientWidth > 0 && wrapper.clientHeight > 0) {
+      try {
+        fitAddon.fit();
+      } catch {
+        /* ignore */
+      }
     }
     sendResize(ws, term);
     if (handle.pendingInput) {

@@ -1,7 +1,8 @@
 import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { DockviewApi } from "dockview-react";
-import DockviewApp from "./components/DockviewApp";
+import ApplicationShell, { shouldShowRecommendationsPanel, type ShellCommand, type ShellCommandRequest, type ShellDestination } from "./components/ApplicationShell";
+import ShellPreferencesNotice from "./components/ShellPreferencesNotice";
+import { useShellPreferences } from "./useShellPreferences";
 import NewSessionDialog from "./components/NewSessionDialog";
 import FixWithAiDialog from "./components/FixWithAiDialog";
 import SettingsModal from "./components/SettingsModal";
@@ -16,14 +17,6 @@ import {
   trackUnread,
   type UnreadState,
 } from "./sessionUnread";
-import {
-  PANEL_DEFAULTS,
-  buildDefaultLayout,
-  synchronizeSignalPanels,
-  shouldShowRecommendationsPanel,
-  shouldShowReviewPanel,
-  type SignalPanelId,
-} from "./components/DockviewApp";
 import { VOCAB } from "./labels";
 import { pushToast } from "./feedback";
 import { activeNewSessionHarnesses } from "./newSessionDialogState";
@@ -53,10 +46,15 @@ import { shouldEnableSessionPolling, type BackendStatus } from "./backendPolling
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
-import { createShellNavigationState, reduceShellNavigation } from "./shellNavigation";
+import { createShellNavigationState, reduceShellNavigation, resolveInspectorSubject, type InspectorDestination } from "./shellNavigation";
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
+  const { preferences: shellPreferences, change: changeShellPreferences, reset: resetShellPreferences, needsRebuild: shellNeedsRebuild, migrationNotice: shellMigrationNotice, dismissMigrationNotice } = useShellPreferences();
+  const [shellCommandRequest, setShellCommandRequest] = useState<ShellCommandRequest | null>(null);
+  const requestShellCommand = useCallback((command: ShellCommand, reveal = false) => {
+    setShellCommandRequest(previous => ({ command, sequence: (previous?.sequence ?? 0) + 1, reveal }));
+  }, []);
   const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [shellNavigation, dispatchShellNavigation] = useReducer(
@@ -82,17 +80,10 @@ function App() {
   const [providerRuntime, setProviderRuntime] = useState<ProviderRuntimeResponse | null>(null);
   const [noProvidersPrompt, setNoProvidersPrompt] = useState(false);
   const [resumeTick, setResumeTick] = useState(0);
-  const [reviewTick, setReviewTick] = useState(0);
   const [harnesses, setHarnesses] = useState<HarnessConfigEntry[]>([]);
   const [harnessDocumentRevision, setHarnessDocumentRevision] = useState<string | null>(null);
   const [activeHarnessIds, setActiveHarnessIds] = useState<string[]>([]);
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
-  const dockviewApiRef = useRef<DockviewApi | null>(null);
-  const signalPanelHiddenIdsRef = useRef<Set<SignalPanelId>>(new Set());
-  const sessionsHiddenLayoutRef = useRef<{
-    layout: string;
-    hiddenSignalPanels: SignalPanelId[];
-  } | null>(null);
   const backendRetryGuardRef = useRef(createBackendRetryGuard());
   const workspaceLifecycleRef = useRef({ generation: 0, readyGeneration: null as number | null });
   const initialWorkspaceSnapshotRef = useRef<{
@@ -221,11 +212,7 @@ function App() {
       return;
     }
     const deps = {
-      panelCountProvider: () => {
-        const api = dockviewApiRef.current;
-        if (!api) return 0;
-        try { return api.size; } catch { return 0; }
-      },
+      panelCountProvider: () => document.querySelectorAll("[data-shell-region]").length,
       liveTerminalCountProvider: () => getLiveTerminalCount(),
       liveTerminalIdsProvider: () => getLiveTerminalIds(),
     };
@@ -239,7 +226,7 @@ function App() {
       window.clearInterval(timer);
       (window as unknown as { __orkworksCaptureRendererHealth?: unknown }).__orkworksCaptureRendererHealth = undefined;
     };
-  }, [settings?.debug?.rendererHealthLogMs, dockviewApiRef]);
+  }, [settings?.debug?.rendererHealthLogMs]);
 
   useEffect(() => () => workspaceSessionController.dispose(), [workspaceSessionController]);
 
@@ -398,16 +385,11 @@ function App() {
     setNewSessionDialogOpen(false);
     try {
       await workspaceSessionController.createSession(opts);
-
-      const api = dockviewApiRef.current;
-      if (api) {
-        const panel = api.getPanel("terminal");
-        if (panel) panel.api.setActive();
-      }
+      requestShellCommand("terminal");
     } catch {
       pushToast("error", "Couldn't start a new session.");
     }
-  }, [workspaceSessionController]);
+  }, [workspaceSessionController, requestShellCommand]);
 
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
@@ -418,12 +400,8 @@ function App() {
       sessionId: id,
       generation: workspaceLifecycleRef.current.generation,
     });
+    void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
-    const api = dockviewApiRef.current;
-    if (api) {
-      const panel = api.getPanel("terminal");
-      if (panel) panel.api.setActive();
-    }
   }, [workspaceSessionController]);
 
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
@@ -529,52 +507,37 @@ function App() {
     getTerminal(activeSessionId)?.terminal.focus();
   }, [activeSessionId]);
 
-  const handleReviewPlan = useCallback((sessionId = activeSessionId, refreshedSessions: readonly SessionInfo[] = sessions) => {
-    const activeSession = refreshedSessions.find((session) => session.id === sessionId);
-    if (!shouldShowReviewPanel(activeSession)) return;
-    const api = dockviewApiRef.current;
-    if (!api) return;
-    const panel = api.getPanel("review") ?? api.addPanel({
-      id: "review", component: "review", title: "Review",
-      position: { referencePanel: "terminal" },
+  const inspectSubject = useCallback((destination: InspectorDestination) => {
+    const subject = resolveInspectorSubject(destination, activeSessionId,
+      workspace ? workspace.workspaceIdentity || workspace.path : null);
+    if (!subject) return;
+    dispatchShellNavigation({
+      type: "inspector-opened",
+      destination,
+      subject,
+      generation: workspaceLifecycleRef.current.generation,
     });
-    panel?.api.setActive();
-    setReviewTick((tick) => tick + 1);
-  }, [activeSessionId, sessions]);
+  }, [activeSessionId, workspace]);
+
+  const closeInspector = useCallback(() => {
+    dispatchShellNavigation({
+      type: "inspector-closed",
+      generation: workspaceLifecycleRef.current.generation,
+    });
+  }, []);
 
   const [focusedRecommendationId, setFocusedRecommendationId] = useState<string | null>(null);
 
   const handleOpenRecommendation = useCallback((id: string) => {
-    const activeSession = sessions.find((session) => session.id === activeSessionId);
-    if (!shouldShowRecommendationsPanel(activeSession)) return;
+    if (!shouldShowRecommendationsPanel(sessions.find(session => session.id === activeSessionId))) return;
     setFocusedRecommendationId(id);
-    const api = dockviewApiRef.current;
-    if (!api) return;
-    const options: Parameters<typeof api.addPanel>[0] = {
-      id: "recommendations",
-      component: "recommendations",
-      title: PANEL_DEFAULTS.recommendations.title,
-    };
-    const position = PANEL_DEFAULTS.recommendations.position;
-    if (position && api.getPanel(position.referencePanel)) {
-      options.position = position;
-    }
-    const panel = api.getPanel("recommendations") ?? api.addPanel(options);
-    panel?.api.setActive();
-  }, [activeSessionId, sessions]);
+    requestShellCommand("recommendations", true);
+  }, [activeSessionId, sessions, requestShellCommand]);
 
-  useEffect(() => {
-    const onSelected = (event: Event) => {
-      const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
-      if (typeof sessionId !== "string") return;
-      if (!workspaceSessionController.selectSession(sessionId)) return;
-      void refreshSessions().then((refreshed) => {
-        if (refreshed) handleReviewPlan(sessionId, refreshed);
-      });
-    };
-    window.addEventListener("orkworks:terminal-plan-selected", onSelected);
-    return () => window.removeEventListener("orkworks:terminal-plan-selected", onSelected);
-  }, [handleReviewPlan, refreshSessions]);
+  const handleInspect = useCallback((destination: ShellDestination | null) => {
+    if (destination) inspectSubject(destination);
+    else closeInspector();
+  }, [inspectSubject, closeInspector]);
 
   const handleResumeSession = useCallback(async (id: string) => {
     try {
@@ -648,121 +611,23 @@ function App() {
     });
   }, [activeSessionId, backendStatus, sessionAdmissionEnabled, workspaceSessionController]);
 
-  useEffect(() => {
-    return window.orkworks.onMenuCommand(({ action, panelId }) => {
-      if (action === "check-for-updates") {
-        void openSettings("updates");
-        void checkForUpdates();
-        return;
+  useEffect(() => window.orkworks.onMenuCommand(({ action, panelId }) => {
+    if (action === "check-for-updates") {
+      void openSettings("updates");
+      void checkForUpdates();
+      return;
+    }
+    if (action === "open-settings") void openSettings();
+    else if (action === "new-session") void handleCreateSession();
+    else if (action === "reset-layout") requestShellCommand("reset-layout");
+    else if (action === "focus" && panelId) {
+      const destination = panelId === "detail" ? "details" : panelId;
+      if (["sessions", "terminal", "details", "capacity", "recommendations"].includes(destination)) {
+        requestShellCommand(destination as ShellCommand);
+        if (destination === "terminal") void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
       }
-
-      if (action === "open-settings") {
-        openSettings();
-        return;
-      }
-
-      if (action === "new-session") {
-        handleCreateSession();
-        return;
-      }
-
-      const api = dockviewApiRef.current;
-      if (!api) return;
-
-      if (action === "focus" && panelId) {
-        const def = PANEL_DEFAULTS[panelId];
-        if (!def) return;
-        const activeSession = sessions.find((session) => session.id === activeSessionId);
-        if (panelId === "recommendations" && !shouldShowRecommendationsPanel(activeSession)) return;
-        if (panelId === "review" && !shouldShowReviewPanel(activeSession)) return;
-        const existing = api.getPanel(def.component);
-
-        if (panelId === "sessions") {
-          const focusList = () => {
-            setTimeout(() => {
-              document.getElementById("sessions-list")?.focus({ preventScroll: true });
-            }, 0);
-          };
-          if (!existing) {
-            const snapshot = sessionsHiddenLayoutRef.current;
-            if (snapshot) {
-              try {
-                api.fromJSON(JSON.parse(snapshot.layout));
-                signalPanelHiddenIdsRef.current = new Set(snapshot.hiddenSignalPanels);
-                const restoredActiveSession = sessions.find((session) => session.id === activeSessionId);
-                synchronizeSignalPanels(
-                  api,
-                  restoredActiveSession,
-                  signalPanelHiddenIdsRef.current,
-                );
-                sessionsHiddenLayoutRef.current = null;
-                focusList();
-                return;
-              } catch {
-                sessionsHiddenLayoutRef.current = null;
-              }
-            }
-            const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
-              id: def.component,
-              component: def.component,
-            };
-            if (def.position && api.getPanel(def.position.referencePanel)) {
-              const direction = def.position.direction;
-              options.position = direction && direction !== "within"
-                ? { referencePanel: def.position.referencePanel, direction }
-                : { referencePanel: def.position.referencePanel };
-            }
-            api.addPanel(options);
-            focusList();
-            return;
-          }
-          const listEl = document.getElementById("sessions-list");
-          const isFocused = !!listEl && listEl.contains(document.activeElement);
-          if (isFocused) {
-            sessionsHiddenLayoutRef.current = {
-              layout: JSON.stringify(api.toJSON()),
-              hiddenSignalPanels: [...signalPanelHiddenIdsRef.current],
-            };
-            existing.api.close();
-          } else if (!existing.api.isActive) {
-            existing.api.setActive();
-            focusList();
-          } else {
-            focusList();
-          }
-          return;
-        }
-
-        if (existing) {
-          if (panelId === "recommendations" || panelId === "review") {
-            signalPanelHiddenIdsRef.current.add(panelId);
-          }
-          existing.api.close();
-        } else {
-          if (panelId === "recommendations" || panelId === "review") {
-            signalPanelHiddenIdsRef.current.delete(panelId);
-          }
-          const options: { id: string; component: string; position?: { referencePanel: string; direction?: "below" | "right" | "left" | "above" } } = {
-            id: def.component,
-            component: def.component,
-          };
-          if (def.position && api.getPanel(def.position.referencePanel)) {
-            const direction = def.position.direction;
-            options.position = direction && direction !== "within"
-              ? { referencePanel: def.position.referencePanel, direction }
-              : { referencePanel: def.position.referencePanel };
-          }
-          api.addPanel(options)?.api.setActive();
-        }
-      } else if (action === "reset-layout") {
-        sessionsHiddenLayoutRef.current = null;
-        signalPanelHiddenIdsRef.current.clear();
-        api.clear();
-        buildDefaultLayout(api);
-        synchronizeSignalPanels(api, sessions.find((session) => session.id === activeSessionId), signalPanelHiddenIdsRef.current);
-      }
-    });
-  }, [handleCreateSession, activeSessionId, sessions, openSettings, checkForUpdates]);
+    }
+  }), [handleCreateSession, openSettings, checkForUpdates, requestShellCommand]);
 
   return (
     <div className="app-shell">
@@ -842,20 +707,33 @@ function App() {
           </section>
         </div>
       )}
-      <DockviewApp
+      <ShellPreferencesNotice migrationNotice={shellMigrationNotice} needsRebuild={shellNeedsRebuild}
+        dismissMigrationNotice={dismissMigrationNotice} onCommand={requestShellCommand} />
+      <ApplicationShell
         backendStatus={backendStatus}
         workspace={workspace}
         isSwitchingWorkspace={isSwitchingWorkspace}
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        preferences={shellPreferences}
+        onPreferencesChange={changeShellPreferences}
+        onResetPreferences={resetShellPreferences}
+        inspector={shellNavigation.inspector === "actions" ? null : shellNavigation.inspector}
+        onInspect={handleInspect}
+        commandRequest={shellCommandRequest}
+        workspaceGeneration={shellNavigation.workspaceGeneration}
+        visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
+          ? shellNavigation.inspectedSubject.sessionId
+          : shellNavigation.centralSurface.kind === "terminal"
+            ? shellNavigation.centralSurface.sessionId
+            : shellNavigation.centralSurface.sessionId}
         canFixWithAi={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
         taskmasterReady={sessionAdmissionEnabled}
         unreadIds={unreadState.unreadIds}
         acknowledgedIds={unreadState.acknowledgedIds}
         harnesses={harnesses}
         resumeTick={resumeTick}
-        reviewTick={reviewTick}
         onSelectSession={handleSelectSession}
         focusedRecommendationId={focusedRecommendationId}
         onOpenRecommendation={handleOpenRecommendation}
@@ -865,16 +743,12 @@ function App() {
         onKillSession={handleKillSession}
         onForgetSession={handleForgetSession}
         onResumeSession={handleResumeSession}
-        onRefreshReview={() => setReviewTick((tick) => tick + 1)}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
         onOpenSettings={() => openSettings("providers")}
         onOpenWorkspace={handleOpenWorkspace}
-        onReviewPlan={handleReviewPlan}
             onBackendUnavailable={handleBackendUnavailable}
         onRetryBackend={handleRetryBackend}
-        dockviewApiRef={dockviewApiRef}
-        signalPanelHiddenIdsRef={signalPanelHiddenIdsRef}
       />
       {(backendStatus === "unreachable" || backendStatus === "exhausted" || backendStatus === "unresolved") && (
         <div className="backend-recovery-backdrop" role="alert">

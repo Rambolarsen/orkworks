@@ -13,7 +13,7 @@ Load the sections that constrain the task; this reference is not a whole-file re
 
 ```text
 orkworks/
-├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js
+├─ apps/desktop/          # Electron + React/TypeScript + CSS Grid + xterm.js
 ├─ crates/orkworksd/      # Rust sidecar (Axum HTTP/WS, PTY via portable-pty)
 ├─ docs/
 │  ├─ adr/                # Architecture Decision Records
@@ -303,9 +303,9 @@ Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 00
 
 Leaving `sandbox` unset on `webPreferences` means Electron runs `preload.ts` under its sandboxed preload loader, which only resolves Node/Electron built-ins — a plain per-file `tsc` require of any other local `electron/*.ts` module fails at runtime (`module not found`) even though it type-checks and compiles cleanly. `scripts/build-preload.mjs` (config in `scripts/preloadBuildConfig.mjs`) runs esbuild after `tsc` in the `dev`, `build`, and `dist` npm scripts to bundle `electron/preload.ts` and its local imports into a single self-contained `dist-electron/preload.js`, keeping `electron` external so Electron's own binding still resolves it. The rest of `electron/*.ts` (main-process code, not sandboxed) keeps its plain per-file `tsc` output and may freely `require()` sibling modules.
 
-`electron/layoutMemory.ts` persists the Dockview panel layout to `layout.json` in the Electron user data directory, using the same pattern as `workspaceMemory.ts`. Layout is serialized via Dockview's `toJSON()`/`fromJSON()` on every layout change (debounced 500ms) and restored on startup.
+`electron/layoutMemory.ts` retains the legacy Dockview `layout.json` compatibility API in the Electron user data directory. The fixed-shell renderer neither reads nor writes this record and does not restore the old panel graph.
 
-The fixed-shell rollout adds Electron-owned `shell-layout.json` and
+The fixed shell uses Electron-owned `shell-layout.json` and
 `workspace-navigation.json` records through `electron/shellLayoutMemory.ts`
 and `electron/workspaceNavigationMemory.ts`. The layout record stores only
 validated Sessions/inspector widths, Sessions visibility and density. The
@@ -318,9 +318,8 @@ reset and deletion are ordered barriers, and failed navigation deletion can
 be retried through the exact saved canonical key. Workflow presentation state
 remains outside these records until its separately gated issue is accepted.
 The existing Dockview `layout.json` is retained untouched for downgrade
-safety. During the staged rollout, the current UI still reads that legacy
-record; issue #779 owns removing its `fromJSON()` replay when it installs the
-fixed shell.
+safety. Issue #779 removed the renderer's legacy layout replay when it installed
+the fixed shell.
 
 `electron/settingsMemory.ts` owns app-level settings in Electron `userData`, including hotkey validation, default hotkeys, a persisted `debug.showSessionIds` flag for gating internal session identifiers in the Details panel, persisted menu accelerators, and durable provider settings (`ProviderSettings`). In user-facing copy these provider settings are model provider settings; internal code keeps the existing `ProviderSettings` name. `getSettings()` and successful `saveHotkeys()` responses include a renderer-facing `defaultHotkeys` copy sourced from the main process, so the settings UI can restore defaults without duplicating canonical accelerators. Electron settings now push both retention and provider settings into the sidecar after port discovery. Explicit saves return sidecar application status so the renderer can distinguish durable local persistence from a pending sidecar application. `electron/providerSettingsSync.ts` handles the `POST /settings/providers` push on startup, workspace switch, and explicit save. Provider model lists are fetched from `GET /providers/:id/models` and cached in memory at startup; the renderer reads them via the `getProviderModels` preload method. Peon verification preserves the compatibility `models` ID list and also returns `modelOptions` metadata. Codex populates that metadata from the installed CLI's `app-server --stdio` `model/list` response, including model-specific reasoning-effort choices and defaults; if a refresh cannot provide a catalog after provider verification, Electron reuses the last successful catalog and marks it stale, while Codex can still apply its default model without an explicit model. Draft Ollama verification in Settings bypasses that cache through the `verifyOllama` preload bridge and `POST /settings/providers/ollama/verify`, so unsaved URLs can be checked before persistence. The preload contract exposes `saveActiveHarnessesWithIntegrations(ids)` as the typed renderer entry point for the Tools subsection's combined active-tool persistence and integration reconciliation flow. That operation is deliberately an Electron-main orchestration seam, not a renderer-to-sidecar mutation shortcut: the renderer submits only the requested active-tool IDs, Electron main persists them first, plans which coding tools need install/repair/uninstall, and — before making any of those changes — shows one batched native confirmation dialog (`dialog.showMessageBox`, main-process only) listing every planned mutation's tool name, operation, and affected paths, escalating to a warning-styled dialog if any of them execute code automatically. Declining leaves the active-tool selection persisted but skips every planned mutation (reported per-tool as a `confirmation_declined` failure); confirming reconciles each coding tool independently through the existing integration routes as before. The call returns one structured `ActiveHarnessSaveResult` containing the active-harness outcome plus a per-tool partial result for install, repair, uninstall, unsupported skip, failure, or `stale_workspace`. Electron main rejects old-generation results as `stale_workspace` when the workspace path or sidecar generation changes mid-save — including while the confirmation dialog is still open — so a replaced workspace cannot report a successful save for the old one. A second preload entry, `enableHarnessIntegrationImmediate(ids, adapterId, targetId)`, backs the Settings coding-tools card's off-to-on toggle transition: it calls `enableHarnessImmediate` in `electron/activeHarnessIntegration.ts`, which composes the same `persistActiveHarnesses` step with the existing single-group `reconcileGroupedIntegration` pipeline (the same one `saveActiveHarnessesWithIntegrations` uses per group) so flipping one tool on persists and installs/repairs only that tool's integration group immediately, without waiting for the modal-wide Save and without touching any other tool's group. Because this path reuses the shared `confirmMutations` Electron-main step, flipping a tool's toggle off→on pops the native OS confirmation dialog listing the install or repair it is about to perform (tool name, operation, and affected paths) at toggle time rather than deferring that prompt to a later Save click — but only when the immediate reconcile plans a mutation; already-healthy, unsupported, and failed status lookups exit before confirmation with no dialog. This is intentional, not a regression, and prompts to defer it to Save should be rejected. Turning a toggle off remains draft-only; its cleanup mutation and retry both wait for Save. See `docs/superpowers/specs/2026-08-29-active-coding-tool-hook-toggle-design.md` for the full rationale, including why the per-row Reconcile button introduced right before this change was removed again in favor of the toggle itself.
 
@@ -688,28 +687,44 @@ continues using an owned process group. See the 2026-09-12 amendment to
 [ADR 0055](../adr/0055-json-taskmaster-inference-adapters.md); native Windows
 desktop verification remains tracked by #525.
 
-## Dockview panel layout
+## Fixed desktop shell
 
-The current renderer uses Dockview for Sessions, session details, Terminal, and optional utility panels. `DockviewApp` owns panel registration and passes app state through React context to panel components. The reusable Review tab joins Terminal's tab group on demand and renders selected-session plan/spec content as Markdown via `react-markdown`/`remark-gfm` — plan/spec paths are sidecar-enforced to end in `.md` (see `resolve_openable_plan_reference` and `normalize_reported_plan_path` in the sidecar), so Review does not need to branch on file type. `TerminalPanel` hosts the active live PTY session through `CenterPanel` and xterm.js over the backend WebSocket attach channel. Inactive sessions do not need to stay attached to keep their PTYs running; only the active terminal stays attached. The session detail panel includes read-only `Coding tool`, `Model provider`, `Model`, and `Provider state` fields for the selected session, plus debug-only `OrkWorks session ID` / `Harness session ID` fields and the read-only `Peon diagnostics` block when `Show debug metadata` is enabled.
+`ApplicationShell` owns fixed React/CSS Grid regions: Sessions, one central
+Terminal or temporary utility page, and at most one inspector. Dockview is
+removed under [ADR 0082](../adr/0082-react-grid-desktop-shell.md), which supersedes
+the library choice in [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md).
+Pointer and keyboard separators resize bounded regions. At medium widths a
+utility replaces the central content; compact widths show one page at a time.
+Navigation preserves selected-session identity and restores focus to the invoker
+when a temporary page closes. Review (#780), Actions (#805), and gated Workflow
+navigation are separate delivery slices; no Review control is exposed yet.
 
-**Approved shell target (not implemented):** [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md)
-replaces user-arranged Dockview panels with compact Sessions, one central
-Terminal/Review/eligible Workflow surface, and an optional contextual inspector.
-The target retains Dockview 8.3.1 for fixed-region resizing, disables panel
-drag-and-drop, and hides group headers. Electron will own bounded installation
-shell preferences and canonical-workspace navigation memory; legacy
-`layout.json` remains untouched. See the
+`TerminalPanel` hosts the active live PTY through `CenterPanel` and xterm.js.
+The renderer terminal registry keeps that runtime and its WebSocket draining
+when responsive navigation detaches the terminal DOM. Returning reattaches the
+same runtime. Sidecar PTY lifetime remains independent of renderer attachment.
+Inactive sessions need no renderer attachment to keep their PTYs running.
+
+Electron owns bounded installation shell preferences and canonical-workspace
+navigation memory. The renderer hydrates preferences without writing defaults,
+debounces resize saves, and serializes reset before subsequent saves. Legacy
+`layout.json` remains untouched and is not restored by the new shell. The native
+View menu and toolbar route through the same shell commands.
+
+The titlebar shows the active workspace name and workspace-switch action.
+On Windows, Electron uses a hidden title bar with native window controls overlaid
+on the 38px app header; CSS reserves the controls area. The application menu is
+auto-hidden and remains accessible with Alt. macOS and Linux retain their chrome.
+
+Session details retain read-only coding-tool, provider, model, and provider-state
+fields, with session IDs and Peon diagnostics behind debug settings. Session
+sorting and attention routing remain lifecycle-aware: only alive sessions receive
+live attention, while dead sessions remain historical context.
+
+PTY handles text I/O; native harness voice bypasses PTY entirely. Source behavior
+here does not establish availability in published installers. See the
 [accepted shell design](../superpowers/specs/2026-10-05-application-shell-navigation-design.md)
-and [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-08-application-shell-redesign.md).
-This target does not change sidecar PTY lifetime or authorize Workflow actions.
-
-On Windows, Electron uses a hidden title bar with native window controls overlaid on the 38px app header. The OrkWorks icon sits before the workspace name; CSS reserves the native controls area. The application menu is auto-hidden and remains accessible with Alt. macOS and Linux retain their existing chrome.
-
-The titlebar shows the active workspace name and a workspace-switch action when a repo is open. A `ViewMenu` component in the titlebar provides per-panel shortcuts/toggles plus a "Reset Layout" action. Panel layouts persist to Electron userData via `layout.json` and restore on startup via Dockview's `toJSON()`/`fromJSON()` serialization.
-
-The Sessions panel uses Dockview's native header chrome rather than an inner duplicated panel header. In the single-tab case, `DockviewApp` enables Dockview's full-width tab/header mode and renders the "new session" action in the header's right-actions slot so the header still behaves like a tab while matching the rest of the workspace subheader styling. Dockview tabs use a shared default tab component that hides the built-in close affordance; panel visibility is managed through the View menu and shortcuts instead of per-tab close buttons. Session sorting and attention routing are lifecycle-aware: only alive sessions receive live attention, while dead sessions remain as historical context.
-
-- PTY handles only text I/O; voice (native harness) bypasses PTY entirely
+for the complete target and remaining accessibility/platform evidence gates.
 
 ## Update triggers
 

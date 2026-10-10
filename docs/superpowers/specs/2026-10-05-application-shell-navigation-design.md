@@ -434,20 +434,17 @@ view opens Terminal for the existing valid selection, or the ordinary empty
 state. Never start a run or session to fill a remembered view. Do not persist a
 workspace's navigation under another workspace during a switch.
 
-Configure Dockview with `disableDnd` and hide each group's header so users
-cannot drag, float, dock, reorder panels, or switch central surfaces through
-tabs. Do not set whole-layout `locked`, because split resizing remains part of
-the approved design. If implementation validation shows that Dockview cannot
-meet the fixed-region, header-free, accessibility, or zoom requirements, stop
-before substituting a library and return with evidence and a revised decision
-proposal.
+The owner approved removal of Dockview on 2026-10-10 after reviewing the
+replacement preview. [ADR 0082](../../adr/0082-react-grid-desktop-shell.md)
+supersedes this design's original Dockview retention choice. Use React and CSS
+Grid for fixed regions and renderer-owned pointer/keyboard separators; retain
+the responsive, focus, single-context and persistence contracts above. Remove
+the Dockview dependencies and panel API without adding a replacement docking
+library. Legacy layout bytes remain unchanged for downgrade safety.
 
-This decision is grounded in Dockview's [drag-and-drop options](https://dockview.dev/docs/core/dnd/strategy/),
-[group header controls](https://dockview.dev/docs/core/groups/hiddenHeader/),
-and [layout locking behavior](https://dockview.dev/docs/core/groups/locked/),
-read on 2026-10-08. The implementation plan verifies these behaviors against
-the pinned React package rather than treating current upstream documentation as
-proof of runtime behavior.
+The original Dockview investigation informed ADR 0078; it is historical evidence,
+not the current library requirement. Review and Actions remain separately owned
+follow-ups under #780 and #805.
 
 ## Authoritative amendment sequence
 
@@ -586,3 +583,12 @@ VitePress build/dead links, SVG XML plus rendered clipping/contrast/label
 inspection, and a requirement-by-requirement self-review. Keep #755 and #746
 open for the reviewed execution handoff and remaining #746 projection gates. No
 runtime or coding-tool capability claim follows from those checks.
+
+## PR #796 native validation timing exception — approved 2026-10-10
+
+The owner deferred native walkthroughs until after merge of PR #796. Actual
+keyboard, screen-reader, reduced-motion, zoom, narrow-width and native chrome
+evidence remains required before a release containing this change and is tracked
+in [#836](https://github.com/Rambolarsen/orkworks/issues/836). Automated fixtures
+are partial evidence and do not mark those walkthroughs complete. See
+[ADR 0082](../../adr/0082-react-grid-desktop-shell.md) for the scoped delivery exception.

@@ -92,7 +92,8 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0075](./0075-responsive-pty-input-delivery.md) | PTY writes keep the session driver responsive | accepted |
 | [0076](./0076-codex-owned-native-approval-observer.md) | Codex approval status from a runtime-owned native server | accepted |
 | [0077](./0077-taskmaster-orchestrated-child-sessions.md) | Orchestrated children use the ordinary session runtime | accepted scope; runtime gated |
-| [0078](./0078-fixed-desktop-shell-and-central-navigation.md) | Fixed desktop shell with central navigation | accepted |
+| [0078](./0078-fixed-desktop-shell-and-central-navigation.md) | Fixed desktop shell with central navigation | accepted; library choice superseded by [0082](./0082-react-grid-desktop-shell.md) |
 | [0079](./0079-local-sonarqube-analysis.md) | Local SonarQube analysis uses isolated checkout snapshots | accepted |
 | [0080](./0080-repository-identity-across-worktrees.md) | Repository identity across Git worktrees | accepted |
 | [0081](./0081-signed-taskmaster-knowledge-activation-proof.md) | Signed Taskmaster knowledge activation proof | accepted |
+| [0082](./0082-react-grid-desktop-shell.md) | React and CSS Grid desktop shell | accepted |

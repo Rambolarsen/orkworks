@@ -35,17 +35,17 @@ const DEBUG_ATTENTION_OPTIONS: SessionAttention[] = ["working", "idle", "needs_y
 
 interface SessionDetailPanelProps {
   sessions: SessionInfo[];
-  activeSessionId: string | null;
+  visibleSessionId: string | null;
   harnesses: HarnessConfig[];
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
-  onReviewPlan: () => void;
+  onReviewPlan?: () => void;
   onOpenRecommendation?: (id: string) => void;
   showDebugMetadata: boolean;
 }
 
-function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
@@ -53,7 +53,7 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
   const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
   const [workflowObservations, setWorkflowObservations] = useState<WorkflowObservationEntry[]>([]);
   const [workflowObservationsSessionId, setWorkflowObservationsSessionId] = useState<string | null>(null);
-  const active = sessions.find((s) => s.id === activeSessionId);
+  const active = sessions.find((s) => s.id === visibleSessionId);
   const now = useStableRelativeTimeNow(useCallback((currentNow: Date) => {
     if (!active) return null;
     let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, currentNow);
@@ -181,11 +181,11 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
       </div>
 
       {/* Surface 2 — action zone: the one app-only move, never a duplicate of the terminal. */}
-      {(active.recommendation || actionZone.kind !== "none" || active.hasOpenablePlan) && (
+      {(active.recommendation || actionZone.kind !== "none" || (active.hasOpenablePlan && onReviewPlan)) && (
         <div className="detail-actions">
           {active.recommendation && <div className="recommendation-text">{active.recommendation}</div>}
 
-          {active.hasOpenablePlan && (
+          {active.hasOpenablePlan && onReviewPlan && (
             <div className="resume-chooser">
               <div className="resume-chooser-title">
                 {tone === "needs-you" ? "Plan ready for review" : "Plan available"}
@@ -249,7 +249,7 @@ function SessionDetailPanel({ sessions, activeSessionId, harnesses, onResumeSess
             </div>
           )}
 
-          {actionZone.kind === "plan" && !active.hasOpenablePlan && (
+          {actionZone.kind === "plan" && !active.hasOpenablePlan && onReviewPlan && (
             <button
               className="detail-button detail-button--primary"
               type="button"

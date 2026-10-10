@@ -7,36 +7,13 @@ import {
   sessionAttentionStatus,
 } from "../src/sessionSort.ts";
 
-test("DockviewApp registers panels through onReady", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+test("Details follows the visible subject without selecting a session", () => {
+  const shell = readFileSync(new URL("../src/components/ApplicationShell.tsx", import.meta.url), "utf8");
+  const detail = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /onReady=\{\(event: DockviewReadyEvent\) =>/);
-  assert.doesNotMatch(source, /defaultLayout=/);
-  assert.match(source, /api\.(fromJSON|addPanel)/);
-});
-
-test("DockviewApp uses full-width single-tab mode so lone panels read like headers", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /singleTabMode="fullwidth"/);
-});
-
-test("DockviewApp uses a shared default tab component that hides close controls", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /DockviewDefaultTab/);
-  assert.match(source, /defaultTabComponent=\{DockviewTab\}/);
-  assert.match(source, /<DockviewDefaultTab\s+\{\.\.\.props\}\s+hideClose\s*\/>/);
-});
-
-test("App renders DockviewApp instead of the legacy three-panel layout", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /import DockviewApp from "\.\/components\/DockviewApp"/);
-  assert.match(source, /<DockviewApp/);
-  assert.doesNotMatch(source, /<TerminalTabs/);
-  assert.doesNotMatch(source, /<LeftSidebar/);
-  assert.doesNotMatch(source, /<RightSidebar/);
+  assert.match(shell, /visibleSubject/);
+  assert.match(detail, /visibleSessionId/);
+  assert.doesNotMatch(detail, /onSelectSession/);
 });
 
 test("TerminalPanel uses read-only replay only for dead sessions", () => {
@@ -70,40 +47,7 @@ test("HistoricalTerminal labels only the current successful fixed-grid replay", 
   assert.match(source, /<div key="cue" className="historical-terminal-size"/);
 });
 
-test("DockviewApp keeps all five panel ids registered (View menu hotkeys depend on it)", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
 
-  for (const id of ["sessions", "detail", "terminal", "capacity", "recommendations"]) {
-    assert.match(source, new RegExp(`\\b${id}\\b.*:.*Panel`));
-  }
-});
-
-test("Review is a reusable Terminal-group tab, including after a restored layout omitted it", () => {
-  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(dockview, /review:\s*ReviewTab/);
-  assert.match(dockview, /review:\s*\{ component: "review", title: "Review", position: \{ referencePanel: "terminal" \} \}/);
-  assert.match(app, /api\.getPanel\("review"\) \?\? api\.addPanel\(/);
-  assert.match(app, /position: \{ referencePanel: "terminal" \}/);
-});
-
-test("ReviewTab only fetches plan content when the active session has an openable plan", () => {
-  // Regression: ReviewTab used to pass ctx.activeSessionId straight through
-  // regardless of hasOpenablePlan, so switching to any plan-less session
-  // while the Review tab stayed open re-fired getPlanContent, which the
-  // sidecar correctly rejects (no plan_path) but Electron logs as an
-  // "Error occurred in handler for 'get-plan-content'" every single time.
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /session\?\.hasOpenablePlan \? ctx\.activeSessionId : null/);
-});
-
-test("A readable plan keeps the Details review card visible even without another action", () => {
-  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /active\.recommendation \|\| actionZone\.kind !== "none" \|\| active\.hasOpenablePlan/);
-});
 
 test("ReviewPanel exposes retry after a content request fails", () => {
   const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
@@ -151,164 +95,6 @@ test("ReviewPanel supports reviewTick prop and retains memoization", () => {
   assert.doesNotMatch(source, /isExplicitRefresh|lastTickRef/);
   assert.match(source, /window\.orkworks\.getPlanContent\(sessionId\)/);
   assert.match(source, /export default memo\(ReviewPanel\);/);
-});
-
-test("DockviewApp default layout opens sessions/detail/terminal only (Capacity & Recommendations closed until they carry signal)", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /DEFAULT_LAYOUT_PANELS:\s*ReadonlyArray<string>\s*=\s*\["terminal",\s*"sessions",\s*"detail"\]/);
-  assert.doesNotMatch(source, /DEFAULT_LAYOUT_PANELS[^=]*=[^;]*capacity/);
-  assert.doesNotMatch(source, /DEFAULT_LAYOUT_PANELS[^=]*=[^;]*recommendations/);
-});
-
-test("DockviewApp migrates pre-redesign stored layouts that referenced removed panels", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /layoutNeedsMigration/);
-  assert.match(source, /migrating stored layout/);
-  assert.match(source, /!\("v" in parsed\)/);
-  assert.match(source, /"capacity"/);
-  assert.match(source, /"recommendations"/);
-  // Post-redesign layouts are versioned, so they never match the migration
-  // predicate after the user opens Capacity/Recommendations from the View menu.
-  assert.match(source, /v: 1,[\s\S]*d: api\.toJSON\(\),[\s\S]*hiddenSignalPanels/);
-});
-
-test("App and DockviewApp share one canonical default-layout builder", () => {
-  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(dockview, /export function buildDefaultLayout\(/);
-  assert.match(app, /PANEL_DEFAULTS[\s\S]*buildDefaultLayout[\s\S]*from "\.\/components\/DockviewApp"/);
-  assert.match(app, /buildDefaultLayout\(api\)/);
-});
-
-test("DockviewApp automatically adds and removes signal panels from the active session", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /export function shouldShowRecommendationsPanel/);
-  assert.match(source, /export function shouldShowReviewPanel/);
-  assert.match(source, /synchronizeSignalPanels\(\s*api,\s*activeSession,/);
-  assert.match(source, /if \(shouldShow\) \{[\s\S]*?api\.addPanel/);
-  assert.match(source, /panel\??\.api\.close\(\)/);
-});
-
-test("DockviewApp does not reopen a signal panel while its condition stays true", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /signalPanelHiddenIdsRef/);
-  assert.match(source, /hiddenSignalPanelIds\.has\(id\)/);
-});
-
-test("DockviewApp keeps automatically added signal panels inactive", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /title: def\.title,[\s\S]*inactive: true/);
-});
-
-test("DockviewApp preserves restored signal-panel visibility choices", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /signalPanelHiddenIdsRef/);
-  assert.match(source, /hiddenSignalPanels/);
-});
-
-test("DockviewApp does not treat the generic shell fallback as a recommendation harness", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /generic-shell/);
-});
-
-test("App does not open signal panels when their active-session condition is false", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /shouldShowRecommendationsPanel/);
-  assert.match(source, /shouldShowReviewPanel/);
-  assert.match(source, /panelId === "recommendations"[\s\S]*?shouldShowRecommendationsPanel/);
-  assert.match(source, /panelId === "review"[\s\S]*?shouldShowReviewPanel/);
-});
-
-test("App refreshes the menu subscription when the active session changes", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const subscriptionStart = source.indexOf("return window.orkworks.onMenuCommand");
-
-  assert.ok(subscriptionStart >= 0);
-  const subscription = source.slice(subscriptionStart);
-  const dependencies = subscription.match(/\}, \[([^\]]+)\]\);/)?.[1] ?? "";
-
-  assert.notEqual(dependencies, "");
-  for (const dependency of ["handleCreateSession", "activeSessionId", "sessions", "openSettings", "checkForUpdates"]) {
-    assert.match(dependencies, new RegExp(`\\b${dependency}\\b`));
-  }
-});
-
-test("App reviews the session selected by a terminal plan link", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /const handleReviewPlan = useCallback\(\(sessionId = activeSessionId, refreshedSessions[^)]* = sessions\) =>/);
-  assert.match(source, /handleReviewPlan\(sessionId, refreshed\)/);
-});
-
-test("App revalidates signal panels after restoring the hidden sessions layout", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /hiddenSignalPanels: \[\.\.\.signalPanelHiddenIdsRef\.current\]/);
-  assert.match(source, /api\.fromJSON\(JSON\.parse\(snapshot\.layout\)\);[\s\S]*synchronizeSignalPanels\([\s\S]*signalPanelHiddenIdsRef\.current/);
-});
-
-test("DockviewApp exposes header actions for Sessions and Review panels", () => {
-  const source = readFileSync(
-    new URL("../src/components/DockviewApp.tsx", import.meta.url),
-    "utf8",
-  );
-
-  assert.match(source, /rightHeaderActionsComponent=\{DockviewHeaderActions\}/);
-  assert.match(source, /PANEL_DEFAULTS\.sessions\.component/);
-  assert.match(source, /PANEL_DEFAULTS\.review\.component/);
-  assert.match(source, /dockview-header-action/);
-});
-
-test("DockviewHeaderActions renders Refresh plan button with RotateCw for review tab when session has an openable plan", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /RotateCw/);
-  assert.match(source, /title="Refresh plan"/);
-  assert.match(source, /aria-label="Refresh plan"/);
-  assert.match(source, /onClick=\{\(\)\s*=>\s*ctx\.onRefreshReview\(\)\}/);
-  assert.match(source, /reviewTick=\{ctx\.reviewTick\}/);
-});
-
-test("App owns reviewTick state and wires it into DockviewApp with an incrementing refresh callback", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /useState\(0\)/);
-  assert.match(source, /reviewTick=\{reviewTick\}/);
-  // handleReviewPlan must bump the tick after activating the panel so an
-  // already-open Review tab refetches instead of showing stale content.
-  assert.match(source, /setActive\(\);\s*\n\s*setReviewTick\(/);
-  assert.match(
-    source,
-    /onRefreshReview=\{\(\)\s*=>\s*setReviewTick\(\(?\w+\)?\s*=>\s*\w+\s*\+\s*1\)\}/,
-  );
-});
-
-test("App.css resolves dockview overrides through tokens, not raw hex literals", () => {
-  const source = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
-
-  assert.match(source, /\.dockview-header-action\b/);
-  assert.match(source, /\.orkworks-dockview\s+\.dv-tabs-and-actions-container\b/);
-  assert.match(source, /\.orkworks-dockview\s+\.dv-tab\s+\.dv-default-tab\s+\.dv-default-tab-content\b/);
-  assert.match(
-    source,
-    /\.orkworks-dockview\s+\.dv-tabs-and-actions-container\.dv-single-tab\.dv-full-width-single-tab\s+\.dv-right-actions-container\b/,
-  );
-  assert.match(source, /--dv-background-color:\s*var\(--surface-1\)/);
-  assert.match(source, /--dv-tabs-and-actions-container-background-color:\s*var\(--surface-2\)/);
-  assert.match(source, /--dv-activegroup-visiblepanel-tab-background-color:\s*var\(--surface-2\)/);
-  assert.match(source, /--dv-activegroup-hiddenpanel-tab-background-color:\s*var\(--surface-3\)/);
-  assert.match(source, /\.orkworks-dockview\s+\.dv-groupview\b/);
-  assert.match(source, /background:\s*var\(--surface-1\)/);
-  assert.doesNotMatch(source, /#[0-9a-fA-F]{3,8}\b/);
 });
 
 test("tokens.css defines the substrate scale (color / space / state)", () => {
@@ -449,28 +235,6 @@ test("SessionDetailPanel surfaces lifecycle, work phase, and frozen final attent
   );
   assert.match(source, /finalObservedStatus/);
 });
-
-test("SessionDetailPanel keeps its existing action zone and adds plan review for every readable plan", () => {
-  const source = readFileSync(new URL("../src/components/SessionDetailPanel.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /import\s*\{[^}]*detailActionZone[^}]*\}\s*from\s*"\.\.\/labels"/);
-  assert.match(source, /actionZone\.kind === "cue"/);
-  assert.match(source, /actionZone\.kind === "buttons"/);
-  assert.match(source, /actionZone\.kind === "resume"/);
-  assert.match(source, /actionZone\.kind === "plan"/);
-  assert.match(source, /active\.hasOpenablePlan/);
-  assert.match(source, /Plan ready for review/);
-  assert.match(source, /Plan available/);
-  assert.match(source, /Review plan/);
-  assert.match(source, /Request independent review/);
-  assert.match(source, /window\.orkworks\.requestPlanReview\(active\.id\)/);
-  assert.doesNotMatch(source, /window\.orkworks\.openPlan/);
-  assert.match(source, /<ResumeChooser\b/);
-  // "Nothing at all" for a live session with no pending question — no disabled resume button left behind.
-  assert.doesNotMatch(source, /session-resume-button/);
-});
-
-
 
 test("needsAttention lifecycle statuses do not trigger from raw lifecycle", () => {
   assert.equal(needsAttention("running"), false);
@@ -783,20 +547,6 @@ test("TerminalPanel replays dead sessions without retaining their interactive ha
   assert.match(controller, /session\.lifecycle !== "dead"/);
 });
 
-test("App activates shared terminal panel on session create", () => {
-  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /api\.getPanel\("terminal"\)/);
-  assert.match(source, /panel\.api\.setActive\(\)/);
-});
-
-test("TermPanel in DockviewApp passes a single session to TerminalPanel", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /session=\{session\}/);
-  assert.match(source, /TermPanel/);
-});
-
 test("App routes user-facing error catches through the toast feedback primitive", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 
@@ -830,12 +580,6 @@ test("App uses canonical workspace vocabulary in the titlebar and picker (no 'Fo
   assert.doesNotMatch(listSource, /Open Folder/);
 });
 
-test("Dockview keeps capacity as a non-provider surface", () => {
-  const source = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
-  assert.match(source, /capacity.*Capacity/);
-  assert.doesNotMatch(source, /capacity.*Providers/);
-});
-
 test("SettingsModal includes a Model providers section above Hotkeys", () => {
   const source = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
   assert.match(source, /Model providers/);
@@ -854,12 +598,12 @@ test("TerminalPanel marks CenterPanel as starting while the session is still bei
 test("CenterPanel routes backend attach failures to the shared recovery callback", () => {
   const center = readFileSync(new URL("../src/components/CenterPanel.tsx", import.meta.url), "utf8");
   const terminal = readFileSync(new URL("../src/components/TerminalPanel.tsx", import.meta.url), "utf8");
-  const dockview = readFileSync(new URL("../src/components/DockviewApp.tsx", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../src/components/ApplicationShell.tsx", import.meta.url), "utf8");
 
   assert.match(center, /attachTerminalAfterBackendReady/);
   assert.match(center, /onBackendUnavailable/);
   assert.match(terminal, /onBackendUnavailable=\{onBackendUnavailable\}/);
-  assert.match(dockview, /onBackendUnavailable=\{ctx\.onBackendUnavailable\}/);
+  assert.match(shell, /onBackendUnavailable=\{props\.onBackendUnavailable\}/);
 });
 
 test("CenterPanel disables stdin and shows a loading overlay while starting, instead of an interactable blank terminal", () => {
@@ -914,7 +658,7 @@ test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so 
   assert.ok(setActiveIndex !== -1, "openWorkspace should publish the restored active session");
   assert.ok(
     refreshIndex < setActiveIndex,
-    "refreshSessions() must resolve before activeSessionId is set, otherwise a consumer reading ctx.sessions " +
-      "for the just-set activeSessionId (e.g. ReviewTab) transiently sees no match during workspace switch",
+    "refreshSessions() must resolve before activeSessionId is set, otherwise a consumer reading props.sessions " +
+      "for the just-set activeSessionId (e.g. the terminal) transiently sees no match during workspace switch",
   );
 });

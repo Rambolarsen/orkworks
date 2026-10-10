@@ -45,8 +45,6 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
     id,
     label: panelTitles[id],
     accelerator: acceleratorUnlessCapturing(panelAccelerators[id]),
-    type: "checkbox",
-    checked: true,
     enabled: !isCapturing,
     click: () => sendIfNotCapturing({ action: "focus", panelId: id }),
   }));

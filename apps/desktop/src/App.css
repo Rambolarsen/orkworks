@@ -1472,51 +1472,7 @@ html, body, #root {
 
 /* session detail + conflict warning styles below */
 
-.orkworks-dockview .dv-tabs-and-actions-container {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border-default);
-  padding-right: 0;
-  position: relative;
-}
 
-.orkworks-dockview .dv-tab .dv-default-tab .dv-default-tab-content {
-  margin-left: var(--space-5);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.orkworks-dockview .dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-right-actions-container {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
-  z-index: 1;
-}
-
-.orkworks-dockview .dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-tab .dv-default-tab {
-  padding-right: 36px;
-}
-
-.dockview-header-action {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-faint);
-  font-size: var(--text-xl);
-  cursor: pointer;
-  margin-right: var(--space-4);
-  padding: var(--space-1) var(--space-3);
-  line-height: 1;
-  border-radius: var(--radius-md);
-  transition: var(--transition-control);
-}
-
-.dockview-header-action:hover {
-  background: var(--border-subtle);
-  border-color: var(--border-default);
-  color: var(--text-primary);
-}
 
 .session-list {
   list-style: none;
@@ -1740,39 +1696,7 @@ html, body, #root {
   background: transparent;
 }
 
-.dockview-empty-state {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-4);
-  color: var(--text-muted);
-  font-size: var(--text-lg);
-  user-select: none;
-  z-index: 10;
-}
 
-.dockview-empty-state p {
-  margin: 0;
-}
-
-.dockview-empty-reset {
-  pointer-events: auto;
-  margin-top: var(--space-2);
-  padding: var(--space-3) var(--space-6);
-  background: var(--border-subtle);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: var(--text-md);
-  cursor: pointer;
-}
-
-.dockview-empty-reset:hover {
-  background: var(--surface-active);
-}
 
 .panel-content {
   height: 100%;
@@ -2533,51 +2457,28 @@ html, body, #root {
   color: var(--text-primary);
 }
 
-/* dockview dark theme overrides — re-pointed at tokens */
-.orkworks-dockview {
-  --dv-background-color: var(--surface-1);
-  --dv-paneview-active-outline-color: var(--accent);
-  --dv-active-group-visible-border-color: var(--border-default);
-  --dv-drag-over-background-color: var(--border-subtle);
-  --dv-drag-over-border-color: var(--accent);
-  --dv-tabs-and-actions-container-background-color: var(--surface-2);
-  --dv-activegroup-visiblepanel-tab-background-color: var(--surface-2);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--surface-3);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--surface-2);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--surface-3);
-  --dv-tab-divider-color: var(--border-subtle);
-  --dv-active-tab-background-color: transparent;
-  --dv-inactive-tab-background-color: transparent;
-  --dv-tab-font-size: var(--text-md);
-  --dv-tab-font-weight: 400;
-  --dv-active-tab-color: var(--text-primary);
-  --dv-inactive-tab-color: var(--text-muted);
-  --dv-separator-border: var(--border-default);
-  --dv-paneview-separator-border-color: var(--border-default);
-  --dv-tabs-and-actions-container-font-size: var(--text-md);
-  --dv-sash-size: 4px;
-  --dv-sash-hover-size: 4px;
-}
-
-.orkworks-dockview .dv-groupview {
-  background: var(--surface-1);
-}
-
-.orkworks-dockview .dv-groupview > .dv-tabs-and-actions-container {
-  border-top: 2px solid transparent;
-}
-
-.orkworks-dockview .dv-groupview:focus-within > .dv-tabs-and-actions-container {
-  border-top: 2px solid var(--accent);
-}
-
-.orkworks-dockview .dv-tab {
-  text-transform: none;
-}
-
-.orkworks-dockview .dv-resize-handle {
-  background: var(--border-default);
-}
+/* Fixed application shell */
+.shell-layout { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.shell-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-default); background: var(--surface-1); }
+.shell-toolbar button, .shell-region-header button, .shell-new-session { display: inline-flex; align-items: center; gap: var(--space-1); padding: 6px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-primary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.shell-toolbar button:hover, .shell-region-header button:hover { background: var(--surface-3); }
+.shell-toolbar button[aria-expanded="true"] { background: var(--surface-3); border-color: var(--border-subtle); }
+.shell-context { flex: 1; min-width: 120px; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.shell-context-scope { font-size: var(--text-xs); color: var(--text-muted); }
+.shell-grid { display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.shell-region { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-0); }
+.shell-region--sessions, .shell-region--inspector { background: var(--surface-1); }
+.shell-region-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 38px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); }
+.shell-utility-scope { min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); font-size: var(--text-sm); }
+.shell-region-header h1, .shell-region-header h2 { margin: 0; font-size: var(--text-sm); font-weight: 500; }
+.shell-region > .panel-content, .shell-region > .terminal-panel, .shell-region > .terminal-shell { flex: 1; min-height: 0; min-width: 0; }
+.shell-layout[data-density="high"] .session-row { padding-block: 4px; }
+.shell-region-separator { width: 6px; min-height: 0; background: var(--border-default); cursor: col-resize; touch-action: none; user-select: none; }
+.shell-region-separator:hover, .shell-region-separator:focus-visible { background: var(--accent); outline-offset: -2px; }
+.shell-layout[data-mode="compact"] .shell-context { flex-basis: 100%; order: -1; }
+.shell-layout[data-mode="compact"] .session-list { min-width: 0; }
+@media (pointer: coarse) { .shell-toolbar button, .shell-region-header button { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .shell-layout *, .shell-layout *::before, .shell-layout *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
 
 /* --- New Session Dialog --- */
 
@@ -2950,4 +2851,16 @@ html, body, #root {
 
 .workspace-history-other-folder:hover {
   color: var(--text-primary);
+}
+
+.shell-preferences-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-default);
 }

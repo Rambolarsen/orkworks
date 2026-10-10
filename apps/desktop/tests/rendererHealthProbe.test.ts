@@ -72,7 +72,7 @@ test("captureRendererHealth counts `.xterm` nodes inside `.terminal-shell` conta
   }
 });
 
-test("captureRendererHealth surfaces the dockview panel count", () => {
+test("captureRendererHealth surfaces the visible shell region count", () => {
   const sample = captureRendererHealth(makeDeps({ panelCount: 4 }));
   assert.equal(sample.panelCount, 4);
 });
