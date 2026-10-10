@@ -146,8 +146,8 @@ followed by #741's canonical JSON bytes for the exact approved `RubricSnapshot`
 (`id`, `version`, `dimensions`, and `evaluatorRole`). It is immutable
 assignment context, not reviewer input, and is included in each evaluation's
 immutable identity/digest. New assignments cannot use an empty rubric; a legacy
-assignment with no dimensions cannot pass and remains Unassessed. For each
-dimension the reviewer assigns `meets`,
+assignment with no dimensions cannot pass; absent another established failure,
+it remains Unassessed. For each dimension the reviewer assigns `meets`,
 `below standard`, or `unassessed`, plus one
 result-level rating. `Meets` and `below standard` outcomes and an assessed
 result-level rating require evidence; an unassessed dimension or rating may
@@ -324,6 +324,17 @@ with corrections, uses the same idempotency rules, and freezes that evaluation
 stream once accepted. A stale invalidation conflicts and cannot exclude a newer
 correction.
 
+Each accepted invalidation creates one immutable `AssignmentEvaluationDisposition`
+record for the exact assignment identity, result revision, evaluation stream
+identity (child `reviewerIdentity` or user `userReviewId`), and current
+evaluation revision/digest. Its semantic action is `invalidated`, its actor is
+`user` under Electron authorization, and its disposition revision is 1 with no
+predecessor. There is at most one disposition per evaluation stream; it cannot
+be corrected or superseded, and its acceptance permanently freezes that stream.
+The request idempotency key and bearer are not record fields. An exact retry
+returns the saved receipt before current-head checks; a different request or a
+stale target conflicts.
+
 For a user-authored evaluation stream, the Electron-authorized path may append
 a correction to the same `userReviewId` stream using compare-and-swap on the
 current evaluation revision and digest. The correction keeps user provenance,
@@ -364,13 +375,16 @@ does not break the link; this dependency does not stale unrelated outcomes.
 Version 1 record digests are lowercase SHA-256 hex over the #741 recursive
 canonical JSON bytes, prefixed respectively by `orkworks.assignment-result.v1\n`,
 `orkworks.assignment-evaluation.v1\n`, or
-`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). The
-digest input includes immutable identity, predecessor revision/digest, and
-semantic fields, including `rubricSnapshotDigest` and any
-`reviewedEvaluationRef`; it omits the record's own digest, bearer credentials,
-mutable status, observation time, and sidecar-derived eligibility projections
-such as `reviewerAssessmentRef`. The fixed domains prevent these record kinds
-or later versions from sharing a digest namespace.
+`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). Result
+and evaluation digests include immutable identity, predecessor revision/digest,
+and semantic fields, including `rubricSnapshotDigest` and any
+`reviewedEvaluationRef`. The disposition digest includes assignment identity,
+result revision, evaluation stream identity, target evaluation revision/digest,
+disposition revision 1, action `invalidated`, and actor `user`; it has no
+predecessor. All record digests omit their own digest, bearer credentials,
+request idempotency keys, mutable status, observation time, and sidecar-derived
+eligibility projections such as `reviewerAssessmentRef`. The fixed domains
+prevent these record kinds or later versions from sharing a digest namespace.
 
 ## Bounds, retention, and deletion
 
@@ -402,8 +416,24 @@ Reject over-limit reports visibly and never silently drop conflict evidence,
 corrections, or provenance. Retention belongs to #745, which may remove a
 complete eligible historical subject and its pinned evidence but must retain
 evidence referenced by any current evaluation, regardless of its derived
-result. Workspace deletion fences new and in-flight result/evaluation writes,
-then purges every assignment-result manifest revision and receipt, evaluation,
+result. To release capacity from a closed ineligible subject, #745 must also
+provide an explicit Electron-authorized user purge. A subject is closed only
+after its owning run is terminal and all writer capabilities are revoked; it is
+ineligible when none of its results can be selected as current or used as
+learning input. Purge requires the exact subject identity and expected current
+head, is serialized against writes, and is allowed only when no retained record,
+learning input, or reviewer credibility link depends on the subject or its
+pinned evidence. It atomically
+removes that subject's result manifests and receipts, evaluations,
+dispositions, and solely referenced pinned evidence; otherwise it fails without
+deleting anything. A repeated purge reports already purged and cannot recreate
+history. No tombstone is retained after this explicit provenance deletion, and
+the released records no longer count toward admission quotas. Retention must
+never purge automatically to make room or silently discard provenance. The
+implementation plan must define the dependency scan and transactional deletion
+seam before implementing this purge.
+Workspace deletion fences new and in-flight result/evaluation writes, then
+purges every assignment-result manifest revision and receipt, evaluation,
 disposition, and pinned-evidence record. The deletion fence prevents stale
 writers from recreating deleted records; no assignment-result or evaluation
 tombstone survives. If evidence is gone, a retained projection cannot claim a
@@ -432,7 +462,9 @@ A future implementation must verify that:
    evidenced rating below `3`, a below-standard dimension, or a required-rework
    finding is a failure even when other dimensions are unassessed. Optional
    criteria, lifecycle state, empty legacy criteria, or a rubric with no quality
-   dimensions cannot create a pass. Correcting optional-only evidence cannot
+   dimensions cannot create a pass. A legacy empty rubric remains Unassessed
+   only if no independent failure establishes Needs rework. Correcting
+   optional-only evidence cannot
    change the overall result; correcting required evidence makes only its
    dependent outcome Unassessed and the result is recomputed. An optional source
    used only for optional detail cannot downgrade an otherwise passing required
@@ -496,10 +528,19 @@ A future implementation must verify that:
    preserve the user-review revision allocation, allow replacements until its
    four-revision budget is exhausted, and include the result-level rating
    evidence reference; aggregate run/workspace quotas also reject excess work.
+   Each accepted invalidation creates exactly one immutable disposition bound
+   to the assignment, result, stream, evaluation revision/digest, and user
+   authority. Its digest inputs and no-predecessor revision are defined; exact
+   retries return the saved receipt and stale invalidations cannot replace a
+   newer evaluation.
    Retention preserves evidence referenced by any current evaluation
-   regardless of outcome and removes only eligible complete historical
-   subjects; deletion fences old writes and purges result manifests, receipts,
-   and evaluation content.
+   regardless of outcome and removes eligible complete historical subjects.
+   Explicit user purge releases a closed ineligible subject only when no
+   current record, learning input, or reviewer credibility link depends on it;
+   it fences writes, removes the subject and solely pinned evidence atomically,
+   and fails without deletion when provenance is still needed. Quota pressure
+   never triggers silent eviction. Workspace deletion purges result manifests,
+   receipts, evaluations, dispositions, and pinned evidence.
 7. Evaluation cannot launch/retry work, widen permissions, change
    configuration, advance dependencies, accept work for the user, or approve a
    merge.
