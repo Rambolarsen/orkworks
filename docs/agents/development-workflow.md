@@ -170,8 +170,11 @@ local scope and detail constraints when using an external template.
 
 After the uncertainty checkpoint above, assess dependencies, blast radius,
 state changes, reversibility, and uncertainty with concrete evidence. Keep
-unknowns explicit. Review the actual draft for scope, simplicity, clarity,
-and verification, and fix findings before dependent implementation. Preserve
+unknowns explicit. For received plans, establish or validate the requirements,
+evidence, and initial complexity ratings. Review the actual draft for scope,
+simplicity, clarity, and verification. Map each mandatory requirement to a
+delivery step and verification check; resolve uncovered requirements before
+marking the plan Ready. Fix findings before dependent implementation. Preserve
 approved requirements when proposing smaller delivery steps. Scores neither
 grant approval nor impose automatic architecture-review thresholds. Keep the
 assessment in the plan; bounded changes do not need a written plan just to
