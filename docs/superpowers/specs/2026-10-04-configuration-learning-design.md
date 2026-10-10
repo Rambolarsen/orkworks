@@ -326,12 +326,16 @@ old store by path, remote, or content similarity.
 
 The shared repository store is also the canonical owner of learning-family
 `ImproveWorkflow` recommendation records and dismissal watermarks. Matching
-worktrees project those records through the existing Taskmaster API and
-mutation state machine; accepting from any matching worktree preserves the
-target workspace/session and authenticated completion rules. Workspace-specific
-observation recommendations remain workspace-local. Retirement forbids normal
-history reads, rebinding, and recommendation acceptance. Electron may expose
-an exact-binding, deletion-only “forget retired repository history” operation:
+workspaces may receive a read-only, redacted projection of a learning card.
+That projection contains no foreign workspace ID, session ID, bearer, lifecycle
+detail, or session-bound action. Only the owning workspace may expose the full
+Taskmaster record or route accept, `Fix with AI`, and completion through its
+own session-bound API. Dismissal updates the repository-shared watermark under
+the shared store transaction from any matching active binding. Workspace-
+specific observation recommendations remain workspace-local. Retirement
+forbids normal history reads, rebinding, and recommendation acceptance.
+Electron may expose an exact-binding, deletion-only “forget retired repository
+history” operation:
 it releases only source dependencies named by exact workspace and subject
 references under compare-and-swap, records `cleanup_pending`, and retries
 idempotently after a crash. Retirement alone neither forgets nor transfers
@@ -370,17 +374,25 @@ The default cohort key requires exact equality on all of the following:
 
 - `repositoryId` and `registryEpoch`;
 - role ID/version and role-template snapshot digest;
-- approved task-category value and relevant scope tags from the immutable
-  assignment/task snapshot (unknown or free-form-only scope forms its own
-  unmatched cohort);
-- coding-tool identity/version and selected model provider/model/version;
-  unknown, unobserved, automatic, or unresolved values remain unmatched and
-  cannot be compared, including against the same unknown label;
+- approved task-category value and approved, normalized scope tags from the
+  immutable assignment/task snapshot. Current #741 defines `taskCategory` and
+  approved scope bindings but no normalized learning-scope-tag field; until
+  #741 adds that immutable field and a canonical mapping, subjects remain
+  unmatched rather than deriving tags from prose or inventing a mapping;
+- coding-tool identity from #741's harness/adapter binding, including exact
+  executable identity and tool version, and the complete canonical #741
+  `ModelBinding`. Only pinned model bindings are comparable; tool-managed,
+  automatic, unobserved, or unresolved model identities remain unmatched.
+  #741 does not separately define model provider/version fields, so do not
+  infer or fabricate them;
 - effective permission-profile digest;
 - criteria snapshot digest and rubric ID, version, and rubric snapshot digest;
 - all selected non-candidate skill logical IDs, versions, full snapshot/content
-  digests, and resource IDs/digests; the candidate skill's exact snapshot may
-  vary, and its presence/version is the sole permitted variable.
+  digests, and resource IDs/digests. For one optional candidate skill, the
+  comparison-set key omits only that skill; each arm key includes its presence
+  and exact version, content digest, and complete resource ID/digest closure.
+  Different candidate snapshots are distinct arms, never pooled by a shared
+  logical ID or version label.
 
 Display labels, prompt similarity, matching branch names, timestamps, or
 repository facts do not relax this key. Different rubric snapshots remain
@@ -444,11 +456,14 @@ resolve under #744 before this filter and never count as independent samples.
 A single eligible assignment may raise a low-confidence **hypothesis** in the
 learning summary with its exact evidence cited. It is not a skill-update card
 and cannot change a future configuration preference.
-An outcome comparison supports a preference only with at least three eligible
-assignments in each compared configuration arm, across at least two distinct
-runs per arm, using the same exact cohort key. For a skill-specific
-comparison, the arms must differ only by that candidate skill's presence or
-version; every other selected skill and configuration dimension stays fixed.
+An outcome comparison supports an optional-skill preference only with at least
+three eligible assignments in each compared configuration arm, across at
+least two distinct runs per arm, using the same exact cohort key. For a
+skill-specific comparison, the comparison-set keys must match and the arm keys
+must differ only by that optional candidate's presence or exact immutable
+snapshot; every other selected skill and configuration dimension stays fixed.
+V1 does not learn changes to role settings, task scope, context, model,
+permissions, instructions, or other configuration fields.
 If the required support is absent, report “insufficient comparable evidence”
 and leave task-fit ordering unchanged. These thresholds are conservative v1
 defaults, not tunable repository policy.
@@ -542,7 +557,7 @@ required review, or override user preferences. Missing history behaves
 exactly like no learned preference.
 
 Every proposed configuration that used learning includes a concise reason:
-which optional skill/settings changed, the exact matched cohort dimensions,
+which optional skill changed, the exact matched cohort dimensions,
 per-arm assignment/run counts, outcome counts, usage coverage/unknown count,
 source digests, and why alternatives were not selected. The plan binds the
 complete immutable proposed configuration and a `learningSnapshot` binding:
@@ -705,15 +720,22 @@ to explain its claim.
 
 An Electron-authorized user may explicitly forget repository learning
 history. Under the repository lock, first fence new learning reads/writes,
-remove derived aggregates and pending candidates, and transition proposed
-learning recommendations to `superseded(learning_history_forgotten)` in the
-same graph transaction. Preserve dismissed/completed recommendation history as
-history with no active learning input. Then release source dependencies that
+durably tombstone every learning subject and advance the forget generation
+before removing derived aggregates and pending candidates. Tombstones retain
+only bounded subject IDs/revisions and the forget generation, never source
+payloads; recomputation and crash recovery must exclude tombstoned subjects
+even when #744 preserves their source records for another dependency. Tombstones
+use the reserved correction/fence budget and remain until the corresponding
+source is purged or its retention expires. Then transition proposed learning
+recommendations to `superseded(learning_history_forgotten)` in the same graph
+transaction. Preserve dismissed/completed recommendation history as history
+with no active learning input. Release source dependencies that
 are no longer needed; #744's exact-subject purge remains conditional on its
 subject revision and the absence of current-result, reviewer-chain, or other
 learning dependencies. If a dependency remains, report it and leave the
-protected source intact. Forgetting does not reset repository identity,
-reassign records, or affect other repository IDs. Workspace deletion purges
+protected source intact while its learning tombstone continues to block reuse.
+Forgetting does not reset repository identity, reassign records, or affect
+other repository IDs. Workspace deletion purges
 that workspace's assignment/usage sources and atomically removes its learning
 contributions from the shared repository store; it does not erase other
 worktrees' contributions. If the cross-store transaction cannot commit,
@@ -764,9 +786,12 @@ silently initialize a fresh store or fall back to stale cached advice.
   crash before/after atomic publication, malformed records, duplicate subject
   IDs, and capacity exhaustion preserve the prior valid store without
   fabricated empty history.
-- Exact cohort equality accepts only the approved dimensions; unknown model,
-  missing task scope, changed permissions, different rubric/criteria digest,
-  changed other skill, or unsupported tool remains unmatched.
+- Exact cohort equality accepts only the approved dimensions; unknown or
+  tool-managed model, missing normalized #741 task-scope tags, changed
+  permissions, different rubric/criteria digest, changed non-candidate skill,
+  or unsupported tool remains unmatched. Candidate snapshots with identical
+  logical ID/version but different content/resource digests remain separate
+  arms.
 - Multiple evaluation revisions for one assignment count once; corrected,
   invalidated, conflicting, stale, replayed, blocked, interrupted, partial,
   unsupported, or unassessed subjects do not become positive or negative
@@ -785,7 +810,9 @@ silently initialize a fresh store or fall back to stale cached advice.
   from an arm that then has only two assignments makes the comparison
   ineligible, regardless of its criterion/quality details.
 - Mandatory skills cannot be removed; usage-only evidence cannot rank skills;
-  plans show matched dimensions, both-arm counts, unknown coverage, source
+  only optional-skill presence/snapshot arms may change. Role settings, task
+  scope, context, model, permissions, and instructions remain task-fit-neutral.
+  Plans show matched dimensions, both-arm counts, unknown coverage, source
   digests, and deterministic fallback on missing/corrupt history.
 - Skill proposals require three distinct eligible assignments across two
   runs, dedupe across the same normalized target, use the existing
@@ -801,8 +828,13 @@ silently initialize a fresh store or fall back to stale cached advice.
   shared lifecycle; dismissed evidence cannot cross-advance either watermark.
 - Forgetting, workspace deletion, source expiry, explicit #744 purge, and
   repository retirement do not leave stale summaries or remove protected
-  current evaluation/reviewer dependencies; recovery after an interrupted
-  cross-store transaction is idempotent.
+  current evaluation/reviewer dependencies; durable forget tombstones prevent
+  protected source records from recreating forgotten contributions; recovery
+  after an interrupted cross-store transaction is idempotent.
+- A linked worktree's learning projection contains no foreign workspace/session
+  identifiers, lifecycle details, or session-bound actions; accept, `Fix with
+  AI`, and completion route only through the owning workspace API, while
+  dismissal updates shared repository rejection memory.
 - Optional time/cost inputs are rejected by current #744 unless its reviewed
   contract adopts the defined units; unknown or incomparable future values do
   not enter quality or selection scores.
@@ -817,7 +849,10 @@ workspace/child constraints, ADRs 0060/0077/0080, and the current
 `ImproveWorkflow` record/store invariants. In particular, review the
 installation-local shared store, cross-store workspace-deletion transaction,
 learning-evidence recommendation projection, numerical thresholds/quotas,
-and time/cost amendment boundary as consequential choices.
+and time/cost amendment boundary as consequential choices. #741 must add the
+immutable normalized learning-scope tags required by these cohorts; until then,
+subjects without them remain unmatched. Use only #741's exact harness,
+adapter, and pinned `ModelBinding` fields; tool-managed models remain unmatched.
 
 The later scoped plan must name concrete types, lock/transaction order, source
 reference resolvers, recovery behavior, deterministic summary encoding,
