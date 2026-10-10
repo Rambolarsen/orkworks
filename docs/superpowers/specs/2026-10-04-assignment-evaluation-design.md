@@ -455,26 +455,28 @@ digested first, so the reference is acyclic. This applies to child
 reviewer-of-review reports and to terminal user assessments; it is part of the
 assessor's evaluation digest and cannot be supplied as unverified display text.
 
-A child-authored evaluation affects its target result only while the sidecar
-can derive a current `reviewerAssessmentRef` chain establishing the evaluator's
-credibility. The user may directly assess that exact child evaluation. Or one
-different declared reviewer may assess it: that reviewer-of-review evaluation
-must carry a `reviewedEvaluationRef` naming the exact child evaluation, and it
-affects the target only after a terminal user evaluation assesses that exact
-reviewer-of-review evaluation and derives Meets requirements. No further child
-reviewer is allowed: the maximum chain is two child evaluations followed by one
-terminal user evaluation. The terminal user assessment also carries a
-`reviewedEvaluationRef` naming the exact reviewer-of-review evaluation. Every
-reference must agree with its sidecar-resolved projection. The sidecar-derived
-`reviewerAssessmentRef` contains the review assignment identity/result
-revision/digest and qualifying downstream evaluation(s), ending at the
-terminal user stream/revision/digest; the projection is not reviewer-supplied
-and is excluded from evaluation digests. Each referenced report and result
-must remain current and every evaluation in the chain must derive Meets
-requirements. In addition, for each reviewer assignment/result whose work is
-being assessed, the sidecar derives the aggregate from all eligible current
-evaluation streams using the multi-evaluation rules below. That exact aggregate
-must derive Meets requirements before the reviewer can establish credibility.
+A child-authored evaluation affects its target result only while its current
+evaluation projection contains a sidecar-derived `reviewerAssessmentRef`. That
+reference binds the exact reviewer assignment identity and result revision/
+digest whose aggregate was assessed, the target child evaluation's
+`(reviewerIdentity, evaluationRevision, evaluationDigest)`, and an ordered list
+of the exact evaluations establishing the assessment path. Each list entry
+identifies its assignment or `userReviewId`, reviewer identity, evaluation
+revision, and digest; its `reviewedEvaluationRef` must name the preceding exact
+evaluation. The path is either one terminal user evaluation directly assessing
+the child evaluation, or one declared reviewer-of-review followed by a terminal
+user evaluation assessing that exact reviewer-of-review evaluation. The
+reviewer-of-review report must derive Meets requirements before the terminal
+user assessment can qualify the path. No further child reviewer is allowed:
+the maximum path is two child evaluations followed by one terminal user
+evaluation. Every reference must agree with its sidecar-resolved projection.
+The `reviewerAssessmentRef` is server-derived, is not reviewer-supplied, and is
+excluded from evaluation digests. Each referenced report and result must remain
+current and every evaluation in the path must derive Meets requirements. In
+addition, for each reviewer assignment/result whose work is being assessed, the
+sidecar derives the aggregate from all eligible current evaluation streams
+using the multi-evaluation rules below. That exact aggregate must derive Meets
+requirements before the reviewer can establish credibility.
 A favorable evaluation selected by the chain, including a terminal user
 assessment, cannot override another current evaluation that makes the aggregate
 Unassessed or Needs rework. Recompute this aggregate before using a credibility
@@ -849,8 +851,14 @@ A future implementation must verify that:
    revision/digest. Every chain is acyclic and bounded to two child evaluations
    plus the terminal user; changing any named result/evaluation revision or
    digest invalidates only dependent links, which must then be re-established.
-   The sidecar-derived `reviewerAssessmentRef` on a current worker evaluation
-   protects all linked result/evaluation/disposition records from retention.
+   Each eligible child evaluation's sidecar-derived `reviewerAssessmentRef`
+   binds the exact reviewer assignment result and target evaluation, plus the
+   ordered reviewer-of-review and terminal-user evaluation references, each by
+   identity, revision, and digest. Replacing, correcting, invalidating, or
+   disqualifying any referenced item immediately removes the dependent
+   evaluation from the aggregate until its credibility path is re-established.
+   The reference protects all linked result/evaluation/disposition records from
+   retention.
 5. Corrections preserve reporter provenance; user corrections use
    Electron-authorized compare-and-swap on their `userReviewId`; a replacement
    stream can start after invalidation while user capacity remains. Ended child
