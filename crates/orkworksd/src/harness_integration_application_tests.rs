@@ -44,6 +44,76 @@ fn install_fake_command(dir: &std::path::Path, command: &str, body: &str) {
     make_test_executable(&path);
 }
 
+fn insert_live_prompt_authority_session(
+    state: &crate::AppState,
+    workspace_path: &std::path::Path,
+    session_id: &str,
+    source: &str,
+) {
+    let mut metadata = crate::test_support::test_session_metadata(
+        session_id,
+        "Claude prompt",
+        &workspace_path.display().to_string(),
+        "running",
+        "now",
+        "now",
+    );
+    metadata.harness = "claude-code".into();
+    metadata.lifecycle = "alive".into();
+    metadata.lifecycle_phase = "active".into();
+    metadata.metadata_source = source.into();
+    metadata.observed_status = Some("waiting_for_input".into());
+    metadata.attention = Some("needs_you".into());
+    metadata.needs_user_input = Some(true);
+    metadata.detected_question = Some("Should I continue?".into());
+    metadata.suggested_options = Some(vec!["Continue".into(), "Stop".into()]);
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .write_session(&metadata);
+
+    let mut info = crate::test_support::test_session_info(
+        session_id,
+        "Claude prompt",
+        workspace_path.display().to_string(),
+        "running",
+        "now",
+    );
+    info.harness = Some("claude-code".into());
+    info.harness_id = Some("claude-code".into());
+    info.lifecycle = "alive".into();
+    info.lifecycle_phase = "active".into();
+    info.metadata_source = Some(source.into());
+    info.observed_status = metadata.observed_status.clone();
+    info.attention = metadata.attention.clone();
+    info.needs_user_input = metadata.needs_user_input;
+    info.detected_question = metadata.detected_question.clone();
+    info.suggested_options = metadata.suggested_options.clone();
+    let (kill_tx, _) = tokio::sync::watch::channel(false);
+    state.sessions.lock().unwrap().insert(
+        session_id.into(),
+        crate::SessionHandle {
+            info,
+            active_work_hook: false,
+            kill_tx,
+            output_buffer: crate::peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            ),
+            terminal_attached: false,
+            resume_in_progress: false,
+            capacity: crate::capacity_state::CapacityState::default(),
+        },
+    );
+}
+
 fn grouped_request(
     state: &crate::AppState,
     key: IntegrationKey,
@@ -196,6 +266,71 @@ async fn grouped_mutation_rejects_a_stale_revision_before_writing() {
         result,
         Err(IntegrationApplicationError::RevisionConflict(_))
     ));
+    assert!(!dir
+        .path()
+        .join(".github/copilot/settings.local.json")
+        .exists());
+}
+
+#[tokio::test]
+async fn grouped_mutation_rejects_document_and_selection_changes_during_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    init_git_workspace_with_copilot_settings_ignored(dir.path());
+    let home = tempfile::tempdir().unwrap();
+    let _fake_home = FakeHome::set(home.path());
+    let state = test_app_state_with_workspace(dir.path());
+    SessionApplication::new(state.clone())
+        .set_active_harnesses(vec!["copilot".into()])
+        .unwrap();
+    let key = IntegrationKey {
+        adapter_id: "copilot".into(),
+        target_id: "workspace".into(),
+    };
+    let request = grouped_request(&state, key, IntegrationMutation::Install);
+    let update_state = state.clone();
+    let app = HarnessIntegrationApplication {
+        state: state.clone(),
+        revocation_result_hook: None,
+        group_revalidation_hook: None,
+        probe_revalidation_hook: Some(Arc::new(move |harness_id| {
+            assert_eq!(harness_id, "copilot");
+            update_state
+                .harness_store
+                .mutate(&update_state.harness_catalog, |document| {
+                    document.overrides.insert(
+                        "copilot".into(),
+                        HarnessPatch {
+                            min_version: Some(Some(VersionRequirement { min: (1, 0, 0) })),
+                            ..Default::default()
+                        },
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            SessionApplication::new(update_state.clone())
+                .set_active_harnesses(vec!["claude-code".into()])
+                .unwrap();
+        })),
+    };
+
+    let result = app.mutate(request).await;
+
+    let Err(IntegrationApplicationError::RevisionConflict(conflict)) = result else {
+        panic!("expected a current-revision conflict after both revisions changed");
+    };
+    let current_document_revision = state.harness_store.snapshot().unwrap().document_revision;
+    let current_active_revision = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .read_workspace_memory()
+        .unwrap()
+        .active_harness_revision;
+    assert_eq!(conflict.document_revision, current_document_revision);
+    assert_eq!(conflict.active_harness_revision, current_active_revision);
     assert!(!dir
         .path()
         .join(".github/copilot/settings.local.json")
@@ -368,6 +503,149 @@ async fn inspect_revocation_failure_overrides_a_successful_status() {
         Err(IntegrationApplicationError::AuthorityRevocation)
     ));
     assert_eq!(*attempts.lock().unwrap(), [true]);
+}
+
+#[tokio::test]
+async fn inspect_revokes_real_authority_and_clears_the_non_user_prompt_tuple() {
+    let dir = tempfile::tempdir().unwrap();
+    init_git_workspace_with_claude_settings_ignored(dir.path());
+    let home = tempfile::tempdir().unwrap();
+    let _fake_home = FakeHome::set(home.path());
+    let state = test_app_state_with_workspace(dir.path());
+    SessionApplication::new(state.clone())
+        .set_active_harnesses(vec!["claude-code".into()])
+        .unwrap();
+    let session_id = "inspect-demotes-live-claude-authority";
+    insert_live_prompt_authority_session(&state, dir.path(), session_id, "claude_hook");
+    let authority = crate::runtime::prompt_authority::registry();
+    authority.issue_with_native_id(
+        session_id,
+        "claude-code",
+        "inspect-demotion-generation",
+        Some("native"),
+    );
+    assert!(authority.activate(
+        session_id,
+        "claude-code",
+        "inspect-demotion-generation",
+        "native"
+    ));
+
+    let result = HarnessIntegrationApplication::new(state.clone())
+        .inspect(IntegrationTarget::Group(IntegrationKey {
+            adapter_id: "claude".into(),
+            target_id: "workspace".into(),
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    assert!(!authority.is_active(session_id));
+    assert!(!authority.generation_matches(
+        session_id,
+        "claude-code",
+        "inspect-demotion-generation"
+    ));
+    let persisted = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .read_session(session_id)
+        .unwrap();
+    assert_eq!(persisted.observed_status, None);
+    assert_eq!(persisted.attention, None);
+    assert_eq!(persisted.needs_user_input, None);
+    assert_eq!(persisted.detected_question, None);
+    assert_eq!(persisted.suggested_options, None);
+    let sessions = state.sessions.lock().unwrap();
+    let live = &sessions.get(session_id).unwrap().info;
+    assert_eq!(live.observed_status, None);
+    assert_eq!(live.attention, None);
+    assert_eq!(live.needs_user_input, None);
+    assert_eq!(live.detected_question, None);
+    assert_eq!(live.suggested_options, None);
+    drop(sessions);
+    authority.remove(session_id);
+}
+
+#[tokio::test]
+async fn inspect_revokes_real_authority_but_preserves_the_user_prompt_tuple() {
+    let dir = tempfile::tempdir().unwrap();
+    init_git_workspace_with_claude_settings_ignored(dir.path());
+    let home = tempfile::tempdir().unwrap();
+    let _fake_home = FakeHome::set(home.path());
+    let state = test_app_state_with_workspace(dir.path());
+    SessionApplication::new(state.clone())
+        .set_active_harnesses(vec!["claude-code".into()])
+        .unwrap();
+    let session_id = "inspect-preserves-user-authority-tuple";
+    insert_live_prompt_authority_session(&state, dir.path(), session_id, "user");
+    let authority = crate::runtime::prompt_authority::registry();
+    authority.issue_with_native_id(
+        session_id,
+        "claude-code",
+        "inspect-user-generation",
+        Some("native"),
+    );
+    assert!(authority.activate(
+        session_id,
+        "claude-code",
+        "inspect-user-generation",
+        "native"
+    ));
+
+    let result = HarnessIntegrationApplication::new(state.clone())
+        .inspect(IntegrationTarget::Group(IntegrationKey {
+            adapter_id: "claude".into(),
+            target_id: "workspace".into(),
+        }))
+        .await;
+
+    assert!(result.is_ok());
+    assert!(!authority.is_active(session_id));
+    assert!(!authority.generation_matches(session_id, "claude-code", "inspect-user-generation"));
+    let persisted = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .read_session(session_id)
+        .unwrap();
+    assert_eq!(persisted.metadata_source, "user");
+    assert_eq!(
+        persisted.observed_status.as_deref(),
+        Some("waiting_for_input")
+    );
+    assert_eq!(persisted.attention.as_deref(), Some("needs_you"));
+    assert_eq!(persisted.needs_user_input, Some(true));
+    assert_eq!(
+        persisted.detected_question.as_deref(),
+        Some("Should I continue?")
+    );
+    assert_eq!(
+        persisted.suggested_options,
+        Some(vec!["Continue".into(), "Stop".into()])
+    );
+    let sessions = state.sessions.lock().unwrap();
+    let live = &sessions.get(session_id).unwrap().info;
+    assert_eq!(live.metadata_source.as_deref(), Some("user"));
+    assert_eq!(live.observed_status.as_deref(), Some("waiting_for_input"));
+    assert_eq!(live.attention.as_deref(), Some("needs_you"));
+    assert_eq!(live.needs_user_input, Some(true));
+    assert_eq!(
+        live.detected_question.as_deref(),
+        Some("Should I continue?")
+    );
+    assert_eq!(
+        live.suggested_options,
+        Some(vec!["Continue".into(), "Stop".into()])
+    );
+    drop(sessions);
+    authority.remove(session_id);
 }
 
 #[tokio::test]
