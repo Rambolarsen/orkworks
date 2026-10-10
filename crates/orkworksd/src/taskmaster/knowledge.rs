@@ -719,6 +719,19 @@ mod tests {
             super::select_manifest_entry(&manifest).unwrap().version,
             "supported-newer"
         );
+
+        let with_valid_unsupported = verify_manifest_with_key(
+            &fixture("manifest-valid-unsupported-envelope.json"),
+            TEST_PUBLIC_KEY,
+        )
+        .unwrap();
+        assert_eq!(with_valid_unsupported.bundles.len(), 2);
+        assert_eq!(
+            super::select_manifest_entry(&with_valid_unsupported)
+                .unwrap()
+                .version,
+            "manifest-0000"
+        );
     }
 
     #[test]

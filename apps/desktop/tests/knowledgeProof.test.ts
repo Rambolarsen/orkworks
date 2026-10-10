@@ -206,6 +206,10 @@ test('manifest accepts 1,000 entries and rejects overflow and duplicate identiti
   const maximum = verifyKnowledgeManifest(fixture('maximum-manifest-entries-envelope.json'), testPublicKey);
   assert.equal(maximum.bundles.length, 1000);
   assert.equal(selectKnowledgeEntry(maximum).sequence, 1000);
+
+  const withValidUnsupported = verifyKnowledgeManifest(fixture('manifest-valid-unsupported-envelope.json'), testPublicKey);
+  assert.equal(withValidUnsupported.bundles.length, 2);
+  assert.equal(selectKnowledgeEntry(withValidUnsupported).version, 'manifest-0000');
   for (const name of [
     'manifest-entry-overflow-envelope.json', 'duplicate-manifest-entry-envelope.json',
     'manifest-invalid-sequence-string-envelope.json', 'manifest-invalid-sequence-fraction-envelope.json', 'manifest-invalid-sequence-overflow-envelope.json',

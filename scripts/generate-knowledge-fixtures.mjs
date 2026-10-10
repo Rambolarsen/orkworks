@@ -379,6 +379,20 @@ safeWrite('duplicate-manifest-entry-envelope.json', envelope(json(makeManifest([
   maximumManifestEntries[0],
   { ...maximumManifestEntries[0], version: 'different-version', path: 'bundles/different-version.json' },
 ]))));
+const unsupportedManifestEntry = (label, sequence) => ({
+  formatVersion: 2,
+  privacyPolicyVersion: 3,
+  sequence,
+  version: `future-${label}`,
+  sha256: 'b'.repeat(64),
+  path: `bundles/future-${label}.json`,
+});
+const validUnsupportedManifestEntry = unsupportedManifestEntry('positive-control', Number.MAX_SAFE_INTEGER);
+safeWrite('manifest-valid-unsupported-envelope.json', envelope(json(makeManifest([
+  maximumManifestEntries[0],
+  validUnsupportedManifestEntry,
+]))));
+
 const malformedManifestValues = [
   ['sequence-string', { sequence: '2' }],
   ['sequence-fraction', { sequence: 1.5 }],
@@ -397,9 +411,13 @@ const malformedManifestValues = [
   ['policy-missing', { privacyPolicyVersion: undefined }],
   ['policy-noninteger', { privacyPolicyVersion: 1.5 }],
 ];
-for (const [label, override] of malformedManifestValues) {
-  const invalidEntry = { ...maximumManifestEntries[0], formatVersion: 2, privacyPolicyVersion: 3, ...override };
-  safeWrite(`manifest-invalid-${label}-envelope.json`, envelope(json(makeManifest([maximumManifestEntries[0], invalidEntry]))));
+for (const [index, [label, override]] of malformedManifestValues.entries()) {
+  const validUnsupportedBase = unsupportedManifestEntry(`invalid-${label}`, 2000 + index);
+  const invalidEntry = { ...validUnsupportedBase, ...override };
+  safeWrite(`manifest-invalid-${label}-envelope.json`, envelope(json(makeManifest([
+    maximumManifestEntries[0],
+    invalidEntry,
+  ]))));
 }
 
 const maxEnvelopeBytes = 2 * 1024 * 1024;
@@ -508,6 +526,7 @@ const fixtureOutcomes = [
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'page, text, relationship, provenance, and marker limits reject overflow', files: ['capability-overflow.json', 'content-overflow.json', 'title-overflow.json', 'status-overflow.json', 'applicability-overflow.json', 'provenance-overflow.json', 'page-count-overflow.json', 'capability-129.json', 'applicability-129.json', 'version-129.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'all signed JSON fields, including unknown nested fields, use strict decoded-key and integer lexical rules', files: ['escaped-duplicate-key.json', 'integer-overflow.json', 'lone-surrogate.json', 'fractional-number.json', 'exponent-number.json', 'negative-zero.json', 'too-deep.json', 'unknown-nested-duplicate.json', 'unknown-fraction.json', 'unknown-exponent.json', 'unknown-negative-zero.json', 'unknown-overflow.json'] },
   { api: 'verifyKnowledgeManifest', expected: 'accept', invariant: 'manifest sequence zero and inclusive entry-count bound are valid', files: ['manifest-sequence-zero-envelope.json', 'maximum-manifest-entries-envelope.json'] },
+  { api: 'verifyKnowledgeManifest + selectKnowledgeEntry', expected: 'accept', invariant: 'a valid unsupported entry is fully valid but ignored when selecting a supported entry', files: ['manifest-valid-unsupported-envelope.json'] },
   { api: 'verifyKnowledgeManifest', expected: 'reject', invariant: 'manifest entry-count overflow and duplicate identities are invalid', files: ['manifest-entry-overflow-envelope.json', 'duplicate-manifest-entry-envelope.json'] },
   { api: 'verifyKnowledgeManifest', expected: 'reject', invariant: 'every entry is structurally validated before supported format and policy selection', files: ['manifest-invalid-sequence-string-envelope.json', 'manifest-invalid-sequence-fraction-envelope.json', 'manifest-invalid-sequence-overflow-envelope.json', 'manifest-invalid-version-nonstring-envelope.json', 'manifest-invalid-version-empty-envelope.json', 'manifest-invalid-version-overflow-envelope.json', 'manifest-invalid-version-unsafe-envelope.json', 'manifest-invalid-digest-nonstring-envelope.json', 'manifest-invalid-digest-uppercase-envelope.json', 'manifest-invalid-digest-short-envelope.json', 'manifest-invalid-path-nonstring-envelope.json', 'manifest-invalid-path-mismatch-envelope.json', 'manifest-invalid-format-missing-envelope.json', 'manifest-invalid-format-noninteger-envelope.json', 'manifest-invalid-policy-missing-envelope.json', 'manifest-invalid-policy-noninteger-envelope.json'] },
   { api: 'verifyKnowledgeManifest + selectKnowledgeEntry', expected: 'accept', invariant: 'eligible format and policy are selected before sequence ranking', files: ['ranked-manifest-envelope.json'] },
