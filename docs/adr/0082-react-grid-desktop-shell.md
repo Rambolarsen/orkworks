@@ -80,5 +80,14 @@ the visual preview and its description. ADR 0078's library choice and the
 accepted navigation design were reconciled before runtime changes.
 The amended [delivery plan](../superpowers/plans/2026-10-10-application-shell-fixed-shell.md)
 records implementation ownership and verification. Native Windows/Linux chrome
-and screen-reader walkthroughs require actual platform evidence before merge;
-headless tests cannot substitute for them.
+and screen-reader walkthroughs require actual platform evidence; headless tests
+cannot substitute for them.
+
+### Delivery exception — approved 2026-10-10
+
+The owner explicitly deferred the native walkthroughs until after PR #796
+merges ("ill check after the merge"). Track the pending keyboard, screen-reader,
+reduced-motion, zoom, narrow-width and macOS/Windows/Linux chrome evidence in
+[#836](https://github.com/Rambolarsen/orkworks/issues/836), required before a release
+containing this change. This scoped timing exception does not claim the checks
+passed or waive code review and automated verification.

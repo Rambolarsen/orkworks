@@ -23,7 +23,29 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario !== 'baseline') {
+      if (scenario.startsWith('preferences-')) {
+        if (scenario === 'preferences-migration') {
+          await waitFor('document.querySelector(".shell-preferences-notice [type=button]")');
+          assert.match(await evaluate('document.querySelector("[role=status]").textContent'),/saved panel arrangement is retained/);
+          assert.equal(await evaluate('fixture.preferenceWrites'),0,'hydration never saves');
+          await evaluate('document.querySelector(".shell-preferences-notice button").click()');
+          await waitFor('fixture.preferenceWrites===1');
+          await evaluate('fixture.remountPreferences()');
+          await waitFor('fixture.preferenceReads>=2');
+          await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+          assert.equal(await evaluate('!!document.querySelector(".shell-preferences-notice")'),false,'acknowledged migration does not repeat');
+        } else {
+          await waitFor('document.querySelector("[role=alert]")');
+          await evaluate('document.querySelector(".shell-preferences-notice button").click()');
+          await waitFor('fixture.rebuildCalls===1');
+          assert.equal(await evaluate('!!document.querySelector("[role=alert]")'),true,'cancel keeps recovery available');
+          await evaluate('fixture.cancelRebuild=false;document.querySelector(".shell-preferences-notice button").click()');
+          await waitFor('fixture.rebuildCalls===2&&!document.querySelector("[role=alert]")');
+          assert.equal(await evaluate('fixture.resetCalls'),0,'invalid records use the confirmed rebuild API');
+        }
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario !== 'baseline') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         if (scenario === 'sessions-toggle') {
           await click('sessions');
@@ -73,6 +95,16 @@ if (process.versions.electron) {
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
           assert.equal(await evaluate('document.activeElement.hasAttribute("data-shell-page-heading")'),true,'hiding Sessions focuses the remaining utility');
           assert.equal(await evaluate('document.activeElement.textContent'),'Details');
+        } else if (scenario === 'empty-terminal-return') {
+          await win.setContentSize(1000,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
+          await evaluate('fixture.select(null)');
+          await waitFor('fixture.activeSessionId===null');
+          await evaluate('const heading=document.querySelector("[data-shell-region=terminal] h1");heading.focus();fixture.command("capacity");void 0');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          await evaluate('fixture.command("capacity")');
+          await waitFor('!document.querySelector("[data-shell-region=utility]")');
+          assert.equal(await evaluate('document.activeElement===document.querySelector("[data-shell-region=terminal] h1")'),true);
         } else if (scenario === 'hidden-resize') {
           await win.setContentSize(1000,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
@@ -186,7 +218,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -196,6 +228,8 @@ if (process.versions.electron) {
           import React, {useState} from 'react';
           import {createRoot} from 'react-dom/client';
           import ApplicationShell from './src/components/ApplicationShell';
+          import ShellPreferencesNotice from './src/components/ShellPreferencesNotice';
+          import {useShellPreferences} from './src/useShellPreferences';
           import './src/App.css';
           import {getTerminal, getLiveTerminalCount} from './src/terminalStore';
           const fixture = window.fixture = {selections:0,prompts:0,errors:[],ready:true};
@@ -212,6 +246,17 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345')};
+          fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
+          fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${JSON.stringify(scenario)}==='preferences-recovery'?'corrupt_record':null};
+          Object.assign(window.orkworks,{
+            getShellLayout:async()=>{fixture.preferenceReads++;return {...fixture.snapshot}},
+            getLayout:async()=>'{}',
+            saveShellLayout:async preferences=>{fixture.preferenceWrites++;fixture.snapshot={preferences,revision:fixture.snapshot.revision+1,diagnostic:null};return {ok:true}},
+            resetShellLayout:async()=>{fixture.resetCalls++;return {ok:false}},
+            rebuildShellLayout:async()=>{fixture.rebuildCalls++;if(fixture.cancelRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.snapshot.diagnostic=null;return {ok:true}}
+          });
+          function Preferences() {return <ShellPreferencesNotice {...useShellPreferences()}/>;}
+          function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
             const [inspector,setInspector]=useState(null);
             const [backendStatus,setBackendStatus]=useState('connected');
@@ -220,6 +265,7 @@ if (process.versions.electron) {
             fixture.setBackendStatus=setBackendStatus;
             const [activeSessionId,setActiveSessionId]=useState('coding');
             fixture.activeSessionId=activeSessionId;
+            fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
             return <ApplicationShell sessions={['coding','other'].map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))}
               workspace={{name:'Test',path:'/tmp/test'}} activeSessionId={activeSessionId} workspaceGeneration={0}
@@ -228,7 +274,7 @@ if (process.versions.electron) {
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
               onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
-          createRoot(document.getElementById('root')).render(<Harness/>);
+          createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
         bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser',
         define: { 'process.env.NODE_ENV': '"development"' },

@@ -169,7 +169,7 @@ export default function ApplicationShell(props: Props) {
       root.querySelector<HTMLElement>("[data-shell-region=terminal] h1")?.focus({ preventScroll: true });
       props.onFocusTerminal();
     } else {
-      root.querySelector<HTMLElement>("[data-shell-page-heading]")?.focus({ preventScroll: true });
+      root.querySelector<HTMLElement>("[data-shell-page-heading], [data-shell-region=terminal] h1")?.focus({ preventScroll: true });
     }
   }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, props.onFocusTerminal]);
 

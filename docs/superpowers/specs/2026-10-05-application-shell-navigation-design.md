@@ -583,3 +583,12 @@ VitePress build/dead links, SVG XML plus rendered clipping/contrast/label
 inspection, and a requirement-by-requirement self-review. Keep #755 and #746
 open for the reviewed execution handoff and remaining #746 projection gates. No
 runtime or coding-tool capability claim follows from those checks.
+
+## PR #796 native validation timing exception — approved 2026-10-10
+
+The owner deferred native walkthroughs until after merge of PR #796. Actual
+keyboard, screen-reader, reduced-motion, zoom, narrow-width and native chrome
+evidence remains required before a release containing this change and is tracked
+in [#836](https://github.com/Rambolarsen/orkworks/issues/836). Automated fixtures
+are partial evidence and do not mark those walkthroughs complete. See
+[ADR 0082](../../adr/0082-react-grid-desktop-shell.md) for the scoped delivery exception.

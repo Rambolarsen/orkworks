@@ -18,6 +18,18 @@ process: other sessions keep running while the backend remains alive. Recent
 terminal history is replayed when you return. Closing the application is
 different; live processes do not survive a backend restart.
 
+## Saved shell layout
+
+Current source builds use a fixed arrangement of Sessions, Terminal and an
+optional inspector. An upgrade notice explains that the earlier saved panel
+arrangement is retained. Dismiss the notice to acknowledge it; the legacy
+arrangement is not deleted.
+
+If saved layout preferences cannot be read, the shell uses defaults and offers
+**Reset Layout…**. Its native confirmation dialog asks before rebuilding those
+preferences. Cancel keeps the current view and leaves the saved data untouched.
+Published installers may still use the earlier panel layout.
+
 ## Read the signals
 
 Peon is OrkWorks’ AI observer. With a provider configured, it reads recent

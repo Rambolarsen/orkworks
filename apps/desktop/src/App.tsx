@@ -1,6 +1,7 @@
 import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import ApplicationShell, { shouldShowRecommendationsPanel, type ShellCommand, type ShellCommandRequest, type ShellDestination } from "./components/ApplicationShell";
+import ShellPreferencesNotice from "./components/ShellPreferencesNotice";
 import { useShellPreferences } from "./useShellPreferences";
 import NewSessionDialog from "./components/NewSessionDialog";
 import FixWithAiDialog from "./components/FixWithAiDialog";
@@ -49,7 +50,7 @@ import { createShellNavigationState, reduceShellNavigation, resolveInspectorSubj
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
-  const { preferences: shellPreferences, change: changeShellPreferences, reset: resetShellPreferences } = useShellPreferences();
+  const { preferences: shellPreferences, change: changeShellPreferences, reset: resetShellPreferences, needsRebuild: shellNeedsRebuild, migrationNotice: shellMigrationNotice, dismissMigrationNotice } = useShellPreferences();
   const [shellCommandRequest, setShellCommandRequest] = useState<ShellCommandRequest | null>(null);
   const requestShellCommand = useCallback((command: ShellCommand, reveal = false) => {
     setShellCommandRequest(previous => ({ command, sequence: (previous?.sequence ?? 0) + 1, reveal }));
@@ -706,6 +707,8 @@ function App() {
           </section>
         </div>
       )}
+      <ShellPreferencesNotice migrationNotice={shellMigrationNotice} needsRebuild={shellNeedsRebuild}
+        dismissMigrationNotice={dismissMigrationNotice} reset={resetShellPreferences} />
       <ApplicationShell
         backendStatus={backendStatus}
         workspace={workspace}

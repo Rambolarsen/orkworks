@@ -9,7 +9,7 @@ tags: ["orkworks", "plans"]
 
 **Issue:** [#779](https://github.com/Rambolarsen/orkworks/issues/779)  
 **Depends on:** [#778](https://github.com/Rambolarsen/orkworks/issues/778), delivered in PR #784  
-**Current status:** open; draft [PR #796](https://github.com/Rambolarsen/orkworks/pull/796) is owned on its existing branch.
+**Current status:** open; [PR #796](https://github.com/Rambolarsen/orkworks/pull/796) is owned on its existing branch.
 
 [Back to the delivery map](2026-10-08-application-shell-redesign.md)
 
@@ -34,11 +34,13 @@ does not add Workflow controls.
 - Hiding and reopening Terminal brings back the same running session and its
   output.
 - Keyboard and assistive-technology use, reduced motion, narrow width, and
-  native window behavior have been walked through and recorded before merge.
+  native window behavior are recorded in [#836](https://github.com/Rambolarsen/orkworks/issues/836)
+  after merge and before release, under the owner-approved 2026-10-10 exception.
 
 Use #779's acceptance criteria for the exact responsive rules, commands, and
-automated checks. PR #796 still lists its manual walkthroughs and `/code-review
-low` as merge gates. This plan does not amend that PR or its owner's branch.
+automated checks. PR #796 retains automated verification and `/code-review low` as merge gates.
+The owner deferred native walkthroughs until after merge; #836 tracks the
+required pre-release evidence.
 
 ## Complexity and review
 
@@ -51,7 +53,8 @@ low` as merge gates. This plan does not amend that PR or its owner's branch.
 | Uncertainty | 4 | The existing PR still needs real keyboard, assistive-technology, zoom, width, and platform walkthroughs. |
 
 **Total: 14/25. Plan quality: Ready for the current execution.** The outcome and
-boundary are clear. The listed walkthroughs are required evidence before merge.
+boundary are clear. The listed walkthroughs are required evidence before release under the
+owner-approved timing exception.
 
 ## Dockview removal amendment — approved 2026-10-10
 
@@ -93,7 +96,7 @@ Review controls remain unavailable until #780 supplies a working destination.
    and worktree checks, then review the final code diff at the required effort.
    Record actual keyboard, screen-reader, reduced-motion, zoom, narrow-width,
    and Windows/macOS/Linux chrome evidence; unavailable evidence remains a
-   merge blocker rather than a passing claim.
+   pre-release blocker under #836 rather than a passing claim.
 
 ### Amendment review
 
