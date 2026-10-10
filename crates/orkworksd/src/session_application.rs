@@ -510,9 +510,9 @@ impl SessionApplication {
 
     /// Runs the recommendation audit for the active workspace and persists
     /// the resulting cleanup card, replacing an existing proposed card in
-    /// place. Returns the new/refreshed card, or `None` when every proposed
-    /// card is healthy (or no workspace is open). Errors surface to the
-    /// caller so the HTTP handler can map them.
+    /// place. If no cleanup is needed, retires any existing proposed cleanup
+    /// card and returns `None`. Errors surface to the caller so the HTTP
+    /// handler can map them.
     pub(crate) fn run_recommendation_audit(
         &self,
     ) -> Result<Option<Recommendation>, crate::taskmaster::store::StoreError> {
@@ -535,6 +535,27 @@ impl SessionApplication {
             &now,
             prior.as_ref(),
         ) else {
+            if let Some(mut prior_card) = prior {
+                prior_card.status = RecommendationStatus::Superseded;
+                prior_card.updated_at = now;
+                let expected = BTreeMap::from([(
+                    prior_card.id.clone(),
+                    existing_hashes.get(&prior_card.id).cloned(),
+                )]);
+                let mut next = existing;
+                let Some(stored_prior) = next
+                    .iter_mut()
+                    .find(|recommendation| recommendation.id == prior_card.id)
+                else {
+                    return Err(crate::taskmaster::store::StoreError::GraphInvariant(
+                        "active cleanup card disappeared during healthy audit".into(),
+                    ));
+                };
+                *stored_prior = prior_card;
+                workspace
+                    .recommendation_store
+                    .apply_recommendation_graph_transaction(&expected, &next)?;
+            }
             return Ok(None);
         };
         let mut expected = BTreeMap::new();
@@ -12789,6 +12810,48 @@ mod tests {
             .iter()
             .any(|recommendation| recommendation.id == healthy.id
                 && recommendation.status == RecommendationStatus::Proposed));
+    }
+
+    #[test]
+    fn healthy_rerun_supersedes_proposed_cleanup_without_dismissing_recommendations() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let application = SessionApplication::new(state.clone());
+        seed_audit_card(
+            &state,
+            "audit-became-healthy",
+            "became-healthy",
+            "2026-10-01T00:00:00Z",
+            false,
+        );
+
+        let cleanup = application.run_recommendation_audit().unwrap().unwrap();
+        assert_eq!(cleanup.audit.as_ref().unwrap().entries.len(), 1);
+
+        seed_audit_card(
+            &state,
+            "audit-became-healthy",
+            "became-healthy",
+            "2026-10-01T00:00:00Z",
+            true,
+        );
+        assert!(application.run_recommendation_audit().unwrap().is_none());
+
+        let (retired, recommendation) = {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().recommendation_store;
+            (
+                store.get(&cleanup.id).unwrap().unwrap(),
+                store.get("audit-became-healthy").unwrap().unwrap(),
+            )
+        };
+        assert_eq!(retired.status, RecommendationStatus::Superseded);
+        assert!(retired.updated_at > cleanup.updated_at);
+        assert_eq!(recommendation.status, RecommendationStatus::Proposed);
+        assert!(matches!(
+            application.accept_cleanup_recommendation(&cleanup.id).err(),
+            Some(crate::taskmaster::store::StoreError::InvalidTransition)
+        ));
     }
 
     #[test]
