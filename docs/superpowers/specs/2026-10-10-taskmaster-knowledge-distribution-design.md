@@ -95,7 +95,7 @@ The exporter must:
   Keep the existing page identity, title, type, status/maturity, content hash,
   and related IDs. Add bounded optional parent identity, applicability labels,
   and reviewed public provenance as needed to preserve the source hierarchy.
-  Every exported string is part of the reviewed artifact.
+  Every exported string is part of the reviewed artifact. Parse source status as well as type and require the plan's explicit non-promoting mapping: preserve concept/principle lifecycle and practice maturity exactly; required missing status fails. Other eligible types preserve a present literal status; only absent status permits the reviewed `active` lifecycle default. A reviewed file hash does not authorize policy metadata that promotes its source.
 - Resolve internal Markdown links and relationships only to included public
   IDs. Reject unresolved/excluded targets rather than recursively importing
   them or merely hiding their URLs. Public external citations require explicit
@@ -210,7 +210,7 @@ The activation record has exactly three fields: integer `activationFormatVersion
 1`, `bundleEnvelopeBase64`, and `manifestEnvelopeBase64`. Base64 encodes the
 original response bytes; verification decodes them without reserializing either
 envelope. Require canonical base64, valid UTF-8, duplicate-key rejection, and no
-unknown activation fields. Keep each decoded envelope at most 2 MiB and the
+unknown activation fields. Count container nesting from zero before the root: every entered object or array, including a root container at depth one, adds one; scalars add none. Reject depth above 32 independently at each JSON boundary, with shared 31/32/33 object, array and mixed fixtures. Keep each decoded envelope at most 2 MiB and the
 serialized activation record at most 6 MiB; two maximum-sized envelopes require
 about 5.34 MiB after base64 encoding. Apply the 6 MiB limit only to the authenticated
 knowledge route and its durable/cache records. The route currently inherits
@@ -227,10 +227,9 @@ sequence ranking. If the bounded current manifest can no longer represent every
 supported class, publication fails pending an explicit format migration; it
 never silently drops compatible clients.
 
-Boundary tests must submit maximum-sized valid records through the real HTTP
-route, restart from them, and reject excess encoded/decoded size, malformed
+Boundary tests submit the largest compact protocol-valid activation (two 2 MiB envelopes, 5,592,491 serialized bytes) through the real Electron client and authenticated HTTP route, restart from it, and reject excess encoded/decoded size, malformed
 base64/UTF-8, duplicate fields, and truncated or substituted signed manifests
-without changing active knowledge or reserving inference usage.
+without changing active knowledge or reserving inference usage. Separately prove the route accepts otherwise-valid JSON padded with legal whitespace to exactly 6 MiB and rejects one extra byte; prove the client request guard against a recording local server using transport-only compact JSON payloads at those sizes. The real client's JSON.stringify cannot produce a protocol-valid 6 MiB compact packet from two bounded envelopes.
 
 Package the generated starter with its signed manifest attestation and the same
 pinned public key. Feed caches retain the activation proof as one atomic record,
@@ -244,7 +243,7 @@ Use a retained-inode OS advisory lock following the existing `fs-ext` history
 pattern, with bounded acquisition and no age-based lock eviction. Download and
 verify outside the lock; then lock, reread/reverify durable active and previous
 records, and compare sequence plus full bundle identity before committing.
-Do not hold a cache lock across a network request or a sidecar request.
+Do not hold a cache lock across a network request or a sidecar request. Derive a storage namespace from the packaged trusted key's SPKI SHA-256: active/previous proofs, advisory status and retained lock live under `keys/<fingerprint>/` inside the installation knowledge directory. Overlapping old/new pinned-key clients never overwrite or delete another key's records, use them as fallback, or apply their sequence floor. The sidecar's additive proof likewise lives at `<Taskmaster root>/knowledge/<fingerprint>/activation.json`, derived from its embedded key. Rotation does not broaden client trust; concurrent-key fixture tests prove preservation.
 
 Use unique same-directory temporary files, flush them, and atomically replace
 records using the existing platform-safe replacement pattern. Preserve a verified
@@ -259,7 +258,7 @@ state before synchronization; advisory status cannot confer eligibility.
 Add two-process cache tests for older/newer writers, equal-sequence conflicts,
 crashes between previous/active replacement, and lock contention. Assert that
 no writer clobbers another's temporary file, reports an uncommitted activation,
-or discards every verified fallback. This is short file-update serialization,
+or discards every verified fallback. The updater also compares an equal-sequence signed feed entry with the current verified identity before skipping download; a different version or envelope digest is an update error, not a successful check. This is short file-update serialization,
 not peer-instance discovery or analysis coordination.
 
 Persist the proof atomically under Taskmaster's existing global knowledge store,
