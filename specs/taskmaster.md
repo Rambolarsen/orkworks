@@ -251,6 +251,17 @@ mutation/spawn. Duplicate requests cannot launch twice; ambiguous recovery
 blocks admission rather than guessing or retrying. A failed/blocked task pauses
 launches. Added/retried work requires a new approved revision.
 
+Repository family identity is governed by [ADR 0080](../docs/adr/0080-repository-identity-across-worktrees.md)
+and tracked as a separate registry substrate in [#810](https://github.com/Rambolarsen/orkworks/issues/810).
+It supplements rather than replaces the selected workspace path identity and
+lease: every run binds both the registered repository family and the exact
+source worktree. The immutable bootstrap and child assignments carry complete
+descriptors; the run definition and every exact plan binding retain their
+digests. Fresh discovery must revalidate those bindings at every admission,
+allocation, mutation, spawn and resume boundary. Missing, unsupported, changed
+or mismatched identity fails closed. #810 does not enable orchestration; the
+consumer contract and platform evidence remain gated before #610 runtime work.
+
 An authenticated turn receipt, the explicit UI ready-for-review action, or
 terminal reconciliation permits an exact version-bound parent result. Only
 that explicit coordination result advances declared dependencies. Process exit,

@@ -1,7 +1,7 @@
 # Repository-scoped configuration learning and skill improvements
 
-- Status: proposed repository-identity contract; written review pending
-- Date: 2026-10-04
+- Status: accepted repository-identity contract; runtime and platform evidence gated
+- Date: 2026-10-10
 - Tracking: [#745](https://github.com/Rambolarsen/orkworks/issues/745), initiative [#738](https://github.com/Rambolarsen/orkworks/issues/738)
 - Consumers: [role configuration](2026-10-04-agent-role-configuration-design.md), [ordinary-child admission](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-09-26-taskmaster-orchestrated-child-sessions.md)
 - Product direction: [hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
@@ -15,12 +15,11 @@ independent of skill usage and assignment evaluation. It does not complete
 proposals, rejection memory or learning-history retention contracts. Those
 consume #743/#744 and remain separate specification work.
 
-The ordinary-child scope is accepted under [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md).
-This algorithm, registration defaults and configuration amendment are proposed.
+The ordinary-child scope is accepted under [ADR 0077](../../adr/0077-taskmaster-orchestrated-child-sessions.md), and the identity/persistence contract is accepted in [ADR 0080](../../adr/0080-repository-identity-across-worktrees.md).
 There is no runtime implementation, new endpoint, eligible adapter or approved
-code execution plan. Written contract acceptance and a scoped implementation
-plan are required before source changes; an ADR must record the accepted
-identity/persistence decision before implementation.
+code execution plan. The scoped registry substrate is tracked by
+[#810](https://github.com/Rambolarsen/orkworks/issues/810); its exact plan and
+native identity/durable-publication evidence remain gates before source changes.
 
 ## Investigated uncertainty and alternatives
 
@@ -45,7 +44,7 @@ Three alternatives were considered:
 | --- | --- | --- |
 | Remote URL or commit identity | Easy labels, but combines separate clones/forks and may expose embedded credentials | Reject as identity input; never collect URLs for this contract |
 | Hash of canonical common-directory path | Shares worktrees, but replacement at the same path reuses the history key | Retain the path as a locator, not the complete identity |
-| Local random registration bound to canonical common directory and filesystem object identity | Needs bounded local persistence and platform evidence; detects observable replacement without writing to Git metadata | Proposed initial contract |
+| Local random registration bound to canonical common directory and filesystem object identity | Needs bounded local persistence and platform evidence; detects observable replacement without writing to Git metadata | Accepted contract; platform evidence pending |
 
 Git defines private worktree administration and a shared common directory.
 Resolve this through Git's repository interface, not by removing a
@@ -110,8 +109,8 @@ Windows aliases/case and Unix symlinks need platform fixtures. Reject an
 unrepresentable or unverifiable path rather than substituting a hash of a
 lossy string. Human display paths are derived separately and confer no authority.
 
-Object identity is proposed as Unix device/inode and Windows volume/file ID
-under a versioned platform adapter. These mechanisms are not verified by the
+Object identity uses opened-handle native identifiers (Unix device/inode and
+Windows volume/file ID) under a versioned platform adapter. These mechanisms are not verified by the
 Git layout probe below. Eligibility requires evidence that the selected local
 filesystem/platform can supply stable directory identities and canonical
 locators. Unsupported filesystems, inconsistent aliases or missing identity
@@ -204,7 +203,9 @@ side effects.
 input of the run definition and exact plan. Every child and `ParentPlanBinding`
 references the same run repository binding digest; #742's input manifests do
 not replace it. Mismatches block proposal/approval before any launch grant.
-These are proposed amendments requiring the consuming contracts' written review.
+These identity fields are accepted by ADR 0080. The wider #741/#742 contracts,
+consumer integration and platform eligibility remain subject to their own
+reviews and gates.
 
 `sourceWorktreeBinding` is the complete `ResolvedWorktree` snapshot of the run's
 existing selected workspace repository root, not the parent's current reported
@@ -370,17 +371,12 @@ Required contract fixtures before implementation eligibility:
 ## Review and scoped execution handoff
 
 The [documentation task plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-04-repository-identity-specification.md)
-tracks this narrow deliverable. Review the proposed local registration strategy,
-replacement/relocation behavior, platform eligibility, persistence limits and
-configuration amendments jointly with #741/#610 before claiming a reviewed
-identity prerequisite. #745 remains open for this review and its downstream
-learning/cohort/history scope.
-
-Only after written acceptance: record the persistence/identity decision in an
-ADR, finalize #741/#742 consumer descriptors, create a scoped implementation
-issue linked to #745/#610/#738, and approve its exact code plan. Candidate seam
-is a repository-identity module, consuming existing Git discovery and native
-filesystem/persistence mechanisms, with dedicated platform fixtures. The plan
-must separate registry resolution/persistence from allocator integration and
-carry the error/recovery/race cases above. No interface or evidence here makes
+records the contract review. #745 remains open for its downstream
+learning/cohort/history scope. The accepted identity decision is recorded in
+ADR 0080 and its registry substrate has a separate [#810 implementation issue](https://github.com/Rambolarsen/orkworks/issues/810)
+and a gated execution plan in this repository.
+That plan consumes existing Git discovery and native filesystem/persistence
+mechanisms, and separates registry resolution/persistence from allocator
+integration. Native identity/durability evidence and approval of that exact
+plan are required before implementation. No interface or evidence here makes
 #610 units 1–4 ready automatically.

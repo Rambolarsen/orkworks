@@ -46,6 +46,10 @@ permission/content-delivery evidence and scoped execution-plan approval are
 still required. The old confined-runner design is historical; the replacement
 does not claim OS confinement or crash-surviving process ownership. Existing
 ordinary Taskmaster approvals and one selected terminal remain unchanged.
+Repository identity across worktrees is accepted by
+[ADR 0080](docs/adr/0080-repository-identity-across-worktrees.md); the separate
+[#810 registry substrate](https://github.com/Rambolarsen/orkworks/issues/810)
+and its platform evidence remain gated. It does not activate orchestration.
 
 Background CLI inference owns its process tree for bounded cleanup, using Unix
 process groups and Windows Job objects. See [ADR 0055](docs/adr/0055-json-taskmaster-inference-adapters.md)

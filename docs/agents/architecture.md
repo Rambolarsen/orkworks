@@ -579,6 +579,15 @@ describe a proposed replacement for the confined master-runner architecture.
 The current coordinator records/store are data-only; no orchestration launch,
 run/grant, skill-usage or hierarchy runtime is implemented by these documents.
 
+Repository-family identity is accepted separately in [ADR 0080](../adr/0080-repository-identity-across-worktrees.md)
+and its bounded sidecar registry is tracked by [#810](https://github.com/Rambolarsen/orkworks/issues/810).
+That registry supplements the path-only workspace history and lease in ADR
+0060; it does not represent a workspace, peer instance, or permission. Each
+future run must retain both repository-family and exact source-worktree
+bindings. #810 is substrate work only and does not add a route or activate
+ordinary-child launch; platform evidence and the separate #610 consumer gates
+remain open.
+
 Children would reuse the parent's selected-workspace sidecar, metadata store
 and ordinary PTY lifecycle, with approved worktree launch directories. There
 are no child sidecars, extra selected workspaces or peer registries. Electron
