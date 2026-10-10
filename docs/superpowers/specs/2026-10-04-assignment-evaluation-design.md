@@ -50,10 +50,15 @@ stored receipt before checking whether the predecessor is still current;
 changed content under that key conflicts. The key is scoped to reporter,
 attempt, and operation.
 
+The sidecar must resolve and open file paths within the approved output scope,
+reject symlink or junction targets outside it, and preserve the opened-object
+binding for hashing and later revalidation. No out-of-scope file may be read or
+pinned as an artifact.
+
 The sidecar assigns immutable result revisions and rejects stale predecessors.
-Evaluations bind the current revision and digest. Before showing a result as
-current, the implementation revalidates its referenced output bytes and
-revision; if it cannot establish freshness, the result is Unassessed. A known
+Evaluations bind the current revision and digest. Before any consumer treats a
+result as current, the implementation revalidates its referenced output bytes
+and revision; if it cannot establish freshness, the result is Unassessed. A known
 missing output establishes Needs rework directly; inaccessible, changed,
 unknown, or unsupported output is Unassessed unless another uncontested
 failure exists. A later result revision makes earlier evaluations historical.
@@ -86,8 +91,9 @@ The approved, versioned, role-specific rubric has an ID, version, evaluator
 role, and required quality dimensions with stable IDs. The reviewer assigns
 one `meets`, `below standard`, or `unassessed` outcome and evidence for every
 dimension, plus one result-level rating. Missing or unassessed dimension
-evidence makes quality Unassessed; any below-standard dimension establishes a
-quality failure and rules out rating `3`. Dimension scores are not averaged.
+evidence makes quality Unassessed; an evidenced, current rating below `3` or a
+below-standard dimension establishes a quality failure even if another
+dimension is unassessed. Dimension scores are not averaged.
 Comparisons across assignments require the same rubric ID and version unless
 an explicit, versioned normalization rule is approved:
 
@@ -101,12 +107,12 @@ an explicit, versioned normalization rule is approved:
 
 The meanings above are fixed for version 1. Ratings 0–2 establish Needs rework
 when current and uncontested. Rating 3 meets the quality part of the result only
-with current, uncontested evidence. The sidecar validates evidence references
-for existence, scope, version, and digest before accepting a pass; unavailable
-or unverified evidence cannot support a pass and otherwise leaves the result
-Unassessed. A transcript, task status, completion claim, test command string, or
-self-rating is not sufficient evidence by itself. Quality does not rank agents,
-grant XP, or prove a skill caused an outcome.
+with current, uncontested evidence. Before using an outcome, the sidecar
+validates evidence references for existence, scope, version, and digest;
+unavailable or unverified evidence makes that outcome Unassessed. A transcript,
+task status, completion claim, test command string, or self-rating is not
+sufficient evidence by itself. Quality does not rank agents, grant XP, or prove
+a skill caused an outcome.
 
 Derive one overall result from current evidence:
 
@@ -125,16 +131,15 @@ criterion.
 An evaluation record stores criterion and dimension outcomes, quality, findings
 and required rework, evidence, reviewer/source identity, observation time, and
 retry metadata; the server derives the overall result. Each finding has a
-stable ID, concise description, evidence reference, and whether it requires
-rework.
+stable ID, concise description, location, severity, evidence reference, and
+whether it requires rework, matching the approved review-role output contract.
 Rationale, findings, and corrections must not contain credentials, secrets,
 hidden reasoning, full prompts, or complete transcripts; use safe, immutable
 evidence references.
 
-Cost and elapsed time may be recorded as optional observations with a
-non-negative value, unit, source, and UTC observation time. Label estimates;
-missing values stay unknown. These values do not affect the result unless
-approved as criteria.
+Cost and elapsed-time observations are outside this contract. #745 may define
+their bounded integer encoding and allowed units before a later contract
+accepts or consumes them.
 
 ## Reviewer eligibility and disagreement
 
@@ -194,20 +199,16 @@ evaluations historical; they never become current again.
 ## Bounds, retention, and deletion
 
 Use #741's limits of 32 criteria and 16 rubric dimensions. Also cap each
-subject at 32 artifacts and 16 evaluation revisions; allow at most 32 evidence
-references per evaluation revision and 32 result revisions per attempt. Cap the
-manifest at 64 KiB, an evaluation/disposition at 128 KiB, each reference at 1
-KiB, and rationale/finding/correction text at 2 KiB. Enforce finite aggregate
+subject at 32 artifacts and 16 evaluation revisions; allow at most 32 findings
+and 80 evidence references per evaluation revision, enough for the maximum
+criteria, dimensions, and findings. Cap the manifest at 64 KiB, an
+evaluation/disposition at 512 KiB, each reference at 1 KiB, and
+rationale/finding/correction text at 2 KiB. Enforce finite aggregate
 run/workspace admission quotas; reject exhausted capacity visibly without
 evicting history. Output and aggregate quota values must be reconciled with #741
 and #745 before implementation. Per-artifact bytes and aggregate rehash work
 have finite approved caps bounded by server hard limits; exceeding either
 makes the output unsupported.
-
-Every consumer that treats an evaluation as current—including #745 learning
-and #746 presentation—must validate the current result revision, referenced
-output bytes, and evidence references. Stale or unavailable evidence cannot be
-used as a clean learning signal.
 
 Reject over-limit reports visibly and never silently drop conflict evidence,
 corrections, or provenance. Retention belongs to #745, which may remove a
@@ -234,17 +235,18 @@ A future implementation must verify that:
 
 1. Complete evidence derives Meets requirements; any uncontested failure,
    including a known missing output, derives Needs rework; missing, stale, or
-   conflicting evidence without a known failure derives Unassessed. A required-
-   rework finding or below-standard rubric dimension is a failure. Optional
+   conflicting evidence without a known failure derives Unassessed. An
+   evidenced rating below `3`, a below-standard dimension, or a required-rework
+   finding is a failure even when other dimensions are unassessed. Optional
    criteria, lifecycle state, or empty legacy criteria cannot create a pass.
 2. Exact retries return their saved receipt before stale-predecessor rejection;
    changed payloads, malformed, unauthenticated, oversized, or cross-subject
    reports fail closed. Missing dimension coverage or invalid evidence cannot
-   support a pass. Results cannot remain current for any consumer after
-   referenced bytes change.
+   support a pass. File links cannot escape the approved scope. Results cannot
+   remain current for any consumer after referenced bytes change.
 3. Scores compare across assignments only under the same rubric ID/version or
-   an approved normalization rule. Findings retain evidence and required-rework
-   status without storing prohibited sensitive content.
+   an approved normalization rule. Findings retain location, severity,
+   evidence, and required-rework status without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
    output, or unverified read-only scope cannot qualify as child review.
    Reviewer-of-review depth is bounded and ends with user authority.
