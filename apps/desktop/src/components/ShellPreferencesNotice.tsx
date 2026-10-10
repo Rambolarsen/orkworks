@@ -2,7 +2,7 @@ interface Props {
   migrationNotice: boolean;
   needsRebuild: boolean;
   dismissMigrationNotice: () => void;
-  reset: () => void;
+  onCommand: (command: "reset-layout") => void;
 }
 
 export default function ShellPreferencesNotice(props: Props) {
@@ -13,7 +13,7 @@ export default function ShellPreferencesNotice(props: Props) {
     </div>}
     {props.needsRebuild && <div className="shell-preferences-notice" role="alert">
       <span>Saved layout preferences could not be read. Defaults are in use. Reset Layout offers a confirmed rebuild.</span>
-      <button type="button" onClick={props.reset}>Reset Layout…</button>
+      <button type="button" onClick={() => props.onCommand("reset-layout")}>Reset Layout…</button>
     </div>}
   </>;
 }

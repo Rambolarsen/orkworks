@@ -38,6 +38,7 @@ if (process.versions.electron) {
           await waitFor('document.querySelector("[role=alert]")');
           await evaluate('document.querySelector(".shell-preferences-notice button").click()');
           await waitFor('fixture.rebuildCalls===1');
+          assert.deepEqual(await evaluate('fixture.noticeCommands'),['reset-layout'],'recovery notice requests the shared shell command');
           assert.equal(await evaluate('!!document.querySelector("[role=alert]")'),true,'cancel keeps recovery available');
           await evaluate('fixture.cancelRebuild=false;document.querySelector(".shell-preferences-notice button").click()');
           await waitFor('fixture.rebuildCalls===2&&!document.querySelector("[role=alert]")');
@@ -275,7 +276,7 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345')};
-          fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
+          fixture.noticeCommands=[];fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
           fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${JSON.stringify(scenario)}==='preferences-recovery'?'corrupt_record':null};
           Object.assign(window.orkworks,{
             getShellLayout:async()=>{fixture.preferenceReads++;return {...fixture.snapshot}},
@@ -284,7 +285,7 @@ if (process.versions.electron) {
             resetShellLayout:async()=>{fixture.resetCalls++;return {ok:false}},
             rebuildShellLayout:async()=>{fixture.rebuildCalls++;if(fixture.cancelRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.snapshot.diagnostic=null;return {ok:true}}
           });
-          function Preferences() {return <ShellPreferencesNotice {...useShellPreferences()}/>;}
+          function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
             const [inspector,setInspector]=useState(null);

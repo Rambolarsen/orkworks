@@ -708,7 +708,7 @@ function App() {
         </div>
       )}
       <ShellPreferencesNotice migrationNotice={shellMigrationNotice} needsRebuild={shellNeedsRebuild}
-        dismissMigrationNotice={dismissMigrationNotice} reset={resetShellPreferences} />
+        dismissMigrationNotice={dismissMigrationNotice} onCommand={requestShellCommand} />
       <ApplicationShell
         backendStatus={backendStatus}
         workspace={workspace}
