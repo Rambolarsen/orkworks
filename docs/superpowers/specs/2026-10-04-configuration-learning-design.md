@@ -324,6 +324,26 @@ or writing this store. Retired, drifted, reset, missing, or mismatched
 bindings cannot access the old history. A new registration never inherits an
 old store by path, remote, or content similarity.
 
+The shared repository store is also the canonical owner of learning-family
+`ImproveWorkflow` recommendation records and dismissal watermarks. Matching
+worktrees project those records through the existing Taskmaster API and
+mutation state machine; accepting from any matching worktree preserves the
+target workspace/session and authenticated completion rules. Workspace-specific
+observation recommendations remain workspace-local. Retirement forbids normal
+history reads, rebinding, and recommendation acceptance. Electron may expose
+an exact-binding, deletion-only “forget retired repository history” operation:
+it releases only source dependencies named by exact workspace and subject
+references under compare-and-swap, records `cleanup_pending`, and retries
+idempotently after a crash. Retirement alone neither forgets nor transfers
+history.
+
+This repository-scoped recommendation owner and its cross-workspace projection
+are proposed contract changes, not behavior already provided by the current
+workspace-local recommendation store. Before implementation, the Taskmaster
+spec and storage/API design must explicitly adopt this ownership boundary and
+its recovery protocol; until that prerequisite is accepted, repository-shared
+recommendations are not implementable under the existing contract.
+
 Sibling worktrees may be open through different workspace sidecars at once.
 Every read-modify-write therefore takes a retained OS advisory lock for this
 repository's learning store, checks the store generation and expected record
@@ -353,13 +373,14 @@ The default cohort key requires exact equality on all of the following:
 - approved task-category value and relevant scope tags from the immutable
   assignment/task snapshot (unknown or free-form-only scope forms its own
   unmatched cohort);
-- coding-tool identity/version and selected model provider/model/version, or
-  the same explicit unknown value with its producer/adapter generation and
-  unknown reason (unknown never pools with a known value);
+- coding-tool identity/version and selected model provider/model/version;
+  unknown, unobserved, automatic, or unresolved values remain unmatched and
+  cannot be compared, including against the same unknown label;
 - effective permission-profile digest;
 - criteria snapshot digest and rubric ID, version, and rubric snapshot digest;
-- all selected skill identities and versions, except the one candidate skill
-  whose presence/version is the sole permitted variable for that comparison.
+- all selected non-candidate skill logical IDs, versions, full snapshot/content
+  digests, and resource IDs/digests; the candidate skill's exact snapshot may
+  vary, and its presence/version is the sole permitted variable.
 
 Display labels, prompt similarity, matching branch names, timestamps, or
 repository facts do not relax this key. Different rubric snapshots remain
@@ -372,13 +393,17 @@ installations.
 
 Keep `reported_use` and adapter-verified `observed_used` evidence in separate
 series. The assignment unit contributes at most one positive unit to each
-series for a given skill snapshot, regardless of event count. A complete,
-finalized usage stream with a selected and confirmed-delivered skill is the
-denominator opportunity for that series. If the stream is missing, partial,
-unsupported, interrupted, not finalized, or corrected/conflicted, classify
-that assignment-skill opportunity as **unknown**: show its count and coverage,
-and exclude it from both numerator and denominator. A delivery failure is not
-a no-use observation. Self-report never becomes adapter observation, and
+series for a given skill snapshot, regardless of event count. For
+`observed_used`, a complete, finalized adapter stream and a selected,
+confirmed-delivered skill define the denominator opportunity. For
+`reported_use`, count only terminal assignments with an authenticated, bound
+child report stream and a selected, confirmed-delivered skill; report positive
+self-report frequency per eligible delivered opportunity, not actual use. A
+missing report event is not evidence of non-use and this stream has no
+finalization handshake. Missing, partial, unsupported, interrupted, or
+corrected/conflicted adapter coverage is **unknown** for `observed_used` and
+is excluded from its numerator and denominator. A delivery failure is not a
+no-use observation. Self-report never becomes adapter observation, and
 adapter evidence never proves more than the verified adapter's declared
 coverage.
 
@@ -494,15 +519,17 @@ the next summary is served. A correction cannot resurrect an expired or
 forgotten contribution.
 
 The orchestrator receives a bounded summary, never direct access to raw event
-logs or reviewer evidence. The summary is sorted deterministically and capped
+logs or reviewer evidence. The summary is capped
 at 32 KiB, 64 cohorts, 32 candidates, and five representative evidence
 references per candidate. Each candidate includes the exact configuration
 delta, positive/negative/unknown counts, coverage, confidence category,
 cohort-key digest, evidence references, exclusions, and derivation version.
-If any cap is reached, report truncation and retain deterministic ordering;
-never silently select a favorable subset. A missing, empty, unavailable,
-corrupt, stale, or truncated-without-the-candidate summary contributes no
-preference and falls back to task fit plus mandatory rules.
+Order cohorts by bytewise cohort digest and candidates by bytewise candidate
+fingerprint, independent of outcomes. If a byte, cohort, or candidate cap
+omits any candidate or cohort, set `selectionUsable=false`; no learned
+preference from that decision is usable, even for candidates that fit in the
+summary. A missing, empty, unavailable, corrupt, or stale summary also
+contributes no preference and falls back to task fit plus mandatory rules.
 
 ## Bounded summaries supplied to the orchestrator
 
@@ -518,7 +545,11 @@ Every proposed configuration that used learning includes a concise reason:
 which optional skill/settings changed, the exact matched cohort dimensions,
 per-arm assignment/run counts, outcome counts, usage coverage/unknown count,
 source digests, and why alternatives were not selected. The plan binds the
-complete immutable proposed configuration. The normal explicit plan review
+complete immutable proposed configuration and a `learningSnapshot` binding:
+the store generation plus an aggregate/source-set digest over the complete
+canonical summary and every supporting reference (not only the displayed
+sample). Approval compares that binding under the learning lock; if it changed,
+rebuild or withdraw the plan before approval. The normal explicit plan review
 and approval is still required. No change reaches an active assignment,
 bootstrap, prompt, skill file, or permission profile automatically.
 
@@ -631,17 +662,34 @@ which references crossed its watermark. Dismissing one family does not dismiss
 or suppress a related card from the other source. Rejection does not delete
 history or retire a skill permanently.
 
+The shared recommendation graph must support a typed `superseded` transition
+for proposed learning-family cards when evidence is invalidated, forgotten,
+expires, or falls below eligibility. This is a proposed extension to the
+current Taskmaster contract, which currently permits `superseded` only for
+assessment-derived cards. It requires an explicit Taskmaster spec/API update
+before implementation. The transition is distinct from user dismissal
+and carries a reason (`evidence_invalidated`, `learning_history_forgotten`,
+`source_expired`, or `below_eligibility`) plus the replacement or source-set
+digest when available. Invalidation and supersession commit in the same graph
+transaction, and a superseded card cannot be accepted. Existing
+accepted/executing transitions are serialized by the canonical store; they are
+not silently rewritten as dismissed or superseded.
+
 ## Retention, forgetting, and concrete examples
 
 The shared repository learning store has hard v1 limits of 1,000 assignment
-subjects and 2 MiB total serialized learning records per repository binding;
+subjects, 2 MiB of normal serialized learning records, and a separate 512 KiB
+reserved correction/fence budget per repository binding (2.5 MiB total);
 each subject record is at most 8 KiB, each aggregate is at most 64 KiB, and
 there are at most 64 live cohort aggregates. Counts are checked before
-publication. At pressure, reject new learning contributions with a visible
-capacity state; never evict a retained dependency, lower a threshold, or
-silently discard the oldest evidence. These are learning-store caps, separate
-from and no larger than the source contracts' per-workspace usage/evaluation
-caps.
+publication. The reserved budget holds one fixed-size invalidation fence of at
+most 512 bytes for every possible subject; ordinary contributions cannot use
+it. If that reserve or any consistency bound is exhausted, fail closed and
+serve no summary that could contain stale learning. At normal-capacity
+pressure, reject new learning contributions with a visible capacity state;
+never evict a retained dependency, lower a threshold, or silently discard the
+oldest evidence. These are learning-store caps, separate from source-contract
+per-workspace usage/evaluation caps.
 
 Retain a learning subject and its source dependencies for at most 180 days
 after its assignment becomes terminal, consistent with #743's aggregate
@@ -657,9 +705,9 @@ to explain its claim.
 
 An Electron-authorized user may explicitly forget repository learning
 history. Under the repository lock, first fence new learning reads/writes,
-remove derived aggregates and pending candidates, and withdraw proposed
-recommendations that depend on the cleared history using their existing
-terminal lifecycle. Preserve dismissed/completed recommendation history as
+remove derived aggregates and pending candidates, and transition proposed
+learning recommendations to `superseded(learning_history_forgotten)` in the
+same graph transaction. Preserve dismissed/completed recommendation history as
 history with no active learning input. Then release source dependencies that
 are no longer needed; #744's exact-subject purge remains conditional on its
 subject revision and the absence of current-result, reviewer-chain, or other
