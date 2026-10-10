@@ -131,6 +131,21 @@ test("a missing active Terminal session clears selection and falls back visibly"
   assert.equal(state.visibleFallbackReason, "The selected session is no longer available.");
 });
 
+test("a deliberately closed active session clears selection without a visible fallback reason", () => {
+  const initial = createShellNavigationState({ workspaceGeneration: 4, activeSessionId: "session-a" });
+  const state = reduceShellNavigation(initial, {
+    type: "target-missing",
+    target: { kind: "session", sessionId: "session-a" },
+    reason: null,
+    generation: 4,
+  });
+
+  assert.equal(state.activeSessionId, null);
+  assert.deepEqual(state.centralSurface, { kind: "terminal", sessionId: null });
+  assert.deepEqual(state.focusTarget, { kind: "sessions" });
+  assert.equal(state.visibleFallbackReason, null);
+});
+
 test("a missing session clears inspector subjects bound to that session", () => {
   const initial = createShellNavigationState({ workspaceGeneration: 4, activeSessionId: "session-a" });
   const inspected = reduceShellNavigation(initial, {
@@ -270,12 +285,13 @@ test("App routes explicit selection, owner restoration, and lifecycle generation
 });
 
 test("App sends controller-confirmed active-session loss through visible navigation fallback", () => {
-  const callbackStart = appSource.indexOf("onActiveSession: (sessionId) => {");
+  const callbackStart = appSource.indexOf("onActiveSession: (sessionId, { deliberate } = {}) => {");
   const callbackEnd = appSource.indexOf("onError:", callbackStart);
   assert.ok(callbackStart >= 0 && callbackEnd > callbackStart);
   const callback = appSource.slice(callbackStart, callbackEnd);
 
   assert.ok(/type: "target-missing"/.test(callback));
+  assert.ok(/reason: deliberate \? null : "The selected session is no longer available\."/.test(callback));
   assert.ok(/shellNavigation\.visibleFallbackReason/.test(appSource));
   assert.ok(/pushToast\("info", shellNavigation\.visibleFallbackReason\)/.test(appSource));
 });

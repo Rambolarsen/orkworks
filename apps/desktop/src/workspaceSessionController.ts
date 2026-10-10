@@ -39,7 +39,7 @@ export interface WorkspaceSessionControllerOptions {
   initialAdmissionEnabled?: boolean;
   onWorkspace?: (workspace: WorkspaceInfo | null) => void;
   onSessions?: (sessions: readonly SessionInfo[]) => void;
-  onActiveSession?: (id: string | null) => void;
+  onActiveSession?: (id: string | null, cause?: { deliberate?: boolean }) => void;
   onError?: (error: ControllerError) => void;
 }
 
@@ -274,7 +274,7 @@ export function createWorkspaceSessionController(
       deps.disposeTerminal(id);
       if (activeSessionId === id) {
         activeSessionId = null;
-        options.onActiveSession?.(null);
+        options.onActiveSession?.(null, { deliberate: true });
       }
       await refreshSessions();
     } catch {
