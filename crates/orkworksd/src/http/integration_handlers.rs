@@ -327,7 +327,7 @@ async fn mutate_harness(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::harness::integration::IntegrationRegistration;
+    use crate::harness::integration::IntegrationError;
     use crate::session_application::SessionApplication;
     use crate::test_support::{test_app_state_with_workspace, FakeHome};
     use axum::extract::Path;
@@ -345,45 +345,171 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    #[test]
-    fn grouped_mutation_body_requires_both_revision_fields() {
+    #[tokio::test]
+    async fn grouped_mutation_body_requires_both_revision_fields_with_literal_message() {
         let error = parse_integration_mutation_request(&Bytes::from_static(b"{}")).unwrap_err();
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body(error).await,
+            serde_json::json!({"error": "Integration mutation requires expectedDocumentRevision."})
+        );
+
+        let error = parse_integration_mutation_request(&Bytes::from_static(
+            br#"{"expectedDocumentRevision":null}"#,
+        ))
+        .unwrap_err();
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body(error).await,
+            serde_json::json!({"error": "Integration mutation requires an unsigned expectedActiveHarnessRevision."})
+        );
     }
 
-    #[test]
-    fn grouped_mutation_body_rejects_unknown_fields() {
+    #[tokio::test]
+    async fn grouped_mutation_body_rejects_unknown_fields_with_literal_message() {
         let error = parse_integration_mutation_request(&Bytes::from_static(
             br#"{"expectedDocumentRevision":null,"expectedActiveHarnessRevision":7,"force":true}"#,
         ))
         .unwrap_err();
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body(error).await,
+            serde_json::json!({"error": "Unknown integration mutation field force."})
+        );
     }
 
-    #[test]
-    fn revision_conflict_keeps_the_legacy_error_shape() {
-        let response = application_error_response(IntegrationApplicationError::RevisionConflict(
-            crate::harness_integration_application::IntegrationRevisionConflict {
-                document_revision: None,
-                active_harness_revision: 7,
-            },
-        ));
-        assert_eq!(response.status(), StatusCode::CONFLICT);
+    #[tokio::test]
+    async fn revision_conflict_keeps_legacy_status_and_exact_body_for_null_and_real_revision() {
+        let no_document_revision =
+            application_error_response(IntegrationApplicationError::RevisionConflict(
+                crate::harness_integration_application::IntegrationRevisionConflict {
+                    document_revision: None,
+                    active_harness_revision: 7,
+                },
+            ));
+        assert_eq!(no_document_revision.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            body(no_document_revision).await,
+            serde_json::json!({
+                "error": "Integration state changed; reload before retrying.",
+                "code": "integration_revision_changed",
+                "documentRevision": null,
+                "activeHarnessRevision": 7
+            })
+        );
+
+        let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let document_revision = serde_json::from_value(serde_json::json!(digest)).unwrap();
+        let real_document_revision =
+            application_error_response(IntegrationApplicationError::RevisionConflict(
+                crate::harness_integration_application::IntegrationRevisionConflict {
+                    document_revision: Some(document_revision),
+                    active_harness_revision: 12,
+                },
+            ));
+        assert_eq!(real_document_revision.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            body(real_document_revision).await,
+            serde_json::json!({
+                "error": "Integration state changed; reload before retrying.",
+                "code": "integration_revision_changed",
+                "documentRevision": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "activeHarnessRevision": 12
+            })
+        );
     }
 
-    #[test]
-    fn missing_workspace_and_unknown_harness_keep_transport_statuses() {
-        assert_eq!(
-            application_error_response(IntegrationApplicationError::NoWorkspace).status(),
-            StatusCode::CONFLICT,
-        );
-        assert_eq!(
-            application_error_response(IntegrationApplicationError::UnknownHarness(
-                "missing-tool".into(),
-            ))
-            .status(),
-            StatusCode::NOT_FOUND,
-        );
+    #[tokio::test]
+    async fn application_error_mappings_keep_literal_legacy_status_and_bodies() {
+        let key = IntegrationKey {
+            adapter_id: "copilot".into(),
+            target_id: "workspace".into(),
+        };
+        let cases = vec![
+            (
+                IntegrationApplicationError::NoWorkspace,
+                StatusCode::CONFLICT,
+                serde_json::json!({"error": "Open a workspace first."}),
+            ),
+            (
+                IntegrationApplicationError::UnknownHarness("missing-tool".into()),
+                StatusCode::NOT_FOUND,
+                serde_json::json!({"error": "unknown harness id \"missing-tool\""}),
+            ),
+            (
+                IntegrationApplicationError::UnknownIntegration(key),
+                StatusCode::NOT_FOUND,
+                serde_json::json!({"error": "unknown integration key copilot/workspace"}),
+            ),
+            (
+                IntegrationApplicationError::WorkspaceChanged,
+                StatusCode::CONFLICT,
+                serde_json::json!({"error": "workspace changed during this request; retry"}),
+            ),
+            (
+                IntegrationApplicationError::DefinitionChanged,
+                StatusCode::CONFLICT,
+                serde_json::json!({"error": "harness definition changed during this request; retry"}),
+            ),
+            (
+                IntegrationApplicationError::Configuration(IntegrationError::NoWorkspace),
+                StatusCode::CONFLICT,
+                serde_json::json!({"error": "Open a workspace first."}),
+            ),
+            (
+                IntegrationApplicationError::Configuration(IntegrationError::RevisionChanged),
+                StatusCode::CONFLICT,
+                serde_json::json!({"error": "Configuration changed; retry the request."}),
+            ),
+            (
+                IntegrationApplicationError::Configuration(IntegrationError::OwnershipAmbiguous),
+                StatusCode::CONFLICT,
+                serde_json::json!({"error": "This integration's config entry doesn't match what OrkWorks installed; resolve it manually."}),
+            ),
+            (
+                IntegrationApplicationError::Configuration(IntegrationError::UnsafeTarget {
+                    code: "not_ignored_target",
+                    message: "Integration configuration is not ignored by Git and will not be edited automatically.".into(),
+                }),
+                StatusCode::BAD_REQUEST,
+                serde_json::json!({"error": "Integration configuration is not ignored by Git and will not be edited automatically."}),
+            ),
+            (
+                IntegrationApplicationError::Configuration(IntegrationError::InvalidConfig(
+                    "Copilot hooks must be an object.".into(),
+                )),
+                StatusCode::BAD_REQUEST,
+                serde_json::json!({"error": "Copilot hooks must be an object."}),
+            ),
+            (
+                IntegrationApplicationError::Configuration(IntegrationError::LaunchConflict),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({"error": "Unexpected launch conflict."}),
+            ),
+            (
+                IntegrationApplicationError::Configuration(IntegrationError::Io(
+                    std::io::Error::new(std::io::ErrorKind::Other, "disk unavailable"),
+                )),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({"error": "disk unavailable"}),
+            ),
+            (
+                IntegrationApplicationError::Infrastructure("couldn't load harness configuration".into()),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({"error": "couldn't load harness configuration"}),
+            ),
+            (
+                IntegrationApplicationError::AuthorityRevocation,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({"error": "integration changed, but prompt authority could not be safely revoked"}),
+            ),
+        ];
+
+        for (error, expected_status, expected_body) in cases {
+            let response = application_error_response(error);
+            assert_eq!(response.status(), expected_status);
+            assert_eq!(body(response).await, expected_body);
+        }
     }
 
     #[tokio::test]
@@ -440,6 +566,10 @@ mod tests {
             .await
             .into_response();
         assert_eq!(legacy.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body(legacy).await,
+            serde_json::json!({"error": "EOF while parsing an object at line 1 column 1"})
+        );
 
         let grouped = uninstall_grouped_integration(
             State(state),
@@ -451,8 +581,22 @@ mod tests {
         assert_eq!(grouped.status(), StatusCode::OK);
         let grouped_status = body(grouped).await;
         assert_eq!(
-            grouped_status["status"]["registration"],
-            serde_json::to_value(IntegrationRegistration::Error).unwrap()
+            grouped_status["status"],
+            serde_json::json!({
+                "harnessId": "copilot",
+                "enabled": true,
+                "toolDetected": false,
+                "registration": "error",
+                "ownership": "none",
+                "activation": "unknown",
+                "coverage": "none",
+                "diagnostics": [{
+                    "code": "ownership_ambiguous",
+                    "message": "This integration's config entry doesn't match what OrkWorks installed; resolve it manually.",
+                    "action": "cleanup-needed"
+                }],
+                "confirmation": null
+            })
         );
     }
 }
