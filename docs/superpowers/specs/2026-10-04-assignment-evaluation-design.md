@@ -83,10 +83,13 @@ Legacy assignments without required criteria cannot pass; absent other known
 failures, they are Unassessed.
 
 The approved, versioned, role-specific rubric has an ID, version, evaluator
-role, and quality dimensions. The reviewer assigns one result-level rating;
-dimension scores are evidence and are not averaged. Comparisons across
-assignments require the same rubric ID and version unless an explicit,
-versioned normalization rule is approved:
+role, and required quality dimensions with stable IDs. The reviewer assigns
+one `meets`, `below standard`, or `unassessed` outcome and evidence for every
+dimension, plus one result-level rating. Missing or unassessed dimension
+evidence makes quality Unassessed; any below-standard dimension establishes a
+quality failure and rules out rating `3`. Dimension scores are not averaged.
+Comparisons across assignments require the same rubric ID and version unless
+an explicit, versioned normalization rule is approved:
 
 | Rating | Meaning |
 | --- | --- |
@@ -98,15 +101,18 @@ versioned normalization rule is approved:
 
 The meanings above are fixed for version 1. Ratings 0–2 establish Needs rework
 when current and uncontested. Rating 3 meets the quality part of the result only
-with current, uncontested evidence. A transcript, task status, completion claim,
-test command string, or self-rating is not sufficient evidence by itself.
-Quality does not rank agents, grant XP, or prove a skill caused an outcome.
+with current, uncontested evidence. The sidecar validates evidence references
+for existence, scope, version, and digest before accepting a pass; unavailable
+or unverified evidence cannot support a pass and otherwise leaves the result
+Unassessed. A transcript, task status, completion claim, test command string, or
+self-rating is not sufficient evidence by itself. Quality does not rank agents,
+grant XP, or prove a skill caused an outcome.
 
 Derive one overall result from current evidence:
 
 | Result | Rule |
 | --- | --- |
-| **Needs rework** | A current, uncontested required criterion is unsatisfied, quality is below `3`, or a declared output is known missing. |
+| **Needs rework** | A current, uncontested required criterion is unsatisfied, quality is below `3`, a current, uncontested required-rework finding is present, or a declared output is known missing. |
 | **Unassessed** | No failure is established, but a required criterion or quality is unassessed, the result is stale, no eligible reviewer exists, or credible evidence conflicts. |
 | **Meets requirements** | Every required criterion is satisfied, quality is `3`, evidence is current, and no relevant conflict or invalidation remains. |
 
@@ -116,10 +122,11 @@ partial work keeps its lifecycle status: assess available evidence, and leave
 the rest unassessed. A blocker explains missing work but does not satisfy a
 criterion.
 
-An evaluation record stores criterion outcomes, quality, findings and required
-rework, evidence, reviewer/source identity, observation time, and retry
-metadata; the server derives the overall result. Each finding has a stable ID,
-concise description, evidence reference, and whether it requires rework.
+An evaluation record stores criterion and dimension outcomes, quality, findings
+and required rework, evidence, reviewer/source identity, observation time, and
+retry metadata; the server derives the overall result. Each finding has a
+stable ID, concise description, evidence reference, and whether it requires
+rework.
 Rationale, findings, and corrections must not contain credentials, secrets,
 hidden reasoning, full prompts, or complete transcripts; use safe, immutable
 evidence references.
@@ -172,7 +179,10 @@ the same eligible reviewer while that review capability is active; a different
 reviewer creates a separate evaluation. An authenticated idempotency key is
 scoped to reporter, subject, and operation. Resolve an exact prior receipt
 before checking the expected revision; changed content under the same key
-conflicts. Stale or cross-subject writes fail closed.
+conflicts. Stale or cross-subject writes fail closed. Invalidation names the
+current evaluation revision and digest; it is serialized with corrections,
+uses the same idempotency rules, and freezes that evaluation stream once
+accepted. A stale invalidation conflicts and cannot exclude a newer correction.
 
 When #742 ends a run and revokes child authority, that child can no longer
 correct its review. The user may append a separately attributed correction or
@@ -183,13 +193,21 @@ evaluations historical; they never become current again.
 
 ## Bounds, retention, and deletion
 
-Use #741's limits of 32 criteria and 16 rubric dimensions. In addition, cap
-each subject at 32 artifacts, 32 evidence references, and 16 evaluation
-revisions; cap the manifest at 64 KiB, an evaluation/disposition at 128 KiB,
-each reference at 1 KiB, and rationale/finding/correction text at 2 KiB.
-Output declarations and aggregate rehash work also have finite approved caps,
-bounded by server hard limits. Resolve their values with #741 before
-implementation.
+Use #741's limits of 32 criteria and 16 rubric dimensions. Also cap each
+subject at 32 artifacts and 16 evaluation revisions; allow at most 32 evidence
+references per evaluation revision and 32 result revisions per attempt. Cap the
+manifest at 64 KiB, an evaluation/disposition at 128 KiB, each reference at 1
+KiB, and rationale/finding/correction text at 2 KiB. Enforce finite aggregate
+run/workspace admission quotas; reject exhausted capacity visibly without
+evicting history. Output and aggregate quota values must be reconciled with #741
+and #745 before implementation. Per-artifact bytes and aggregate rehash work
+have finite approved caps bounded by server hard limits; exceeding either
+makes the output unsupported.
+
+Every consumer that treats an evaluation as current—including #745 learning
+and #746 presentation—must validate the current result revision, referenced
+output bytes, and evidence references. Stale or unavailable evidence cannot be
+used as a clean learning signal.
 
 Reject over-limit reports visibly and never silently drop conflict evidence,
 corrections, or provenance. Retention belongs to #745, which may remove a
@@ -216,12 +234,14 @@ A future implementation must verify that:
 
 1. Complete evidence derives Meets requirements; any uncontested failure,
    including a known missing output, derives Needs rework; missing, stale, or
-   conflicting evidence without a known failure derives Unassessed. Optional
+   conflicting evidence without a known failure derives Unassessed. A required-
+   rework finding or below-standard rubric dimension is a failure. Optional
    criteria, lifecycle state, or empty legacy criteria cannot create a pass.
 2. Exact retries return their saved receipt before stale-predecessor rejection;
    changed payloads, malformed, unauthenticated, oversized, or cross-subject
-   reports fail closed. Results cannot remain current after referenced bytes
-   change.
+   reports fail closed. Missing dimension coverage or invalid evidence cannot
+   support a pass. Results cannot remain current for any consumer after
+   referenced bytes change.
 3. Scores compare across assignments only under the same rubric ID/version or
    an approved normalization rule. Findings retain evidence and required-rework
    status without storing prohibited sensitive content.
@@ -229,11 +249,12 @@ A future implementation must verify that:
    output, or unverified read-only scope cannot qualify as child review.
    Reviewer-of-review depth is bounded and ends with user authority.
 5. Corrections preserve reporter provenance; ended child capabilities cannot
-   correct or impersonate a reviewer. Invalidation removes the report from
-   current results without erasing its history.
-6. Artifact and record caps reject excess work visibly. Retention removes only
-   eligible complete historical subjects; deletion fences old writes and purges
-   evaluation content.
+   correct or impersonate a reviewer. Concurrent corrections and invalidations
+   cannot restore an invalidated evaluation or exclude a newer revision.
+6. Per-attempt result-revision and record caps reject excess work visibly, as
+   do aggregate run/workspace quotas. Retention removes only eligible complete
+   historical subjects; deletion fences old writes and purges evaluation
+   content.
 7. Evaluation cannot launch/retry work, widen permissions, change
    configuration, advance dependencies, accept work for the user, or approve a
    merge.
