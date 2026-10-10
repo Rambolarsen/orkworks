@@ -1,3 +1,10 @@
+---
+type: Design
+title: Assignment quality and completeness evaluation
+description: Define the evidence, evaluation, correction, and retention contract for configured agent assignments.
+tags: [agent-hierarchy, assignment-evaluation, taskmaster]
+---
+
 # Assignment quality and completeness evaluation
 
 ## Scope and dependencies
