@@ -363,12 +363,94 @@ jobs:
             --allowedTools "Bash(git diff:*),Read,Grep,Glob"
             --json-schema '{"type":"object","properties":{"report":{"type":"string"}},"required":["report"],"additionalProperties":false}'
 
-  # Retry pass for the review job: upstream claude-code-action#1720-style
-  # transient SDK failures (result event reports success with is_error:true,
-  # zero turns, zero cost, so the --json-schema guard fails with "did not
-  # return structured_output") are not detectable from the step outcome
-  # alone, so the retry is unconditional. One retry bounds the worst-case
-  # cost while absorbing that flake (issue #437).
+      # Keep diagnostics inline: never execute a helper from the PR checkout
+      # in this token-bearing job. Share the exact step with the retry job.
+      - &claude-failure-diagnostics
+        name: Diagnose failed Claude execution
+        if: failure() && steps.claude.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        shell: bash
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          # BEGIN CLAUDE FAILURE DIAGNOSTIC
+          python3 -I - <<'PY'
+          import json
+          import os
+          import stat
+
+          def diagnose():
+              path = os.environ.get("EXECUTION_FILE", "")
+              root = os.environ.get("RUNNER_TEMP", "")
+              if not path:
+                  return {"classification": "missing-execution-file"}
+              expected = os.path.join(root, "claude-execution-output.json")
+              if not os.path.isabs(root) or os.path.abspath(path) != os.path.abspath(expected):
+                  return {"classification": "invalid-execution-path"}
+              limit = 8 * 1024 * 1024
+              try:
+                  fd = os.open(expected, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                  with os.fdopen(fd, "rb") as stream:
+                      info = os.fstat(stream.fileno())
+                      if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                          return {"classification": "invalid-execution-file"}
+                      if info.st_size > limit:
+                          return {"classification": "oversized-execution-file"}
+                      raw = stream.read(limit + 1)
+                  if len(raw) > limit:
+                      return {"classification": "oversized-execution-file"}
+                  messages = json.loads(raw.decode("utf-8"))
+              except FileNotFoundError:
+                  return {"classification": "missing-execution-file"}
+              except (OSError, ValueError, RecursionError):
+                  return {"classification": "invalid-execution-file"}
+              if not isinstance(messages, list):
+                  return {"classification": "invalid-execution-file"}
+              results = [m for m in messages if isinstance(m, dict) and m.get("type") == "result"]
+              if len(results) != 1:
+                  return {"classification": "missing-result" if not results else "ambiguous-result"}
+              message = results[0]
+              # Only typed metadata reaches logs. Never print result/errors,
+              # prompts, tool messages, session IDs, paths, or arbitrary enums.
+              value = message.get("api_error_status")
+              status = value if type(value) is int and 100 <= value <= 599 else None
+              value = message.get("num_turns")
+              turns = value if type(value) is int and 0 <= value <= 10000 else None
+              value = message.get("total_cost_usd")
+              zero_cost = value == 0 if type(value) in (int, float) and 0 <= value <= 1000000 else None
+              value = message.get("is_error")
+              is_error = value if type(value) is bool else None
+              value = message.get("subtype")
+              subtypes = ("success", "error_during_execution", "error_max_turns",
+                          "error_max_budget_usd", "error_max_structured_output_retries")
+              subtype = value if type(value) is str and value in subtypes else None
+              structured = isinstance(message.get("structured_output"), dict) and bool(message["structured_output"])
+              if is_error is None or subtype is None:
+                  classification = "unknown-result"
+              elif is_error or subtype != "success":
+                  if status == 429:
+                      classification = "rate-limited"
+                  elif turns == 1 and zero_cost is True:
+                      classification = "first-turn-zero-cost"
+                  elif turns is not None and turns > 1:
+                      classification = "mid-run-error"
+                  else:
+                      classification = "execution-error"
+              else:
+                  classification = "completed" if structured else "missing-structured-output"
+              return {"classification": classification, "api_error_status": status,
+                      "subtype": subtype, "is_error": is_error, "num_turns": turns,
+                      "zero_cost": zero_cost, "has_structured_output": structured}
+
+          print(json.dumps({"diagnostic": "claude-review", **diagnose()}, sort_keys=True))
+          PY
+          # END CLAUDE FAILURE DIAGNOSTIC
+
+  # Retry once after a failed review (issue #437). A one-turn, zero-cost
+  # is_error:true result can represent a provider/account limit, not just a
+  # transient SDK failure. The safe diagnostics above expose numeric status
+  # evidence without assuming the cause or changing the existing retry bound.
   review-retry:
     name: Automated review (retry)
     needs: [changes, review]
@@ -420,6 +502,8 @@ jobs:
             --max-turns 40
             --allowedTools "Bash(git diff:*),Read,Grep,Glob"
             --json-schema '{"type":"object","properties":{"report":{"type":"string"}},"required":["report"],"additionalProperties":false}'
+
+      - *claude-failure-diagnostics
 
   publish:
     name: Publish automated review

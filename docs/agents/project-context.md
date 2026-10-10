@@ -97,6 +97,15 @@ tests on Ubuntu and native Windows (Python 3.9). This checks snapshot/report
 contracts, locks and credential handling; it does not start a SonarQube stack
 or replace the required product checks.
 
+PR CI also exercises the Claude review workflow's inline failure diagnostics
+with standard-library Python fixtures. Both review attempts log only bounded,
+typed execution metadata; raw prompts, tool output, error text, and execution
+files are not published. A numeric HTTP 429 is reported as a rate limit without
+assuming a particular account limit. Diagnostics preserve the failed review
+status and the existing one-retry bound.
+Diagnostics run after a failed action returns; termination of the runner or
+the entire job can prevent that final step from running.
+
 ## Containerized development environment (optional)
 
 The root `Containerfile` and `compose.yaml` provide an optional Podman/OCI
