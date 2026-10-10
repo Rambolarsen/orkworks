@@ -128,8 +128,10 @@ Legacy assignments without required criteria cannot pass; absent other known
 failures, they are Unassessed.
 
 The approved, versioned, role-specific rubric has an ID, version, evaluator
-role, and required quality dimensions with stable IDs. For each dimension the
-reviewer assigns `meets`, `below standard`, or `unassessed`, plus one
+role, and 1–16 required quality dimensions with stable IDs. New assignments
+cannot use an empty rubric; a legacy assignment with no dimensions cannot pass
+and remains Unassessed. For each dimension the reviewer assigns `meets`,
+`below standard`, or `unassessed`, plus one
 result-level rating. `Meets` and `below standard` outcomes and an assessed
 result-level rating require evidence; an unassessed dimension or rating may
 omit evidence and records a bounded reason. An unassessed dimension or rating
@@ -232,6 +234,18 @@ evaluate that review; the user is the terminal evaluator. Without user
 disposition, leave that evaluation Unassessed. This preserves the parent
 design's reviewer-of-review path without unbounded recursion.
 
+A child-authored evaluation affects the worker result only while it has a
+current terminal user assessment of the reviewer's own assignment result. The
+sidecar resolves a `reviewerAssessmentRef` to the exact reviewer assignment
+identity, result revision/digest, and user evaluation stream/revision/digest.
+The linked user evaluation must derive Meets requirements. A missing, stale,
+invalidated, Unassessed, or Needs rework reviewer assessment makes that child
+evaluation ineligible; derive the worker result from remaining current
+evaluations. A new reviewer-result revision or a correction/invalidation of its
+user evaluation invalidates the link, so the dependent child evaluation cannot
+remain current. User-authored evaluations of the worker do not need this
+reviewer-assessment link.
+
 Keep eligible evaluations separate. Disagreement on a required criterion, a
 required-rework finding, or a material fact relevant to a required criterion
 or quality outcome reports Unassessed unless another uncontested failure
@@ -275,9 +289,9 @@ a correction to the same `userReviewId` stream using compare-and-swap on the
 current evaluation revision and digest. The correction keeps user provenance,
 uses the same idempotency rules, and cannot alter a child-authored stream. A
 stale expected revision conflicts; an invalidated stream is frozen and cannot
-be corrected. After invalidation, one replacement user stream may start with a
-new `userReviewId` and no-head compare-and-swap; the two streams share the
-four-revision user allocation.
+be corrected. After invalidation, a replacement stream may start with a new
+`userReviewId` and no-head compare-and-swap while user revision capacity
+remains. Further replacements follow the same rule until that budget is used.
 
 When #742 ends a run and revokes child authority, that child can no longer
 correct its review. The user may submit a separate user-authorized evaluation;
@@ -307,10 +321,12 @@ later versions from sharing a digest namespace.
 Use #741's limits of 32 criteria and 16 rubric dimensions. Each assignment
 identity allows at most 32 result revisions across resumes and 32 output
 artifacts. Each result revision allows at most 16 evaluation revisions:
-child-authored streams share at most 12 revisions, and up to two user-authored
-streams may use the remaining 4 revisions, with at most 2 revisions per stream
-including corrections. A replacement stream is allowed only after
-invalidation. Child streams cannot consume the user allocation. The
+child-authored streams share at most 12 revisions, and user-authored streams
+share the remaining 4 revisions, including corrections. Each user stream allows
+at most 2 revisions. A replacement stream may start only after the previous
+stream is invalidated and while user capacity remains. Child streams cannot
+consume the user allocation. Since each stream needs an initial revision, the
+four-revision budget also bounds the total number of user streams. The
 assignment-wide cap is 512 across its 32 result revisions, permitting every
 result revision to receive an initial child evaluation and a user evaluation.
 Each evaluation revision allows at most 32 findings, 32 finding disputes, and
@@ -359,7 +375,8 @@ A future implementation must verify that:
    overall result is recomputed. An
    evidenced rating below `3`, a below-standard dimension, or a required-rework
    finding is a failure even when other dimensions are unassessed. Optional
-   criteria, lifecycle state, or empty legacy criteria cannot create a pass.
+   criteria, lifecycle state, empty legacy criteria, or a rubric with no quality
+   dimensions cannot create a pass.
 2. Exact retries using the active `AssignmentResultCapability` generation
    return their saved receipt before stale-predecessor rejection; a
    `ResearchReportCapability` cannot submit result manifests. Concurrent first
@@ -389,17 +406,22 @@ A future implementation must verify that:
    without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
    output, or unverified read-only scope cannot qualify as child review.
-   Reviewer-of-review depth is bounded and ends with user authority.
+   Reviewer-of-review depth is bounded and ends with user authority. A
+   child-authored evaluation requires a current `reviewerAssessmentRef` to the
+   exact reviewer result and its terminal user evaluation deriving Meets
+   requirements; changing or invalidating either source removes the child
+   evaluation's eligibility.
 5. Corrections preserve reporter provenance; user corrections use
-   Electron-authorized compare-and-swap on their `userReviewId`, and a bounded
-   replacement stream can start after invalidation. Ended child capabilities
-   cannot correct or impersonate a reviewer. Concurrent corrections and
-   invalidations cannot restore an invalidated evaluation or exclude a newer
-   revision.
+   Electron-authorized compare-and-swap on their `userReviewId`; a replacement
+   stream can start after invalidation while user capacity remains. Ended child
+   capabilities cannot correct or impersonate a reviewer. Concurrent
+   corrections and invalidations cannot restore an invalidated evaluation or
+   exclude a newer revision.
 6. Per-assignment result-revision and record caps reject excess work visibly,
-   preserve the user-review revision allocation, and include the result-level
-   rating evidence reference; aggregate run/workspace quotas also reject excess
-   work. Retention preserves evidence referenced by any current evaluation
+   preserve the user-review revision allocation, allow replacements until its
+   four-revision budget is exhausted, and include the result-level rating
+   evidence reference; aggregate run/workspace quotas also reject excess work.
+   Retention preserves evidence referenced by any current evaluation
    regardless of outcome and removes only eligible complete historical
    subjects; deletion fences old writes and purges result manifests, receipts,
    and evaluation content.
@@ -413,8 +435,9 @@ A future implementation must verify that:
    is distinct from `ResearchReportCapability` and any run bearer. Each of the
    32 permitted result revisions can receive a child evaluation and a user
    evaluation within the 12-child/4-user partition of the 16-revision
-   per-result evaluation cap. User capacity allows one replacement stream only
-   after invalidation, with at most two revisions per stream.
+   per-result evaluation cap. User replacements can continue after invalidation
+   until the four-revision allocation is exhausted; each user stream has at most
+   two revisions, and the total budget bounds the number of streams.
 
 ## Implementation gate
 
