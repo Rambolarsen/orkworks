@@ -57,8 +57,13 @@ also has a finite total rehash-work cap; values above the server's hard limits
 are rejected. An output that exceeds a cap is unsupported and cannot establish
 a pass. Exact hard limits are an implementation-plan decision to reconcile
 with #741 before code. Example declarations include `changes`
-(`workspace_changes`) and `checks` (`verification_report`), or `findings`
-(`research_report`).
+(`workspace_changes`) and `checks` (`verification_report`). A `research_report`
+declaration is unsupported in version 1 unless #742 adds an exact output
+declaration ID/kind binding to its immutable report identity, or #744 defines
+and approves an assignment/declaration-bound artifact wrapper. A bare #742
+report identity cannot satisfy an output declaration. Reconcile and verify
+this binding with #742 before implementation; until then, reports may be cited
+as evidence but cannot be submitted as declared result outputs.
 
 The worker reports one `present` or `missing` entry per declaration through
 its `AssignmentResultCapability`; the payload cannot choose the identity or
@@ -210,10 +215,15 @@ canonical JSON object-key ordering and scalar encoding follow #741. The sidecar
 derives and resolves the key from the stored result or report; callers cannot
 select another source. Reused IDs or identical bytes from different assignments
 therefore remain distinct. A key collision with a different descriptor is
-rejected. Corrections and invalidations are checked against the resolved source
-record; a corrected source requires a new source key. Before implementation,
-verify that the tagged identity values and their canonical encodings exactly
-match #741 and #742; any required schema change must be reconciled there first.
+rejected. A report source is current only while its exact immutable report
+version remains the current version under #742's correction rules; a corrected
+report requires a new source key. #744 defines no independent source-report
+invalidation operation or authority. Withdrawing a report without a corrected
+replacement is unsupported until separately specified in #742 and reconciled
+here. This source correction rule is distinct from #744 evaluation-stream
+invalidation below. Before implementation, verify that the tagged identity
+values and their canonical encodings exactly match #741 and #742; any required
+schema change must be reconciled there first.
 Missing, duplicate, or unknown criterion IDs make the report malformed and it is
 rejected.
 
@@ -276,7 +286,7 @@ uncontested failure exists. Rating 3 meets the quality part of the result only
 with current, uncontested evidence. Before using an outcome, the sidecar
 validates every evidence reference supporting a criterion outcome, quality
 dimension or rating, finding, or dispute for existence, scope, version, digest,
-and, for report evidence, current source correction/invalidation state.
+and, for report evidence, current source correction state under #742.
 Unavailable, changed, or unverifiable evidence makes the supported outcome
 Unassessed. A stale required-rework finding is itself unassessed and cannot
 establish failure; derive the overall result from the remaining current
@@ -499,8 +509,8 @@ the user never impersonates the child. Invalidation preserves the report and
 provenance and excludes it from current results and learning. A later result
 revision makes earlier evaluations historical; they never become current
 again. Before using an evaluation as current evidence, revalidate each
-referenced report's current correction and invalidation state as well as its
-existence, scope, version, and digest. A corrected or invalidated source makes
+referenced report's current correction state under #742 as well as its
+existence, scope, version, and digest. A corrected source makes
 only the criterion, dimension, rating, finding, or dispute outcome that cites
 that source stale: stale cited evidence makes that outcome Unassessed, and a
 stale dispute is ineffective. Other outcomes remain current when all of their
@@ -616,8 +626,17 @@ distinguish a prior purge from a subject that never existed. It cannot recreate
 history. No tombstone is retained after this explicit provenance deletion, and
 the released records no longer count toward admission quotas. Retention must
 never purge automatically to make room or silently discard provenance. The
-implementation plan must define the dependency scan and transactional deletion
-seam before implementing this purge.
+sidecar maintains an authoritative incoming-dependency index for retained
+record, learning-input, and reviewer-credibility references. Publishing or
+removing a dependency edge is atomic with its owning record and serialized
+through a workspace dependency transaction boundary with purge's final
+dependency scan and deletion. Purge holds that boundary from its scan through
+deletion, so a concurrent new reference either commits first and makes purge
+refuse, or observes the deleted target and fails. A subject revision alone is
+not a fence for dependencies owned by another subject. Keep this boundary to
+dependency-index mutations and purge; ordinary unrelated evaluation writes
+need not serialize globally. The implementation plan must define index
+recovery and transactional deletion before implementing this purge.
 Workspace deletion fences new and in-flight result/evaluation writes, then
 purges every assignment-result manifest revision and receipt, evaluation,
 disposition, and pinned-evidence record. The deletion fence prevents stale
@@ -728,9 +747,10 @@ A future implementation must verify that:
    detail only. Finding disputes bind the exact child or user
    `reviewerIdentity`, evaluation revision, and finding ID and reuse cited
    evidence; all finding and dispute evidence is revalidated for current source
-   disposition before it affects the result. Stale finding evidence downgrades
-   only that finding and the overall result is recomputed from remaining current
-   outcomes; stale dispute evidence cannot suppress a current finding. Duplicate
+   correction state under #742 before it affects the result. Stale finding
+   evidence downgrades only that finding; recompute the overall result from
+   remaining current outcomes. Stale dispute evidence cannot suppress a current
+   finding. Duplicate
    finding IDs are rejected, disputes do not carry to corrections, and
    informational finding disputes do not affect the overall result. Disputed
    failures are not established.
@@ -792,8 +812,12 @@ A future implementation must verify that:
    Explicit user purge releases a closed ineligible subject only when no
    retained record, learning input, or reviewer credibility link depends on it;
    it compares the caller's expected `subjectRevision` after write
-   serialization, removes the subject and solely pinned evidence atomically,
-   and conflicts on any intervening subject mutation. Quota pressure
+   serialization and shares an atomic dependency boundary with cross-subject
+   reference admission/removal. A concurrent reference either commits first
+   and makes purge refuse, or purge deletes first and the reference is rejected
+   because its target no longer exists. It removes the subject and solely
+   pinned evidence atomically and conflicts on any intervening subject
+   mutation. Quota pressure
    never triggers silent eviction; repeated purges of absent subjects return
    the same not-found/no-op result and retain no tombstone. Workspace deletion purges result manifests,
    receipts, evaluations, dispositions, and pinned evidence.
@@ -802,14 +826,16 @@ A future implementation must verify that:
    merge.
 8. Child and root result identities resolve from their respective approved
    configuration; child launch and parent runtime resumes require their new
-   authority generations. When a source report is corrected or invalidated,
+   authority generations. When a source report is corrected under #742,
    only outcomes citing it become stale; unrelated current outcomes remain
    usable, and optional-only changes cannot alter the overall result.
    Staleness that makes a terminal reviewer assessment stop deriving Meets
    requirements removes eligibility from dependent child evaluations; stale
    optional-only detail does not when the assessment still derives Meets.
    Server-held artifacts are bound to the exact
-   assignment and output declaration. The dedicated `AssignmentResultCapability`
+   assignment and output declaration; a bare #742 report identity without an
+   output declaration ID/kind binding cannot satisfy a declared output. The
+   dedicated `AssignmentResultCapability`
    is distinct from `ResearchReportCapability` and any run bearer. Each of the
    32 permitted result revisions can receive a child evaluation and a user
    evaluation within the 12-child/4-user partition of the 16-revision
