@@ -152,6 +152,7 @@ Dated design records; these do not establish current product behavior.
 - [Clarification and research-to-execution lifecycle](2026-10-04-orchestrator-preparation-design.md) — Design history: Clarification and research-to-execution lifecycle.
 - [Skill delivery and usage evidence protocol](2026-10-04-skill-usage-evidence-design.md) — Design history: Skill delivery and usage evidence protocol.
 - [Taskmaster ordinary-child orchestration scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md) — Design history: Taskmaster ordinary-child orchestration scope alignment.
+- [Assignment quality and completeness evaluation](2026-10-04-assignment-evaluation-design.md) — Evidence, evaluation, correction, and retention contract for configured agent assignments.
 - [Application shell and workflow navigation](2026-10-05-application-shell-navigation-design.md) — Design history: Application shell and workflow navigation.
 - [Taskmaster Brain-guided next-step assessment](2026-10-07-taskmaster-brain-guided-assessment-design.md) — Design history: Taskmaster Brain-guided next-step assessment.
 - [Codex Native Attention With Sidecar-Mediated Metadata Writes](2026-10-08-codex-native-attention-layer-design.md) — Design history: Codex Native Attention With Sidecar-Mediated Metadata Writes.
