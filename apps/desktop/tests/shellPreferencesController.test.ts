@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createShellPreferencesController, DEFAULT_SHELL_PREFERENCES } from "../src/shellPreferencesController.ts";
 
-function fixture(options: { rebuildResult?: any; legacy?: string | null } = {}) {
+function fixture(options: { rebuildResult?: any; legacy?: string | null; saveResult?: any; resetResult?: any } = {}) {
   let resolveRead!: (value: any) => void;
   const reads = new Promise<any>(resolve => { resolveRead = resolve; });
   const writes: any[] = [];
@@ -12,8 +12,8 @@ function fixture(options: { rebuildResult?: any; legacy?: string | null } = {}) 
   let pending: (() => void) | null = null;
   const controller = createShellPreferencesController({
     read: () => reads,
-    save: async value => { writes.push(value); return { ok: true }; },
-    reset: async () => { writes.push("reset"); return { ok: true }; },
+    save: async value => { writes.push(value); return options.saveResult ?? { ok: true }; },
+    reset: async () => { writes.push("reset"); return options.resetResult ?? { ok: true }; },
     rebuild: async () => { writes.push("rebuild"); return options.rebuildResult ?? { ok: true }; },
     readLegacy: async () => options.legacy ?? null,
     onMigrationNotice: () => { notices++; },
@@ -117,4 +117,36 @@ test("already-used shell preferences do not repeat the legacy notice", async () 
   f.resolveRead({ preferences: DEFAULT_SHELL_PREFERENCES, revision: 1, diagnostic: null });
   await f.controller.load();
   assert.equal(f.notices(), 0);
+});
+
+for (const diagnostic of ["corrupt_record", "unsupported_version"]) {
+  test(`late save failure exposes ${diagnostic} and rebuild recovery`, async () => {
+    const f = fixture({ saveResult: { ok: false, diagnostic } });
+    f.resolveRead({ preferences: DEFAULT_SHELL_PREFERENCES, revision: 1, diagnostic: null });
+    await f.controller.load();
+    f.controller.change({ ...DEFAULT_SHELL_PREFERENCES, sessionsWidth: 280 });
+    f.flush();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.diagnostics.at(-1), diagnostic);
+    assert.equal(await f.controller.reset(), true);
+    assert.equal(f.writes.at(-1), "rebuild");
+    assert.equal(f.diagnostics.at(-1), null);
+  });
+}
+
+test("a reset discovering late corruption exposes recovery without claiming success", async () => {
+  const f = fixture({ resetResult: { ok: false, diagnostic: "corrupt_record" } });
+  f.resolveRead({ preferences: DEFAULT_SHELL_PREFERENCES, revision: 1, diagnostic: null });
+  await f.controller.load();
+  assert.equal(await f.controller.reset(), false);
+  assert.equal(f.diagnostics.at(-1), "corrupt_record");
+  assert.equal(await f.controller.reset(), true);
+  assert.equal(f.writes.at(-1), "rebuild");
+});
+
+test("cancelled rebuild reports unsuccessful reset to navigation", async () => {
+  const f = fixture({ rebuildResult: { ok: false, diagnostic: "user_cancelled" } });
+  f.resolveRead({ preferences: DEFAULT_SHELL_PREFERENCES, diagnostic: "corrupt_record" });
+  await f.controller.load();
+  assert.equal(await f.controller.reset(), false);
 });

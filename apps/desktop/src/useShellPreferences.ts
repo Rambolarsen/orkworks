@@ -25,7 +25,7 @@ export function useShellPreferences() {
     return () => { controller.dispose(); if (controllerRef.current === controller) controllerRef.current = null; };
   }, []);
   const change = useCallback((next: ShellPreferences) => controllerRef.current?.change(next), []);
-  const reset = useCallback(() => { void controllerRef.current?.reset(); }, []);
+  const reset = useCallback(() => controllerRef.current?.reset() ?? Promise.resolve(false), []);
   const dismissMigrationNotice = () => {
     setMigrationNotice(false);
     // Explicit acknowledgement advances the existing preference revision; hydration never writes.

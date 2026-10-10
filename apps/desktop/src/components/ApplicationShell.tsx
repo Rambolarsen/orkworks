@@ -40,7 +40,7 @@ interface Props {
   resumeTick: number;
   preferences: ShellPreferences;
   onPreferencesChange: (preferences: ShellPreferences) => void;
-  onResetPreferences: () => void;
+  onResetPreferences: () => Promise<boolean>;
   inspector: ShellDestination | null;
   onInspect: (destination: ShellDestination | null) => void;
   commandRequest?: ShellCommandRequest | null;
@@ -65,6 +65,9 @@ const TITLES = { details: "Details", capacity: "Capacity", recommendations: "Rec
 export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
+  const navigationIntent = useRef(0);
+  const workspaceGenerationRef = useRef(props.workspaceGeneration);
+  workspaceGenerationRef.current = props.workspaceGeneration;
   const focusIntent = useRef<"page" | "return" | "terminal" | "sessions" | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
@@ -99,16 +102,21 @@ export default function ApplicationShell(props: Props) {
       : rootRef.current?.querySelector<HTMLElement>(`[data-shell-command="${command}"]`) ?? null;
   };
   const closePage = () => {
+    ++navigationIntent.current;
     setSessionsPage(false);
     props.onInspect(null);
     requestFocus("return");
   };
   const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
+    const intent = ++navigationIntent.current;
     if (command === "reset-layout") {
-      setSessionsPage(false);
-      props.onInspect(null);
-      props.onResetPreferences();
-      requestFocus("terminal");
+      const generation = props.workspaceGeneration;
+      void props.onResetPreferences().then(completed => {
+        if (!completed || navigationIntent.current !== intent || workspaceGenerationRef.current !== generation) return;
+        setSessionsPage(false);
+        props.onInspect(null);
+        requestFocus("terminal");
+      });
     } else if (command === "terminal") {
       setSessionsPage(false);
       props.onInspect(null);
@@ -201,6 +209,9 @@ export default function ApplicationShell(props: Props) {
   };
   const utilityHeader = (temporary: boolean) => <header className="shell-region-header">
     <h2 data-shell-page-heading tabIndex={-1}>{props.inspector ? TITLES[props.inspector] : "Details"}</h2>
+    {(props.inspector === "capacity" || props.inspector === "recommendations") &&
+      <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}
+        {props.inspector === "capacity" ? " · All coding tools" : ""}</span>}
     <button type="button" data-shell-return onClick={closePage}>{temporary ? "Back to Terminal" : "Close inspector"}</button>
   </header>;
   const columns = [

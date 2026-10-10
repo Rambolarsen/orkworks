@@ -31,8 +31,19 @@ export function createShellPreferencesController(deps: Dependencies) {
     const timer = setTimeout(callback, 500);
     return () => clearTimeout(timer);
   });
+  const reportFailure = (result: Result) => {
+    if (result.diagnostic === "user_cancelled") return;
+    if (result.diagnostic === "corrupt_record" || result.diagnostic === "unsupported_version") {
+      diagnostic = result.diagnostic;
+      deps.onDiagnostic(diagnostic);
+    }
+    deps.onError();
+  };
   const report = async (operation: () => Promise<Result>) => {
-    try { if (!(await operation()).ok && !disposed) deps.onError(); }
+    try {
+      const result = await operation();
+      if (!result.ok && !disposed) reportFailure(result);
+    }
     catch { if (!disposed) deps.onError(); }
   };
   const load = () => loading ??= (async () => {
@@ -71,7 +82,8 @@ export function createShellPreferencesController(deps: Dependencies) {
       });
     },
     async reset() {
-      if (disposed) return;
+      if (disposed) return false;
+      let completed = false;
       const intent = ++version;
       cancelSave?.();
       cancelSave = null;
@@ -87,13 +99,15 @@ export function createShellPreferencesController(deps: Dependencies) {
             diagnostic = null;
             deps.onDiagnostic(null);
             if (intent === version) {
+              completed = true;
               preferences = { ...DEFAULT_SHELL_PREFERENCES };
               deps.onChange(preferences);
             }
-          } else if (result.diagnostic !== "user_cancelled") deps.onError();
+          } else reportFailure(result);
         } catch { if (!disposed) deps.onError(); }
       });
       await writes;
+      return completed;
     },
     dispose() { disposed = true; cancelSave?.(); cancelSave = null; },
   };

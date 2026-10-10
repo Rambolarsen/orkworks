@@ -95,6 +95,35 @@ if (process.versions.electron) {
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
           assert.equal(await evaluate('document.activeElement.hasAttribute("data-shell-page-heading")'),true,'hiding Sessions focuses the remaining utility');
           assert.equal(await evaluate('document.activeElement.textContent'),'Details');
+        } else if (scenario === 'reset-confirmation') {
+          await win.setContentSize(1000,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
+          await evaluate('fixture.command("capacity")');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          await evaluate('fixture.command("reset-layout")');
+          await waitFor('typeof fixture.finishReset==="function"');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility]")'),true,'pending confirmation preserves current page');
+          await evaluate('fixture.finishReset(false);void 0');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility]")'),true,'cancel preserves current page');
+          await evaluate('fixture.finishReset=null;fixture.command("reset-layout")');
+          await waitFor('typeof fixture.finishReset==="function"');
+          await evaluate('fixture.finishReset(true);void 0');
+          await waitFor('!document.querySelector("[data-shell-region=utility]")');
+          await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
+        } else if (scenario === 'utility-scope') {
+          for (const width of [1280,1000,640]) {
+            await win.setContentSize(width,700);
+            await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
+            for (const destination of ['capacity','recommendations']) {
+              await evaluate('fixture.command('+JSON.stringify(destination)+')');
+              await waitFor('document.querySelector("[data-shell-page-heading]")');
+              assert.match(await evaluate('document.querySelector("[data-shell-page-heading]").parentElement.textContent'),/Workspace: \/tmp\/test/);
+              if(destination==='capacity')assert.match(await evaluate('document.querySelector("[data-shell-page-heading]").parentElement.textContent'),/All coding tools/);
+              await evaluate('fixture.command('+JSON.stringify(destination)+')');
+              await waitFor('!document.querySelector("[data-shell-page-heading]")');
+            }
+          }
         } else if (scenario === 'empty-terminal-return') {
           await win.setContentSize(1000,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
@@ -218,7 +247,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -268,9 +297,9 @@ if (process.versions.electron) {
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
             return <ApplicationShell sessions={['coding','other'].map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))}
-              workspace={{name:'Test',path:'/tmp/test'}} activeSessionId={activeSessionId} workspaceGeneration={0}
+              workspace={{path:'/tmp/test'}} activeSessionId={activeSessionId} workspaceGeneration={0}
               backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
-              commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>{}}
+              commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
               onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
