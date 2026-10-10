@@ -72,11 +72,15 @@ assignment identity, active launch generation, and operation.
 
 The sidecar must resolve and open file paths within the approved output scope,
 reject symlink or junction targets outside it, and preserve the opened-object
-binding for hashing. On every freshness check, it resolves and opens the
-declared path again within scope, verifies that it still names the same object,
-then hashes that open handle. A declared required artifact that is absent at
-submission or confirmed absent during freshness checking is known missing and
-establishes Needs rework. A replaced path, changed bytes, inaccessible path, or
+binding for hashing. Only regular files are supported. The implementation must
+use platform-appropriate nonblocking handle operations and verify the opened
+object is regular before reading; if it cannot establish the type without
+blocking, the output is unsupported. On every freshness check, it resolves and
+opens the declared path again within scope, verifies that it still names the
+same object, then hashes that open handle. A declared required artifact that is
+absent at submission or confirmed absent during freshness checking is known
+missing and establishes Needs rework. A replaced path, changed bytes,
+inaccessible path, or
 unprovable binding is stale and Unassessed; no out-of-scope file may be read or
 pinned.
 
@@ -107,8 +111,10 @@ classification are immutable after launch. Optional results are details only and
 do not affect completeness or the overall result.
 
 An evaluation provides exactly one `satisfied`, `unsatisfied`, or `unassessed`
-outcome for every approved criterion, with evidence and rationale. Evidence
-references bind an immutable content digest or report ID/version/digest.
+outcome for every approved criterion, with a bounded rationale. Satisfied and
+unsatisfied outcomes require evidence; an unassessed outcome may omit evidence
+and records why it could not be assessed. Evidence references bind an immutable
+content digest or report ID/version/digest.
 Missing, duplicate, or unknown criterion IDs make the report malformed and it is
 rejected.
 
@@ -122,10 +128,13 @@ Legacy assignments without required criteria cannot pass; absent other known
 failures, they are Unassessed.
 
 The approved, versioned, role-specific rubric has an ID, version, evaluator
-role, and required quality dimensions with stable IDs. The reviewer assigns
-one `meets`, `below standard`, or `unassessed` outcome and evidence for every
-dimension, plus one result-level rating. Missing or unassessed dimension
-evidence makes quality Unassessed; an evidenced, current rating below `3` or a
+role, and required quality dimensions with stable IDs. For each dimension the
+reviewer assigns `meets`, `below standard`, or `unassessed`, plus one
+result-level rating. `Meets` and `below standard` outcomes and an assessed
+result-level rating require evidence; an unassessed dimension or rating may
+omit evidence and records a bounded reason. An unassessed dimension or rating
+makes quality Unassessed; an assessed dimension with missing evidence also
+makes quality Unassessed. An evidenced, current rating below `3` or a
 below-standard dimension establishes a quality failure even if another
 dimension is unassessed. Dimension scores are not averaged.
 Comparisons across assignments require the same rubric ID and version unless
@@ -150,10 +159,10 @@ validates every evidence reference supporting a criterion outcome, quality
 dimension or rating, finding, or dispute for existence, scope, version, digest,
 and, for report evidence, current source correction/invalidation state.
 Unavailable, changed, or unverifiable evidence makes the supported outcome
-Unassessed. A stale required-rework finding leaves the evaluation Unassessed
-until reviewed against current evidence; it cannot establish failure. A dispute
-whose evidence is not current is ineffective and cannot suppress a current
-finding.
+Unassessed. A stale required-rework finding is itself unassessed and cannot
+establish failure; derive the overall result from the remaining current
+outcomes. A dispute whose evidence is not current is ineffective and cannot
+suppress a current finding.
 A transcript, task status, completion claim, test command string, or self-rating
 is not sufficient evidence by itself. Quality does not rank agents, grant XP,
 or prove a skill caused an outcome.
@@ -248,9 +257,12 @@ Preserve ratings; do not average or prefer by time or seniority.
 Evaluations and corrections are append-only. A correction is a new revision by
 the same eligible reviewer while that review capability is active; a different
 reviewer creates a separate evaluation. An authenticated idempotency key is
-scoped to reporter, subject, and operation. Resolve an exact prior receipt
-before checking the expected revision; changed content under the same key
-conflicts. Stale or cross-subject writes fail closed. Every invalidation,
+scoped to reporter, subject, and operation. Each submission carries its expected
+evaluation revision and digest. A new `reviewerIdentity` stream uses an explicit
+no-head revision with no digest; compare-and-swap that state before creating
+revision 1. Corrections require the current revision and digest. Resolve an
+exact prior receipt before checking the expected revision; changed content under
+the same key conflicts. Stale or cross-subject writes fail closed. Every invalidation,
 regardless of child-capability state, requires Electron-authorized user
 provenance; child reviewers cannot invalidate their own or another report.
 Invalidation names the current evaluation revision and digest; it is serialized
@@ -263,7 +275,9 @@ a correction to the same `userReviewId` stream using compare-and-swap on the
 current evaluation revision and digest. The correction keeps user provenance,
 uses the same idempotency rules, and cannot alter a child-authored stream. A
 stale expected revision conflicts; an invalidated stream is frozen and cannot
-be corrected.
+be corrected. After invalidation, one replacement user stream may start with a
+new `userReviewId` and no-head compare-and-swap; the two streams share the
+four-revision user allocation.
 
 When #742 ends a run and revokes child authority, that child can no longer
 correct its review. The user may submit a separate user-authorized evaluation;
@@ -293,9 +307,10 @@ later versions from sharing a digest namespace.
 Use #741's limits of 32 criteria and 16 rubric dimensions. Each assignment
 identity allows at most 32 result revisions across resumes and 32 output
 artifacts. Each result revision allows at most 16 evaluation revisions:
-child-authored streams share at most 12 revisions, and one user-authored stream
-identified by `userReviewId` may use at most 4 revisions, including
-corrections. Child streams cannot consume the user allocation. The
+child-authored streams share at most 12 revisions, and up to two user-authored
+streams may use the remaining 4 revisions, with at most 2 revisions per stream
+including corrections. A replacement stream is allowed only after
+invalidation. Child streams cannot consume the user allocation. The
 assignment-wide cap is 512 across its 32 result revisions, permitting every
 result revision to receive an initial child evaluation and a user evaluation.
 Each evaluation revision allows at most 32 findings, 32 finding disputes, and
@@ -338,18 +353,24 @@ A future implementation must verify that:
 
 1. Complete evidence derives Meets requirements; any uncontested failure,
    including a required artifact confirmed absent at submission or during
-   freshness checking, derives Needs rework; inaccessible or stale evidence
-   without a known failure derives Unassessed. An
+   freshness checking, derives Needs rework; inaccessible or stale output or
+   required criterion/quality evidence without a known failure derives
+   Unassessed. Stale finding evidence downgrades only that finding and the
+   overall result is recomputed. An
    evidenced rating below `3`, a below-standard dimension, or a required-rework
    finding is a failure even when other dimensions are unassessed. Optional
    criteria, lifecycle state, or empty legacy criteria cannot create a pass.
 2. Exact retries using the active `AssignmentResultCapability` generation
    return their saved receipt before stale-predecessor rejection; a
-   `ResearchReportCapability` cannot submit result manifests. Changed,
-   malformed, unauthenticated, oversized, or cross-subject reports fail closed.
-   Missing dimension coverage or invalid evidence cannot
-   support a pass. File links cannot escape the approved scope, and each
-   freshness check detects removed or replaced paths. Results cannot remain
+   `ResearchReportCapability` cannot submit result manifests. Concurrent first
+   evaluations with different idempotency keys cannot both create a stream head;
+   new streams compare-and-swap the explicit no-head state. Changed, malformed,
+   unauthenticated, oversized, or cross-subject reports fail closed. Missing
+   dimension coverage or invalid evidence cannot support a pass; unassessed
+   criteria and dimensions may omit evidence with a bounded reason. File links
+   cannot escape the approved scope, and each freshness check detects removed
+   or replaced paths. Non-regular filesystem objects are rejected without
+   blocking before hashing. Results cannot remain
    current for any consumer after referenced bytes change. A resume retains the
    assignment subject and revision count but requires its new launch generation;
    changing the assignment identity creates a new subject.
@@ -358,21 +379,23 @@ A future implementation must verify that:
    detail only. Finding disputes bind the exact child or user
    `reviewerIdentity`, evaluation revision, and finding ID and reuse cited
    evidence; all finding and dispute evidence is revalidated for current source
-   disposition before it affects the result. Stale required-finding evidence
-   leaves the evaluation Unassessed; stale dispute evidence cannot suppress a
-   current finding. Duplicate finding IDs are rejected, disputes do not carry
-   to corrections, and informational finding disputes do not affect the overall
-   result. Disputed failures are not established.
+   disposition before it affects the result. Stale finding evidence downgrades
+   only that finding and the overall result is recomputed from remaining current
+   outcomes; stale dispute evidence cannot suppress a current finding. Duplicate
+   finding IDs are rejected, disputes do not carry to corrections, and
+   informational finding disputes do not affect the overall result. Disputed
+   failures are not established.
    Findings retain location, severity, evidence, and required-rework status
    without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
    output, or unverified read-only scope cannot qualify as child review.
    Reviewer-of-review depth is bounded and ends with user authority.
 5. Corrections preserve reporter provenance; user corrections use
-   Electron-authorized compare-and-swap on their `userReviewId`, and ended child
-   capabilities cannot correct or impersonate a reviewer. Concurrent
-   corrections and invalidations cannot restore an invalidated evaluation or
-   exclude a newer revision.
+   Electron-authorized compare-and-swap on their `userReviewId`, and a bounded
+   replacement stream can start after invalidation. Ended child capabilities
+   cannot correct or impersonate a reviewer. Concurrent corrections and
+   invalidations cannot restore an invalidated evaluation or exclude a newer
+   revision.
 6. Per-assignment result-revision and record caps reject excess work visibly,
    preserve the user-review revision allocation, and include the result-level
    rating evidence reference; aggregate run/workspace quotas also reject excess
@@ -390,7 +413,8 @@ A future implementation must verify that:
    is distinct from `ResearchReportCapability` and any run bearer. Each of the
    32 permitted result revisions can receive a child evaluation and a user
    evaluation within the 12-child/4-user partition of the 16-revision
-   per-result evaluation cap.
+   per-result evaluation cap. User capacity allows one replacement stream only
+   after invalidation, with at most two revisions per stream.
 
 ## Implementation gate
 
