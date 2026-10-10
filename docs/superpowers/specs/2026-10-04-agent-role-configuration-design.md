@@ -12,7 +12,7 @@ tags: ["orkworks", "design"]
 - Tracking: [#741](https://github.com/Rambolarsen/orkworks/issues/741)
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
 - Launch baseline: [Orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md)
-- Eligibility evidence: [Coding-tool role capabilities](../../validation/agent-role-capabilities.md), [#740](https://github.com/Rambolarsen/orkworks/issues/740)
+- Eligibility evidence: [Coding-tool role capabilities](../../validation/agent-role-capabilities.md), [Claude Code 2.1.287 static assessment](../../validation/claude-code-role-capability-evidence.md), [#740](https://github.com/Rambolarsen/orkworks/issues/740)
 
 ## Scope and status
 
@@ -572,7 +572,10 @@ behavior, shell effects, filesystem access, network actions, connectors, native
 subagents, and permission-changing controls. A flag's existence proves only that
 its parser/help exposes it. Current hooks prove neither skill delivery nor
 invocation coverage. The evidence register currently records a **no-go** for
-all six Copilot role profiles; other tools are not verified as substitutes.
+all six Copilot role profiles and links a static, sampled-platform no-go for all
+six Claude Code 2.1.287 role profiles. Other tools are not verified as
+substitutes; see the [capability register](../../validation/agent-role-capabilities.md)
+and [Claude Code assessment](../../validation/claude-code-role-capability-evidence.md).
 
 A native skill invocation observer is optional for eligibility if instructions
 and permissions are verified: lack of observation remains unknown usage.
@@ -830,10 +833,11 @@ review assignment, accept it as **eligible for exact-plan approval** only when:
    blocks substantive work; approval does not waive the delivery gate.
 
 The accepted result is limited to that synthetic fixture and exact profile.
-The capability register currently marks all six Copilot roles unavailable and
-does not establish a supported profile for another tool. This example tests the
-contract's acceptance conditions only; it cannot populate the register or
-authorize a production launch.
+The capability register marks all six Copilot roles unavailable and all six
+Claude Code 2.1.287 roles no-go for the sampled macOS 26.6.2 (Darwin 25.6.0)
+arm64 platform; neither assessment establishes a supported profile. This example
+tests the contract's acceptance conditions only; it cannot populate the
+register or authorize a production launch.
 
 | Case | Required outcome |
 | --- | --- |
@@ -904,20 +908,24 @@ no-go disposition.
 
 The merged #740 capability register records the current capability-status and
 evidence disposition for this handoff: all six Copilot roles are unavailable,
-and no other tool has a verified substitute profile. Eligibility still
-requires an exact-profile immutable `CapabilityEvidenceSnapshot` plus current
-support-state validation. Draft PR #765 contains additional Probe 0 transport
-observations, but remains a draft and does not establish complete content
-delivery, response exclusion, or permission enforcement. Do not promote those
-observations into eligibility until their research handoff is reviewed and the
-required snapshot and support checks pass.
+and all six Claude Code 2.1.287 roles remain no-go for the sampled macOS
+26.6.2 (Darwin 25.6.0) arm64 platform. The [Claude assessment](../../validation/claude-code-role-capability-evidence.md)
+is static and does not qualify another platform. No tool has a verified
+substitute profile. Eligibility still requires an exact-profile immutable
+`CapabilityEvidenceSnapshot` plus current support-state validation. Draft PR
+#765 contains additional Copilot Probe 0 transport observations, but remains a
+draft and does not establish complete content delivery, response exclusion, or
+permission enforcement. Do not promote those observations into eligibility
+until their research handoff is reviewed and the required snapshot and support
+checks pass.
 
 Usage contract #743 merged in PR #785. Its report binding consumes
 `ModelBinding.adapterGeneration` as the stable adapter/capability identity;
 observer restarts instead receive a new `producerStreamId`. The two contracts
 now state this distinction explicitly. This alignment adds no capability
 evidence: the #740 register still marks all six Copilot roles unavailable and
-does not verify a substitute tool profile.
+links a static Claude assessment that leaves all six sampled-platform roles
+no-go. No substitute tool profile is verified.
 
 No runtime execution plan is ready to write. The next gates are written owner
 review of this proposed contract and the reviewed #740 evidence disposition. If

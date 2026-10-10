@@ -10,6 +10,8 @@ status: draft
 
 Date: 2026-10-10
 
+Sampled host: macOS `26.6.2` (build `25G83`), Darwin kernel `25.6.0`, `arm64`.
+
 Installed CLI: `2.1.287 (Claude Code)` at `/opt/homebrew/bin/claude`, resolving to `/opt/homebrew/Caskroom/claude-code/2.1.287/claude`. The resolved executable SHA-256 is recorded below. The installed CLI version and help are the version-bound evidence in this record. Anthropic's online documentation is primary vendor material, checked 2026-10-10, but is mutable and not pinned to CLI 2.1.287; any documented behavior that the CLI help does not establish remains a lead until matched to this version and exercised.
 
 This is a non-Copilot contribution to [#740](https://github.com/Rambolarsen/orkworks/issues/740), following the user's direction to exclude Copilot. It does not consume model inference, start agents, change user/project configuration, or authorize runtime implementation. It is a static capability assessment only.

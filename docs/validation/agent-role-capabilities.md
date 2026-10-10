@@ -118,11 +118,21 @@ No model, permission, hook, settings, or sandbox probe was run in this assignmen
 | Copilot 1.0.90 / macOS arm64 | Review: declared artifact reads | Same | Unverified | Read-only tool filtering plausible; exact read scope and composition unverified | Unknown | No-go: unverified |
 | Copilot 1.0.90 / macOS arm64 | Verification: checks/generated output | Same | Unverified | Check-command/output/temp effects unverified | Unknown | No-go: unverified |
 | Copilot 1.0.90 / macOS arm64 | Remediation: finding-scoped edits/checks | Same | Unverified | Same implementation surfaces, narrower assignment unverified | Unknown | No-go: unverified |
+| Claude Code 2.1.287 / macOS 26.6.2 (Darwin 25.6.0) arm64 | Orchestrator: coordination-only | Candidate agent/startup prompt, delivery unverified | Unverified | Effective plan-only action and delegation scope unverified | Unknown | No-go: static evidence only |
+| Claude Code 2.1.287 / macOS 26.6.2 (Darwin 25.6.0) arm64 | Research: declared reads and optional external sources | Same | Unverified | Read, shell, network, and MCP scope unverified | Unknown | No-go: static evidence only |
+| Claude Code 2.1.287 / macOS 26.6.2 (Darwin 25.6.0) arm64 | Implementation: declared edits/commands | Same | Unverified | Write, shell effects, sandbox, and test-output scope unverified | Unknown | No-go: static evidence only |
+| Claude Code 2.1.287 / macOS 26.6.2 (Darwin 25.6.0) arm64 | Review: declared artifact reads | Same | Unverified | Effective read-only tool/path scope unverified | Unknown | No-go: static evidence only |
+| Claude Code 2.1.287 / macOS 26.6.2 (Darwin 25.6.0) arm64 | Verification: checks/generated output | Same | Unverified | Check-command, write, shell, and temp effects unverified | Unknown | No-go: static evidence only |
+| Claude Code 2.1.287 / macOS 26.6.2 (Darwin 25.6.0) arm64 | Remediation: finding-scoped edits/checks | Same | Unverified | Effective narrow edits/checks and inherited access unverified | Unknown | No-go: static evidence only |
 
-Other coding tools are **not investigated for this role contract**. Existing
-Codex/Claude/OpenCode integration records remain integration evidence only, not
-substitutes for a verified role profile. No cross-tool fallback is selected.
-No-go here means absence of demonstrated launch eligibility, not impossibility.
+The linked [Claude Code 2.1.287 assessment](claude-code-role-capability-evidence.md)
+is static version-bound CLI/help evidence plus current, unpinned vendor-doc
+leads for macOS 26.6.2 (Darwin 25.6.0) arm64. All six Claude role combinations
+remain no-go; this does not establish support for another platform or runtime
+configuration. Codex and OpenCode have not been investigated for this role
+contract. Existing integration records are not substitutes for a verified role
+profile. No cross-tool fallback is selected. No-go means absence of demonstrated
+launch eligibility, not impossibility.
 
 ## Local executable identity and safe reproduction
 
