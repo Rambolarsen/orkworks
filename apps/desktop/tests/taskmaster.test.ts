@@ -741,6 +741,82 @@ test("Recommendations dismissal uses the main generation-bound bridge", () => {
   assert.doesNotMatch(handler, /getBackendUrl\(\)/);
 });
 
+test("Run audit is an always-visible header action that posts to the sidecar audit route", () => {
+  // #811: the audit was reachable only by curling the sidecar; the panel's
+  // own empty copy told the user to "Run an audit" with no way to do it.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const actions = panel.slice(
+    panel.indexOf("recommendations-panel-actions"),
+    panel.indexOf("</div>\n      </div>", panel.indexOf("recommendations-panel-actions")),
+  );
+  assert.match(actions, /Run audit/);
+  assert.match(actions, /Auditing…/);
+  assert.match(actions, /disabled=\{!hasWorkspace \|\| !taskmasterReady \|\| auditBusy\}/);
+
+  const start = panel.indexOf("async function runAudit()");
+  const end = panel.indexOf("\n  const visibleRecommendations", start);
+  assert.ok(start >= 0 && end > start);
+  const handler = panel.slice(start, end);
+  assert.match(handler, /runTaskmasterAudit\(baseUrl\)/);
+  assert.match(handler, /getBackendUrl\(\)/);
+});
+
+test("a successful audit lands the user on Cleanup and reports the outcome", () => {
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = panel.indexOf("async function runAudit()");
+  const end = panel.indexOf("\n  const visibleRecommendations", start);
+  const handler = panel.slice(start, end);
+
+  // The proposed card (or a healthy audit's null) becomes visible: switch
+  // the filter to Cleanup and refresh so the result is on screen.
+  assert.match(handler, /setOriginFilter\("cleanup"\)/);
+  assert.match(handler, /await refresh\(\)/);
+  assert.match(handler, /setAuditMessage/);
+  assert.match(handler, /all proposed recommendations are healthy/);
+
+  // Failures surface in the panel without wiping its state.
+  assert.match(handler, /setAuditError/);
+  // Re-entry is guarded by the busy flag and the workspace generation.
+  assert.match(handler, /auditBusy\) return/);
+  assert.match(handler, /generation !== workspaceGeneration\.current\) return/);
+});
+
+test("dismissing or running the cleanup card clears a stale audit status", () => {
+  // Codex P2 on #815: after the audit message announced a proposed cleanup
+  // card, accepting (Run cleanup) or dismissing that card refreshed the list
+  // but left the announcement behind — the panel then claimed a card was
+  // "review it below" while the Cleanup view was empty.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = panel.indexOf("async function dismiss");
+  const end = panel.indexOf("\n  const visibleRecommendations", start);
+  const handlers = panel.slice(start, end);
+  assert.match(handlers, /setAuditMessage\(undefined\)/);
+});
+
+test("the Cleanup filter's empty state is itself a Run audit action", () => {
+  // The empty tab previously ended at a status sentence; it must now
+  // trigger the audit directly.
+  const panel = readFileSync(
+    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = panel.indexOf("visibleRecommendations.length === 0");
+  const emptyState = panel.slice(start, panel.indexOf("visibleRecommendations.length > 0", start));
+  // The audit prompt sentence keeps rendering through the shared helper.
+  assert.match(emptyState, /panelEmptyMessage\("cleanup"\)/);
+  assert.match(emptyState, /onClick=\{\(\) => void runAudit\(\)\}/);
+  assert.match(emptyState, /Auditing…/);
+});
+
 test("debug attention injection uses the main generation-bound bridge", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const start = app.indexOf("const handleApplyDebugAttention");
@@ -932,8 +1008,11 @@ test("Filtered empty state renders even when observation diagnostics exist", () 
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
   );
+  // #811: the Cleanup filter's empty state is now an actionable form (a
+  // sentence plus a Run audit button) selected by a ternary; the Analysis/
+  // Observations filters keep the bare filtered-out message.
   const filteredEmpty = panel.match(
-    /\{visibleRecommendations\.length === 0 && !error\s*\n\s*&& hasWorkspace && taskmasterReady && originFilter !== "all" && \(\s*\n\s*<p className="recommendations-filter-empty" role="status">\{panelEmptyMessage\(originFilter\)\}<\/p>/,
+    /\{visibleRecommendations\.length === 0 && !error\s*\n\s*&& hasWorkspace && taskmasterReady && originFilter !== "all" && \(\s*\n\s*originFilter === "cleanup" \? \([\s\S]{0,600}?panelEmptyMessage\("cleanup"\)[\s\S]{0,600}?\) : \(\s*\n\s*<p className="recommendations-filter-empty" role="status">\{panelEmptyMessage\(originFilter\)\}<\/p>\s*\n\s*\)\s*\n\s*\)\}/,
   );
   assert.ok(
     filteredEmpty,

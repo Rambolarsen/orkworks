@@ -772,6 +772,19 @@ export async function getTaskmasterRecommendation(
   return response.json();
 }
 
+export interface TaskmasterAuditResponse {
+  recommendation: WorkflowRecommendation | null;
+}
+
+export async function runTaskmasterAudit(baseUrl: string): Promise<TaskmasterAuditResponse> {
+  const response = await taskmasterRequest(
+    baseUrl,
+    "/taskmaster/audit/recommendations",
+    { method: "POST" },
+  );
+  return response.json();
+}
+
 export async function dismissTaskmasterRecommendation(
   id: string,
   reason?: string,

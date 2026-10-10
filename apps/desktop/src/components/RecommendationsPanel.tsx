@@ -4,6 +4,7 @@ import {
   dismissTaskmasterRecommendation,
   getTaskmasterRecommendation,
   getTaskmasterRecommendations,
+  runTaskmasterAudit,
   type ObservationDiagnostic,
   type ProposedChange,
   type WorkflowRecommendation,
@@ -234,6 +235,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysisMessage, setAnalysisMessage] = useState<string>();
   const [analysisError, setAnalysisError] = useState<string>();
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [auditMessage, setAuditMessage] = useState<string>();
+  const [auditError, setAuditError] = useState<string>();
   const [blockedRecommendation, setBlockedRecommendation] = useState<WorkflowRecommendation>();
   const [blockedRecommendationId, setBlockedRecommendationId] = useState<string>();
   const [blockedRecommendationRecoveryAllowed, setBlockedRecommendationRecoveryAllowed] = useState(false);
@@ -319,6 +323,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
+      setAuditBusy(false);
+      setAuditMessage(undefined);
+      setAuditError(undefined);
       setRunStatus(null);
       setRunStatusError(undefined);
       setError(undefined);
@@ -335,6 +342,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       setAnalysisBusy(false);
       setAnalysisMessage(undefined);
       setAnalysisError(undefined);
+      setAuditBusy(false);
+      setAuditMessage(undefined);
+      setAuditError(undefined);
       setRunStatus(null);
       setRunStatusError(undefined);
       setError(undefined);
@@ -394,6 +404,30 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     }
   }
 
+  async function runAudit() {
+    if (!hasWorkspace || !taskmasterReady || auditBusy) return;
+    const generation = workspaceGeneration.current;
+    setAuditBusy(true);
+    setAuditError(undefined);
+    setAuditMessage(undefined);
+    try {
+      const baseUrl = await window.orkworks.getBackendUrl();
+      if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
+      const result = await runTaskmasterAudit(baseUrl);
+      if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
+      setOriginFilter("cleanup");
+      setAuditMessage(result.recommendation
+        ? "Audit proposed a cleanup card — review it below and run cleanup to apply it."
+        : "Audit complete — all proposed recommendations are healthy.");
+      await refresh();
+    } catch (cause) {
+      if (generation !== workspaceGeneration.current) return;
+      setAuditError(cause instanceof Error ? cause.message : "Couldn't run the audit.");
+    } finally {
+      if (generation === workspaceGeneration.current) setAuditBusy(false);
+    }
+  }
+
   async function dismiss(id: string) {
     if (!hasWorkspace || !taskmasterReady) return;
     const generation = refreshGeneration.current;
@@ -403,6 +437,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
       await dismissTaskmasterRecommendation(id);
       if (generation !== refreshGeneration.current) return;
+      // A dismissed cleanup card may have been announced by Run audit; drop
+      // the announcement instead of leaving it pointing at a gone card.
+      setAuditMessage(undefined);
       await refresh();
     } catch (cause) {
       setDismissErrors((current) => ({
@@ -422,6 +459,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     try {
       await onRunCleanup?.(recommendation);
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
+      // The cleanup card is now terminal, so any Run audit announcement of
+      // it is stale; the refreshed list states the outcome on its own.
+      setAuditMessage(undefined);
       await refresh();
     } catch (cause) {
       setCleanupErrors((current) => ({
@@ -463,6 +503,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
           <button type="button" disabled={!hasWorkspace || !taskmasterReady || analysisBusy} onClick={() => void analyzeNow()}>
             {analysisBusy ? "Requesting…" : "Analyze now"}
           </button>
+          <button type="button" disabled={!hasWorkspace || !taskmasterReady || auditBusy} onClick={() => void runAudit()}>
+            {auditBusy ? "Auditing…" : "Run audit"}
+          </button>
           <button type="button" disabled={!hasWorkspace || !taskmasterReady} onClick={() => void refresh()}>Reload</button>
         </div>
       </div>
@@ -477,11 +520,22 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
         >{dismissing === blockedRecommendation.id ? "Recovering…" : "Recover stuck recommendation"}</button>}
       </div>}
       {analysisError && <p className="recommendation-error" role="alert">{analysisError}</p>}
+      {auditMessage && <div className="recommendation-analysis-status" role="status"><p>{auditMessage}</p></div>}
+      {auditError && <p className="recommendation-error" role="alert">{auditError}</p>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />
       {visibleRecommendations.length === 0 && !error
         && hasWorkspace && taskmasterReady && originFilter !== "all" && (
-        <p className="recommendations-filter-empty" role="status">{panelEmptyMessage(originFilter)}</p>
+        originFilter === "cleanup" ? (
+          <div className="recommendations-filter-empty" role="status">
+            <p>{panelEmptyMessage("cleanup")}</p>
+            <button type="button" disabled={auditBusy} onClick={() => void runAudit()}>
+              {auditBusy ? "Auditing…" : "Run audit"}
+            </button>
+          </div>
+        ) : (
+          <p className="recommendations-filter-empty" role="status">{panelEmptyMessage(originFilter)}</p>
+        )
       )}
       {visibleRecommendations.length === 0 && !error
         && hasWorkspace && taskmasterReady && originFilter === "all"

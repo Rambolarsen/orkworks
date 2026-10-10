@@ -15,6 +15,7 @@ import {
   getTaskmasterRecommendation,
   listHarnesses,
   removeHarnessProfile,
+  runTaskmasterAudit,
   saveHarnessConfiguration,
 } from "../src/api.ts";
 
@@ -542,6 +543,57 @@ test("Cleanup accept posts through the same bridge without a session id", async 
   } finally {
     if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
     else (globalThis as unknown as { window: unknown }).window = origWindow;
+  }
+});
+
+test("Taskmaster audit posts to the cleanup audit route and may return no card", async () => {
+  const origFetch = globalThis.fetch;
+  let requestUrl = "";
+  let requestMethod: string | undefined;
+  globalThis.fetch = (url: string | URL | Request, init?: RequestInit) => {
+    requestUrl = String(url);
+    requestMethod = init?.method;
+    return Promise.resolve(new Response(JSON.stringify({ recommendation: null }), { status: 200 }));
+  };
+  try {
+    const response = await runTaskmasterAudit("http://localhost:0");
+    assert.equal(response.recommendation, null);
+    assert.equal(requestUrl, "http://localhost:0/taskmaster/audit/recommendations");
+    assert.equal(requestMethod, "POST");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Taskmaster audit returns the proposed cleanup card", async () => {
+  const origFetch = globalThis.fetch;
+  let requestUrl = "";
+  globalThis.fetch = (url: string | URL | Request) => {
+    requestUrl = String(url);
+    return Promise.resolve(new Response(JSON.stringify({
+      recommendation: { id: "cleanup-card", type: "cleanup", status: "proposed" },
+    }), { status: 200 }));
+  };
+  try {
+    const response = await runTaskmasterAudit("http://localhost:0");
+    assert.equal(response.recommendation?.id, "cleanup-card");
+    assert.equal(response.recommendation?.type, "cleanup");
+    assert.equal(requestUrl, "http://localhost:0/taskmaster/audit/recommendations");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("Taskmaster audit failures surface as API errors with the status", async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve(new Response("{}", { status: 503 }));
+  try {
+    await assert.rejects(
+      runTaskmasterAudit("http://localhost:0"),
+      (cause: unknown) => cause instanceof Error && /503/.test(cause.message),
+    );
+  } finally {
+    globalThis.fetch = origFetch;
   }
 });
 
