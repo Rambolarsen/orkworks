@@ -113,12 +113,11 @@ That is it. The primary checkout's `node_modules` and Cargo `target/` are reused
 ```bash
 git worktree add ../orkworks-<branch-slug> -b <branch-slug>
 cd ../orkworks-<branch-slug>
-cd apps/desktop && pnpm install
 ```
 
 Notes:
 
-- `pnpm install` is per-worktree — `node_modules` is not shared across worktrees.
+- Install dependencies only for the surface being changed or validated. Docs-only work needs no desktop install; run `pnpm install --frozen-lockfile` in `docs/` when building docs. Desktop work uses `apps/desktop/`. `node_modules` is per-worktree, not shared.
 - Cargo manages its own `target/` per worktree automatically; no extra step.
 - If the branch already exists and its owner has explicitly authorized your work (for example, review fixes), drop `-b <branch-slug>` and use `git worktree add ../orkworks-<branch-slug> <branch-slug>`.
 - Run any agent (Claude Code, Codex, OpenCode, Aider) from inside the worktree directory, not the primary checkout. Treat the worktree as the project root for that task.

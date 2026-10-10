@@ -105,18 +105,24 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 
 The five audit skills (`surfacing-blind-spots` plus the four above) share the guardrail filter and issue format defined in `skills/surfacing-blind-spots/` and rotate weekly via `.github/workflows/quality-audit.yml`.
 
-### Plan review routing
+### Repository workflow overrides
 
-Root `AGENTS.md` requires the repo-owned
-[`reviewing-plans`](https://github.com/Rambolarsen/orkworks/blob/main/skills/reviewing-plans/SKILL.md)
-skill before drafting or substantially revising implementation plans and before
-execution or handoff of new, revised, or received plans. This includes plans
-produced by external `writing-plans`. The rule applies through the existing
-[harness instruction entry points](harness-instruction-coverage.md); it is an
-agent instruction, not a runtime hook or evidence that every harness complies.
-Agents can read the committed skill by its explicit path, even when it is not
-listed in a session's skill catalog. No change to APM's external skill or its
-generated copies is needed.
+Root `AGENTS.md` governs preparation size and overrides heavier defaults in
+installed skills. Load skills for concrete task/phase triggers and reuse
+already-loaded context. Routine work proceeds after a brief approach within
+the user's authorization. Written plans follow the
+[local plan policy](development-workflow.md#plan-complexity-and-quality),
+including concise artifacts, one review before execution/handoff, and no
+mandatory full implementation code. Use the repo-owned
+[reviewing-plans](https://github.com/Rambolarsen/orkworks/blob/main/skills/reviewing-plans/SKILL.md) for that review.
+Approved scope does not need repeated approval; specific product gates remain
+binding.
+
+Keep these overrides in committed repository instructions and owned skills.
+Do not edit external/generated `.agents/skills/` copies; `apm install` replaces
+them. Instruction delivery follows the
+[harness entry points](harness-instruction-coverage.md); this is policy, not
+proof that a harness complied at runtime.
 
 ### Anthropic Agent Skills (standard)
 
@@ -131,3 +137,30 @@ Update this file when:
 - A new APM plugin is added or removed
 - Generated path layout changes after `apm install`
 - A new agent target is added (codex, copilot, gemini, etc.)
+
+## OpenCode requirement
+
+OpenCode must load the project-level `opencode.json` at the repo root. Start OpenCode with the repo root as the project, for example:
+
+```bash
+opencode /Users/froomiebot/workspace/orkworks
+```
+
+Do not use `--pure` for development work in this repo; it disables external plugins. The root `opencode.json` loads the APM-managed Superpowers and Ponytail plugins and exposes both `.agents/skills` and committed repo skills from `skills/`.
+
+Before OpenCode implementation work, verify that the skill tool lists Superpowers skills such as `superpowers/using-superpowers` and `superpowers/brainstorming`. If they are missing, stop, run `apm install` from the repo root, restart OpenCode from the repo root, and verify again before editing code.
+
+## Task-specific skill routing
+
+Use `adding-harness` before harness adapter changes; preserve its launch,
+resume, identity, voice, capacity, generated-command fixture, and readiness
+checks. Use `working-on-recommendation` when work starts from a Taskmaster
+recommendation. Use `orchestrating-task-graphs` before planning or dispatching
+multi-agent work, and `babysitting-pull-requests` after opening/adopting a PR.
+Use `surfacing-blind-spots` for high-risk planning, relevant close-out risks,
+or a requested quality audit; routine work needs no separate planning ritual.
+Use `consulting-the-brain` when the owner requests analysis through the brain
+knowledge repo. Use `simplifying-repo` for requested repository validation and
+behavior-preserving complexity reductions; see [local analysis](local-sonarqube.md).
+Before GitHub work, use `troubleshooting-github-connectivity` to establish the
+authorized target access path.

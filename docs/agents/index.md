@@ -6,7 +6,7 @@ okf_version: "0.2"
 
 Durable agent-facing project knowledge is organized into the concepts below.
 Start with the context relevant to the task, then follow related links as
-needed.
+needed. This index is a routing map; do not load the entire bundle for every task.
 
 ## Project and product context
 
@@ -14,6 +14,8 @@ needed.
   CI routing, package management, and optional containerized development.
 - [Product boundaries](product-boundaries.md) — Product scope, terminology,
   non-goals, and load-bearing user-experience constraints.
+- [Runtime contracts](runtime-contracts.md) — Scoped implementation constraints,
+  metadata paths, and explicit runtime approval gates.
 - [Architecture](architecture.md) — Electron, React, Rust sidecar, API, and
   runtime architecture reference.
 - [Domain entities](domain-entities.md) — The session state model and its

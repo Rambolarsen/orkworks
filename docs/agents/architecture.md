@@ -8,6 +8,9 @@ status: stable
 
 # Architecture
 
+When changing runtime behavior, also read the relevant [runtime contracts](runtime-contracts.md).
+Load the sections that constrain the task; this reference is not a whole-file reading requirement.
+
 ```text
 orkworks/
 ├─ apps/desktop/          # Electron + React/TypeScript + Dockview + xterm.js

@@ -1,6 +1,6 @@
 ---
 name: surfacing-blind-spots
-description: Use when planning implementation or research work before decomposing it, when closing out a work session, when auditing OrkWorks for risks, hidden assumptions, and missed alternatives, or when asked to generate quality-improvement tasks.
+description: Use for high-risk implementation or research planning before decomposition, when closing out a work session, when auditing OrkWorks for risks, hidden assumptions, and missed alternatives, or when asked to generate quality-improvement tasks.
 ---
 
 # Surfacing Blind Spots
@@ -11,11 +11,17 @@ Two complementary questions expose the two failure modes of an AI work session: 
 
 **Core principle: an uncertainty you listed but did not investigate is not a finding — it is a confession.** In planning mode, investigated uncertainty becomes evidence and risk treatment in the plan; in close-out and audit modes, investigated findings become scoped GitHub issues, never a raw list of doubts.
 
+Root `AGENTS.md` governs preparation size. Routine fixes and documentation
+changes need no separate blind-spot exercise or audit artifact. Use the
+planning checkpoint for architecture, protocol/schema migration,
+security-sensitive, or explicitly gated work. Reuse an existing investigation;
+revisit it only when evidence or material risks change.
+
 ## Three modes
 
 | Mode | Trigger | Scope of the questions |
 | ---- | ------- | ---------------------- |
-| **Planning checkpoint** | Planning implementation or research work, after context review and before decomposing the work | The plan's assumptions, uncertainties, alternatives, dependencies, and outcome-changing edge cases |
+| **Planning checkpoint** | High-risk implementation or research planning, after context review and before decomposing the work | The plan's assumptions, uncertainties, alternatives, dependencies, and outcome-changing edge cases |
 | **Session close-out** | Finishing any implementation or review task, before `verification-before-completion` | The work just done in this session |
 | **Codebase audit** | Asked to "generate quality tasks", "audit X", or improve OrkWorks generally | A named area (e.g. `crates/orkworksd/src/runtime/`, the metadata protocol, PR CI) or the whole project |
 

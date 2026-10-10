@@ -1,36 +1,41 @@
 ---
 name: reviewing-plans
-description: Use before drafting or substantially revising an implementation plan, and when reviewing a new, revised, or received plan before execution or handoff, especially when scope, complexity, or wording is unclear.
+description: Use when reviewing a written implementation plan before execution or handoff, or after material scope, risk, interface, or acceptance-criteria changes.
 ---
 
 # Reviewing Plans
 
-Keep plans clear; assess complexity separately from plan quality.
+Follow the preparation tiers in root `AGENTS.md`. Routine work does not require
+a written plan or this skill. For feature choices, a short in-chat approach
+usually suffices. Review a written plan once before execution/handoff; reuse
+approved context and review only material changes in later revisions.
 
-## Before drafting or reviewing
+## Plan shape and review
 
-Read requirements and evidence; state the outcome and constraints. Reuse
-`surfacing-blind-spots` findings. For received plans, establish or validate these
-inputs and initial complexity ratings at the start of the review.
+Use concise OKF metadata (`type`, `title`, `description`, `tags`, `status`) for
+saved plans. Lead with the user outcome and pass condition. Link the issue,
+specs, concepts, and dependencies instead of copying their contents.
 
-## Plan shape
+- **Scope:** Each deliverable serves the outcome or a necessary prerequisite.
+  Split only independently valuable outcomes with separate acceptance checks;
+  keep coupled steps together. Remove unrelated refactors and speculative layers.
+- **Clarity:** State decisions, owner/module boundaries, material interfaces,
+  and dependencies. Preserve exact safety, compatibility, and recovery constraints.
+- **Coverage and verification:** Each mandatory requirement has a delivery
+  step and meaningful check with an expected result. Link existing criteria or
+  test detail where sufficient; resolve uncovered requirements before execution.
 
-Use OKF v0.2 metadata (`type`, `title`, `description`, `tags`, `status`). Lead
-with the user outcome and plain-language pass condition. Link issues, specs,
-concepts, and related plans; state their relation and dependencies, not copied
-content.
+Plans do not require full implementation or test code, repeated snippets,
+minute-by-minute steps, or file skeletons. A small code example is useful only
+when it resolves a contract ambiguity. These local constraints override
+external `writing-plans` templates.
 
-Split only independently valuable outcomes with their own acceptance checks.
-Give each a plan; use a short index for multiple outcomes, status, order, and
-dependencies. Keep coupled steps together when they share an end-to-end check;
-length alone is not a reason to split. Keep each plan readable on its own. Put
-clear implementation details in issues/specs, but retain scope, safety,
-compatibility, recovery, and verification constraints. Simplify repetition and
-jargon, never requirements.
+## High-risk work
 
-Rate each dimension 1–5 with a reason; use 2 or 4 between anchors. Missing
-evidence is **Unknown**, not guessed. Unknown rollback makes reversibility
-Unknown.
+For architecture, protocol/schema migration, security-sensitive, or explicitly
+gated work, reuse the `surfacing-blind-spots` investigation and assess these
+dimensions with evidence. Use 2 or 4 between anchors. Missing evidence is
+**Unknown**; unknown rollback makes reversibility Unknown.
 
 | Dimension | 1: Low | 3: Moderate | 5: High |
 | --- | --- | --- | --- |
@@ -40,37 +45,16 @@ Unknown.
 | Reversibility | Local revert | Known coordinated rollback | Manual repair or data loss |
 | Uncertainty | Verified approach | Bounded inspection | Unverified key behavior |
 
-Show ratings and reasons. Sum only with all five; otherwise mark incomplete.
-Scores are judgment aids, not approval thresholds; call out serious concerns.
+Record ratings/reasons in the same plan; sum only with all five known,
+otherwise mark incomplete. Scores are judgment aids, never approval thresholds.
+Treat concerns through investigation, smaller delivery, reuse, or explicit
+compatibility/recovery checks before dependent work.
 
-For each concern, name an approach change: reuse, investigation, smaller
-delivery, or compatibility/recovery check. Resolve assumptions before dependent
-work; preserve mandatory requirements in every phase. Scope changes need user
-agreement.
+## Disposition
 
-## Before execution or handoff
-
-Review drafts, received plans, `writing-plans` output, and substantial
-revisions. Reassess complexity when evidence changes.
-
-- **Scope and simplicity:** Every task serves the outcome or prerequisite.
-  Remove unrelated work; justify new layers. Preserve requirements and needed
-  compatibility, recovery, and verification. Map each mandatory requirement to
-  a delivery step and verification check; resolve uncovered requirements before
-  marking the plan Ready.
-- **Clarity:** Name the action and behavior plainly; replace vague directions
-  with the actual decision.
-- **Verification:** State the check and expected result. Link to detail instead
-  of repeating it, but do not hide ambiguity or a missing check.
-
-Fix issues before handoff. Name missing evidence or approval and hold dependent
-work. Scores never grant approval or bypass gates.
-
-## Report
-
-Report in the plan or review: ratings, total (`n/25` or `Incomplete` with
-unknowns), and plan quality (`Ready / Revise / Investigate`) with reason and
-next action. Ready means ready for the next gate.
-
-Do not create a second assessment document or require a written plan merely
-to run this skill on a small bounded change.
+Record `Ready / Revise / Investigate`, material findings, and the next action
+in the existing plan or handoff. Fix findings before dependent implementation.
+Ready means ready for the next applicable gate. Existing authorization remains
+valid within scope; missing authority or a specific product gate still blocks
+dependent work. Do not create a second assessment document, repeat a review
+of unchanged artifacts, or require a written plan merely to apply this skill.
