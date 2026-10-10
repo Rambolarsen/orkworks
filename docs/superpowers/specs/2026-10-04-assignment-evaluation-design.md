@@ -46,8 +46,8 @@ bootstrap identity, sidecar generation, and active parent runtime generation.
 It grants no research-report, evaluation, or orchestration action. Resume and
 revocation follow #742's generation-bound mechanics. Reconcile the new result
 scope with #742 before implementation; a run bearer or execution grant is not
-report authority. Root evaluations use the explicit user-review path unless a
-separately eligible reviewer is approved.
+report authority. Root orchestrator results use the explicit user-review path;
+version 1 does not allow a child reviewer to evaluate a root result.
 
 The output contract is assignment-specific, with no global artifact catalog.
 It declares at most 32 unique artifact IDs and kinds, using #741's identifier
@@ -153,8 +153,13 @@ do not affect completeness or the overall result.
 An evaluation provides exactly one `satisfied`, `unsatisfied`, or `unassessed`
 outcome for every approved criterion, with a bounded rationale. Satisfied and
 unsatisfied outcomes require evidence; an unassessed outcome may omit evidence
-and records why it could not be assessed. Evidence references bind an immutable
-content digest or report ID/version/digest. A report evidence reference also
+and records why it could not be assessed. Evidence references must identify
+their source; a bare content digest is not a valid reference. A non-report
+reference binds the exact approved source assignment identity, result
+revision/digest, output declaration ID/kind, and content digest. The sidecar
+resolves the declared path or server-held artifact ID/version from that result
+manifest; the reference cannot select another path, artifact, or assignment.
+A report evidence reference instead binds report ID/version/digest and also
 binds the full immutable source identity from #742: workspace, run, plan and
 revision, task and version, reservation, child session, configuration digest,
 sidecar and launch generations, report ID/version, and content digest. The
@@ -272,17 +277,19 @@ accepts or consumes them.
 
 ## Reviewer eligibility and disagreement
 
-A review comes from a declared `review` or `verification` assignment with an
-eligible rubric role, or from an explicit user-authorized review. Worker
+A child-result review comes from a declared `review` or `verification`
+assignment with an eligible rubric role, or from an explicit user-authorized
+review. Root-result reviews use the user-authorized path only. Worker
 self-assessment stays separate and cannot affect the result. The current #740
 register has no verified child-review profile, so child reports are ineligible
 until #740 provides version-specific evidence and #741 binds an eligible
 profile. Until then, runtime review uses the explicit user path.
 
-An eligible child reviewer must have a different task, allocation, session, and
-configuration from the worker; be outside the potential-contributor set derived
-from approved allocations and effective write scopes; and have read access to
-the exact result without write access to its output scope. The sidecar—not the
+An eligible child reviewer of a child result must have a different task,
+allocation, session, and configuration from the worker; be outside the
+potential-contributor set derived from approved allocations and effective write
+scopes; and have read access to the exact result without write access to its
+output scope. The sidecar—not the
 worker—establishes these facts. If it cannot establish the contributor set or
 read-only scope, the child report is ineligible and the result stays Unassessed
 pending user review. This is assignment-level separation, not OS isolation; a
@@ -493,11 +500,14 @@ makes the output unsupported.
 
 Reject over-limit reports visibly and never silently drop conflict evidence,
 corrections, or provenance. Retention belongs to #745, which may remove a
-complete eligible historical subject and its pinned evidence but must retain
-evidence referenced by any current evaluation, regardless of its derived
-result. It must also retain every result, evaluation, and disposition record
-named by the `reviewerAssessmentRef` chain of a current evaluation, even when
-those records' own assignment subjects are otherwise historical. To release
+complete eligible historical subject and its pinned evidence only when no
+current evaluation, reviewer-assessment chain, or retained learning input
+depends on the subject or evidence. It must retain evidence referenced by any
+current evaluation, regardless of its derived result, and every result,
+evaluation, and disposition record named by a current evaluation's
+`reviewerAssessmentRef` chain, even when those records' own assignment subjects
+are otherwise historical. Ordinary retention must apply the same learning-
+input dependency guard as explicit purge. To release
 capacity from a closed ineligible subject, #745 must also
 provide an explicit Electron-authorized user purge. A subject is closed only
 after its owning run is terminal and all writer capabilities are revoked; it is
@@ -564,8 +574,11 @@ A future implementation must verify that:
    cannot escape the approved scope; hard links without a proven single-link
    identity are rejected before reading or sealing. Freshness detects removed
    paths or changed content; replacing a file with identical content preserves
-   the result. A server-held artifact from another assignment or
-   declaration is rejected even if its ID, size, and digest are valid. All
+   the result. Bare content digests and references to another assignment's
+   output are rejected; report evidence resolves the exact source identity even
+   when report IDs or content digests are reused. A server-held artifact from
+   another assignment or declaration is rejected even if its ID, size, and
+   digest are valid. All
    filesystem operations run in an isolated,
    fixed-capacity worker with bounded admission and deadlines; a timed-out
    worker cannot block sidecar control paths or cause unbounded replacement
@@ -601,7 +614,8 @@ A future implementation must verify that:
    Findings retain location, severity, evidence, and required-rework status
    without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
-   output, or unverified read-only scope cannot qualify as child review.
+   output, or unverified read-only scope cannot qualify as child review; root
+   results can be reviewed only through the user-authorized path.
    A different declared reviewer may assess a child reviewer's exact evaluation;
    that reviewer-of-review report affects the original evaluation only when a
    terminal user evaluation assesses the exact reviewer-of-review evaluation
