@@ -132,6 +132,8 @@ format, version, sequence, digest, relative bundle path, and the same supported
 integer privacy policy version. Reject absent, non-integer, unsupported, or
 mismatched policy values even if the signature is valid.
 
+Sequence is a nonnegative safe integer, including zero. The exact wire grammar in the [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-10-taskmaster-knowledge-distribution.md#exact-shared-wire-contract) fixes timestamp spelling and Gregorian calendar validity, manifest-entry types/bounds, and structural validation of every compatibility class before selection. Both independent verifiers consume shared positive and malformed-entry fixtures for these rules.
+
 Grant `taskmaster-assessment-v1` only when the reviewed distilled assessment
 entry point and required general guidance are present. Do not export the full
 private assessment process or claim that this capability implements #769.
