@@ -117,6 +117,28 @@ test("a poll response cannot make an in-flight foreground create stale", async (
   controller.dispose();
 });
 
+test("publishes a newly created session before the next poll", async () => {
+  let listCalls = 0;
+  const snapshots: string[][] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      listSessions: async () => {
+        listCalls += 1;
+        return [];
+      },
+      createSession: async () => session("created", "creating", "creating"),
+    }),
+    onSessions: (next) => snapshots.push(next.map((item) => item.id)),
+    scheduler: scheduler().scheduler,
+  });
+
+  await controller.createSession({} satisfies CreateSessionOptions);
+
+  assert.equal(listCalls, 0);
+  assert.deepEqual(snapshots, [["created"]]);
+  controller.dispose();
+});
+
 test("a stale workspace response cannot publish callbacks", async () => {
   const first = deferred<WorkspaceInfo>();
   const second = deferred<WorkspaceInfo>();
