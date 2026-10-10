@@ -429,7 +429,7 @@ impl HarnessIntegrationApplication {
             workspace: &workspace.path,
             workspace_metadata: Some(&workspace.metadata),
             orkworks_root: &orkworks_root,
-            enabled: workspace_harness_enabled(workspace, harness_id),
+            enabled: workspace_harness_enabled(workspace, &harness.definition.id),
             detected_tool: detected.as_ref(),
             reporter_assets: &reporter_assets,
         };

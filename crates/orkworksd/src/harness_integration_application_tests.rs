@@ -995,6 +995,65 @@ async fn owned_install_reports_disabled_until_the_harness_is_active() {
 }
 
 #[tokio::test]
+async fn legacy_copilot_alias_uses_canonical_active_selection_for_status_and_install() {
+    let dir = tempfile::tempdir().unwrap();
+    init_git_workspace_with_copilot_settings_ignored(dir.path());
+    let home = tempfile::tempdir().unwrap();
+    let _fake_home = FakeHome::set(home.path());
+    let state = test_app_state_with_workspace(dir.path());
+    SessionApplication::new(state.clone())
+        .set_active_harnesses(vec!["copilot".into()])
+        .unwrap();
+    let settings_path = dir.path().join(".github/copilot/settings.local.json");
+    std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+    let unrelated_hook = serde_json::json!({
+        "type": "command",
+        "bash": "unrelated-command",
+    });
+    let original = serde_json::json!({
+        "version": 1,
+        "hooks": { "unrelated-event": [unrelated_hook.clone()] }
+    });
+    std::fs::write(
+        &settings_path,
+        serde_json::to_vec_pretty(&original).unwrap(),
+    )
+    .unwrap();
+    let app = HarnessIntegrationApplication::new(state);
+
+    let installed = app
+        .mutate(IntegrationMutationRequest::Harness {
+            harness_id: "gh-copilot".into(),
+            mutation: IntegrationMutation::Install,
+        })
+        .await
+        .unwrap();
+    let IntegrationInspection::Harness(installed) = installed else {
+        panic!("expected the legacy alias to resolve to the Copilot harness");
+    };
+    assert_eq!(installed.harness_id, "copilot");
+    assert_eq!(installed.registration, IntegrationRegistration::Installed);
+    assert!(installed.enabled);
+
+    let inspected = app
+        .inspect(IntegrationTarget::Harness("gh-copilot".into()))
+        .await
+        .unwrap();
+    let IntegrationInspection::Harness(inspected) = inspected else {
+        panic!("expected the legacy alias to resolve to the Copilot status");
+    };
+    assert_eq!(inspected.harness_id, "copilot");
+    assert!(inspected.enabled);
+
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(settings_path).unwrap()).unwrap();
+    assert_eq!(
+        settings["hooks"]["unrelated-event"],
+        serde_json::json!([unrelated_hook])
+    );
+}
+
+#[tokio::test]
 #[cfg(unix)]
 async fn codex_owned_install_preserves_needs_trust_with_compatible_tool() {
     let dir = tempfile::tempdir().unwrap();
