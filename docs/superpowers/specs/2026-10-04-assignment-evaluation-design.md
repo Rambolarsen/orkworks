@@ -96,6 +96,22 @@ Needs rework. A replaced path, changed bytes, inaccessible path, timed-out
 operation, or unprovable binding is stale/unsupported and Unassessed; no
 out-of-scope file may be read or pinned.
 
+Before authorized cleanup removes a clean, quiescent plan-owned worktree under
+#610, the sidecar must seal each accepted path-backed output needed by a
+retained evaluation. After the run is terminal and its write capabilities are
+revoked, sealing reopens the path within scope, verifies the accepted object
+identity and digest, and copies the bounded bytes into immutable storage bound
+to the same assignment and output declaration. A sealed output is revalidated
+from that stored object; removal of its original worktree path does not make it
+missing or change the result/evaluation digest. The pin uses the same content
+digest, is charged to the existing artifact and workspace quotas, and remains
+subject to retention and purge rules. Cleanup cannot remove a worktree while a
+retained current evaluation depends on an output that has not been sealed. If
+sealing detects changed, absent, or inaccessible bytes, the result is stale or
+known missing under the rules above, and the user must resolve the affected
+current evaluation before cleanup; authorized cleanup itself never creates a
+new Needs rework outcome.
+
 Every manifest submission carries the caller's expected current result
 revision and digest; the initial state uses `expectedResultRevision: no-head`
 with no digest. The sidecar compares both with the current head before
@@ -265,26 +281,37 @@ evaluate that review; the user is the terminal evaluator. Without user
 disposition, leave that evaluation Unassessed. This preserves the parent
 design's reviewer-of-review path without unbounded recursion.
 
-A child-authored evaluation affects the worker result only while it has a
-current terminal user assessment of the reviewer's own assignment result that
-also covers that exact child evaluation. The terminal user evaluation stores a
-sidecar-resolved `reviewedEvaluationRef` naming the worker assignment,
-`reviewerIdentity`, evaluation revision, and digest the user assessed. The child
-evaluation is committed and digested before this user evaluation is submitted,
-so the reference is acyclic and cannot be part of the child evaluation it
-names. The sidecar derives `reviewerAssessmentRef` as an eligibility projection
-linking that exact child evaluation to the reviewer assignment identity, result
-revision/digest, and terminal user evaluation stream/revision/digest; it is not
-a reviewer-supplied field in the child evaluation record or its digest. Both
-references must agree, and the linked user evaluation must derive Meets
-requirements. A missing, stale, invalidated, Unassessed, or Needs rework
-reviewer assessment makes that child evaluation ineligible; derive the worker
-result from remaining current evaluations. A new reviewer-result revision, a
-correction/invalidation of the terminal user evaluation, or a new child
-evaluation revision invalidates the link. A replacement child evaluation needs
-a new terminal user assessment naming its exact digest before it can affect the
-worker result. User-authored evaluations of the worker do not need this
-reviewer-assessment link.
+An evaluation that assesses a reviewer's work carries a sidecar-resolved
+`reviewedEvaluationRef` naming the exact assignment, reviewer stream, evaluation
+revision, and digest it assessed. The referenced evaluation is committed and
+digested first, so the reference is acyclic. This applies to child
+reviewer-of-review reports and to terminal user assessments; it is part of the
+assessor's evaluation digest and cannot be supplied as unverified display text.
+
+A child-authored evaluation affects its target result only while the sidecar
+can derive a current `reviewerAssessmentRef` chain establishing the evaluator's
+credibility. The user may directly assess that exact child evaluation. Or one
+different declared reviewer may assess it: that reviewer-of-review evaluation
+must carry a `reviewedEvaluationRef` naming the exact child evaluation, and it
+affects the target only after a terminal user evaluation assesses that exact
+reviewer-of-review evaluation and derives Meets requirements. No further child
+reviewer is allowed: the maximum chain is two child evaluations followed by one
+terminal user evaluation. The terminal user assessment also carries a
+`reviewedEvaluationRef` naming the exact reviewer-of-review evaluation. Every
+reference must agree with its sidecar-resolved projection. The sidecar-derived
+`reviewerAssessmentRef` contains the review assignment identity/result
+revision/digest and qualifying downstream evaluation(s), ending at the
+terminal user stream/revision/digest; the projection is not reviewer-supplied
+and is excluded from evaluation digests. Each referenced report and result
+must remain current and every evaluation in the chain must derive Meets
+requirements. A missing, stale, invalidated, Unassessed, or Needs rework link
+makes the dependent child evaluation ineligible; derive the target result from
+remaining current evaluations. A result revision, correction/invalidation, or
+replacement evaluation breaks only links that name that changed
+revision/digest. A replacement evaluation needs a newly assessed chain through
+the terminal user before it can affect its target result. User-authored
+evaluations of ordinary worker results do not need this reviewer-assessment
+chain.
 
 Keep eligible evaluations separate. Disagreement on a required criterion, a
 required-rework finding, or a material fact relevant to a required criterion
@@ -343,6 +370,14 @@ stale expected revision conflicts; an invalidated stream is frozen and cannot
 be corrected. After invalidation, a replacement stream may start with a new
 `userReviewId` and no-head compare-and-swap while user revision capacity
 remains. Further replacements follow the same rule until that budget is used.
+For each result revision, the sidecar serializes user-stream creation through a
+single active-user-stream slot. Initial creation compare-and-swaps `no-head`;
+replacement creation compare-and-swaps the exact invalidated `userReviewId`
+and its disposition digest. Slot advancement, first evaluation revision, and
+revision-budget consumption are atomic. Concurrent creations from the same
+slot have one winner; losers conflict, while an exact retry returns the
+winner's saved receipt. A stream cannot become active unless its predecessor
+has an accepted invalidation.
 
 When #742 ends a run and revokes child authority, that child can no longer
 correct its review. The user may submit a separate user-authorized evaluation;
@@ -375,16 +410,29 @@ does not break the link; this dependency does not stale unrelated outcomes.
 Version 1 record digests are lowercase SHA-256 hex over the #741 recursive
 canonical JSON bytes, prefixed respectively by `orkworks.assignment-result.v1\n`,
 `orkworks.assignment-evaluation.v1\n`, or
-`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). Result
-and evaluation digests include immutable identity, predecessor revision/digest,
-and semantic fields, including `rubricSnapshotDigest` and any
-`reviewedEvaluationRef`. The disposition digest includes assignment identity,
-result revision, evaluation stream identity, target evaluation revision/digest,
-disposition revision 1, action `invalidated`, and actor `user`; it has no
-predecessor. All record digests omit their own digest, bearer credentials,
-request idempotency keys, mutable status, observation time, and sidecar-derived
-eligibility projections such as `reviewerAssessmentRef`. The fixed domains
-prevent these record kinds or later versions from sharing a digest namespace.
+`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). The
+result digest covers exactly: assignment identity, result revision, predecessor
+(revision/digest or explicit `no-head`), active launch generation, and the
+output entries ordered by declaration ID. Each entry contains declaration ID,
+kind, and state; a present entry also contains its source variant (approved
+path or immutable artifact ID/version), size, and content digest. The
+evaluation digest covers exactly: assignment identity, result revision/digest,
+evaluation stream identity and reporter source, evaluation revision and
+predecessor (revision/digest or explicit `no-head`), criteria version,
+`rubricSnapshotDigest`, all criterion outcomes, quality-dimension outcomes and
+rating, their rationales and evidence references, all findings and disputes,
+and any `reviewedEvaluationRef`. Each collection is ordered by its stable ID;
+evidence-reference order within an outcome is canonicalized by reference ID.
+The disposition digest includes assignment identity, result revision,
+evaluation stream identity, target evaluation revision/digest, disposition
+revision 1, action `invalidated`, and actor `user`; it has no predecessor. The
+sidecar-derived overall result, completeness percentage, artifact pin location,
+`reviewerAssessmentRef`, and other eligibility projections are excluded. All
+record digests also omit their own digest, bearer credentials, request
+idempotency keys and retry/receipt metadata, mutable status, and observation
+time. No unlisted semantic field may affect a version 1 digest; changing this
+input shape requires a new domain version. The fixed domains prevent these
+record kinds or later versions from sharing a digest namespace.
 
 ## Bounds, retention, and deletion
 
@@ -416,7 +464,10 @@ Reject over-limit reports visibly and never silently drop conflict evidence,
 corrections, or provenance. Retention belongs to #745, which may remove a
 complete eligible historical subject and its pinned evidence but must retain
 evidence referenced by any current evaluation, regardless of its derived
-result. To release capacity from a closed ineligible subject, #745 must also
+result. It must also retain every result, evaluation, and disposition record
+named by the `reviewerAssessmentRef` chain of a current evaluation, even when
+those records' own assignment subjects are otherwise historical. To release
+capacity from a closed ineligible subject, #745 must also
 provide an explicit Electron-authorized user purge. A subject is closed only
 after its owning run is terminal and all writer capabilities are revoked; it is
 ineligible when none of its results can be selected as current or used as
@@ -489,7 +540,12 @@ A future implementation must verify that:
    Results cannot remain
    current for any consumer after referenced bytes change. A resume retains the
    assignment subject and revision count but requires its new launch generation;
-   changing the assignment identity creates a new subject.
+   changing the assignment identity creates a new subject. Authorized cleanup
+   of a clean, quiescent plan-owned worktree seals every accepted output needed
+   by a retained current evaluation before removing the path; the same digest
+   remains current from its immutable pin. Changed or unavailable bytes cannot
+   be sealed, and cleanup cannot erase a live dependency or turn authorized
+   cleanup into Needs rework.
 3. Scores compare across assignments only under the same rubric ID, version,
    and canonical `rubricSnapshotDigest`, or an approved normalization rule.
    Matching ID/version with changed snapshot content cannot pool scores; equal
@@ -510,20 +566,27 @@ A future implementation must verify that:
    without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
    output, or unverified read-only scope cannot qualify as child review.
-   Reviewer-of-review depth is bounded and ends with user authority. A
-   child-authored evaluation requires a current `reviewerAssessmentRef` to the
-   exact reviewer result and terminal user evaluation deriving Meets
-   requirements. That user evaluation binds the exact child evaluation
-   revision/digest it assessed; a changed child evaluation cannot inherit the
-   prior assessment, and the linkage is acyclic. Changing the child evaluation
-   digest without a new terminal assessment makes it ineligible even when the
-   reviewer assignment result is unchanged.
+   A different declared reviewer may assess a child reviewer's exact evaluation;
+   that reviewer-of-review report affects the original evaluation only when a
+   terminal user evaluation assesses the exact reviewer-of-review evaluation
+   and derives Meets requirements. No further child reviewer is eligible. A
+   direct terminal user assessment also binds the exact child evaluation
+   revision/digest. Every chain is acyclic and bounded to two child evaluations
+   plus the terminal user; changing any named result/evaluation revision or
+   digest invalidates only dependent links, which must then be re-established.
+   The sidecar-derived `reviewerAssessmentRef` on a current worker evaluation
+   protects all linked result/evaluation/disposition records from retention.
 5. Corrections preserve reporter provenance; user corrections use
    Electron-authorized compare-and-swap on their `userReviewId`; a replacement
    stream can start after invalidation while user capacity remains. Ended child
    capabilities cannot correct or impersonate a reviewer. Concurrent
    corrections and invalidations cannot restore an invalidated evaluation or
-   exclude a newer revision.
+   exclude a newer revision. Initial/replacement user stream creation uses one
+   per-result active-stream CAS slot, so concurrent IDs have one winner and
+   consume the revision budget atomically. Result and evaluation digest inputs
+   contain exactly the documented logical fields, use stable collection order,
+   and exclude derived scores, eligibility projections, receipts, and request
+   metadata; a change to any hashed field changes the digest.
 6. Per-assignment result-revision and record caps reject excess work visibly,
    preserve the user-review revision allocation, allow replacements until its
    four-revision budget is exhausted, and include the result-level rating
@@ -534,9 +597,11 @@ A future implementation must verify that:
    retries return the saved receipt and stale invalidations cannot replace a
    newer evaluation.
    Retention preserves evidence referenced by any current evaluation
-   regardless of outcome and removes eligible complete historical subjects.
+   regardless of outcome and every result/evaluation/disposition in the
+   `reviewerAssessmentRef` chain of current evaluations; it removes only
+   eligible complete historical subjects without such dependencies.
    Explicit user purge releases a closed ineligible subject only when no
-   current record, learning input, or reviewer credibility link depends on it;
+   retained record, learning input, or reviewer credibility link depends on it;
    it fences writes, removes the subject and solely pinned evidence atomically,
    and fails without deletion when provenance is still needed. Quota pressure
    never triggers silent eviction. Workspace deletion purges result manifests,
