@@ -75,9 +75,16 @@ stored receipt before checking whether the predecessor is still current;
 changed content under that key conflicts. The key is scoped to reporter,
 assignment identity, active launch generation, and operation.
 
-The sidecar must resolve and open file paths within the approved output scope,
-reject symlink or junction targets outside it, and preserve the opened-object
-binding for hashing. Only regular files with no hard-link aliases are
+The sidecar must open file paths with one atomic descriptor-relative operation
+from a retained handle to the approved workspace root. The operation must
+enforce beneath-root containment and no-follow semantics for the full path
+resolution, rejecting symlinks, junctions, and other reparse points at every
+component. Do not resolve a path and then open it by name, or compose separate
+path-based checks and opens. Preserve the resulting handle for type checks and
+hashing. Use this procedure at submission, every freshness check, and sealing.
+If the platform cannot provide atomic handle-relative containment and no-follow
+semantics, reject path-backed output before reading any bytes; do not fall back
+to path-based checks. Only regular files with no hard-link aliases are
 supported: prove a link count of one from the opened handle before reading,
 verify it remains one after hashing, and check again before sealing. If the
 platform or filesystem cannot prove this before reading, do not read the bytes;
@@ -379,7 +386,15 @@ revision/digest and qualifying downstream evaluation(s), ending at the
 terminal user stream/revision/digest; the projection is not reviewer-supplied
 and is excluded from evaluation digests. Each referenced report and result
 must remain current and every evaluation in the chain must derive Meets
-requirements. A missing, stale, invalidated, Unassessed, or Needs rework link
+requirements. In addition, for each reviewer assignment/result whose work is
+being assessed, the sidecar derives the aggregate from all eligible current
+evaluation streams using the multi-evaluation rules below. That exact aggregate
+must derive Meets requirements before the reviewer can establish credibility.
+A favorable evaluation selected by the chain, including a terminal user
+assessment, cannot override another current evaluation that makes the aggregate
+Unassessed or Needs rework. Recompute this aggregate before using a credibility
+chain and whenever a result, evaluation, correction, invalidation, or cited
+evidence changes. A missing, stale, invalidated, Unassessed, or Needs rework link
 makes the dependent child evaluation ineligible; derive the target result from
 remaining current evaluations. A result revision, correction/invalidation, or
 replacement evaluation breaks only links that name that changed
@@ -630,14 +645,20 @@ A future implementation must verify that:
    new streams compare-and-swap the explicit no-head state. Changed, malformed,
    unauthenticated, oversized, or cross-subject reports fail closed. Missing
    dimension coverage or invalid evidence cannot support a pass; unassessed
-   criteria and dimensions may omit evidence with a bounded reason. File links
-   cannot escape the approved scope; hard links without a proven single-link
-   identity are rejected before reading or sealing. Freshness detects removed
-   paths or changed content; replacing a file with identical content preserves
-   the result. Bare content digests and references to another assignment's
-   output are rejected; report evidence resolves the exact source identity even
-   when report IDs or content digests are reused. A server-held artifact from
-   another assignment or declaration is rejected even if its ID, size, and
+   criteria and dimensions may omit evidence with a bounded reason. One
+   race-safe, atomic open relative to the retained workspace-root handle enforces
+   beneath-root containment and no-follow semantics for the full path; symlinks,
+   junctions, and other reparse points are rejected at every component. A
+   concurrent link swap cannot make the worker read or pin bytes outside scope;
+   platforms without this operation reject path-backed output before reading.
+   Hard links without a
+   proven single-link identity are rejected before reading or sealing. Freshness
+   detects removed paths or changed content; replacing a file with identical
+   content preserves the result. Bare content digests and references to
+   another assignment's output are rejected; report evidence resolves the exact
+   source identity even when report IDs or content digests are reused. A
+   server-held artifact from another assignment or declaration is rejected even
+   if its ID, size, and
    digest are valid. Valid maximum-length source identities resolve through a
    bounded 64-character source key and fit the reference cap. Evidence-reference
    order does not change an evaluation digest, and duplicate references within
@@ -690,7 +711,16 @@ A future implementation must verify that:
    reviewer-of-review that contributed to the original worker output or lacks
    read-only access to that output is ineligible even if independent of the
    immediately reviewed child assignment; terminal user assessment cannot
-   restore that chain's eligibility. A direct terminal user assessment also
+   restore that chain's eligibility. Each reviewer assignment/result's
+   aggregate across all eligible current evaluations must also derive Meets
+   requirements; a favorable terminal assessment cannot override conflicting
+   current evaluations. Aggregate changes immediately revoke dependent review
+   credibility until the aggregate again derives Meets requirements. If the
+   chain-selected review and terminal user assessment both derive Meets but
+   another eligible current evaluation makes the reviewer assignment aggregate
+   Unassessed or Needs rework, the dependent worker review is ineligible. A
+   direct
+   terminal user assessment also
    binds the exact child evaluation
    revision/digest. Every chain is acyclic and bounded to two child evaluations
    plus the terminal user; changing any named result/evaluation revision or
