@@ -22,63 +22,44 @@ authorize a merge. It does not change ordinary Peon behavior.
 
 ## Assignment and result identity
 
-Evaluation uses the exact user-approved `AssignmentConfiguration`:
-repository/workspace, run, plan and revision, task, allocation/attempt, worker
-session, configuration ID/digest, criteria, and rubric. IDs and digests define
-identity; display labels do not. Each evaluation also binds this assignment, the
-result revision/digest, the reviewer assignment/session/configuration, approved
-snapshots, and immutable evidence references. A changed assignment or rubric
-requires a new approved revision.
+Evaluation binds the workspace, run, task/attempt, approved configuration,
+exact result revision, criteria and rubric versions, reviewer identity, and
+immutable evidence references. These values come from approved state, not
+display labels or reporter claims. A changed assignment or rubric requires a
+new approved revision.
 
-The expected output contract is specific to each assignment; there is no global
-catalog of artifact IDs or kinds. Each declared artifact has a unique,
-assignment-local `id` and a `kind`; IDs and kinds use #741's nonempty ASCII
-identifier rule (at most 128 bytes). Every declared artifact is required for a
-passing result, and the contract contains at most 32 artifacts. The current
-#741 draft has an expected-output-contract field but does not yet define this
-structured ID/kind schema, so reconcile the schema and cap with #741 before
-implementation. For example, a code assignment might declare `changes`
-(`workspace_changes`) and `checks` (`verification_report`); a research
-assignment might declare `findings` (`research_report`). These are illustrative
-names chosen for each assignment, not a fixed catalog.
-The worker reports a manifest through a dedicated assignment-scoped capability
-using #742's task-scoped authority model. It is separate from #742's
-`ResearchReportCapability` and binds the exact attempt, assignment
-configuration, sidecar generation, and active worker launch generation. The
-sidecar derives the assignment identities from that authority; the payload
-cannot choose them. The manifest has exactly one `present` or `missing` entry
-for each declared artifact. A present entry names an approved worktree-relative
-path or immutable server-held report/artifact ID and version, plus a SHA-256
-content digest. Undeclared outputs are rejected.
+The output contract is assignment-specific, with no global artifact catalog.
+It declares at most 32 unique artifact IDs and kinds, using #741's identifier
+rule. Reconcile this schema and limit with #741. Every declaration is required
+to pass and includes an explicit finite byte cap. The approved configuration
+also has a finite total rehash-work cap; values above the server's hard limits
+are rejected. An output that exceeds a cap is unsupported and cannot establish
+a pass. Exact hard limits are an implementation-plan decision to reconcile
+with #741 before code. Example declarations include `changes`
+(`workspace_changes`) and `checks` (`verification_report`), or `findings`
+(`research_report`).
 
-The sidecar resolves each reference within the approved scope, verifies its
-bytes and digest, sorts entries by artifact ID, canonicalizes the manifest
-using #741's rules, and assigns a monotonically increasing result revision.
-Updates must name the current predecessor and reject stale task versions; they
-never rewrite prior revisions. The digest is SHA-256 of
-`orkworks.assignment-result.v1\n` followed by the canonical manifest bytes;
-each revision records its predecessor and authenticated worker source. Exact
-retries are idempotent; changed content with the same key conflicts. Revisions
-are `1..=2^31-1` per attempt; they never wrap or reset. Exhaustion closes
-reporting for that attempt.
+The worker reports one `present` or `missing` entry per declaration through an
+authenticated attempt-scoped capability that follows #742's authority model.
+It binds the attempt, approved configuration, sidecar generation, and active
+worker launch generation; the payload cannot choose those identities. A
+present entry names an approved worktree-relative path or immutable
+server-held artifact ID/version, its size, and content digest. Undeclared or
+over-cap outputs are rejected. Exact retries with the same key return the
+stored receipt before checking whether the predecessor is still current;
+changed content under that key conflicts. The key is scoped to reporter,
+attempt, and operation.
 
-An evaluation binds the sidecar-issued current result revision and digest.
-Acceptance must serialize the current-head check, output re-hash, evaluation
-write, and current projection update against result-manifest changes. If that
-boundary cannot be provided, every current read/projection must revalidate the
-head and bytes and return Unassessed when it cannot. Missing, inaccessible,
-changed, or unsupported outputs cannot support a passing result. A later
-manifest creates a new revision; earlier evaluations remain history and cannot
-restore current status or learning eligibility.
-
-Every declared output must be present and verifiable to pass. A known missing
-output establishes Needs rework directly; it need not be linked to a criterion.
-Unknown presence or an inaccessible, changed, or unsupported output is
-Unassessed unless another uncontested failure exists. Direct filesystem changes
-are not automatically revisions. The implementation must revalidate declared
-outputs before claiming a current result; this proves content freshness, not
-authorship or OS-level confinement. A Git commit alone is not the result
-identity because it may contain unrelated changes or omit non-file outputs.
+The sidecar assigns immutable result revisions and rejects stale predecessors.
+Evaluations bind the current revision and digest. Before showing a result as
+current, the implementation revalidates its referenced output bytes and
+revision; if it cannot establish freshness, the result is Unassessed. A known
+missing output establishes Needs rework directly; inaccessible, changed,
+unknown, or unsupported output is Unassessed unless another uncontested
+failure exists. A later result revision makes earlier evaluations historical.
+The implementation plan chooses the transaction or revalidation boundary;
+either way, stale writes cannot restore a current result. This validates
+content freshness, not authorship or OS-level confinement.
 
 ## Criteria, completeness, and quality
 
@@ -101,9 +82,11 @@ unsatisfied criterion remains a failure even if other criteria are unassessed.
 Legacy assignments without required criteria cannot pass; absent other known
 failures, they are Unassessed.
 
-The approved, versioned, role-specific rubric has a stable ID, version, content
-digest, evaluator role, and quality dimensions. The reviewer assigns one
-result-level rating; dimension scores are evidence and are not averaged:
+The approved, versioned, role-specific rubric has an ID, version, evaluator
+role, and quality dimensions. The reviewer assigns one result-level rating;
+dimension scores are evidence and are not averaged. Comparisons across
+assignments require the same rubric ID and version unless an explicit,
+versioned normalization rule is approved:
 
 | Rating | Meaning |
 | --- | --- |
@@ -133,139 +116,89 @@ partial work keeps its lifecycle status: assess available evidence, and leave
 the rest unassessed. A blocker explains missing work but does not satisfy a
 criterion.
 
-Cost and elapsed time are optional observations. Each has a non-negative integer
-value, unit, source (`sidecar_clock`, `provider_report`, `harness_report`, or
-`user_reported`), and UTC observation time; estimates are labeled. Missing
-values remain unknown. These observations do not change the result unless
-separately approved as criteria.
+An evaluation record stores criterion outcomes, quality, findings and required
+rework, evidence, reviewer/source identity, observation time, and retry
+metadata; the server derives the overall result. Each finding has a stable ID,
+concise description, evidence reference, and whether it requires rework.
+Rationale, findings, and corrections must not contain credentials, secrets,
+hidden reasoning, full prompts, or complete transcripts; use safe, immutable
+evidence references.
+
+Cost and elapsed time may be recorded as optional observations with a
+non-negative value, unit, source, and UTC observation time. Label estimates;
+missing values stay unknown. These values do not affect the result unless
+approved as criteria.
 
 ## Reviewer eligibility and disagreement
 
-A review must come from either a declared `review` or `verification` assignment
-in an approved plan, with a rubric-eligible role, or an explicit user review
-through the user-authorized path.
+A review comes from a declared `review` or `verification` assignment with an
+eligible rubric role, or from an explicit user-authorized review. Worker
+self-assessment stays separate and cannot affect the result. The current #740
+register has no verified child-review profile, so child reports are ineligible
+until #740 provides version-specific evidence and #741 binds an eligible
+profile. Until then, runtime review uses the explicit user path.
 
-The current #740 capability register has no verified eligible reviewer
-profile. Until #740 supplies version-specific evidence and #741 binds an
-eligible profile, child reports are ineligible; an initial runtime slice may
-support explicit user review only. If child review is later enabled, its report
-uses a separate reviewer-scoped capability bound to the reviewer assignment
-and configuration, exact result subject, and current result revision. It cannot
-reuse the worker's result-report capability or #742's research-report
-capability. Assignment capabilities follow #742's generation-checking,
-revocation, and authenticated-retry rules; review the exact transport and
-record alignment with #742 before implementation. User evaluations use the
+An eligible child reviewer must have a different task, allocation, session, and
+configuration from the worker; be outside the potential-contributor set derived
+from approved allocations and effective write scopes; and have read access to
+the exact result without write access to its output scope. The sidecar—not the
+worker—establishes these facts. If it cannot establish the contributor set or
+read-only scope, the child report is ineligible and the result stays Unassessed
+pending user review. This is assignment-level separation, not OS isolation; a
+parent summary alone is not independent review.
+
+Child reports use a reviewer-scoped capability bound to the reviewer
+assignment/configuration and exact result revision. It is separate from the
+worker's reporting capability and #742's `ResearchReportCapability`; follow
+#742's generation, revocation, and retry rules. Resolve exact transport and
+record alignment with #742 before implementation. User reviews use the
 Electron-authorized user-provenance path and never impersonate a child.
 
-A child reviewer is eligible only when the sidecar verifies that:
+A reviewer cannot evaluate their own work. A reviewer may be evaluated by a
+different declared reviewer or the user. Do not assign a further child to
+evaluate that review; the user is the terminal evaluator. Without user
+disposition, leave that evaluation Unassessed. This preserves the parent
+design's reviewer-of-review path without unbounded recursion.
 
-- its task, allocation, session, and configuration differ from the worker's;
-- it is not a potential contributor to the reported outputs, based on
-  authenticated plan reservations and effective write scopes that overlap those
-  outputs;
-- its approved configuration grants read access to the exact result and no write
-  access to its output scope; and
-- its report capability is scoped to that reviewer, result subject, and current
-  result revision.
-
-The worker cannot declare the contributor set or claim independence. If the full
-potential-contributor set or read-only scope cannot be established, child review
-is ineligible and the result stays Unassessed until explicit user review. This
-is assignment-level separation, not statistical, organizational, or OS
-isolation; the same coding tool or model may serve as worker and reviewer. A
-coordinating parent is not an independent reviewer just by summarizing reports.
-
-Worker self-assessment is stored separately and never affects the derived
-result. Source identity is authenticated; payload claims cannot establish
-authority. A reviewer who contributed to the output under another declared
-assignment is ineligible for that output.
-
-If reviewer work itself needs evaluation, the user is the terminal evaluator.
-Do not assign another reviewer recursively; without user disposition, leave
-that evaluation Unassessed.
-
-Keep eligible evaluations separate. If current, credible evaluations disagree on
-a criterion, quality rating, or material fact, preserve and show both with the
-disputed field and evidence. Do not average, prefer the newest opinion, or
-resolve by reviewer seniority. A separate uncontested failure can still
-establish Needs rework.
+Keep eligible evaluations separate. If current, credible evaluations disagree
+on a criterion, rating, finding, or material fact, preserve both and report
+Unassessed unless another uncontested failure establishes Needs rework. Never
+average conflicting reviews or prefer one by time or seniority.
 
 ## Revisions, correction, and invalidation
 
-Each reviewer or explicit user has a separate stream for one exact result
-subject. The sidecar assigns the stream ID; revision 1 starts it. A correction
-appends an immutable revision to that stream using expected-revision/digest
-compare-and-swap. Different reviewers create independent streams. The derived
-result binds the exact stream heads and dispositions it used.
+Evaluations and corrections are append-only. A correction is a new revision by
+the same eligible reviewer while that review capability is active; a different
+reviewer creates a separate evaluation. An authenticated idempotency key is
+scoped to reporter, subject, and operation. Resolve an exact prior receipt
+before checking the expected revision; changed content under the same key
+conflicts. Stale or cross-subject writes fail closed.
 
-Each `AssignmentEvaluation` stores schema version, stream ID/revision, exact
-assignment and result bindings, criteria/rubric references, outcomes, quality,
-evidence, reviewer/source identity, observation time, and authenticated
-idempotency metadata. Its canonical content digest is immutable; the reporter
-cannot set the derived overall result.
-
-A correction requires the original eligible reviewer identity and a valid scoped
-capability. Resumed reviewers must pass #742 identity/configuration checks and
-receive a fresh capability. After run completion, correction uses #742's
-user-authorized provenance; it cannot impersonate an ended reviewer. A different
-reviewer submits a separate stream, not a correction.
-
-Exact retries with the same idempotency key return the same receipt; changed
-content under that key conflicts. Keys are scoped to authenticated reporter,
-subject, and operation. Stale, unauthenticated, ambiguous, or
-cross-workspace/assignment reports fail closed. A report for an exact superseded
-subject may be retained as history only.
-
-Only the user-authorized path can invalidate a report. Invalidation records its
-target stream revision/digest, actor, time, reason, and authority; it does not
-erase the evaluation. There is at most one terminal invalidation per stream
-(revision `1`); identical retries are idempotent and different second
-dispositions are rejected. Invalidation freezes the stream and excludes it from
-current derivation and learning. Correction and invalidation compare-and-swap
-against the same expected stream head: if correction wins, invalidating the old
-head conflicts and requires a new user action; if invalidation wins, correction
-is rejected. If invalidation leaves required evidence missing, the result
-becomes Unassessed unless another uncontested failure remains.
-
-A result-head change makes predecessor evaluations historical. Current
-evaluation projections must be revalidated against the result head and output
-bytes; stale evaluations never become current again.
+When #742 ends a run and revokes child authority, that child can no longer
+correct its review. The user may append a separately attributed correction or
+invalidate it through the Electron-authorized path; the user never impersonates
+the child. Invalidation preserves the report and provenance and excludes it
+from current results and learning. A later result revision makes earlier
+evaluations historical; they never become current again.
 
 ## Bounds, retention, and deletion
 
-Version 1 uses #741's limits of 32 criteria and 16 rubric dimensions, plus:
+Use #741's limits of 32 criteria and 16 rubric dimensions. In addition, cap
+each subject at 32 artifacts, 32 evidence references, and 16 evaluation
+revisions; cap the manifest at 64 KiB, an evaluation/disposition at 128 KiB,
+each reference at 1 KiB, and rationale/finding/correction text at 2 KiB.
+Output declarations and aggregate rehash work also have finite approved caps,
+bounded by server hard limits. Resolve their values with #741 before
+implementation.
 
-| Data | Limit |
-| --- | --- |
-| Reviewer/user streams per result subject | 16 |
-| Snapshots per stream | 16, including the initial evaluation |
-| Snapshots per subject | 256 |
-| Result artifacts / evidence references | 32 each |
-| Serialized manifest / evaluation or disposition | 64 KiB / 128 KiB, including metadata; referenced payloads are not copied |
-| Artifact/evidence references | 1 KiB each |
-| Rationale, finding, correction, or invalidation reason | 2 KiB UTF-8 each |
-| Cost/time observations | 16 per evaluation |
-| Schema and revisions | Schema `1`; stream revisions `1..=16`; result revisions `1..=2^31-1` per attempt; one disposition revision `1`; never wrap or reset |
-
-Enforce bounds before persistence. Capacity errors must be visible; never
-silently evict conflict evidence, correction history, or invalidation
-provenance. Reaching a subject limit blocks new reports for that subject.
-Expiring another subject may free aggregate workspace quota, but not slots on
-the saturated subject. Recover capacity only through an approved capacity change
-or user-directed deletion of the whole subject followed by a newly approved
-assignment with fresh identities.
-
-Aggregate retention and forgetting belong to #745. It may expire complete
-historical subjects and their pinned evidence together, but not the only valid
-evidence for a current result presented as Meets requirements. Workspace
-deletion closes report admission and rotates or discards its opaque generation
-in the same serialized boundary as report commits, then purges evaluation,
-disposition, and pinned evidence content. Every commit—including a handler
-admitted earlier—checks its captured generation at persistence; stale
-generations cannot write or recreate content. Reopening uses a fresh
-unpredictable generation and new run/plan/attempt/result IDs. No evaluation
-tombstone survives deletion. If evidence is gone, a retained projection cannot
-claim a current reviewed result. Ordinary non-orchestrated sessions acquire no
+Reject over-limit reports visibly and never silently drop conflict evidence,
+corrections, or provenance. Retention belongs to #745, which may remove a
+complete eligible historical subject and its pinned evidence but not evidence
+for a current result presented as Meets requirements. Workspace deletion stops
+new reports and in-flight writes, then purges evaluation, disposition, and
+pinned evidence. Old writes cannot recreate deleted content; no evaluation
+tombstone survives. If evidence is gone, a retained projection cannot claim a
+current reviewed result. Ordinary non-orchestrated sessions acquire no
 assignment evaluations.
 
 ## Product boundaries and verification
@@ -279,38 +212,42 @@ zero quality. #745 defines learning eligibility. Stale, invalidated,
 conflicting, blocked, interrupted, or sparse evidence cannot be treated as a
 clean learning signal, and evaluation cannot change an active configuration.
 
-A future implementation must verify at least these cases:
+A future implementation must verify that:
 
-1. All required criteria satisfied and quality `3` derives Meets requirements;
-   optional criteria do not affect it.
-2. A known missing declared output or any other uncontested failure derives
-   Needs rework despite unrelated unassessed evidence; unknown output presence
-   or missing required evidence without a known failure derives Unassessed.
-3. Empty/optional-only legacy criteria cannot pass; lifecycle status alone never
-   sets quality or completeness.
-4. Self-review, parent synthesis, undeclared reviewers, unverified reviewer
-   profiles, contributors, stale output, or unverified read-only scope cannot
-   qualify as child review.
-5. Conflicting reviews are preserved and never averaged; corrections are
-   immutable/idempotent, and invalidation freezes the stream.
-6. Stale, malformed, duplicate-with-changed-payload, oversized, unauthenticated,
-   cross-subject, and concurrent reports fail closed without overwriting
-   history.
-7. Bounds reject excess records without eviction; retention removes whole
-   eligible historical subjects with evidence; deletion fences in-flight writes
-   and removes evaluation content.
-8. Evaluation cannot launch/retry work, widen permissions, change configuration,
-   advance dependencies, accept work for the user, or approve a merge.
+1. Complete evidence derives Meets requirements; any uncontested failure,
+   including a known missing output, derives Needs rework; missing, stale, or
+   conflicting evidence without a known failure derives Unassessed. Optional
+   criteria, lifecycle state, or empty legacy criteria cannot create a pass.
+2. Exact retries return their saved receipt before stale-predecessor rejection;
+   changed payloads, malformed, unauthenticated, oversized, or cross-subject
+   reports fail closed. Results cannot remain current after referenced bytes
+   change.
+3. Scores compare across assignments only under the same rubric ID/version or
+   an approved normalization rule. Findings retain evidence and required-rework
+   status without storing prohibited sensitive content.
+4. Self-review, parent synthesis, unverified profiles, contributors, stale
+   output, or unverified read-only scope cannot qualify as child review.
+   Reviewer-of-review depth is bounded and ends with user authority.
+5. Corrections preserve reporter provenance; ended child capabilities cannot
+   correct or impersonate a reviewer. Invalidation removes the report from
+   current results without erasing its history.
+6. Artifact and record caps reject excess work visibly. Retention removes only
+   eligible complete historical subjects; deletion fences old writes and purges
+   evaluation content.
+7. Evaluation cannot launch/retry work, widen permissions, change
+   configuration, advance dependencies, accept work for the user, or approve a
+   merge.
 
 ## Implementation gate
 
 No runtime plan is approved here. Write one only after written review of this
 contract and #741, reconciliation of #740's capability disposition, and
-alignment with #610 and authoritative specs/ADRs. The plan must choose
-result/attempt identity bindings, store and reporting path,
-correction/invalidation transaction boundary, #745 retention policy, and #746
-projection, based on verified module seams and focused fixtures. This document's
-code references are investigation pointers, not implementation commitments.
+alignment with #610 and authoritative specs/ADRs. Resolve output-byte ceilings,
+reviewer recursion, and post-run correction authority against #741/#742 and the
+parent product contract. The plan then chooses storage, reporting, correction
+and invalidation boundaries, #745 retention, and #746 projection from verified
+module seams. Code references here are investigation pointers, not
+implementation commitments.
 
 User approval of this spec approves only the written contract—not runtime
 implementation, role support, assignment launches, automated evaluation, or
