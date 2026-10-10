@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "OpenCode prompt attention lifecycle"
+description: "Design history: OpenCode prompt attention lifecycle."
+tags: ["orkworks", "design"]
+---
+
 # OpenCode prompt attention lifecycle
 
 Status: approved for implementation; owner reviewed the revised design on 2026-09-26

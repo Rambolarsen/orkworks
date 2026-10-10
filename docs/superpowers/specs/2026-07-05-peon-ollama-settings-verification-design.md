@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Peon Ollama Settings Verification Design"
+description: "Design history: Peon Ollama Settings Verification Design."
+tags: ["orkworks", "design"]
+---
+
 # Peon Ollama Settings Verification Design
 
 ## Goal

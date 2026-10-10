@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness tool detection (auto + manual override)"
+description: "Design history: Harness tool detection (auto + manual override)."
+tags: ["orkworks", "design"]
+---
+
 # Harness tool detection (auto + manual override)
 
 ## Context

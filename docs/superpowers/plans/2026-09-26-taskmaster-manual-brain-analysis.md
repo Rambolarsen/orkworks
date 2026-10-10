@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Manual Brain Analysis Implementation Plan"
+description: "Implementation plan: Taskmaster Manual Brain Analysis Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Manual Brain Analysis Implementation Plan
 
 > **For agentic workers:** Use inline execution with the repository's scoped instructions and the approved design below.

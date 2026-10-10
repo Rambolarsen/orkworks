@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Pinned and enumerable installation-scoped workspace history"
+description: "Architecture decision record: Pinned and enumerable installation-scoped workspace history."
+tags: ["orkworks", "architecture"]
+---
+
 # Pinned and enumerable installation-scoped workspace history
 
 - Status: accepted

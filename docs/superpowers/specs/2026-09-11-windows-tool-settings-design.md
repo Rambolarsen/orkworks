@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Coding tool settings regression fixes"
+description: "Design history: Coding tool settings regression fixes."
+tags: ["orkworks", "design"]
+---
+
 # Coding tool settings regression fixes
 
 Approved scope: restore expand/collapse without discarding unsaved command-path edits, investigate Claude Code integration installation on Windows, and cover confirmed defects with regression checks.

@@ -1,3 +1,10 @@
+---
+type: "User Guide"
+title: "Recommendation knowledge and background analysis"
+description: "User guide to recommendation knowledge and background analysis in OrkWorks."
+tags: ["orkworks", "user-guide"]
+---
+
 # Recommendation knowledge and background analysis
 
 Open **Settings → Recommendations** to choose a Taskmaster model provider and

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness Session ID Capture Design"
+description: "Design history: Harness Session ID Capture Design."
+tags: ["orkworks", "design"]
+---
+
 # Harness Session ID Capture Design
 
 ## Context

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Windows Integrated Header Implementation Plan"
+description: "Implementation plan: Windows Integrated Header Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Windows Integrated Header Implementation Plan
 
 > Use executing-plans inline for this single deliverable; request a diff-scoped /code-review low before handoff.

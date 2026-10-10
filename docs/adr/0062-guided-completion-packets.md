@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "ADR 0062: Guided completion packets stay recommendation projections"
+description: "Architecture decision record: ADR 0062: Guided completion packets stay recommendation projections."
+tags: ["orkworks", "architecture"]
+---
+
 # ADR 0062: Guided completion packets stay recommendation projections
 
 - Status: accepted

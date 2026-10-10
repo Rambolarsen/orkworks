@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Metadata source priority"
+description: "Architecture decision record: Metadata source priority."
+tags: ["orkworks", "architecture"]
+---
+
 # Metadata source priority
 
 - Status: accepted

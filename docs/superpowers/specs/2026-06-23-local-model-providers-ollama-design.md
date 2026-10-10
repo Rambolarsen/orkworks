@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Local Model Providers: Ollama-First Design"
+description: "Design history: Local Model Providers: Ollama-First Design."
+tags: ["orkworks", "design"]
+---
+
 # Local Model Providers: Ollama-First Design
 
 - Date: 2026-06-23

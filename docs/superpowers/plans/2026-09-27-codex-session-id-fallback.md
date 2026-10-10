@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Codex Session ID Fallback Implementation Plan"
+description: "Implementation plan: Codex Session ID Fallback Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Codex Session ID Fallback Implementation Plan
 
 > **For agentic workers:** Execute this plan inline in the current session. Steps use checkbox (`- [ ]`) syntax for tracking.

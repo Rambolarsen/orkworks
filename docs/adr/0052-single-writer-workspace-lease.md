@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Single-writer workspace lease for the sidecar"
+description: "Architecture decision record: Single-writer workspace lease for the sidecar."
+tags: ["orkworks", "architecture"]
+---
+
 # Single-writer workspace lease for the sidecar
 
 - Status: accepted

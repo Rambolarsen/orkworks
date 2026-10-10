@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Copilot Native Voice Capability Design"
+description: "Design history: Copilot Native Voice Capability Design."
+tags: ["orkworks", "design"]
+---
+
 # Copilot Native Voice Capability Design
 
 ## Context

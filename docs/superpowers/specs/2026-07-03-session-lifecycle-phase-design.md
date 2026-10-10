@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Lifecycle Phase Design"
+description: "Design history: Session Lifecycle Phase Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Lifecycle Phase Design
 
 > **Date:** 2026-07-03

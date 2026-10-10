@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Launch Workspace Context Design"
+description: "Design history: Session Launch Workspace Context Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Launch Workspace Context Design
 
 ## Problem

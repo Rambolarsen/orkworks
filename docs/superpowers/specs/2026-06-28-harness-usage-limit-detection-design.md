@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness Usage Limit Detection"
+description: "Design history: Harness Usage Limit Detection."
+tags: ["orkworks", "design"]
+---
+
 # Harness Usage Limit Detection
 
 **Date:** 2026-06-28

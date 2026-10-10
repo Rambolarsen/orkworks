@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Antigravity CLI Harness Migration Implementation Plan"
+description: "Implementation plan: Antigravity CLI Harness Migration Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Antigravity CLI Harness Migration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

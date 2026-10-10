@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Hermes Harness Adapter Design"
+description: "Design history: Hermes Harness Adapter Design."
+tags: ["orkworks", "design"]
+---
+
 # Hermes Harness Adapter Design
 
 - Date: 2026-06-23

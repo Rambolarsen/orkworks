@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Plan Handoff Design"
+description: "Design history: Session Plan Handoff Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Plan Handoff Design
 
 ## Goal

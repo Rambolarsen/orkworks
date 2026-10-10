@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Windows dialog drag review fix"
+description: "Implementation plan: Windows dialog drag review fix."
+tags: ["orkworks", "plans"]
+---
+
 # Windows dialog drag review fix
 
 Fix issue #535 and the late review finding on PR #532 within the approved Windows shell dragging requirement.

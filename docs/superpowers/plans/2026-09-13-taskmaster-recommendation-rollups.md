@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Recommendation Rollups Implementation Plan"
+description: "Implementation plan: Taskmaster Recommendation Rollups Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Recommendation Rollups Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Record architecture decisions"
+description: "Architecture decision record: Record architecture decisions."
+tags: ["orkworks", "architecture"]
+---
+
 # Record architecture decisions
 
 - Status: accepted

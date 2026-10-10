@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "PTY Output Backpressure Design"
+description: "Design history: PTY Output Backpressure Design."
+tags: ["orkworks", "design"]
+---
+
 # PTY Output Backpressure Design
 
 > **Date:** 2026-07-07

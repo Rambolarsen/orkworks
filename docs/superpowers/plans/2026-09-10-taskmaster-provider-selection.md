@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster provider selection foundation"
+description: "Implementation plan: Taskmaster provider selection foundation."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster provider selection foundation
 
 Tracking: [#503](https://github.com/Rambolarsen/orkworks/issues/503)

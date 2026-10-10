@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Panel Persist & Restore — Design"
+description: "Design history: Panel Persist & Restore — Design."
+tags: ["orkworks", "design"]
+---
+
 # Panel Persist & Restore — Design
 
 **Date:** 2026-06-17  

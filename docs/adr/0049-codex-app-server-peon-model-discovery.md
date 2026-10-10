@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex app-server is the live Peon model catalog"
+description: "Architecture decision record: Codex app-server is the live Peon model catalog."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex app-server is the live Peon model catalog
 
 - Status: accepted

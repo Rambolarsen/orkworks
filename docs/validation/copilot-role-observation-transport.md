@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Copilot role observation transport research"
+description: "Validation evidence and context: Copilot role observation transport research."
+tags: ["orkworks", "validation"]
+---
+
 # Copilot role observation transport research
 
 - Date: 2026-10-05

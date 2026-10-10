@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Recorded terminal-size cue"
+description: "Design history: Recorded terminal-size cue."
+tags: ["orkworks", "design"]
+---
+
 # Recorded terminal-size cue
 
 ## Purpose

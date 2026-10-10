@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Taskmaster owns model refresh and workspace-scoped analysis status"
+description: "Architecture decision record: Taskmaster owns model refresh and workspace-scoped analysis status."
+tags: ["orkworks", "architecture"]
+---
+
 # Taskmaster owns model refresh and workspace-scoped analysis status
 
 - Status: accepted

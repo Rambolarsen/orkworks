@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Delivery plan: fixed shell and shared navigation"
+description: "Implementation plan: Delivery plan: fixed shell and shared navigation."
+tags: ["orkworks", "plans"]
+---
+
 # Delivery plan: fixed shell and shared navigation
 
 **Issue:** [#779](https://github.com/Rambolarsen/orkworks/issues/779)  

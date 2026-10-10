@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Session-runtime-owned PTY lifetime"
+description: "Architecture decision record: Session-runtime-owned PTY lifetime."
+tags: ["orkworks", "architecture"]
+---
+
 # Session-runtime-owned PTY lifetime
 
 - Status: accepted

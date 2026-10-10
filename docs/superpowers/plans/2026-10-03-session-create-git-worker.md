@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Session-creation Git scan implementation plan"
+description: "Implementation plan: Session-creation Git scan implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Session-creation Git scan implementation plan
 
 **Goal:** Implement issue #729: isolate creation Git work from async workers and preserve admission, cancellation, cwd, response, and metadata behavior.

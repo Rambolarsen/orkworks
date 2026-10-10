@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Simplified session lifecycle and alive-only attention"
+description: "Architecture decision record: Simplified session lifecycle and alive-only attention."
+tags: ["orkworks", "architecture"]
+---
+
 # Simplified session lifecycle and alive-only attention
 
 - Status: accepted

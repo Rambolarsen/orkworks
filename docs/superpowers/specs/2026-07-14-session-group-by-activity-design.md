@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Grouping by Recent Activity Design"
+description: "Design history: Session Grouping by Recent Activity Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Grouping by Recent Activity Design
 
 ## Goal

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness Capability System"
+description: "Design history: Harness Capability System."
+tags: ["orkworks", "design"]
+---
+
 # Harness Capability System
 
 **Date:** 2026-07-22

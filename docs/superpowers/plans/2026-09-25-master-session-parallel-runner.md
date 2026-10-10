@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Master-Session Parallel Runner Implementation Plan"
+description: "Implementation plan: Master-Session Parallel Runner Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Master-Session Parallel Runner Implementation Plan
 
 > **For agentic workers:** Use `superpowers:executing-plans` to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster Bounded Coordinator Design"
+description: "Design history: Taskmaster Bounded Coordinator Design."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster Bounded Coordinator Design
 
 > Historical proposal, superseded as the orchestration direction by accepted

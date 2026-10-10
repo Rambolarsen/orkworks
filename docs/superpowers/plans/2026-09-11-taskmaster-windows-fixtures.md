@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Windows fixture preparation"
+description: "Implementation plan: Taskmaster Windows fixture preparation."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Windows fixture preparation
 
 > Use executing-plans; root is the sole writer.

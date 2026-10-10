@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness Registry Unification"
+description: "Design history: Harness Registry Unification."
+tags: ["orkworks", "design"]
+---
+
 # Harness Registry Unification
 
 **Date:** 2026-07-03

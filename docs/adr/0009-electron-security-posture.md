@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Electron security posture"
+description: "Architecture decision record: Electron security posture."
+tags: ["orkworks", "architecture"]
+---
+
 # Electron security posture
 
 - Status: accepted

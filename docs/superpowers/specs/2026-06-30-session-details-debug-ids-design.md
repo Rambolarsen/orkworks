@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Details Debug IDs Design"
+description: "Design history: Session Details Debug IDs Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Details Debug IDs Design
 
 - Date: 2026-06-30

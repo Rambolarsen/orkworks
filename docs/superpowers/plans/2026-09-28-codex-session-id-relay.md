@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Codex Session ID Relay Implementation Plan"
+description: "Implementation plan: Codex Session ID Relay Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Codex Session ID Relay Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Execute inline in the active session because the task is already approved and repository policy prohibits delegation in this session.

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Scoped Agent Instructions Design"
+description: "Design history: Scoped Agent Instructions Design."
+tags: ["orkworks", "design"]
+---
+
 # Scoped Agent Instructions Design
 
 ## Goal

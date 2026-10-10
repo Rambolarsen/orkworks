@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex exact session identity and resume"
+description: "Architecture decision record: Codex exact session identity and resume."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex exact session identity and resume
 
 - Status: superseded by [ADR 0068](./0068-codex-subagents-share-owning-session-identity.md)

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Dim dead sessions design"
+description: "Design history: Dim dead sessions design."
+tags: ["orkworks", "design"]
+---
+
 # Dim dead sessions design
 
 ## Goal

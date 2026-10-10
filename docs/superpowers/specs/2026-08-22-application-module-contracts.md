@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Application-module contracts (current behavior freeze)"
+description: "Design history: Application-module contracts (current behavior freeze)."
+tags: ["orkworks", "design"]
+---
+
 # Application-module contracts (current behavior freeze)
 
 This is a characterization document for Tasks 2–4. It describes the symbols

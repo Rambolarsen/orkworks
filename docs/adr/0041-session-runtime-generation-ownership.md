@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Session runtime generation ownership"
+description: "Architecture decision record: Session runtime generation ownership."
+tags: ["orkworks", "architecture"]
+---
+
 # Session runtime generation ownership
 
 - Status: accepted

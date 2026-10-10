@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster Brain-guided next-step assessment"
+description: "Design history: Taskmaster Brain-guided next-step assessment."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster Brain-guided next-step assessment
 
 - Status: proposed; design reviewed in chat, written-spec review pending

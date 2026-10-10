@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Delivery plan: Review and return to the same terminal"
+description: "Implementation plan: Delivery plan: Review and return to the same terminal."
+tags: ["orkworks", "plans"]
+---
+
 # Delivery plan: Review and return to the same terminal
 
 **Issue:** [#780](https://github.com/Rambolarsen/orkworks/issues/780)  

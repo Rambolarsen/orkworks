@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness Adapters and Resumable Session Memory Design"
+description: "Design history: Harness Adapters and Resumable Session Memory Design."
+tags: ["orkworks", "design"]
+---
+
 # Harness Adapters and Resumable Session Memory Design
 
 > Issue: #23 Harness adapter interface and resumable session memory

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Generation-aware harness version probe cache"
+description: "Architecture decision record: Generation-aware harness version probe cache."
+tags: ["orkworks", "architecture"]
+---
+
 # Generation-aware harness version probe cache
 
 - Status: accepted

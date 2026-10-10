@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Local SonarQube analysis uses isolated checkout snapshots"
+description: "Architecture decision record: Local SonarQube analysis uses isolated checkout snapshots."
+tags: ["orkworks", "architecture"]
+---
+
 # Local SonarQube analysis uses isolated checkout snapshots
 
 - Status: accepted

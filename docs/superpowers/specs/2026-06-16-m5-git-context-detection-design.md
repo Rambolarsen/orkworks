@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "M5: Git Context Detection — Design"
+description: "Design history: M5: Git Context Detection — Design."
+tags: ["orkworks", "design"]
+---
+
 
 # M5: Git Context Detection — Design
 

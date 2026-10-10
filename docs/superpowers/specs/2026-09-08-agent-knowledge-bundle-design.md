@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Agent Knowledge Bundle Design"
+description: "Design history: Agent Knowledge Bundle Design."
+tags: ["orkworks", "design"]
+---
+
 # Agent Knowledge Bundle Design
 
 ## Goal

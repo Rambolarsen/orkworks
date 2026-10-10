@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Harness-reported cwd via existing hook payload"
+description: "Architecture decision record: Harness-reported cwd via existing hook payload."
+tags: ["orkworks", "architecture"]
+---
+
 # Harness-reported cwd via existing hook payload
 
 - Status: accepted

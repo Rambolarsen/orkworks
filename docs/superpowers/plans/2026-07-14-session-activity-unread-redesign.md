@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Session Activity and Unread Result Redesign Implementation Plan"
+description: "Implementation plan: Session Activity and Unread Result Redesign Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Session Activity and Unread Result Redesign Implementation Plan
 
 > Execute with the repository's `executing-plans`, `test-driven-development`,

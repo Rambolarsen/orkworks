@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Desktop Updater Design"
+description: "Design history: Desktop Updater Design."
+tags: ["orkworks", "design"]
+---
+
 # Desktop Updater Design
 
 **Status:** Revised after adversarial review; fixture-backed implementation scope

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Taskmaster reuses CLI logins and honors managed policy"
+description: "Architecture decision record: Taskmaster reuses CLI logins and honors managed policy."
+tags: ["orkworks", "architecture"]
+---
+
 # Taskmaster reuses CLI logins and honors managed policy
 
 - Status: accepted

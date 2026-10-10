@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session startup attention grace design"
+description: "Design history: Session startup attention grace design."
+tags: ["orkworks", "design"]
+---
+
 # Session startup attention grace design
 
 ## Problem

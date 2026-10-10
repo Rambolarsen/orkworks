@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Debug-Only Peon Diagnostics"
+description: "Design history: Debug-Only Peon Diagnostics."
+tags: ["orkworks", "design"]
+---
+
 # Debug-Only Peon Diagnostics
 
 ## Context

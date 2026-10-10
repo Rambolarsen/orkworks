@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Simplified session lifecycle design"
+description: "Design history: Simplified session lifecycle design."
+tags: ["orkworks", "design"]
+---
+
 # Simplified session lifecycle design
 
 > **Date:** 2026-07-12  

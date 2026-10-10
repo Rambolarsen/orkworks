@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Details Provider Context Design"
+description: "Design history: Session Details Provider Context Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Details Provider Context Design
 
 - Date: 2026-06-22

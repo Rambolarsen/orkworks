@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Recommendation Handoff Implementation Plan"
+description: "Implementation plan: Taskmaster Recommendation Handoff Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Recommendation Handoff Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

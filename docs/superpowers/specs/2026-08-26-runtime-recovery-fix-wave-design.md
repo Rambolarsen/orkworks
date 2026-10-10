@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Runtime Recovery Fix-Wave Design"
+description: "Design history: Runtime Recovery Fix-Wave Design."
+tags: ["orkworks", "design"]
+---
+
 # Runtime Recovery Fix-Wave Design
 
 ## Goal

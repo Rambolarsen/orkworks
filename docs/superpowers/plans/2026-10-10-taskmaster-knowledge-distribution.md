@@ -3,7 +3,7 @@ type: Plan
 title: Privacy-qualified Taskmaster knowledge implementation
 description: Deliver issue 529 through a reviewed Brain publisher, independently verified activation, and packaged offline/live evidence.
 tags: [orkworks, taskmaster, knowledge, privacy]
-status: active
+workflow_status: active
 ---
 
 # Privacy-qualified Taskmaster Knowledge Implementation Plan

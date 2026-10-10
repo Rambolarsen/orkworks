@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Taskmaster recommendation-aware agent handoff"
+description: "Architecture decision record: Taskmaster recommendation-aware agent handoff."
+tags: ["orkworks", "architecture"]
+---
+
 # Taskmaster recommendation-aware agent handoff
 
 - Status: accepted

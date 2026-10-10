@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Copilot 1.0.90 capture-control inspection packet"
+description: "Validation evidence and context: Copilot 1.0.90 capture-control inspection packet."
+tags: ["orkworks", "validation"]
+---
+
 # Copilot 1.0.90 capture-control inspection packet
 
 Static inspection on 2026-10-05 for [#740](https://github.com/Rambolarsen/orkworks/issues/740).

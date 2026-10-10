@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Codex Hooks Shared-File Ownership Design"
+description: "Design history: Codex Hooks Shared-File Ownership Design."
+tags: ["orkworks", "design"]
+---
+
 # Codex Hooks Shared-File Ownership Design
 
 ## Goal

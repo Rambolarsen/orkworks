@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Unread notification dot design"
+description: "Design history: Unread notification dot design."
+tags: ["orkworks", "design"]
+---
+
 # Unread notification dot design
 
 ## Purpose

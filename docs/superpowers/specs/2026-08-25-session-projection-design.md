@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Projection Design"
+description: "Design history: Session Projection Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Projection Design
 
 ## Goal

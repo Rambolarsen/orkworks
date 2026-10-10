@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Session Plan Review Implementation Plan"
+description: "Implementation plan: Session Plan Review Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Session Plan Review Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

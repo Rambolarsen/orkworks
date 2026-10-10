@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Copilot 1.0.90 selective-capture research"
+description: "Validation evidence and context: Copilot 1.0.90 selective-capture research."
+tags: ["orkworks", "validation"]
+---
+
 # Copilot 1.0.90 selective-capture research
 
 Date: 2026-10-05. Tracks [#740](https://github.com/Rambolarsen/orkworks/issues/740),

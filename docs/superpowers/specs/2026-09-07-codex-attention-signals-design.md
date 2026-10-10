@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Codex deterministic attention signals"
+description: "Design history: Codex deterministic attention signals."
+tags: ["orkworks", "design"]
+---
+
 # Codex deterministic attention signals
 
 ## Status

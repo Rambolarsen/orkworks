@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Work Selection Policy Design"
+description: "Design history: Work Selection Policy Design."
+tags: ["orkworks", "design"]
+---
+
 # Work Selection Policy Design
 
 Date: 2026-07-04

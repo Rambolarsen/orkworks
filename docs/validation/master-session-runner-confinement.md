@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Master-session runner native confinement gate"
+description: "Validation evidence and context: Master-session runner native confinement gate."
+tags: ["orkworks", "validation"]
+---
+
 # Master-session runner native confinement gate
 
 **Scope: historical confined-runner qualification, not an ordinary-child

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Agent Hierarchy Specification Implementation Plan"
+description: "Implementation plan: Agent Hierarchy Specification Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Agent Hierarchy Specification Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute the specification tasks with review checkpoints. Steps use checkbox (`- [ ]`) syntax for tracking. Each task requires an owned worktree; this plan does not start agents or authorize runtime implementation.

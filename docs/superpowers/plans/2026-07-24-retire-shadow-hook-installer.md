@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Retire the Shadow Hook Installer Implementation Plan"
+description: "Implementation plan: Retire the Shadow Hook Installer Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Retire the Shadow Hook Installer Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

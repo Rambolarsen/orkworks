@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "User-approved session review prompt"
+description: "Architecture decision record: User-approved session review prompt."
+tags: ["orkworks", "architecture"]
+---
+
 # User-approved session review prompt
 
 - Status: accepted

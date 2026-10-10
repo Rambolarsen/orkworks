@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "ADR 0080: Repository identity across Git worktrees"
+description: "Architecture decision record: ADR 0080: Repository identity across Git worktrees."
+tags: ["orkworks", "architecture"]
+---
+
 # ADR 0080: Repository identity across Git worktrees
 
 - Status: accepted

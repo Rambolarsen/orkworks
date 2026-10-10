@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Application Module Deepening Design"
+description: "Design history: Application Module Deepening Design."
+tags: ["orkworks", "design"]
+---
+
 # Application Module Deepening Design
 
 ## Goal

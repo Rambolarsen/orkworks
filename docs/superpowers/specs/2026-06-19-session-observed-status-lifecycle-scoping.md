@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Observed Status — Lifecycle Scoping"
+description: "Design history: Session Observed Status — Lifecycle Scoping."
+tags: ["orkworks", "design"]
+---
+
 # Session Observed Status — Lifecycle Scoping
 
 > **Date:** 2026-06-19

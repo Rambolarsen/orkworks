@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Analysis Run Status Implementation Plan"
+description: "Implementation plan: Taskmaster Analysis Run Status Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Analysis Run Status Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

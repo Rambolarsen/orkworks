@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Custom Inference Approval Flow Implementation Plan"
+description: "Implementation plan: Custom Inference Approval Flow Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Custom Inference Approval Flow Implementation Plan
 
 > **For agentic workers:** Use executing-plans inline. Root is sole writer; continue the owner-approved design without another design gate.

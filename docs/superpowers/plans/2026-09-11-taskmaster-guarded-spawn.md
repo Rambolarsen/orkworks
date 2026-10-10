@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster guarded spawn implementation plan"
+description: "Implementation plan: Taskmaster guarded spawn implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster guarded spawn implementation plan
 
 > **For agentic workers:** Use executing-plans for this sequential slice.

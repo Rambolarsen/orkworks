@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Hook-reported plan paths"
+description: "Design history: Hook-reported plan paths."
+tags: ["orkworks", "design"]
+---
+
 # Hook-reported plan paths
 
 ## Decision

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Copilot label reset commands design"
+description: "Design history: Copilot label reset commands design."
+tags: ["orkworks", "design"]
+---
+
 # Copilot label reset commands design
 
 ## Context

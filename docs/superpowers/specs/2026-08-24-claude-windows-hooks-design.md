@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Claude Windows Hooks Design"
+description: "Design history: Claude Windows Hooks Design."
+tags: ["orkworks", "design"]
+---
+
 # Claude Windows Hooks Design
 
 ## Goal

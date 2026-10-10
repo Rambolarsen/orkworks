@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex sessions use independent processes"
+description: "Architecture decision record: Codex sessions use independent processes."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex sessions use independent processes
 
 - Status: accepted

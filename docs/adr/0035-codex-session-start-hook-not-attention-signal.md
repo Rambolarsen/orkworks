@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex SessionStart hook captures session ID, not attention"
+description: "Architecture decision record: Codex SessionStart hook captures session ID, not attention."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex `SessionStart` hook captures session ID, not attention
 
 - Status: superseded by [0051](0051-codex-deterministic-attention-hooks.md)

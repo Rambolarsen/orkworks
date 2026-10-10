@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Harness tool version detection (per-harness minimum-version gating)"
+description: "Design history: Harness tool version detection (per-harness minimum-version gating)."
+tags: ["orkworks", "design"]
+---
+
 # Harness tool version detection (per-harness minimum-version gating)
 
 ## Context

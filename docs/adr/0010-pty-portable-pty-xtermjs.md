@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "PTY management via portable-pty, terminal rendering via xterm.js"
+description: "Architecture decision record: PTY management via portable-pty, terminal rendering via xterm.js."
+tags: ["orkworks", "architecture"]
+---
+
 # PTY management via `portable-pty`, terminal rendering via `xterm.js`
 
 - Status: accepted

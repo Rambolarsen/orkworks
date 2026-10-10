@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Attention signal via unauthenticated localhost endpoint, opt-in hook install only"
+description: "Architecture decision record: Attention signal via unauthenticated localhost endpoint, opt-in hook install only."
+tags: ["orkworks", "architecture"]
+---
+
 # Attention signal via unauthenticated localhost endpoint, opt-in hook install only
 
 - Status: superseded by [ADR 0026](./0026-resolved-harness-capability-registry.md)

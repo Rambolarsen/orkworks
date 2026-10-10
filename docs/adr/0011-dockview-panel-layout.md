@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Replace react-resizable-panels with dockview for draggable panel layout"
+description: "Architecture decision record: Replace react-resizable-panels with dockview for draggable panel layout."
+tags: ["orkworks", "architecture"]
+---
+
 # Replace `react-resizable-panels` with `dockview` for draggable panel layout
 
 - Status: superseded by ADR 0078

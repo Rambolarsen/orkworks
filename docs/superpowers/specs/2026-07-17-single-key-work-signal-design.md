@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Single-Key Work Signal Design"
+description: "Design history: Single-Key Work Signal Design."
+tags: ["orkworks", "design"]
+---
+
 # Single-Key Work Signal Design
 
 > **Superseded (2026-08-24):** the arm-then-wait-for-output mechanism this

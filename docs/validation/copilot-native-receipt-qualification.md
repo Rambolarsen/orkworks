@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Copilot 1.0.90 runtime and receipt qualification"
+description: "Validation evidence and context: Copilot 1.0.90 runtime and receipt qualification."
+tags: ["orkworks", "validation"]
+---
+
 # Copilot 1.0.90 runtime and receipt qualification
 
 - Date: 2026-10-05

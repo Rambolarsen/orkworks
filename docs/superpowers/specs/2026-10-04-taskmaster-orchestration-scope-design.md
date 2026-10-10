@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster ordinary-child orchestration scope alignment"
+description: "Design history: Taskmaster ordinary-child orchestration scope alignment."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster ordinary-child orchestration scope alignment
 
 - Status: accepted scope on 2026-10-04; runtime implementation remains gated

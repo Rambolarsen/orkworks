@@ -1,3 +1,10 @@
+---
+type: "User Guide"
+title: "Try OrkWorks"
+description: "User guide to try OrkWorks in OrkWorks."
+tags: ["orkworks", "user-guide"]
+---
+
 # Try OrkWorks
 
 Bring one project and one coding tool. OrkWorks gives you a place to run the

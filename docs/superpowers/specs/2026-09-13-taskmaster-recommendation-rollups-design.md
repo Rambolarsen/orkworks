@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster Recommendation Rollups"
+description: "Design history: Taskmaster Recommendation Rollups."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster Recommendation Rollups
 
 - Status: proposed

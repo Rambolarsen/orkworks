@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Orchestrated Child Sessions Implementation Plan"
+description: "Implementation plan: Taskmaster Orchestrated Child Sessions Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Orchestrated Child Sessions Implementation Plan
 
 > **For agentic workers:** Use superpowers:executing-plans for the documentation

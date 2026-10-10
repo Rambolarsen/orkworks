@@ -1,3 +1,10 @@
+---
+type: "Verification Record"
+title: "Codex native approval status verification"
+description: "Verification evidence: Codex native approval status verification."
+tags: ["orkworks", "verification"]
+---
+
 # Codex native approval status verification
 
 Tracked by [#690](https://github.com/Rambolarsen/orkworks/issues/690).

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "PR-aware session labels"
+description: "Design history: PR-aware session labels."
+tags: ["orkworks", "design"]
+---
+
 # PR-aware session labels
 
 ## Goal

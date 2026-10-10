@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Coding-tool role capabilities"
+description: "Validation evidence and context: Coding-tool role capabilities."
+tags: ["orkworks", "validation"]
+---
+
 # Coding-tool role capabilities
 
 Date: 2026-10-04

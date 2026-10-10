@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Recorded terminal-replay grid via per-session .terminal-size sidecar"
+description: "Architecture decision record: Recorded terminal-replay grid via per-session .terminal-size sidecar."
+tags: ["orkworks", "architecture"]
+---
+
 # Recorded terminal-replay grid via per-session `.terminal-size` sidecar
 
 - Status: superseded by [0046](./0046-live-resize-persistence-for-terminal-size-sidecar.md)

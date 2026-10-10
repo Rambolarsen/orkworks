@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Windows integrated header"
+description: "Design history: Windows integrated header."
+tags: ["orkworks", "design"]
+---
+
 # Windows integrated header
 
 Approved by the user on 2026-09-12: replace the separate Windows title bar with one integrated header, OrkWorks icon at the far left before the workspace name, native minimize/maximize/close controls at the right, and normal dragging and resizing.

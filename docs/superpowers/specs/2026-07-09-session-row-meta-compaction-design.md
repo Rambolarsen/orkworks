@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Row Meta Compaction Design"
+description: "Design history: Session Row Meta Compaction Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Row Meta Compaction Design
 
 ## Goal

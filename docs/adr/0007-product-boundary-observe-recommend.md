@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Product boundary: observe and recommend before controlling"
+description: "Architecture decision record: Product boundary: observe and recommend before controlling."
+tags: ["orkworks", "architecture"]
+---
+
 # Product boundary: observe and recommend before controlling
 
 - Status: accepted

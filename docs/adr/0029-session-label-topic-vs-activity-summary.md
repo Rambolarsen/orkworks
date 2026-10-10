@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary"
+description: "Architecture decision record: Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary."
+tags: ["orkworks", "architecture"]
+---
+
 # Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary
 
 - Status: superseded by [ADR 0042](./0042-workflow-observations-replace-summary-checkpoints.md)

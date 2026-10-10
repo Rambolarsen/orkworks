@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "PTY writes keep the session driver responsive"
+description: "Architecture decision record: PTY writes keep the session driver responsive."
+tags: ["orkworks", "architecture"]
+---
+
 # PTY writes keep the session driver responsive
 
 - Status: accepted

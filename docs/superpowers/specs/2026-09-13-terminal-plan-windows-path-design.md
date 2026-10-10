@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Windows terminal plan-path links"
+description: "Design history: Windows terminal plan-path links."
+tags: ["orkworks", "design"]
+---
+
 # Windows terminal plan-path links
 
 Date: 2026-09-13

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Resume Capacity Checking Implementation Plan"
+description: "Implementation plan: Resume Capacity Checking Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Resume Capacity Checking Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

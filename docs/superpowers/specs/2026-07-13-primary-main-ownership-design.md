@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Primary main Ownership Design"
+description: "Design history: Primary main Ownership Design."
+tags: ["orkworks", "design"]
+---
+
 # Primary `main` Ownership Design
 
 ## Context

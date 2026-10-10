@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Antigravity CLI harness migration"
+description: "Design history: Antigravity CLI harness migration."
+tags: ["orkworks", "design"]
+---
+
 # Antigravity CLI harness migration
 
 **Status:** proposed

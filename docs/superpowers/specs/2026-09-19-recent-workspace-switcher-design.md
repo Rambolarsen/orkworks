@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Recent workspace switcher (pin / remove) — design"
+description: "Design history: Recent workspace switcher (pin / remove) — design."
+tags: ["orkworks", "design"]
+---
+
 # Recent workspace switcher (pin / remove) — design
 
 Status: draft, pending user review

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Electron + React + TypeScript desktop shell"
+description: "Architecture decision record: Electron + React + TypeScript desktop shell."
+tags: ["orkworks", "architecture"]
+---
+
 # Electron + React + TypeScript desktop shell
 
 - Status: superseded by ADR 0078

@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster privacy prerequisite implementation plan"
+description: "Implementation plan: Taskmaster privacy prerequisite implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster privacy prerequisite implementation plan
 
 > **For agentic workers:** Execute inline using the executing-plans skill. Steps use checkbox (`- [ ]`) syntax for tracking.

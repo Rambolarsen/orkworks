@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Application shell and workflow navigation"
+description: "Design history: Application shell and workflow navigation."
+tags: ["orkworks", "design"]
+---
+
 # Application shell and workflow navigation
 
 - Status: approved design; runtime implementation and separately gated Workflow integration are not implemented

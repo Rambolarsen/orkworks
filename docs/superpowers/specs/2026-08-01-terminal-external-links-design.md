@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal External Links Design"
+description: "Design history: Terminal External Links Design."
+tags: ["orkworks", "design"]
+---
+
 # Terminal External Links Design
 
 ## Goal

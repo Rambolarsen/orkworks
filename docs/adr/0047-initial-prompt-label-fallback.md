@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Initial-prompt labels are replaceable bootstrap fallbacks"
+description: "Architecture decision record: Initial-prompt labels are replaceable bootstrap fallbacks."
+tags: ["orkworks", "architecture"]
+---
+
 # Initial-prompt labels are replaceable bootstrap fallbacks
 
 - Status: accepted

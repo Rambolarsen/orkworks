@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Global Scrollbar Styling Design"
+description: "Design history: Global Scrollbar Styling Design."
+tags: ["orkworks", "design"]
+---
+
 # Global Scrollbar Styling Design
 
 ## Goal

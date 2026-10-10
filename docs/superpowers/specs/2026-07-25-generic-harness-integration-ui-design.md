@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Generic harness integration UI (Gemini, Copilot)"
+description: "Design history: Generic harness integration UI (Gemini, Copilot)."
+tags: ["orkworks", "design"]
+---
+
 # Generic harness integration UI (Gemini, Copilot)
 
 ## Context

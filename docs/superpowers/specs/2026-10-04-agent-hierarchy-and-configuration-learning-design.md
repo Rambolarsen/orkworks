@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Agent hierarchy and configuration learning"
+description: "Design history: Agent hierarchy and configuration learning."
+tags: ["orkworks", "design"]
+---
+
 # Agent hierarchy and configuration learning
 
 - Status: proposed; work specification authorized, detailed contracts awaiting review

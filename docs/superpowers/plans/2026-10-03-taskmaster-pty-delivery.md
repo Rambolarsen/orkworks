@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster PTY delivery implementation plan"
+description: "Implementation plan: Taskmaster PTY delivery implementation plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster PTY delivery implementation plan
 
 > **For agentic workers:** Execute inline with the executing-plans workflow. Each step is a verification checkpoint.

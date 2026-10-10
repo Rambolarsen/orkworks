@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Worktree Agent Owner Guard Design"
+description: "Design history: Worktree Agent Owner Guard Design."
+tags: ["orkworks", "design"]
+---
+
 # Worktree Agent Owner Guard Design
 
 - Date: 2026-07-03

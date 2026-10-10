@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Integration lock-check-drop-await-relock helper"
+description: "Architecture decision record: Integration lock-check-drop-await-relock helper."
+tags: ["orkworks", "architecture"]
+---
+
 # Integration lock-check-drop-await-relock helper
 
 - Status: accepted

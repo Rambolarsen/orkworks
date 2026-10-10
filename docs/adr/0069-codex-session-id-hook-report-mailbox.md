@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex native session IDs use a temporary hook report mailbox when sandboxed networking blocks loopback"
+description: "Architecture decision record: Codex native session IDs use a temporary hook report mailbox when sandboxed networking blocks loopback."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex native session IDs use a temporary hook report mailbox when sandboxed networking blocks loopback
 
 - Status: accepted

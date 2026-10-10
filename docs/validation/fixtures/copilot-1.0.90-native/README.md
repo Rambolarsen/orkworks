@@ -1,3 +1,10 @@
+---
+type: "Validation Record"
+title: "Native 1.0.90 static inspection packet"
+description: "Validation evidence and context: Native 1.0.90 static inspection packet."
+tags: ["orkworks", "validation"]
+---
+
 # Native 1.0.90 static inspection packet
 
 This packet contains source/schema selections and identities, not runtime

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Provider context is session-scoped, not app-wide"
+description: "Architecture decision record: Provider context is session-scoped, not app-wide."
+tags: ["orkworks", "architecture"]
+---
+
 # Provider context is session-scoped, not app-wide
 
 - Status: superseded

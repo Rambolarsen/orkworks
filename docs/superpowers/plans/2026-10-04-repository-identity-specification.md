@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Repository identity specification task"
+description: "Implementation plan: Repository identity specification task."
+tags: ["orkworks", "plans"]
+---
+
 # Repository identity specification task
 
 - Status: documentation task in progress; runtime planning remains gated

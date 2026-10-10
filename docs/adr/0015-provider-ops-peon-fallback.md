@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Provider ops panel and app-wide Peon fallback"
+description: "Architecture decision record: Provider ops panel and app-wide Peon fallback."
+tags: ["orkworks", "architecture"]
+---
+
 # Provider ops panel and app-wide Peon fallback
 
 - Status: superseded by 0016

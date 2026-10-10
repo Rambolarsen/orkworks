@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Codex Native Session Labels"
+description: "Design history: Codex Native Session Labels."
+tags: ["orkworks", "design"]
+---
+
 # Codex Native Session Labels
 
 Status: approved design

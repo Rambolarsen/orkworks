@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "ADR 0077: Orchestrated children use the ordinary session runtime"
+description: "Architecture decision record: ADR 0077: Orchestrated children use the ordinary session runtime."
+tags: ["orkworks", "architecture"]
+---
+
 # ADR 0077: Orchestrated children use the ordinary session runtime
 
 - Status: accepted scope; runtime implementation remains gated

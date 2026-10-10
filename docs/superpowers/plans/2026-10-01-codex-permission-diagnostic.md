@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Codex Permission Diagnostic Implementation Plan"
+description: "Implementation plan: Codex Permission Diagnostic Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Codex Permission Diagnostic Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

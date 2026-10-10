@@ -1,0 +1,89 @@
+# Architecture decisions
+
+Decision records and their original rationale and consequences.
+
+## Documents
+
+- [Record architecture decisions](0001-record-architecture-decisions.md) — Architecture decision record: Record architecture decisions.
+- [Electron + React + TypeScript desktop shell](0002-electron-react-typescript-desktop.md) — Architecture decision record: Electron + React + TypeScript desktop shell.
+- [Rust backend sidecar with Axum over localhost HTTP/WebSocket](0003-rust-backend-axum-localhost.md) — Architecture decision record: Rust backend sidecar with Axum over localhost HTTP/WebSocket.
+- [.orkworks/ metadata protocol directory structure](0004-orkworks-metadata-protocol.md) — Architecture decision record: .orkworks/ metadata protocol directory structure.
+- [Metadata source priority](0005-metadata-source-priority.md) — Architecture decision record: Metadata source priority.
+- [Peon: observer-only inference in MVP](0006-peon-observer-only-mvp.md) — Architecture decision record: Peon: observer-only inference in MVP.
+- [Product boundary: observe and recommend before controlling](0007-product-boundary-observe-recommend.md) — Architecture decision record: Product boundary: observe and recommend before controlling.
+- [Git context detection first, not workflow control](0008-git-context-detection-not-control.md) — Architecture decision record: Git context detection first, not workflow control.
+- [Electron security posture](0009-electron-security-posture.md) — Architecture decision record: Electron security posture.
+- [PTY management via portable-pty, terminal rendering via xterm.js](0010-pty-portable-pty-xtermjs.md) — Architecture decision record: PTY management via portable-pty, terminal rendering via xterm.js.
+- [Replace react-resizable-panels with dockview for draggable panel layout](0011-dockview-panel-layout.md) — Architecture decision record: Replace react-resizable-panels with dockview for draggable panel layout.
+- [Peon scope expands to per-repo](0012-peon-repo-scope.md) — Architecture decision record: Peon scope expands to per-repo.
+- [Single-active-context primitive: session = context, switching = context-switch](0013-single-active-context-primitive.md) — Architecture decision record: Single-active-context primitive: session = context, switching = context-switch.
+- [Main-process-owned app settings and menu accelerators](0014-main-process-owned-app-settings.md) — Architecture decision record: Main-process-owned app settings and menu accelerators.
+- [Provider ops panel and app-wide Peon fallback](0015-provider-ops-peon-fallback.md) — Architecture decision record: Provider ops panel and app-wide Peon fallback.
+- [Session details provider context](0016-session-details-provider-context.md) — Architecture decision record: Session details provider context.
+- [Provider context is session-scoped, not app-wide](0017-provider-context-session-scoped.md) — Architecture decision record: Provider context is session-scoped, not app-wide.
+- [Move metadata store from workspace directory to global config directory](0018-global-metadata-store.md) — Architecture decision record: Move metadata store from workspace directory to global config directory.
+- [Attention signal via unauthenticated localhost endpoint, opt-in hook install only](0019-attention-signal-endpoint-opt-in-hook-install.md) — Architecture decision record: Attention signal via unauthenticated localhost endpoint, opt-in hook install only.
+- [Phosphor visual refresh: cool-graphite + lime token layer](0020-phosphor-visual-refresh-token-layer.md) — Architecture decision record: Phosphor visual refresh: cool-graphite + lime token layer.
+- [Explicit session lifecycle phases with frozen final observed state](0021-session-lifecycle-phases.md) — Architecture decision record: Explicit session lifecycle phases with frozen final observed state.
+- [Session-runtime-owned PTY lifetime](0022-session-runtime-owned-pty-lifetime.md) — Architecture decision record: Session-runtime-owned PTY lifetime.
+- [Simplified session lifecycle and alive-only attention](0023-simplified-session-lifecycle.md) — Architecture decision record: Simplified session lifecycle and alive-only attention.
+- [Bounded terminal replay with durable summary checkpoints](0024-bounded-terminal-replay-durable-summary-checkpoints.md) — Architecture decision record: Bounded terminal replay with durable summary checkpoints.
+- [Authenticated session plan handoff](0025-authenticated-session-plan-handoff.md) — Architecture decision record: Authenticated session plan handoff.
+- [Resolved harness capability registry](0026-resolved-harness-capability-registry.md) — Architecture decision record: Resolved harness capability registry.
+- [Observed-status/attention writes owned by one runtime module](0027-observed-status-attention-owning-module.md) — Architecture decision record: Observed-status/attention writes owned by one runtime module.
+- [Generation-aware harness version probe cache](0028-generation-aware-harness-version-probe-cache.md) — Architecture decision record: Generation-aware harness version probe cache.
+- [Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary](0029-session-label-topic-vs-activity-summary.md) — Architecture decision record: Session label is a one-shot Peon-authored topic, decoupled from the turn-by-turn summary.
+- [Integration lock-check-drop-await-relock helper](0030-integration-lock-check-await-helper.md) — Architecture decision record: Integration lock-check-drop-await-relock helper.
+- [Live session cwd via cross-platform sysinfo probe](0031-live-session-cwd-via-sysinfo-probe.md) — Architecture decision record: Live session cwd via cross-platform sysinfo probe.
+- [Harness-reported cwd via existing hook payload](0032-harness-reported-cwd-via-hook-payload.md) — Architecture decision record: Harness-reported cwd via existing hook payload.
+- [Recorded terminal-replay grid via per-session .terminal-size sidecar](0033-recorded-terminal-replay-size-sidecar.md) — Architecture decision record: Recorded terminal-replay grid via per-session .terminal-size sidecar.
+- [User-approved session review prompt](0034-user-approved-session-review-prompt.md) — Architecture decision record: User-approved session review prompt.
+- [Codex SessionStart hook captures session ID, not attention](0035-codex-session-start-hook-not-attention-signal.md) — Architecture decision record: Codex SessionStart hook captures session ID, not attention.
+- [Codex hook installation uses a portable, home-relative reporter path](0036-codex-hooks-portable-reporter-path.md) — Architecture decision record: Codex hook installation uses a portable, home-relative reporter path.
+- [Hook-reported plan paths](0037-hook-reported-plan-paths.md) — Architecture decision record: Hook-reported plan paths.
+- [Claude PostToolUse plan-path transport](0038-claude-plan-path-post-tool-use-hook.md) — Architecture decision record: Claude PostToolUse plan-path transport.
+- [Terminal plan link selection](0039-terminal-plan-link-selection.md) — Architecture decision record: Terminal plan link selection.
+- [Harness-declared session-label reset commands](0040-harness-declared-session-label-resets.md) — Architecture decision record: Harness-declared session-label reset commands.
+- [Session runtime generation ownership](0041-session-runtime-generation-ownership.md) — Architecture decision record: Session runtime generation ownership.
+- [Workflow observations replace summary checkpoints](0042-workflow-observations-replace-summary-checkpoints.md) — Architecture decision record: Workflow observations replace summary checkpoints.
+- [Harness hook configuration is local; doc checks use a committed shared source](0043-local-harness-hook-configuration.md) — Architecture decision record: Harness hook configuration is local; doc checks use a committed shared source.
+- [Peon provider-first selection](0044-peon-provider-first-selection.md) — Architecture decision record: Peon provider-first selection.
+- [improve_workflow recommendation lifecycle statuses](0045-improve-workflow-lifecycle-statuses.md) — Architecture decision record: improve_workflow recommendation lifecycle statuses.
+- [Live-resize persistence for the per-session .terminal-size sidecar](0046-live-resize-persistence-for-terminal-size-sidecar.md) — Architecture decision record: Live-resize persistence for the per-session .terminal-size sidecar.
+- [Initial-prompt labels are replaceable bootstrap fallbacks](0047-initial-prompt-label-fallback.md) — Architecture decision record: Initial-prompt labels are replaceable bootstrap fallbacks.
+- [improve_workflow gains an explicit accept action that sends a fix prompt to the active session](0048-improve-workflow-accept-sends-fix-prompt-to-active-session.md) — Architecture decision record: improve_workflow gains an explicit accept action that sends a fix prompt to the active session.
+- [Codex app-server is the live Peon model catalog](0049-codex-app-server-peon-model-discovery.md) — Architecture decision record: Codex app-server is the live Peon model catalog.
+- [Taskmaster recommendation-aware agent handoff](0050-taskmaster-recommendation-aware-agent-handoff.md) — Architecture decision record: Taskmaster recommendation-aware agent handoff.
+- [Codex deterministic attention hooks](0051-codex-deterministic-attention-hooks.md) — Architecture decision record: Codex deterministic attention hooks.
+- [Single-writer workspace lease for the sidecar](0052-single-writer-workspace-lease.md) — Architecture decision record: Single-writer workspace lease for the sidecar.
+- [Taskmaster knowledge distribution and independent analysis](0053-taskmaster-knowledge-and-analysis.md) — Architecture decision record: Taskmaster knowledge distribution and independent analysis.
+- [Taskmaster reuses CLI logins and honors managed policy](0054-taskmaster-honors-managed-cli-policy.md) — Architecture decision record: Taskmaster reuses CLI logins and honors managed policy.
+- [JSON-defined Taskmaster inference adapters](0055-json-taskmaster-inference-adapters.md) — Architecture decision record: JSON-defined Taskmaster inference adapters.
+- [One sidecar per open workspace](0056-one-sidecar-per-open-workspace.md) — Architecture decision record: One sidecar per open workspace.
+- [Taskmaster recommendation rollups](0057-taskmaster-recommendation-rollups.md) — Architecture decision record: Taskmaster recommendation rollups.
+- [Signed release artifacts and native verification](0058-signed-release-artifacts-and-native-verification.md) — Architecture decision record: Signed release artifacts and native verification.
+- [Immutable daily prereleases](0059-immutable-daily-prereleases.md) — Architecture decision record: Immutable daily prereleases.
+- [Independent workspace instances](0060-independent-workspace-instances.md) — Architecture decision record: Independent workspace instances.
+- [Pinned and enumerable installation-scoped workspace history](0061-pinned-workspace-history.md) — Architecture decision record: Pinned and enumerable installation-scoped workspace history.
+- [ADR 0062: Guided completion packets stay recommendation projections](0062-guided-completion-packets.md) — Architecture decision record: ADR 0062: Guided completion packets stay recommendation projections.
+- [Codex native session names enrich automatic session labels](0063-codex-native-session-labels.md) — Architecture decision record: Codex native session names enrich automatic session labels.
+- [ADR 0064: Bounded Taskmaster coordinator uses approved root plans](0064-bounded-taskmaster-coordinator.md) — Architecture decision record: ADR 0064: Bounded Taskmaster coordinator uses approved root plans.
+- [Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer](0065-ingestion-time-hard-wrap-reassembly.md) — Architecture decision record: Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer.
+- [Hook-owned prompt attention for Codex and OpenCode](0066-hook-owned-prompt-attention.md) — Architecture decision record: Hook-owned prompt attention for Codex and OpenCode.
+- [Codex exact session identity and resume](0067-codex-exact-session-identity-and-resume.md) — Architecture decision record: Codex exact session identity and resume.
+- [Codex subagents share the owning OrkWorks session identity](0068-codex-subagents-share-owning-session-identity.md) — Architecture decision record: Codex subagents share the owning OrkWorks session identity.
+- [Codex native session IDs use a temporary hook report mailbox when sandboxed networking blocks loopback](0069-codex-session-id-hook-report-mailbox.md) — Architecture decision record: Codex native session IDs use a temporary hook report mailbox when sandboxed networking blocks loopback.
+- [Alternate-buffer wheel input survives xterm dampening](0070-alt-buffer-wheel-input-survives-xterm-dampening.md) — Architecture decision record: Alternate-buffer wheel input survives xterm dampening.
+- [Taskmaster owns model refresh and workspace-scoped analysis status](0071-taskmaster-model-refresh-and-run-status.md) — Architecture decision record: Taskmaster owns model refresh and workspace-scoped analysis status.
+- [Codex sessions use independent processes](0072-codex-session-process-isolation.md) — Architecture decision record: Codex sessions use independent processes.
+- [Prompt-attention authority is event-validated for Claude and Copilot; Aider stays on Peon fallback](0073-other-harness-prompt-attention-authority.md) — Architecture decision record: Prompt-attention authority is event-validated for Claude and Copilot; Aider stays on Peon fallback.
+- [Accumulate alternate-buffer trackpad input](0074-accumulate-alternate-buffer-trackpad-input.md) — Architecture decision record: Accumulate alternate-buffer trackpad input.
+- [PTY writes keep the session driver responsive](0075-responsive-pty-input-delivery.md) — Architecture decision record: PTY writes keep the session driver responsive.
+- [Codex approval status from a runtime-owned native server](0076-codex-owned-native-approval-observer.md) — Architecture decision record: Codex approval status from a runtime-owned native server.
+- [ADR 0077: Orchestrated children use the ordinary session runtime](0077-taskmaster-orchestrated-child-sessions.md) — Architecture decision record: ADR 0077: Orchestrated children use the ordinary session runtime.
+- [Fixed desktop shell with central navigation](0078-fixed-desktop-shell-and-central-navigation.md) — Architecture decision record: Fixed desktop shell with central navigation.
+- [Local SonarQube analysis uses isolated checkout snapshots](0079-local-sonarqube-analysis.md) — Architecture decision record: Local SonarQube analysis uses isolated checkout snapshots.
+- [ADR 0080: Repository identity across Git worktrees](0080-repository-identity-across-worktrees.md) — Architecture decision record: ADR 0080: Repository identity across Git worktrees.
+- [Signed Taskmaster knowledge activation proof](0081-signed-taskmaster-knowledge-activation-proof.md) — Architecture decision record: Signed Taskmaster knowledge activation proof.
+- [Architecture Decision Records](README.md) — Index and authoring guidance for architecture decision records.
+- [\[short title of solved problem and solution\]](template.md) — Template for recording architecture decisions and their consequences.

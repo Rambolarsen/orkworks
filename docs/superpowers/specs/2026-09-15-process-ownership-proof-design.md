@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Process Ownership Proof Design"
+description: "Design history: Process Ownership Proof Design."
+tags: ["orkworks", "design"]
+---
+
 # Process Ownership Proof Design
 
 Status: revised draft for issue #545; Task 7 evidence recorded, production integration blocked

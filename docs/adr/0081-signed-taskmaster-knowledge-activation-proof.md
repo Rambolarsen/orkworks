@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Signed Taskmaster knowledge activation proof"
+description: "Architecture decision record: Signed Taskmaster knowledge activation proof."
+tags: ["orkworks", "architecture"]
+---
+
 # Signed Taskmaster knowledge activation proof
 
 - Status: accepted

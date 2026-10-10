@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Peon Idle Scheduling Implementation Plan"
+description: "Implementation plan: Peon Idle Scheduling Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Peon Idle Scheduling Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

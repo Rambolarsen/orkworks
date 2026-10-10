@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Claude Code working hook"
+description: "Implementation plan: Claude Code working hook."
+tags: ["orkworks", "plans"]
+---
+
 # Claude Code working hook
 
 ## Harness adapter note

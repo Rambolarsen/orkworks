@@ -3,7 +3,7 @@ type: Implementation Plan
 title: Harness integration application extraction
 description: Extract existing Rust integration orchestration behind a typed application interface and preserve every existing transport and runtime behavior.
 tags: [harness, integration, refactor]
-status: accepted
+workflow_status: accepted
 ---
 
 # Harness integration application extraction

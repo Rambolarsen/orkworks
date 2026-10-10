@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Workflow observation feedback loop design"
+description: "Design history: Workflow observation feedback loop design."
+tags: ["orkworks", "design"]
+---
+
 # Workflow observation feedback loop design
 
 ## Context

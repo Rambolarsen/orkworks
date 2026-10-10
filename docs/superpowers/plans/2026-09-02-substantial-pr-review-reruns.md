@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Substantial PR Review Reruns Implementation Plan"
+description: "Implementation plan: Substantial PR Review Reruns Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Substantial PR Review Reruns Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

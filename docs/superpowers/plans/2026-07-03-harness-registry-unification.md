@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Harness Registry Unification Implementation Plan"
+description: "Implementation plan: Harness Registry Unification Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Harness Registry Unification Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

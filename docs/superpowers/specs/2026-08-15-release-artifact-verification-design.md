@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Release Artifact Verification Design"
+description: "Design history: Release Artifact Verification Design."
+tags: ["orkworks", "design"]
+---
+
 # Release Artifact Verification Design
 
 - Status: accepted

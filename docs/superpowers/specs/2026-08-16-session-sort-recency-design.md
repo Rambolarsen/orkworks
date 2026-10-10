@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session list sort by recency, throttled"
+description: "Design history: Session list sort by recency, throttled."
+tags: ["orkworks", "design"]
+---
+
 # Session list sort by recency, throttled
 
 Supersedes `2026-07-31-session-list-stability-design.md`, whose one-minute

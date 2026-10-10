@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Peon provider-first selection"
+description: "Architecture decision record: Peon provider-first selection."
+tags: ["orkworks", "architecture"]
+---
+
 # Peon provider-first selection
 
 - Status: proposed

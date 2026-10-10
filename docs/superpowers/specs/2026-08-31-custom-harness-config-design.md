@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Custom Harness Configuration"
+description: "Design history: Custom Harness Configuration."
+tags: ["orkworks", "design"]
+---
+
 # Custom Harness Configuration
 
 - Status: approved for implementation planning

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal Single-Attach Design"
+description: "Design history: Terminal Single-Attach Design."
+tags: ["orkworks", "design"]
+---
+
 # Terminal Single-Attach Design
 
 > **Date:** 2026-07-05

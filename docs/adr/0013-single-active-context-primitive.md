@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Single-active-context primitive: session = context, switching = context-switch"
+description: "Architecture decision record: Single-active-context primitive: session = context, switching = context-switch."
+tags: ["orkworks", "architecture"]
+---
+
 # Single-active-context primitive: session = context, switching = context-switch
 
 - Status: superseded by ADR 0078

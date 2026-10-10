@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Master-session parallel runner"
+description: "Design history: Master-session parallel runner."
+tags: ["orkworks", "design"]
+---
+
 # Master-session parallel runner
 
 > Historical proposal, superseded as the orchestration direction by accepted

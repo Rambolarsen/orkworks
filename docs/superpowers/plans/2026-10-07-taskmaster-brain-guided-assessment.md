@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster Brain-guided Assessment Implementation Plan"
+description: "Implementation plan: Taskmaster Brain-guided Assessment Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster Brain-guided Assessment Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

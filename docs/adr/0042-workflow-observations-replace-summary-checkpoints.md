@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Workflow observations replace summary checkpoints"
+description: "Architecture decision record: Workflow observations replace summary checkpoints."
+tags: ["orkworks", "architecture"]
+---
+
 # Workflow observations replace summary checkpoints
 
 - Status: accepted (the reachable-status clause of the "Embedded

@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Taskmaster native child-launch boundary"
+description: "Design history: Taskmaster native child-launch boundary."
+tags: ["orkworks", "design"]
+---
+
 # Taskmaster native child-launch boundary
 
 - Status: superseded by proposed replacement

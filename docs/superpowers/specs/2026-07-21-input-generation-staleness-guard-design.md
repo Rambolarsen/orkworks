@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Input-generation staleness guard"
+description: "Design history: Input-generation staleness guard."
+tags: ["orkworks", "design"]
+---
+
 # Input-generation staleness guard
 
 ## Context

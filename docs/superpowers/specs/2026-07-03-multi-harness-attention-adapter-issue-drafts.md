@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Multi-Harness Attention Adapter Issue Drafts"
+description: "Design history: Multi-Harness Attention Adapter Issue Drafts."
+tags: ["orkworks", "design"]
+---
+
 # Multi-Harness Attention Adapter Issue Drafts
 
 - Date: 2026-07-03

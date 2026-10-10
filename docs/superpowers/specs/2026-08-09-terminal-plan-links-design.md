@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal plan links"
+description: "Design history: Terminal plan links."
+tags: ["orkworks", "design"]
+---
+
 # Terminal plan links
 
 **Status:** proposed

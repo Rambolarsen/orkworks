@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "PR 764 Review Cycle 6 Implementation Plan"
+description: "Implementation plan: PR 764 Review Cycle 6 Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # PR 764 Review Cycle 6 Implementation Plan
 
 > **For agentic workers:** Execute inline in the authorized PR worktree. Each finding gets a failing regression test, a minimal fix, and focused verification before moving to the next finding.

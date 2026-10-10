@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Hook-owned prompt attention for Codex and OpenCode"
+description: "Architecture decision record: Hook-owned prompt attention for Codex and OpenCode."
+tags: ["orkworks", "architecture"]
+---
+
 # Hook-owned prompt attention for Codex and OpenCode
 
 - Status: accepted

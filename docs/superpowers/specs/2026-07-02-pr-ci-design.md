@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "PR CI Design"
+description: "Design history: PR CI Design."
+tags: ["orkworks", "design"]
+---
+
 # PR CI Design
 
 - Date: 2026-07-02

@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer"
+description: "Architecture decision record: Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer."
+tags: ["orkworks", "architecture"]
+---
+
 # Hard-wrap reassembly moves to PTY ingestion, before the shared output buffer
 
 - Status: accepted

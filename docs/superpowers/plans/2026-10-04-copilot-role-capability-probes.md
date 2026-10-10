@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Copilot role capability probe plan"
+description: "Implementation plan: Copilot role capability probe plan."
+tags: ["orkworks", "plans"]
+---
+
 # Copilot role capability probe plan
 
 > **For agentic workers:** Use `executing-plans` for this bounded research session. Steps use checkbox syntax. This is a proposed probe plan, not runtime implementation or authorization to start another coding harness from the current session.

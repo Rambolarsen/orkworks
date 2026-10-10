@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session List Duplicate Prevention Design"
+description: "Design history: Session List Duplicate Prevention Design."
+tags: ["orkworks", "design"]
+---
+
 # Session List Duplicate Prevention Design
 
 ## Problem

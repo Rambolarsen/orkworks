@@ -1,3 +1,10 @@
+---
+type: "Reference"
+title: "Developer documentation"
+description: "Product specifications, architecture decisions, and contribution context for OrkWorks developers."
+tags: ["orkworks", "documentation"]
+---
+
 # Developer documentation
 
 Looking to try the app? Start with [Getting started](/docs/user/getting-started).

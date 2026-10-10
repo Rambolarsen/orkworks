@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "External Links in Default Browser Implementation Plan"
+description: "Implementation plan: External Links in Default Browser Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # External Links in Default Browser Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

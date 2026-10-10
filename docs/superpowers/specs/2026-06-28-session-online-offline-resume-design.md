@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Online/Offline Resume Design"
+description: "Design history: Session Online/Offline Resume Design."
+tags: ["orkworks", "design"]
+---
+
 # Session Online/Offline Resume Design
 
 ## Summary

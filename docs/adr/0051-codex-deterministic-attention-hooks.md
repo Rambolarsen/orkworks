@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Codex deterministic attention hooks"
+description: "Architecture decision record: Codex deterministic attention hooks."
+tags: ["orkworks", "architecture"]
+---
+
 # Codex deterministic attention hooks
 
 - Status: accepted

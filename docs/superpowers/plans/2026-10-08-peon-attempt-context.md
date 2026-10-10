@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Peon AttemptContext Implementation Plan"
+description: "Implementation plan: Peon AttemptContext Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Peon AttemptContext Implementation Plan
 
 > **For agentic workers:** Execute this plan inline in the current issue #401 worktree. Steps use checkbox (`- [x]`) syntax for tracking.

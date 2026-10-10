@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Runtime Recovery Latest-Fix Design"
+description: "Design history: Runtime Recovery Latest-Fix Design."
+tags: ["orkworks", "design"]
+---
+
 # Runtime Recovery Latest-Fix Design
 
 ## Goal

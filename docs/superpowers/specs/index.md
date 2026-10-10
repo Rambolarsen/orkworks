@@ -1,0 +1,161 @@
+# Design history
+
+Dated design records; these do not establish current product behavior.
+
+## Documents
+
+- [M4: Session Metadata Protocol — Design](2026-06-16-m4-session-metadata-protocol-design.md) — Design history: M4: Session Metadata Protocol — Design.
+- [M5: Git Context Detection — Design](2026-06-16-m5-git-context-detection-design.md) — Design history: M5: Git Context Detection — Design.
+- [M6: Peon — Observer Inference Design](2026-06-16-m6-peon-design.md) — Design history: M6: Peon — Observer Inference Design.
+- [Dockview Session Awareness — Design](2026-06-17-dockview-session-detail-design.md) — Design history: Dockview Session Awareness — Design.
+- [Harness Adapters and Resumable Session Memory Design](2026-06-17-harness-adapters-resumable-sessions-design.md) — Design history: Harness Adapters and Resumable Session Memory Design.
+- [Panel Persist & Restore — Design](2026-06-17-panel-persist-restore-design.md) — Design history: Panel Persist & Restore — Design.
+- [App Settings and Configurable Hotkeys — Design](2026-06-18-app-settings-hotkeys-design.md) — Design history: App Settings and Configurable Hotkeys — Design.
+- [Dockview Header Unification — Design](2026-06-18-dockview-header-unification-design.md) — Design history: Dockview Header Unification — Design.
+- [Session Observed Status — Lifecycle Scoping](2026-06-19-session-observed-status-lifecycle-scoping.md) — Design history: Session Observed Status — Lifecycle Scoping.
+- [Session Deletion & Retention Policy](2026-06-20-session-deletion-design.md) — Design history: Session Deletion & Retention Policy.
+- [Peon Model Picker Design](2026-06-22-peon-model-picker-design.md) — Design history: Peon Model Picker Design.
+- [Session Aggregate DDD Extraction](2026-06-22-session-aggregate-ddd-extraction.md) — Design history: Session Aggregate DDD Extraction.
+- [Session Details Provider Context Design](2026-06-22-session-details-provider-context-design.md) — Design history: Session Details Provider Context Design.
+- [Hermes Harness Adapter Design](2026-06-23-hermes-harness-adapter-design.md) — Design history: Hermes Harness Adapter Design.
+- [Local Model Providers: Ollama-First Design](2026-06-23-local-model-providers-ollama-design.md) — Design history: Local Model Providers: Ollama-First Design.
+- [Repo Learning Loop Design](2026-06-23-repo-learning-loop-design.md) — Design history: Repo Learning Loop Design.
+- [Ollama Harness Pass-Through Validation](2026-06-24-ollama-harness-pass-through-validation.md) — Design history: Ollama Harness Pass-Through Validation.
+- [Attention Signal: Claude Code Notification Hook Design](2026-06-25-attention-signal-claude-code-hook-design.md) — Design history: Attention Signal: Claude Code Notification Hook Design.
+- [OrkWorks Terminology and Domain Boundary Migration Design](2026-06-25-terminology-domain-migration-design.md) — Design history: OrkWorks Terminology and Domain Boundary Migration Design.
+- [Harness Session ID Capture Design](2026-06-26-harness-session-id-capture-design.md) — Design history: Harness Session ID Capture Design.
+- [Harness Usage Limit Detection](2026-06-28-harness-usage-limit-detection-design.md) — Design history: Harness Usage Limit Detection.
+- [Session Online/Offline Resume Design](2026-06-28-session-online-offline-resume-design.md) — Design history: Session Online/Offline Resume Design.
+- [APM-Managed MCP Configuration Design](2026-06-30-apm-managed-mcp-design.md) — Design history: APM-Managed MCP Configuration Design.
+- [Session Details Debug IDs Design](2026-06-30-session-details-debug-ids-design.md) — Design history: Session Details Debug IDs Design.
+- [PR CI Design](2026-07-02-pr-ci-design.md) — Design history: PR CI Design.
+- [APM And Superpowers Hook Fix Design](2026-07-03-apm-superpowers-hook-fix-design.md) — Design history: APM And Superpowers Hook Fix Design.
+- [Harness Integration Install State Design](2026-07-03-harness-integration-install-state-design.md) — Design history: Harness Integration Install State Design.
+- [Harness Registry Unification](2026-07-03-harness-registry-unification-design.md) — Design history: Harness Registry Unification.
+- [Multi-Harness Attention Adapter Issue Drafts](2026-07-03-multi-harness-attention-adapter-issue-drafts.md) — Design history: Multi-Harness Attention Adapter Issue Drafts.
+- [Multi-Harness Attention Adapters Design](2026-07-03-multi-harness-attention-adapters-design.md) — Design history: Multi-Harness Attention Adapters Design.
+- [Resume Capacity Checking](2026-07-03-resume-capacity-checking-design.md) — Design history: Resume Capacity Checking.
+- [Session Lifecycle Phase Design](2026-07-03-session-lifecycle-phase-design.md) — Design history: Session Lifecycle Phase Design.
+- [Worktree Agent Owner Guard Design](2026-07-03-worktree-agent-owner-guard-design.md) — Design history: Worktree Agent Owner Guard Design.
+- [Docs Site (Companion Webpage) Design](2026-07-04-docs-site-design.md) — Design history: Docs Site (Companion Webpage) Design.
+- [Peon Idle Start Timer Design](2026-07-04-peon-idle-start-timer-design.md) — Design history: Peon Idle Start Timer Design.
+- [Work Selection Policy Design](2026-07-04-work-selection-policy-design.md) — Design history: Work Selection Policy Design.
+- [Peon Ollama Settings Verification Design](2026-07-05-peon-ollama-settings-verification-design.md) — Design history: Peon Ollama Settings Verification Design.
+- [Terminal Single-Attach Design](2026-07-05-terminal-single-attach-design.md) — Design history: Terminal Single-Attach Design.
+- [Session State Injection Design](2026-07-06-session-state-injection-design.md) — Design history: Session State Injection Design.
+- [PTY Output Backpressure Design](2026-07-07-pty-output-backpressure-design.md) — Design history: PTY Output Backpressure Design.
+- [Terminal Detach Runtime Design](2026-07-07-terminal-detach-runtime-design.md) — Design history: Terminal Detach Runtime Design.
+- [Codex Stop Hook JSON Design](2026-07-09-codex-stop-hook-json-design.md) — Design history: Codex Stop Hook JSON Design.
+- [Session Row Meta Compaction Design](2026-07-09-session-row-meta-compaction-design.md) — Design history: Session Row Meta Compaction Design.
+- [Cap PTY Partial-Line Persistence Buffer Design](2026-07-10-cap-persist-buffer-design.md) — Design history: Cap PTY Partial-Line Persistence Buffer Design.
+- [PR 153 Review Fixes Design](2026-07-10-pr-153-review-fixes-design.md) — Design history: PR 153 Review Fixes Design.
+- [Terminal Handle Pruning Design](2026-07-10-terminal-handle-pruning-design.md) — Design history: Terminal Handle Pruning Design.
+- [Peon idle scheduling design](2026-07-11-peon-idle-scheduling-design.md) — Design history: Peon idle scheduling design.
+- [Session Launch Workspace Context Design](2026-07-11-session-launch-workspace-context-design.md) — Design history: Session Launch Workspace Context Design.
+- [Simplified session lifecycle design](2026-07-12-simplified-session-lifecycle-design.md) — Design history: Simplified session lifecycle design.
+- [Primary main Ownership Design](2026-07-13-primary-main-ownership-design.md) — Design history: Primary main Ownership Design.
+- [Session List Duplicate Prevention Design](2026-07-13-session-list-duplicate-design.md) — Design history: Session List Duplicate Prevention Design.
+- [Session startup attention grace design](2026-07-13-session-startup-attention-grace-design.md) — Design history: Session startup attention grace design.
+- [Harness-Verified Working State Design](2026-07-14-harness-work-state-design.md) — Design history: Harness-Verified Working State Design.
+- [Session Activity and Unread Result Redesign](2026-07-14-session-activity-unread-redesign.md) — Design history: Session Activity and Unread Result Redesign.
+- [Session Grouping by Recent Activity Design](2026-07-14-session-group-by-activity-design.md) — Design history: Session Grouping by Recent Activity Design.
+- [Terminal Input Backpressure Design](2026-07-14-terminal-input-backpressure-design.md) — Design history: Terminal Input Backpressure Design.
+- [Single-Key Work Signal Design](2026-07-17-single-key-work-signal-design.md) — Design history: Single-Key Work Signal Design.
+- [Terminal Input Clears Attention](2026-07-19-terminal-input-clears-attention-design.md) — Design history: Terminal Input Clears Attention.
+- [Committed Terminal Input Implies Working](2026-07-21-committed-input-working-design.md) — Design history: Committed Terminal Input Implies Working.
+- [Input-generation staleness guard](2026-07-21-input-generation-staleness-guard-design.md) — Design history: Input-generation staleness guard.
+- [Session List Git Scan Performance Design](2026-07-21-session-list-git-scan-design.md) — Design history: Session List Git Scan Performance Design.
+- [Session Plan Handoff Design](2026-07-21-session-plan-handoff-design.md) — Design history: Session Plan Handoff Design.
+- [Harness Capability System](2026-07-22-harness-capability-system-design.md) — Design history: Harness Capability System.
+- [Read-only terminal replay for remembered sessions](2026-07-22-read-only-terminal-replay-design.md) — Design history: Read-only terminal replay for remembered sessions.
+- [Terminal Markdown Document Tabs](2026-07-23-terminal-markdown-document-tabs-design.md) — Design history: Terminal Markdown Document Tabs.
+- [Generic harness integration UI (Gemini, Copilot)](2026-07-25-generic-harness-integration-ui-design.md) — Design history: Generic harness integration UI (Gemini, Copilot).
+- [Harness tool detection (auto + manual override)](2026-07-25-harness-tool-detection-design.md) — Design history: Harness tool detection (auto + manual override).
+- [Harness tool version detection (per-harness minimum-version gating)](2026-07-26-harness-tool-version-detection-design.md) — Design history: Harness tool version detection (per-harness minimum-version gating).
+- [Narrow helper for integration-handler lock/revalidate/await](2026-07-27-lock-check-await-helper-design.md) — Design history: Narrow helper for integration-handler lock/revalidate/await.
+- [Unread notification dot design](2026-07-27-unread-notification-dot-design.md) — Design history: Unread notification dot design.
+- [PR-aware session labels](2026-07-28-pr-aware-session-labels-design.md) — Design history: PR-aware session labels.
+- [Terminal Input Working Status Design](2026-07-28-terminal-input-working-status-design.md) — Design history: Terminal Input Working Status Design.
+- [Bounded Terminal-Output Memory Design](2026-07-28-terminal-output-bounded-memory-design.md) — Design history: Bounded Terminal-Output Memory Design.
+- [Session Output Recency Design](2026-07-29-session-output-recency-design.md) — Design history: Session Output Recency Design.
+- [Dead-session replay design](2026-07-31-dead-session-replay-design.md) — Design history: Dead-session replay design.
+- [External Links in Default Browser Design](2026-07-31-external-links-default-browser-design.md) — Design history: External Links in Default Browser Design.
+- [Scoped Agent Instructions Design](2026-07-31-scoped-agent-instructions-design.md) — Design history: Scoped Agent Instructions Design.
+- [Session list stability](2026-07-31-session-list-stability-design.md) — Design history: Session list stability.
+- [Terminal replay size design](2026-07-31-terminal-replay-size-design.md) — Design history: Terminal replay size design.
+- [Peon work-history design](2026-08-01-peon-work-history-design.md) — Design history: Peon work-history design.
+- [Session Plan Review Design](2026-08-01-session-plan-review-design.md) — Design history: Session Plan Review Design.
+- [Terminal External Links Design](2026-08-01-terminal-external-links-design.md) — Design history: Terminal External Links Design.
+- [Recorded terminal-size cue](2026-08-03-recorded-terminal-size-cue-design.md) — Design history: Recorded terminal-size cue.
+- [Codex Hooks Shared-File Ownership Design](2026-08-04-codex-hooks-shared-file-design.md) — Design history: Codex Hooks Shared-File Ownership Design.
+- [Codex needs-you clear](2026-08-04-codex-needs-you-clear-design.md) — Design history: Codex needs-you clear.
+- [Hook-reported plan paths](2026-08-04-hook-reported-plan-path-design.md) — Design history: Hook-reported plan paths.
+- [Antigravity CLI harness migration](2026-08-09-antigravity-cli-harness-design.md) — Design history: Antigravity CLI harness migration.
+- [Terminal plan links](2026-08-09-terminal-plan-links-design.md) — Design history: Terminal plan links.
+- [Session label reset commands design](2026-08-13-session-label-reset-commands-design.md) — Design history: Session label reset commands design.
+- [Provider Settings Migration Design](2026-08-14-provider-settings-migration-design.md) — Design history: Provider Settings Migration Design.
+- [Resume Stale-Handle Conflict Design](2026-08-14-resume-stale-handle-conflict-design.md) — Design history: Resume Stale-Handle Conflict Design.
+- [Workflow observation feedback loop design](2026-08-14-workflow-observation-feedback-loop-design.md) — Design history: Workflow observation feedback loop design.
+- [Release Artifact Verification Design](2026-08-15-release-artifact-verification-design.md) — Design history: Release Artifact Verification Design.
+- [Session Startup Finalization Design](2026-08-15-session-startup-finalization-design.md) — Design history: Session Startup Finalization Design.
+- [Session-Creating Status Observation Design](2026-08-16-session-creating-status-observation-design.md) — Design history: Session-Creating Status Observation Design.
+- [Session list sort by recency, throttled](2026-08-16-session-sort-recency-design.md) — Design history: Session list sort by recency, throttled.
+- [Copilot label reset commands design](2026-08-20-copilot-label-reset-commands-design.md) — Design history: Copilot label reset commands design.
+- [Application-module contracts (current behavior freeze)](2026-08-22-application-module-contracts.md) — Design history: Application-module contracts (current behavior freeze).
+- [Application Module Deepening Design](2026-08-22-application-module-depthening-design.md) — Design history: Application Module Deepening Design.
+- [Claude Windows Hooks Design](2026-08-24-claude-windows-hooks-design.md) — Design history: Claude Windows Hooks Design.
+- [Global Scrollbar Styling Design](2026-08-24-global-scrollbar-styling-design.md) — Design history: Global Scrollbar Styling Design.
+- [Harness Version Status Design](2026-08-25-harness-version-status-design.md) — Design history: Harness Version Status Design.
+- [Provider-Scoped Peon Model Selection](2026-08-25-provider-model-selection-design.md) — Design history: Provider-Scoped Peon Model Selection.
+- [Session Projection Design](2026-08-25-session-projection-design.md) — Design history: Session Projection Design.
+- [Runtime Recovery Design](2026-08-26-runtime-recovery-design.md) — Design history: Runtime Recovery Design.
+- [Runtime Recovery Fix-Wave Design](2026-08-26-runtime-recovery-fix-wave-design.md) — Design history: Runtime Recovery Fix-Wave Design.
+- [Runtime Recovery Latest-Fix Design](2026-08-26-runtime-recovery-latest-fix-design.md) — Design history: Runtime Recovery Latest-Fix Design.
+- [Debug-Only Peon Diagnostics](2026-08-27-peon-diagnostics-design.md) — Design history: Debug-Only Peon Diagnostics.
+- [Peon Provider-First Selection Design](2026-08-27-peon-provider-selection-design.md) — Design history: Peon Provider-First Selection Design.
+- [Settings Coding-Tool Detection Status Design](2026-08-27-settings-coding-tool-detection-design.md) — Design history: Settings Coding-Tool Detection Status Design.
+- [Copilot Native Voice Capability Design](2026-08-28-copilot-native-voice-design.md) — Design history: Copilot Native Voice Capability Design.
+- [Dim dead sessions design](2026-08-28-dim-dead-sessions-design.md) — Design history: Dim dead sessions design.
+- [Active coding tool hook toggle design](2026-08-29-active-coding-tool-hook-toggle-design.md) — Design history: Active coding tool hook toggle design.
+- [Review Tab Plan File Refresh Design](2026-08-30-review-tab-plan-refresh-design.md) — Design history: Review Tab Plan File Refresh Design.
+- [Custom Harness Configuration](2026-08-31-custom-harness-config-design.md) — Design history: Custom Harness Configuration.
+- [Substantial PR Review Reruns](2026-09-02-substantial-pr-review-design.md) — Design history: Substantial PR Review Reruns.
+- [Codex deterministic attention signals](2026-09-07-codex-attention-signals-design.md) — Design history: Codex deterministic attention signals.
+- [Taskmaster Recommendation Handoff](2026-09-07-taskmaster-recommendation-handoff-design.md) — Design history: Taskmaster Recommendation Handoff.
+- [Agent Knowledge Bundle Design](2026-09-08-agent-knowledge-bundle-design.md) — Design history: Agent Knowledge Bundle Design.
+- [Windows Installer Smoke-Test Design](2026-09-08-windows-installer-smoke-design.md) — Design history: Windows Installer Smoke-Test Design.
+- [JSON-defined Taskmaster inference adapters](2026-09-10-custom-inference-adapters-design.md) — Design history: JSON-defined Taskmaster inference adapters.
+- [Coding tool settings regression fixes](2026-09-11-windows-tool-settings-design.md) — Design history: Coding tool settings regression fixes.
+- [Windows integrated header](2026-09-12-windows-header-design.md) — Design history: Windows integrated header.
+- [Taskmaster Recommendation Rollups](2026-09-13-taskmaster-recommendation-rollups-design.md) — Design history: Taskmaster Recommendation Rollups.
+- [Windows terminal plan-path links](2026-09-13-terminal-plan-windows-path-design.md) — Design history: Windows terminal plan-path links.
+- [Release Signing and Notarization Design](2026-09-14-release-signing-design.md) — Design history: Release Signing and Notarization Design.
+- [Daily release implementation design](2026-09-15-daily-release-design.md) — Design history: Daily release implementation design.
+- [Process Ownership Proof Design](2026-09-15-process-ownership-proof-design.md) — Design history: Process Ownership Proof Design.
+- [Desktop Updater Design](2026-09-17-desktop-updater-design.md) — Design history: Desktop Updater Design.
+- [Independent OrkWorks Workspace Instances](2026-09-17-independent-workspace-instances-design.md) — Design history: Independent OrkWorks Workspace Instances.
+- [Recent workspace switcher (pin / remove) — design](2026-09-19-recent-workspace-switcher-design.md) — Design history: Recent workspace switcher (pin / remove) — design.
+- [Windows recommendation handoff directory-sync design](2026-09-19-windows-recommendation-directory-sync-design.md) — Design history: Windows recommendation handoff directory-sync design.
+- [Codex Native Session Labels](2026-09-24-codex-native-session-labels-design.md) — Design history: Codex Native Session Labels.
+- [Taskmaster Bounded Coordinator Design](2026-09-24-taskmaster-bounded-coordinator-design.md) — Design history: Taskmaster Bounded Coordinator Design.
+- [Master-session parallel runner](2026-09-25-master-session-parallel-runner-design.md) — Design history: Master-session parallel runner.
+- [Taskmaster native child-launch boundary](2026-09-25-taskmaster-native-child-launch-boundary-design.md) — Design history: Taskmaster native child-launch boundary.
+- [OpenCode prompt attention lifecycle](2026-09-26-opencode-prompt-attention-design.md) — Design history: OpenCode prompt attention lifecycle.
+- [Taskmaster orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md) — Design history: Taskmaster orchestrated child sessions.
+- [Prompt attention authority for Claude Code, Copilot CLI, and Aider](2026-09-27-other-harness-prompt-attention-design.md) — Design history: Prompt attention authority for Claude Code, Copilot CLI, and Aider.
+- [Taskmaster model refresh and analysis status](2026-09-29-taskmaster-model-refresh-status-design.md) — Design history: Taskmaster model refresh and analysis status.
+- [Codex approval attention from an owned native runtime](2026-10-03-codex-native-approval-status-design.md) — Design history: Codex approval attention from an owned native runtime.
+- [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md) — Design history: Agent hierarchy and configuration learning.
+- [Agent hierarchy interaction and visual presentation](2026-10-04-agent-hierarchy-ui-design.md) — Design history: Agent hierarchy interaction and visual presentation.
+- [Agent role configuration and coding-tool permissions](2026-10-04-agent-role-configuration-design.md) — Design history: Agent role configuration and coding-tool permissions.
+- [Repository-scoped configuration learning and skill improvements](2026-10-04-configuration-learning-design.md) — Design history: Repository-scoped configuration learning and skill improvements.
+- [Clarification and research-to-execution lifecycle](2026-10-04-orchestrator-preparation-design.md) — Design history: Clarification and research-to-execution lifecycle.
+- [Skill delivery and usage evidence protocol](2026-10-04-skill-usage-evidence-design.md) — Design history: Skill delivery and usage evidence protocol.
+- [Taskmaster ordinary-child orchestration scope alignment](2026-10-04-taskmaster-orchestration-scope-design.md) — Design history: Taskmaster ordinary-child orchestration scope alignment.
+- [Application shell and workflow navigation](2026-10-05-application-shell-navigation-design.md) — Design history: Application shell and workflow navigation.
+- [Taskmaster Brain-guided next-step assessment](2026-10-07-taskmaster-brain-guided-assessment-design.md) — Design history: Taskmaster Brain-guided next-step assessment.
+- [Codex Native Attention With Sidecar-Mediated Metadata Writes](2026-10-08-codex-native-attention-layer-design.md) — Design history: Codex Native Attention With Sidecar-Mediated Metadata Writes.
+- [Local SonarQube and repository simplification](2026-10-08-local-sonarqube-design.md) — Design history: Local SonarQube and repository simplification.
+- [Taskmaster recommendation audit (bulk review/cleanup) — design](2026-10-08-taskmaster-recommendation-audit-design.md) — Design history: Taskmaster recommendation audit (bulk review/cleanup) — design.
+- [Harness integration application module](2026-10-10-harness-integration-application-design.md) — Move existing harness-integration orchestration behind a typed Rust application interface while preserving transport and runtime behavior.
+- [Privacy-qualified Taskmaster knowledge distribution](2026-10-10-taskmaster-knowledge-distribution-design.md) — Reviewed Brain export, signed offline and feed knowledge, and verified Taskmaster admission for issue 529.

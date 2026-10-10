@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Repository Identity Runtime Implementation Plan"
+description: "Implementation plan: Repository Identity Runtime Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Repository Identity Runtime Implementation Plan
 
 > **For agentic workers:** This plan is gated. Do not implement runtime code until the owner approves this exact plan and the capability/platform gates below are satisfied.

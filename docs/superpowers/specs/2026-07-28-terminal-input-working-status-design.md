@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Terminal Input Working Status Design"
+description: "Design history: Terminal Input Working Status Design."
+tags: ["orkworks", "design"]
+---
+
 # Terminal Input Working Status Design
 
 ## Goal

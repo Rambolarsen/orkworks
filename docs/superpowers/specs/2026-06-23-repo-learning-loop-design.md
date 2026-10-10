@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Repo Learning Loop Design"
+description: "Design history: Repo Learning Loop Design."
+tags: ["orkworks", "design"]
+---
+
 # Repo Learning Loop Design
 
 - Date: 2026-06-23

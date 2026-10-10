@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Taskmaster runtime implementation report"
+description: "Implementation plan: Taskmaster runtime implementation report."
+tags: ["orkworks", "plans"]
+---
+
 # Taskmaster runtime implementation report
 
 This worker report describes the pre-review implementation. The root's later

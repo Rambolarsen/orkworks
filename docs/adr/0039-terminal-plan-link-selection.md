@@ -1,3 +1,10 @@
+---
+type: "Architecture Decision"
+title: "Terminal plan link selection"
+description: "Architecture decision record: Terminal plan link selection."
+tags: ["orkworks", "architecture"]
+---
+
 # Terminal plan link selection
 
 - Status: accepted

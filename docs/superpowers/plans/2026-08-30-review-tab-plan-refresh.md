@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Review Tab Plan File Refresh Implementation Plan"
+description: "Implementation plan: Review Tab Plan File Refresh Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Review Tab Plan File Refresh Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

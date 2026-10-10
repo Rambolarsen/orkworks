@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "Session Aggregate DDD Extraction"
+description: "Design history: Session Aggregate DDD Extraction."
+tags: ["orkworks", "design"]
+---
+
 # Session Aggregate DDD Extraction
 
 **Date:** 2026-06-22

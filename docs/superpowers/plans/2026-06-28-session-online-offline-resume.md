@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Session Online/Offline Resume Implementation Plan"
+description: "Implementation plan: Session Online/Offline Resume Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Session Online/Offline Resume Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

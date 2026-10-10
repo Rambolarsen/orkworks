@@ -1,3 +1,10 @@
+---
+type: "Design"
+title: "M6: Peon — Observer Inference Design"
+description: "Design history: M6: Peon — Observer Inference Design."
+tags: ["orkworks", "design"]
+---
+
 # M6: Peon — Observer Inference Design
 
 ## Overview

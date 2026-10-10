@@ -1,3 +1,10 @@
+---
+type: "Implementation Plan"
+title: "Claude Windows Hooks Implementation Plan"
+description: "Implementation plan: Claude Windows Hooks Implementation Plan."
+tags: ["orkworks", "plans"]
+---
+
 # Claude Windows Hooks Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
