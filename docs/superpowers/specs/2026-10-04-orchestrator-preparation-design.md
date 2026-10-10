@@ -13,7 +13,7 @@ tags: ["orkworks", "design"]
 - Product direction: [Agent hierarchy and configuration learning](2026-10-04-agent-hierarchy-and-configuration-learning-design.md)
 - Launch baseline: [Taskmaster orchestrated child sessions](2026-09-26-taskmaster-orchestrated-child-sessions-design.md)
 - Configuration: [Role configuration](2026-10-04-agent-role-configuration-design.md)
-- Eligibility: [Capability evidence register](../../validation/agent-role-capabilities.md)
+- Eligibility: [Capability evidence register](../../validation/agent-role-capabilities.md), [Claude Code 2.1.287 static assessment](../../validation/claude-code-role-capability-evidence.md)
 
 ## Scope and status
 
