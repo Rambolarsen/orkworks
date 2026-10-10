@@ -112,6 +112,10 @@ const MAX_PROBE_OUTPUT_BYTES: usize = 64 * 1024;
 /// ordinary write-side backpressure — it does not need to be drained for
 /// the timeout or `kill_on_drop` to still take effect.
 pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
+    probe_tool_version_with_timeout(executable, Duration::from_secs(3)).await
+}
+
+async fn probe_tool_version_with_timeout(executable: &Path, timeout: Duration) -> Option<String> {
     use tokio::io::AsyncReadExt;
 
     let mut command = tokio::process::Command::new(executable);
@@ -147,7 +151,7 @@ pub(crate) async fn probe_tool_version(executable: &Path) -> Option<String> {
         Some((stdout_buf, stderr_buf))
     };
 
-    let (stdout_buf, stderr_buf) = tokio::time::timeout(Duration::from_secs(3), read_capped_output)
+    let (stdout_buf, stderr_buf) = tokio::time::timeout(timeout, read_capped_output)
         .await
         .ok()??;
     Some(String::from_utf8_lossy(&stdout_buf).into_owned() + &String::from_utf8_lossy(&stderr_buf))
@@ -488,8 +492,16 @@ mod tests {
         // .output() succeeds regardless of exit code — it only fails if the
         // process can't be spawned at all. A silent nonzero exit is a
         // parse-failure case for the *caller*, not a spawn failure here.
-        let output = probe_tool_version(&bin).await;
-        assert_eq!(output, Some(String::new()));
+        // This is a short, local fixture; don't make its correctness depend
+        // on satisfying the production spawn timeout under suite load.
+        let started = std::time::Instant::now();
+        let output = probe_tool_version_with_timeout(&bin, Duration::from_secs(30)).await;
+        let elapsed = started.elapsed();
+        assert_eq!(
+            output,
+            Some(String::new()),
+            "silent probe returned no output after {elapsed:?}"
+        );
         assert_eq!(parse_version_token(&output.unwrap()), None);
     }
 
