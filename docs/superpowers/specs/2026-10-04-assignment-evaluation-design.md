@@ -56,10 +56,11 @@ binding for hashing and later revalidation. No out-of-scope file may be read or
 pinned as an artifact.
 
 Every manifest submission carries the caller's expected current result
-revision and digest; the initial state uses an explicit no-head sentinel. The
-sidecar compares both with the current head before assigning an immutable
-revision, rejecting stale predecessors. Exact idempotent retries are resolved
-before this comparison. Each attempt allows at most 32 result revisions;
+revision and digest; the initial state uses `expectedResultRevision: no-head`
+with no digest. The sidecar compares both with the current head before
+assigning an immutable revision, rejecting stale predecessors. Exact
+idempotent retries are resolved before this comparison. Each attempt allows
+at most 32 result revisions;
 exhaustion is visible and cannot wrap or reset. Evaluations bind the current
 revision and digest. Before any consumer treats a
 result as current, the implementation revalidates its referenced output bytes
@@ -214,11 +215,11 @@ again.
 Version 1 record digests are lowercase SHA-256 hex over the #741 recursive
 canonical JSON bytes, prefixed respectively by `orkworks.assignment-result.v1\n`,
 `orkworks.assignment-evaluation.v1\n`, or
-`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). Exclude
-only the record's own digest field. Include immutable identity, predecessor
-revision/digest, and semantic fields. Do not include bearer credentials,
-mutable status, or observation time. The fixed domains prevent these record
-kinds or later versions from sharing a digest namespace.
+`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). The
+digest input includes immutable identity, predecessor revision/digest, and
+semantic fields; it omits the record's own digest, bearer credentials, mutable
+status, and observation time. The fixed domains prevent these record kinds or
+later versions from sharing a digest namespace.
 
 ## Bounds, retention, and deletion
 
