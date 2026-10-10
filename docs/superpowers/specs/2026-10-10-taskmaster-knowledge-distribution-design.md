@@ -153,6 +153,22 @@ A rerun reuses identical archived bytes; a version or sequence collision with
 different bytes fails. Advance the public manifest only after the referenced
 immutable bundle exists in the assembled site.
 
+Treat the archive as untrusted input on every build. Before staging retained
+artifacts, verify their signatures, supported privacy policy, manifest/digest
+bindings, safe paths, bounded schema, and the private export receipt that records
+the reviewed source identity. An arbitrary artifact-branch file, a legacy bundle
+without eligible proof, or a mismatched receipt cannot enter Pages merely because
+it was already archived. Copy only the verified artifact inventory; never the
+whole branch checkout.
+
+The publisher's first run starts from an explicitly empty archive. Recover a
+cancelled/failed deployment from the last committed verified archive; do not
+allocate a second sequence to identical already-archived output. Test first-run
+bootstrap, missing/malformed archive state, tampered retained artifacts, and
+cancellation after archive commit but before Pages deployment. The next successful
+build must recover the same immutable bytes and preserve previous public URLs.
+A rejected archive must not replace the currently deployed site.
+
 Missing or invalid signing configuration fails the publication job before any
 new Taskmaster artifacts or archive mutation. Validate the approved export
 before accessing the signing key. Provisioning, replacing, or rotating that
@@ -161,8 +177,11 @@ No private key or private-repository credential enters app resources, published
 artifacts, logs, or test fixtures.
 
 Use the current pinned public key only if the owner can provide its matching
-publishing key. Otherwise explicitly approve a new key and ship its public half
-in both consumer verification paths before publishing an eligible starter.
+publishing key. Otherwise explicitly approve a new key,
+generate the signed starter with its matching key, and include that starter and
+public key together in both consumer verification paths in the same client
+release. Do not require shipping a key-only client before its signed starter
+exists. Keep older signed publications available for older compatible clients.
 Document the key fingerprint, custodianship, backup, and rotation procedure.
 Normal rotation requires a client trust update; never trust a key supplied by
 the downloaded bundle or silently rotate trust through reference data.
@@ -184,8 +203,32 @@ version, privacy policy, page digests, relationship containment, and content/siz
 bounds. Select exactly one matching manifest entry; conflicting duplicate
 identities are invalid. Keep existing per-response and per-page bounds and impose
 an explicit aggregate bound on activation records in HTTP and durable storage.
-The implementation plan must reconcile this aggregate with the route body limit
-before coding; no unbounded manifest history is sent with every activation.
+
+The activation record has exactly three fields: integer `activationFormatVersion:
+1`, `bundleEnvelopeBase64`, and `manifestEnvelopeBase64`. Base64 encodes the
+original response bytes; verification decodes them without reserializing either
+envelope. Require canonical base64, valid UTF-8, duplicate-key rejection, and no
+unknown activation fields. Keep each decoded envelope at most 2 MiB and the
+serialized activation record at most 6 MiB; two maximum-sized envelopes require
+about 5.34 MiB after base64 encoding. Apply the 6 MiB limit only to the authenticated
+knowledge route and its durable/cache records. The route currently inherits
+Axum's 2 MiB JSON limit; the workflow-observation route's separate 8 KiB cap stays
+unchanged. Retain the existing 64 KiB page and 256-page bounds.
+
+Retain the complete signed manifest that attests the selected bundle, never an
+unsigned extracted entry. Its existing 2 MiB/1,000-entry bounds remain explicit.
+Keep immutable bundle URLs and historical manifests in the archive; the current
+feed manifest may retain the latest entry for each supported compatibility
+class rather than every historical release. Each compatibility class must have
+a deterministic client selector, with format and privacy policy checked before
+sequence ranking. If the bounded current manifest can no longer represent every
+supported class, publication fails pending an explicit format migration; it
+never silently drops compatible clients.
+
+Boundary tests must submit maximum-sized valid records through the real HTTP
+route, restart from them, and reject excess encoded/decoded size, malformed
+base64/UTF-8, duplicate fields, and truncated or substituted signed manifests
+without changing active knowledge or reserving inference usage.
 
 Package the generated starter with its signed manifest attestation and the same
 pinned public key. Feed caches retain the activation proof as one atomic record,
@@ -193,11 +236,39 @@ rather than independently replaceable bundle and manifest files. Use the same
 verification path for starter, active cache, previous cache, and sidecar startup.
 A standalone signed bundle without matching retained manifest proof is ineligible.
 
+Electron's cache is shared by packaged instances in the same installation.
+Its existing fixed `active.json.tmp` writer is not a concurrency contract.
+Use a retained-inode OS advisory lock following the existing `fs-ext` history
+pattern, with bounded acquisition and no age-based lock eviction. Download and
+verify outside the lock; then lock, reread/reverify durable active and previous
+records, and compare sequence plus full bundle identity before committing.
+Do not hold a cache lock across a network request or a sidecar request.
+
+Use unique same-directory temporary files, flush them, and atomically replace
+records using the existing platform-safe replacement pattern. Preserve a verified
+previous record before replacing active. Under the lock, a slower writer must
+adopt an already committed newer eligible record rather than downgrade it;
+equal-sequence different content is refused. After an ambiguous replacement,
+read back the expected identity before claiming success. On lock contention or
+write failure, keep the last independently verified in-memory/starter knowledge
+and report the update failure. Reconcile the in-memory selection with durable
+state before synchronization; advisory status cannot confer eligibility.
+
+Add two-process cache tests for older/newer writers, equal-sequence conflicts,
+crashes between previous/active replacement, and lock contention. Assert that
+no writer clobbers another's temporary file, reports an uncommitted activation,
+or discards every verified fallback. This is short file-update serialization,
+not peer-instance discovery or analysis coordination.
+
 Persist the proof atomically under Taskmaster's existing global knowledge store,
 using its existing persistence lock order. Verify before touching the current
 record; refuse a lower sequence and refuse different content at the same
-sequence. Identical activation is idempotent. Advance the existing evaluation
-generation before publishing new knowledge; a crash may invalidate old work but
+sequence. Idempotence uses bundle identity, not the bytes of its manifest: a
+newer valid manifest attesting the same bundle is not conflicting knowledge and
+does not advance evaluation generation. Keep either matching verified attestation.
+Test same-bundle/different-manifest activation as well as equal-sequence different
+bundle rejection. Advance the existing evaluation generation before publishing
+new knowledge; a crash may invalidate old work but
 must never admit old work against new knowledge. Re-read and verify durable
 knowledge whenever a runtime view reloads it.
 
@@ -232,12 +303,23 @@ dispatch boundary, and result acceptance. Knowledge replacement or corruption
 invalidates queued/in-flight work; stale output cannot populate caches,
 recommendations, or semantic rollups.
 
-Use the current persistence, harness, workspace, and dispatch guards in their
-existing lock order. The implementation plan must identify the concrete
-linearization point for both transports, including native HTTP and custom
-process start, so a check followed by an unguarded send is not presented as
-revalidation. A narrowing configuration mutation must retain its existing
-invalidation behavior.
+Extend the current guards rather than assuming their checks are equivalent.
+The native `with_current_native_evaluation` guard compares current knowledge
+and must compare the verified proof identity. Add that same identity to
+`CapturedInference` and reverify/compare it in `with_current_custom_data`;
+its current generation/settings/trust checks alone do not detect durable proof
+corruption without a generation change. Apply the same proof check at output
+and rollup acceptance, including existing native generation-only continuations.
+
+Preserve the existing lock order: harness snapshot, Taskmaster persistence and
+data, then the live workspace guard at dispatch. Perform proof revalidation
+inside those guards through the existing native send/custom process-spawn
+callback; release locks before waiting for inference output. The implementation
+plan must pin the exact native HTTP-send callback and process-spawn seam with
+tests, rather than adding a check followed by an unguarded send. Include a
+same-generation durable-proof corruption test as well as normal activation and
+configuration-change races. A narrowing configuration mutation retains its
+existing invalidation behavior.
 
 Preserve background accounting and manual exemptions, the active Brain
 recommendation gate, dismissal watermarks, provider compatibility and executable
@@ -256,13 +338,14 @@ outcome and separately from update errors.
 | Hierarchy, stable IDs, maturity, applicability, provenance, index | Export schema and generated index | Deterministic output; internal IDs/links resolve only inside bundle; client round-trip preserves metadata |
 | Generated starter and source revision | Publisher receipt and resource import | Starter matches signed publication bytes; private receipt records source revision and version |
 | Signed publication and pinned key | Publisher and both verifiers | Missing key fails before mutation; wrong key/signature/digest/manifest is rejected |
-| Automatic immutable distribution | Durable archive and existing Pages workflow | A later deployment retains older compatible bundle URLs and unchanged bytes; rerun is idempotent |
+| Automatic immutable distribution | Durable archive and existing Pages workflow | First-run bootstrap; retained-artifact/receipt verification; cancellation recovery; older compatible URLs and unchanged bytes; idempotent rerun |
 | Exclusion edge cases | Export negative fixtures | Links, frontmatter, HTML/assets, traversal and symlink cases cannot import private markers |
 | Packaged offline and update behavior | Desktop packaging and live feed | Fresh offline starter, newer signed auto-activation, version reporting, offline/tampered/incompatible/interrupted fallback |
 | Promotion, ownership, key rotation, troubleshooting | Publisher/consumer documentation | Documented reproducible promotion and recovery exercise with evidence links |
 | Signed policy and assessment capability | Payload, manifest and reviewed guidance | Missing/legacy/non-integer/unsupported/mismatched policy fails; assessment marker only accompanies reviewed required pages |
-| Signed starter attestation | Packaged activation record | Unsigned starter, standalone signed bundle and swapped manifest cannot enable inference |
-| Server-owned admission/revalidation | Sidecar runtime and real dispatch paths | Native/custom background and Analyze now positive path plus zero-call/no-reservation negatives; activation/configuration races reject stale work |
+| Signed starter attestation | Packaged activation record and bounded transport | Unsigned starter, standalone signed bundle and swapped manifest cannot enable inference; actual-route size/encoding limits and restart round-trip |
+| Server-owned admission/revalidation | Sidecar runtime and real dispatch paths | Native/custom background and Analyze now positive path plus zero-call/no-reservation negatives; activation/configuration and same-generation proof-corruption races reject stale work |
+| Concurrent cache preservation | Electron installation cache transaction | Two-process old/new and conflicting writers; crash/lock-contention recovery retains verified fallback |
 
 Use shared signed fixtures in TypeScript and Rust, with test-only keys distinct
 from the application key. Run the existing knowledge-update, activation,
@@ -324,7 +407,48 @@ daily publication from silently treating changed page prose as previously approv
 | Reversibility | 3 — revert consumer to the currently closed gate, preserve archive/cache, and publish corrections at a higher sequence |
 | Uncertainty | Unknown — final reviewed content and usable production signing configuration are not established |
 
-Total: incomplete because production evidence is unknown. Design quality:
-ready for written-design review; implementation planning must resolve the
-specified parser/body bounds and dispatch linearization, and dependent production
-work must wait for the owner gates. No implementation readiness is claimed.
+Total: incomplete because production evidence is unknown. No numeric sum is
+claimed. The consumer rollback is the current closed-gate version; it preserves
+cache/archive records and therefore does not require pretending an older client
+understands the new activation format. Key availability and content approval
+remain explicit prerequisites to production delivery.
+
+## Reviewing-plans result — 2026-10-10
+
+Reviewed this design against every #529 acceptance criterion, the accepted
+knowledge spec, actual updater/cache and sidecar guard code, and the existing
+Brain Pages workflow. Initial result: **Revise**. Corrected the following gaps
+in this document; no implementation or publication occurred.
+
+| Finding | Evidence and consequence | Design correction and verification |
+| --- | --- | --- |
+| Activation representation and bounds were deferred | Knowledge handler uses JSON without a route-specific body override; Axum defaults to 2 MiB, while two signed envelopes and encoding can exceed it | Exact base64 activation schema, 2 MiB decoded-envelope/6 MiB aggregate limits, route-only override, signed-manifest retention and actual-route boundary tests |
+| Atomic replacement did not address concurrent cache writers | Packaged instances share the userData cache; `KnowledgeUpdates.atomic` uses one fixed temporary filename and in-memory sequence selection | Retained advisory lock, durable reread/sequence comparison, unique flushed temporary files, platform-safe replacement, read-back and two-process crash/contention tests |
+| Archive reuse had no explicit verification/recovery check | The proposed publication branch is another input to public Pages; current Pages deploys a fresh artifact each time | Verify every retained publication and receipt before staging; first-run, tampered-archive and archive-commit/deployment interruption fixtures |
+
+The review also clarified coordinated key/starter release ordering and the
+native/custom guard differences, including corruption without a generation
+change. The requirement matrix covers all thirteen issue criteria plus cache
+concurrency; no requirement was dropped to simplify delivery. The archive is
+justified by immutable URL retention across full-site Pages replacement; reuse
+the existing updater, dispatch callbacks, persistence guards, and locking pattern
+rather than introduce a second knowledge service.
+
+**Scope/simplicity:** pass for written-design review; retain the coupled
+publisher/consumer/offline end-to-end outcome and use its three delivery
+boundaries for implementation planning.
+
+**Clarity:** pass for written-design review; signed transport, cache transaction,
+archive recovery, and owner-controlled gates are explicit. Package/module choice
+and detailed test scheduling belong in the subsequent implementation plan.
+
+**Verification:** pass for written-design review; all mandatory requirements
+have delivery and observable positive/negative checks. Before that plan is
+marked Ready, pin the native HTTP-send test seam and the exact export metadata
+schema/compatibility selector; before production delivery, provide approved
+content, matching signing configuration, and packaged/live-feed evidence.
+
+Final design quality: **Ready for written-design review**. Implementation
+readiness: **Investigate**, pending the listed evidence and normal approval/ADR/
+implementation-plan gates. Complexity ratings remain 4, 4, 3, 3, Unknown;
+total incomplete. This review is not implementation approval.
