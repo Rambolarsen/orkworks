@@ -146,11 +146,17 @@ individual values and still establish that failure; disagreement across the
 threshold (for example, 2 versus 3) makes quality Unassessed unless another
 uncontested failure exists. Rating 3 meets the quality part of the result only
 with current, uncontested evidence. Before using an outcome, the sidecar
-validates evidence references for existence, scope, version, and digest;
-unavailable or unverified evidence makes that outcome Unassessed. A transcript,
-task status, completion claim, test command string, or self-rating is not
-sufficient evidence by itself. Quality does not rank agents, grant XP, or prove
-a skill caused an outcome.
+validates every evidence reference supporting a criterion outcome, quality
+dimension or rating, finding, or dispute for existence, scope, version, digest,
+and, for report evidence, current source correction/invalidation state.
+Unavailable, changed, or unverifiable evidence makes the supported outcome
+Unassessed. A stale required-rework finding leaves the evaluation Unassessed
+until reviewed against current evidence; it cannot establish failure. A dispute
+whose evidence is not current is ineffective and cannot suppress a current
+finding.
+A transcript, task status, completion claim, test command string, or self-rating
+is not sufficient evidence by itself. Quality does not rank agents, grant XP,
+or prove a skill caused an outcome.
 
 Derive one overall result from current evidence:
 
@@ -227,8 +233,10 @@ up to 32 `findingDisputes` per revision; each cites the target
 `(reviewerIdentity, evaluationRevision, findingId)` and one evidence
 reference already in the disputing evaluation. The target must be a different
 eligible evaluation for the same assignment and result revision. A dispute is
-current only while both referenced revisions are current; correction needs a
-new dispute. Reject duplicate finding IDs within an evaluation revision.
+current only while both referenced revisions and the evidence for the target
+finding and dispute remain current and verifiable; correction needs a new
+dispute. If dispute evidence becomes stale, the dispute no longer suppresses a
+current finding. Reject duplicate finding IDs within an evaluation revision.
 Reusing an ID in a correction means it is the same logical finding; a
 materially different finding gets a new ID. Disputes always name an exact
 revision and do not carry forward to a correction. Without an explicit
@@ -249,6 +257,13 @@ Invalidation names the current evaluation revision and digest; it is serialized
 with corrections, uses the same idempotency rules, and freezes that evaluation
 stream once accepted. A stale invalidation conflicts and cannot exclude a newer
 correction.
+
+For a user-authored evaluation stream, the Electron-authorized path may append
+a correction to the same `userReviewId` stream using compare-and-swap on the
+current evaluation revision and digest. The correction keeps user provenance,
+uses the same idempotency rules, and cannot alter a child-authored stream. A
+stale expected revision conflicts; an invalidated stream is frozen and cannot
+be corrected.
 
 When #742 ends a run and revokes child authority, that child can no longer
 correct its review. The user may submit a separate user-authorized evaluation;
@@ -277,13 +292,16 @@ later versions from sharing a digest namespace.
 
 Use #741's limits of 32 criteria and 16 rubric dimensions. Each assignment
 identity allows at most 32 result revisions across resumes and 32 output
-artifacts. Each result revision allows at most 16 evaluation revisions,
-including corrections, with an assignment-wide cap of 512 across its 32 result
-revisions. This permits every allowed result revision to receive an initial
-evaluation. Each evaluation revision allows at most 32 findings, 32 finding
-disputes, and
-112 evidence references per evaluation revision, enough for maximum criteria,
-dimensions, findings, and distinct dispute evidence. Cap
+artifacts. Each result revision allows at most 16 evaluation revisions:
+child-authored streams share at most 12 revisions, and one user-authored stream
+identified by `userReviewId` may use at most 4 revisions, including
+corrections. Child streams cannot consume the user allocation. The
+assignment-wide cap is 512 across its 32 result revisions, permitting every
+result revision to receive an initial child evaluation and a user evaluation.
+Each evaluation revision allows at most 32 findings, 32 finding disputes, and
+113 evidence references per evaluation revision, enough for maximum criteria,
+dimensions, findings, distinct dispute evidence, and a separate result-level
+rating reference. Cap
 the manifest and each evaluation/disposition at 512 KiB, each reference at
 1 KiB, and rationale/finding/correction text at 2 KiB.
 Enforce finite aggregate run/workspace admission quotas; reject exhausted
@@ -297,9 +315,10 @@ Reject over-limit reports visibly and never silently drop conflict evidence,
 corrections, or provenance. Retention belongs to #745, which may remove a
 complete eligible historical subject and its pinned evidence but must retain
 evidence referenced by any current evaluation, regardless of its derived
-result. Workspace deletion stops
-new reports and in-flight writes, then purges evaluation, disposition, and
-pinned evidence. Old writes cannot recreate deleted content; no evaluation
+result. Workspace deletion fences new and in-flight result/evaluation writes,
+then purges every assignment-result manifest revision and receipt, evaluation,
+disposition, and pinned-evidence record. The deletion fence prevents stale
+writers from recreating deleted records; no assignment-result or evaluation
 tombstone survives. If evidence is gone, a retained projection cannot claim a
 current reviewed result. Ordinary non-orchestrated sessions acquire no
 assignment evaluations.
@@ -338,22 +357,29 @@ A future implementation must verify that:
    an approved normalization rule. Optional-criterion disagreement affects
    detail only. Finding disputes bind the exact child or user
    `reviewerIdentity`, evaluation revision, and finding ID and reuse cited
-   evidence; duplicate finding IDs are rejected, disputes do not carry to
-   corrections, and informational finding disputes do not affect the overall
+   evidence; all finding and dispute evidence is revalidated for current source
+   disposition before it affects the result. Stale required-finding evidence
+   leaves the evaluation Unassessed; stale dispute evidence cannot suppress a
+   current finding. Duplicate finding IDs are rejected, disputes do not carry
+   to corrections, and informational finding disputes do not affect the overall
    result. Disputed failures are not established.
    Findings retain location, severity, evidence, and required-rework status
    without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
    output, or unverified read-only scope cannot qualify as child review.
    Reviewer-of-review depth is bounded and ends with user authority.
-5. Corrections preserve reporter provenance; ended child capabilities cannot
-   correct or impersonate a reviewer. Concurrent corrections and invalidations
-   cannot restore an invalidated evaluation or exclude a newer revision.
-6. Per-assignment result-revision and record caps reject excess work visibly, as
-   do aggregate run/workspace quotas. Retention preserves evidence referenced
-   by any current evaluation regardless of outcome and removes only eligible
-   complete historical subjects; deletion fences old writes and purges
-   evaluation content.
+5. Corrections preserve reporter provenance; user corrections use
+   Electron-authorized compare-and-swap on their `userReviewId`, and ended child
+   capabilities cannot correct or impersonate a reviewer. Concurrent
+   corrections and invalidations cannot restore an invalidated evaluation or
+   exclude a newer revision.
+6. Per-assignment result-revision and record caps reject excess work visibly,
+   preserve the user-review revision allocation, and include the result-level
+   rating evidence reference; aggregate run/workspace quotas also reject excess
+   work. Retention preserves evidence referenced by any current evaluation
+   regardless of outcome and removes only eligible complete historical
+   subjects; deletion fences old writes and purges result manifests, receipts,
+   and evaluation content.
 7. Evaluation cannot launch/retry work, widen permissions, change
    configuration, advance dependencies, accept work for the user, or approve a
    merge.
@@ -362,8 +388,9 @@ A future implementation must verify that:
    authority generations. Corrected or invalidated source reports cannot keep
    dependent evaluations current. The dedicated `AssignmentResultCapability`
    is distinct from `ResearchReportCapability` and any run bearer. Each of the
-   32 permitted result revisions can receive an evaluation before the
-   16-revision per-result evaluation cap is reached.
+   32 permitted result revisions can receive a child evaluation and a user
+   evaluation within the 12-child/4-user partition of the 16-revision
+   per-result evaluation cap.
 
 ## Implementation gate
 
