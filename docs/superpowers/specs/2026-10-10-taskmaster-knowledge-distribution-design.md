@@ -132,7 +132,7 @@ format, version, sequence, digest, relative bundle path, and the same supported
 integer privacy policy version. Reject absent, non-integer, unsupported, or
 mismatched policy values even if the signature is valid.
 
-Sequence is a nonnegative safe integer, including zero. The exact wire grammar in the [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-10-taskmaster-knowledge-distribution.md#exact-shared-wire-contract) fixes timestamp spelling and Gregorian calendar validity, manifest-entry types/bounds, and structural validation of every compatibility class before selection. Both independent verifiers consume shared positive and malformed-entry fixtures for these rules.
+Sequence is a nonnegative safe integer, including zero. The exact wire grammar in the [implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-10-taskmaster-knowledge-distribution.md#exact-shared-wire-contract) fixes timestamp spelling and Gregorian calendar validity, manifest-entry types/bounds, and structural validation of every compatibility class before selection. Both independent verifiers consume shared positive and malformed-entry fixtures for these rules. Provenance uses the plan’s bounded canonical ASCII HTTPS subset, with no userinfo or fragment, rather than permissive URL normalization.
 
 Grant `taskmaster-assessment-v1` only when the reviewed distilled assessment
 entry point and required general guidance are present. Do not export the full
@@ -142,7 +142,7 @@ until then the dependent assessment prerequisite remains unavailable.
 
 Integrate publication into Brain's existing Pages assembly and deployment,
 preserving its current visualization. Supply only validated public Taskmaster
-artifacts under `orkworks-knowledge/`. Never stage the source checkout or
+artifacts under `orkworks-knowledge/`. Verify the private archive first, then stage a separate allowlist of public bundle envelopes and signed manifests only. Private receipts, source identities/review hashes, policy/source blobs, and archive metadata never enter the Pages tree; final-tree tests enforce their absence. Never stage the source checkout or
 general recursive Brain export into that subtree.
 
 Retain signed artifacts and their manifest history in an owner-authorized
