@@ -95,6 +95,47 @@ safeWrite('valid-envelope.sha256', `${hash(valid.bundleEnvelope)}\n`);
 safeWrite('test-public-key-spki.sha256', `${hash(createPublicKey(publicKey).export({ format: 'der', type: 'spki' }))}\n`);
 writeActivation('valid-activation.json', valid);
 
+for (const [label, publishedAt] of [
+  ['year-zero', '0000-02-29T00:00:00.000Z'],
+  ['leap-2000', '2000-02-29T12:34:56.789Z'],
+  ['leap-2024', '2024-02-29T23:59:59.999Z'],
+  ['year-9999-end', '9999-12-31T23:59:59.999Z'],
+]) {
+  const bundle = makeBundle(`timestamp-${label}`, 200 + ['year-zero', 'leap-2000', 'leap-2024', 'year-9999-end'].indexOf(label), { publishedAt });
+  writeActivation(`timestamp-${label}.json`, signedPair(bundle));
+}
+for (const [index, [label, url]] of [
+  ['at-outside-authority', 'https://example.test/source@user?next=@other&escaped=%40'],
+  ['punycode-host', 'https://xn--bcher-kva.example/source/'],
+  ['uppercase-utf8-escapes', 'https://example.test/%E2%82%AC?q=%40'],
+  ['encoded-hash', 'https://example.test/source%23section/'],
+].entries()) {
+  const validUrlBundle = makeBundle(`provenance-${label}`, 190 + index);
+  validUrlBundle.pages[0].provenance = [{ title: 'source', url }];
+  writeActivation(`provenance-${label}.json`, signedPair(validUrlBundle));
+}
+
+for (const [index, [label, publishedAt]] of [
+  ['february-30', '2024-02-30T00:00:00.000Z'],
+  ['nonleap-february-29', '1900-02-29T00:00:00.000Z'],
+  ['month-zero', '2024-00-01T00:00:00.000Z'],
+  ['month-thirteen', '2024-13-01T00:00:00.000Z'],
+  ['day-zero', '2024-01-00T00:00:00.000Z'],
+  ['day-thirty-two', '2024-01-32T00:00:00.000Z'],
+  ['hour-twenty-four', '2024-01-01T24:00:00.000Z'],
+  ['minute-sixty', '2024-01-01T00:60:00.000Z'],
+  ['second-sixty', '2024-01-01T00:00:60.000Z'],
+  ['lowercase', '2024-01-01t00:00:00.000z'],
+  ['offset', '2024-01-01T00:00:00.000+00:00'],
+  ['expanded-year', '+010000-02-29T00:00:00.000Z'],
+  ['missing-milliseconds', '2024-01-01T00:00:00Z'],
+  ['four-fraction-digits', '2024-01-01T00:00:00.0000Z'],
+  ['space-separator', '2024-01-01 00:00:00.000Z'],
+].entries()) {
+  const bundle = makeBundle(`timestamp-invalid-${label}`, 210 + index, { publishedAt });
+  writeActivation(`timestamp-invalid-${label}.json`, signedPair(bundle));
+}
+
 const unsigned = activation(json(valid.bundle), valid.manifestEnvelope);
 safeWrite('unsigned-bundle.json', unsigned);
 
@@ -131,6 +172,16 @@ safeWrite('noncanonical-base64.json', json({ activationFormatVersion: 1, bundleE
 const invalidMetadata = makeBundle('invalid-metadata', 2);
 invalidMetadata.pages[0].title = '';
 writeActivation('invalid-metadata.json', signedPair(invalidMetadata));
+
+for (const [index, [label, field]] of [
+  ['parent-null', 'parentId'],
+  ['applicability-null', 'applicability'],
+  ['provenance-null', 'provenance'],
+].entries()) {
+  const invalidOptional = makeBundle(`invalid-${label}`, 220 + index);
+  invalidOptional.pages[0][field] = null;
+  writeActivation(`invalid-${label}.json`, signedPair(invalidOptional));
+}
 
 const invalidPageDigest = makeBundle('invalid-page-digest', 62);
 invalidPageDigest.pages[0].sha256 = '0'.repeat(64);
@@ -269,16 +320,36 @@ const overApplicability = makeBundle('over-applicability', 24);
 overApplicability.pages[0].applicability = Array.from({ length: 33 }, (_, index) => `scope-${index}`);
 writeActivation('applicability-overflow.json', signedPair(overApplicability));
 
+const overProvenanceUrl = makeBundle('over-provenance-url', 222);
+overProvenanceUrl.pages[0].provenance = [{ title: 'source', url: `https://example.test/${'x'.repeat(2049 - Buffer.byteLength('https://example.test/'))}` }];
+writeActivation('provenance-url-overflow.json', signedPair(overProvenanceUrl));
+
 const overProvenance = makeBundle('over-provenance', 25);
 overProvenance.pages[0].provenance = Array.from({ length: 17 }, () => ({ title: 'source', url: 'https://example.test/source' }));
 writeActivation('provenance-overflow.json', signedPair(overProvenance));
 
-for (const [index, [label, url]] of [
-  ['credentials', 'https://user:pass@example.test/source'],
-  ['fragment', 'https://example.test/source#fragment'],
-  ['http', 'http://example.test/source'],
-].entries()) {
-  const invalidProvenance = makeBundle(`invalid-provenance-${label}`, 68 + index);
+for (const [label, url, sequence] of [
+  ['credentials', 'https://user:pass@example.test/source', 68],
+  ['fragment', 'https://example.test/source#fragment', 69],
+  ['http', 'http://example.test/source', 70],
+  ['empty-fragment', 'https://example.test/source#', 71],
+  ['empty-credentials', 'https://@example.test/source', 72],
+  ['uppercase-scheme', 'HTTPS://example.test/source/', 73],
+  ['uppercase-host', 'https://EXAMPLE.test/source/', 74],
+  ['default-port', 'https://example.test:443/source/', 75],
+  ['missing-root-slash', 'https://example.test', 76],
+  ['dot-segment', 'https://example.test/a/../source/', 77],
+  ['lowercase-escape', 'https://example.test/source%2f/', 78],
+  ['invalid-escape', 'https://example.test/source%GG/', 79],
+  ['short-escape', 'https://example.test/source%2/', 80],
+  ['backslash', 'https:\\\\example.test\\source/', 81],
+  ['unicode-host', 'https://café.example/source/', 82],
+  ['unicode-path', 'https://example.test/café/', 83],
+  ['space', 'https://example.test/source name/', 84],
+  ['control', 'https://example.test/source\nname/', 85],
+  ['empty-url', '', 86],
+]) {
+  const invalidProvenance = makeBundle(`invalid-provenance-${label}`, sequence);
   invalidProvenance.pages[0].provenance = [{ title: 'source', url }];
   writeActivation(`invalid-provenance-${label}.json`, signedPair(invalidProvenance));
 }
@@ -308,6 +379,28 @@ safeWrite('duplicate-manifest-entry-envelope.json', envelope(json(makeManifest([
   maximumManifestEntries[0],
   { ...maximumManifestEntries[0], version: 'different-version', path: 'bundles/different-version.json' },
 ]))));
+const malformedManifestValues = [
+  ['sequence-string', { sequence: '2' }],
+  ['sequence-fraction', { sequence: 1.5 }],
+  ['sequence-overflow', { sequence: 9007199254740992 }],
+  ['version-nonstring', { version: 7 }],
+  ['version-empty', { version: '' }],
+  ['version-overflow', { version: 'v'.repeat(129) }],
+  ['version-unsafe', { version: '../bad' }],
+  ['digest-nonstring', { sha256: 7 }],
+  ['digest-uppercase', { sha256: 'A'.repeat(64) }],
+  ['digest-short', { sha256: 'a'.repeat(63) }],
+  ['path-nonstring', { path: 7 }],
+  ['path-mismatch', { path: 'bundles/other.json' }],
+  ['format-missing', { formatVersion: undefined }],
+  ['format-noninteger', { formatVersion: 1.5 }],
+  ['policy-missing', { privacyPolicyVersion: undefined }],
+  ['policy-noninteger', { privacyPolicyVersion: 1.5 }],
+];
+for (const [label, override] of malformedManifestValues) {
+  const invalidEntry = { ...maximumManifestEntries[0], formatVersion: 2, privacyPolicyVersion: 3, ...override };
+  safeWrite(`manifest-invalid-${label}-envelope.json`, envelope(json(makeManifest([maximumManifestEntries[0], invalidEntry]))));
+}
 
 const maxEnvelopeBytes = 2 * 1024 * 1024;
 const maxBundle = makeBundle('maximum-envelope', 30);
@@ -390,14 +483,18 @@ const fixtureOutcomes = [
   { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'valid signed proof, immutable snapshot, idempotent re-attestation, or inclusive schema limit', files: ['valid-activation.json', 'same-bundle-newer-manifest.json', 'maximum-id-length.json', 'maximum-page-limits.json', 'maximum-capabilities.json', 'sequence-zero.json', 'sequence-max-safe.json', 'escaped-surrogate-content.json', 'string-boundaries-128.json', 'unknown-valid-fields.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'unsigned or incorrectly attested content cannot activate', files: ['unsigned-bundle.json', 'wrong-key.json', 'wrong-signature.json', 'wrong-digest.json', 'wrong-policy.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'activation, envelope, UTF-8, base64, BOM, and signed-payload schema rules are strict', files: ['duplicate-envelope-field.json', 'duplicate-payload-field.json', 'unknown-envelope-field.json', 'unknown-activation-field.json', 'malformed-utf8.json', 'noncanonical-base64.json', 'bom-activation.json', 'bom-envelope-activation.json', 'bom-payload-activation.json'] },
-  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'page metadata, relationships, IDs, and provenance satisfy the signed bundle contract', files: ['invalid-metadata.json', 'invalid-page-digest.json', 'missing-related-page.json', 'duplicate-related-ids.json', 'unsupported-page-type.json', 'invalid-provenance-credentials.json', 'invalid-provenance-fragment.json', 'invalid-provenance-http.json', 'unsafe-id.json', 'unsafe-related-id.json', 'parent-cycle.json', 'duplicate-page-ids.json', 'invalid-id-space.json', 'invalid-id-colon.json', 'invalid-id-control.json', 'invalid-id-unicode.json', 'invalid-id-percent.json', 'invalid-id-backslash.json', 'invalid-id-emptySegment.json', 'invalid-id-dotSegment.json', 'invalid-id-dotdotSegment.json', 'invalid-id-leadingDotSegment.json', 'invalid-id-dotFileSegment.json', 'invalid-id-uppercaseExtension.json', 'invalid-id-leadingSlash.json', 'invalid-id-leadingHyphen.json', 'invalid-id-tooLong.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'page metadata, relationships, IDs, and provenance satisfy the signed bundle contract', files: ['invalid-metadata.json', 'invalid-parent-null.json', 'invalid-applicability-null.json', 'invalid-provenance-null.json', 'invalid-page-digest.json', 'missing-related-page.json', 'duplicate-related-ids.json', 'unsupported-page-type.json', 'invalid-provenance-credentials.json', 'invalid-provenance-fragment.json', 'invalid-provenance-empty-fragment.json', 'invalid-provenance-empty-credentials.json', 'invalid-provenance-uppercase-scheme.json', 'invalid-provenance-uppercase-host.json', 'invalid-provenance-default-port.json', 'invalid-provenance-missing-root-slash.json', 'invalid-provenance-dot-segment.json', 'invalid-provenance-lowercase-escape.json', 'invalid-provenance-invalid-escape.json', 'invalid-provenance-short-escape.json', 'invalid-provenance-backslash.json', 'invalid-provenance-unicode-host.json', 'invalid-provenance-unicode-path.json', 'invalid-provenance-space.json', 'invalid-provenance-control.json', 'invalid-provenance-empty-url.json', 'invalid-provenance-http.json', 'provenance-url-overflow.json', 'unsafe-id.json', 'unsafe-related-id.json', 'parent-cycle.json', 'duplicate-page-ids.json', 'invalid-id-space.json', 'invalid-id-colon.json', 'invalid-id-control.json', 'invalid-id-unicode.json', 'invalid-id-percent.json', 'invalid-id-backslash.json', 'invalid-id-emptySegment.json', 'invalid-id-dotSegment.json', 'invalid-id-dotdotSegment.json', 'invalid-id-leadingDotSegment.json', 'invalid-id-dotFileSegment.json', 'invalid-id-uppercaseExtension.json', 'invalid-id-leadingSlash.json', 'invalid-id-leadingHyphen.json', 'invalid-id-tooLong.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'page, text, relationship, provenance, and marker limits reject overflow', files: ['capability-overflow.json', 'content-overflow.json', 'title-overflow.json', 'status-overflow.json', 'applicability-overflow.json', 'provenance-overflow.json', 'page-count-overflow.json', 'capability-129.json', 'applicability-129.json', 'version-129.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'all signed JSON fields, including unknown nested fields, use strict decoded-key and integer lexical rules', files: ['escaped-duplicate-key.json', 'integer-overflow.json', 'lone-surrogate.json', 'fractional-number.json', 'exponent-number.json', 'negative-zero.json', 'too-deep.json', 'unknown-nested-duplicate.json', 'unknown-fraction.json', 'unknown-exponent.json', 'unknown-negative-zero.json', 'unknown-overflow.json'] },
   { api: 'verifyKnowledgeManifest', expected: 'accept', invariant: 'manifest sequence zero and inclusive entry-count bound are valid', files: ['manifest-sequence-zero-envelope.json', 'maximum-manifest-entries-envelope.json'] },
   { api: 'verifyKnowledgeManifest', expected: 'reject', invariant: 'manifest entry-count overflow and duplicate identities are invalid', files: ['manifest-entry-overflow-envelope.json', 'duplicate-manifest-entry-envelope.json'] },
+  { api: 'verifyKnowledgeManifest', expected: 'reject', invariant: 'every entry is structurally validated before supported format and policy selection', files: ['manifest-invalid-sequence-string-envelope.json', 'manifest-invalid-sequence-fraction-envelope.json', 'manifest-invalid-sequence-overflow-envelope.json', 'manifest-invalid-version-nonstring-envelope.json', 'manifest-invalid-version-empty-envelope.json', 'manifest-invalid-version-overflow-envelope.json', 'manifest-invalid-version-unsafe-envelope.json', 'manifest-invalid-digest-nonstring-envelope.json', 'manifest-invalid-digest-uppercase-envelope.json', 'manifest-invalid-digest-short-envelope.json', 'manifest-invalid-path-nonstring-envelope.json', 'manifest-invalid-path-mismatch-envelope.json', 'manifest-invalid-format-missing-envelope.json', 'manifest-invalid-format-noninteger-envelope.json', 'manifest-invalid-policy-missing-envelope.json', 'manifest-invalid-policy-noninteger-envelope.json'] },
   { api: 'verifyKnowledgeManifest + selectKnowledgeEntry', expected: 'accept', invariant: 'eligible format and policy are selected before sequence ranking', files: ['ranked-manifest-envelope.json'] },
   { api: 'createKnowledgeActivation', expected: 'accept', invariant: 'helper preserves exact signed-envelope bytes and wire fields', files: ['valid-bundle-envelope.json', 'valid-manifest-envelope.json'] },
   { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'both original signed envelopes at the exact 2 MiB inclusive bound remain valid', files: ['maximum-bundle-envelope.json', 'maximum-manifest-envelope.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'canonical UTC timestamps include year zero, leap days, and the year 9999 endpoint', files: ['timestamp-year-zero.json', 'timestamp-leap-2000.json', 'timestamp-leap-2024.json', 'timestamp-year-9999-end.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'canonical HTTPS provenance URLs preserve punycode and uppercase percent escapes', files: ['provenance-at-outside-authority.json', 'provenance-punycode-host.json', 'provenance-uppercase-utf8-escapes.json', 'provenance-encoded-hash.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'invalid or noncanonical UTC timestamps are rejected', files: ['timestamp-invalid-february-30.json', 'timestamp-invalid-nonleap-february-29.json', 'timestamp-invalid-month-zero.json', 'timestamp-invalid-month-thirteen.json', 'timestamp-invalid-day-zero.json', 'timestamp-invalid-day-thirty-two.json', 'timestamp-invalid-hour-twenty-four.json', 'timestamp-invalid-minute-sixty.json', 'timestamp-invalid-second-sixty.json', 'timestamp-invalid-lowercase.json', 'timestamp-invalid-offset.json', 'timestamp-invalid-expanded-year.json', 'timestamp-invalid-missing-milliseconds.json', 'timestamp-invalid-four-fraction-digits.json', 'timestamp-invalid-space-separator.json'] },
   { api: 'generated size cases in desktop and Rust tests', expected: 'case-specific', invariant: 'construct wrappers in memory: accept two 2 MiB envelopes together; reject activation over 6 MiB and any envelope over 2 MiB', files: [] },
   { api: 'test support values', expected: 'accept', invariant: 'expected identity digests for the valid synthetic bundle and public test key', files: ['valid-envelope.sha256', 'test-public-key-spki.sha256'] },
 ];

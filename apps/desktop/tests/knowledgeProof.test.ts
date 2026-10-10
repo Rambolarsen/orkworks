@@ -53,12 +53,22 @@ test('the verifier rejects duplicate fields, malformed UTF-8, and noncanonical b
 test('invalid page metadata, unsafe IDs, and parent cycles cannot be activated', () => {
   for (const name of [
     'invalid-metadata.json',
+    'invalid-parent-null.json',
+    'invalid-applicability-null.json',
+    'invalid-provenance-null.json',
     'invalid-page-digest.json',
     'missing-related-page.json',
     'duplicate-related-ids.json',
     'unsupported-page-type.json',
     'invalid-provenance-credentials.json',
     'invalid-provenance-fragment.json',
+    'invalid-provenance-empty-fragment.json',
+    'invalid-provenance-empty-credentials.json',
+    'invalid-provenance-uppercase-scheme.json', 'invalid-provenance-uppercase-host.json', 'invalid-provenance-default-port.json',
+    'invalid-provenance-missing-root-slash.json', 'invalid-provenance-dot-segment.json', 'invalid-provenance-lowercase-escape.json',
+    'invalid-provenance-invalid-escape.json', 'invalid-provenance-short-escape.json', 'invalid-provenance-backslash.json',
+    'invalid-provenance-unicode-host.json', 'invalid-provenance-unicode-path.json', 'invalid-provenance-space.json',
+    'invalid-provenance-control.json', 'invalid-provenance-empty-url.json', 'provenance-url-overflow.json',
     'invalid-provenance-http.json',
     'unsafe-id.json',
     'unsafe-related-id.json',
@@ -190,7 +200,15 @@ test('manifest accepts 1,000 entries and rejects overflow and duplicate identiti
   const maximum = verifyKnowledgeManifest(fixture('maximum-manifest-entries-envelope.json'), testPublicKey);
   assert.equal(maximum.bundles.length, 1000);
   assert.equal(selectKnowledgeEntry(maximum).sequence, 1000);
-  for (const name of ['manifest-entry-overflow-envelope.json', 'duplicate-manifest-entry-envelope.json']) {
+  for (const name of [
+    'manifest-entry-overflow-envelope.json', 'duplicate-manifest-entry-envelope.json',
+    'manifest-invalid-sequence-string-envelope.json', 'manifest-invalid-sequence-fraction-envelope.json', 'manifest-invalid-sequence-overflow-envelope.json',
+    'manifest-invalid-version-nonstring-envelope.json', 'manifest-invalid-version-empty-envelope.json', 'manifest-invalid-version-overflow-envelope.json', 'manifest-invalid-version-unsafe-envelope.json',
+    'manifest-invalid-digest-nonstring-envelope.json', 'manifest-invalid-digest-uppercase-envelope.json', 'manifest-invalid-digest-short-envelope.json',
+    'manifest-invalid-path-nonstring-envelope.json', 'manifest-invalid-path-mismatch-envelope.json',
+    'manifest-invalid-format-missing-envelope.json', 'manifest-invalid-format-noninteger-envelope.json',
+    'manifest-invalid-policy-missing-envelope.json', 'manifest-invalid-policy-noninteger-envelope.json',
+  ]) {
     assert.throws(() => verifyKnowledgeManifest(fixture(name), testPublicKey), name);
   }
 });
@@ -229,6 +247,27 @@ test('signed knowledge accepts zero and maximum safe sequences', () => {
   assert.equal(maximum.identity.sequence, Number.MAX_SAFE_INTEGER);
   assert.equal(maximum.bundle.sequence, Number.MAX_SAFE_INTEGER);
   assert.equal(verifyKnowledgeManifest(fixture('manifest-sequence-zero-envelope.json'), testPublicKey).bundles[0].sequence, 0);
+});
+
+test('canonical HTTPS provenance URLs preserve valid normalized spellings', () => {
+  for (const name of [
+    'provenance-at-outside-authority.json', 'provenance-punycode-host.json',
+    'provenance-uppercase-utf8-escapes.json', 'provenance-encoded-hash.json',
+  ]) assert.doesNotThrow(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
+});
+
+test('canonical timestamp boundaries accept year zero and valid leap dates', () => {
+  for (const name of ['timestamp-year-zero.json', 'timestamp-leap-2000.json', 'timestamp-leap-2024.json', 'timestamp-year-9999-end.json']) {
+    assert.doesNotThrow(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
+  }
+  for (const name of [
+    'timestamp-invalid-february-30.json', 'timestamp-invalid-nonleap-february-29.json',
+    'timestamp-invalid-month-zero.json', 'timestamp-invalid-month-thirteen.json', 'timestamp-invalid-day-zero.json',
+    'timestamp-invalid-day-thirty-two.json', 'timestamp-invalid-hour-twenty-four.json', 'timestamp-invalid-minute-sixty.json',
+    'timestamp-invalid-second-sixty.json', 'timestamp-invalid-lowercase.json', 'timestamp-invalid-offset.json',
+    'timestamp-invalid-expanded-year.json', 'timestamp-invalid-missing-milliseconds.json', 'timestamp-invalid-four-fraction-digits.json',
+    'timestamp-invalid-space-separator.json',
+  ]) assert.throws(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
 });
 
 test('signed escaped surrogate pairs preserve decoded page content and digest', () => {

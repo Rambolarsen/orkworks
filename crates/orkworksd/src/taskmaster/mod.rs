@@ -1,3 +1,4 @@
+// Used by the following Taskmaster admission integration.
 pub(crate) mod audit;
 pub(crate) mod completion;
 #[cfg(test)]
@@ -10,6 +11,8 @@ mod coordinator_tests;
 pub(crate) mod evaluator;
 pub(crate) mod inference_approval;
 pub(crate) mod inference_trust;
+#[allow(dead_code)]
+pub(crate) mod knowledge;
 pub(crate) mod proposed_change;
 pub(crate) mod provider_catalog;
 pub(crate) mod rollup;

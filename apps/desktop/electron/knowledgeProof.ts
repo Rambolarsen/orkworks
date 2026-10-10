@@ -196,13 +196,29 @@ function parseProvenance(value: unknown): KnowledgePageProvenance[] {
     exactKeys(provenance, ['title', 'url'], `page.provenance[${index}]`);
     const title = boundedString(provenance.title, 'provenance.title', 1, 512);
     const urlText = boundedString(provenance.url, 'provenance.url', 1, 2048);
+    const urlBytes = Buffer.from(urlText, 'utf8');
+    if (urlBytes.byteLength > 2048 || !urlBytes.every((byte) => byte >= 0x21 && byte <= 0x7e)) {
+      fail('provenance.url must contain 1 to 2048 printable ASCII bytes');
+    }
+    if (!urlText.startsWith('https://') || urlText.includes('\\') || urlText.includes('#')) {
+      fail('provenance.url must use canonical HTTPS syntax without backslashes or fragments');
+    }
+    for (let index = 0; index < urlText.length; index++) {
+      if (urlText[index] !== '%') continue;
+      const escape = urlText.slice(index + 1, index + 3);
+      if (!/^[0-9A-F]{2}$/.test(escape)) fail('provenance.url percent escapes must use uppercase hexadecimal');
+      index += 2;
+    }
     let url: URL;
     try {
       url = new URL(urlText);
     } catch {
       return fail('provenance.url must be a valid HTTPS URL');
     }
-    if (url.protocol !== 'https:' || url.username || url.password || url.hash) fail('provenance.url must be HTTPS without credentials or fragments');
+    const authority = urlText.slice('https://'.length).split(/[/?#]/, 1)[0];
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash || authority.includes('@') || url.href !== urlText) {
+      fail('provenance.url must be a canonical HTTPS URL without credentials or fragments');
+    }
     return { title, url: urlText };
   });
 }
