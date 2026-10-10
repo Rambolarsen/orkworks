@@ -437,6 +437,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
       await dismissTaskmasterRecommendation(id);
       if (generation !== refreshGeneration.current) return;
+      // A dismissed cleanup card may have been announced by Run audit; drop
+      // the announcement instead of leaving it pointing at a gone card.
+      setAuditMessage(undefined);
       await refresh();
     } catch (cause) {
       setDismissErrors((current) => ({
@@ -456,6 +459,9 @@ function RecommendationsPanel({ hasWorkspace, taskmasterReady, canFixWithAi, onS
     try {
       await onRunCleanup?.(recommendation);
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
+      // The cleanup card is now terminal, so any Run audit announcement of
+      // it is stale; the refreshed list states the outcome on its own.
+      setAuditMessage(undefined);
       await refresh();
     } catch (cause) {
       setCleanupErrors((current) => ({
