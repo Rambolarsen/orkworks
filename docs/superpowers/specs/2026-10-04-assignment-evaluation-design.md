@@ -23,8 +23,8 @@ authorize a merge. It does not change ordinary Peon behavior.
 ## Assignment and result identity
 
 Evaluation binds one of the approved assignment identity variants, plus the
-exact result revision, criteria and rubric versions, reviewer identity, and
-immutable evidence references. A child result uses the #741/#742 identity
+exact result revision, sidecar-derived criteria and rubric snapshot digests,
+reviewer identity, and immutable evidence references. A child result uses the #741/#742 identity
 `(workspaceId, runId, planId, planRevision, taskId, taskVersion,
 reservationId, parentSessionId, childSessionId, configurationId,
 configurationDigest)`. A root orchestrator result uses
@@ -97,16 +97,18 @@ operation, or unprovable binding is stale/unsupported and Unassessed; no
 out-of-scope file may be read or pinned.
 
 Before authorized cleanup removes a clean, quiescent plan-owned worktree under
-#610, the sidecar must seal each accepted path-backed output needed by a
-retained evaluation. After the run is terminal and its write capabilities are
-revoked, sealing reopens the path within scope, verifies the accepted object
+#610, the sidecar must seal each accepted path-backed output needed by any
+retained current result or evaluation, whether or not an evaluation already
+exists for that result. After the run is terminal and its write capabilities
+are revoked, sealing reopens the path within scope, verifies the accepted object
 identity and digest, and copies the bounded bytes into immutable storage bound
 to the same assignment and output declaration. A sealed output is revalidated
 from that stored object; removal of its original worktree path does not make it
 missing or change the result/evaluation digest. The pin uses the same content
 digest, is charged to the existing artifact and workspace quotas, and remains
 subject to retention and purge rules. Cleanup cannot remove a worktree while a
-retained current evaluation depends on an output that has not been sealed. If
+retained current result or evaluation depends on an output that has not been
+sealed. If
 sealing detects changed, absent, or inaccessible bytes, the result is stale or
 known missing under the rules above, and the user must resolve the affected
 current evaluation before cleanup; authorized cleanup itself never creates a
@@ -154,6 +156,15 @@ unsatisfied required criterion remains a failure even if other required
 criteria are unassessed.
 Legacy assignments without required criteria cannot pass; absent other known
 failures, they are Unassessed.
+
+#741's `CriterionSnapshot` has no separate version field. The sidecar derives
+`criteriaSnapshotDigest` as lowercase SHA-256 over
+`orkworks.criteria-snapshot.v1\n` followed by the canonical JSON bytes of the
+approved `CriterionSnapshot[]`, ordered by stable ID and containing each
+criterion's `id`, `requirement`, and `description`. This binds the exact
+criteria used by child and root assignment variants without inventing a
+reviewer-supplied version. It is immutable assignment context and is included
+in each evaluation digest.
 
 The approved, versioned, role-specific rubric has an ID, version, evaluator
 role, and 1–16 required quality dimensions with stable IDs. The sidecar derives
@@ -418,7 +429,7 @@ kind, and state; a present entry also contains its source variant (approved
 path or immutable artifact ID/version), size, and content digest. The
 evaluation digest covers exactly: assignment identity, result revision/digest,
 evaluation stream identity and reporter source, evaluation revision and
-predecessor (revision/digest or explicit `no-head`), criteria version,
+predecessor (revision/digest or explicit `no-head`), `criteriaSnapshotDigest`,
 `rubricSnapshotDigest`, all criterion outcomes, quality-dimension outcomes and
 rating, their rationales and evidence references, all findings and disputes,
 and any `reviewedEvaluationRef`. Each collection is ordered by its stable ID;
@@ -477,7 +488,9 @@ learning input, or reviewer credibility link depends on the subject or its
 pinned evidence. It atomically
 removes that subject's result manifests and receipts, evaluations,
 dispositions, and solely referenced pinned evidence; otherwise it fails without
-deleting anything. A repeated purge reports already purged and cannot recreate
+deleting anything. A repeated purge of an absent subject returns the same
+not-found/no-op result as any absent target; the API does not promise to
+distinguish a prior purge from a subject that never existed. It cannot recreate
 history. No tombstone is retained after this explicit provenance deletion, and
 the released records no longer count toward admission quotas. Retention must
 never purge automatically to make room or silently discard provenance. The
@@ -542,10 +555,11 @@ A future implementation must verify that:
    assignment subject and revision count but requires its new launch generation;
    changing the assignment identity creates a new subject. Authorized cleanup
    of a clean, quiescent plan-owned worktree seals every accepted output needed
-   by a retained current evaluation before removing the path; the same digest
-   remains current from its immutable pin. Changed or unavailable bytes cannot
-   be sealed, and cleanup cannot erase a live dependency or turn authorized
-   cleanup into Needs rework.
+   by a retained current result or evaluation, including results not yet
+   evaluated, before removing the path; the same digest remains current from
+   its immutable pin. Changed or unavailable bytes cannot be sealed, and
+   cleanup cannot erase a live dependency or turn authorized cleanup into
+   Needs rework.
 3. Scores compare across assignments only under the same rubric ID, version,
    and canonical `rubricSnapshotDigest`, or an approved normalization rule.
    Matching ID/version with changed snapshot content cannot pool scores; equal
@@ -584,7 +598,9 @@ A future implementation must verify that:
    exclude a newer revision. Initial/replacement user stream creation uses one
    per-result active-stream CAS slot, so concurrent IDs have one winner and
    consume the revision budget atomically. Result and evaluation digest inputs
-   contain exactly the documented logical fields, use stable collection order,
+   contain exactly the documented logical fields, including a
+   `criteriaSnapshotDigest` over the approved #741 `CriterionSnapshot[]` and
+   stable collection order,
    and exclude derived scores, eligibility projections, receipts, and request
    metadata; a change to any hashed field changes the digest.
 6. Per-assignment result-revision and record caps reject excess work visibly,
@@ -604,7 +620,8 @@ A future implementation must verify that:
    retained record, learning input, or reviewer credibility link depends on it;
    it fences writes, removes the subject and solely pinned evidence atomically,
    and fails without deletion when provenance is still needed. Quota pressure
-   never triggers silent eviction. Workspace deletion purges result manifests,
+   never triggers silent eviction; repeated purges of absent subjects return
+   the same not-found/no-op result and retain no tombstone. Workspace deletion purges result manifests,
    receipts, evaluations, dispositions, and pinned evidence.
 7. Evaluation cannot launch/retry work, widen permissions, change
    configuration, advance dependencies, accept work for the user, or approve a
