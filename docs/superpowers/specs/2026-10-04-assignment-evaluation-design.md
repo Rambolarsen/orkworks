@@ -37,13 +37,17 @@ or rubric requires a new approved revision. `sidecarGeneration` and the
 active child `launchGeneration` or parent runtime generation fence report
 authority but do not change the assignment identity.
 
-Child result writes use the #742 child-scoped reporting authority. Root result
-writes require a separate parent-session-scoped report capability derived by
-the sidecar and bound to the active parent runtime, sidecar generation, and
-approved bootstrap identity; a run bearer or execution grant is not report
-authority. Resume requires the new parent runtime generation. Reconcile this
-root capability with #742 before implementation. Root evaluations use the
-explicit user-review path unless a separately eligible reviewer is approved.
+Result manifests use an `AssignmentResultCapability`, separate from #742's
+`ResearchReportCapability`. The sidecar binds it to the approved result
+identity and active authority generations, and it grants only result-manifest
+submission and receipt reads. For child results it binds the child assignment,
+sidecar generation, and launch generation; for root results it binds the
+bootstrap identity, sidecar generation, and active parent runtime generation.
+It grants no research-report, evaluation, or orchestration action. Resume and
+revocation follow #742's generation-bound mechanics. Reconcile the new result
+scope with #742 before implementation; a run bearer or execution grant is not
+report authority. Root evaluations use the explicit user-review path unless a
+separately eligible reviewer is approved.
 
 The output contract is assignment-specific, with no global artifact catalog.
 It declares at most 32 unique artifact IDs and kinds, using #741's identifier
@@ -56,10 +60,9 @@ with #741 before code. Example declarations include `changes`
 (`workspace_changes`) and `checks` (`verification_report`), or `findings`
 (`research_report`).
 
-The worker reports one `present` or `missing` entry per declaration through an
-authenticated capability bound to that assignment identity and its active
-sidecar and launch generations; the payload cannot choose those identities.
-It follows #742's authority model. A present entry names an approved
+The worker reports one `present` or `missing` entry per declaration through
+its `AssignmentResultCapability`; the payload cannot choose the identity or
+active sidecar and launch generations. A present entry names an approved
 worktree-relative path or immutable server-held artifact ID/version, its size,
 and content digest. Undeclared or over-cap outputs are rejected. Exact retries
 with the same key return the
@@ -71,9 +74,11 @@ The sidecar must resolve and open file paths within the approved output scope,
 reject symlink or junction targets outside it, and preserve the opened-object
 binding for hashing. On every freshness check, it resolves and opens the
 declared path again within scope, verifies that it still names the same object,
-then hashes that open handle. A missing or replaced path, changed bytes, or
-unprovable binding makes the result stale and Unassessed; no out-of-scope file
-may be read or pinned.
+then hashes that open handle. A declared required artifact that is absent at
+submission or confirmed absent during freshness checking is known missing and
+establishes Needs rework. A replaced path, changed bytes, inaccessible path, or
+unprovable binding is stale and Unassessed; no out-of-scope file may be read or
+pinned.
 
 Every manifest submission carries the caller's expected current result
 revision and digest; the initial state uses `expectedResultRevision: no-head`
@@ -199,6 +204,13 @@ worker's reporting capability and #742's `ResearchReportCapability`; follow
 record alignment with #742 before implementation. User reviews use the
 Electron-authorized user-provenance path and never impersonate a child.
 
+Each evaluation stream has a server-resolved `reviewerIdentity`: either the
+assigned reviewer's `reviewerAssignmentIdentity` or a UI-issued `userReviewId`
+for an explicit user-authorized review. The ID is stable for that stream and
+cannot be supplied as arbitrary display text. A user correction to a child
+review is a separate user-authorized evaluation stream, never a revision that
+impersonates the child.
+
 A reviewer cannot evaluate their own work. A reviewer may be evaluated by a
 different declared reviewer or the user. Do not assign a further child to
 evaluate that review; the user is the terminal evaluator. Without user
@@ -212,7 +224,7 @@ establishes Needs rework. Optional-only disagreements and disputes about
 findings that do not require rework are detail and do not affect the overall
 result. A reviewer contests a finding with
 up to 32 `findingDisputes` per revision; each cites the target
-`(reviewerAssignmentIdentity, evaluationRevision, findingId)` and one evidence
+`(reviewerIdentity, evaluationRevision, findingId)` and one evidence
 reference already in the disputing evaluation. The target must be a different
 eligible evaluation for the same assignment and result revision. A dispute is
 current only while both referenced revisions are current; correction needs a
@@ -239,7 +251,7 @@ stream once accepted. A stale invalidation conflicts and cannot exclude a newer
 correction.
 
 When #742 ends a run and revokes child authority, that child can no longer
-correct its review. The user may append a separately attributed correction;
+correct its review. The user may submit a separate user-authorized evaluation;
 the user never impersonates the child. Invalidation preserves the report and
 provenance and excludes it from current results and learning. A later result
 revision makes earlier evaluations historical; they never become current
@@ -283,8 +295,9 @@ makes the output unsupported.
 
 Reject over-limit reports visibly and never silently drop conflict evidence,
 corrections, or provenance. Retention belongs to #745, which may remove a
-complete eligible historical subject and its pinned evidence but not evidence
-for a current result presented as Meets requirements. Workspace deletion stops
+complete eligible historical subject and its pinned evidence but must retain
+evidence referenced by any current evaluation, regardless of its derived
+result. Workspace deletion stops
 new reports and in-flight writes, then purges evaluation, disposition, and
 pinned evidence. Old writes cannot recreate deleted content; no evaluation
 tombstone survives. If evidence is gone, a retained projection cannot claim a
@@ -305,15 +318,17 @@ clean learning signal, and evaluation cannot change an active configuration.
 A future implementation must verify that:
 
 1. Complete evidence derives Meets requirements; any uncontested failure,
-   including a known missing output, derives Needs rework; missing, stale, or
-   conflicting evidence without a known failure derives Unassessed. An
+   including a required artifact confirmed absent at submission or during
+   freshness checking, derives Needs rework; inaccessible or stale evidence
+   without a known failure derives Unassessed. An
    evidenced rating below `3`, a below-standard dimension, or a required-rework
    finding is a failure even when other dimensions are unassessed. Optional
    criteria, lifecycle state, or empty legacy criteria cannot create a pass.
-2. Exact retries using the active launch generation return their saved receipt
-   before stale-predecessor rejection; changed, malformed, unauthenticated,
-   oversized, or cross-subject
-   reports fail closed. Missing dimension coverage or invalid evidence cannot
+2. Exact retries using the active `AssignmentResultCapability` generation
+   return their saved receipt before stale-predecessor rejection; a
+   `ResearchReportCapability` cannot submit result manifests. Changed,
+   malformed, unauthenticated, oversized, or cross-subject reports fail closed.
+   Missing dimension coverage or invalid evidence cannot
    support a pass. File links cannot escape the approved scope, and each
    freshness check detects removed or replaced paths. Results cannot remain
    current for any consumer after referenced bytes change. A resume retains the
@@ -321,10 +336,11 @@ A future implementation must verify that:
    changing the assignment identity creates a new subject.
 3. Scores compare across assignments only under the same rubric ID/version or
    an approved normalization rule. Optional-criterion disagreement affects
-   detail only. Finding disputes bind the exact reviewer/evaluation-revision/
-   finding tuple and reuse cited evidence; duplicate finding IDs are rejected,
-   disputes do not carry to corrections, and informational finding disputes do
-   not affect the overall result. Disputed failures are not established.
+   detail only. Finding disputes bind the exact child or user
+   `reviewerIdentity`, evaluation revision, and finding ID and reuse cited
+   evidence; duplicate finding IDs are rejected, disputes do not carry to
+   corrections, and informational finding disputes do not affect the overall
+   result. Disputed failures are not established.
    Findings retain location, severity, evidence, and required-rework status
    without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
@@ -334,18 +350,20 @@ A future implementation must verify that:
    correct or impersonate a reviewer. Concurrent corrections and invalidations
    cannot restore an invalidated evaluation or exclude a newer revision.
 6. Per-assignment result-revision and record caps reject excess work visibly, as
-   do aggregate run/workspace quotas. Retention removes only eligible complete
-   historical subjects; deletion fences old writes and purges evaluation
-   content.
+   do aggregate run/workspace quotas. Retention preserves evidence referenced
+   by any current evaluation regardless of outcome and removes only eligible
+   complete historical subjects; deletion fences old writes and purges
+   evaluation content.
 7. Evaluation cannot launch/retry work, widen permissions, change
    configuration, advance dependencies, accept work for the user, or approve a
    merge.
 8. Child and root result identities resolve from their respective approved
    configuration; child launch and parent runtime resumes require their new
    authority generations. Corrected or invalidated source reports cannot keep
-   dependent evaluations current. Each of the 32 permitted result revisions
-   can receive an evaluation before the 16-revision per-result evaluation cap
-   is reached.
+   dependent evaluations current. The dedicated `AssignmentResultCapability`
+   is distinct from `ResearchReportCapability` and any run bearer. Each of the
+   32 permitted result revisions can receive an evaluation before the
+   16-revision per-result evaluation cap is reached.
 
 ## Implementation gate
 
