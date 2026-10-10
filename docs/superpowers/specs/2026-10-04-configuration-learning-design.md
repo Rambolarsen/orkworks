@@ -428,6 +428,20 @@ If the required support is absent, report “insufficient comparable evidence”
 and leave task-fit ordering unchanged. These thresholds are conservative v1
 defaults, not tunable repository policy.
 
+Once both arms meet that threshold, compare only the fraction of eligible
+assignments whose #744 overall result is `Meets requirements`, using exact
+integer cross-multiplication rather than rounded percentages. An arm with the
+higher fraction may be preferred; equal fractions are a tie and leave ordering
+neutral. `Needs rework` is the non-meeting outcome. `Unassessed` assignments
+are excluded from both arm counts and the denominator, and an arm that then
+falls below the threshold cannot win. Do not add criterion, completeness,
+quality-dimension, finding-severity, time, cost, or usage values into a
+composite or tie-breaker. Those facts remain separate explanatory details.
+Thus a mixed criterion/quality vector affects learning only through #744's
+derived overall result: an uncontested failure can count as `Needs rework`
+even if another dimension is unassessed; without an established failure, the
+overall `Unassessed` result supplies no signal.
+
 Outcome association is not causal attribution. A change in score can reflect
 task difficulty, reviewer judgment, model behavior, or unmeasured conditions.
 Do not claim that an individual skill, model, permission, prompt, or template
@@ -511,13 +525,14 @@ bootstrap, prompt, skill file, or permission profile automatically.
 ## Explainable future configuration choices
 
 For a supported cohort, prefer only the configuration arm with stronger
-eligible outcomes under the thresholds above. If outcomes tie, conflict, or
-remain unassessed, learning is neutral and ordinary task-fit/user preference
-ordering decides. Usage frequency alone never ranks configurations. Preserve
-the reason and matched/unknown counts with the later proposal so a reviewer
-can see whether its evidence still applies. A newly invalidated source causes
-the proposal to be rebuilt or withdrawn before approval; it never silently
-keeps the old ranking.
+eligible outcomes under the exact `Meets requirements` fraction rule above.
+If outcomes tie or no arm meets the threshold, learning is neutral and
+ordinary task-fit/user-preference ordering decides. Conflicting outcomes are
+`Unassessed` under #744 and do not enter either fraction. Usage frequency alone
+never ranks configurations. Preserve the reason and matched/unknown counts
+with the later proposal so a reviewer can see whether its evidence still
+applies. A newly invalidated source causes the proposal to be rebuilt or
+withdrawn before approval; it never silently keeps the old ranking.
 
 One run can raise a hypothesis to investigate or a one-off configuration
 suggestion to review, explicitly labeled as single-run evidence. Only repeated
@@ -538,16 +553,56 @@ projection referencing exact assignment/evaluation digests and recurrence
 counts. Keep these references distinct from `WorkflowObservationEvidence`;
 never relabel assignment evaluations as observations.
 
+Learning-finding identity is versioned and server-derived from a canonical
+descriptor containing repository epoch/ID, target surface, target logical
+skill ID (or `null`), finding class, one stable affected criterion/dimension
+ID, task category, and sorted normalized task-scope tags. The v1 `findingClass`
+enum is `required_criterion_unsatisfied` or
+`quality_dimension_below_standard`; the corresponding stable ID must resolve
+to the required criterion or rubric dimension in that assignment's approved
+snapshot. The descriptor also contains the exact criteria and rubric snapshot
+digests, so a reused label with changed meaning cannot silently join an old
+family. Task category is an exact approved nonempty enum token; each scope tag
+is an approved lowercase ASCII slug matching `[a-z0-9][a-z0-9._-]{0,63}`, and
+the list is unique and byte-sorted. If these typed fields are absent, the
+finding is unmatched and cannot produce a recurring learning proposal. Do not
+derive them from free-form evaluation prose.
+
+The descriptor excludes generated prose, session IDs, run IDs, timestamps,
+and the current skill snapshot/version. The fingerprint is lowercase
+SHA-256 over
+`orkworks.learning-finding.v1\n` followed by #741-canonical JSON for that
+descriptor; store the descriptor and digest together and reject a digest whose
+descriptor does not recompute. The logical skill ID keeps an equivalent
+proposal grouped across content versions, while every evidence reference still
+names the exact skill snapshot and evaluation digest it observed.
+
+Learning-only records use the family key
+`improve_workflow:learning:v1:<target-surface>:<learning-finding-fingerprint>`.
+The existing observation family
+`improve_workflow:v1:<target-surface>:<observation-fingerprint>` remains
+unchanged. Learning findings use their own family namespace and remain
+separately attributed recommendations in the same canonical Taskmaster graph
+and lifecycle. V1 does not merge evaluation findings with workflow
+observations, even when their titles or targets look similar: the observation
+contract has no shared typed finding descriptor that proves equivalence.
+Text similarity, matching titles, or the same target skill is never enough to
+coalesce or suppress evidence. Each source family allows at most one proposed
+record for its exact key; related cards may appear side by side and are
+dismissed independently. This preserves the existing `ImproveWorkflow`
+mutation path without inventing a cross-source fingerprint or pretending
+assignment evaluations are observations.
+
 The learning evaluator may raise a one-assignment hypothesis, but a recurring
 skill-update proposal requires at least three distinct eligible assignment
 subjects across at least two runs, with the same normalized finding and target
 surface. A related finding supported only by session friction may continue
-through the existing observation pipeline and its own eligibility rule. If
-both pipelines identify the same target and normalized fingerprint, merge the
-visible evidence in the same `ImproveWorkflow` family instead of creating two
-cards. Stable dedupe identity uses repository binding, target surface, stable
-skill identity/current snapshot where applicable, and normalized finding
-fingerprint; it never uses generated prose.
+through the existing observation pipeline and its own eligibility rule. The
+two sources do not merge or count toward each other's recurrence threshold.
+Learning dedupe uses repository binding, target surface, stable logical skill
+identity where applicable, and the normalized learning-finding fingerprint;
+the exact skill snapshot/version remains evidence, not family identity. It
+never uses generated prose.
 
 Choose the smallest plausible target: docs for a missing fact/convention, a
 skill for a reusable procedure with checkpoints, instructions for broad
@@ -559,14 +614,22 @@ file changes and decides whether to commit/promote them. No approval edits
 repository files by itself.
 
 Dismissal is remembered in the existing immutable recommendation history.
-Equivalent evidence is suppressed until materially new eligible subjects
-change the normalized evidence fingerprint or increase qualifying recurrence
-by at least two assignments, including one from a run absent from the prior
-watermark. Time passing, rerunning analysis, a changed model-generated title,
-or replaying the same evidence is not new evidence. A resurfaced successor
-links the dismissed recommendation and shows exactly which assignments,
-outcomes, coverage changes, or normalized target changes crossed the
-watermark. Rejection does not delete history or retire a skill permanently.
+The learning-family watermark contains the sorted assignment-subject IDs,
+evaluation digests, subject revisions, and qualifying recurrence count at
+dismissal. The existing observation-family watermark retains its current
+sequence, observation IDs/count, impact, and session fields from
+`specs/taskmaster.md`; the two watermark schemas remain source-specific.
+Learning evidence may create a successor only after at least two newly
+eligible assignment subjects qualify, including one from a run absent from
+the learning watermark. Observation evidence follows its existing
+sequence/impact rule. The successor cites only new evidence plus enough
+immutable lineage to explain its predecessor. Time passing, rerunning
+analysis, a changed model-generated title, a new skill version without a
+materially changed finding, or replaying the same evidence is not new evidence.
+A resurfaced successor links the dismissed recommendation and shows exactly
+which references crossed its watermark. Dismissing one family does not dismiss
+or suppress a related card from the other source. Rejection does not delete
+history or retire a skill permanently.
 
 ## Retention, forgetting, and concrete examples
 
@@ -666,6 +729,13 @@ silently initialize a fresh store or fall back to stale cached advice.
 - One eligible assignment can raise only a labeled hypothesis; fewer than
   three eligible subjects per arm or fewer than two runs per arm cannot
   change selection preference; exact threshold cases pass.
+- Selection compares exact `Meets requirements` fractions: higher wins,
+  equal fractions are neutral, `Unassessed` is excluded, and mixed quality /
+  completeness dimensions never become an undocumented tie-breaker.
+- At three eligible assignments per arm, `2/3` Meets versus `1/3` prefers the
+  first arm; `2/3` versus `2/3` is neutral. An `Unassessed` subject excluded
+  from an arm that then has only two assignments makes the comparison
+  ineligible, regardless of its criterion/quality details.
 - Mandatory skills cannot be removed; usage-only evidence cannot rank skills;
   plans show matched dimensions, both-arm counts, unknown coverage, source
   digests, and deterministic fallback on missing/corrupt history.
@@ -673,6 +743,14 @@ silently initialize a fresh store or fall back to stale cached advice.
   runs, dedupe across the same normalized target, use the existing
   `ImproveWorkflow` lifecycle, suppress unchanged dismissed evidence, and
   expose the precise evidence delta on a valid successor.
+- Learning fingerprints are stable across worktrees and skill content
+  versions for the same logical target/finding with matching criteria/rubric
+  snapshot digests, distinct across different repositories, target skills,
+  finding classes, scopes, or rubric snapshots, and source-separated from
+  existing observation keys. The same repo/finding from two worktrees shares
+  its learning family. Similar-looking learning and observation findings
+  remain distinct and use independent dismissal/resurfacing rules in the
+  shared lifecycle; dismissed evidence cannot cross-advance either watermark.
 - Forgetting, workspace deletion, source expiry, explicit #744 purge, and
   repository retirement do not leave stale summaries or remove protected
   current evaluation/reviewer dependencies; recovery after an interrupted
