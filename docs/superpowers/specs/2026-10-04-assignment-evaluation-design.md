@@ -76,12 +76,22 @@ changed content under that key conflicts. The key is scoped to reporter,
 assignment identity, active launch generation, and operation.
 
 The sidecar must open file paths with one atomic descriptor-relative operation
-from a retained handle to the approved workspace root. The operation must
-enforce beneath-root containment and no-follow semantics for the full path
-resolution, rejecting symlinks, junctions, and other reparse points at every
-component. Do not resolve a path and then open it by name, or compose separate
-path-based checks and opens. Preserve the resulting handle for type checks and
-hashing. Use this procedure at submission, every freshness check, and sealing.
+from a retained handle to the exact approved output root for this assignment.
+For a child assignment, that root is the absolute worktree path bound to its
+plan-owned worktree group, not the active workspace root or source checkout.
+For a root assignment, it is the canonical repository root in the
+`sourceWorktreeBinding` captured by its UI-approved bootstrap. The sidecar
+derives the root from the approved assignment and allocation; the reporter
+cannot select or change it. Bind the root to the assignment identity and the
+approved worktree snapshot, and verify those bindings before each operation.
+The operation must enforce
+beneath-root containment and no-follow semantics for the full path resolution,
+rejecting symlinks, junctions, and other reparse points at every component. Do
+not resolve a path and then open it by name, or compose separate path-based
+checks and opens. Preserve the resulting handle for type checks and hashing.
+Use this procedure at submission, every freshness check, and sealing. This
+prevents a same-named path in the main checkout from satisfying an output
+declared in a child worktree.
 If the platform cannot provide atomic handle-relative containment and no-follow
 semantics, reject path-backed output before reading any bytes; do not fall back
 to path-based checks. Only regular files with no hard-link aliases are
@@ -112,25 +122,33 @@ changed bytes, inaccessible path, timed-out operation, or unprovable
 path/content binding is stale/unsupported and Unassessed; no out-of-scope file
 may be read or pinned.
 
-Before authorized cleanup removes a clean, quiescent plan-owned worktree under
-#610, the sidecar must seal each accepted path-backed output needed by any
-retained current result or evaluation, or any retained learning input. This
-includes an evaluation made historical by a later result revision. After the
-run is terminal and its write capabilities
-are revoked, sealing reopens the path within scope, verifies the accepted size
-and digest, and copies the bounded bytes from that opened handle into immutable
-storage bound to the same assignment and output declaration. A sealed output is
-revalidated
-from that stored object; removal of its original worktree path does not make it
-missing or change the result/evaluation digest. The pin uses the same content
-digest, is charged to the existing artifact and workspace quotas, and remains
-subject to retention and purge rules. Cleanup cannot remove a worktree while a
-retained current result, evaluation, or learning input depends on an output
-that has not been sealed. If
-sealing detects changed, absent, or inaccessible bytes, the result is stale or
-known missing under the rules above, and the user must resolve the affected
-current evaluation before cleanup; authorized cleanup itself never creates a
-new Needs rework outcome.
+Before a dependent successor receives writable ownership of a reused
+plan-owned worktree under #610, the sidecar must seal each accepted path-backed
+output needed by any retained current result or evaluation, or any retained
+learning input. This includes an evaluation made historical by a later result
+revision. Handoff is serialized: after the predecessor is terminal, its write
+capabilities are revoked, and the user confirms quiescence, sealing reopens
+each path under the predecessor assignment's approved output root, verifies
+the accepted size and digest, and copies the bounded bytes from that opened
+handle into immutable storage bound to the same assignment and output
+declaration. Complete and verify sealing before durably transferring group
+ownership or granting the successor write access. If any required output cannot
+be sealed, block the handoff; the successor must not overwrite, remove, or
+otherwise gain write access to the worktree until the dependency is resolved.
+Once sealed, freshness checks use the immutable stored object rather than the
+mutable reused worktree path, so successor edits cannot change the predecessor
+result. Before authorized cleanup removes a clean, quiescent plan-owned
+worktree, apply the same sealing rule to every retained dependency. A sealed
+output is revalidated from its stored object; removal of its original worktree
+path does not make it missing or change the result/evaluation digest. The pin
+uses the same content digest, is charged to the existing artifact and workspace
+quotas, and remains subject to retention and purge rules. Cleanup cannot remove
+a worktree while a retained current result, evaluation, or learning input
+depends on an output that has not been sealed. If sealing detects changed,
+absent, or inaccessible bytes, the result is stale or known missing under the
+rules above, and the user must resolve the affected current evaluation before
+cleanup or handoff; authorized cleanup itself never creates a new Needs rework
+outcome.
 
 Every manifest submission carries the caller's expected current result
 revision and digest; the initial state uses `expectedResultRevision: no-head`
@@ -646,9 +664,12 @@ A future implementation must verify that:
    unauthenticated, oversized, or cross-subject reports fail closed. Missing
    dimension coverage or invalid evidence cannot support a pass; unassessed
    criteria and dimensions may omit evidence with a bounded reason. One
-   race-safe, atomic open relative to the retained workspace-root handle enforces
-   beneath-root containment and no-follow semantics for the full path; symlinks,
-   junctions, and other reparse points are rejected at every component. A
+   race-safe, atomic open relative to the retained handle for the exact approved
+   assignment output root enforces beneath-root containment and no-follow
+   semantics for the full path; a child output resolves under its allocated
+   plan-owned worktree, never the active workspace or source checkout, and the
+   reporter cannot choose that root. Symlinks, junctions, and other reparse
+   points are rejected at every component. A
    concurrent link swap cannot make the worker read or pin bytes outside scope;
    platforms without this operation reject path-backed output before reading.
    Hard links without a
@@ -675,14 +696,18 @@ A future implementation must verify that:
    Results cannot remain
    current for any consumer after referenced bytes change. A resume retains the
    assignment subject and revision count but requires its new launch generation;
-   changing the assignment identity creates a new subject. Authorized cleanup
-   of a clean, quiescent plan-owned worktree seals every accepted output needed
-   by a retained current result, evaluation, or learning input, including an
-   evaluation made historical by a later result revision, before removing the
-   path; the same digest remains current from its immutable pin. Changed or
-   unavailable bytes cannot be sealed, and
-   cleanup cannot erase a live dependency or turn authorized cleanup into
-   Needs rework.
+   changing the assignment identity creates a new subject. Before a dependent
+   successor receives a reused plan-owned worktree, the predecessor is terminal,
+   its write capability is revoked, and user-confirmed quiescence is recorded;
+   every accepted output needed by a retained current result, evaluation, or
+   learning input (including historical evaluations) is then sealed and verified
+   before ownership transfers or successor writes are allowed. The successor
+   cannot acquire the worktree if a required seal fails. Later freshness reads
+   use the immutable pin and preserve the accepted digest even after successor
+   writes. Authorized cleanup of a clean, quiescent plan-owned worktree applies
+   the same sealing rule before removing the path. Changed or unavailable bytes
+   cannot be sealed, and neither handoff nor cleanup can erase a live dependency
+   or turn authorized cleanup into Needs rework.
 3. Scores compare across assignments only under the same rubric ID, version,
    and canonical `rubricSnapshotDigest`, or an approved normalization rule.
    Matching ID/version with changed snapshot content cannot pool scores; equal
