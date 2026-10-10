@@ -10,6 +10,13 @@ permissions:
   pull-requests: read
 
 jobs:
+  review-diagnostics:
+    name: PR review diagnostics
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/pr-review-diagnostics_test.py
+
   local-analysis:
     name: Local analysis helper (${{ matrix.os }})
     strategy:
