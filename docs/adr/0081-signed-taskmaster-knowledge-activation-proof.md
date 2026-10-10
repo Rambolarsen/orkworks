@@ -22,7 +22,7 @@ Bundles contain 1–256 pages, at most 16 unique safe capability identifiers,
 and signed `privacyPolicyVersion: 1`. Page content is at most 64 KiB of UTF-8;
 titles are 1–512 bytes; type and status are 1–128 bytes. Page type is one of
 `concept`, `principle`, `practice`, `playbook`, `reference`,
-`implementation-mapping`, or generated `index`. Each page has at most 256
+`implementation-mapping`, or `index`. Each page has at most 256
 unique related IDs, 32 unique applicability strings, and 16 provenance records.
 Provenance titles are at most 512 bytes and HTTPS URLs at most 2,048 bytes,
 without credentials or fragments. Page IDs are unique, lowercase-`.md` relative
@@ -31,8 +31,10 @@ paths matching
 most 256 ASCII bytes. Parents and related IDs must resolve within the bundle;
 parent cycles are invalid.
 
-Each manifest entry carries positive safe-integer format, policy, and sequence
-values, a safe version, and path exactly `bundles/<version>.json`. The signed
+Each manifest entry carries positive safe-integer format and policy values and
+a nonnegative safe-integer sequence. The bundle sequence uses the same range,
+including zero. Each entry also carries a safe version and a path exactly
+`bundles/<version>.json`. The signed
 manifest binds the original bundle-envelope bytes with lowercase SHA-256 and
 has at most 1,000 entries. Bundle and manifest policy values must match. Select
 format 1 and policy 1 entries before sequence ranking; require exactly one

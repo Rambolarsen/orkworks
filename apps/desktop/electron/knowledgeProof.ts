@@ -122,6 +122,13 @@ function positiveInteger(value: unknown, label: string): number {
   return value;
 }
 
+function nonnegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_SAFE_INTEGER) {
+    fail(`${label} must be a nonnegative safe integer`);
+  }
+  return value;
+}
+
 function canonicalBase64(value: unknown, label: string): Buffer {
   const encoded = string(value, label);
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
@@ -205,7 +212,7 @@ function parseBundle(value: unknown): KnowledgeBundle {
   const version = safeVersion(source.version, 'bundle.version');
   if (source.formatVersion !== 1) fail('bundle.formatVersion must equal 1');
   if (source.privacyPolicyVersion !== 1) fail('bundle.privacyPolicyVersion must equal 1');
-  const sequence = positiveInteger(source.sequence, 'bundle.sequence');
+  const sequence = nonnegativeInteger(source.sequence, 'bundle.sequence');
   const publishedAt = string(source.publishedAt, 'bundle.publishedAt');
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(publishedAt) || new Date(publishedAt).toISOString() !== publishedAt) {
     fail('bundle.publishedAt must be a canonical UTC ISO timestamp with milliseconds');
@@ -278,7 +285,7 @@ function parseManifest(value: unknown): KnowledgeManifest {
     const entry = record(item, `manifest.bundles[${index}]`);
     const formatVersion = positiveInteger(entry.formatVersion, 'manifest entry formatVersion');
     const privacyPolicyVersion = positiveInteger(entry.privacyPolicyVersion, 'manifest entry privacyPolicyVersion');
-    const sequence = positiveInteger(entry.sequence, 'manifest entry sequence');
+    const sequence = nonnegativeInteger(entry.sequence, 'manifest entry sequence');
     const version = safeVersion(entry.version, 'manifest entry version');
     const digest = string(entry.sha256, 'manifest entry sha256');
     if (!LOWER_SHA256.test(digest)) fail('manifest entry sha256 must be lowercase hexadecimal');

@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +20,11 @@ if (!existsSync(privateKeyPath) || !existsSync(publicKeyPath)) {
 
 const privateKey = readFileSync(privateKeyPath);
 const publicKey = readFileSync(publicKeyPath);
+const alternatePrivateKey = readFileSync(path.join(fixtureRoot, 'test-alternate-private-key.pem'));
+const alternatePublicKey = readFileSync(path.join(fixtureRoot, 'test-alternate-public-key.pem'));
+const derivedAlternatePublicKey = createPublicKey(alternatePrivateKey).export({ format: 'der', type: 'spki' });
+const storedAlternatePublicKey = createPublicKey(alternatePublicKey).export({ format: 'der', type: 'spki' });
+if (!derivedAlternatePublicKey.equals(storedAlternatePublicKey)) throw new Error('Fixed alternate test key pair does not match');
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const json = (value) => Buffer.from(JSON.stringify(value));
 const safeWrite = (name, bytes) => writeFileSync(path.join(fixtureRoot, name), bytes);
@@ -93,8 +98,7 @@ writeActivation('valid-activation.json', valid);
 const unsigned = activation(json(valid.bundle), valid.manifestEnvelope);
 safeWrite('unsigned-bundle.json', unsigned);
 
-const otherKeys = generateKeyPairSync('ed25519');
-const wrongKeyPair = signedPair(makeBundle('wrong-key', 2), { key: otherKeys.privateKey });
+const wrongKeyPair = signedPair(makeBundle('wrong-key', 2), { key: alternatePrivateKey });
 writeActivation('wrong-key.json', wrongKeyPair);
 
 const wrongSignatureEnvelopeObject = JSON.parse(valid.bundleEnvelope.toString());
@@ -311,16 +315,7 @@ const maxBundleSized = exactEnvelope((paddingBytes) => json({ ...maxBundle, padd
 safeWrite('maximum-bundle-envelope.json', maxBundleSized.result);
 const maxManifestSized = exactEnvelope((paddingBytes) => json({ ...makeManifest([entry(maxBundle, maxBundleSized.result)]), padding: 'x'.repeat(paddingBytes) }), maxEnvelopeBytes);
 safeWrite('maximum-manifest-envelope.json', maxManifestSized.result);
-safeWrite('maximum-envelopes-activation.json', activation(maxBundleSized.result, maxManifestSized.result));
 
-const activationOverflow = json({
-  ...JSON.parse(activation(valid.bundleEnvelope, valid.manifestEnvelope).toString()),
-  overflow: 'x'.repeat(6 * 1024 * 1024),
-});
-safeWrite('activation-overflow.json', activationOverflow);
-const envelopeOverflow = Buffer.alloc(maxEnvelopeBytes + 1, 0x78);
-safeWrite('envelope-overflow-envelope.json', envelopeOverflow);
-safeWrite('envelope-overflow.json', activation(envelopeOverflow, valid.manifestEnvelope));
 
 const unknownEnvelopeText = valid.bundleEnvelope.toString().replace(/}\s*$/, ',"unknown":true}');
 safeWrite('unknown-envelope-field.json', activation(Buffer.from(unknownEnvelopeText), valid.manifestEnvelope));
@@ -337,5 +332,82 @@ const malformedActivations = {
 };
 for (const [name, contents] of Object.entries(malformedActivations)) safeWrite(name, contents);
 
+
+const sequenceZero = signedPair(makeBundle('sequence-zero', 0));
+writeActivation('sequence-zero.json', sequenceZero);
+safeWrite('manifest-sequence-zero-envelope.json', sequenceZero.manifestEnvelope);
+const sequenceMax = signedPair(makeBundle('sequence-max-safe', Number.MAX_SAFE_INTEGER));
+writeActivation('sequence-max-safe.json', sequenceMax);
+
+const escapedBundle = makeBundle('escaped-surrogate-content', 70);
+escapedBundle.pages[0].content = '😀';
+escapedBundle.pages[0].sha256 = hash(Buffer.from('😀'));
+const escapedPayload = Buffer.from(JSON.stringify(escapedBundle).replace(JSON.stringify('😀'), '"\\uD83D\\uDE00"'));
+writeActivation('escaped-surrogate-content.json', signedPair(escapedBundle, { payloadBytes: escapedPayload }));
+
+const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+safeWrite('bom-activation.json', Buffer.concat([bom, activation(valid.bundleEnvelope, valid.manifestEnvelope)]));
+const bomEnvelope = Buffer.concat([bom, valid.bundleEnvelope]);
+writeActivation('bom-envelope-activation.json', signedPair(valid.bundle, { bundleEnvelope: bomEnvelope }));
+const bomPayload = Buffer.concat([bom, json(makeBundle('bom-payload', 71))]);
+writeActivation('bom-payload-activation.json', signedPair(makeBundle('bom-payload', 71), { payloadBytes: bomPayload }));
+
+const boundary = makeBundle('v'.repeat(128), 72, {
+  capabilities: ['c'.repeat(128)],
+  pages: [{
+    id: 'boundary.md', title: 'Boundary', type: 'concept', status: 'active', content: 'Boundary',
+    sha256: hash(Buffer.from('Boundary')), relatedIds: [], applicability: ['a'.repeat(128)],
+  }],
+});
+writeActivation('string-boundaries-128.json', signedPair(boundary));
+const capability129 = makeBundle('capability-129', 73, { capabilities: ['c'.repeat(129)] });
+writeActivation('capability-129.json', signedPair(capability129));
+const applicability129 = makeBundle('applicability-129', 74, { pages: [{
+  ...makeBundle('applicability-129', 74).pages[0], applicability: ['a'.repeat(129)],
+}] });
+writeActivation('applicability-129.json', signedPair(applicability129));
+writeActivation('version-129.json', signedPair(makeBundle('v'.repeat(129), 75)));
+
+const withUnknownPayload = (version, suffix) => {
+  const bundle = makeBundle(version, 76);
+  const payloadBytes = Buffer.from(`${JSON.stringify(bundle).slice(0, -1)},${suffix}}`);
+  return signedPair(bundle, { payloadBytes });
+};
+writeActivation('unknown-valid-fields.json', withUnknownPayload('unknown-valid-fields', '"future":{"nested":[0,true,null]}'));
+writeActivation('unknown-nested-duplicate.json', withUnknownPayload('unknown-nested-duplicate', '"future":{"nested":{"a":1,"\\u0061":2}}'));
+for (const [name, token] of [
+  ['unknown-fraction', '1.0'],
+  ['unknown-exponent', '1e0'],
+  ['unknown-negative-zero', '-0'],
+  ['unknown-overflow', '9007199254740992'],
+]) {
+  writeActivation(`${name}.json`, withUnknownPayload(name, `"future":{"number":${token}}`));
+}
+
 safeWrite('test-public-key.pem', publicKey);
+
+const fixtureOutcomes = [
+  { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'valid signed proof, immutable snapshot, idempotent re-attestation, or inclusive schema limit', files: ['valid-activation.json', 'same-bundle-newer-manifest.json', 'maximum-id-length.json', 'maximum-page-limits.json', 'maximum-capabilities.json', 'sequence-zero.json', 'sequence-max-safe.json', 'escaped-surrogate-content.json', 'string-boundaries-128.json', 'unknown-valid-fields.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'unsigned or incorrectly attested content cannot activate', files: ['unsigned-bundle.json', 'wrong-key.json', 'wrong-signature.json', 'wrong-digest.json', 'wrong-policy.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'activation, envelope, UTF-8, base64, BOM, and signed-payload schema rules are strict', files: ['duplicate-envelope-field.json', 'duplicate-payload-field.json', 'unknown-envelope-field.json', 'unknown-activation-field.json', 'malformed-utf8.json', 'noncanonical-base64.json', 'bom-activation.json', 'bom-envelope-activation.json', 'bom-payload-activation.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'page metadata, relationships, IDs, and provenance satisfy the signed bundle contract', files: ['invalid-metadata.json', 'invalid-page-digest.json', 'missing-related-page.json', 'duplicate-related-ids.json', 'unsupported-page-type.json', 'invalid-provenance-credentials.json', 'invalid-provenance-fragment.json', 'invalid-provenance-http.json', 'unsafe-id.json', 'unsafe-related-id.json', 'parent-cycle.json', 'duplicate-page-ids.json', 'invalid-id-space.json', 'invalid-id-colon.json', 'invalid-id-control.json', 'invalid-id-unicode.json', 'invalid-id-percent.json', 'invalid-id-backslash.json', 'invalid-id-emptySegment.json', 'invalid-id-dotSegment.json', 'invalid-id-dotdotSegment.json', 'invalid-id-leadingDotSegment.json', 'invalid-id-dotFileSegment.json', 'invalid-id-uppercaseExtension.json', 'invalid-id-leadingSlash.json', 'invalid-id-leadingHyphen.json', 'invalid-id-tooLong.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'page, text, relationship, provenance, and marker limits reject overflow', files: ['capability-overflow.json', 'content-overflow.json', 'title-overflow.json', 'status-overflow.json', 'applicability-overflow.json', 'provenance-overflow.json', 'page-count-overflow.json', 'capability-129.json', 'applicability-129.json', 'version-129.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'reject', invariant: 'all signed JSON fields, including unknown nested fields, use strict decoded-key and integer lexical rules', files: ['escaped-duplicate-key.json', 'integer-overflow.json', 'lone-surrogate.json', 'fractional-number.json', 'exponent-number.json', 'negative-zero.json', 'too-deep.json', 'unknown-nested-duplicate.json', 'unknown-fraction.json', 'unknown-exponent.json', 'unknown-negative-zero.json', 'unknown-overflow.json'] },
+  { api: 'verifyKnowledgeManifest', expected: 'accept', invariant: 'manifest sequence zero and inclusive entry-count bound are valid', files: ['manifest-sequence-zero-envelope.json', 'maximum-manifest-entries-envelope.json'] },
+  { api: 'verifyKnowledgeManifest', expected: 'reject', invariant: 'manifest entry-count overflow and duplicate identities are invalid', files: ['manifest-entry-overflow-envelope.json', 'duplicate-manifest-entry-envelope.json'] },
+  { api: 'verifyKnowledgeManifest + selectKnowledgeEntry', expected: 'accept', invariant: 'eligible format and policy are selected before sequence ranking', files: ['ranked-manifest-envelope.json'] },
+  { api: 'createKnowledgeActivation', expected: 'accept', invariant: 'helper preserves exact signed-envelope bytes and wire fields', files: ['valid-bundle-envelope.json', 'valid-manifest-envelope.json'] },
+  { api: 'verifyKnowledgeActivation', expected: 'accept', invariant: 'both original signed envelopes at the exact 2 MiB inclusive bound remain valid', files: ['maximum-bundle-envelope.json', 'maximum-manifest-envelope.json'] },
+  { api: 'generated size cases in desktop and Rust tests', expected: 'case-specific', invariant: 'construct wrappers in memory: accept two 2 MiB envelopes together; reject activation over 6 MiB and any envelope over 2 MiB', files: [] },
+  { api: 'test support values', expected: 'accept', invariant: 'expected identity digests for the valid synthetic bundle and public test key', files: ['valid-envelope.sha256', 'test-public-key-spki.sha256'] },
+];
+const indexedFixtures = new Set(fixtureOutcomes.flatMap((group) => group.files));
+const fixtureFiles = readdirSync(fixtureRoot).filter((name) => /\.(?:json|sha256)$/.test(name) && name !== 'fixture-index.json').sort();
+const unindexedFixtures = fixtureFiles.filter((name) => !indexedFixtures.has(name));
+const missingFixtures = [...indexedFixtures].filter((name) => !fixtureFiles.includes(name));
+if (unindexedFixtures.length || missingFixtures.length) {
+  throw new Error(`Fixture index mismatch: unindexed=${unindexedFixtures.join(',')} missing=${missingFixtures.join(',')}`);
+}
+safeWrite('fixture-index.json', json({ formatVersion: 1, groups: fixtureOutcomes }));
+
 console.log(`Generated deterministic synthetic knowledge fixtures in ${fixtureRoot}`);

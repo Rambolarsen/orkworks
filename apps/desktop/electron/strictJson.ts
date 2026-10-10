@@ -93,7 +93,7 @@ class JsonScanner {
       const codeUnit = this.readHexCodeUnit();
       if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
         if (this.source.slice(this.index, this.index + 2) !== '\\u') this.fail('unpaired high surrogate');
-        this.index += 2;
+        this.index++;
         const low = this.readHexCodeUnit();
         if (low < 0xdc00 || low > 0xdfff) this.fail('unpaired high surrogate');
       } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
@@ -150,6 +150,9 @@ class JsonScanner {
 
 export function parseStrictJson(bytes: Uint8Array, maxBytes = Number.MAX_SAFE_INTEGER): unknown {
   if (bytes.byteLength > maxBytes) throw new Error(`JSON exceeds ${maxBytes} byte limit`);
+  if (bytes.byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    throw new Error('JSON must not start with a UTF-8 BOM');
+  }
   let text: string;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);

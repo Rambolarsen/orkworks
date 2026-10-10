@@ -136,11 +136,27 @@ test('the shared malformed syntax corpus enforces lexical JSON constraints', () 
 test('activation and envelope bounds accept two maximum envelopes and reject overflow', () => {
   assert.equal(fixture('maximum-bundle-envelope.json').byteLength, 2 * 1024 * 1024);
   assert.equal(fixture('maximum-manifest-envelope.json').byteLength, 2 * 1024 * 1024);
-  const maximum = verifyKnowledgeActivation(fixture('maximum-envelopes-activation.json'), testPublicKey);
+  const maximumActivation = Buffer.from(JSON.stringify({
+    activationFormatVersion: 1,
+    bundleEnvelopeBase64: Buffer.from(fixture('maximum-bundle-envelope.json')).toString('base64'),
+    manifestEnvelopeBase64: Buffer.from(fixture('maximum-manifest-envelope.json')).toString('base64'),
+  }));
+  const maximum = verifyKnowledgeActivation(maximumActivation, testPublicKey);
   assert.equal(maximum.bundle.version, 'maximum-envelope');
-  assert.throws(() => verifyKnowledgeActivation(fixture('activation-overflow.json'), testPublicKey));
-  assert.throws(() => verifyKnowledgeActivation(fixture('envelope-overflow.json'), testPublicKey));
-  assert.throws(() => createKnowledgeActivation(fixture('envelope-overflow-envelope.json'), fixture('valid-manifest-envelope.json')));
+
+  const validActivation = JSON.parse(fixtureText('valid-activation.json')) as Record<string, unknown>;
+  const activationOverflow = Buffer.from(JSON.stringify({ ...validActivation, overflow: 'x'.repeat(6 * 1024 * 1024) }));
+  assert.throws(() => verifyKnowledgeActivation(activationOverflow, testPublicKey));
+
+  const envelopeOverflow = Buffer.alloc(2 * 1024 * 1024 + 1, 0x78);
+  const validManifestBase64 = (JSON.parse(fixtureText('valid-activation.json')) as { manifestEnvelopeBase64: string }).manifestEnvelopeBase64;
+  const envelopeOverflowActivation = Buffer.from(JSON.stringify({
+    activationFormatVersion: 1,
+    bundleEnvelopeBase64: envelopeOverflow.toString('base64'),
+    manifestEnvelopeBase64: validManifestBase64,
+  }));
+  assert.throws(() => verifyKnowledgeActivation(envelopeOverflowActivation, testPublicKey));
+  assert.throws(() => createKnowledgeActivation(envelopeOverflow, fixture('valid-manifest-envelope.json')));
 });
 
 test('page count, content, text, relationships, applicability, and provenance limits are inclusive', () => {
@@ -195,6 +211,52 @@ test('strict JSON rejects lone surrogate escapes and nesting beyond 32 levels', 
   assert.throws(() => parseStrictJson(Buffer.from('{"text":"\\ud800"}')));
   assert.throws(() => parseStrictJson(Buffer.from(`${'['.repeat(33)}0${']'.repeat(33)}`)));
   assert.deepEqual(parseStrictJson(Buffer.from(`${'['.repeat(32)}0${']'.repeat(32)}`)), JSON.parse(`${'['.repeat(32)}0${']'.repeat(32)}`));
+});
+
+test('strict JSON accepts escaped surrogate pairs and valid lexical content in unknown fields', () => {
+  assert.deepEqual(parseStrictJson(Buffer.from('{"text":"\\uD83D\\uDE00","unknown":{"nested":[0,true,null]}}')), {
+    text: '😀',
+    unknown: { nested: [0, true, null] },
+  });
+  assert.doesNotThrow(() => verifyKnowledgeActivation(fixture('unknown-valid-fields.json'), testPublicKey));
+});
+
+test('signed knowledge accepts zero and maximum safe sequences', () => {
+  const zero = verifyKnowledgeActivation(fixture('sequence-zero.json'), testPublicKey);
+  const maximum = verifyKnowledgeActivation(fixture('sequence-max-safe.json'), testPublicKey);
+  assert.equal(zero.identity.sequence, 0);
+  assert.equal(zero.bundle.sequence, 0);
+  assert.equal(maximum.identity.sequence, Number.MAX_SAFE_INTEGER);
+  assert.equal(maximum.bundle.sequence, Number.MAX_SAFE_INTEGER);
+  assert.equal(verifyKnowledgeManifest(fixture('manifest-sequence-zero-envelope.json'), testPublicKey).bundles[0].sequence, 0);
+});
+
+test('signed escaped surrogate pairs preserve decoded page content and digest', () => {
+  const result = verifyKnowledgeActivation(fixture('escaped-surrogate-content.json'), testPublicKey);
+  assert.equal(result.bundle.pages[0].content, '😀');
+});
+
+test('BOM bytes are rejected at activation, envelope, and signed payload JSON boundaries', () => {
+  for (const name of ['bom-activation.json', 'bom-envelope-activation.json', 'bom-payload-activation.json']) {
+    assert.throws(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
+  }
+  assert.throws(() => parseStrictJson(Buffer.from([0xef, 0xbb, 0xbf, 0x7b, 0x7d])));
+});
+
+test('capability, applicability, and version byte lengths accept 128 and reject 129', () => {
+  const result = verifyKnowledgeActivation(fixture('string-boundaries-128.json'), testPublicKey);
+  assert.equal(Buffer.byteLength(result.bundle.capabilities[0], 'utf8'), 128);
+  assert.equal(Buffer.byteLength(result.bundle.pages[0].applicability![0], 'utf8'), 128);
+  assert.equal(Buffer.byteLength(result.bundle.version, 'utf8'), 128);
+  for (const name of ['capability-129.json', 'applicability-129.json', 'version-129.json']) {
+    assert.throws(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
+  }
+});
+
+test('unknown signed payload fields are checked recursively for duplicate keys and numeric syntax', () => {
+  for (const name of ['unknown-nested-duplicate.json', 'unknown-fraction.json', 'unknown-exponent.json', 'unknown-negative-zero.json', 'unknown-overflow.json']) {
+    assert.throws(() => verifyKnowledgeActivation(fixture(name), testPublicKey), name);
+  }
 });
 
 test('strict JSON rejects malformed UTF-8 and bytes over the caller bound', () => {
