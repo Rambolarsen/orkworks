@@ -135,8 +135,8 @@ active-selection and optional workspace-path fields. Existing grouped/cleanup
 serialization is unchanged. Errors carry domain facts/current revisions;
 no Axum types or HTTP codes occur in the application implementation.
 
-- [ ] Establish baseline with `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml http::integration_handlers::tests -- --test-threads=1`. Expected: existing tests pass. Report any failure before classifying its cause; do not silently change unrelated behavior.
-- [ ] Before implementation, add a direct-interface test demonstrating the new seam. Reuse the existing fresh-workspace fixture and literal expected state:
+- [x] Establish baseline with `rtk cargo test --manifest-path crates/orkworksd/Cargo.toml http::integration_handlers::tests -- --test-threads=1`. Expected: existing tests pass. Report any failure before classifying its cause; do not silently change unrelated behavior.
+- [x] Before implementation, add a direct-interface test demonstrating the new seam. Reuse the existing fresh-workspace fixture and literal expected state:
 
 ```rust
 let app = HarnessIntegrationApplication::new(state);
@@ -156,24 +156,24 @@ assert!(!status.enabled);
   Record the expected pre-extraction failure, then implement. Preserve existing
   behavior tests while refactoring rather than inventing intentional behavior
   failures for this structural change.
-- [ ] Move existing probe/revalidation/context construction, readiness/revocation,
+- [x] Move existing probe/revalidation/context construction, readiness/revocation,
   grouped projection, list and cleanup behavior behind the interface. Keep
   private operation callbacks private. Replace HTTP responses in the moved
   implementation with typed errors, keeping current distinctions/messages.
   Move reporter resolution into the application implementation. Retain existing
   callbacks/locks internally where necessary; avoid a generic replacement framework.
-- [ ] Rewrite handler entrypoints to parse requests, construct typed requests,
+- [x] Rewrite handler entrypoints to parse requests, construct typed requests,
   call the application and map results to the existing protocol. Keep strict JSON
   parsing and mutation authorization routing. Rewire cleanup and launch-readiness
   callers directly, without adding forwarding application functions in `http`.
-- [ ] Migrate orchestration scenarios to direct application tests: fresh/installed/
+- [x] Migrate orchestration scenarios to direct application tests: fresh/installed/
   drifted/ambiguous state, shared consumers, cleanup, trust/version thresholds,
   cache reuse/invalidation, stale revisions and workspace/definition changes
   during a slow probe, unrelated-hook preservation, slow-probe responsiveness
   and current-generation fencing. Keep focused HTTP tests for malformed requests,
   authorization, exact status/body mapping, and legacy/grouped error distinction.
   Keep existing adapter/reporter tests intact.
-- [ ] Add or migrate direct tests for inspection demotion and prompt tuple/source
+- [x] Add or migrate direct tests for inspection demotion and prompt tuple/source
   handling, no configuration mutation during inspection, readiness without
   revocation, required revocation after mutation, and list/error precedence.
   Reuse deterministic local fixtures or private test seams at actual fallible
@@ -189,15 +189,15 @@ assert!(!status.enabled);
   later revalidation failure when finalization succeeds. Assert real resulting
   config/status/authority; avoid a mock application implementation. Missing
   required coverage blocks completion rather than becoming a review concern.
-- [ ] Run the new application tests and retained HTTP tests. Run full Rust build,
+- [x] Run the new application tests and retained HTTP tests. Run full Rust build,
   full Rust tests, formatting check and `git diff --check`. Expected: all pass;
   no new production warnings. Record exact commands, counts and output.
-- [ ] Self-review for scope and compatibility. Search for application callers
+- [x] Self-review for scope and compatibility. Search for application callers
   reaching into `http::integration_handlers`; expect no orchestration dependencies.
   Search the new application module for Axum/HTTP types; expect none. Check
   router authorization is unchanged. Verify helper-test moves do not duplicate
   an entire suite at both seams.
-- [ ] Commit only worker-owned Rust files after verification; write the task report
+- [x] Commit only worker-owned Rust files after verification; write the task report
   with baseline/red/green evidence, full checks, changed files and concerns.
 
 Coordinator pre-implementation work for Task 1: amend ADR 0030's ownership in a dated section,
@@ -218,3 +218,22 @@ Open one PR for #816, follow `babysitting-pull-requests`, vet comments and requi
 checks, and use the repository's maintainer merge path only after all gates pass.
 Clean up only this owned worktree after merge via `scripts/finish-pr.sh`. A bounded
 external gate must be reported explicitly if the PR cannot reach a terminal state.
+
+## Execution evidence (2026-10-10)
+
+Task 1 is implemented and independently approved after adding successful
+inspection demotion/source-tuple checks and a grouped post-probe revision race
+test. The application suite has 31 tests; five focused HTTP tests retain the
+transport contract. Adapter tests remain unchanged.
+
+The branch was rebased cleanly onto current main before consolidated
+verification. `rtk proxy bash scripts/verify-repo.sh` passed Rust formatting,
+build and tests, reporter tests, desktop type checking/tests/build, docs build,
+diff/doc currency checks and worktree reporting. The excluded implementation
+plan link uses a repository URL so the published design does not produce a dead
+link. Four existing Rust dead-code warnings and existing bundle-size warnings
+remain; this extraction adds none. Other owners' stale worktrees were reported
+and left untouched.
+
+Final current-head code review, PR checks and merge disposition are recorded
+in the pull request for #816.

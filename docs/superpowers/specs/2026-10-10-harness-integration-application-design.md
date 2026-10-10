@@ -262,6 +262,6 @@ planning.
 ## Approval and next step
 
 Owner review of the written design is complete. Execute the reviewed
-[implementation plan](../plans/2026-10-10-harness-integration-application.md),
+[implementation plan](https://github.com/Rambolarsen/orkworks/blob/main/docs/superpowers/plans/2026-10-10-harness-integration-application.md),
 including the behavior checks above. Implementation and documentation belong
 to one logical PR for #816.
