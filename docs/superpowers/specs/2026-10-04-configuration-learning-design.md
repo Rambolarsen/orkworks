@@ -324,9 +324,11 @@ or writing this store. Retired, drifted, reset, missing, or mismatched
 bindings cannot access the old history. A new registration never inherits an
 old store by path, remote, or content similarity.
 
-The shared repository store is also the canonical owner of learning-family
-`ImproveWorkflow` recommendation records and dismissal watermarks. Matching
-workspaces may receive a read-only, redacted projection of a learning card.
+The shared repository store is the canonical owner of learning-family identity,
+dedupe, owner binding, and dismissal watermarks; it does not duplicate full
+Taskmaster recommendation records. Full `ImproveWorkflow` records remain in
+their owning workspace's graph. Matching workspaces may receive a read-only,
+redacted projection of a learning card.
 That projection contains no foreign workspace ID, session ID, bearer, lifecycle
 detail, or session-bound action. Only the owning workspace may expose the full
 Taskmaster record or route accept, `Fix with AI`, and completion through its
@@ -341,12 +343,67 @@ references under compare-and-swap, records `cleanup_pending`, and retries
 idempotently after a crash. Retirement alone neither forgets nor transfers
 history.
 
+Workspace deletion uses an ordered, recoverable owner-loss protocol. First, a
+compare-and-swap in the repository store records an idempotent deletion
+transaction ID and `owner_loss_pending`, and blocks projections and all card
+actions. Next, the owner's Taskmaster graph transaction terminally supersedes
+the nonterminal workspace-local card with reason `owner_workspace_deleted` and
+releases any executing reservation. Then the repository store records a
+bounded terminal digest and clears the owner binding. Only after that final
+commit may workspace metadata be deleted. Recovery resumes from the durable
+phase; if the graph transition already committed, its expected status/digest
+makes the retry idempotent. Once `owner_loss_pending` is durable, the deletion
+request is committed and recovery proceeds forward; cancellation is permitted
+only before that marker. If corruption or I/O failure prevents recovery, keep
+the workspace metadata and pending marker, block deletion and card actions,
+and expose a recovery error rather than clearing state or forcing deletion. The
+typed transition applies to `proposed`,
+`executing`, and `accepted` learning cards; it never rewrites `dismissed` or
+`completed` history. A pending or unreconciled owner-loss state remains
+non-actionable and cannot be adopted by another workspace. The shared finding
+and dismissal watermark remain. A later eligible analysis in a surviving
+workspace may create a fresh workspace-local successor bound only to that
+workspace's current active session, with explicit predecessor lineage; it must
+never adopt or replay the deleted workspace's target session.
+
 This repository-scoped recommendation owner and its cross-workspace projection
 are proposed contract changes, not behavior already provided by the current
 workspace-local recommendation store. Before implementation, the Taskmaster
 spec and storage/API design must explicitly adopt this ownership boundary and
 its recovery protocol; until that prerequisite is accepted, repository-shared
 recommendations are not implementable under the existing contract.
+
+The repository store keeps a compact `LearningFamilyState`, not copies of
+terminal Taskmaster cards. Each family state is at most 4 KiB, and a repository
+binding supports at most 128 family states (512 KiB total) within the separate
+2 MiB normal-record budget below; that 512 KiB is not additive. A resurfacing
+watermark retains exact subject IDs, evaluation digests, revisions, and `runIds`
+for up to six represented subjects. Subject and run IDs are ASCII and at most
+128 bytes, evaluation digests are 64 lowercase hex bytes, and revisions are
+unsigned 64-bit integers. A watermark requiring more than six entries disables
+resurfacing for that family and stores only its source-set digest; it is never
+truncated. Each serialized subject entry is capped at 416 bytes, including JSON
+field names and punctuation. A learning family may create at most four full
+`ImproveWorkflow` records in its owning workspace graph over its lifetime,
+counting proposed and every terminal outcome. At that lifetime cap,
+retain the immutable records, seal the family against successor cards, and
+preserve one bounded terminal digest per card (SHA-256 card-ID digest, terminal
+status/reason, and 64-byte transition digest) in its family state; each encoded
+digest is at most 256 bytes. Never prune or rewrite Taskmaster history. The
+lifetime count survives owner loss and workspace deletion. The family control
+fields, including one pending owner-loss transaction, are at most 512 serialized
+bytes. The worst-case budget is six subject entries (2,496 bytes), four
+terminal digests (1,024 bytes), and control fields (512 bytes), totaling 4,032
+bytes within the 4 KiB cap. The serializer checks the complete encoded size
+before every commit and reserves capacity for the next permitted transition.
+An invalid field or exhausted reservation makes the family unavailable and
+blocks card actions and workspace deletion until recovery; it never drops a
+watermark, terminal digest, or pending owner-loss marker. At the 128-family
+cap, refuse new learning-family cards with an explicit capacity state while
+existing bounded families continue to work. The repository learning store
+therefore retains only bounded family state and compact terminal digests; the
+full cards stay in their owner workspace graph, with at most four records per
+family.
 
 Sibling worktrees may be open through different workspace sidecars at once.
 Every read-modify-write therefore takes a retained OS advisory lock for this
@@ -386,6 +443,18 @@ The default cohort key requires exact equality on all of the following:
   #741 does not separately define model provider/version fields, so do not
   infer or fabricate them;
 - effective permission-profile digest;
+- a canonical behavior-configuration comparison digest over every other
+  behavior-affecting immutable #741 input: the canonical role-template,
+  ordered rule, requirement-manifest, rubric, harness/adapter, capability,
+  model, permission, and remaining-skill/resource snapshots, including their
+  content digests; adapter definition/version, executable/tool identity and
+  version, platform, instruction mechanism, `effectiveSettingsDigest`, and
+  `adapterGeneration`; plus rendered instruction composition with only the
+  candidate skill and its owned resources removed. Task/session/run IDs and
+  free-form task prose are excluded; task category and normalized approved
+  scope tags above represent task scope. This comparison projection must be
+  versioned and canonically serialized, and changing any included field creates
+  a different comparison set;
 - criteria snapshot digest and rubric ID, version, and rubric snapshot digest;
 - all selected non-candidate skill logical IDs, versions, full snapshot/content
   digests, and resource IDs/digests. For one optional candidate skill, the
@@ -570,7 +639,7 @@ bootstrap, prompt, skill file, or permission profile automatically.
 
 ## Explainable future configuration choices
 
-For a supported cohort, prefer only the configuration arm with stronger
+For a supported cohort, prefer only the optional-skill arm with stronger
 eligible outcomes under the exact `Meets requirements` fraction rule above.
 If outcomes tie or no arm meets the threshold, learning is neutral and
 ordinary task-fit/user-preference ordering decides. Conflicting outcomes are
@@ -650,10 +719,12 @@ identity where applicable, and the normalized learning-finding fingerprint;
 the exact skill snapshot/version remains evidence, not family identity. It
 never uses generated prose.
 
-Choose the smallest plausible target: docs for a missing fact/convention, a
-skill for a reusable procedure with checkpoints, instructions for broad
-repository guidance, or another existing surface only when its current
-contract supports it. The recommendation contains an edit outline and
+The v1 target surface is exactly `skill`, `instructions`, or `documentation`.
+Choose the smallest supported target among those three: documentation for a
+missing fact/convention, a skill for a reusable procedure with checkpoints,
+or instructions for broad repository guidance. Other Taskmaster surfaces such
+as `tooling` or `test` are not valid learning targets in v1. The recommendation
+contains an edit outline and
 evidence, not a ready-to-apply patch or a committed artifact. “Fix with AI”
 hands the user-reviewed task to the active session. The user reviews resulting
 file changes and decides whether to commit/promote them. No approval edits
@@ -661,12 +732,13 @@ repository files by itself.
 
 Dismissal is remembered in the existing immutable recommendation history.
 The learning-family watermark contains the sorted assignment-subject IDs,
-evaluation digests, subject revisions, and qualifying recurrence count at
-dismissal. The existing observation-family watermark retains its current
-sequence, observation IDs/count, impact, and session fields from
+their evaluation digests and subject revisions, the exact represented
+`runIds`, and qualifying recurrence count at dismissal. The existing
+observation-family watermark retains its current sequence, observation
+IDs/count, impact, and session fields from
 `specs/taskmaster.md`; the two watermark schemas remain source-specific.
 Learning evidence may create a successor only after at least two newly
-eligible assignment subjects qualify, including one from a run absent from
+eligible assignment subjects qualify, including one from a `runId` absent from
 the learning watermark. Observation evidence follows its existing
 sequence/impact rule. The successor cites only new evidence plus enough
 immutable lineage to explain its predecessor. Time passing, rerunning
@@ -679,22 +751,32 @@ history or retire a skill permanently.
 
 The shared recommendation graph must support a typed `superseded` transition
 for proposed learning-family cards when evidence is invalidated, forgotten,
-expires, or falls below eligibility. This is a proposed extension to the
+expires, or falls below eligibility. If workspace deletion removes the owner,
+the graph must also support this terminal transition from a learning card in
+`proposed`, `executing`, or `accepted`, release any execution reservation, and
+participate in the ordered owner-loss protocol above before workspace metadata
+is deleted. This is a proposed extension to the
 current Taskmaster contract, which currently permits `superseded` only for
 assessment-derived cards. It requires an explicit Taskmaster spec/API update
 before implementation. The transition is distinct from user dismissal
 and carries a reason (`evidence_invalidated`, `learning_history_forgotten`,
-`source_expired`, or `below_eligibility`) plus the replacement or source-set
-digest when available. Invalidation and supersession commit in the same graph
-transaction, and a superseded card cannot be accepted. Existing
-accepted/executing transitions are serialized by the canonical store; they are
-not silently rewritten as dismissed or superseded.
+`source_expired`, `below_eligibility`, or `owner_workspace_deleted`) plus the
+replacement or source-set digest when available. Invalidation and supersession
+commit in the same graph transaction, and a superseded card cannot be
+accepted. Normal accepted/executing transitions are serialized by the
+canonical store; owner deletion is the explicit typed terminal exception, not
+a silent rewrite. The durable pending marker blocks stale reads/actions across
+the graph/store boundary until both commits reconcile. Deletion never transfers
+session authority or adopts a surviving workspace's session. A fresh
+successor requires local reevaluation and a new workspace-bound record, subject
+to the four-record family lifetime cap above.
 
 ## Retention, forgetting, and concrete examples
 
-The shared repository learning store has hard v1 limits of 1,000 assignment
-subjects, 2 MiB of normal serialized learning records, and a separate 512 KiB
-reserved correction/fence budget per repository binding (2.5 MiB total);
+The shared repository learning store has hard v1 limits of 1,000 active or
+tombstoned assignment subjects, 2 MiB of normal serialized learning records,
+and a separate 512 KiB reserved correction/fence budget per repository binding
+(2.5 MiB total);
 each subject record is at most 8 KiB, each aggregate is at most 64 KiB, and
 there are at most 64 live cohort aggregates. Counts are checked before
 publication. The reserved budget holds one fixed-size invalidation fence of at
@@ -726,7 +808,8 @@ only bounded subject IDs/revisions and the forget generation, never source
 payloads; recomputation and crash recovery must exclude tombstoned subjects
 even when #744 preserves their source records for another dependency. Tombstones
 use the reserved correction/fence budget and remain until the corresponding
-source is purged or its retention expires. Then transition proposed learning
+source record is actually purged, even if its nominal retention has elapsed
+while a protected dependency keeps it. Then transition proposed learning
 recommendations to `superseded(learning_history_forgotten)` in the same graph
 transaction. Preserve dismissed/completed recommendation history as history
 with no active learning input. Release source dependencies that
@@ -789,9 +872,11 @@ silently initialize a fresh store or fall back to stale cached advice.
 - Exact cohort equality accepts only the approved dimensions; unknown or
   tool-managed model, missing normalized #741 task-scope tags, changed
   permissions, different rubric/criteria digest, changed non-candidate skill,
-  or unsupported tool remains unmatched. Candidate snapshots with identical
-  logical ID/version but different content/resource digests remain separate
-  arms.
+  different scoped rules, harness/adapter definition or version, executable,
+  tool version, instruction mechanism, effective settings, capability
+  evidence, `adapterGeneration`, or unsupported tool remains unmatched.
+  Candidate snapshots with identical logical ID/version but different
+  content/resource digests remain separate arms.
 - Multiple evaluation revisions for one assignment count once; corrected,
   invalidated, conflicting, stale, replayed, blocked, interrupted, partial,
   unsupported, or unassessed subjects do not become positive or negative
@@ -829,12 +914,28 @@ silently initialize a fresh store or fall back to stale cached advice.
 - Forgetting, workspace deletion, source expiry, explicit #744 purge, and
   repository retirement do not leave stale summaries or remove protected
   current evaluation/reviewer dependencies; durable forget tombstones prevent
-  protected source records from recreating forgotten contributions; recovery
-  after an interrupted cross-store transaction is idempotent.
+  protected source records from recreating forgotten contributions even after
+  nominal retention elapses; tombstones clear only after actual source purge.
+  Recovery after an interrupted cross-store transaction is idempotent.
 - A linked worktree's learning projection contains no foreign workspace/session
   identifiers, lifecycle details, or session-bound actions; accept, `Fix with
   AI`, and completion route only through the owning workspace API, while
-  dismissal updates shared repository rejection memory.
+  dismissal updates shared repository rejection memory. Injected crashes at
+  each owner-loss phase keep the card unavailable until recovery; completion
+  terminally supersedes the old card, releases executing reservations, and
+  permits only a freshly bound successor after local reevaluation, never
+  adoption of the old target session. Four lifetime cards seal a family while
+  preserving their bounded digests and immutable graph history. I/O failure
+  after `owner_loss_pending` keeps workspace metadata and blocks deletion until
+  forward recovery; cancellation is accepted only before the marker.
+- Dismissed learning watermarks retain exact run IDs; when six-source watermark
+  bounds, the four-card lifetime cap, or the 128-family state cap is reached,
+  resurfacing is disabled for that family or new learning-family cards are
+  refused visibly, never by truncating exact history. Maximum encoded entry,
+  digest, and control-field sizes fit within 4 KiB; injected overflow fails
+  closed without dropping retained data or completing a card action.
+- Learning-card target validation accepts exactly `skill`, `instructions`, and
+  `documentation`; `tooling`, `test`, and unknown future values are rejected.
 - Optional time/cost inputs are rejected by current #744 unless its reviewed
   contract adopts the defined units; unknown or incomparable future values do
   not enter quality or selection scores.
