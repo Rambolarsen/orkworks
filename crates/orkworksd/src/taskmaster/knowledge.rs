@@ -171,6 +171,7 @@ fn verify_activation_impl(bytes: &[u8], public_key_pem: &str) -> Result<Verified
 
     let digest = sha256_hex(&bundle_envelope_bytes);
     let expected_path = format!("bundles/{}.json", bundle.version);
+    // Feed ranking happens in the Electron selector; activation binds one historical entry.
     let matching = manifest
         .bundles
         .iter()
@@ -672,17 +673,27 @@ mod tests {
     }
 
     #[test]
-    fn production_entrypoint_rejects_every_test_key_activation() {
-        for name in indexed("verifyKnowledgeActivation", "accept") {
-            if name == "maximum-bundle-envelope.json" || name == "maximum-manifest-envelope.json" {
-                continue;
+    fn production_entrypoint_rejects_every_test_key_activation_fixture() {
+        for expected in ["accept", "reject"] {
+            for name in indexed("verifyKnowledgeActivation", expected) {
+                if name == "maximum-bundle-envelope.json"
+                    || name == "maximum-manifest-envelope.json"
+                {
+                    continue;
+                }
+                let result = verify_activation(&fixture(&name));
+                assert!(
+                    result.is_err(),
+                    "production key accepted {expected} test fixture {name}"
+                );
             }
-            let result = verify_activation(&fixture(&name));
-            assert!(
-                result.is_err(),
-                "production key accepted test fixture {name}"
-            );
         }
+
+        let paired_maximum_activation = paired_maximum_envelope_activation();
+        assert!(
+            verify_activation(&paired_maximum_activation).is_err(),
+            "production key accepted the paired maximum-envelope test proof"
+        );
     }
 
     #[test]
@@ -740,18 +751,36 @@ mod tests {
         assert!(super::strict_json::parse::<serde_json::Value>(b"{}", 1).is_err());
     }
 
-    #[test]
-    fn generated_activation_wrapper_obeys_combined_size_bounds() {
+    fn paired_maximum_envelope_activation() -> Vec<u8> {
         let max_bundle = fixture("maximum-bundle-envelope.json");
         let max_manifest = fixture("maximum-manifest-envelope.json");
         assert_eq!(max_bundle.len(), 2 * 1024 * 1024);
         assert_eq!(max_manifest.len(), 2 * 1024 * 1024);
-        let activation = format!("{{\"activationFormatVersion\":1,\"bundleEnvelopeBase64\":\"{}\",\"manifestEnvelopeBase64\":\"{}\"}}",
+        format!("{{\"activationFormatVersion\":1,\"bundleEnvelopeBase64\":\"{}\",\"manifestEnvelopeBase64\":\"{}\"}}",
             base64::engine::general_purpose::STANDARD.encode(max_bundle),
-            base64::engine::general_purpose::STANDARD.encode(max_manifest));
-        let verified = verify_activation_with_key(activation.as_bytes(), TEST_PUBLIC_KEY)
+            base64::engine::general_purpose::STANDARD.encode(max_manifest)).into_bytes()
+    }
+
+    #[test]
+    fn generated_activation_wrapper_obeys_combined_size_bounds() {
+        let activation = paired_maximum_envelope_activation();
+        let verified = verify_activation_with_key(&activation, TEST_PUBLIC_KEY)
             .expect("two maximum envelopes fit activation bound");
         assert_eq!(verified.bundle.version, "maximum-envelope");
+
+        const MAX_ACTIVATION_BYTES: usize = 6 * 1024 * 1024;
+        assert!(activation.len() < MAX_ACTIVATION_BYTES);
+        let mut exact_limit = activation;
+        exact_limit.resize(MAX_ACTIVATION_BYTES, b' ');
+        assert_eq!(exact_limit.len(), MAX_ACTIVATION_BYTES);
+        let verified = verify_activation_with_key(&exact_limit, TEST_PUBLIC_KEY)
+            .expect("valid paired-envelope activation fits exact byte limit with JSON whitespace");
+        assert_eq!(verified.bundle.version, "maximum-envelope");
+
+        let mut one_byte_over = exact_limit;
+        one_byte_over.push(b' ');
+        assert_eq!(one_byte_over.len(), MAX_ACTIVATION_BYTES + 1);
+        assert!(verify_activation_with_key(&one_byte_over, TEST_PUBLIC_KEY).is_err());
 
         let valid = fixture("valid-activation.json");
         let mut activation_overflow = valid[..valid.len() - 1].to_vec();

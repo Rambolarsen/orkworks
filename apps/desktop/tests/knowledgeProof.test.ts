@@ -151,12 +151,18 @@ test('activation and envelope bounds accept two maximum envelopes and reject ove
     bundleEnvelopeBase64: Buffer.from(fixture('maximum-bundle-envelope.json')).toString('base64'),
     manifestEnvelopeBase64: Buffer.from(fixture('maximum-manifest-envelope.json')).toString('base64'),
   }));
-  const maximum = verifyKnowledgeActivation(maximumActivation, testPublicKey);
+  assert.ok(maximumActivation.byteLength < 6 * 1024 * 1024);
+  const exactlyMaximum = Buffer.concat([
+    maximumActivation,
+    Buffer.alloc(6 * 1024 * 1024 - maximumActivation.byteLength, 0x20),
+  ]);
+  assert.equal(exactlyMaximum.byteLength, 6 * 1024 * 1024);
+  const maximum = verifyKnowledgeActivation(exactlyMaximum, testPublicKey);
   assert.equal(maximum.bundle.version, 'maximum-envelope');
 
-  const validActivation = JSON.parse(fixtureText('valid-activation.json')) as Record<string, unknown>;
-  const activationOverflow = Buffer.from(JSON.stringify({ ...validActivation, overflow: 'x'.repeat(6 * 1024 * 1024) }));
-  assert.throws(() => verifyKnowledgeActivation(activationOverflow, testPublicKey));
+  const oneByteOverMaximum = Buffer.concat([exactlyMaximum, Buffer.from(' ')]);
+  assert.equal(oneByteOverMaximum.byteLength, 6 * 1024 * 1024 + 1);
+  assert.throws(() => verifyKnowledgeActivation(oneByteOverMaximum, testPublicKey));
 
   const envelopeOverflow = Buffer.alloc(2 * 1024 * 1024 + 1, 0x78);
   const validManifestBase64 = (JSON.parse(fixtureText('valid-activation.json')) as { manifestEnvelopeBase64: string }).manifestEnvelopeBase64;

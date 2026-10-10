@@ -364,6 +364,7 @@ export function verifyKnowledgeActivation(bytes: Uint8Array, publicKey: string):
   const bundle = parseBundle(bundleSigned.value);
   const manifest = parseManifest(verifySignedEnvelope(manifestEnvelope, publicKey).value);
   const digest = sha256(bundleEnvelope);
+  // Feed ranking happens in the Electron selector; activation binds one historical entry.
   const matches = manifest.bundles.filter((entry) => entry.formatVersion === bundle.formatVersion
     && entry.privacyPolicyVersion === bundle.privacyPolicyVersion
     && entry.sequence === bundle.sequence
