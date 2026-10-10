@@ -22,15 +22,28 @@ authorize a merge. It does not change ordinary Peon behavior.
 
 ## Assignment and result identity
 
-Evaluation binds the #741/#742 assignment identity
-`(workspaceId, runId, planId, planRevision, taskId, taskVersion, reservationId,
-parentSessionId, childSessionId, configurationId, configurationDigest)`, plus
-the exact result revision, criteria and rubric versions, reviewer identity,
-and immutable evidence references. These values come from approved state, not
+Evaluation binds one of the approved assignment identity variants, plus the
+exact result revision, criteria and rubric versions, reviewer identity, and
+immutable evidence references. A child result uses the #741/#742 identity
+`(workspaceId, runId, planId, planRevision, taskId, taskVersion,
+reservationId, parentSessionId, childSessionId, configurationId,
+configurationDigest)`. A root orchestrator result uses
+`(workspaceId, runId, rootAssignmentId, parentSessionId, bootstrapId,
+bootstrapConfigurationDigest)` from its UI-approved
+`OrchestratorBootstrapConfiguration`; root assignments have no child task,
+reservation, or child session. These values come from approved state, not
 display labels or reporter claims. A change to any assignment-identity member
-or rubric requires a new approved revision. `sidecarGeneration` and
-`launchGeneration` fence report authority but do not change the assignment
-identity.
+or rubric requires a new approved revision. `sidecarGeneration` and the
+active child `launchGeneration` or parent runtime generation fence report
+authority but do not change the assignment identity.
+
+Child result writes use the #742 child-scoped reporting authority. Root result
+writes require a separate parent-session-scoped report capability derived by
+the sidecar and bound to the active parent runtime, sidecar generation, and
+approved bootstrap identity; a run bearer or execution grant is not report
+authority. Resume requires the new parent runtime generation. Reconcile this
+root capability with #742 before implementation. Root evaluations use the
+explicit user-review path unless a separately eligible reviewer is approved.
 
 The output contract is assignment-specific, with no global artifact catalog.
 It declares at most 32 unique artifact IDs and kinds, using #741's identifier
@@ -193,17 +206,22 @@ disposition, leave that evaluation Unassessed. This preserves the parent
 design's reviewer-of-review path without unbounded recursion.
 
 Keep eligible evaluations separate. Disagreement on a required criterion, a
-finding, or a material fact relevant to a required criterion or quality outcome
-reports Unassessed unless another
-uncontested failure establishes Needs rework. Optional-only disagreements are
-detail and do not affect the overall result. A reviewer contests a finding with
+required-rework finding, or a material fact relevant to a required criterion
+or quality outcome reports Unassessed unless another uncontested failure
+establishes Needs rework. Optional-only disagreements and disputes about
+findings that do not require rework are detail and do not affect the overall
+result. A reviewer contests a finding with
 up to 32 `findingDisputes` per revision; each cites the target
 `(reviewerAssignmentIdentity, evaluationRevision, findingId)` and one evidence
 reference already in the disputing evaluation. The target must be a different
 eligible evaluation for the same assignment and result revision. A dispute is
 current only while both referenced revisions are current; correction needs a
-new dispute. Without an explicit dispute, findings are separate. Preserve
-ratings; do not average or prefer by time or seniority.
+new dispute. Reject duplicate finding IDs within an evaluation revision.
+Reusing an ID in a correction means it is the same logical finding; a
+materially different finding gets a new ID. Disputes always name an exact
+revision and do not carry forward to a correction. Without an explicit
+dispute, findings are separate.
+Preserve ratings; do not average or prefer by time or seniority.
 
 ## Revisions, correction, and invalidation
 
@@ -225,7 +243,12 @@ correct its review. The user may append a separately attributed correction;
 the user never impersonates the child. Invalidation preserves the report and
 provenance and excludes it from current results and learning. A later result
 revision makes earlier evaluations historical; they never become current
-again.
+again. Before using an evaluation as current evidence, revalidate each
+referenced report's current correction and invalidation state as well as its
+existence, scope, version, and digest. A corrected or invalidated source makes
+dependent evaluations historical and ineligible for current results or
+learning; evaluate again against the current evidence instead of silently
+rebinding the old evaluation.
 
 ## Record digests
 
@@ -241,9 +264,12 @@ later versions from sharing a digest namespace.
 ## Bounds, retention, and deletion
 
 Use #741's limits of 32 criteria and 16 rubric dimensions. Each assignment
-identity allows at most 32 result revisions across resumes, 32 output
-artifacts, and 16 evaluation revisions. Each evaluation revision allows at
-most 32 findings, 32 finding disputes, and
+identity allows at most 32 result revisions across resumes and 32 output
+artifacts. Each result revision allows at most 16 evaluation revisions,
+including corrections, with an assignment-wide cap of 512 across its 32 result
+revisions. This permits every allowed result revision to receive an initial
+evaluation. Each evaluation revision allows at most 32 findings, 32 finding
+disputes, and
 112 evidence references per evaluation revision, enough for maximum criteria,
 dimensions, findings, and distinct dispute evidence. Cap
 the manifest and each evaluation/disposition at 512 KiB, each reference at
@@ -296,9 +322,11 @@ A future implementation must verify that:
 3. Scores compare across assignments only under the same rubric ID/version or
    an approved normalization rule. Optional-criterion disagreement affects
    detail only. Finding disputes bind the exact reviewer/evaluation-revision/
-   finding tuple and reuse cited evidence; disputed failures are not established.
-   Findings retain location, severity, evidence, and required-rework status without
-   prohibited sensitive content.
+   finding tuple and reuse cited evidence; duplicate finding IDs are rejected,
+   disputes do not carry to corrections, and informational finding disputes do
+   not affect the overall result. Disputed failures are not established.
+   Findings retain location, severity, evidence, and required-rework status
+   without prohibited sensitive content.
 4. Self-review, parent synthesis, unverified profiles, contributors, stale
    output, or unverified read-only scope cannot qualify as child review.
    Reviewer-of-review depth is bounded and ends with user authority.
@@ -312,6 +340,12 @@ A future implementation must verify that:
 7. Evaluation cannot launch/retry work, widen permissions, change
    configuration, advance dependencies, accept work for the user, or approve a
    merge.
+8. Child and root result identities resolve from their respective approved
+   configuration; child launch and parent runtime resumes require their new
+   authority generations. Corrected or invalidated source reports cannot keep
+   dependent evaluations current. Each of the 32 permitted result revisions
+   can receive an evaluation before the 16-revision per-result evaluation cap
+   is reached.
 
 ## Implementation gate
 
