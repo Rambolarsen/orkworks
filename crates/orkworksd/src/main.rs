@@ -16,6 +16,7 @@ mod capacity_state;
 mod codex_session_store;
 mod git;
 mod harness;
+mod harness_integration_application;
 mod http;
 mod metadata;
 mod migration;

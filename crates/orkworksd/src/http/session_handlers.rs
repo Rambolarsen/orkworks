@@ -146,7 +146,7 @@ pub(crate) struct WorkspaceResponse {
     pub(crate) active_harness_revision: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) integration_cleanup:
-        Option<crate::http::integration_handlers::IntegrationCleanupResponse>,
+        Option<crate::harness_integration_application::IntegrationCleanupResponse>,
 }
 
 #[derive(Serialize)]
@@ -291,8 +291,10 @@ async fn set_workspace_inner(
                 None
             } else {
                 Some(
-                    crate::http::integration_handlers::reconcile_unreferenced_integrations(
-                        &state,
+                    crate::harness_integration_application::HarnessIntegrationApplication::new(
+                        state.clone(),
+                    )
+                    .reconcile_unreferenced(
                         cleanup_keys,
                         Some(PathBuf::from(snapshot.canonical_path.clone())),
                     )

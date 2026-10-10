@@ -5462,9 +5462,9 @@ fn prepare_prompt_authority_generation(
     let _transition = crate::runtime::prompt_authority::transition_lock()
         .lock()
         .unwrap();
-    if !crate::http::integration_handlers::prompt_attention_launch_ready(
-        state, harness_id, executable,
-    ) {
+    if !crate::harness_integration_application::HarnessIntegrationApplication::new(state.clone())
+        .prompt_attention_launch_ready(harness_id, executable)
+    {
         crate::runtime::prompt_authority::registry().remove(session_id);
         return Ok(());
     }
