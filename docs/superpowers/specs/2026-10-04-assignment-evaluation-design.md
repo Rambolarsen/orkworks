@@ -55,8 +55,13 @@ reject symlink or junction targets outside it, and preserve the opened-object
 binding for hashing and later revalidation. No out-of-scope file may be read or
 pinned as an artifact.
 
-The sidecar assigns immutable result revisions and rejects stale predecessors.
-Evaluations bind the current revision and digest. Before any consumer treats a
+Every manifest submission carries the caller's expected current result
+revision and digest; the initial state uses an explicit no-head sentinel. The
+sidecar compares both with the current head before assigning an immutable
+revision, rejecting stale predecessors. Exact idempotent retries are resolved
+before this comparison. Each attempt allows at most 32 result revisions;
+exhaustion is visible and cannot wrap or reset. Evaluations bind the current
+revision and digest. Before any consumer treats a
 result as current, the implementation revalidates its referenced output bytes
 and revision; if it cannot establish freshness, the result is Unassessed. A known
 missing output establishes Needs rework directly; inaccessible, changed,
@@ -105,8 +110,12 @@ an explicit, versioned normalization rule is approved:
 | `3` | Meets the declared quality standard |
 | `unassessed` | Evidence or an eligible reviewer is missing, stale, or disputed |
 
-The meanings above are fixed for version 1. Ratings 0–2 establish Needs rework
-when current and uncontested. Rating 3 meets the quality part of the result only
+The meanings above are fixed for version 1. A current, uncontested rating
+below 3 establishes Needs rework even when credible reviewers disagree on the
+exact rating. Conflicting ratings that all establish below 3 preserve their
+individual values and still establish that failure; disagreement across the
+threshold (for example, 2 versus 3) makes quality Unassessed unless another
+uncontested failure exists. Rating 3 meets the quality part of the result only
 with current, uncontested evidence. Before using an outcome, the sidecar
 validates evidence references for existence, scope, version, and digest;
 unavailable or unverified evidence makes that outcome Unassessed. A transcript,
@@ -173,9 +182,10 @@ disposition, leave that evaluation Unassessed. This preserves the parent
 design's reviewer-of-review path without unbounded recursion.
 
 Keep eligible evaluations separate. If current, credible evaluations disagree
-on a criterion, rating, finding, or material fact, preserve both and report
-Unassessed unless another uncontested failure establishes Needs rework. Never
-average conflicting reviews or prefer one by time or seniority.
+on a criterion, finding, or material fact, preserve both and report Unassessed
+unless another uncontested failure establishes Needs rework. For ratings,
+preserve each value and apply the below-3 threshold above; never average
+conflicting reviews or prefer one by time or seniority.
 
 ## Revisions, correction, and invalidation
 
@@ -184,22 +194,37 @@ the same eligible reviewer while that review capability is active; a different
 reviewer creates a separate evaluation. An authenticated idempotency key is
 scoped to reporter, subject, and operation. Resolve an exact prior receipt
 before checking the expected revision; changed content under the same key
-conflicts. Stale or cross-subject writes fail closed. Invalidation names the
-current evaluation revision and digest; it is serialized with corrections,
-uses the same idempotency rules, and freezes that evaluation stream once
-accepted. A stale invalidation conflicts and cannot exclude a newer correction.
+conflicts. Stale or cross-subject writes fail closed. Every invalidation,
+regardless of child-capability state, requires Electron-authorized user
+provenance; child reviewers cannot invalidate their own or another report.
+Invalidation names the current evaluation revision and digest; it is serialized
+with corrections, uses the same idempotency rules, and freezes that evaluation
+stream once accepted. A stale invalidation conflicts and cannot exclude a newer
+correction.
 
 When #742 ends a run and revokes child authority, that child can no longer
-correct its review. The user may append a separately attributed correction or
-invalidate it through the Electron-authorized path; the user never impersonates
-the child. Invalidation preserves the report and provenance and excludes it
-from current results and learning. A later result revision makes earlier
-evaluations historical; they never become current again.
+correct its review. The user may append a separately attributed correction;
+the user never impersonates the child. Invalidation preserves the report and
+provenance and excludes it from current results and learning. A later result
+revision makes earlier evaluations historical; they never become current
+again.
+
+## Record digests
+
+Version 1 record digests are lowercase SHA-256 hex over the #741 recursive
+canonical JSON bytes, prefixed respectively by `orkworks.assignment-result.v1\n`,
+`orkworks.assignment-evaluation.v1\n`, or
+`orkworks.assignment-disposition.v1\n` (each ends in one literal LF). Exclude
+only the record's own digest field. Include immutable identity, predecessor
+revision/digest, and semantic fields. Do not include bearer credentials,
+mutable status, or observation time. The fixed domains prevent these record
+kinds or later versions from sharing a digest namespace.
 
 ## Bounds, retention, and deletion
 
 Use #741's limits of 32 criteria and 16 rubric dimensions. Also cap each
-subject at 32 artifacts and 16 evaluation revisions; allow at most 32 findings
+attempt at 32 result revisions and each subject at 32 artifacts and 16
+evaluation revisions; allow at most 32 findings
 and 80 evidence references per evaluation revision, enough for the maximum
 criteria, dimensions, and findings. Cap the manifest at 64 KiB, an
 evaluation/disposition at 512 KiB, each reference at 1 KiB, and
