@@ -24,7 +24,8 @@ authorize a merge. It does not change ordinary Peon behavior.
 
 Evaluation binds one of the approved assignment identity variants, plus the
 exact result revision, sidecar-derived criteria and rubric snapshot digests,
-reviewer identity, and immutable evidence references. A child result uses the #741/#742 identity
+reviewer identity, and immutable evidence references. A child result uses the
+#741/#742 identity
 `(workspaceId, runId, planId, planRevision, taskId, taskVersion,
 reservationId, parentSessionId, childSessionId, configurationId,
 configurationDigest)`. A root orchestrator result uses
@@ -39,10 +40,17 @@ authority but do not change the assignment identity.
 
 Result manifests use an `AssignmentResultCapability`, separate from #742's
 `ResearchReportCapability`. The sidecar binds it to the approved result
-identity and active authority generations, and it grants only result-manifest
-submission and receipt reads. For child results it binds the child assignment,
+identity and its sidecar/authority generation, and it grants only
+result-manifest submission and receipt reads. For a path-backed final result,
+its submission right remains usable after the producer terminates, its
+worktree write authority is revoked, and user-confirmed quiescence is recorded;
+this narrow grant cannot write to the worktree. It permits one accepted result
+revision for that authority generation plus exact idempotent retries. A resume
+revokes an unused old-generation submission right and creates a separate grant
+for the new generation. For child results it binds the child assignment,
 sidecar generation, and launch generation; for root results it binds the
-bootstrap identity, sidecar generation, and active parent runtime generation.
+bootstrap identity, sidecar generation, and parent runtime generation that
+produced the result.
 It grants no research-report, evaluation, or orchestration action. Resume and
 revocation follow #742's generation-bound mechanics. Reconcile the new result
 scope with #742 before implementation; a run bearer or execution grant is not
@@ -81,6 +89,34 @@ changed content under that key conflicts. The key is scoped to reporter,
 assignment identity, the active authority-generation variant (child launch
 generation or parent runtime generation), and operation.
 
+The result manifest also preserves available time/cost evidence in an optional
+`timeCostEvidence` array of at most 32 sidecar-resolved records. Each record is
+exactly one of:
+
+- `{"kind":"elapsed","valueMs":<u64>,"authorityGeneration":{"kind":"child-launch","generation":<ID>}}` or the same object with `kind:"parent-runtime"`.
+  The sidecar measures elapsed milliseconds with a monotonic clock from that
+  generation's accepted start to its terminal event.
+- `{"kind":"cost","amountMicros":<u64>,"currency":<3 uppercase ASCII letters>,"usageRecordId":<sidecar-resolved ID>,"usageDigest":<64 lowercase SHA-256 hex>}`.
+  The sidecar resolves this to an authenticated immutable provider-usage
+  record containing provider, model, and pricing-revision identity, then
+  derives millionths of the currency unit from that pricing revision.
+
+At most one elapsed record is allowed per active authority generation. Cost
+records may represent distinct provider/model/pricing-revision tuples; reject
+duplicate source records. Each bounded ID follows #741's identifier rule.
+Order the array by ascending UTF-8 `kind`, then by usage record ID for cost or
+the tagged authority generation for elapsed; this order is part of the result
+digest.
+Values are non-negative integers with no floating-point encoding. Missing
+evidence is omitted, never represented as zero; caller-entered estimates or
+unverifiable provider records are rejected. Each record is at most 512 bytes
+and is included in the result manifest digest and existing 512 KiB cap. These
+metrics are descriptive evidence, do not change completeness or quality, and
+must remain available alongside both scores to #745. The implementation plan
+must identify the current authenticated provider-usage source and reconcile
+its identity with #742 before implementation; when none exists, cost remains
+absent rather than fabricated.
+
 The sidecar must open file paths with one atomic descriptor-relative operation
 from a retained handle to the exact approved output root for this assignment.
 For a child assignment, that root is the absolute worktree path bound to its
@@ -95,14 +131,27 @@ beneath-root containment and no-follow semantics for the full path resolution,
 rejecting symlinks, junctions, and other reparse points at every component. Do
 not resolve a path and then open it by name, or compose separate path-based
 checks and opens. Preserve the resulting handle for type checks and hashing.
-Use this procedure at submission, every freshness check, and sealing. This
-prevents a same-named path in the main checkout from satisfying an output
-declared in a child worktree.
+Use this procedure when creating the accepted output snapshot. A result with
+path-backed outputs is accepted only after the producer is terminal, its write
+capability is revoked, and user-confirmed quiescence is recorded under #610 and
+#742.
+While quiescent, the sidecar reads each bounded output and copies it into an
+immutable assignment/declaration-bound object. Copying stages the snapshot
+outside the dependency boundary; publication of the verified snapshot, result
+head, and dependency-index entries is one atomic commit. It verifies the size
+and digest of both the opened source and the completed object before accepting
+the result;
+any mismatch, or any restoration of write authority before snapshot acceptance,
+discards the snapshot and rejects the submission. This prevents a same-named
+path in the main checkout from satisfying an output declared in a child
+worktree and closes writes racing the
+hash or snapshot copy.
 If the platform cannot provide atomic handle-relative containment and no-follow
 semantics, reject path-backed output before reading any bytes; do not fall back
 to path-based checks. Only regular files with no hard-link aliases are
 supported: prove a link count of one from the opened handle before reading,
-verify it remains one after hashing, and check again before sealing. If the
+verify it remains one after copying, and check again before snapshot admission.
+If the
 platform or filesystem cannot prove this before reading, do not read the bytes;
 if a later check is unavailable or the count changes, discard the read bytes
 and do not accept or pin the output. Every potentially
@@ -116,45 +165,33 @@ charged against the finite capacity until it exits or the owning sidecar is
 restarted. The implementation must not spawn replacement workers or queue
 unbounded work around a stuck operation. Exact worker, queue, and deadline
 limits are fixed hard limits in the reviewed implementation plan before code.
-On every freshness check, the worker resolves and opens the declared path again
-within scope, then hashes that open handle and compares its size and digest
-with the accepted result. The output's durable identity is its approved path,
-size, and content digest; a different filesystem object at that path with the
-same size and digest is equivalent because this contract establishes content
-freshness, not authorship or object-lifetime identity. A declared required
-artifact that is absent at submission or confirmed absent during freshness
-checking is known missing and establishes Needs rework. A replaced path with
-changed bytes, inaccessible path, timed-out operation, or unprovable
-path/content binding is stale/unsupported and Unassessed; no out-of-scope file
-may be read or pinned.
+After acceptance, the immutable snapshot is the authoritative output version;
+freshness checks read and verify that snapshot, never the mutable worktree path.
+The path, size, and digest remain in the result manifest as provenance for the
+snapshot. A different filesystem object at that path with the same size and
+digest is equivalent because this contract establishes content freshness, not
+authorship or object-lifetime identity. A required artifact confirmed absent
+before snapshot acceptance is known missing and establishes Needs rework. An
+inaccessible path, timed-out operation, changed source during snapshotting, or
+unprovable path/content binding is unsupported and Unassessed; no out-of-scope
+file may be read or pinned. A later worktree edit cannot silently change an
+accepted result; a new output requires a new result revision and snapshot.
 
 Before a dependent successor receives writable ownership of a reused
-plan-owned worktree under #610, the sidecar must seal each accepted path-backed
-output needed by any retained current result or evaluation, or any retained
-learning input. This includes an evaluation made historical by a later result
-revision. Handoff is serialized: after the predecessor is terminal, its write
-capabilities are revoked, and the user confirms quiescence, sealing reopens
-each path under the predecessor assignment's approved output root, verifies
-the accepted size and digest, and copies the bounded bytes from that opened
-handle into immutable storage bound to the same assignment and output
-declaration. Complete and verify sealing before durably transferring group
-ownership or granting the successor write access. If any required output cannot
-be sealed, block the handoff; the successor must not overwrite, remove, or
-otherwise gain write access to the worktree until the dependency is resolved.
-Once sealed, freshness checks use the immutable stored object rather than the
-mutable reused worktree path, so successor edits cannot change the predecessor
-result. Before authorized cleanup removes a clean, quiescent plan-owned
-worktree, apply the same sealing rule to every retained dependency. A sealed
-output is revalidated from its stored object; removal of its original worktree
-path does not make it missing or change the result/evaluation digest. The pin
-uses the same content digest, is charged to the existing artifact and workspace
-quotas, and remains subject to retention and purge rules. Cleanup cannot remove
-a worktree while a retained current result, evaluation, or learning input
-depends on an output that has not been sealed. If sealing detects changed,
-absent, or inaccessible bytes, the result is stale or known missing under the
-rules above, and the user must resolve the affected current evaluation before
-cleanup or handoff; authorized cleanup itself never creates a new Needs rework
-outcome.
+plan-owned worktree under #610, the sidecar confirms that every retained
+path-backed output has an accepted immutable snapshot. Snapshot admission,
+retained learning-dependency admission/removal, retention, cleanup, and worktree
+ownership transfer serialize through the workspace dependency transaction
+boundary defined below. Complete the snapshot and dependency scan before
+durably transferring group ownership or granting successor write access. If a
+required snapshot is missing or cannot be verified, block handoff; the
+successor must not overwrite, remove, or otherwise gain write access to the
+worktree until the dependency is resolved. Accepted snapshots remain bound to
+their assignment and declaration, are charged to existing artifact and
+workspace quotas, and remain subject to retention and purge rules. Since
+freshness uses the immutable snapshot, later successor edits and authorized
+worktree cleanup cannot change a predecessor result. Cleanup itself never
+creates a new Needs rework outcome.
 
 Every manifest submission carries the caller's expected current result
 revision and digest; the initial state uses `expectedResultRevision: no-head`
@@ -169,15 +206,15 @@ generation. The authority-generation variant is part of the retry scope, so a
 receipt from a revoked generation cannot satisfy a retry in the resumed
 generation. A changed assignment identity creates a new subject. Exhaustion
 is visible and cannot wrap or reset. Evaluations bind the current revision and
-digest. Before any
-consumer treats a result as current, the implementation revalidates its
-referenced output bytes and revision; if it cannot establish freshness, the
-result is Unassessed. A known missing output establishes Needs rework directly;
-inaccessible, changed, unknown, or unsupported output is Unassessed unless
-another uncontested failure exists. A later result revision makes earlier
-evaluations historical. The implementation plan chooses the transaction or
-revalidation boundary; stale writes cannot restore a current result. This
-validates content freshness, not authorship or OS-level confinement.
+digest. Before any consumer treats a result as current, the implementation
+verifies each immutable output snapshot and confirms the result is still the
+current revision; a failed snapshot check makes that output Unassessed. A
+required output confirmed missing before snapshot acceptance establishes Needs
+rework directly; unsupported snapshot creation is Unassessed unless another
+uncontested failure exists. A later result revision makes earlier evaluations
+historical. Snapshot publication and result-head advancement are atomic; stale
+writes cannot restore a current result. This validates content freshness, not
+authorship or OS-level confinement.
 
 ## Criteria, completeness, and quality
 
@@ -216,14 +253,20 @@ derives and resolves the key from the stored result or report; callers cannot
 select another source. Reused IDs or identical bytes from different assignments
 therefore remain distinct. A key collision with a different descriptor is
 rejected. A report source is current only while its exact immutable report
-version remains the current version under #742's correction rules; a corrected
-report requires a new source key. #744 defines no independent source-report
-invalidation operation or authority. Withdrawing a report without a corrected
-replacement is unsupported until separately specified in #742 and reconciled
-here. This source correction rule is distinct from #744 evaluation-stream
-invalidation below. Before implementation, verify that the tagged identity
-values and their canonical encodings exactly match #741 and #742; any required
-schema change must be reconciled there first.
+version is the current head defined by #742; a corrected report requires a new
+source key. #742 must define a per-report correction head with an expected
+predecessor version and digest, atomic compare-and-swap, and exact-retry
+resolution before the head check. Concurrent corrections have one winner;
+stale predecessors conflict, and arrival time or numeric version alone never
+selects the current report. Until this head contract is approved in #742 and
+reconciled here, #744 cannot use correction state to establish current source
+evidence and implementation is blocked. #744 defines no independent
+source-report invalidation operation or authority. Withdrawing a report
+without a corrected replacement is unsupported until separately specified in
+#742 and reconciled here. This source correction rule is distinct from #744
+evaluation-stream invalidation below. Before implementation, verify that the
+tagged identity values and their canonical encodings exactly match #741 and
+#742; any required schema change must be reconciled there first.
 Missing, duplicate, or unknown criterion IDs make the report malformed and it is
 rejected.
 
@@ -345,9 +388,11 @@ Rationale, findings, and corrections must not contain credentials, secrets,
 hidden reasoning, full prompts, or complete transcripts; use safe, immutable
 evidence references.
 
-Cost and elapsed-time observations are outside this contract. #745 may define
-their bounded integer encoding and allowed units before a later contract
-accepts or consumes them.
+The result manifest preserves available elapsed-time and provider-cost
+evidence under the bounded `timeCostEvidence` contract above. #745 may consume
+these exact values and provenance but cannot redefine their units or promote
+missing evidence into zero or an estimate. The implementation gate requires
+reconciliation of the authenticated usage-record source with #742.
 
 ## Reviewer eligibility and disagreement
 
@@ -600,12 +645,18 @@ current evaluation, regardless of its derived result, and every result,
 evaluation, and disposition record named by a current evaluation's
 `reviewerAssessmentRef` chain, even when those records' own assignment subjects
 are otherwise historical. Ordinary retention must apply the same learning-
-input dependency guard as explicit purge. To release
-capacity from a closed ineligible subject, #745 must also
-provide an explicit Electron-authorized user purge. A subject is closed only
-after its owning run is terminal and all writer capabilities are revoked; it is
-ineligible when none of its results can be selected as current or used as
-learning input. Each assignment subject has a sidecar-issued, monotonically
+input dependency guard as explicit purge. To release capacity from a closed
+subject, #745 must also provide an explicit Electron-authorized user purge. A
+subject is closed only after its owning run is terminal, worktree write
+authority is revoked, and all final result-submission grants are used or
+expired/revoked. A pending final submission keeps the subject open. Automatic
+retention may remove only historical
+subjects whose results cannot be selected as current or used as learning
+input. Explicit purge is a separate user-authorized final deletion: for a
+closed subject with no incoming retained dependency, it atomically clears that
+subject's own current-result selection and deletes its result history. Any
+other consumer's current selection is an incoming dependency and blocks purge.
+Each assignment subject has a sidecar-issued, monotonically
 increasing `subjectRevision` using checked `u64` arithmetic. Advance it
 atomically with every accepted result revision, evaluation submission or
 correction, invalidation/disposition, user-stream-slot change, and retained
@@ -615,10 +666,12 @@ serializing against writes, it compares that revision before deleting and
 conflicts if any listed mutation occurred meanwhile. It never wraps; if the
 revision is exhausted, further subject writes and purge fail visibly. This
 concurrency token is not part of immutable record digests and is removed with
-the purged subject. A purge is allowed only when no retained record,
-learning input, or reviewer credibility link depends on the subject or its
-pinned evidence. It atomically
-removes that subject's result manifests and receipts, evaluations,
+the purged subject. A purge is allowed only when no retained record, learning
+input, reviewer credibility link, or current selection by another consumer
+depends on the subject or its pinned evidence. Under the same dependency
+boundary, it atomically clears the
+subject's own current-result selection and removes its result manifests and
+receipts, evaluations,
 dispositions, and solely referenced pinned evidence; otherwise it fails without
 deleting anything. A repeated purge of an absent subject returns the same
 not-found/no-op result as any absent target; the API does not promise to
@@ -627,16 +680,22 @@ history. No tombstone is retained after this explicit provenance deletion, and
 the released records no longer count toward admission quotas. Retention must
 never purge automatically to make room or silently discard provenance. The
 sidecar maintains an authoritative incoming-dependency index for retained
-record, learning-input, and reviewer-credibility references. Publishing or
-removing a dependency edge is atomic with its owning record and serialized
-through a workspace dependency transaction boundary with purge's final
-dependency scan and deletion. Purge holds that boundary from its scan through
-deletion, so a concurrent new reference either commits first and makes purge
-refuse, or observes the deleted target and fails. A subject revision alone is
-not a fence for dependencies owned by another subject. Keep this boundary to
-dependency-index mutations and purge; ordinary unrelated evaluation writes
-need not serialize globally. The implementation plan must define index
-recovery and transactional deletion before implementing this purge.
+records, learning inputs, reviewer-credibility references, and current result
+selections. Publishing or removing a dependency edge is atomic with its owning
+record. Snapshot publication and the edge mutation share the same transaction.
+The edge mutation and the final scan plus action for ordinary retention,
+explicit purge, worktree cleanup, and worktree ownership transfer
+serialize through one workspace dependency transaction boundary. Hold the
+boundary from scan through deletion, sealing, cleanup, or durable ownership
+transfer. A concurrent reference either commits first and makes a destructive
+operation retain, refuse, or seal its target, or the operation commits first
+and a later reference must resolve the retained immutable target or fail. No
+accepted learning input may depend on mutable worktree bytes. A subject
+revision alone is not a fence for dependencies owned by another subject. Keep
+this boundary to dependency-edge changes and the final scan/action windows;
+ordinary unrelated evaluation writes need not serialize globally. The
+implementation plan must define index recovery and transactional boundaries
+before implementing these operations.
 Workspace deletion fences new and in-flight result/evaluation writes, then
 purges every assignment-result manifest revision and receipt, evaluation,
 disposition, and pinned-evidence record. The deletion fence prevents stale
@@ -659,8 +718,8 @@ clean learning signal, and evaluation cannot change an active configuration.
 A future implementation must verify that:
 
 1. Complete evidence derives Meets requirements; any uncontested failure,
-   including a required artifact confirmed absent at submission or during
-   freshness checking, derives Needs rework; inaccessible or stale output or
+   including a required artifact confirmed absent before snapshot acceptance,
+   derives Needs rework; inaccessible or stale output or
    required criterion/quality evidence without a known failure derives
    Unassessed. Stale finding evidence downgrades only that finding and the
    overall result is recomputed. An
@@ -702,9 +761,12 @@ A future implementation must verify that:
    concurrent link swap cannot make the worker read or pin bytes outside scope;
    platforms without this operation reject path-backed output before reading.
    Hard links without a
-   proven single-link identity are rejected before reading or sealing. Freshness
-   detects removed paths or changed content; replacing a file with identical
-   content preserves the result. Bare content digests and references to
+   proven single-link identity are rejected before reading or snapshotting.
+   Before acceptance, absent required paths establish Needs rework and changed,
+   inaccessible, or concurrently written bytes reject the snapshot as
+   Unassessed. After acceptance, later path changes do not alter the immutable
+   result snapshot; replacing a path with identical content preserves the
+   snapshot as well. Bare content digests and references to
    another assignment's output are rejected; report evidence resolves the exact
    source identity even when report IDs or content digests are reused. A
    server-held artifact from another assignment or declaration is rejected even
@@ -722,21 +784,21 @@ A future implementation must verify that:
    workers. Non-regular filesystem objects are rejected without hashing.
    A deliberately stalled filesystem operation returns by the caller deadline,
    and repeated stalled operations never exceed the worker/admission bounds.
-   Results cannot remain
-   current for any consumer after referenced bytes change. A resume retains the
+   Results cannot remain current after their immutable snapshot changes or
+   fails verification. A resume retains the
    assignment subject and revision count but requires its new launch generation;
    changing the assignment identity creates a new subject. Before a dependent
    successor receives a reused plan-owned worktree, the predecessor is terminal,
-   its write capability is revoked, and user-confirmed quiescence is recorded;
-   every accepted output needed by a retained current result, evaluation, or
-   learning input (including historical evaluations) is then sealed and verified
-   before ownership transfers or successor writes are allowed. The successor
-   cannot acquire the worktree if a required seal fails. Later freshness reads
-   use the immutable pin and preserve the accepted digest even after successor
-   writes. Authorized cleanup of a clean, quiescent plan-owned worktree applies
-   the same sealing rule before removing the path. Changed or unavailable bytes
-   cannot be sealed, and neither handoff nor cleanup can erase a live dependency
-   or turn authorized cleanup into Needs rework.
+   its write capability is revoked, user-confirmed quiescence is recorded, and
+   every accepted path output has a verified immutable snapshot. Learning-input
+   admission/removal, ordinary retention, cleanup, and ownership transfer share
+   the dependency boundary; a concurrent dependency either commits first and is
+   included in the final check or resolves only an immutable snapshot after
+   transfer. The successor cannot acquire the worktree if a required snapshot
+   or dependency check fails. Authorized cleanup verifies that all retained
+   dependencies resolve to immutable snapshots before removing the path.
+   Neither handoff nor cleanup can erase a live dependency or turn authorized
+   cleanup into Needs rework.
 3. Scores compare across assignments only under the same rubric ID, version,
    and canonical `rubricSnapshotDigest`, or an approved normalization rule.
    Matching ID/version with changed snapshot content cannot pool scores; equal
@@ -809,15 +871,23 @@ A future implementation must verify that:
    `reviewerAssessmentRef` chain of current evaluations, and source records
    referenced by retained learning inputs; it removes only eligible complete
    historical subjects without such dependencies.
-   Explicit user purge releases a closed ineligible subject only when no
-   retained record, learning input, or reviewer credibility link depends on it;
-   it compares the caller's expected `subjectRevision` after write
+   Ordinary retention deletes only historical subjects. Explicit user purge
+   may delete a closed subject's current result only under explicit user
+   authorization and when no other retained record, learning input, current
+   selection, or reviewer credibility link depends on it; it clears the
+   subject's own current-result selection atomically with deletion.
+   It compares the caller's expected `subjectRevision` after write
    serialization and shares an atomic dependency boundary with cross-subject
-   reference admission/removal. A concurrent reference either commits first
-   and makes purge refuse, or purge deletes first and the reference is rejected
-   because its target no longer exists. It removes the subject and solely
+   reference admission/removal, ordinary retention, worktree cleanup, and
+   worktree transfer. A concurrent reference either commits first and blocks
+   deletion/transfer until the dependency is retained or sealed, or the
+   operation commits first and the reference must resolve an immutable
+   retained target or fail. Race coverage includes cross-subject reference
+   admission against explicit purge and ordinary retention, and learning-input
+   admission against worktree transfer. Purge removes the subject and solely
    pinned evidence atomically and conflicts on any intervening subject
-   mutation. Quota pressure
+   mutation.
+   Quota pressure
    never triggers silent eviction; repeated purges of absent subjects return
    the same not-found/no-op result and retain no tombstone. Workspace deletion purges result manifests,
    receipts, evaluations, dispositions, and pinned evidence.
@@ -826,15 +896,30 @@ A future implementation must verify that:
    merge.
 8. Child and root result identities resolve from their respective approved
    configuration; child launch and parent runtime resumes require their new
-   authority generations. When a source report is corrected under #742,
+   authority generations. #742's report correction head uses expected-head
+   compare-and-swap with exact retry resolution; concurrent corrections have
+   one winner and stale predecessors conflict. Acceptance coverage races two
+   corrections from one predecessor, proves one winner, returns that receipt
+   for an exact retry, and resolves the same head after reload. Until #742
+   defines and reconciles this head, report correction freshness cannot be
+   consumed by #744. When a
+   source report is corrected under #742,
    only outcomes citing it become stale; unrelated current outcomes remain
    usable, and optional-only changes cannot alter the overall result.
    Staleness that makes a terminal reviewer assessment stop deriving Meets
    requirements removes eligibility from dependent child evaluations; stale
    optional-only detail does not when the assessment still derives Meets.
-   Server-held artifacts are bound to the exact
-   assignment and output declaration; a bare #742 report identity without an
-   output declaration ID/kind binding cannot satisfy a declared output. The
+   Path-backed results are accepted only after producer write authority is
+   revoked and quiescence is confirmed; each output is copied into an immutable
+   assignment/declaration-bound snapshot and both source and snapshot digests
+   are verified. Concurrent writes reject snapshot creation, and later
+   worktree edits cannot change an accepted result. Available elapsed/cost
+   evidence is bounded, sidecar-resolved, included in the result digest, and
+   preserved for #745; absent cost evidence is omitted, not fabricated. These
+   metrics retain authenticated provenance and do not affect either score.
+   Server-held artifacts are bound to the exact assignment and output
+   declaration; a bare #742 report identity without an output declaration
+   ID/kind binding cannot satisfy a declared output. The
    dedicated `AssignmentResultCapability`
    is distinct from `ResearchReportCapability` and any run bearer. Each of the
    32 permitted result revisions can receive a child evaluation and a user
@@ -848,11 +933,13 @@ A future implementation must verify that:
 No runtime plan is approved here. Write one only after written review of this
 contract and #741, reconciliation of #740's capability disposition, and
 alignment with #610 and authoritative specs/ADRs. Resolve output-byte ceilings,
-reviewer recursion, and post-run correction authority against #741/#742 and the
-parent product contract. The plan then chooses storage, reporting, correction
-and invalidation boundaries, #745 retention, and #746 projection from verified
-module seams. Code references here are investigation pointers, not
-implementation commitments.
+reviewer recursion, post-run result submission, report correction-head CAS,
+and authenticated usage-record provenance against #741/#742 and the parent
+product contract. The plan chooses concrete storage and transaction seams for
+the normative snapshot, dependency-index, retention, purge, and worktree
+transfer rules above; it cannot defer their race outcomes. It also specifies
+#745 retention and #746 projection from verified module seams. Code references
+here are investigation pointers, not implementation commitments.
 
 User approval of this spec approves only the written contract—not runtime
 implementation, role support, assignment launches, automated evaluation, or
