@@ -659,7 +659,17 @@ The first useful MVP should include:
 #### Electron Desktop Shell
 
 - Electron app shell
-- On Windows, one integrated 38px header replaces the separate native title bar: OrkWorks icon at the far left, workspace name and switch action, connection status, and native minimize/maximize/close controls at the right. Preserve dragging, resizing, and keyboard menu access (Alt reveals the auto-hidden application menu). macOS and Linux retain their existing window chrome.
+- On Windows, one integrated 38px header replaces the separate native title bar:
+  the OrkWorks icon and product name appear at the left, with native
+  minimize/maximize/close controls at the right. Preserve dragging, resizing,
+  and keyboard menu access (Alt reveals the auto-hidden application menu).
+  macOS and Linux retain their existing window chrome.
+- Workspace name and switching appear above session history in the sidebar;
+  Settings and connection status appear below it. When the sidebar is hidden,
+  the central header's labeled Workspace menu exposes these controls. Keep
+  active-workspace history warnings visible in the app header, and connection
+  progress and recovery diagnostics visible in the no-workspace picker. This
+  placement follows the approved #838 shell refinement.
 - React + TypeScript UI
 - fixed, resizable shell with a compact Sessions sidebar, one central context,
   and an optional contextual inspector

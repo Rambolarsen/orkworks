@@ -174,7 +174,9 @@ test("timeout recovery opens the provider settings section", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const settings = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
-  assert.match(app, /onOpenSettings=\{\(\) => openSettings\("providers"\)\}/);
+  const shell = readFileSync(new URL("../src/components/ApplicationShell.tsx", import.meta.url), "utf8");
+  assert.match(app, /onOpenSettings=\{section => openSettings\(section \?\? "tools"\)\}/);
+  assert.match(shell, /onOpenSettings\("providers"\)/);
   assert.match(settings, /initialSection\?: SettingsSection/);
   assert.match(settings, /useState<SettingsSection>\(initialSection\)/);
 });
@@ -661,4 +663,9 @@ test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so 
     "refreshSessions() must resolve before activeSessionId is set, otherwise a consumer reading props.sessions " +
       "for the just-set activeSessionId (e.g. the terminal) transiently sees no match during workspace switch",
   );
+});
+
+test("titlebar icon is decorative beside the visible application name", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /className="titlebar-icon"[^>]*alt=""/);
 });

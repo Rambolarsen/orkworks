@@ -709,9 +709,18 @@ Electron owns bounded installation shell preferences and canonical-workspace
 navigation memory. The renderer hydrates preferences without writing defaults,
 debounces resize saves, and serializes reset before subsequent saves. Legacy
 `layout.json` remains untouched and is not restored by the new shell. The native
-View menu and toolbar route through the same shell commands.
+View menu, sidebar navigation and context header route through the same shell commands.
 
-The titlebar shows the active workspace name and workspace-switch action.
+The fixed sidebar places workspace switch, New session, Recommendations and
+Capacity above independently scrolling session history, with Settings and
+connection status anchored below. A compact header above the central content
+shows the selected session and Details; when the sidebar is hidden, its Workspace
+menu keeps the sidebar controls reachable. The titlebar retains the product name
+and native window dragging/controls; active-workspace history warnings remain
+visible there even when the sidebar is hidden. The no-workspace picker displays
+connection progress and recovery diagnostics above the shell. At short logical
+heights, the sidebar itself scrolls so workspace actions and Settings stay
+reachable alongside the independently scrolling history list.
 On Windows, Electron uses a hidden title bar with native window controls overlaid
 on the 38px app header; CSS reserves the controls area. The application menu is
 auto-hidden and remains accessible with Alt. macOS and Linux retain their chrome.

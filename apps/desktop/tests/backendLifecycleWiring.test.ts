@@ -8,7 +8,8 @@ test("startup waits in picker without health probes or recovery UI until a lifec
   assert.match(appSource, /useState<BackendStatus>\("picker"\)/);
   assert.match(appSource, /event.state === "picker"[\s\S]*?setBackendStatus\("picker"\)/);
   assert.match(appSource, /if \(backendStatus !== "connecting…"\) return;/);
-  assert.match(appSource, /backendStatus !== "picker" &&/);
+  const shellSource = readFileSync(new URL("../src/components/ApplicationShell.tsx", import.meta.url), "utf8");
+  assert.match(shellSource, /backendStatus !== "picker" &&/);
 });
 
 test("App subscribes to backend lifecycle events and maps failures to visible status", () => {
@@ -100,4 +101,28 @@ test("a delayed initial workspace snapshot cannot overwrite a newer live lifecyc
   assert.match(loader, /generation: workspaceLifecycleRef\.current\.generation/);
   assert.match(loader, /lifecycle\.generation !== snapshotRequest\.generation/);
   assert.match(loader, /setWorkspaceHistoryDiagnostic\(snapshot\.historyDiagnostic\)/);
+});
+
+// The picker overlays the shell; recovery must live inside its visible card.
+test("picker failures keep the switch diagnostic and Retry above the shell", () => {
+  const start = appSource.indexOf('<div className="workspace-picker-screen">');
+  const end = appSource.indexOf('</section>', start);
+  const picker = appSource.slice(start, end);
+  assert.match(picker, /workspaceSwitchDiagnostic/);
+  assert.match(picker, /onClick=\{handleRetryBackend\}/);
+});
+
+test("workspace picker exposes connecting progress above the shell", () => {
+  const start = appSource.indexOf('<div className="workspace-picker-screen">');
+  const end = appSource.indexOf('</section>', start);
+  assert.match(appSource.slice(start, end), /role="status"[^>]*>\{backendStatus\}/);
+});
+
+test("active workspace history warnings remain visible above hidden sidebar controls", () => {
+  const start = appSource.indexOf('<div className="titlebar">');
+  const end = appSource.indexOf('{!workspace &&', start);
+  const titlebar = appSource.slice(start, end);
+  assert.match(titlebar, /workspace && workspaceHistoryDiagnostic/);
+  assert.match(titlebar, /role="alert"/);
+  assert.match(titlebar, /Workspace history unavailable/);
 });
