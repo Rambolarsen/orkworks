@@ -268,8 +268,11 @@ export default function ApplicationShell(props: Props) {
       {!showSessionsPage && <main className="shell-main">
         <nav className="shell-toolbar" aria-label="Content navigation">
           <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>
-          {!showSessions && <details className="shell-navigation-menu" onClick={event => {
-            if ((event.target as Element).closest("[data-shell-command], [data-shell-create], [data-shell-settings]")) event.currentTarget.open = false;
+          {!showSessions && <details key={props.workspaceGeneration} className="shell-navigation-menu" onClick={event => {
+            if ((event.target as Element).closest("[data-shell-command], [data-shell-create], [data-shell-settings], .workspace-history-row-open, .workspace-history-other-folder")) {
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+            }
           }} onKeyDown={event => {
             if (event.key !== "Escape" || event.currentTarget.querySelector(".workspace-history-panel")) return;
             event.preventDefault(); event.stopPropagation();

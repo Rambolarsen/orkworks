@@ -716,7 +716,11 @@ Capacity above independently scrolling session history, with Settings and
 connection status anchored below. A compact header above the central content
 shows the selected session and Details; when the sidebar is hidden, its Workspace
 menu keeps the sidebar controls reachable. The titlebar retains the product name
-and native window dragging/controls.
+and native window dragging/controls; active-workspace history warnings remain
+visible there even when the sidebar is hidden. The no-workspace picker displays
+connection progress and recovery diagnostics above the shell. At short logical
+heights, the sidebar itself scrolls so workspace actions and Settings stay
+reachable alongside the independently scrolling history list.
 On Windows, Electron uses a hidden title bar with native window controls overlaid
 on the 38px app header; CSS reserves the controls area. The application menu is
 auto-hidden and remains accessible with Alt. macOS and Linux retain their chrome.

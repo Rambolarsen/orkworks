@@ -125,6 +125,48 @@ if (process.versions.electron) {
           await waitFor('document.querySelector(".workspace-history-other-folder")');
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true,'Escape closes the workspace picker without leaving compact Sessions');
+        } else if (scenario === 'workspace-navigation') {
+          await click('sessions');
+          await waitFor('!document.querySelector("[data-shell-region=sessions]")');
+          const openPicker = async () => {
+            await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+            await evaluate('document.querySelector(".titlebar-switch-button").click()');
+            await waitFor('document.querySelector(".workspace-history-row-open:not(:disabled)")');
+          };
+          await openPicker();
+          await evaluate('document.querySelector(".workspace-history-row-action").click()');
+          await waitFor('fixture.pins===1');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),true,'pinning preserves outer menu');
+          await evaluate('const row=document.querySelector(".workspace-history-row-open:not(:disabled)");row.focus();row.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await waitFor('!document.querySelector(".workspace-history-panel")');
+          assert.equal(await evaluate('document.activeElement.className'),'titlebar-switch-button','nested Escape returns focus to workspace switcher');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),true,'nested Escape preserves outer disclosure');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'second Escape dismisses outer disclosure');
+          await openPicker();
+          await evaluate('document.querySelector(".workspace-history-row-open:not(:disabled)").click()');
+          await waitFor('fixture.workspaceOpens===1');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'workspace selection dismisses outer menu');
+          await openPicker();
+          await evaluate('const other=document.querySelector(".workspace-history-other-folder");other.focus();other.click()');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'Open other workspace dismisses outer menu even if dialog is cancelled');
+          assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','cancelled workspace dialog retains a visible focus target');
+          await evaluate('document.querySelector(".shell-navigation-menu summary").click();fixture.advanceWorkspace()');
+          await waitFor('fixture.workspaceGeneration===2');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'programmatic workspace generation also dismisses menu');
+        } else if (scenario === 'short-sidebar') {
+          await win.setContentSize(1280,500);
+          win.webContents.setZoomFactor(2);
+          await evaluate('document.getElementById("root").style.height="calc(100vh - 38px)"');
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await click('sessions');
+          await waitFor('document.querySelector("[data-shell-region=sessions]")');
+          assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).overflowY'),'auto','short sidebar offers user scrolling');
+          for (const selector of ['[data-shell-command=recommendations]', '[data-shell-settings]']) {
+            const visible=await evaluate(`(()=>{const b=document.querySelector('[data-shell-region=sessions] ${selector}');b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===b;})()`);
+            assert.ok(visible,'short zoomed sidebar keeps '+selector+' reachable');
+          }
+          assert.ok(await evaluate('document.querySelector("[data-shell-region=sessions]").scrollTop>0'),'footer reached by scrolling sidebar');
         } else if (scenario === 'sessions-toggle') {
           await click('sessions');
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
@@ -342,7 +384,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -361,7 +403,7 @@ if (process.versions.electron) {
           const fixture = window.fixture = {selections:0,prompts:0,settingsOpened:0,sessionsCreated:0,errors:[],ready:true};
           window.addEventListener('error', e => fixture.errors.push(e.error?.stack || e.message));
           window.addEventListener('unhandledrejection', e => fixture.errors.push(String(e.reason)));
-          fixture.socketCount=0;fixture.input=[];
+          fixture.socketCount=0;fixture.input=[];fixture.pins=0;fixture.workspaceOpens=0;
           window.WebSocket=class {
             static OPEN=1; readyState=1; bufferedAmount=0;
             constructor(){fixture.socketCount++;fixture.socket=this;queueMicrotask(()=>this.onopen?.());}
@@ -372,6 +414,7 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345'),getWorkspaceHistory:async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null})};
+          window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
           fixture.noticeCommands=[];fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
           fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${JSON.stringify(scenario)}==='preferences-recovery'?'corrupt_record':null};
           Object.assign(window.orkworks,{
@@ -386,6 +429,7 @@ if (process.versions.electron) {
           function Harness() {
             const [inspector,setInspector]=useState(null);
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
+            const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>setGeneration(n=>n+1);
             const [backendStatus,setBackendStatus]=useState('connected');
             const [commandRequest,setCommandRequest]=useState(null);
             fixture.command=command=>setCommandRequest(old=>({command,sequence:(old?.sequence||0)+1}));
@@ -395,7 +439,7 @@ if (process.versions.electron) {
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
             return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
-              workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>fixture.sessionsCreated++} activeSessionId={activeSessionId} workspaceGeneration={0}
+              workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>fixture.sessionsCreated++} activeSessionId={activeSessionId} workspaceGeneration={generation}
               backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}

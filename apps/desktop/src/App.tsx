@@ -648,11 +648,6 @@ function App() {
         onOpenOtherFolder={handleOpenWorkspace}
         onError={handleWorkspaceHistoryError}
       />
-      {workspaceHistoryDiagnostic && (
-        <span role="alert" title={workspaceHistoryDiagnostic.message}>
-          Workspace history unavailable
-        </span>
-      )}
     </>
   ) : (
     <span className="titlebar-text">No workspace</span>
@@ -669,10 +664,16 @@ function App() {
           )}
           <span className="titlebar-text">OrkWorks</span>
         </div>
+        {workspace && workspaceHistoryDiagnostic && (
+          <span className="titlebar-history-warning" role="alert" title={workspaceHistoryDiagnostic.message}>
+            Workspace history unavailable
+          </span>
+        )}
       </div>
       {!workspace && (
         <div className="workspace-picker-screen">
           <section className="workspace-picker-card" aria-label="Workspace picker">
+            {backendStatus !== "picker" && <p role="status">{backendStatus}</p>}
             {workspaceHistoryDiagnostic && (
               <span role="alert" title={workspaceHistoryDiagnostic.message}>
                 Workspace history unavailable

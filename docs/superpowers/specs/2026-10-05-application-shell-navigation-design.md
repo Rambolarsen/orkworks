@@ -143,6 +143,13 @@ same workspace controls, Settings and connection status. Compact Sessions is
 still a temporary page with a labeled return action. This placement refinement
 was approved by the user on 2026-10-12 and is tracked in #838; it changes no
 selection, inspection, responsive-width, persistence or execution authority.
+At short logical heights, allow the sidebar itself to scroll so the fixed
+navigation and footer remain reachable. Keep connection progress and recovery
+messages inside the no-workspace picker, and active-workspace history warnings
+in the native app header so hiding Sessions does not hide diagnostics. Workspace
+opening closes the outer menu; pinning preserves it. Escape from the nested
+workspace picker restores its trigger before a second Escape dismisses the
+outer menu.
 
 Review entry remains the separately tracked #780 delivery slice; do not show a
 Review button before its central destination works. Future Workflow and Actions

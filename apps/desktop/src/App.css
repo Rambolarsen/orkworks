@@ -102,6 +102,8 @@ html, body, #root {
   gap: var(--space-3);
 }
 
+.titlebar-history-warning { color: var(--state-warn); font-size: var(--text-xs); }
+
 .titlebar-right {
   flex-shrink: 0;
   margin-left: var(--space-3);
@@ -2502,6 +2504,10 @@ html, body, #root {
 .shell-layout[data-mode="compact"] .shell-context { flex-basis: 100%; order: -1; }
 .shell-layout[data-mode="compact"] .shell-context h1 { white-space: normal; overflow-wrap: anywhere; }
 .shell-layout[data-mode="compact"] .session-list { min-width: 0; }
+@media (max-height: 480px) {
+  .shell-region--sessions { overflow-y: auto; }
+  .shell-region--sessions > .panel-content { min-height: 120px; }
+}
 @media (pointer: coarse) { .shell-toolbar button, .shell-region-header button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .shell-layout *, .shell-layout *::before, .shell-layout *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
 

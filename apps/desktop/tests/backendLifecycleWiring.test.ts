@@ -111,3 +111,18 @@ test("picker failures keep the switch diagnostic and Retry above the shell", () 
   assert.match(picker, /workspaceSwitchDiagnostic/);
   assert.match(picker, /onClick=\{handleRetryBackend\}/);
 });
+
+test("workspace picker exposes connecting progress above the shell", () => {
+  const start = appSource.indexOf('<div className="workspace-picker-screen">');
+  const end = appSource.indexOf('</section>', start);
+  assert.match(appSource.slice(start, end), /role="status"[^>]*>\{backendStatus\}/);
+});
+
+test("active workspace history warnings remain visible above hidden sidebar controls", () => {
+  const start = appSource.indexOf('<div className="titlebar">');
+  const end = appSource.indexOf('{!workspace &&', start);
+  const titlebar = appSource.slice(start, end);
+  assert.match(titlebar, /workspace && workspaceHistoryDiagnostic/);
+  assert.match(titlebar, /role="alert"/);
+  assert.match(titlebar, /Workspace history unavailable/);
+});

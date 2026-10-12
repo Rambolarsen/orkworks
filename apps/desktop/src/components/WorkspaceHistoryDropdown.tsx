@@ -17,6 +17,7 @@ export function WorkspaceHistoryDropdown({
 }: WorkspaceHistoryDropdownProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
@@ -25,7 +26,14 @@ export function WorkspaceHistoryDropdown({
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) close();
     }
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape") {
+        const focusInside = containerRef.current?.contains(document.activeElement);
+        close();
+        if (focusInside) {
+          event.preventDefault();
+          triggerRef.current?.focus();
+        }
+      }
     }
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -39,6 +47,7 @@ export function WorkspaceHistoryDropdown({
     <div className="workspace-history-dropdown" ref={containerRef}>
       <button
         type="button"
+        ref={triggerRef}
         className={triggerClassName}
         aria-label={triggerAriaLabel}
         title={triggerAriaLabel}
