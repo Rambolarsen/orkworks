@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { PanelLeft, PanelRight, Plus } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, Gauge, Lightbulb, Settings } from "lucide-react";
 import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
@@ -25,6 +25,7 @@ export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harne
 interface Props {
   backendStatus: string;
   workspace: WorkspaceInfo | null;
+  workspaceControl: ReactNode;
   workspaceGeneration: number;
   isSwitchingWorkspace: boolean;
   debugSettings: DebugSettings;
@@ -54,7 +55,7 @@ interface Props {
   onResumeSession: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onFocusTerminal: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: "tools" | "providers") => void;
   onOpenWorkspace: () => void;
   onBackendUnavailable: () => void;
   onRetryBackend: () => void;
@@ -164,7 +165,7 @@ export default function ApplicationShell(props: Props) {
     if (!intent) {
       // A responsive transition may remove the focused page or region.
       if (document.activeElement === document.body) {
-        root.querySelector<HTMLElement>("[data-shell-page-heading], [data-shell-region=terminal] h1")?.focus({ preventScroll: true });
+        (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]"))?.focus({ preventScroll: true });
       }
       return;
     }
@@ -174,10 +175,10 @@ export default function ApplicationShell(props: Props) {
     } else if (intent === "sessions") {
       document.getElementById("sessions-list")?.focus({ preventScroll: true });
     } else if (intent === "terminal") {
-      root.querySelector<HTMLElement>("[data-shell-region=terminal] h1")?.focus({ preventScroll: true });
+      root.querySelector<HTMLElement>("[data-shell-terminal-focus]")?.focus({ preventScroll: true });
       props.onFocusTerminal();
     } else {
-      root.querySelector<HTMLElement>("[data-shell-page-heading], [data-shell-region=terminal] h1")?.focus({ preventScroll: true });
+      (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]"))?.focus({ preventScroll: true });
     }
   }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, props.onFocusTerminal]);
 
@@ -199,7 +200,7 @@ export default function ApplicationShell(props: Props) {
     if (props.inspector === "details") return <SessionDetailPanel sessions={props.sessions}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
       onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
-      onOpenSettings={props.onOpenSettings} onOpenRecommendation={props.onOpenRecommendation}
+      onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
       showDebugMetadata={props.debugSettings.showSessionIds} />;
     if (props.inspector === "capacity") return <CapacityPanel />;
     return <RecommendationsPanel hasWorkspace={!!props.workspace && !props.isSwitchingWorkspace}
@@ -218,44 +219,65 @@ export default function ApplicationShell(props: Props) {
     ...(layout.sessionsVisible ? [`${layout.sessionsWidth}px`, "6px"] : []),
     "minmax(0, 1fr)", ...(showInspector ? ["6px", `${layout.inspectorWidth}px`] : []),
   ];
+  const workspaceNavigation = <>
+    <div className="shell-workspace">{props.workspaceControl}</div>
+    <nav className="shell-sidebar-navigation" aria-label="Workspace navigation">
+      {props.workspace && <button type="button" data-shell-create onClick={props.onCreateSession}><Plus size={16} aria-hidden="true" />New session</button>}
+      {shouldShowRecommendationsPanel(session) && <button type="button" data-shell-command="recommendations" aria-expanded={props.inspector === "recommendations"} onClick={() => runCommand("recommendations")}><Lightbulb size={16} aria-hidden="true" />Recommendations</button>}
+      <button type="button" data-shell-command="capacity" aria-expanded={props.inspector === "capacity"} onClick={() => runCommand("capacity")}><Gauge size={16} aria-hidden="true" />Capacity</button>
+    </nav>
+  </>;
+  const settingsAndStatus = <>
+    <button type="button" data-shell-settings onClick={() => props.onOpenSettings()}><Settings size={16} aria-hidden="true" />Settings</button>
+    {props.backendStatus !== "picker" && <span className={`shell-connection ${props.backendStatus === "connected" ? "ok" : "warn"}`}><span aria-hidden="true" />{props.backendStatus}</span>}
+  </>;
   return <div ref={rootRef} className="shell-layout" data-mode={layout.mode} data-density={props.preferences.density}
     onKeyDown={event => {
       if (event.key !== "Escape" || (!showSessionsPage && !temporaryUtility)) return;
       // This handler only owns temporary-page navigation, never terminal input or modal Escape.
-      if ((event.target as Element).closest("[role=dialog], [data-shell-region=terminal]")) return;
+      if ((event.target as Element).closest("[role=dialog], [data-shell-region=terminal], .shell-navigation-menu")) return;
+      if ((event.target as Element).closest(".workspace-history-dropdown")?.querySelector(".workspace-history-panel")) return;
       event.preventDefault(); event.stopPropagation(); closePage();
     }}>
-    <nav className="shell-toolbar" aria-label="Content navigation">
-      <button type="button" data-shell-command="sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={15} aria-hidden="true" />Sessions</button>
-      <div className="shell-context"><span>{session?.label || "Terminal"}</span><span className="shell-context-scope">{session?.harness || "No session selected"}</span></div>
-      <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>
-      <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
-      {shouldShowRecommendationsPanel(session) && <button type="button" data-shell-command="recommendations" aria-expanded={props.inspector === "recommendations"} onClick={() => runCommand("recommendations")}>Recommendations</button>}
-      <button type="button" data-shell-command="capacity" aria-expanded={props.inspector === "capacity"} onClick={() => runCommand("capacity")}>Capacity</button>
-    </nav>
     <div className="shell-grid" style={{ gridTemplateColumns: compact ? "minmax(0, 1fr)" : columns.join(" ") }}>
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
-        <header className="shell-region-header"><h2>Sessions</h2>
-          {showSessionsPage ? <button type="button" data-shell-return onClick={closePage}>Back to Terminal</button>
-            : props.workspace && <button type="button" aria-label="New session" onClick={props.onCreateSession}><Plus size={15} /></button>}
+        <div className="shell-sidebar-top">{workspaceNavigation}</div>
+        <header className="shell-region-header shell-sessions-header"><h2>Sessions</h2>
+          {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>Back to Terminal</button>}
         </header>
-        {showSessionsPage && props.workspace && <button className="shell-new-session" type="button" onClick={props.onCreateSession}>New session</button>}
         <SessionListPanel workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
           unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
           onSelectSession={props.onSelectSession}
           onKillSession={props.onKillSession} onForgetSession={props.onForgetSession}
           onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={props.onOpenWorkspace} />
+        <footer className="shell-sidebar-footer">{settingsAndStatus}</footer>
       </section>}
       {layout.sessionsVisible && <RegionSeparator label="Sessions" minimum={200} maximum={layout.sessionsMaximum} value={layout.sessionsWidth}
         onChange={value => props.onPreferencesChange({ ...props.preferences, sessionsWidth: value })} />}
-      {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
-        <header className="shell-region-header"><h1 data-shell-terminal-focus tabIndex={-1}>Terminal</h1></header>
-        <TerminalPanel key={`${session?.id ?? "none"}-${props.resumeTick}`} backendStatus={props.backendStatus} session={session}
-          onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} />
-      </section>}
-      {temporaryUtility && <section className="shell-region shell-region--central" aria-label="Temporary content page" data-shell-region="utility">
-        {utilityHeader(true)}{renderUtility()}
-      </section>}
+      {!showSessionsPage && <main className="shell-main">
+        <nav className="shell-toolbar" aria-label="Content navigation">
+          <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>
+          {!showSessions && <details className="shell-navigation-menu" onKeyDown={event => {
+            if (event.key !== "Escape" || event.currentTarget.querySelector(".workspace-history-panel")) return;
+            event.preventDefault(); event.stopPropagation();
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector("summary")?.focus();
+          }}>
+            <summary>Workspace<ChevronDown size={14} aria-hidden="true" /></summary>
+            <div className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
+          </details>}
+          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{session?.label || "Terminal"}</h1><span className="shell-context-scope">{session?.harness || "No session selected"}</span></div>
+          {!showTerminal && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
+          <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
+        </nav>
+        {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
+          <TerminalPanel key={`${session?.id ?? "none"}-${props.resumeTick}`} backendStatus={props.backendStatus} session={session}
+            onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} />
+        </section>}
+        {temporaryUtility && <section className="shell-region shell-region--central" aria-label="Temporary content page" data-shell-region="utility">
+          {utilityHeader(true)}{renderUtility()}
+        </section>}
+      </main>}
       {showInspector && <><RegionSeparator label="Inspector" direction={-1} minimum={280} maximum={layout.inspectorMaximum} value={layout.inspectorWidth}
         onChange={value => props.onPreferencesChange({ ...props.preferences, inspectorWidth: value })} />
         <aside className="shell-region shell-region--inspector" aria-label="Contextual inspector" data-shell-region="inspector">

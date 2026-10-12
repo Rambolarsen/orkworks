@@ -48,7 +48,56 @@ if (process.versions.electron) {
         return;
       } else if (scenario !== 'baseline') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        if (scenario === 'sessions-toggle') {
+        if (scenario === 'sidebar-controls') {
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions] [data-shell-command=capacity]")'),true,'workspace navigation belongs to the sidebar');
+          const anchors = await evaluate(`(()=>{
+            const sidebar=document.querySelector('[data-shell-region=sessions]');
+            const list=document.getElementById('sessions-list').parentElement;
+            const footer=sidebar.querySelector('footer');
+            const capacity=sidebar.querySelector('[data-shell-command=capacity]');
+            list.scrollTop=list.scrollHeight;
+            return {capacity:capacity.getBoundingClientRect().bottom,list:list.getBoundingClientRect().top,
+              listBottom:list.getBoundingClientRect().bottom,footer:footer.getBoundingClientRect().top,
+              footerBottom:footer.getBoundingClientRect().bottom,sidebarBottom:sidebar.getBoundingClientRect().bottom,
+              scrolled:list.scrollTop>0};
+          })()`);
+          assert.ok(anchors.capacity<=anchors.list,'navigation stays above history');
+          assert.ok(anchors.listBottom<=anchors.footer,'history cannot cover Settings');
+          assert.ok(anchors.footerBottom<=anchors.sidebarBottom,'footer stays in the viewport');
+          assert.ok(anchors.scrolled,'long history actually scrolls');
+          await evaluate('document.querySelector("[data-shell-region=sessions] [data-shell-settings]").click()');
+          assert.equal(await evaluate('fixture.settingsOpened'),1);
+          await evaluate('document.querySelector("[data-shell-region=sessions] [data-shell-create]").click()');
+          assert.equal(await evaluate('fixture.sessionsCreated'),1);
+          await evaluate('document.querySelector(".titlebar-switch-button").click()');
+          await waitFor('document.querySelector(".workspace-history-other-folder")');
+          const picker = await evaluate(`(()=>{const r=document.querySelector('.workspace-history-panel').getBoundingClientRect();const sidebar=document.querySelector('[data-shell-region=sessions]').getBoundingClientRect();return {x:r.x,right:r.right,y:r.y,bottom:r.bottom,sidebarRight:sidebar.right};})()`);
+          assert.ok(picker.y>=0&&picker.bottom<=700&&picker.x>=0&&picker.right<=picker.sidebarRight,'workspace switcher stays inside the sidebar viewport');
+          await evaluate('document.querySelector(".titlebar-switch-button").click()');
+          await click('capacity');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('fixture.selections'),0,'sidebar utility navigation preserves selected session');
+          await click('capacity');
+          await click('sessions');
+          await waitFor('!document.querySelector("[data-shell-region=sessions]")');
+          await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+          assert.ok(await evaluate('document.querySelector(".shell-navigation-menu [data-shell-command=capacity]").getClientRects().length>0'),'hidden sidebar retains reachable navigation');
+          await evaluate('const summary=document.querySelector(".shell-navigation-menu summary");summary.focus();summary.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'Escape dismisses the fallback menu');
+          assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','menu dismissal restores trigger focus');
+          await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+          await click('capacity');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await click('sessions');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          assert.ok(await evaluate('document.querySelector("[data-shell-region=sessions] [data-shell-settings]").getBoundingClientRect().bottom<=innerHeight'),'compact footer remains reachable');
+          await evaluate('document.querySelector(".titlebar-switch-button").focus();document.querySelector(".titlebar-switch-button").click()');
+          await waitFor('document.querySelector(".workspace-history-other-folder")');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true,'Escape closes the workspace picker without leaving compact Sessions');
+        } else if (scenario === 'sessions-toggle') {
           await click('sessions');
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
           await click('sessions');
@@ -130,11 +179,11 @@ if (process.versions.electron) {
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
           await evaluate('fixture.select(null)');
           await waitFor('fixture.activeSessionId===null');
-          await evaluate('const heading=document.querySelector("[data-shell-region=terminal] h1");heading.focus();fixture.command("capacity");void 0');
+          await evaluate('const heading=document.querySelector("[data-shell-terminal-focus]");heading.focus();fixture.command("capacity");void 0');
           await waitFor('document.querySelector("[data-shell-region=utility]")');
           await evaluate('fixture.command("capacity")');
           await waitFor('!document.querySelector("[data-shell-region=utility]")');
-          assert.equal(await evaluate('document.activeElement===document.querySelector("[data-shell-region=terminal] h1")'),true);
+          assert.equal(await evaluate('document.activeElement===document.querySelector("[data-shell-terminal-focus]")'),true);
         } else if (scenario === 'hidden-resize') {
           await win.setContentSize(1000,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
@@ -248,7 +297,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -258,11 +307,13 @@ if (process.versions.electron) {
           import React, {useState} from 'react';
           import {createRoot} from 'react-dom/client';
           import ApplicationShell from './src/components/ApplicationShell';
+          import {WorkspaceHistoryDropdown} from './src/components/WorkspaceHistoryDropdown';
           import ShellPreferencesNotice from './src/components/ShellPreferencesNotice';
           import {useShellPreferences} from './src/useShellPreferences';
+          import './src/styles/tokens.css';
           import './src/App.css';
           import {getTerminal, getLiveTerminalCount} from './src/terminalStore';
-          const fixture = window.fixture = {selections:0,prompts:0,errors:[],ready:true};
+          const fixture = window.fixture = {selections:0,prompts:0,settingsOpened:0,sessionsCreated:0,errors:[],ready:true};
           window.addEventListener('error', e => fixture.errors.push(e.error?.stack || e.message));
           window.addEventListener('unhandledrejection', e => fixture.errors.push(String(e.reason)));
           fixture.socketCount=0;fixture.input=[];
@@ -275,7 +326,7 @@ if (process.versions.electron) {
           fixture.output=text=>fixture.socket.onmessage({data:new TextEncoder().encode(text).buffer});
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
-          window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345')};
+          window.orkworks = {notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345'),getWorkspaceHistory:async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null})};
           fixture.noticeCommands=[];fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
           fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${JSON.stringify(scenario)}==='preferences-recovery'?'corrupt_record':null};
           Object.assign(window.orkworks,{
@@ -297,8 +348,8 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
-            return <ApplicationShell sessions={['coding','other'].map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))}
-              workspace={{path:'/tmp/test'}} activeSessionId={activeSessionId} workspaceGeneration={0}
+            return <ApplicationShell sessions={(${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))}
+              workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>fixture.sessionsCreated++} activeSessionId={activeSessionId} workspaceGeneration={0}
               backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}

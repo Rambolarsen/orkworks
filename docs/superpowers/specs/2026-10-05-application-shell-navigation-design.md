@@ -133,12 +133,23 @@ over a visible terminal. At 200% text zoom, apply the same rules to effective
 logical width; labels wrap and actions remain reachable. The native window
 remains resizable and draggable.
 
-The app header preserves workspace switch, connection status, native controls
-and Settings. A content header shows the exact context title/breadcrumb and
-actions: Sessions, Workflow when available, Details, Actions with current
-counts, Capacity. Workflow can open the run chooser without a selected session
-or validated owning run; unavailable projections show an explanation. These
-open destinations; they are not persistent panel tabs.
+The native app header preserves the product name, window controls and dragging.
+The sidebar has a fixed top with workspace switch, New session, Recommendations
+and Capacity; an independently scrolling Sessions/history list; and a fixed
+footer with Settings and connection status. The central context header shows
+the exact selected-session title, coding tool, Sessions toggle and Details.
+When the sidebar is hidden, a labeled Workspace menu in that header exposes the
+same workspace controls, Settings and connection status. Compact Sessions is
+still a temporary page with a labeled return action. This placement refinement
+was approved by the user on 2026-10-12 and is tracked in #838; it changes no
+selection, inspection, responsive-width, persistence or execution authority.
+
+Review entry remains the separately tracked #780 delivery slice; do not show a
+Review button before its central destination works. Future Workflow and Actions
+controls retain the availability and count requirements below. Workflow can
+open the run chooser without a selected session or validated owning run;
+unavailable projections show an explanation. These open destinations; they are
+not persistent panel tabs.
 No floating, docking, view reordering or document-tab strip exists. Resize
 handles adjust fixed regions only and have keyboard-operable separator controls.
 

@@ -629,6 +629,57 @@ function App() {
     }
   }), [handleCreateSession, openSettings, checkForUpdates, requestShellCommand]);
 
+  const workspaceControl = <div className="shell-workspace-control">
+  {workspace ? (
+    <>
+      <span
+        className="titlebar-text"
+        title={workspace.path}
+      >
+        {workspace.path.split("/").pop() || workspace.path}
+      </span>
+      <WorkspaceHistoryDropdown
+        triggerLabel="⇄"
+        triggerClassName="titlebar-switch-button"
+        triggerAriaLabel={VOCAB.switchWorkspace}
+        currentWorkspacePath={workspace?.workspaceIdentity ?? workspace?.path ?? null}
+        isSwitching={isSwitchingWorkspace}
+        onOpenPath={handleOpenRememberedWorkspace}
+        onOpenOtherFolder={handleOpenWorkspace}
+        onError={handleWorkspaceHistoryError}
+      />
+      {workspaceHistoryDiagnostic && (
+        <span role="alert" title={workspaceHistoryDiagnostic.message}>
+          Workspace history unavailable
+        </span>
+      )}
+    </>
+  ) : (
+    <>
+      <span className="titlebar-text">No workspace</span>
+      {workspaceHistoryDiagnostic && (
+        <span role="alert" title={workspaceHistoryDiagnostic.message}>
+          Workspace history unavailable
+        </span>
+      )}
+      {workspaceSwitchDiagnostic && (
+        <span role="alert" title={workspaceSwitchDiagnostic}>
+          Workspace switch needs attention
+        </span>
+      )}
+      {workspaceSwitchDiagnostic && (
+        <button
+          className="titlebar-open-button"
+          type="button"
+          onClick={handleRetryBackend}
+        >
+          Retry
+        </button>
+      )}
+    </>
+  )}
+  </div>;
+
   return (
     <div className="app-shell">
       <ToastRack />
@@ -637,61 +688,7 @@ function App() {
           {window.orkworks.platform === "win32" && (
             <img className="titlebar-icon" src={orkworksIcon} alt="OrkWorks" draggable={false} />
           )}
-          {workspace ? (
-            <>
-              <span
-                className="titlebar-text"
-                title={workspace.path}
-              >
-                {workspace.path.split("/").pop() || workspace.path}
-              </span>
-              <WorkspaceHistoryDropdown
-                triggerLabel="⇄"
-                triggerClassName="titlebar-switch-button"
-                triggerAriaLabel={VOCAB.switchWorkspace}
-                currentWorkspacePath={workspace?.workspaceIdentity ?? workspace?.path ?? null}
-                isSwitching={isSwitchingWorkspace}
-                onOpenPath={handleOpenRememberedWorkspace}
-                onOpenOtherFolder={handleOpenWorkspace}
-                onError={handleWorkspaceHistoryError}
-              />
-              {workspaceHistoryDiagnostic && (
-                <span role="alert" title={workspaceHistoryDiagnostic.message}>
-                  Workspace history unavailable
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <span className="titlebar-text">No workspace</span>
-              {workspaceHistoryDiagnostic && (
-                <span role="alert" title={workspaceHistoryDiagnostic.message}>
-                  Workspace history unavailable
-                </span>
-              )}
-              {workspaceSwitchDiagnostic && (
-                <span role="alert" title={workspaceSwitchDiagnostic}>
-                  Workspace switch needs attention
-                </span>
-              )}
-              {workspaceSwitchDiagnostic && (
-                <button
-                  className="titlebar-open-button"
-                  type="button"
-                  onClick={handleRetryBackend}
-                >
-                  Retry
-                </button>
-              )}
-            </>
-          )}
-        </div>
-        <div className="titlebar-right">
-          {backendStatus !== "picker" && <span
-            className={`status-badge ${backendStatus === "connected" ? "ok" : "warn"}`}
-          >
-            {backendStatus}
-          </span>}
+          <span className="titlebar-text">OrkWorks</span>
         </div>
       </div>
       {!workspace && (
@@ -712,6 +709,7 @@ function App() {
       <ApplicationShell
         backendStatus={backendStatus}
         workspace={workspace}
+        workspaceControl={workspaceControl}
         isSwitchingWorkspace={isSwitchingWorkspace}
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
@@ -745,9 +743,9 @@ function App() {
         onResumeSession={handleResumeSession}
         onApplyDebugAttention={handleApplyDebugAttention}
         onFocusTerminal={handleFocusTerminal}
-        onOpenSettings={() => openSettings("providers")}
+        onOpenSettings={section => openSettings(section ?? "tools")}
         onOpenWorkspace={handleOpenWorkspace}
-            onBackendUnavailable={handleBackendUnavailable}
+        onBackendUnavailable={handleBackendUnavailable}
         onRetryBackend={handleRetryBackend}
       />
       {(backendStatus === "unreachable" || backendStatus === "exhausted" || backendStatus === "unresolved") && (

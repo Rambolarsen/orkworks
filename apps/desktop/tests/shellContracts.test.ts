@@ -174,7 +174,9 @@ test("timeout recovery opens the provider settings section", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const settings = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
-  assert.match(app, /onOpenSettings=\{\(\) => openSettings\("providers"\)\}/);
+  const shell = readFileSync(new URL("../src/components/ApplicationShell.tsx", import.meta.url), "utf8");
+  assert.match(app, /onOpenSettings=\{section => openSettings\(section \?\? "tools"\)\}/);
+  assert.match(shell, /onOpenSettings\("providers"\)/);
   assert.match(settings, /initialSection\?: SettingsSection/);
   assert.match(settings, /useState<SettingsSection>\(initialSection\)/);
 });
