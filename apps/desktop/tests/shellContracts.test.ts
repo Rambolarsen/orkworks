@@ -664,3 +664,8 @@ test("handleOpenWorkspace refreshes sessions before setting activeSessionId, so 
       "for the just-set activeSessionId (e.g. the terminal) transiently sees no match during workspace switch",
   );
 });
+
+test("titlebar icon is decorative beside the visible application name", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(app, /className="titlebar-icon"[^>]*alt=""/);
+});

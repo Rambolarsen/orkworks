@@ -2492,7 +2492,7 @@ html, body, #root {
 .shell-navigation-menu { position: relative; }
 .shell-navigation-menu summary { list-style: none; }
 .shell-navigation-menu summary::-webkit-details-marker { display: none; }
-.shell-navigation-popover { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: min(280px, calc(100vw - 72px)); max-height: calc(100vh - 140px); overflow-y: auto; padding: var(--space-2); background: var(--surface-1); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-modal); }
+.shell-navigation-popover { position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; width: min(280px, calc(100vw - 72px)); max-height: calc(100vh - 140px); overflow-y: auto; padding: var(--space-2); background: var(--surface-1); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-modal); }
 .shell-utility-scope { min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); font-size: var(--text-sm); }
 .shell-region-header h1, .shell-region-header h2 { margin: 0; font-size: var(--text-sm); font-weight: 500; }
 .shell-region > .panel-content, .shell-region > .terminal-panel, .shell-region > .terminal-shell { flex: 1; min-height: 0; min-width: 0; }

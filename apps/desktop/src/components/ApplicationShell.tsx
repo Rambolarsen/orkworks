@@ -174,9 +174,11 @@ export default function ApplicationShell(props: Props) {
       }
       return;
     }
-    const returnTarget = invokerRef.current?.isConnected && !invokerRef.current.closest("details:not([open])") && invokerRef.current.getClientRects().length
+    let returnTarget = invokerRef.current?.isConnected && !invokerRef.current.closest("details:not([open])") && invokerRef.current.getClientRects().length
       ? invokerRef.current
       : invokerSelectorRef.current ? root.querySelector<HTMLElement>(invokerSelectorRef.current) : null;
+    const closedDisclosure = returnTarget?.closest("details:not([open])");
+    if (closedDisclosure) returnTarget = closedDisclosure.querySelector<HTMLElement>("summary");
     if (intent === "return" && returnTarget?.getClientRects().length) {
       returnTarget.focus({ preventScroll: true });
       invokerRef.current = null;
