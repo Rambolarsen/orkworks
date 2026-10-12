@@ -88,6 +88,15 @@ if (process.versions.electron) {
           await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
           await click('capacity');
           await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'choosing a utility dismisses the menu');
+          await evaluate('fixture.command("capacity")');
+          await waitFor('!document.querySelector("[data-shell-region=inspector]")');
+          assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','utility return focuses the dismissed menu trigger');
+          for (const action of ['[data-shell-settings]', '[data-shell-create]']) {
+            await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+            await evaluate('document.querySelector(".shell-navigation-menu '+action+'").click()');
+            assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),false,'dialog actions dismiss the menu');
+          }
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
           await click('sessions');
@@ -110,6 +119,15 @@ if (process.versions.electron) {
           await waitFor('document.getElementById("sessions-list")===document.activeElement');
           await click('sessions');
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
+          assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'sessions','repeated Sessions returns focus to its remounted invoker');
+          for (const close of ['back','escape']) {
+            await click('sessions');
+            await waitFor('document.getElementById("sessions-list")===document.activeElement');
+            if (close==='back') await evaluate('document.querySelector("[data-shell-return]").click()');
+            else await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+            await waitFor('document.querySelector("[data-shell-region=terminal]")');
+            assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'sessions','closing compact Sessions restores its invoker');
+          }
         } else if (scenario === 'sessions-browse') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');

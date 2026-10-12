@@ -102,3 +102,12 @@ test("a delayed initial workspace snapshot cannot overwrite a newer live lifecyc
   assert.match(loader, /lifecycle\.generation !== snapshotRequest\.generation/);
   assert.match(loader, /setWorkspaceHistoryDiagnostic\(snapshot\.historyDiagnostic\)/);
 });
+
+// The picker overlays the shell; recovery must live inside its visible card.
+test("picker failures keep the switch diagnostic and Retry above the shell", () => {
+  const start = appSource.indexOf('<div className="workspace-picker-screen">');
+  const end = appSource.indexOf('</section>', start);
+  const picker = appSource.slice(start, end);
+  assert.match(picker, /workspaceSwitchDiagnostic/);
+  assert.match(picker, /onClick=\{handleRetryBackend\}/);
+});

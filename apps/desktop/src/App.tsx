@@ -655,28 +655,7 @@ function App() {
       )}
     </>
   ) : (
-    <>
-      <span className="titlebar-text">No workspace</span>
-      {workspaceHistoryDiagnostic && (
-        <span role="alert" title={workspaceHistoryDiagnostic.message}>
-          Workspace history unavailable
-        </span>
-      )}
-      {workspaceSwitchDiagnostic && (
-        <span role="alert" title={workspaceSwitchDiagnostic}>
-          Workspace switch needs attention
-        </span>
-      )}
-      {workspaceSwitchDiagnostic && (
-        <button
-          className="titlebar-open-button"
-          type="button"
-          onClick={handleRetryBackend}
-        >
-          Retry
-        </button>
-      )}
-    </>
+    <span className="titlebar-text">No workspace</span>
   )}
   </div>;
 
@@ -694,6 +673,25 @@ function App() {
       {!workspace && (
         <div className="workspace-picker-screen">
           <section className="workspace-picker-card" aria-label="Workspace picker">
+            {workspaceHistoryDiagnostic && (
+              <span role="alert" title={workspaceHistoryDiagnostic.message}>
+                Workspace history unavailable
+              </span>
+            )}
+            {workspaceSwitchDiagnostic && (
+              <span role="alert" title={workspaceSwitchDiagnostic}>
+                Workspace switch needs attention
+              </span>
+            )}
+            {workspaceSwitchDiagnostic && (
+              <button
+                className="titlebar-open-button"
+                type="button"
+                onClick={handleRetryBackend}
+              >
+                Retry
+              </button>
+            )}
             <WorkspaceHistoryList
               currentWorkspacePath={null}
               isSwitching={isSwitchingWorkspace}

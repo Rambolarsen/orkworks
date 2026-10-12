@@ -66,6 +66,7 @@ const TITLES = { details: "Details", capacity: "Capacity", recommendations: "Rec
 export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
+  const invokerSelectorRef = useRef<string | null>(null);
   const navigationIntent = useRef(0);
   const workspaceGenerationRef = useRef(props.workspaceGeneration);
   workspaceGenerationRef.current = props.workspaceGeneration;
@@ -101,6 +102,9 @@ export default function ApplicationShell(props: Props) {
     invokerRef.current = element instanceof HTMLElement && element !== document.body
       ? element
       : rootRef.current?.querySelector<HTMLElement>(`[data-shell-command="${command}"]`) ?? null;
+    invokerSelectorRef.current = invokerRef.current?.closest(".shell-navigation-menu")
+      ? ".shell-navigation-menu summary"
+      : invokerRef.current?.dataset.shellCommand ? `[data-shell-command="${invokerRef.current.dataset.shellCommand}"]` : null;
   };
   const closePage = () => {
     ++navigationIntent.current;
@@ -155,6 +159,7 @@ export default function ApplicationShell(props: Props) {
   useEffect(() => {
     setSessionsPage(false);
     invokerRef.current = null;
+    invokerSelectorRef.current = null;
   }, [props.workspaceGeneration]);
 
   useLayoutEffect(() => {
@@ -169,9 +174,13 @@ export default function ApplicationShell(props: Props) {
       }
       return;
     }
-    if (intent === "return" && invokerRef.current?.isConnected && invokerRef.current.getClientRects().length) {
-      invokerRef.current.focus({ preventScroll: true });
+    const returnTarget = invokerRef.current?.isConnected && !invokerRef.current.closest("details:not([open])") && invokerRef.current.getClientRects().length
+      ? invokerRef.current
+      : invokerSelectorRef.current ? root.querySelector<HTMLElement>(invokerSelectorRef.current) : null;
+    if (intent === "return" && returnTarget?.getClientRects().length) {
+      returnTarget.focus({ preventScroll: true });
       invokerRef.current = null;
+      invokerSelectorRef.current = null;
     } else if (intent === "sessions") {
       document.getElementById("sessions-list")?.focus({ preventScroll: true });
     } else if (intent === "terminal") {
@@ -257,7 +266,9 @@ export default function ApplicationShell(props: Props) {
       {!showSessionsPage && <main className="shell-main">
         <nav className="shell-toolbar" aria-label="Content navigation">
           <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>
-          {!showSessions && <details className="shell-navigation-menu" onKeyDown={event => {
+          {!showSessions && <details className="shell-navigation-menu" onClick={event => {
+            if ((event.target as Element).closest("[data-shell-command], [data-shell-create], [data-shell-settings]")) event.currentTarget.open = false;
+          }} onKeyDown={event => {
             if (event.key !== "Escape" || event.currentTarget.querySelector(".workspace-history-panel")) return;
             event.preventDefault(); event.stopPropagation();
             event.currentTarget.open = false;
