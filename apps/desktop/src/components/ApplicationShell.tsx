@@ -170,7 +170,7 @@ export default function ApplicationShell(props: Props) {
     if (!intent) {
       // A responsive transition may remove the focused page or region.
       if (document.activeElement === document.body) {
-        (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]"))?.focus({ preventScroll: true });
+        (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
       }
       return;
     }
@@ -184,12 +184,12 @@ export default function ApplicationShell(props: Props) {
       invokerRef.current = null;
       invokerSelectorRef.current = null;
     } else if (intent === "sessions") {
-      document.getElementById("sessions-list")?.focus({ preventScroll: true });
+      (document.getElementById("sessions-list") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
     } else if (intent === "terminal") {
       root.querySelector<HTMLElement>("[data-shell-terminal-focus]")?.focus({ preventScroll: true });
       props.onFocusTerminal();
     } else {
-      (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]"))?.focus({ preventScroll: true });
+      (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
     }
   }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, props.onFocusTerminal]);
 
@@ -253,7 +253,7 @@ export default function ApplicationShell(props: Props) {
     <div className="shell-grid" style={{ gridTemplateColumns: compact ? "minmax(0, 1fr)" : columns.join(" ") }}>
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
         <div className="shell-sidebar-top">{workspaceNavigation}</div>
-        <header className="shell-region-header shell-sessions-header"><h2>Sessions</h2>
+        <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
           {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>Back to Terminal</button>}
         </header>
         <SessionListPanel workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}

@@ -147,6 +147,14 @@ if (process.versions.electron) {
             await waitFor('document.querySelector("[data-shell-region=terminal]")');
             assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'sessions','closing compact Sessions restores its invoker');
           }
+          await evaluate('fixture.setEmpty(true)');
+          await waitFor('!document.getElementById("sessions-list")');
+          await click('sessions');
+          await waitFor('document.querySelector("[data-shell-region=sessions]")');
+          assert.equal(await evaluate('document.activeElement.textContent'),'Sessions','empty compact Sessions focuses its heading');
+          await evaluate('document.querySelector("[data-shell-return]").click()');
+          await waitFor('document.querySelector("[data-shell-region=terminal]")');
+          assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'sessions','empty page returns to Sessions invoker');
         } else if (scenario === 'sessions-browse') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
@@ -377,6 +385,7 @@ if (process.versions.electron) {
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
             const [inspector,setInspector]=useState(null);
+            const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
             const [backendStatus,setBackendStatus]=useState('connected');
             const [commandRequest,setCommandRequest]=useState(null);
             fixture.command=command=>setCommandRequest(old=>({command,sequence:(old?.sequence||0)+1}));
@@ -385,7 +394,7 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
-            return <ApplicationShell sessions={(${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))}
+            return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>fixture.sessionsCreated++} activeSessionId={activeSessionId} workspaceGeneration={0}
               backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
