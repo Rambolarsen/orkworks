@@ -983,6 +983,55 @@ if (process.versions.electron) {
           await waitFor('fixture.selections===2');
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
+        } else if (scenario === 'region-focus') {
+          // Removing the shell's focus styling must fail even though DOM focus still moves.
+          const cue = selector => evaluate(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(selector)}),"::after");return s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>=2})()`);
+          const assertFocusedRegion = async expected => {
+            for (const selector of ['[data-shell-region=sessions]', '.shell-main', '[data-shell-region=inspector]']) {
+              if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) {
+                assert.equal(await cue(selector), selector===expected, `visible region focus: ${selector}`);
+              }
+            }
+          };
+          const before = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()');
+          await evaluate('document.getElementById("sessions-list").focus()');
+          await assertFocusedRegion('[data-shell-region=sessions]');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
+          await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
+          await assertFocusedRegion('.shell-main');
+          assert.deepEqual(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()'),before,'focus cue does not resize terminal');
+          // Check painted pixels too: an ancestor outline can be covered by xterm's canvas.
+          const region = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()');
+          const painted = await win.webContents.capturePage();
+          const size = painted.getSize(1);
+          const bitmap = painted.toBitmap({scaleFactor:1});
+          const viewport = await evaluate('({width:innerWidth,height:innerHeight})');
+          const pixel = (x,y) => {
+            const offset=(Math.floor(y*size.height/viewport.height)*size.width+Math.floor(x*size.width/viewport.width))*4;
+            return [...bitmap.subarray(offset,offset+3)];
+          };
+          const top = pixel(region.x+region.width/2,region.y+1);
+          assert.notDeepEqual(top,pixel(region.x+region.width/2,region.y+5),'focus cue contrasts with content');
+          assert.deepEqual(pixel(region.x+1,region.y+region.height/2),top,'terminal content cannot cover the left focus edge');
+          assert.deepEqual(pixel(region.right-1,region.y+region.height/2),top,'terminal content cannot cover the right focus edge');
+
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await evaluate('document.querySelector("[data-shell-region=inspector] [data-shell-page-heading]").focus()');
+          await assertFocusedRegion('[data-shell-region=inspector]');
+          await evaluate('document.activeElement.blur()');
+          await assertFocusedRegion(null);
+          assert.equal(await evaluate('fixture.activeSessionId'),'coding','focus changes preserve session selection');
+          assert.equal(await evaluate('fixture.selections'),0);
+          assert.deepEqual(await evaluate('fixture.input'),[],'focus changes send no terminal input');
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          await evaluate('document.querySelector("[data-shell-region=utility] [data-shell-page-heading]").focus()');
+          await assertFocusedRegion('.shell-main');
+          await click('sessions');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await assertFocusedRegion('[data-shell-region=sessions]');
         } else if (scenario === 'focus') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
@@ -1157,7 +1206,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['recommendations-main','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['recommendations-main','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));

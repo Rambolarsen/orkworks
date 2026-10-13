@@ -2481,6 +2481,20 @@ html, body, #root {
 .shell-inspector-host--overlay > .shell-region-separator { flex: 0 0 6px; }
 .shell-inspector-host--overlay > .shell-region--inspector { flex: 1; background: color-mix(in srgb, var(--surface-1) 96%, transparent); }
 .shell-inspector-host--overlay .recommendations-panel { background: transparent; }
+/* Keep the focus cue above terminal/canvas content without intercepting input
+   or changing the region's dimensions. Selection remains a separate cue. */
+.shell-region--sessions, .shell-main, .shell-region--inspector { position: relative; }
+.shell-region--sessions:focus-within::after,
+.shell-main:focus-within::after,
+.shell-region--inspector:focus-within::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+  pointer-events: none;
+  z-index: 1;
+}
 .shell-region-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 38px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); }
 .shell-region-header [data-shell-pin] { margin-inline-start: auto; }
 .shell-sidebar-top { flex: 0 0 auto; padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--border-subtle); }
