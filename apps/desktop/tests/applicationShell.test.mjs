@@ -74,6 +74,11 @@ if (process.versions.electron) {
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
       } else if (scenario === 'app-review') {
+        const resizeReview = async width => {
+          win.setContentSize(width,700);
+          const mode = width >= 1180 ? 'wide' : width >= 860 ? 'medium' : 'compact';
+          await waitFor(`innerWidth===${width} && document.querySelector('.shell-layout').clientWidth===${width} && document.querySelector('.shell-layout').dataset.mode==='${mode}'`);
+        };
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await waitFor('document.querySelector("[data-shell-command=review]")');
         await evaluate('fixture.originalRuntime=fixture.runtime();fixture.writesBefore=fixture.activeWrites');
@@ -82,17 +87,18 @@ if (process.versions.electron) {
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal]")'),false);
         await waitFor('document.activeElement?.matches("[data-shell-review-heading]")');
         for (const width of [1000,640,360,1280]) {
-          await win.setContentSize(width,700);
+          await resizeReview(width);
           await waitFor('innerWidth==='+width);
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),true);
           assert.equal(await evaluate('document.querySelectorAll(".review-plan-content").length'),1);
           assert.ok(await evaluate('(()=>{const b=document.querySelector("[data-review-return]").getBoundingClientRect();return b.width>0&&b.right<=innerWidth})()'));
         }
         await win.webContents.setZoomFactor(2);
-        await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+        await waitFor('innerWidth===640 && document.querySelector(".shell-layout").clientWidth===640 && document.querySelector(".shell-layout").dataset.mode==="compact"');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),true);
         assert.ok(await evaluate('(()=>{const b=document.querySelector("[data-review-return]").getBoundingClientRect();return b.width>0&&b.right<=innerWidth&&b.bottom<=innerHeight&&document.documentElement.scrollWidth<=innerWidth})()'),'return remains reachable at 200% zoom');
         await win.webContents.setZoomFactor(1);
+        await waitFor('innerWidth===1280 && document.querySelector(".shell-layout").clientWidth===1280 && document.querySelector(".shell-layout").dataset.mode==="wide"');
         await evaluate('fixture.output("output while reading\\r\\n")');
         if (process.env.ORKWORKS_CAPTURE_REVIEW) {
           const {writeFileSync} = await import('node:fs');
@@ -114,13 +120,13 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".review-change-notice[role=status]")?.textContent.includes("Plan changed")');
         await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Revised plan")');
         assert.equal(await evaluate('fixture.prompts'),0,'refresh does not request review');
-        await win.setContentSize(640,700);
+        await resizeReview(640);
         await click('details');
         await waitFor('document.querySelector("[data-shell-region=utility]")');
         assert.match(await evaluate('document.querySelector("[data-shell-return]").textContent'),/Back to Review/);
         await evaluate('document.querySelector("[data-shell-return]").click()');
         await waitFor('document.querySelector("[data-shell-region=review]")');
-        await win.setContentSize(1280,700);
+        await resizeReview(1280);
         await evaluate('document.querySelector("[data-review-return]").click()');
         await waitFor('document.activeElement?.dataset.shellCommand==="review"');
         await click('review');
