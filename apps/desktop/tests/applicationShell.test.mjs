@@ -985,7 +985,7 @@ if (process.versions.electron) {
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
         } else if (scenario === 'region-focus') {
           // Removing the shell's focus styling must fail even though DOM focus still moves.
-          const cue = selector => evaluate(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(selector)}),"::after");return s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>=2})()`);
+          const cue = selector => evaluate(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(selector)}));return s.borderTopStyle!=='none'&&parseFloat(s.borderTopWidth)>=2&&s.borderTopColor!=='rgba(0, 0, 0, 0)'})()`);
           const assertFocusedRegion = async expected => {
             for (const selector of ['[data-shell-region=sessions]', '.shell-main', '[data-shell-region=inspector]']) {
               if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) {
@@ -1000,20 +1000,25 @@ if (process.versions.electron) {
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
           await assertFocusedRegion('.shell-main');
           assert.deepEqual(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()'),before,'focus cue does not resize terminal');
-          // Check painted pixels too: an ancestor outline can be covered by xterm's canvas.
-          const region = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()');
-          const painted = await win.webContents.capturePage();
-          const size = painted.getSize(1);
-          const bitmap = painted.toBitmap({scaleFactor:1});
-          const viewport = await evaluate('({width:innerWidth,height:innerHeight})');
-          const pixel = (x,y) => {
-            const offset=(Math.floor(y*size.height/viewport.height)*size.width+Math.floor(x*size.width/viewport.width))*4;
-            return [...bitmap.subarray(offset,offset+3)];
+          // Wait for compositing, then check painted pixels: terminal children can hide an ancestor outline.
+          const assertPaintedCue = async selector => {
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const region = await evaluate(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON()`);
+            const painted = await win.webContents.capturePage();
+            const size = painted.getSize(1);
+            const bitmap = painted.toBitmap({scaleFactor:1});
+            const viewport = await evaluate('({width:innerWidth,height:innerHeight})');
+            const pixel = (x,y) => {
+              const offset=(Math.floor(y*size.height/viewport.height)*size.width+Math.floor(x*size.width/viewport.width))*4;
+              return [...bitmap.subarray(offset,offset+3)];
+            };
+            const top = pixel(region.x+region.width/2,region.y+1);
+            assert.notDeepEqual(top,pixel(region.x+region.width/2,region.y+5),'focus cue contrasts with content');
+            assert.deepEqual(pixel(region.x+1,region.y+region.height/2),top,'content cannot cover the left focus edge');
+            assert.deepEqual(pixel(region.right-1,region.y+region.height/2),top,'content cannot cover the right focus edge');
+            assert.deepEqual(pixel(region.x+region.width/2,region.bottom-1),top,'bottom focus edge remains visible');
           };
-          const top = pixel(region.x+region.width/2,region.y+1);
-          assert.notDeepEqual(top,pixel(region.x+region.width/2,region.y+5),'focus cue contrasts with content');
-          assert.deepEqual(pixel(region.x+1,region.y+region.height/2),top,'terminal content cannot cover the left focus edge');
-          assert.deepEqual(pixel(region.right-1,region.y+region.height/2),top,'terminal content cannot cover the right focus edge');
+          await assertPaintedCue('.shell-main');
 
           await click('details');
           await waitFor('document.querySelector("[data-shell-region=inspector]")');
@@ -1032,6 +1037,13 @@ if (process.versions.electron) {
           await click('sessions');
           await waitFor('document.getElementById("sessions-list")===document.activeElement');
           await assertFocusedRegion('[data-shell-region=sessions]');
+          await win.setContentSize(1280,360);
+          await evaluate('document.getElementById("root").style.height="calc(100vh - 38px)"');
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="wide"');
+          await evaluate('document.querySelector("[data-shell-settings]").focus();const sidebar=document.querySelector("[data-shell-region=sessions]");sidebar.scrollTop=sidebar.scrollHeight');
+          assert.ok(await evaluate('document.querySelector("[data-shell-region=sessions]").scrollTop>0'),'short sidebar actually scrolls');
+          await assertFocusedRegion('[data-shell-region=sessions]');
+          await assertPaintedCue('[data-shell-region=sessions]');
         } else if (scenario === 'focus') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
