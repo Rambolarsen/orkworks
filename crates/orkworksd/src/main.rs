@@ -343,7 +343,9 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .route("/taskmaster/run-status", get(get_taskmaster_run_status))
         .route(
             "/settings/taskmaster/knowledge",
-            post(post_taskmaster_knowledge),
+            post(post_taskmaster_knowledge).layer(axum::extract::DefaultBodyLimit::max(
+                taskmaster::knowledge::MAX_ACTIVATION_BYTES,
+            )),
         )
         .route(
             "/settings/taskmaster/inference",

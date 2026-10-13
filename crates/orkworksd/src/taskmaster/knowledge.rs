@@ -1,12 +1,12 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use ed25519_dalek::{pkcs8::DecodePublicKey, Signature, VerifyingKey};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
 mod strict_json;
 
-const MAX_ACTIVATION_BYTES: usize = 6 * 1024 * 1024;
+pub(crate) const MAX_ACTIVATION_BYTES: usize = 6 * 1024 * 1024;
 const MAX_ENVELOPE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const LOWER_SHA256: &str = "0123456789abcdef";
@@ -30,7 +30,7 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KnowledgePage {
     pub(crate) id: String,
@@ -49,14 +49,14 @@ pub(crate) struct KnowledgePage {
     pub(crate) provenance: Option<Vec<KnowledgeProvenance>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct KnowledgeProvenance {
     pub(crate) title: String,
     pub(crate) url: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KnowledgeBundle {
     pub(crate) format_version: u8,
@@ -68,7 +68,7 @@ pub(crate) struct KnowledgeBundle {
     pub(crate) pages: Vec<KnowledgePage>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct KnowledgeIdentity {
     pub(crate) bundle_sha256: String,
     pub(crate) format_version: u8,
@@ -78,7 +78,7 @@ pub(crate) struct KnowledgeIdentity {
     pub(crate) public_key_sha256: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Activation {
     activation_format_version: u8,
@@ -100,7 +100,7 @@ struct Manifest {
     bundles: Vec<ManifestEntry>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ManifestEntry {
     format_version: u64,
@@ -132,12 +132,26 @@ impl VerifiedKnowledge {
     }
 }
 
+pub(crate) fn trusted_key_sha256() -> Result<String, String> {
+    public_key_sha256(APP_PUBLIC_KEY_PEM)
+}
+
+fn public_key_sha256(pem: &str) -> Result<String, String> {
+    let (_, der) = decode_public_key_pem(pem)?;
+    Ok(sha256_hex(&der))
+}
+
+#[cfg(test)]
+pub(crate) fn test_key_sha256(pem: &str) -> Result<String, String> {
+    public_key_sha256(pem)
+}
+
 pub(crate) fn verify_activation(bytes: &[u8]) -> Result<VerifiedKnowledge, String> {
     verify_activation_impl(bytes, APP_PUBLIC_KEY_PEM)
 }
 
 #[cfg(test)]
-fn verify_activation_with_key(
+pub(super) fn verify_activation_with_key(
     bytes: &[u8],
     public_key_pem: &str,
 ) -> Result<VerifiedKnowledge, String> {
@@ -889,5 +903,52 @@ mod tests {
                 "accepted invalid timestamp {timestamp}"
             );
         }
+    }
+}
+
+// Synthetic signing material is compiled only into unit tests, never the sidecar binary.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use ed25519_dalek::{pkcs8::DecodePrivateKey, Signer, SigningKey};
+    pub(crate) const TEST_PUBLIC_KEY: &str =
+        include_str!("../../../../tests/fixtures/taskmaster-knowledge/test-public-key.pem");
+    pub(crate) fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/taskmaster-knowledge")
+                .join(name),
+        )
+        .unwrap()
+    }
+    pub(crate) fn bundle_value(name: &str) -> serde_json::Value {
+        let wire: serde_json::Value = serde_json::from_slice(&fixture(name)).unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(
+            &STANDARD
+                .decode(wire["bundleEnvelopeBase64"].as_str().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        serde_json::from_str(envelope["payload"].as_str().unwrap()).unwrap()
+    }
+    pub(crate) fn activation(bundle: serde_json::Value, alternate: bool) -> Vec<u8> {
+        let pem = if alternate {
+            include_str!(
+                "../../../../tests/fixtures/taskmaster-knowledge/test-alternate-private-key.pem"
+            )
+        } else {
+            include_str!("../../../../tests/fixtures/taskmaster-knowledge/test-private-key.pem")
+        };
+        let key = SigningKey::from_pkcs8_pem(pem).unwrap();
+        let envelope = |payload: serde_json::Value| {
+            let payload = payload.to_string();
+            serde_json::to_vec(&serde_json::json!({"signature":STANDARD.encode(key.sign(payload.as_bytes()).to_bytes()), "payload":payload})).unwrap()
+        };
+        let bundle_bytes = envelope(bundle.clone());
+        let manifest = envelope(serde_json::json!({"formatVersion":1,"bundles":[{
+            "formatVersion":bundle["formatVersion"],"privacyPolicyVersion":bundle["privacyPolicyVersion"],
+            "version":bundle["version"],"sequence":bundle["sequence"],"sha256":sha256_hex(&bundle_bytes),
+            "path":format!("bundles/{}.json",bundle["version"].as_str().unwrap())}]}));
+        serde_json::to_vec(&serde_json::json!({"activationFormatVersion":1,"bundleEnvelopeBase64":STANDARD.encode(bundle_bytes),"manifestEnvelopeBase64":STANDARD.encode(manifest)})).unwrap()
     }
 }

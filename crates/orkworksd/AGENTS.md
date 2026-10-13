@@ -13,6 +13,11 @@ cargo test --manifest-path crates/orkworksd/Cargo.toml
 cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
 ```
 
+The full Rust suite also requires Node from the repository `.nvmrc`: the signed
+knowledge route test invokes the real Electron TypeScript transport against the
+authenticated sidecar router. This test uses only Node's built-in modules and does
+not need a desktop dependency install. CI's full Rust jobs provision Node first.
+
 The desktop package can also build the sidecar with `cd apps/desktop && pnpm build:rust`.
 
 ### Formatting footgun

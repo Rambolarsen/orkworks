@@ -1,9 +1,7 @@
 use crate::http::ErrorResponse;
 use crate::providers::{native_inference::NativeProfile, ProviderOperationErrorResponse};
 use crate::taskmaster::provider_catalog::{self, TaskmasterProvider};
-use crate::taskmaster::runtime::{
-    KnowledgeBundle, TaskmasterRuntime, TaskmasterSettings, TaskmasterStatus,
-};
+use crate::taskmaster::runtime::{TaskmasterRuntime, TaskmasterSettings, TaskmasterStatus};
 use crate::AppState;
 use axum::{
     extract::State,
@@ -81,9 +79,7 @@ fn status_for(state: &AppState, runtime: &TaskmasterRuntime) -> SettingsStatus {
         }
         .into();
     }
-    if status.analysis_status == "ready"
-        && crate::taskmaster::runtime::brain_knowledge_availability().is_err()
-    {
+    if status.analysis_status == "ready" && runtime.brain_knowledge_availability().is_err() {
         status.analysis_status = "knowledge_unavailable".into();
     }
     SettingsStatus {
@@ -233,16 +229,25 @@ pub(crate) async fn set_taskmaster_settings(
     }
 }
 
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct KnowledgeTestKey(pub(crate) &'static str);
+
 pub(crate) async fn post_taskmaster_knowledge(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(bundle): Json<KnowledgeBundle>,
+    #[cfg(test)] fixture_key: Option<axum::Extension<KnowledgeTestKey>>,
+    body: axum::body::Bytes,
 ) -> Response {
     if let Err(status) = authorize_taskmaster_request(&headers) {
         return status.into_response();
     }
     let runtime = runtime_for(&state);
-    match runtime.activate_knowledge(bundle) {
+    #[cfg(test)]
+    let runtime = fixture_key.map_or(runtime, |key| {
+        TaskmasterRuntime::open_with_test_key(runtime_for(&state).root_path().into(), key.0 .0)
+    });
+    match runtime.activate_knowledge(&body) {
         Ok(()) => Json(status_for(&state, &runtime)).into_response(),
         Err(error) => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -695,3 +700,6 @@ mod tests {
         assert_eq!(runtime.status(None).remaining_evaluations, 8);
     }
 }
+
+#[cfg(test)]
+mod knowledge_route_tests;

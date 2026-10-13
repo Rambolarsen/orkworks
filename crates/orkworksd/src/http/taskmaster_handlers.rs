@@ -258,7 +258,7 @@ pub(crate) async fn analyze_taskmaster(
             Some("Configure an available Taskmaster model before requesting Brain analysis."),
         );
     };
-    if let Err(reason) = crate::taskmaster::runtime::brain_knowledge_availability() {
+    if let Err(reason) = runtime.brain_knowledge_availability() {
         // Manual admission must retry deferred stale-status recovery too. The
         // shared analysis lease prevents interrupting another live instance.
         if let Ok(Some(lease)) = runtime.try_analysis_lease() {
