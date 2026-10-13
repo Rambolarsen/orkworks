@@ -25,6 +25,20 @@ shell defaults on 2026-10-08, and ADR 0078 reconciles the authoritative shell
 contracts. This does not approve the #746 projection contract or authorize its
 runtime implementation.
 
+## Contract reconciliation: 2026-10-13
+
+This revision consumes the merged [#744 evaluation contract](2026-10-04-assignment-evaluation-design.md)
+and the accepted shell navigation, including its 2026-10-12 sidebar placement
+refinement. It clarifies consumer requirements only. The evaluation contract
+remains proposed; neither its merge nor this reconciliation establishes owner
+acceptance, adapter eligibility or a runtime API.
+
+The hierarchy keeps the accepted timeline default and Tree alternative. Its
+remaining written review concerns the projection mappings, summary revision
+semantics and interaction fixtures below. The synthetic drawings illustrate
+work paths; use the accepted shell for current header/sidebar placement and
+responsive behavior rather than copying their older shell controls.
+
 ## Scope and status
 
 Specify workflow nodes, evidence, action discovery and renderer projection
@@ -46,9 +60,9 @@ The user authorized initial specification/mockup drafting for #746 on
 scope alignment is accepted. This artifact does not finalize #743/#744 wire
 records, claim verified adapter support, approve a runtime plan, or change v1
 recommendation behavior. Those contract owners must agree to the projection
-inputs before runtime planning becomes executable. Another session owns #745;
-this task consumes opaque repository identity without defining its algorithm,
-history or learning rules.
+inputs before runtime planning becomes executable. This task consumes #745's
+opaque repository identity and optional history without defining their algorithm
+or learning rules.
 
 ### Source investigation
 
@@ -141,11 +155,51 @@ portraits and coding-tool marks do not invent a competing status system.
 
 Show one overall result, exactly **Meets requirements**, **Needs rework**, or
 **Unassessed**, when an assignment has a projected evaluation. Planned work
-uses “Unassessed · not started” in details. Current failed criteria/quality
-produce Needs rework; missing/stale/conflicting evidence cannot produce Meets
+uses “Unassessed · not started” in details. Current, uncontested required or
+quality failures produce Needs rework; missing/stale/conflicting required evidence cannot produce Meets
 requirements. Worker self-assessment remains labeled as such in details.
 The renderer consumes #744's authoritative result; it does not calculate scores,
 average reviewers, reinterpret terminal exit, or infer acceptance.
+
+### Result identity, freshness and review details
+
+A node's task key is a navigation key, not a complete evaluation subject. Bind
+accepted results to #744's complete child or root `AssignmentIdentity` plus
+`resultRevision` and `resultDigest`; bind evaluation details to its exact
+`EvaluationReference`, including reviewer identity and evaluation revision/digest.
+The sidecar resolves those references from approved records. Labels, a matching
+task tuple or a process generation alone cannot supply missing identity.
+
+Keep candidate/finalization state separate from accepted result state. A staged
+candidate reads “Result awaiting finalization”; a rejected/unsupported candidate
+has a source-labeled explanation and cannot be presented as an accepted result
+or independently reviewed success. If an earlier accepted result remains, label
+its exact revision separately from the pending/rejected candidate. When no
+result is accepted, show “Unassessed · no accepted result”, unless #744
+independently projects a known failure. Do not infer failure from rejection
+or process exit. A confirmed missing required output may establish Needs rework
+only through #744's projection.
+
+Use the server-derived current overall result and outcome-level freshness:
+
+| Source change | Required display |
+| --- | --- |
+| Required failure plus other missing/stale outcomes | Needs rework while that failure remains current and uncontested; retain unknown details |
+| Relevant declared conflict with no separate established failure | Unassessed; preserve the conflicting reviewer records without averaging |
+| Optional-only stale evidence or informational conflict | Mark that detail stale/conflicting; do not downgrade a passing required result |
+| New accepted result revision | Earlier evaluations become historical; no pass or viewed-summary state carries into the new revision |
+| Evaluation correction/invalidation or cited-source correction | Refresh authoritative affected outcomes and overall result; never rewrite immutable reports or silently substitute corrected evidence |
+
+Details show required-criterion completeness only when #744 supplies an assessed
+value, quality 0–3 or Unassessed, rubric identity/version, reviewer/source and
+safe evidence references. Missing scores are not zero. Keep worker self-assessment
+separate. Root results use explicit user review; child review needs an eligible
+independent declared reviewer or user review. Optional user assessment of reviewer
+performance belongs to the reviewer's own result and cannot change the worker's
+review eligibility or create another reviewer assignment. Neither a passing
+result nor opening its details accepts work, advances dependencies or authorizes
+integration. Do not expose report-write, correction or invalidation controls
+through this read projection; those require their separately reviewed authority.
 
 For nodes narrower than 320px, allow two task lines and move status to its own
 line; use a 260px reference minimum, vertical scrolling and no horizontal
@@ -290,13 +344,20 @@ Automatic collapse is eligible only when all of these hold:
    child/reservation remains. A reported result never ends its live session.
 4. Overview inspection and keyboard focus are outside the group. Retained
    terminal selection alone is not overview inspection.
-5. That exact result revision has not already been automatically collapsed.
+5. That exact current summary revision has not already been automatically collapsed.
 
 Defer eligible collapse while the user inspects a descendant. Collapse when
 they subsequently leave, without changing their selected session. Reopening
-suppresses another automatic collapse for that same revision, including after
-a refresh. A changed result resets viewed eligibility and suppression for that
-new revision; do not collapse immediately before it is viewed.
+suppresses another automatic collapse for that same summary revision, including
+a refresh. A changed result or material evaluation/source disposition produces
+a new summary revision and resets its viewed eligibility and suppression; do
+not collapse immediately before it is viewed. The projection owner must define
+a stable summary revision that changes when displayed overall result, required
+findings or freshness/conflict disposition changes, even if accepted result bytes
+are unchanged. Polling and optional-only detail changes do not manufacture a new
+required result action. This summary revision is presentation metadata, distinct
+from #744's `resultRevision` and purge/CAS `subjectRevision`. Do not derive it from
+arrival time or require the renderer to inspect evidence to detect corrections.
 
 Remember collapse/viewed preferences only in a bounded local UI cache: proposed
 limit 64 run entries per workspace, session-local until persistence is separately
@@ -305,7 +366,8 @@ ownership, result or replay records. New workspace/runtime adoption clears
 transient focus, animation and inspected-detail requests. Explicit Open workflow
 navigation for a restored session reveals its matching
 child even if its cached stage was collapsed. Restoring a session alone does
-not force the overview open.
+not force the overview open; restoring the last valid central surface follows
+the accepted shell navigation contract below.
 
 ## Blocked-child and required-action discoverability
 
@@ -356,8 +418,8 @@ results, readiness and approval remain server-owned and version-bound.
 ## Overview navigation, single terminal and ordinary-session fallback
 
 This is a candidate hierarchy interaction contract within #755's accepted
-shell, not a finalized app-wide navigation bar or shortcut scheme. The central area shows either one
-workflow overview or one ordinary session terminal/history. Switching surfaces
+shell, not a finalized app-wide navigation bar or shortcut scheme. The central area shows one
+Workflow, Terminal/history, Review or temporary shell page at a time. Switching surfaces
 never ends, restarts or launches the hidden session. Preserve ADR 0022's
 detachable renderer attachment and sidecar-owned PTY lifetime.
 
@@ -393,10 +455,51 @@ and visible-subject details; #746 must reconcile its projection and final
 mockups to those transitions while preserving one visible central context.
 No second terminal or transcript is mounted as overview content.
 
+### Responsive inspection, Review and restoration
+
+Follow the shell's effective logical widths: at least 1180 CSS px uses the
+optional inspector when bounded regions fit; 860–1179 px keeps Sessions when
+it fits and opens inspection as a temporary central page; below 860 px uses
+one content region with temporary Sessions/details pages. Apply the same rules
+at 200% text zoom. Preserve the exact inspected run/task/evidence and one bounded
+return descriptor through breakpoint changes; returning restores Workflow's
+valid node/focus anchor, never another session's details. Lost targets fall
+back to the surviving stage/run or heading with an explanation. Keep required
+source-labeled counts visible when Sessions/inspector are hidden. The shell
+owns sidebar/header controls and placement; #746 adds no global shortcut or
+parallel navigation scheme.
+
+“Review [task] plan — switch session” explicitly selects that task's exact
+ordinary session before opening its validated artifact in the central Review
+surface. It acknowledges only through ordinary selection and records an exact
+Workflow return. Planned or missing-session nodes have no ordinary artifact
+Review action. “Review exact proposal” instead inspects the version-bound run
+proposal without selecting a session or sending a review prompt. Back to Workflow
+from Review restores the valid recorded run/task; if unavailable, explain and
+offer the selected Terminal. Request independent review remains a separate
+explicit existing action. #780 owns ordinary Review delivery; #610/#742 own
+proposal approval, not this projection.
+
+Restore the last valid central surface only after the shell revalidates its
+workspace, exact destination and current generation. A saved Workflow reference
+can reopen that overview without selecting/acknowledging a session or restoring
+run authority. Do not invent a parent or launch/resume a child. Restore Review
+only for the controller-restored selected session and current validated artifact.
+Temporary inspection pages/choosers are not persisted central surfaces. Invalid
+saved destinations use the shell's visible fallback; keep collapse/viewed state
+session-local under its separate bounded cache. Restoring a surface alone does
+not mark a result summary viewed.
+
 Preserve controller foreground/admission/polling fencing. Each hierarchy,
 evaluation, skill and detail fetch captures workspace identity, runtime generation
 and exact subject/configuration. Apply only if all still match; older snapshots
-cannot regress newer subject/result versions. On workspace switch, clear overview
+cannot regress newer subject/result versions. Request/runtime generation fences
+in-flight delivery, not the lifetime of accepted immutable results. After sidecar
+restart or authority revocation, only a fresh authoritative snapshot may expose
+retained evaluations as current under #744's identity/evidence rules. Never replay
+an old response into a new generation, discard all historical review merely
+because its producer grant ended, or revive producer write authority.
+On workspace switch, clear overview
 inspection, navigation return state and transient UI state before painting the
 new workspace. Restore `lastActiveSessionId` only under the existing non-dead-match
 policy. Session restoration does not open a workflow, launch a parent or aggregate
@@ -471,7 +574,7 @@ bounds, retention and owner agreement remain review gates.
 | `RunProjection` | Exact run ID/creation sequence, repository identity reference, parent session ID or explicit unavailable reference, immutable goal, version-bound run/plan state, current action targets, backend live-child/reservation counts |
 | `TaskProjection` | Exact run/plan/revision/task tuple, declared batch/order/dependencies, role, label, immutable configuration digest, optional exact child ID, reservation phase, coordination outcome and current subject/result reference; optional validated source times, never synthesized chronology |
 | `SkillProjection` | Exact skill ID/version/content digest and configuration/child/generation binding, separate delivery/usage source/coverage, current evidence references, stable usage event identities or authoritative dedupe cursor |
-| `EvaluationProjection` | Current result subject/revision, overall result from #744, reviewer/source references, current/stale/conflicting status; optional detail scores with no renderer derivation |
+| `EvaluationProjection` | Complete #744 assignment identity and accepted result revision/digest, separate candidate/finalization state, authoritative overall result, outcome-level freshness/conflicts and exact evaluation/reviewer/source references; optional detail scores and stable summary revision, with no renderer derivation or mutation authority |
 | `ActionTarget` | Opaque action ID, exact subject/version, reason/type and target node; display/navigation only, no token, grant, bearer, terminal input or arbitrary endpoint |
 
 Join uses validated ownership references, never a second renderer session map.
@@ -512,8 +615,13 @@ invented as evidence. All mockup records are synthetic.
 | Label-identical tasks in new revision | New identity; no carryover of loaded badges, viewed summaries or evaluation |
 | Reported event on unconfirmed skill; duplicate event | Outline plus Reported use; highlight at most once, never fills |
 | Loaded skill with unknown usage | Filled Loaded badge; usage stays Unknown in details |
-| Old generation delivery/event/evaluation arrives | Ignore current decoration; no old receipt promoted into current evidence |
-| Invalidated/changed/conflicting evaluation | Unassessed or Needs rework as #744 projects; no current Meets requirements inferred |
+| Old generation response/event arrives | Reject the stale response; no old receipt promoted into current evidence |
+| Fresh post-restart snapshot includes retained accepted evaluation | Show only the server-validated current result; expired reporting authority neither erases history nor becomes a fresh write grant |
+| Invalidated/changed/conflicting evaluation | Use #744's affected-outcome result; no current Meets requirements inferred |
+| Staged/rejected candidate with earlier accepted result | Label finalization state separately; keep exact prior accepted revision/evaluation, never transfer it to candidate bytes |
+| Required failure plus stale outcomes / optional-only stale evidence | Needs rework for the current uncontested failure / stale detail alone does not downgrade passing required work |
+| Same result bytes, materially corrected evaluation | New summary revision is unviewed; refresh overall result/action disposition without changing the result digest or acknowledging a session |
+| Reviewer performance remains Unassessed | Original eligible worker review remains usable; no recursive reviewer or automatic required user action |
 | Completed task but alive child / unattached reservation | Show backend live capacity; prevent automatic collapse and any slot release |
 | Completed research, execution awaiting approval | Same root expanded; visible exact-plan decision; no inherited execution approval |
 | User approves the current exact plan/version through Electron main | Replace the pending decision with server-confirmed approval; planned nodes stay not-started until an exact session join arrives; UI acknowledgement alone launches nothing |
@@ -534,6 +642,10 @@ invented as evidence. All mockup records are synthetic.
 | 128 tasks/plan, 16 plans, long labels, 16 skills | Stable order, scroll/reveal access, +13 skills with all details; full accessible text |
 | Workspace switch and late detail/snapshot | New workspace never paints old node, summary, badge, action or animation |
 | Open workflow for restored active child | Reveal its exact ancestry on explicit navigation; one active terminal, no parent fallback |
+| Restore saved Workflow / invalid saved destination | Revalidate exact run, retain latent terminal and authority fences / shell fallback with explanation; no summary viewed merely by restoration |
+| Width crosses 1180/860 px or 200% zoom while inspecting | Preserve exact subject, use inspector/temporary-page rules, return to valid Workflow focus; hidden regions retain required counts |
+| Review task artifact versus exact proposal | Explicit ordinary-session selection and validated artifact / inspection only; no prompt submission by reading either |
+| Review-to-Workflow return target disappears | Explain unavailable return and offer selected Terminal; no stale run/task details or replacement selection |
 | Forget terminal-selected or overview-inspected child | Use ordinary lifecycle confirmation/selection clearing; overview focus/inspection falls back safely without launching another session |
 | Keyboard / 200% text zoom / reduced motion | Every required action and skill detail reachable; no clipped status or motion-only information |
 
@@ -612,6 +724,17 @@ contract-case matrix and review questions. Keep #746 open until the reviewed
 projection agreement and scoped execution handoff are complete. Do not close
 #610 or #740–#745 through this documentation PR.
 
+### Remaining gates after reconciliation
+
+| Gate | Current disposition / next evidence |
+| --- | --- |
+| Shell direction and placement | Accepted under ADR 0078 and #755; consume the current responsive/header/sidebar contract, with ordinary Review #780 and Actions #805 delivery tracked separately |
+| #746 written interaction/projection acceptance | Pending owner review of exact identity mappings, summary revisions and fixtures; this revision does not mark that approval complete |
+| Upstream projection agreement | #741/#742 identity and result transport, #743 evidence, #744 outcome/finalization and summary-change inputs need explicit mapping agreement before executable planning |
+| Capability eligibility | #740 profiles remain unverified/no-go; capped capability-evidence work is deferred until November per owner direction, with no probe in this task |
+| Learning/history consumption | Optional #745 references remain independently gated, including shared custody; unavailable history must not block ordinary inspection |
+| Runtime delivery and validation | Separate scoped issues/plans and approval remain required; synthetic fixtures are not native keyboard, screen-reader or usability evidence |
+
 Review questions for component owners:
 
 - #741/#742: confirm exact run/plan/task/configuration/result identity and
@@ -619,8 +742,10 @@ Review questions for component owners:
 - #743: confirm delivery/usage freshness, invalidation, stable-event dedupe,
   source/coverage and bounded skill detail inputs. Outline/fill never derives
   from a usage claim.
-- #744: confirm current overall-result projection, subject revision, failure
-  precedence and correction/conflict behavior; UI never self-calculates review.
+- #744: confirm complete assignment/result/evaluation mappings, separate candidate
+  state, outcome-level failure/conflict precedence, and the summary revision
+  change signal for corrections. Keep `subjectRevision` distinct from summary
+  viewing and result identity; UI never self-calculates review.
 - #745: supply opaque repository identity and optional history references;
   failure to read history cannot block ordinary session inspection.
 - #755/user: shell direction is accepted: branching timeline default with Tree
@@ -628,7 +753,7 @@ Review questions for component owners:
   inspector. #746 review should focus on the hierarchy projection, task identity,
   evidence, disclosure, keyboard, and narrow/zoom behavior within that shell.
 
-After written shell review, this draft's acceptance and upstream agreement,
+After this draft's written acceptance and upstream projection agreement,
 create a separate implementation issue
 and executable plan for each testable unit: (1) validated sidecar read projection
 and canonical session joins; (2) pure renderer hierarchy/order/rollup and UI-state
