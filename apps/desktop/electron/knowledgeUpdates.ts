@@ -53,9 +53,24 @@ export class KnowledgeUpdates {
     else if (this.cancellation.signal.aborted) this.cancellation = new AbortController();
   }
   private now(): number { return (this.options.now ?? Date.now)(); }
+  private retainHighestVerified(durable: VerifiedKnowledge | null): void {
+    // RAM is only a fallback after its original signed proof is independently revalidated.
+    if (this.current) {
+      try { this.current = verifyKnowledgeActivation(Buffer.from(JSON.stringify(this.current.activation)), this.options.publicKey); }
+      catch { this.current = null; }
+    }
+    if (!durable) return;
+    if (this.current && durable.identity.sequence === this.current.identity.sequence
+      && !sameKnowledgeIdentity(durable.identity, this.current.identity)) throw new Error("Knowledge sequence equivocation");
+    if (!this.current || durable.identity.sequence > this.current.identity.sequence) this.current = durable;
+  }
   async load(): Promise<VerifiedKnowledge | null> {
     if (!this.cache) return null;
-    this.current = await this.cache.load();
+    try { this.retainHighestVerified(await this.cache.load()); }
+    catch (error) {
+      this.info.lastError = error instanceof Error ? error.message.slice(0, 300) : "Knowledge cache unavailable";
+      throw error;
+    }
     if (!this.statusLoaded) {
       this.statusLoaded = true;
       try {
@@ -131,13 +146,11 @@ export class KnowledgeUpdates {
     try {
       const durable = await this.cache.load();
       if (durable) {
-        if (this.current && durable.identity.sequence === this.current.identity.sequence
-          && !sameKnowledgeIdentity(durable.identity, this.current.identity)) throw new Error("Knowledge sequence equivocation");
         if (next && durable.identity.sequence === next.sequence && (durable.identity.version !== next.version
           || durable.identity.formatVersion !== next.formatVersion || durable.identity.privacyPolicyVersion !== next.privacyPolicyVersion
           || durable.identity.bundleSha256 !== next.sha256)) throw new Error("Knowledge sequence equivocation");
-        if (!this.current || durable.identity.sequence > this.current.identity.sequence) this.current = durable;
       }
+      this.retainHighestVerified(durable);
     } catch (error) {
       if (succeeded) this.info.lastError = error instanceof Error ? error.message.slice(0, 300) : "Knowledge cache unavailable";
       succeeded = false;

@@ -169,3 +169,19 @@ test("a second process cannot commit equal-sequence different content", async t 
   assert.match((await done).error ?? "", /equivocation/i);
   assert.equal((await f.cache.load())?.bundle.version, "2");
 });
+
+test("loading rejects signed same-sequence identities across active previous and starter", async t => {
+  const f = await setup(t);
+  await mkdir(f.namespace, { recursive: true });
+  const first = f.key.proof(1).verified;
+  const conflicting = f.key.proof(1, "conflicting").verified;
+  await writeFile(join(f.namespace, "active.json"), JSON.stringify(conflicting.activation));
+  await assert.rejects(f.cache.load(), /equivocation/i);
+  await writeFile(join(f.namespace, "active.json"), JSON.stringify(first.activation));
+  assert.equal((await f.cache.load())?.identity.sequence, 1);
+  await writeFile(join(f.namespace, "previous.json"), JSON.stringify(conflicting.activation));
+  await assert.rejects(f.cache.load(), /equivocation/i);
+  // A higher record does not conceal conflicting signed history at a lower sequence.
+  await writeFile(join(f.namespace, "active.json"), JSON.stringify(f.key.proof(3).verified.activation));
+  await assert.rejects(f.cache.load(), /equivocation/i);
+});

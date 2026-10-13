@@ -265,3 +265,51 @@ for (const cutoff of ["before", "after"] as const) {
     assert.match(updates.status().lastError ?? "", /cancel/i);
   });
 }
+
+for (const loss of ["active", "all"] as const) {
+  test(`verified RAM survives ${loss} durable proof loss and an offline refresh without downgrade`, async t => {
+    const f = await setup(t);
+    let now = f.options.now();
+    let offline = false;
+    const updates = new KnowledgeUpdates({ ...f.options, now: () => now, fetcher: async url => {
+      if (offline) throw new Error("offline");
+      return f.options.fetcher(url);
+    } });
+    assert.equal((await updates.check())?.identity.sequence, 2);
+    const { KnowledgeCache } = await import("../electron/knowledgeCache.ts");
+    const cache = new KnowledgeCache(f.options);
+    await rm(join(cache.directory, "active.json"));
+    if (loss === "all") {
+      await rm(join(cache.directory, "previous.json"));
+      await rm(f.options.starterPath);
+    }
+    now += 7 * 3_600_000; offline = true;
+    const activated: number[] = [];
+    await synchronizeKnowledge(updates, async activation => {
+      activated.push(verifyKnowledgeActivation(Buffer.from(JSON.stringify(activation)), f.key.publicKey).identity.sequence);
+    }, () => true);
+    assert.deepEqual(activated, [2]);
+    assert.equal(updates.status().version, "2");
+    assert.match(updates.status().lastError ?? "", /offline/);
+  });
+}
+test("RAM fallback rederives identity from signed proof and rejects invalid proof", async t => {
+  const f = await setup(t);
+  const updates = new KnowledgeUpdates(f.options);
+  const mutable = updates as unknown as { current: typeof f.starter | null };
+  const higher = f.key.proof(2).verified;
+  mutable.current = { ...higher, identity: { ...higher.identity, sequence: 999 } };
+  await rm(f.options.starterPath);
+  assert.equal((await updates.load())?.identity.sequence, 2);
+  mutable.current = { ...f.starter, activation: { ...f.starter.activation, bundleEnvelopeBase64: Buffer.from("unsigned").toString("base64") } };
+  assert.equal(await updates.load(), null);
+});
+test("disabled synchronization rejects equal-sequence RAM and durable conflicts before activation", async t => {
+  const f = await setup(t);
+  const updates = new KnowledgeUpdates(f.options);
+  await updates.load(); updates.setEnabled(false);
+  await writeFile(f.options.starterPath, JSON.stringify(f.key.proof(1, "conflicting").verified.activation));
+  let activated = false;
+  await assert.rejects(synchronizeKnowledge(updates, async () => { activated = true; }, () => true), /equivocation/i);
+  assert.equal(activated, false);
+});

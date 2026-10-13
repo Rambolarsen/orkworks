@@ -466,6 +466,7 @@ fn session_metadata_serializes_connectivity_terminal_outcome_and_last_activity()
 #[cfg(test)]
 pub(crate) mod test_support {
     pub(crate) mod native_inference;
+    pub(crate) mod open_plan_token;
     use super::*;
 
     /// A minimal `improve_workflow` recommendation whose evidence cites the

@@ -132,7 +132,7 @@ mod tests {
     #[tokio::test]
     async fn inference_trust_routes_cover_approval_conflict_unavailable_revocation_and_corruption()
     {
-        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "taskmaster-test-token");
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let mut raw = json!({"id":"custom-infer","name":"Custom","launch":{"kind":"platform-shell","login":false},"inference":{"kind":"command","command":std::env::current_exe().unwrap(),"args":["{model}"],"input":"stdin","output":"result-json-v1"}});
@@ -216,7 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn inference_trust_routes_reject_session_authority_and_malformed_privileged_requests() {
-        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "taskmaster-test-token");
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let mut session = HeaderMap::new();

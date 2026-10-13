@@ -51,7 +51,7 @@ export async function writeKnowledgeFile(path: string, content: string, signal?:
     if (process.platform === "win32" && exists) {
       execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
         "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_KNOWLEDGE_TEMPORARY, $env:ORKWORKS_KNOWLEDGE_TARGET, $null, $true)"],
-      { env: { ...process.env, ORKWORKS_KNOWLEDGE_TEMPORARY: temporary, ORKWORKS_KNOWLEDGE_TARGET: path }, stdio: "ignore", timeout: 5_000 });
+      { env: { ...process.env, ORKWORKS_KNOWLEDGE_TEMPORARY: temporary, ORKWORKS_KNOWLEDGE_TARGET: path }, stdio: "ignore", windowsHide: true, timeout: 5_000 });
     } else await rename(temporary, path);
   } finally { await rm(temporary, { force: true }); }
 }
@@ -71,8 +71,13 @@ export class KnowledgeCache {
     const records = await Promise.all([this.read(join(this.directory, "active.json")),
       this.read(join(this.directory, "previous.json")), this.read(this.options.starterPath)]);
     let selected: VerifiedKnowledge | null = null;
+    const identities = new Map<number, KnowledgeIdentity>();
     for (const candidate of records) {
-      if (candidate && (!selected || candidate.identity.sequence > selected.identity.sequence)) selected = candidate;
+      if (!candidate) continue;
+      const prior = identities.get(candidate.identity.sequence);
+      if (prior && !sameKnowledgeIdentity(prior, candidate.identity)) throw new Error("Knowledge sequence equivocation");
+      identities.set(candidate.identity.sequence, candidate.identity);
+      if (!selected || candidate.identity.sequence > selected.identity.sequence) selected = candidate;
     }
     return selected;
   }

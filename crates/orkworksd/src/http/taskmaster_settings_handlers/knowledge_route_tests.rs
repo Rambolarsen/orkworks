@@ -3,8 +3,24 @@ use super::*;
 use crate::taskmaster::knowledge::test_support::{fixture, TEST_PUBLIC_KEY};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-async fn server(state: Arc<AppState>, fixture_key: bool) -> (String, tokio::task::JoinHandle<()>) {
-    std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "taskmaster-test-token");
+struct TestServer(Option<tokio::task::JoinHandle<()>>);
+impl TestServer {
+    async fn shutdown(mut self) {
+        let task = self.0.take().unwrap();
+        task.abort();
+        let _ = task.await;
+    }
+}
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        if let Some(task) = &self.0 {
+            task.abort();
+        }
+    }
+}
+
+async fn server(state: Arc<AppState>, fixture_key: bool) -> (String, TestServer) {
+    let token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let mut router = crate::build_router(state);
@@ -12,9 +28,11 @@ async fn server(state: Arc<AppState>, fixture_key: bool) -> (String, tokio::task
         router = router.layer(axum::Extension(KnowledgeTestKey(TEST_PUBLIC_KEY)));
     }
     let task = tokio::spawn(async move {
+        // Keep environment ownership until the serving future has actually stopped.
+        let _token = token;
         axum::serve(listener, router).await.unwrap();
     });
-    (url, task)
+    (url, TestServer(Some(task)))
 }
 
 fn maximum_activation() -> Vec<u8> {
@@ -63,7 +81,7 @@ async fn real_electron_client_maximum_activation_persists_through_authenticated_
         Some("maximum-envelope")
     );
     assert!(restarted.brain_knowledge_availability().is_ok());
-    server.abort();
+    server.shutdown().await;
 }
 
 #[tokio::test]
@@ -152,7 +170,7 @@ async fn authenticated_raw_route_has_inclusive_limit_and_preserves_current_proof
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(std::fs::read(&path).unwrap(), prior);
-    server.abort();
+    server.shutdown().await;
 }
 
 #[tokio::test]
@@ -171,7 +189,7 @@ async fn production_authenticated_route_cannot_select_a_fixture_key() {
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert!(!root.join("evaluations.json").exists());
     assert!(!root.join("knowledge").exists());
-    server.abort();
+    server.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -267,6 +285,32 @@ async fn real_electron_synchronization_recovers_from_older_cache_but_refuses_equ
                 "sidecar-2"
             })
         );
-        server.abort();
+        server.shutdown().await;
     }
+}
+
+#[tokio::test]
+async fn authenticated_server_keeps_its_token_until_shutdown_while_another_test_waits() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::test_support::test_app_state_with_workspace(directory.path());
+    let (url, server) = server(state, true).await;
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let contender = tokio::spawn(async move {
+        started_tx.send(()).unwrap();
+        let _token = crate::test_support::open_plan_token::set("test-token").await;
+        let _ = release_rx.await;
+    });
+    // This single-thread runtime polls the contender through token acquisition before waking us.
+    started_rx.await.unwrap();
+    let response = reqwest::Client::new()
+        .get(format!("{url}/taskmaster/run-status"))
+        .header("x-orkworks-open-plan-token", "taskmaster-test-token")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    server.shutdown().await;
+    release_tx.send(()).unwrap();
+    contender.await.unwrap();
 }

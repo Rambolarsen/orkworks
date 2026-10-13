@@ -86,7 +86,11 @@ check, and does not replace the manual `/code-review` gate.
 
 PR CI is path-routed: desktop changes run desktop validation, Rust changes run
 a blocking `cargo fmt --check` gate, Rust tests, and the OpenCode reporter Node
-tests; non-code pull requests receive a lightweight passing no-op code check.
+tests. Changes to Electron knowledge proof/cache/updater/transport modules and
+their tests, shared knowledge fixtures, desktop dependency/install inputs, the
+Node pin, or the PR workflow also run the Rust job because its authenticated
+route tests execute the real Electron client. Other non-code pull requests
+receive a lightweight passing no-op code check.
 The full Linux Rust jobs in `pr-ci.yml` and `main-ci.yml` also install frozen
 desktop dependencies with pnpm for the real Electron knowledge synchronization,
 cache and authenticated-route tests. These jobs use `.nvmrc` host Node and do not

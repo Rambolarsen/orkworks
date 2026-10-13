@@ -324,6 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn settings_reject_an_invalid_daily_limit_before_persistence() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         let directory = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(directory.path());
         let mut settings = TaskmasterSettings::default();
@@ -345,7 +346,6 @@ mod tests {
     }
 
     fn authorized_headers() -> HeaderMap {
-        std::env::set_var("ORKWORKS_OPEN_PLAN_TOKEN", "taskmaster-test-token");
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-orkworks-open-plan-token",
@@ -356,6 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn analyze_reports_the_privacy_prerequisite_even_with_background_disabled() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         let directory = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(directory.path());
         let runtime = runtime_for(&state);
@@ -396,6 +397,7 @@ mod tests {
 
     #[tokio::test]
     async fn unavailable_manual_analysis_retries_deferred_run_recovery() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         use crate::taskmaster::runtime::{TaskmasterRunOutcomeState, TaskmasterRunTrigger};
         use std::sync::atomic::{AtomicUsize, Ordering};
         for running in [false, true] {
@@ -476,6 +478,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_status_is_authenticated_and_reports_no_workspace_or_corrupt_ledger_unavailable() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         let _ = authorized_headers();
         let directory = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(directory.path());
@@ -518,6 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn model_refresh_rejects_unauthorized_and_non_builtin_providers() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         let _ = authorized_headers();
         let directory = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(directory.path());
@@ -556,6 +560,7 @@ mod tests {
 
     #[tokio::test]
     async fn model_validation_uses_resolved_transport_not_provider_id() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         for provider in ["codex", "claude-code"] {
             let directory = tempfile::tempdir().unwrap();
             let state = test_app_state_with_workspace(directory.path());
@@ -607,6 +612,7 @@ mod tests {
 
     #[tokio::test]
     async fn settings_reject_undeclared_custom_effort_before_persisting() {
+        let _token = crate::test_support::open_plan_token::set("taskmaster-test-token").await;
         let directory = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(directory.path());
         state.harness_store.mutate(&state.harness_catalog, |document| {
