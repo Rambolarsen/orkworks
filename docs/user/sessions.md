@@ -98,7 +98,8 @@ Review document or its navigation controls.
 
 Use **Refresh plan** to read the current document again. If it has moved or is
 unreadable, Review clears the old content and offers Retry, including when the
-first read fails. Opening, refreshing,
+first read fails. If a saved Review cannot be revalidated when opening a
+workspace, OrkWorks stays on Terminal and explains why. Opening, refreshing,
 closing or restoring Review sends no prompt. For a live session, the separate
 **Request independent review** button explicitly asks its coding tool to review
 the plan, delegating when supported.

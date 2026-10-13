@@ -60,6 +60,7 @@ function App() {
   const restorationInProgress = useRef(false);
   const reviewLoadIntent = useRef(0);
   const navigationRebuildPending = useRef(false);
+  const navigationReadSequence = useRef(0);
   const requestShellCommand = useCallback((command: ShellCommand, reveal = false) => {
     ++navigationIntent.current;
     setShellCommandRequest(previous => ({ command, sequence: (previous?.sequence ?? 0) + 1, reveal }));
@@ -313,6 +314,7 @@ function App() {
   const rebuildNavigation = async () => {
     if (navigationRebuildPending.current) return;
     navigationRebuildPending.current = true;
+    ++navigationReadSequence.current;
     const generation = workspaceLifecycleRef.current.generation;
     setNavigationRebuilding(true);
     try {
@@ -324,7 +326,10 @@ function App() {
       if (workspaceLifecycleRef.current.generation === generation) setNavigationDiagnostic("restore_failed");
     } finally {
       navigationRebuildPending.current = false;
-      if (workspaceLifecycleRef.current.generation === generation) setNavigationRebuilding(false);
+      if (workspaceLifecycleRef.current.generation === generation) {
+        ++navigationReadSequence.current;
+        setNavigationRebuilding(false);
+      }
     }
   };
 
@@ -340,7 +345,14 @@ function App() {
         artifactId: document.artifactId, generation: document.generation });
       if (persist) void saveNavigation("review");
       return true;
-    }, (_sessionId, generation, persist) => acceptReviewResult(generation, persist));
+    }, (_sessionId, generation, persist, restoring) => {
+      if (!acceptReviewResult(generation, persist)) return false;
+      if (restoring) {
+        dispatchShellNavigation({ type: "preferences-restored", surface: "review", artifactId: null, generation });
+        return false;
+      }
+      return true;
+    });
   const openReview = useCallback(() => {
     reviewLoadIntent.current = ++navigationIntent.current;
     void review.load();
@@ -366,22 +378,24 @@ function App() {
   const restoredNavigationGeneration = useRef<number | null>(null);
   useEffect(() => {
     const generation = shellNavigation.workspaceGeneration;
-    if (backendStatus !== "connected" || !workspace || !activeSession || restoredNavigationGeneration.current === generation) return;
-    restoredNavigationGeneration.current = generation;
-    if (navigationIntent.current !== restorationIntent.current) return;
+    if (backendStatus !== "connected" || !workspace || restoredNavigationGeneration.current === generation) return;
+    // Diagnostics belong to the ready workspace even before a session is restored.
+    if (activeSession) restoredNavigationGeneration.current = generation;
     const intent = navigationIntent.current;
-    const sessionId = activeSession.id;
+    const sessionId = activeSession?.id ?? null;
+    const readSequence = ++navigationReadSequence.current;
     void window.orkworks.getWorkspaceNavigation().then(saved => {
-      if (workspaceLifecycleRef.current.generation !== generation || navigationIntent.current !== intent
-        || shellNavigationRef.current.activeSessionId !== sessionId) return;
+      if (workspaceLifecycleRef.current.generation !== generation || navigationReadSequence.current !== readSequence) return;
       setNavigationDiagnostic(saved.diagnostic);
-      if (saved.diagnostic) return;
+      if (saved.diagnostic || !activeSession || intent !== restorationIntent.current
+        || navigationIntent.current !== intent || shellNavigationRef.current.activeSessionId !== sessionId) return;
       if (saved.lastCentralSurface === "review") {
-        if (activeSession.hasOpenablePlan) { reviewLoadIntent.current = intent; void review.load(false); }
+        if (activeSession.hasOpenablePlan) { reviewLoadIntent.current = intent; void review.load(false, true); }
         else dispatchShellNavigation({ type: "preferences-restored", surface: "review", artifactId: null, generation });
       }
     }).catch(() => {
-      if (workspaceLifecycleRef.current.generation === generation) setNavigationDiagnostic("restore_failed");
+      if (workspaceLifecycleRef.current.generation === generation && navigationReadSequence.current === readSequence)
+        setNavigationDiagnostic("restore_failed");
     });
   }, [backendStatus, workspace, activeSession, shellNavigation.workspaceGeneration, review.load]);
 

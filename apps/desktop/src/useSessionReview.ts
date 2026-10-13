@@ -11,7 +11,7 @@ export interface ReviewDocument {
 // bytes and their digest in renderer memory; navigation memory stores no document.
 export function useSessionReview(sessionId: string | null, generation: number, enabled: boolean,
   onLoaded: (document: ReviewDocument, persist: boolean) => boolean,
-  onUnavailable: (sessionId: string, generation: number, persist: boolean) => boolean) {
+  onUnavailable: (sessionId: string, generation: number, persist: boolean, restoring: boolean) => boolean) {
   const [document, setDocument] = useState<ReviewDocument | null>(null);
   const [loading, setLoading] = useState(false);
   const [changed, setChanged] = useState(false);
@@ -36,7 +36,7 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     setError(false);
   }, []);
   useEffect(() => { close(); return () => { ++request.current; }; }, [sessionId, generation, enabled, close]);
-  const load = useCallback(async (persist = true) => {
+  const load = useCallback(async (persist = true, restoring = false) => {
     if (!sessionId || !enabled) return;
     const token = ++request.current;
     setLoading(true);
@@ -54,7 +54,7 @@ export function useSessionReview(sessionId: string | null, generation: number, e
       setDocument(next);
       setError(false);
     } catch {
-      if (request.current === token && onUnavailableRef.current(sessionId, generation, persist)) setError(true);
+      if (request.current === token && onUnavailableRef.current(sessionId, generation, persist, restoring)) setError(true);
     } finally {
       if (request.current === token) setLoading(false);
     }

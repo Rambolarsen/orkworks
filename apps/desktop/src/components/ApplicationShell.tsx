@@ -159,7 +159,8 @@ export default function ApplicationShell(props: Props) {
       setSessionsPage(false);
       props.onCancelNewSession?.();
       props.onInspect(null);
-      props.onOpenReview();
+      if (reviewing) requestFocus("page");
+      else props.onOpenReview();
     } else if (command === "new-session") {
       if (!creationReturn.current) {
         creationReturn.current = { inspector: props.inspector, sessionsPage };
@@ -253,6 +254,11 @@ export default function ApplicationShell(props: Props) {
   useLayoutEffect(() => {
     if (reviewing) rootRef.current?.querySelector<HTMLElement>("[data-shell-review-heading]")?.focus({ preventScroll: true });
   }, [reviewing]);
+  useLayoutEffect(() => {
+    // Retry removes its focused button; recover focus without stealing it from an inspector.
+    if (reviewing && !props.reviewError && document.activeElement === document.body)
+      rootRef.current?.querySelector<HTMLElement>("[data-shell-review-heading]")?.focus({ preventScroll: true });
+  }, [reviewing, props.reviewError]);
 
   useEffect(() => {
     // Hidden terminal presentation has no CenterPanel effect to observe backend loss.

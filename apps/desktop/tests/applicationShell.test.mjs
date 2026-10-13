@@ -26,7 +26,73 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-review-composer-return') {
+      if (scenario === 'app-review-pending-navigation-recovery') {
+        for (const outcome of ['resolve','reject']) {
+          if (outcome==='reject') await fresh();
+          await waitFor('!!fixture.releaseSessions && document.querySelector("[data-rebuild-navigation]")');
+          await evaluate('fixture.cancelNavigationRebuild=false;fixture.deferNavigationRebuild=true;document.querySelector("[data-rebuild-navigation]").click()');
+          await waitFor('!!fixture.finishNavigationRebuild');
+          await evaluate('fixture.releaseSessions()');
+          await waitFor('document.querySelector("[role=option]")');
+          await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('created')).click()`);
+          await waitFor('!!fixture.resolveNewNavigation');
+          await evaluate('fixture.finishNavigationRebuild()');
+          await waitFor('!document.querySelector("[data-rebuild-navigation]")');
+          await evaluate(outcome==='resolve' ? 'fixture.resolveNewNavigation({lastCentralSurface:"terminal",revision:0,diagnostic:"corrupt_record"})' : 'fixture.rejectNewNavigation(new Error("Read during rebuild failed"))');
+          await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+          assert.equal(await evaluate('document.body.innerText.includes("Saved navigation could not be read") || document.body.innerText.includes("Navigation could not be saved or restored")'),false,'reads begun during rebuild cannot undo completion');
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
+        }
+        return;
+      } else if (scenario === 'app-review-delayed-navigation-recovery') {
+        for (const outcome of ['resolve','reject']) {
+          if (outcome==='reject') await fresh();
+          await waitFor('!!fixture.resolveOldNavigation && !!fixture.releaseSessions');
+          await evaluate('fixture.releaseSessions()');
+          await waitFor('document.querySelector("[role=option]")');
+          await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('created')).click()`);
+          await waitFor('document.querySelector("[data-rebuild-navigation]")');
+          await evaluate('fixture.navigationBeforeRecovery=fixture.navigation.length');
+          await evaluate('fixture.cancelNavigationRebuild=false;document.querySelector("[data-rebuild-navigation]").click()');
+          await waitFor('fixture.navigationRebuilds===1&&!document.querySelector("[data-rebuild-navigation]")');
+          await evaluate(outcome==='resolve' ? 'fixture.resolveOldNavigation({lastCentralSurface:"terminal",revision:0,diagnostic:"corrupt_record"})' : 'fixture.rejectOldNavigation(new Error("Old read failure"))');
+          await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+          assert.equal(await evaluate('document.body.innerText.includes("Saved navigation could not be read") || document.body.innerText.includes("Navigation could not be saved or restored")'),false,'old diagnostic cannot undo confirmed rebuild');
+          assert.equal(await evaluate('fixture.navigation.length'),await evaluate('fixture.navigationBeforeRecovery'));
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
+        }
+        return;
+      } else if (scenario === 'app-review-stale-read-restore') {
+        await waitFor('!!fixture.rejectRead');
+        await evaluate('fixture.menu({action:"focus",panelId:"detail"})');
+        await waitFor('document.querySelector("[data-shell-region=inspector]") && document.activeElement?.matches("[data-shell-page-heading]")');
+        await evaluate('fixture.rejectRead(new Error("Superseded restore failure"))');
+        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true);
+        assert.equal(await evaluate('document.activeElement?.matches("[data-shell-page-heading]")'),true);
+        assert.equal(await evaluate('document.body.innerText.includes("Review could not be restored") || document.body.innerText.includes("no longer available")'),false);
+        assert.deepEqual(await evaluate('fixture.navigation'),[]);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-unreadable-restore') {
+        await waitFor('document.body.innerText.includes("Review could not be restored")');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
+        assert.deepEqual(await evaluate('fixture.reads'),['created']);
+        assert.deepEqual(await evaluate('fixture.navigation'),[]);
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-empty-navigation-recovery') {
+        await waitFor('document.querySelector("[data-rebuild-navigation]")');
+        assert.equal(await evaluate('fixture.reads.length'),0);
+        await evaluate('fixture.cancelNavigationRebuild=false;document.querySelector("[data-rebuild-navigation]").click()');
+        await waitFor('fixture.navigationRebuilds===1&&!document.querySelector("[data-rebuild-navigation]")');
+        assert.deepEqual(await evaluate('fixture.navigation'),[]);
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-composer-return') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await click('review');
         await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Current plan")');
@@ -54,9 +120,10 @@ if (process.versions.electron) {
         await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("no longer available")');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal]")'),false);
         assert.deepEqual(await evaluate('fixture.navigation'),[],'failed reads cannot persist a validated Review destination');
-        await evaluate(`fixture.unreadable=false;Array.from(document.querySelectorAll('[data-shell-region=review] button')).find(button=>button.textContent==='Retry').click()`);
+        await evaluate(`fixture.unreadable=false;const retry=Array.from(document.querySelectorAll('[data-shell-region=review] button')).find(button=>button.textContent==='Retry');retry.focus();retry.click()`);
         await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Current plan")');
         assert.deepEqual(await evaluate('fixture.navigation'),[],'Retry remains read-only');
+        await waitFor('document.activeElement?.matches("[data-shell-review-heading]")');
         await evaluate('document.querySelector("[data-review-return]").click()');
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
         assert.equal(await evaluate('document.body.innerText.includes("no longer available")'),false);
@@ -174,6 +241,12 @@ if (process.versions.electron) {
         await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Current plan")');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal]")'),false);
         await waitFor('document.activeElement?.matches("[data-shell-review-heading]")');
+        await evaluate('fixture.readsBeforeReselect=fixture.reads.length;fixture.navigationBeforeReselect=fixture.navigation.length');
+        await click('review');
+        await evaluate('fixture.menu({action:"focus",panelId:"review"})');
+        await waitFor('document.activeElement?.matches("[data-shell-review-heading]")');
+        assert.equal(await evaluate('fixture.reads.length'),await evaluate('fixture.readsBeforeReselect'),'reselecting Review focuses without rereading');
+        assert.equal(await evaluate('fixture.navigation.length'),await evaluate('fixture.navigationBeforeReselect'),'reselecting Review cannot change recency');
         for (const width of [1000,640,360,1280]) {
           await resizeReview(width);
           await waitFor('innerWidth==='+width);
@@ -236,7 +309,7 @@ if (process.versions.electron) {
         await evaluate('fixture.finishPrompt();fixture.unreadable=true;document.querySelector("[data-review-refresh]").click()');
         await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("no longer available")');
         assert.equal(await evaluate('!!document.querySelector(".review-plan-content")'),false,'unreadable refresh removes stale content');
-        await evaluate(`fixture.unreadable=false;Array.from(document.querySelectorAll('[data-shell-region=review] button')).find(button=>button.textContent==='Retry').click()`);
+        await evaluate(`fixture.unreadable=false;const retry=Array.from(document.querySelectorAll('[data-shell-region=review] button')).find(button=>button.textContent==='Retry');retry.focus();retry.click()`);
         await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Revised plan")');
         assert.equal(await evaluate('fixture.prompts'),1,'Retry reads content without submitting another prompt');
         await evaluate('fixture.unreadable=false;document.querySelector("[data-review-return]").click()');
@@ -737,7 +810,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -780,10 +853,13 @@ if (process.versions.electron) {
             rebuildShellLayout:async()=>{fixture.rebuildCalls++;if(fixture.cancelRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.snapshot.diagnostic=null;return {ok:true}}
           });
           if ((${JSON.stringify(scenario)}.startsWith('app-'))) {
-            fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${JSON.stringify(scenario)}==='app-review-navigation-recovery'?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];
+            fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${JSON.stringify(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];fixture.navigationReads=0;
             fixture.plan='# Current plan';fixture.savedSurface=${JSON.stringify(scenario)}.includes('restore')||${JSON.stringify(scenario)}==='app-review-opening-navigation'?'review':'terminal';
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true});
             fixture.sessionList=${JSON.stringify(scenario)}.startsWith('app-review')?[reviewSession('created'),reviewSession('other')]:[];
+            if(${JSON.stringify(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
+            if(${JSON.stringify(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
+            if(${JSON.stringify(scenario)}==='app-review-unreadable-restore')fixture.unreadable=true;
             if(${JSON.stringify(scenario)}==='app-review-missing-restore')fixture.sessionList[0].hasOpenablePlan=false;
             if(${JSON.stringify(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             fixture.runtime=()=>getTerminal('created');
@@ -792,9 +868,9 @@ if (process.versions.electron) {
               onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
               getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
               getSettings:async()=>({debug:{showSessionIds:false,rendererHealthLogMs:0}}),
-              getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${JSON.stringify(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
+              getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${JSON.stringify(scenario)}==='app-review-pending-navigation-recovery'&&fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveNewNavigation=resolve;fixture.rejectNewNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-delayed-navigation-recovery'&&!fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveOldNavigation=resolve;fixture.rejectOldNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
               completeWorkspaceNavigation:async surface=>{fixture.navigation.push(surface);return {ok:true}},
-              rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
+              rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.deferNavigationRebuild)await new Promise(resolve=>fixture.finishNavigationRebuild=resolve);if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
               getPlanContent:async id=>{fixture.reads.push(id);if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');return id==='other'?'# Other session plan':fixture.plan},
               requestPlanReview:async id=>{fixture.prompts++;fixture.promptSession=id;await new Promise(resolve=>fixture.finishPrompt=resolve)},
             });
@@ -809,7 +885,7 @@ if (process.versions.electron) {
               }
               if(path.endsWith('/summary-log'))return response({entries:[]});
               if(path==='/sessions/other/terminal-output')return response({lines:['saved output'],cols:80,rows:24});
-              if(path==='/sessions')return response(fixture.sessionList);
+              if(path==='/sessions'){if(['app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${JSON.stringify(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
               if(path==='/providers')return response({providers:[],appliedRevision:null});
               if(path==='/workspace/active-session'){fixture.activeWrites++;return response({})}
