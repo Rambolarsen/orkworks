@@ -18,6 +18,14 @@ process: other sessions keep running while the backend remains alive. Recent
 terminal history is replayed when you return. Closing the application is
 different; live processes do not survive a backend restart.
 
+## Resume an ended session
+
+In current source builds, select an ended session and use **Resume session**
+beside its title above the terminal. The button appears while connected when
+the coding tool has an available resume option; you do not need to open Details.
+Resume support varies by coding tool. Published installers may still place
+resume actions inside Details.
+
 ## Saved shell layout
 
 Current source builds use a fixed arrangement of Sessions, Terminal and an

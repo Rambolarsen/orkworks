@@ -714,8 +714,10 @@ View menu, sidebar navigation and context header route through the same shell co
 The fixed sidebar places workspace switch, New session, Recommendations and
 Capacity above independently scrolling session history, with Settings and
 connection status anchored below. A compact header above the central content
-shows the selected session and Details; when the sidebar is hidden, its Workspace
-menu keeps the sidebar controls reachable. The titlebar retains the product name
+shows the selected session, Details, and a prominent Resume session action for
+an ended session with an available resume option while connected. The action uses
+the existing selected-session resume callback. When the sidebar is hidden, its
+Workspace menu keeps the sidebar controls reachable. The titlebar retains the product name
 and native window dragging/controls; active-workspace history warnings remain
 visible there even when the sidebar is hidden. The no-workspace picker displays
 connection progress and recovery diagnostics above the shell. At short logical

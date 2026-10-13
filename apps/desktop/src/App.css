@@ -2466,6 +2466,8 @@ html, body, #root {
 .shell-toolbar button, .shell-region-header button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { display: inline-flex; align-items: center; gap: var(--space-2); padding: 7px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
 .shell-toolbar button:hover, .shell-region-header button:hover, .shell-sidebar-navigation button:hover, .shell-sidebar-footer button:hover, .shell-navigation-menu summary:hover { background: var(--surface-3); color: var(--text-primary); }
 .shell-toolbar button[aria-expanded="true"], .shell-sidebar-navigation button[aria-expanded="true"] { background: var(--surface-3); color: var(--text-primary); }
+.shell-toolbar .shell-resume-button { flex-shrink: 0; background: var(--accent-bg); color: var(--text-on-accent); font-weight: var(--weight-medium); }
+.shell-toolbar .shell-resume-button:hover { background: var(--accent-bg-hover); color: var(--text-on-accent); }
 .shell-context { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .shell-context h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
 .shell-context-scope { font-size: var(--text-xs); color: var(--text-muted); }

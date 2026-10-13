@@ -48,7 +48,28 @@ if (process.versions.electron) {
         return;
       } else if (scenario !== 'baseline') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        if (scenario === 'sidebar-controls') {
+        if (scenario === 'resume-session') {
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
+          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact"})');
+          await waitFor('document.querySelector("[data-shell-resume]")');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),false,'resume is exposed without Details');
+          assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'),/Resume session/);
+          await evaluate('document.querySelector("[data-shell-resume]").click()');
+          assert.deepEqual(await evaluate('fixture.resumed'),['coding']);
+          await win.setContentSize(360,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          assert.ok(await evaluate('(()=>{const b=document.querySelector("[data-shell-resume]");const r=b.getBoundingClientRect();return r.width>0&&r.x>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'),'resume remains visible at compact widths');
+          await evaluate('fixture.select("other")');
+          await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
+          await evaluate('document.querySelector("[data-shell-resume]").click()');
+          assert.deepEqual(await evaluate('fixture.resumed'),['coding','other'],'resume follows selected identity');
+          await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"unsupported",resumeStrategy:"none",resumeOptions:[{strategy:"exact",available:false,label:"Exact",reason:"Missing ID"}]})');
+          await waitFor('!document.querySelector("[data-shell-resume]")');
+          await evaluate('fixture.setEmpty(true)');
+          await waitFor('document.querySelector(".shell-context h1").textContent==="Terminal"');
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false);
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
+        } else if (scenario === 'sidebar-controls') {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions] [data-shell-command=capacity]")'),true,'workspace navigation belongs to the sidebar');
           const anchors = await evaluate(`(()=>{
             const sidebar=document.querySelector('[data-shell-region=sessions]');
@@ -384,7 +405,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['resume-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -427,6 +448,7 @@ if (process.versions.electron) {
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
+            const [sessionState,setSessionState]=useState({});fixture.setSessionState=setSessionState;fixture.resumed??=[];
             const [inspector,setInspector]=useState(null);
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
             const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>setGeneration(n=>n+1);
@@ -438,12 +460,12 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
-            return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
+            return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>fixture.sessionsCreated++} activeSessionId={activeSessionId} workspaceGeneration={generation}
               backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
-              onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+              onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
           createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },

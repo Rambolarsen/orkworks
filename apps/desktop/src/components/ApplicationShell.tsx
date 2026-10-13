@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, Gauge, Lightbulb, Settings } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings } from "lucide-react";
 import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
 import type { ShellPreferences } from "../orkworksWindow";
+import { resumeChoices } from "../labels";
 import { computeShellLayout } from "../fixedShellLayout";
 import SessionListPanel from "./SessionListPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
@@ -82,6 +83,9 @@ export default function ApplicationShell(props: Props) {
   const showSessions = showSessionsPage || layout.sessionsVisible;
   const showInspector = !showSessionsPage && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
+  const canResume = session?.lifecycle === "dead"
+    && props.backendStatus === "connected" && !props.isSwitchingWorkspace
+    && resumeChoices(session).some(option => !option.unavailable);
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -283,6 +287,8 @@ export default function ApplicationShell(props: Props) {
             <div className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
           </details>}
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{session?.label || "Terminal"}</h1><span className="shell-context-scope">{session?.harness || "No session selected"}</span></div>
+          {canResume && <button type="button" className="shell-resume-button" data-shell-resume
+            onClick={() => props.onResumeSession(session!.id)}><Play size={15} aria-hidden="true" />Resume session</button>}
           {!showTerminal && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
         </nav>
