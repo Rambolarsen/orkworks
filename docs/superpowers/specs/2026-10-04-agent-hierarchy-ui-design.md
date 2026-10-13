@@ -389,7 +389,7 @@ Keep these signals separate:
   sessions keep final-outcome text and dimming, without live unread/loud styling.
 - Run/task blockers and required UI decisions from exact #610/#742 identities;
   a remembered child can still have an unresolved result or plan decision.
-- Unviewed result summaries from exact result revisions, independent of ordinary
+- Unviewed result summaries from exact result and summary revisions, independent of ordinary
   unread state. Viewing a summary never acknowledges other sessions.
 
 Collapsed roots/stages retain textual counts, blocker reason and a named “Show next
@@ -628,7 +628,7 @@ invented as evidence. All mockup records are synthetic.
 | User denies/declines the current proposal | Reflect the server-confirmed denied/disposition state; no worktrees/children created by navigation; preserve already-owned children and ordinary management; declining execution does not imply research-only finish without #742's separate finish action |
 | Approval denied for drift or an old action version | Keep decision unresolved, show the backend reason and refreshed exact proposal; no success decoration, transferred grant or silent retry |
 | All current summaries opened, user inside group | Defer collapse; selected terminal/focus preserved |
-| Eligible collapse, reopen, repeat refresh | Collapse once; reopening suppression retained for the same exact result revision |
+| Eligible collapse, reopen, repeat refresh | Collapse once; reopening suppression retained for the same exact summary revision |
 | Manual collapse with inspected/focused descendant | Keep group fully expanded; explain inspection and Left-to-stage paths; no queued request or terminal switch; latent terminal selection alone does not block disclosure |
 | Hidden child gains Needs You | Run/stage counts change without selection/focus theft; Show next action inspects the exact child without unread acknowledgement |
 | Dead child has terminal error plus unresolved review | Dim ordinary remembered row; distinct actionable run decision, no live unread |
@@ -706,7 +706,7 @@ session management; no replacement parent is inferred.
 | Inspect planned verification while a session runs | Inspect overview task details; selected PTY continues hidden, with no launch/resume action |
 | Open an agent terminal and return | Explicit Open terminal; Back to workflow restores the node, scroll/focus and correct overview details |
 | Find full assignment and all 16 skills | Inspect details/+13 skills without hover or lost action/status |
-| Reopen completed work and find a revised result | Same-revision reopening persists; revised result is new/unviewed and evaluated only through exact evidence |
+| Reopen completed work and find a revised result | Same-summary-revision reopening persists; revised result or material evaluation correction is new/unviewed and evaluated only through exact evidence |
 | Navigate with keyboard, text zoom and reduced motion | Logical outline → labeled toolbar → details → invoking node; no spatial drag or motion-only information |
 
 Source/fixture consistency and rendered SVG checks are expert artifact checks,
