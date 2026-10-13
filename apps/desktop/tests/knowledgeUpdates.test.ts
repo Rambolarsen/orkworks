@@ -3,6 +3,11 @@ import { test } from "node:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fork } from "node:child_process";
+import { once } from "node:events";
+import fsExt from "fs-ext";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { KnowledgeUpdates, synchronizeKnowledge } from "../electron/knowledgeUpdates.ts";
 import { verifyKnowledgeActivation } from "../electron/knowledgeProof.ts";
 import { signer } from "./knowledgeTestFixtures.ts";
@@ -147,3 +152,116 @@ test("synchronization activates the actual newer durable winner after a download
   }, () => true);
   assert.deepEqual(activated, [1, 3]);
 });
+
+test("disabling a downloaded update waiting on the real cache lock cancels publication even after reenable", async t => {
+  const f = await setup(t);
+  const { KnowledgeCache } = await import("../electron/knowledgeCache.ts");
+  const holder = fork(join(import.meta.dirname, "knowledgeCacheWorker.ts"), [], { execArgv: ["--experimental-strip-types"], stdio: ["ignore", "ignore", "ignore", "ipc"] });
+  t.after(() => { if (holder.exitCode === null) holder.kill(); });
+  const ready = once(holder, "message"); holder.send({ action: "hold", options: f.options }); await ready;
+  let waiting!: () => void;
+  const blocked = new Promise<void>(resolve => { waiting = resolve; });
+  const originalFlock = fsExt.flockSync;
+  fsExt.flockSync = (fd, flags) => {
+    try { return originalFlock(fd, flags); }
+    catch (error) { waiting(); throw error; }
+  };
+  t.after(() => { fsExt.flockSync = originalFlock; });
+  const updates = new KnowledgeUpdates(f.options);
+  const activated: number[] = [];
+  const pending = synchronizeKnowledge(updates, async activation => {
+    activated.push(verifyKnowledgeActivation(Buffer.from(JSON.stringify(activation)), f.key.publicKey).identity.sequence);
+  }, () => true);
+  await blocked;
+  updates.setEnabled(false);
+  updates.setEnabled(true);
+  const exited = once(holder, "exit"); holder.send({ release: true }); await exited;
+  await pending;
+  assert.equal((await new KnowledgeCache(f.options).load())?.identity.sequence, 1);
+  assert.deepEqual(activated, [1]);
+  assert.equal(updates.status().version, "1");
+  assert.equal(updates.status().lastSuccessfulUpdate, null);
+  assert.match(updates.status().lastError ?? "", /abort|cancel|disabled/i);
+});
+for (const outcome of ["unchanged", "offline"] as const) {
+  test(`a concurrent durable winner reaches synchronization after an ${outcome} feed check`, async t => {
+    const f = await setup(t);
+    const { KnowledgeCache } = await import("../electron/knowledgeCache.ts");
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let started!: () => void;
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const updates = new KnowledgeUpdates({ ...f.options, fetcher: async () => {
+      started(); await barrier;
+      if (outcome === "offline") throw new Error("offline");
+      return new Response(f.key.proof(1).manifest);
+    } });
+    const activated: number[] = [];
+    const pending = synchronizeKnowledge(updates, async activation => {
+      activated.push(verifyKnowledgeActivation(Buffer.from(JSON.stringify(activation)), f.key.publicKey).identity.sequence);
+    }, () => true);
+    await ready;
+    await new KnowledgeCache(f.options).commit(f.key.proof(3).verified);
+    release(); await pending;
+    assert.deepEqual(activated, [1, 3]);
+    assert.equal(updates.status().version, "3");
+    if (outcome === "offline") {
+      assert.match(updates.status().lastError ?? "", /offline/);
+      assert.equal(updates.status().lastSuccessfulUpdate, null);
+    } else assert.equal(updates.status().lastError, null);
+  });
+}
+test("reconciliation rejects equal-sequence different durable identity", async t => {
+  const f = await setup(t);
+  const { KnowledgeCache } = await import("../electron/knowledgeCache.ts");
+  const alternate = f.key.proof(1, "alternate").verified;
+  const cache = new KnowledgeCache(f.options);
+  const updates = new KnowledgeUpdates({ ...f.options, fetcher: async () => {
+    await (await import("node:fs/promises")).mkdir(cache.directory, { recursive: true });
+    await writeFile(join(cache.directory, "active.json"), JSON.stringify(alternate.activation));
+    return new Response(f.key.proof(1).manifest);
+  } });
+  assert.equal((await updates.check())?.identity.bundleSha256, f.starter.identity.bundleSha256);
+  assert.match(updates.status().lastError ?? "", /equivocation/i);
+  assert.equal(updates.status().lastSuccessfulUpdate, null);
+});
+
+test("failed feed reconciliation retains verified memory when all durable candidates disappear", async t => {
+  const f = await setup(t);
+  const updates = new KnowledgeUpdates({ ...f.options, fetcher: async () => {
+    await rm(f.options.starterPath);
+    throw new Error("offline after starter removal");
+  } });
+  assert.equal((await updates.check())?.identity.sequence, 1);
+  assert.equal(updates.status().version, "1");
+  assert.match(updates.status().lastError ?? "", /offline after starter removal/);
+});
+for (const cutoff of ["before", "after"] as const) {
+  test(`cancellation ${cutoff} native replacement dispatch honors the atomic publication cutoff`, async t => {
+    if (process.platform === "win32") return t.skip("POSIX replacement interception; Windows uses File.Replace");
+    const f = await setup(t);
+    const { KnowledgeCache } = await import("../electron/knowledgeCache.ts");
+    const cache = new KnowledgeCache(f.options);
+    const activePath = join(cache.directory, "active.json");
+    const originalStat = fsPromises.stat;
+    const originalRename = fsPromises.rename;
+    const updates = new KnowledgeUpdates(f.options);
+    if (cutoff === "before") {
+      fsPromises.stat = (async (...args: Parameters<typeof fsPromises.stat>) => {
+        try { return await originalStat(...args); }
+        finally { if (String(args[0]) === activePath) updates.setEnabled(false); }
+      }) as typeof fsPromises.stat;
+    } else {
+      fsPromises.rename = async (source, target) => {
+        await originalRename(source, target);
+        if (String(target) === activePath) updates.setEnabled(false);
+      };
+    }
+    syncBuiltinESMExports();
+    t.after(() => { fsPromises.stat = originalStat; fsPromises.rename = originalRename; syncBuiltinESMExports(); });
+    assert.equal((await updates.check())?.identity.sequence, cutoff === "before" ? 1 : 2);
+    assert.equal((await cache.load())?.identity.sequence, cutoff === "before" ? 1 : 2);
+    assert.equal(updates.status().lastSuccessfulUpdate, null);
+    assert.match(updates.status().lastError ?? "", /cancel/i);
+  });
+}

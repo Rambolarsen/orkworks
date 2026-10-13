@@ -36,7 +36,7 @@ export async function readKnowledgeFile(path: string): Promise<Buffer> {
   } finally { await file.close(); }
 }
 /** Unique flushed files; retain the destination until the native atomic replace succeeds. */
-export async function writeKnowledgeFile(path: string, content: string): Promise<void> {
+export async function writeKnowledgeFile(path: string, content: string, signal?: AbortSignal): Promise<void> {
   const temporary = `${path}.${process.pid}.${randomBytes(16).toString("hex")}.tmp`;
   try {
     const file = await open(temporary, "wx", 0o600);
@@ -45,6 +45,9 @@ export async function writeKnowledgeFile(path: string, content: string): Promise
       if (error.code !== "ENOENT") throw error;
       return false;
     });
+    // Cancellation cutoff: no await between this check and dispatching native replacement.
+    // Once dispatched, atomic publication is allowed to finish and must not be rolled back.
+    signal?.throwIfAborted();
     if (process.platform === "win32" && exists) {
       execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
         "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_KNOWLEDGE_TEMPORARY, $env:ORKWORKS_KNOWLEDGE_TARGET, $null, $true)"],
@@ -73,12 +76,12 @@ export class KnowledgeCache {
     }
     return selected;
   }
-  private async lock(): Promise<number> {
+  private async lock(signal?: AbortSignal): Promise<number> {
     await mkdir(this.directory, { recursive: true });
     // Never unlink this inode: flock releases ownership on close or process exit.
     const descriptor = openSync(join(this.directory, ".knowledge.lock"), "a+", 0o600);
     for (let attempt = 0; attempt < 50; attempt++) {
-      try { fsExt.flockSync(descriptor, "exnb"); return descriptor; }
+      try { signal?.throwIfAborted(); fsExt.flockSync(descriptor, "exnb"); return descriptor; }
       catch (error) {
         if (!["EAGAIN", "EWOULDBLOCK", "EINTR"].includes((error as NodeJS.ErrnoException).code ?? "")) {
           closeSync(descriptor); throw error;
@@ -89,22 +92,24 @@ export class KnowledgeCache {
     closeSync(descriptor);
     throw new Error("Knowledge cache lock timed out");
   }
-  async commit(candidate: VerifiedKnowledge): Promise<VerifiedKnowledge> {
+  async commit(candidate: VerifiedKnowledge, signal?: AbortSignal): Promise<VerifiedKnowledge> {
     // Public structural types are not a trust boundary; rederive identity from proof.
     const verified = verifyKnowledgeActivation(Buffer.from(JSON.stringify(candidate.activation)), this.options.publicKey);
-    const descriptor = await this.lock();
+    const descriptor = await this.lock(signal);
     try {
+      signal?.throwIfAborted();
       const current = await this.load();
+      signal?.throwIfAborted();
       if (current) {
         if (current.identity.sequence > verified.identity.sequence) return current;
         if (current.identity.sequence === verified.identity.sequence) {
           if (!sameKnowledgeIdentity(current.identity, verified.identity)) throw new Error("Knowledge sequence equivocation");
           return current;
         }
-        await writeKnowledgeFile(join(this.directory, "previous.json"), JSON.stringify(current.activation));
+        await writeKnowledgeFile(join(this.directory, "previous.json"), JSON.stringify(current.activation), signal);
       }
       try {
-        await writeKnowledgeFile(join(this.directory, "active.json"), JSON.stringify(verified.activation));
+        await writeKnowledgeFile(join(this.directory, "active.json"), JSON.stringify(verified.activation), signal);
       } catch (error) {
         const observed = await this.read(join(this.directory, "active.json"));
         if (observed && sameKnowledgeIdentity(observed.identity, verified.identity)) return observed;

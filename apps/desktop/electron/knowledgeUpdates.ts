@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { KnowledgeCache, readKnowledgeFile, writeKnowledgeFile, sameKnowledgeIdentity } from "./knowledgeCache.ts";
 import { createKnowledgeActivation, selectKnowledgeEntry, verifyKnowledgeActivation, verifyKnowledgeManifest } from "./knowledgeProof.ts";
-import type { KnowledgeActivation, VerifiedKnowledge } from "./knowledgeProof.ts";
+import type { KnowledgeActivation, KnowledgeManifestEntry, VerifiedKnowledge } from "./knowledgeProof.ts";
 export interface KnowledgeStatus {
   version: string | null; lastSuccessfulUpdate: string | null; lastError: string | null;
 }
@@ -71,9 +71,9 @@ export class KnowledgeUpdates {
     if (!this.inFlight) this.inFlight = this.checkOnce().finally(() => { this.inFlight = null; });
     return this.inFlight;
   }
-  private async download(url: string): Promise<Buffer> {
-    if (!this.enabled) throw new Error("Knowledge updates disabled");
-    const response = await (this.options.fetcher ?? fetch)(url, { signal: AbortSignal.any([AbortSignal.timeout(15_000), this.cancellation.signal]), redirect: "error" });
+  private async download(url: string, signal: AbortSignal): Promise<Buffer> {
+    signal.throwIfAborted();
+    const response = await (this.options.fetcher ?? fetch)(url, { signal: AbortSignal.any([AbortSignal.timeout(15_000), signal]), redirect: "error" });
     if (!response.ok) throw new Error(`Knowledge update HTTP ${response.status}`);
     if (Number(response.headers.get("content-length")) > MAX_BYTES) throw new Error("Knowledge response too large");
     if (!response.body) throw new Error("Empty knowledge response");
@@ -92,15 +92,19 @@ export class KnowledgeUpdates {
     return Buffer.concat(chunks);
   }
   private async checkOnce(): Promise<VerifiedKnowledge | null> {
+    // Capture before any await; a rapid re-enable cannot revive this operation.
+    const signal = this.cancellation.signal;
     await this.load();
     if (!this.cache) return null;
     if (!this.enabled || (this.lastChecked && this.now() - this.lastChecked < INTERVAL)) return this.current;
     this.lastChecked = this.now();
+    let succeeded = false;
+    let next: KnowledgeManifestEntry | null = null;
     try {
       const feed = new URL(this.options.feedUrl);
       if (feed.protocol !== "https:" || feed.username || feed.password) throw new Error("Knowledge feed requires HTTPS without credentials");
-      const manifestBytes = await this.download(feed.href);
-      const next = selectKnowledgeEntry(verifyKnowledgeManifest(manifestBytes, this.options.publicKey));
+      const manifestBytes = await this.download(feed.href, signal);
+      next = selectKnowledgeEntry(verifyKnowledgeManifest(manifestBytes, this.options.publicKey));
       const identity = this.current?.identity;
       // Equal sequence is an identity comparison, never a successful newer-only shortcut.
       if (identity && next.sequence === identity.sequence && (next.formatVersion !== identity.formatVersion
@@ -108,19 +112,45 @@ export class KnowledgeUpdates {
         throw new Error("Knowledge sequence equivocation");
       }
       if (!identity || next.sequence > identity.sequence) {
-        const remote = await this.download(new URL(next.path, feed).href);
+        const remote = await this.download(new URL(next.path, feed).href, signal);
         const activation = createKnowledgeActivation(remote, manifestBytes);
         const candidate = verifyKnowledgeActivation(Buffer.from(JSON.stringify(activation)), this.options.publicKey);
         if (candidate.identity.sequence !== next.sequence || candidate.identity.version !== next.version
           || candidate.identity.bundleSha256 !== next.sha256) throw new Error("Knowledge manifest mismatch");
-        if (!this.enabled) throw new Error("Knowledge updates disabled");
-        this.current = await this.cache.commit(candidate);
+        signal.throwIfAborted();
+        this.current = await this.cache.commit(candidate, signal);
         this.info.version = this.current.bundle.version;
       }
-      this.info.lastSuccessfulUpdate = new Date(this.now()).toISOString();
-      this.info.lastError = null;
+      signal.throwIfAborted();
+      succeeded = true;
     } catch (error) {
       this.info.lastError = error instanceof Error ? error.message.slice(0, 300) : "Knowledge update unavailable";
+    }
+    // Reconcile after both successful and failed network paths, including no-download checks.
+    // A missing/damaged durable cache cannot discard the independently verified memory fallback.
+    try {
+      const durable = await this.cache.load();
+      if (durable) {
+        if (this.current && durable.identity.sequence === this.current.identity.sequence
+          && !sameKnowledgeIdentity(durable.identity, this.current.identity)) throw new Error("Knowledge sequence equivocation");
+        if (next && durable.identity.sequence === next.sequence && (durable.identity.version !== next.version
+          || durable.identity.formatVersion !== next.formatVersion || durable.identity.privacyPolicyVersion !== next.privacyPolicyVersion
+          || durable.identity.bundleSha256 !== next.sha256)) throw new Error("Knowledge sequence equivocation");
+        if (!this.current || durable.identity.sequence > this.current.identity.sequence) this.current = durable;
+      }
+    } catch (error) {
+      if (succeeded) this.info.lastError = error instanceof Error ? error.message.slice(0, 300) : "Knowledge cache unavailable";
+      succeeded = false;
+    }
+    this.info.version = this.current?.bundle.version ?? null;
+    if (signal.aborted) {
+      // Publication already dispatched may have completed. Keep it, but cancellation is not success.
+      succeeded = false;
+      this.info.lastError = "Knowledge update cancelled";
+    }
+    if (succeeded) {
+      this.info.lastSuccessfulUpdate = new Date(this.now()).toISOString();
+      this.info.lastError = null;
     }
     try {
       await mkdir(this.cache.directory, { recursive: true });
