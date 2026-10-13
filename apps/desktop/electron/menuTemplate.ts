@@ -103,6 +103,8 @@ export function buildMenuTemplate(options: BuildMenuTemplateOptions): MenuItemCo
       label: "View",
       submenu: [
         ...panelItems,
+        { id: "review", label: "Review", enabled: !isCapturing,
+          click: () => sendIfNotCapturing({ action: "focus", panelId: "review" }) },
         { type: "separator" },
         resetLayoutItem,
         { type: "separator" },

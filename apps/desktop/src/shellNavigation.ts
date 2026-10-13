@@ -183,7 +183,7 @@ export function reduceShellNavigation(
         !event.sessionId ||
         !event.artifactId ||
         event.sessionId !== state.activeSessionId ||
-        state.centralSurface.kind !== "terminal"
+        (state.centralSurface.kind !== "terminal" && state.centralSurface.sessionId !== event.sessionId)
       ) {
         return state;
       }
@@ -198,7 +198,7 @@ export function reduceShellNavigation(
         inspector: null,
         inspectedSubject: null,
         focusTarget,
-        returnTarget: {
+        returnTarget: state.returnTarget ?? {
           surface: "terminal",
           sessionId: event.sessionId,
           focusTarget: { kind: "terminal", sessionId: event.sessionId },

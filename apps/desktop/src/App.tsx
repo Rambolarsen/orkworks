@@ -48,11 +48,18 @@ import { createBackendRetryGuard } from "./backendRetryGuard";
 import { createWorkspaceSessionController } from "./workspaceSessionController";
 import { createShellNavigationState, reduceShellNavigation, resolveInspectorSubject, type InspectorDestination } from "./shellNavigation";
 
+import { useSessionReview } from "./useSessionReview";
+import ReviewPanel from "./components/ReviewPanel";
+
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("picker");
   const { preferences: shellPreferences, change: changeShellPreferences, reset: resetShellPreferences, needsRebuild: shellNeedsRebuild, migrationNotice: shellMigrationNotice, dismissMigrationNotice } = useShellPreferences();
   const [shellCommandRequest, setShellCommandRequest] = useState<ShellCommandRequest | null>(null);
+  const navigationIntent = useRef(0);
+  const restorationIntent = useRef(0);
+  const restorationInProgress = useRef(false);
   const requestShellCommand = useCallback((command: ShellCommand, reveal = false) => {
+    ++navigationIntent.current;
     setShellCommandRequest(previous => ({ command, sequence: (previous?.sequence ?? 0) + 1, reveal }));
   }, []);
   const [sessionAdmissionEnabled, setSessionAdmissionEnabled] = useState(false);
@@ -138,6 +145,10 @@ function App() {
     workspaceSessionController.setAdmissionEnabled(event.state === "ready");
     setSessionAdmissionEnabled(event.state === "ready");
     const generation = workspaceLifecycleRef.current.generation + 1;
+    // Preserve the transition-start intent through opening/starting/retrying.
+    // Readiness must not make intervening user navigation look like hydration.
+    if (!restorationInProgress.current) restorationIntent.current = navigationIntent.current;
+    restorationInProgress.current = ["opening", "closing", "starting", "retrying"].includes(event.state);
     workspaceLifecycleRef.current = {
       generation,
       readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
@@ -283,6 +294,50 @@ function App() {
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
   const activeSession = sessions.find((session) => session.id === activeSessionId);
 
+  const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
+    backendStatus === "connected" && !isSwitchingWorkspace && !!activeSession?.hasOpenablePlan,
+    (document, persist) => {
+      if (workspaceLifecycleRef.current.generation !== document.generation) return;
+      dispatchShellNavigation({ type: "review-opened", sessionId: document.sessionId,
+        artifactId: document.artifactId, generation: document.generation });
+      if (persist) void window.orkworks.completeWorkspaceNavigation("review").catch(() => {});
+    });
+  const openReview = useCallback(() => {
+    ++navigationIntent.current;
+    void review.load();
+  }, [review.load]);
+  const closeReview = useCallback(() => {
+    ++navigationIntent.current;
+    review.close();
+    dispatchShellNavigation({ type: "review-closed", generation: workspaceLifecycleRef.current.generation });
+    void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
+  }, [review.close]);
+  useEffect(() => {
+    if (shellNavigation.centralSurface.kind === "review" && !activeSession?.hasOpenablePlan) {
+      dispatchShellNavigation({ type: "target-missing", target: { kind: "artifact",
+        sessionId: shellNavigation.centralSurface.sessionId, artifactId: shellNavigation.centralSurface.artifactId },
+        reason: "The reviewed plan is no longer available.", generation: shellNavigation.workspaceGeneration });
+    }
+  }, [activeSession?.hasOpenablePlan, shellNavigation.centralSurface, shellNavigation.workspaceGeneration]);
+
+  const restoredNavigationGeneration = useRef<number | null>(null);
+  useEffect(() => {
+    const generation = shellNavigation.workspaceGeneration;
+    if (backendStatus !== "connected" || !workspace || !activeSession || restoredNavigationGeneration.current === generation) return;
+    restoredNavigationGeneration.current = generation;
+    if (navigationIntent.current !== restorationIntent.current) return;
+    const intent = navigationIntent.current;
+    const sessionId = activeSession.id;
+    void window.orkworks.getWorkspaceNavigation().then(saved => {
+      if (workspaceLifecycleRef.current.generation !== generation || navigationIntent.current !== intent
+        || shellNavigationRef.current.activeSessionId !== sessionId) return;
+      if (saved.lastCentralSurface === "review") {
+        if (activeSession.hasOpenablePlan) void review.load(false);
+        else dispatchShellNavigation({ type: "preferences-restored", surface: "review", artifactId: null, generation });
+      }
+    }).catch(() => {});
+  }, [backendStatus, workspace, activeSession, shellNavigation.workspaceGeneration, review.load]);
+
   useEffect(() => {
     if (shellNavigation.visibleFallbackReason) {
       pushToast("info", shellNavigation.visibleFallbackReason);
@@ -414,6 +469,8 @@ function App() {
   const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
 
   const handleSelectSession = useCallback((id: string) => {
+    ++navigationIntent.current;
+    review.close();
     if (!workspaceSessionController.selectSession(id)) return;
     cancelNewSession();
     dispatchShellNavigation({
@@ -423,7 +480,7 @@ function App() {
     });
     void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
-  }, [workspaceSessionController]);
+  }, [workspaceSessionController, review.close]);
 
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
@@ -556,6 +613,7 @@ function App() {
   }, [activeSessionId, sessions, requestShellCommand]);
 
   const handleInspect = useCallback((destination: ShellDestination | null) => {
+    ++navigationIntent.current;
     if (destination) inspectSubject(destination);
     else closeInspector();
   }, [inspectSubject, closeInspector]);
@@ -643,9 +701,8 @@ function App() {
     else if (action === "reset-layout") requestShellCommand("reset-layout");
     else if (action === "focus" && panelId) {
       const destination = panelId === "detail" ? "details" : panelId;
-      if (["sessions", "terminal", "details", "capacity", "recommendations"].includes(destination)) {
+      if (["sessions", "terminal", "review", "details", "capacity", "recommendations"].includes(destination)) {
         requestShellCommand(destination as ShellCommand);
-        if (destination === "terminal") void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
       }
     }
   }), [handleCreateSession, openSettings, checkForUpdates, requestShellCommand]);
@@ -738,6 +795,19 @@ function App() {
         inspector={shellNavigation.inspector === "actions" ? null : shellNavigation.inspector}
         onInspect={handleInspect}
         commandRequest={shellCommandRequest}
+        centralSurface={shellNavigation.centralSurface}
+        reviewLoading={review.loading}
+        reviewError={review.error}
+        onNavigate={() => {
+          ++navigationIntent.current;
+          if (review.loading && shellNavigation.centralSurface.kind === "terminal") review.close();
+        }}
+        onOpenReview={openReview}
+        onCloseReview={closeReview}
+        reviewContent={activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}`}
+          sessionId={activeSessionId} content={review.document?.content ?? null} loading={review.loading}
+          error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
+          onRefresh={openReview} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}
         visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
           ? shellNavigation.inspectedSubject.sessionId

@@ -92,3 +92,15 @@ test("menu template removes accelerators and native roles during hotkey capture"
   const serializedTemplate = JSON.stringify(template);
   assert.equal(serializedTemplate.includes('"role"'), false);
 });
+
+
+test("Review menu routes to the validated shell destination without adding an accelerator", () => {
+  const commands: Array<{ action: string; panelId?: string }> = [];
+  const template = buildMenuTemplate({ appName: "OrkWorks", platform: "darwin", settings: DEFAULT_SETTINGS,
+    sendCommand: command => commands.push(command) });
+  const review = findMenuItem(template, "review");
+  assert.ok(review);
+  assert.equal(review.accelerator, undefined);
+  review.click?.({} as never, {} as never, {} as never);
+  assert.deepEqual(commands, [{ action: "focus", panelId: "review" }]);
+});

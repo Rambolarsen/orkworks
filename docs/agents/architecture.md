@@ -723,14 +723,20 @@ desktop verification remains tracked by #525.
 ## Fixed desktop shell
 
 `ApplicationShell` owns fixed React/CSS Grid regions: Sessions, one central
-Terminal or temporary utility page, and at most one inspector. Dockview is
+Terminal, Review or temporary utility page, and at most one inspector. Dockview is
 removed under [ADR 0082](../adr/0082-react-grid-desktop-shell.md), which supersedes
 the library choice in [ADR 0078](../adr/0078-fixed-desktop-shell-and-central-navigation.md).
 Pointer and keyboard separators resize bounded regions. At medium widths a
 utility replaces the central content; compact widths show one page at a time.
 Navigation preserves selected-session identity and restores focus to the invoker
-when a temporary page closes. Review (#780), Actions (#805), and gated Workflow
-navigation are separate delivery slices; no Review control is exposed yet.
+when a temporary page closes. Review opens from the selected session's Details,
+the content header or the View menu, with an explicit return to that session's
+Terminal/history. Validated document bytes remain in renderer memory with a
+content digest and workspace/session binding; refresh replaces that snapshot and
+clears stale content on failure. Opening, refreshing, closing and restoring Review
+never submit a prompt; only Request independent review does. Saved Review
+presentation is revalidated through Electron before restoration. Actions (#805)
+and gated Workflow navigation remain separate delivery slices.
 
 `TerminalPanel` hosts the active live PTY through `CenterPanel` and xterm.js.
 The renderer terminal registry keeps that runtime and its WebSocket draining

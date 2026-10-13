@@ -13,7 +13,7 @@ if (process.versions.electron) {
         if (await evaluate(source)) return;
         await new Promise(resolve => setTimeout(resolve, 10));
       }
-      throw new Error(`Timed out: ${source}`);
+      throw new Error(`Timed out: ${source}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(await evaluate("fixture.errors"))}`);
     };
     const fresh = async () => {
       await win.loadFile(process.env.ORKWORKS_SHELL_FIXTURE);
@@ -23,7 +23,155 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-new-session') {
+      if (scenario === 'app-review-opening-navigation') {
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+        await evaluate('fixture.lifecycle({state:"opening"})');
+        await evaluate('fixture.menu({action:"focus",panelId:"terminal"})');
+        await waitFor('fixture.navigation.at(-1)==="terminal"');
+        await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/other",workspaceIdentity:"/tmp/other",lastActiveSessionId:"created",activeHarnessIds:["generic-shell"]},historyDiagnostic:null})');
+        await waitFor('document.querySelector(".shell-context h1")?.textContent==="created"');
+        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'navigation during opening supersedes saved Review');
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-missing-restore') {
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        await waitFor('document.body.textContent.includes("Review could not be restored")');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
+        assert.equal(await evaluate('fixture.reads.length'),0);
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-stale-restore') {
+        await waitFor('!!fixture.resolveNavigation');
+        await evaluate('fixture.menu({action:"focus",panelId:"terminal"})');
+        await evaluate('fixture.resolveNavigation()');
+        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
+        assert.equal(await evaluate('fixture.reads.length'),0,'late hydration cannot override user navigation');
+        return;
+      } else if (scenario === 'app-review-history') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('other')).click()`);
+        await waitFor(`document.querySelector('[aria-label="Saved terminal output"]')`);
+        await click('review');
+        await waitFor('document.querySelector(".review-plan-content")');
+        assert.equal(await evaluate('!!document.querySelector("[data-review-request]")'),false,'remembered sessions cannot receive prompts');
+        await evaluate('document.querySelector("[data-review-return]").click()');
+        await waitFor(`document.querySelector('[aria-label="Saved terminal output"]')`);
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review-restore') {
+        await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Current plan")');
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.deepEqual(await evaluate('fixture.navigation'),[],'restoring presentation does not write defaults');
+        await evaluate('document.querySelector("[data-review-return]").click()');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-review') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await waitFor('document.querySelector("[data-shell-command=review]")');
+        await evaluate('fixture.originalRuntime=fixture.runtime();fixture.writesBefore=fixture.activeWrites');
+        await click('review');
+        await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Current plan")');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal]")'),false);
+        await waitFor('document.activeElement?.matches("[data-shell-review-heading]")');
+        for (const width of [1000,640,360,1280]) {
+          await win.setContentSize(width,700);
+          await waitFor('innerWidth==='+width);
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),true);
+          assert.equal(await evaluate('document.querySelectorAll(".review-plan-content").length'),1);
+          assert.ok(await evaluate('(()=>{const b=document.querySelector("[data-review-return]").getBoundingClientRect();return b.width>0&&b.right<=innerWidth})()'));
+        }
+        await win.webContents.setZoomFactor(2);
+        await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),true);
+        assert.ok(await evaluate('(()=>{const b=document.querySelector("[data-review-return]").getBoundingClientRect();return b.width>0&&b.right<=innerWidth&&b.bottom<=innerHeight&&document.documentElement.scrollWidth<=innerWidth})()'),'return remains reachable at 200% zoom');
+        await win.webContents.setZoomFactor(1);
+        await evaluate('fixture.output("output while reading\\r\\n")');
+        if (process.env.ORKWORKS_CAPTURE_REVIEW) {
+          const {writeFileSync} = await import('node:fs');
+          writeFileSync(process.env.ORKWORKS_CAPTURE_REVIEW,(await win.webContents.capturePage()).toPNG());
+        }
+        assert.equal(await evaluate('fixture.prompts'),0);
+        assert.equal(await evaluate('fixture.activeWrites===fixture.writesBefore'),true,'reading does not select/acknowledge');
+        await evaluate('document.querySelector("[data-review-return]").click()');
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await waitFor('document.activeElement?.dataset.shellCommand==="review"');
+        assert.equal(await evaluate('fixture.runtime()===fixture.originalRuntime'),true);
+        assert.equal(await evaluate('fixture.socketCount'),1);
+        assert.match(await evaluate('fixture.runtime().terminal.buffer.active.getLine(0).translateToString()'),/output while reading/);
+        await click('details');
+        await waitFor('Array.from(document.querySelectorAll(".resume-option-label")).some(node=>node.textContent==="Review plan")');
+        await evaluate(`Array.from(document.querySelectorAll('.resume-option')).find(button=>button.textContent.trim()==='Review plan').click()`);
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+        await evaluate('fixture.plan="# Revised plan";document.querySelector("[data-review-refresh]").click()');
+        await waitFor('document.querySelector(".review-change-notice[role=status]")?.textContent.includes("Plan changed")');
+        await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Revised plan")');
+        assert.equal(await evaluate('fixture.prompts'),0,'refresh does not request review');
+        await win.setContentSize(640,700);
+        await click('details');
+        await waitFor('document.querySelector("[data-shell-region=utility]")');
+        assert.match(await evaluate('document.querySelector("[data-shell-return]").textContent'),/Back to Review/);
+        await evaluate('document.querySelector("[data-shell-return]").click()');
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+        await win.setContentSize(1280,700);
+        await evaluate('document.querySelector("[data-review-return]").click()');
+        await waitFor('document.activeElement?.dataset.shellCommand==="review"');
+        await click('review');
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+
+        await evaluate('document.querySelector("[data-review-request]").click();document.querySelector("[data-review-request]").click()');
+        await waitFor('fixture.prompts===1');
+        assert.equal(await evaluate('fixture.promptSession'),'created');
+        await evaluate('fixture.finishPrompt();fixture.unreadable=true;document.querySelector("[data-review-refresh]").click()');
+        await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("no longer available")');
+        assert.equal(await evaluate('!!document.querySelector(".review-plan-content")'),false,'unreadable refresh removes stale content');
+        await evaluate(`fixture.unreadable=false;Array.from(document.querySelectorAll('[data-shell-region=review] button')).find(button=>button.textContent==='Retry').click()`);
+        await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Revised plan")');
+        assert.equal(await evaluate('fixture.prompts'),1,'Retry reads content without submitting another prompt');
+        await evaluate('fixture.unreadable=false;document.querySelector("[data-review-return]").click()');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        await evaluate('fixture.deferRead=true');
+        await click('review');
+        await waitFor('!!fixture.resolveRead');
+        await click('terminal');
+        await evaluate('fixture.resolveRead("# Too late")');
+        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'return fences pending entry');
+        await evaluate('fixture.resolveRead=null');
+        await click('review');
+        await waitFor('!!fixture.resolveRead');
+        await click('details');
+        await evaluate('fixture.resolveRead("# Superseded by inspection")');
+        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'pending entry cannot replace newer inspection');
+        await click('details');
+        await evaluate('fixture.deferRead=false;fixture.menu({action:"focus",panelId:"review"})');
+        await waitFor('document.querySelector("[data-shell-region=review]")');
+        await evaluate(`Array.from(document.querySelectorAll('[role=option]')).find(row=>row.textContent.includes('other')).click()`);
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        assert.equal(await evaluate('!!document.querySelector(".review-plan-content")'),false,'selection removes the previous subject');
+        await evaluate('fixture.menu({action:"focus",panelId:"review"})');
+        await waitFor('document.querySelector(".review-plan-content")?.textContent.includes("Other session plan")');
+        assert.equal(await evaluate('fixture.reads.at(-1)'),'other','Review reads the exact selected session');
+        assert.equal(await evaluate('document.querySelector(".review-plan-content").textContent.includes("Revised plan")'),false);
+        await evaluate('document.querySelector("[data-review-return]").click()');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        await evaluate('fixture.deferRead=true;fixture.resolveRead=null;fixture.menu({action:"focus",panelId:"review"})');
+        await waitFor('!!fixture.resolveRead');
+        await evaluate('fixture.lifecycle({state:"opening"})');
+        await evaluate('fixture.resolveRead("# Previous workspace document")');
+        await evaluate('fixture.deferRead=false;fixture.lifecycle({state:"ready",workspace:{path:"/tmp/new",workspaceIdentity:"/tmp/new",lastActiveSessionId:"other",activeHarnessIds:["generic-shell"]},historyDiagnostic:null})');
+        await waitFor('document.querySelector(".shell-context h1")?.textContent==="other"');
+        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
+        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
+        assert.equal(await evaluate('document.body.textContent.includes("Previous workspace document")'),false,'old generation bytes never paint after workspace switch');
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'app-new-session') {
         await waitFor('document.querySelector("[data-shell-region=new-session] textarea")');
         assert.equal(await evaluate('fixture.posts'),0,'empty workspace never launches automatically');
         assert.equal(await evaluate('!!document.querySelector("[role=dialog]")'),false);
@@ -482,7 +630,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -524,15 +672,23 @@ if (process.versions.electron) {
             resetShellLayout:async()=>{fixture.resetCalls++;return {ok:false}},
             rebuildShellLayout:async()=>{fixture.rebuildCalls++;if(fixture.cancelRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.snapshot.diagnostic=null;return {ok:true}}
           });
-          if (${JSON.stringify(scenario)}==='app-new-session') {
-            fixture.posts=0;fixture.sessionList=[];
+          if ((${JSON.stringify(scenario)}.startsWith('app-'))) {
+            fixture.posts=0;fixture.navigation=[];fixture.activeWrites=0;fixture.reads=[];
+            fixture.plan='# Current plan';fixture.savedSurface=${JSON.stringify(scenario)}.includes('restore')||${JSON.stringify(scenario)}==='app-review-opening-navigation'?'review':'terminal';
+            const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true});
+            fixture.sessionList=${JSON.stringify(scenario)}.startsWith('app-review')?[reviewSession('created'),reviewSession('other')]:[];
+            if(${JSON.stringify(scenario)}==='app-review-missing-restore')fixture.sessionList[0].hasOpenablePlan=false;
+            if(${JSON.stringify(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             fixture.runtime=()=>getTerminal('created');
             Object.assign(window.orkworks,{
-              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
+              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${JSON.stringify(scenario)}.startsWith('app-review')?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
               onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
               getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
               getSettings:async()=>({debug:{showSessionIds:false,rendererHealthLogMs:0}}),
-              getProviderModels:async()=>({models:[]}),completeWorkspaceNavigation:async()=>({ok:true}),
+              getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${JSON.stringify(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:null}},
+              completeWorkspaceNavigation:async surface=>{fixture.navigation.push(surface);return {ok:true}},
+              getPlanContent:async id=>{fixture.reads.push(id);if(fixture.deferRead)return new Promise(resolve=>fixture.resolveRead=resolve);if(fixture.unreadable)throw new Error('Missing plan');return id==='other'?'# Other session plan':fixture.plan},
+              requestPlanReview:async id=>{fixture.prompts++;fixture.promptSession=id;await new Promise(resolve=>fixture.finishPrompt=resolve)},
             });
             window.fetch=async (url,options={})=>{
               const path=new URL(url).pathname;
@@ -543,10 +699,12 @@ if (process.versions.electron) {
                 const created={id:'created',label:'created',harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none'};
                 fixture.sessionList=[created];return response(created);
               }
+              if(path.endsWith('/summary-log'))return response({entries:[]});
+              if(path==='/sessions/other/terminal-output')return response({lines:['saved output'],cols:80,rows:24});
               if(path==='/sessions')return response(fixture.sessionList);
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
               if(path==='/providers')return response({providers:[],appliedRevision:null});
-              if(path==='/workspace/active-session')return response({});
+              if(path==='/workspace/active-session'){fixture.activeWrites++;return response({})}
               throw new Error('Unexpected fixture request '+path);
             };
           }
@@ -574,7 +732,7 @@ if (process.versions.electron) {
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
               onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
-          createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}==='app-new-session'?<App/>:<Harness/>);
+          createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
         bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser',
         define: { 'process.env.NODE_ENV': '"development"' },
@@ -585,14 +743,14 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|CapacityPanel|RecommendationsPanel)$/ },
-            args => ({ path: args.path, namespace: 'empty-panel' }));
+            args => scenario.startsWith('app-review') && args.path === './SessionDetailPanel' ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 
         } }],
       });
       const fixture = join(directory, 'index.html');
-      writeFileSync(fixture, '<style>' + (bundle.outputFiles.find(f=>f.path.endsWith('.css'))?.text||'') + '</style><div id="root" style="height:650px;display:flex"></div><script>' + bundle.outputFiles.find(f=>!f.path.endsWith('.css')).text + '</script>');
+      writeFileSync(fixture, '<style>' + (bundle.outputFiles.find(f=>f.path.endsWith('.css'))?.text||'') + '</style><div id="root" style="height:650px;display:'+(scenario.startsWith('app-')?'block':'flex')+'"></div><script>' + bundle.outputFiles.find(f=>!f.path.endsWith('.css')).text + '</script>');
       const electron = require('electron');
       const env = { ...process.env, ORKWORKS_SHELL_FIXTURE: fixture, ORKWORKS_SHELL_SCENARIO: scenario };
       delete env.ELECTRON_RUN_AS_NODE;

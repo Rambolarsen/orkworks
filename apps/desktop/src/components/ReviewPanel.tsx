@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { memo, useRef, useState, type ComponentProps } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import EmptyState from "./EmptyState";
@@ -30,56 +30,44 @@ function ReviewLink({ href, children }: ComponentProps<"a">) {
 
 const markdownComponents: Components = { a: ReviewLink };
 
-// Memoized because ReviewTab re-renders on every ~2s session poll even when
-// sessionId is unchanged; react-markdown re-parses its input on every render
-// with no internal caching, so without this the whole Markdown pipeline
-// would rerun on a timer instead of only when the reviewed content changes.
 interface ReviewPanelProps {
-  sessionId: string | null;
-  reviewTick?: number;
+  sessionId: string;
+  content: string | null;
+  loading: boolean;
+  error: boolean;
+  changed: boolean;
+  canRequest: boolean;
+  onRefresh: () => void;
 }
 
-function ReviewPanel({ sessionId, reviewTick }: ReviewPanelProps) {
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-  const requestId = useRef(0);
-  const lastSessionIdRef = useRef<string | null>(null);
-
-  const load = useCallback(() => {
-    if (!sessionId) {
-      setContent(null);
-      setError(false);
-      lastSessionIdRef.current = null;
-      return;
-    }
-    const currentRequest = ++requestId.current;
-    if (lastSessionIdRef.current !== sessionId) {
-      setContent(null);
-    }
-    setError(false);
-    lastSessionIdRef.current = sessionId;
-
-    void window.orkworks.getPlanContent(sessionId)
-      .then((value) => {
-        if (currentRequest === requestId.current) setContent(value);
-      })
-      .catch(() => {
-        if (currentRequest === requestId.current) setError(true);
-      });
-  }, [sessionId]);
-
-  useEffect(() => {
-    load();
-  }, [sessionId, reviewTick, load]);
-
-  if (!sessionId) return <EmptyState message="Select a session with a plan to review it." />;
-  if (error) return <EmptyState message="This plan is no longer available." action={{ label: "Retry", onClick: load }} />;
-  if (content === null) return <EmptyState message="Loading plan…" />;
-  return (
+function ReviewPanel({ sessionId, content, loading, error, changed, canRequest, onRefresh }: ReviewPanelProps) {
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const pending = useRef(false);
+  const requestReview = () => {
+    if (pending.current || !canRequest || loading || error || content === null) return;
+    pending.current = true;
+    setRequesting(true);
+    setRequestError(null);
+    void window.orkworks.requestPlanReview(sessionId).catch(() => {
+      setRequestError("Couldn't request independent review. Try again.");
+    }).finally(() => { pending.current = false; setRequesting(false); });
+  };
+  return <>
+    <div className="review-actions">
+      <button type="button" data-review-refresh disabled={loading} onClick={onRefresh}>Refresh plan</button>
+      {canRequest && <button type="button" data-review-request disabled={requesting || loading || error || content === null} onClick={requestReview}>
+        {requesting ? "Requesting review…" : "Request independent review"}
+      </button>}
+      {requestError && <span role="alert">{requestError}</span>}
+    </div>
+    {changed && !loading && !error && <p className="review-change-notice" role="status">Plan changed. Showing refreshed content.</p>}
+    {error ? <EmptyState message="This plan is no longer available." action={{ label: "Retry", onClick: onRefresh }} />
+      : content === null ? <EmptyState message="Loading plan…" /> : (
     <div className="review-plan-content">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{normalizeMarkdownLinkDestinations(content)}</ReactMarkdown>
     </div>
-  );
+  )}</>;
 }
 
 export default memo(ReviewPanel);

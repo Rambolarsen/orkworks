@@ -49,13 +49,6 @@ test("HistoricalTerminal labels only the current successful fixed-grid replay", 
 
 
 
-test("ReviewPanel exposes retry after a content request fails", () => {
-  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
-
-  assert.match(source, /if \(error\) return <EmptyState message="This plan is no longer available\."/);
-  assert.match(source, /action=\{\{ label: "Retry", onClick: load \}\}/);
-});
-
 test("ReviewPanel renders plan content as Markdown rather than raw preformatted text", () => {
   const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
 
@@ -84,18 +77,7 @@ test("ReviewPanel normalizes multiline Markdown link destinations before renderi
   assert.match(source, /normalizeMarkdownLinkDestinations\(content\)/);
 });
 
-test("ReviewPanel supports reviewTick prop and retains memoization", () => {
-  const source = readFileSync(new URL("../src/components/ReviewPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /reviewTick\?: number/);
-  // Content clears only on a session change — never on a same-session tick
-  // refresh — so an explicit refresh updates in place without a flash, and a
-  // tick change coinciding with a session switch can't leak stale content.
-  assert.match(source, /if \(lastSessionIdRef\.current !== sessionId\)\s*\{\s*setContent\(null\);/);
-  assert.doesNotMatch(source, /isExplicitRefresh|lastTickRef/);
-  assert.match(source, /window\.orkworks\.getPlanContent\(sessionId\)/);
-  assert.match(source, /export default memo\(ReviewPanel\);/);
-});
 
 test("tokens.css defines the substrate scale (color / space / state)", () => {
   const source = readFileSync(new URL("../src/styles/tokens.css", import.meta.url), "utf8");

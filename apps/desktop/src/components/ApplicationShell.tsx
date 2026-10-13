@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PanelLeft, PanelRight, Plus, ChevronDown, Play, Gauge, Lightbulb, Settings } from "lucide-react";
+import type { CentralSurface } from "../shellNavigation";
 import type { SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
@@ -15,7 +16,7 @@ import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 
 export type ShellDestination = "details" | "capacity" | "recommendations";
-export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | ShellDestination;
+export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | ShellDestination;
 export interface ShellCommandRequest { command: ShellCommand; sequence: number; reveal?: boolean }
 
 export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harnessId" | "harness"> | null | undefined): boolean {
@@ -24,6 +25,13 @@ export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harne
 }
 
 interface Props {
+  centralSurface?: CentralSurface;
+  reviewContent?: ReactNode;
+  reviewLoading?: boolean;
+  reviewError?: boolean;
+  onOpenReview?: () => void;
+  onNavigate?: () => void;
+  onCloseReview?: () => void;
   backendStatus: string;
   workspace: WorkspaceInfo | null;
   workspaceControl: ReactNode;
@@ -70,6 +78,7 @@ export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
   const invokerSelectorRef = useRef<string | null>(null);
+  const reviewInvoker = useRef<{ element: HTMLElement | null; selector: string | null } | null>(null);
   const navigationIntent = useRef(0);
   const creationReturn = useRef<{ inspector: ShellDestination | null; sessionsPage: boolean } | null>(null);
   const workspaceGenerationRef = useRef(props.workspaceGeneration);
@@ -83,7 +92,9 @@ export default function ApplicationShell(props: Props) {
   const showSessionsPage = compact && sessionsPage;
   const temporaryUtility = !showSessionsPage && layout.inspectorPage && props.inspector !== null;
   const showComposer = !!props.newSessionContent && !showSessionsPage && !temporaryUtility;
-  const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer;
+  const reviewing = props.centralSurface?.kind === "review" && props.centralSurface.sessionId === props.activeSessionId;
+  const showReview = reviewing && !showSessionsPage && !temporaryUtility && !showComposer;
+  const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer && !reviewing;
   const showSessions = showSessionsPage || layout.sessionsVisible;
   const showInspector = !showSessionsPage && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
@@ -121,6 +132,7 @@ export default function ApplicationShell(props: Props) {
     requestFocus("return");
   };
   const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
+    props.onNavigate?.();
     const intent = ++navigationIntent.current;
     if (command === "reset-layout") {
       const generation = props.workspaceGeneration;
@@ -130,7 +142,18 @@ export default function ApplicationShell(props: Props) {
         props.onInspect(null);
         requestFocus("terminal");
       });
+    } else if (command === "review") {
+      if (!session?.hasOpenablePlan || !props.onOpenReview || props.backendStatus !== "connected" || props.isSwitchingWorkspace) return;
+      if (!reviewing) {
+        captureInvoker(command);
+        reviewInvoker.current = { element: invokerRef.current, selector: invokerSelectorRef.current };
+      }
+      setSessionsPage(false);
+      props.onCancelNewSession?.();
+      props.onInspect(null);
+      props.onOpenReview();
     } else if (command === "new-session") {
+      props.onCloseReview?.();
       if (!creationReturn.current) {
         creationReturn.current = { inspector: props.inspector, sessionsPage };
         invokerRef.current = rootRef.current?.querySelector<HTMLElement>("[data-shell-create]") ?? null;
@@ -146,6 +169,7 @@ export default function ApplicationShell(props: Props) {
       props.onInspect(target?.inspector ?? null);
       requestFocus(target?.sessionsPage ? "sessions" : "return");
     } else if (command === "terminal") {
+      props.onCloseReview?.();
       creationReturn.current = null;
       props.onCancelNewSession?.();
       setSessionsPage(false);
@@ -186,6 +210,7 @@ export default function ApplicationShell(props: Props) {
     creationReturn.current = null;
     invokerRef.current = null;
     invokerSelectorRef.current = null;
+    reviewInvoker.current = null;
   }, [props.workspaceGeneration]);
 
   useLayoutEffect(() => {
@@ -196,7 +221,7 @@ export default function ApplicationShell(props: Props) {
     if (!intent) {
       // A responsive transition may remove the focused page or region.
       if (document.activeElement === document.body) {
-        (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
+        (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-review-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
       }
       return;
     }
@@ -215,9 +240,12 @@ export default function ApplicationShell(props: Props) {
       root.querySelector<HTMLElement>("[data-shell-terminal-focus]")?.focus({ preventScroll: true });
       props.onFocusTerminal();
     } else {
-      (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
+      (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-review-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
     }
   }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, props.onFocusTerminal]);
+  useLayoutEffect(() => {
+    if (reviewing) rootRef.current?.querySelector<HTMLElement>("[data-shell-review-heading]")?.focus({ preventScroll: true });
+  }, [reviewing]);
 
   useEffect(() => {
     // Hidden terminal presentation has no CenterPanel effect to observe backend loss.
@@ -228,14 +256,15 @@ export default function ApplicationShell(props: Props) {
     for (const [id, visible] of Object.entries({ sessions: showSessions, terminal: showTerminal,
       detail: props.inspector === "details" && (showInspector || temporaryUtility),
       capacity: props.inspector === "capacity" && (showInspector || temporaryUtility),
-      recommendations: props.inspector === "recommendations" && (showInspector || temporaryUtility), review: false })) {
+      recommendations: props.inspector === "recommendations" && (showInspector || temporaryUtility), review: showReview })) {
       window.orkworks.notifyPanelVisibility(id, visible);
     }
-  }, [showSessions, showTerminal, showInspector, temporaryUtility, props.inspector]);
+  }, [showSessions, showTerminal, showInspector, temporaryUtility, props.inspector, showReview]);
 
   const renderUtility = () => {
     if (props.inspector === "details") return <SessionDetailPanel sessions={props.sessions}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
+      onReviewPlan={() => runCommand("review")}
       onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
       onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
       showDebugMetadata={props.debugSettings.showSessionIds} />;
@@ -250,7 +279,7 @@ export default function ApplicationShell(props: Props) {
     {(props.inspector === "capacity" || props.inspector === "recommendations") &&
       <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}
         {props.inspector === "capacity" ? " · All coding tools" : ""}</span>}
-    <button type="button" data-shell-return onClick={closePage}>{temporary ? (props.newSessionContent ? "Back to New session" : "Back to Terminal") : "Close inspector"}</button>
+    <button type="button" data-shell-return onClick={closePage}>{temporary ? (props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : "Close inspector"}</button>
   </header>;
   const columns = [
     ...(layout.sessionsVisible ? [`${layout.sessionsWidth}px`, "6px"] : []),
@@ -280,7 +309,7 @@ export default function ApplicationShell(props: Props) {
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
         <div className="shell-sidebar-top">{workspaceNavigation}</div>
         <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
-          {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>Back to Terminal</button>}
+          {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>{reviewing ? "Back to Review" : "Back to Terminal"}</button>}
         </header>
         <SessionListPanel workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
           unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
@@ -314,7 +343,10 @@ export default function ApplicationShell(props: Props) {
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : session?.harness || "No session selected"}</span></div>
           {!showComposer && canResume && <button type="button" className="shell-resume-button" data-shell-resume
             onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}><Play size={15} aria-hidden="true" />Resume session</button>}
-          {!showTerminal && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
+          {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
+            aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}
+            onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}
+          {(!showTerminal || props.reviewLoading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
         </nav>
         {props.newSessionContent && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{props.newSessionContent}</section>}
@@ -322,6 +354,20 @@ export default function ApplicationShell(props: Props) {
           <TerminalPanel key={`${session?.id ?? "none"}-${props.resumeTick}`} backendStatus={props.backendStatus} session={session}
             onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} />
         </section>}
+        {showReview && <section className="shell-region shell-region--central" aria-label="Review" data-shell-region="review">
+          <header className="shell-region-header">
+            <h2 data-shell-review-heading tabIndex={-1}>Review — {session?.label || "Selected session"}</h2>
+            <button type="button" data-review-return onClick={() => {
+              invokerRef.current = reviewInvoker.current?.element ?? null;
+              invokerSelectorRef.current = reviewInvoker.current?.selector ?? "[data-shell-command=review]";
+              reviewInvoker.current = null;
+              props.onCloseReview?.();
+              requestFocus("return");
+            }}>Back to Terminal</button>
+          </header>
+          {props.reviewContent}
+        </section>}
+        {props.reviewError && !reviewing && <p role="alert">This plan is no longer available.</p>}
         {temporaryUtility && <section className="shell-region shell-region--central" aria-label="Temporary content page" data-shell-region="utility">
           {utilityHeader(true)}{renderUtility()}
         </section>}
