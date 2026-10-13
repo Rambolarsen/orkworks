@@ -92,7 +92,8 @@ export default function ApplicationShell(props: Props) {
   const showSessionsPage = compact && sessionsPage;
   const temporaryUtility = !showSessionsPage && layout.inspectorPage && props.inspector !== null;
   const showComposer = !!props.newSessionContent && !showSessionsPage && !temporaryUtility;
-  const reviewing = props.centralSurface?.kind === "review" && props.centralSurface.sessionId === props.activeSessionId;
+  const reviewing = (props.centralSurface?.kind === "review" && props.centralSurface.sessionId === props.activeSessionId)
+    || (!!props.reviewError && !!props.activeSessionId);
   const showReview = reviewing && !showSessionsPage && !temporaryUtility && !showComposer;
   const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer && !reviewing;
   const showSessions = showSessionsPage || layout.sessionsVisible;
@@ -160,7 +161,6 @@ export default function ApplicationShell(props: Props) {
       props.onInspect(null);
       props.onOpenReview();
     } else if (command === "new-session") {
-      props.onCloseReview?.();
       if (!creationReturn.current) {
         creationReturn.current = { inspector: props.inspector, sessionsPage };
         invokerRef.current = rootRef.current?.querySelector<HTMLElement>("[data-shell-create]") ?? null;
@@ -371,7 +371,6 @@ export default function ApplicationShell(props: Props) {
           </header>
           {props.reviewContent}
         </section>}
-        {props.reviewError && !reviewing && <p role="alert">This plan is no longer available.</p>}
         {temporaryUtility && <section className="shell-region shell-region--central" aria-label="Temporary content page" data-shell-region="utility">
           {utilityHeader(true)}{renderUtility()}
         </section>}

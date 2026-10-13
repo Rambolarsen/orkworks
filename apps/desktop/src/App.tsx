@@ -328,17 +328,19 @@ function App() {
     }
   };
 
+  const acceptReviewResult = (generation: number, persist: boolean) =>
+    workspaceLifecycleRef.current.generation === generation
+      && (!(persist || shellNavigationRef.current.centralSurface.kind !== "review")
+        || navigationIntent.current === reviewLoadIntent.current);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     backendStatus === "connected" && !isSwitchingWorkspace && !!activeSession?.hasOpenablePlan,
     (document, persist) => {
-      if (workspaceLifecycleRef.current.generation !== document.generation
-        || ((persist || shellNavigationRef.current.centralSurface.kind !== "review")
-          && navigationIntent.current !== reviewLoadIntent.current)) return false;
+      if (!acceptReviewResult(document.generation, persist)) return false;
       dispatchShellNavigation({ type: "review-opened", sessionId: document.sessionId,
         artifactId: document.artifactId, generation: document.generation });
       if (persist) void saveNavigation("review");
       return true;
-    });
+    }, (_sessionId, generation, persist) => acceptReviewResult(generation, persist));
   const openReview = useCallback(() => {
     reviewLoadIntent.current = ++navigationIntent.current;
     void review.load();
@@ -852,7 +854,7 @@ function App() {
         reviewError={review.error}
         onNavigate={() => {
           ++navigationIntent.current;
-          if (review.loading && shellNavigation.centralSurface.kind === "terminal") review.close();
+          if (review.loading && !review.error && shellNavigation.centralSurface.kind === "terminal") review.close();
         }}
         onOpenReview={openReview}
         onCloseReview={closeReview}

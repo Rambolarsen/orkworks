@@ -10,7 +10,8 @@ export interface ReviewDocument {
 // The sidecar validates the associated path on every read. Keep only the returned
 // bytes and their digest in renderer memory; navigation memory stores no document.
 export function useSessionReview(sessionId: string | null, generation: number, enabled: boolean,
-  onLoaded: (document: ReviewDocument, persist: boolean) => boolean) {
+  onLoaded: (document: ReviewDocument, persist: boolean) => boolean,
+  onUnavailable: (sessionId: string, generation: number, persist: boolean) => boolean) {
   const [document, setDocument] = useState<ReviewDocument | null>(null);
   const [loading, setLoading] = useState(false);
   const [changed, setChanged] = useState(false);
@@ -24,6 +25,8 @@ export function useSessionReview(sessionId: string | null, generation: number, e
   }
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
+  const onUnavailableRef = useRef(onUnavailable);
+  onUnavailableRef.current = onUnavailable;
   const close = useCallback(() => {
     ++request.current;
     setDocument(null);
@@ -37,7 +40,6 @@ export function useSessionReview(sessionId: string | null, generation: number, e
     if (!sessionId || !enabled) return;
     const token = ++request.current;
     setLoading(true);
-    setError(false);
     // Never retain old document bytes across a refresh that may fail validation.
     setDocument(null);
     try {
@@ -50,8 +52,9 @@ export function useSessionReview(sessionId: string | null, generation: number, e
       setChanged(previousDigest.current !== null && previousDigest.current !== artifactId);
       previousDigest.current = artifactId;
       setDocument(next);
+      setError(false);
     } catch {
-      if (request.current === token) setError(true);
+      if (request.current === token && onUnavailableRef.current(sessionId, generation, persist)) setError(true);
     } finally {
       if (request.current === token) setLoading(false);
     }

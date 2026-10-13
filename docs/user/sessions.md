@@ -97,7 +97,8 @@ history, including in narrow windows. Escape also returns when focus is in the
 Review document or its navigation controls.
 
 Use **Refresh plan** to read the current document again. If it has moved or is
-unreadable, Review clears the old content and offers Retry. Opening, refreshing,
+unreadable, Review clears the old content and offers Retry, including when the
+first read fails. Opening, refreshing,
 closing or restoring Review sends no prompt. For a live session, the separate
 **Request independent review** button explicitly asks its coding tool to review
 the plan, delegating when supported.
