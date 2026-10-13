@@ -10,7 +10,7 @@ export interface ReviewDocument {
 // The sidecar validates the associated path on every read. Keep only the returned
 // bytes and their digest in renderer memory; navigation memory stores no document.
 export function useSessionReview(sessionId: string | null, generation: number, enabled: boolean,
-  onLoaded: (document: ReviewDocument, persist: boolean) => void) {
+  onLoaded: (document: ReviewDocument, persist: boolean) => boolean) {
   const [document, setDocument] = useState<ReviewDocument | null>(null);
   const [loading, setLoading] = useState(false);
   const [changed, setChanged] = useState(false);
@@ -45,11 +45,11 @@ export function useSessionReview(sessionId: string | null, generation: number, e
       const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
       if (request.current !== token) return;
       const artifactId = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      const next = { sessionId, generation, artifactId, content };
+      if (!onLoadedRef.current(next, persist)) return;
       setChanged(previousDigest.current !== null && previousDigest.current !== artifactId);
       previousDigest.current = artifactId;
-      const next = { sessionId, generation, artifactId, content };
       setDocument(next);
-      onLoadedRef.current(next, persist);
     } catch {
       if (request.current === token) setError(true);
     } finally {

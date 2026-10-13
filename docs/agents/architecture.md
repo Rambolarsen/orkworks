@@ -735,7 +735,10 @@ Terminal/history. Validated document bytes remain in renderer memory with a
 content digest and workspace/session binding; refresh replaces that snapshot and
 clears stale content on failure. Opening, refreshing, closing and restoring Review
 never submit a prompt; only Request independent review does. Saved Review
-presentation is revalidated through Electron before restoration. Actions (#805)
+presentation is revalidated through Electron before restoration. Refresh/Retry
+leave navigation recency unchanged. Unreadable navigation memory surfaces a
+diagnostic and the existing Electron-confirmed rebuild path; cancelled recovery
+preserves the record. Actions (#805)
 and gated Workflow navigation remain separate delivery slices.
 
 `TerminalPanel` hosts the active live PTY through `CenterPanel` and xterm.js.

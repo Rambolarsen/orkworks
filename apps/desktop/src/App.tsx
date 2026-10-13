@@ -41,7 +41,7 @@ import { captureRendererHealth, type RendererHealthSample } from "./rendererHeal
 import type { AppSettings } from "./appSettingsTypes";
 import type { CreateSessionOptions } from "./harnessTypes";
 import type { ActiveHarnessSaveResult, BackendLifecycleEvent, InitialWorkspaceSnapshot, IntegrationKey, WorkspaceHistoryDiagnostic } from "./orkworksWindow";
-import type { UpdateStatus } from "./orkworksWindow";
+import type { ShellMemoryDiagnostic, LastCentralSurface, UpdateStatus } from "./orkworksWindow";
 import { shouldEnableSessionPolling, type BackendStatus } from "./backendPollingGate";
 import { probeBackendHealth } from "./backendHealthProbe";
 import { createBackendRetryGuard } from "./backendRetryGuard";
@@ -58,6 +58,8 @@ function App() {
   const navigationIntent = useRef(0);
   const restorationIntent = useRef(0);
   const restorationInProgress = useRef(false);
+  const reviewLoadIntent = useRef(0);
+  const navigationRebuildPending = useRef(false);
   const requestShellCommand = useCallback((command: ShellCommand, reveal = false) => {
     ++navigationIntent.current;
     setShellCommandRequest(previous => ({ command, sequence: (previous?.sequence ?? 0) + 1, reveal }));
@@ -74,6 +76,8 @@ function App() {
   const [unreadState, setUnreadState] = useState<UnreadState>(EMPTY_UNREAD_STATE);
   const [workspace, setWorkspaceState] = useState<WorkspaceInfo | null>(null);
   const [workspaceHistoryDiagnostic, setWorkspaceHistoryDiagnostic] = useState<WorkspaceHistoryDiagnostic | null>(null);
+  const [navigationDiagnostic, setNavigationDiagnostic] = useState<ShellMemoryDiagnostic | null>(null);
+  const [navigationRebuilding, setNavigationRebuilding] = useState(false);
   const [workspaceSwitchDiagnostic, setWorkspaceSwitchDiagnostic] = useState<string | null>(null);
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -154,6 +158,8 @@ function App() {
       readyGeneration: event.state === "ready" ? generation : workspaceLifecycleRef.current.readyGeneration,
     };
     cancelNewSession();
+    setNavigationDiagnostic(null);
+    setNavigationRebuilding(false);
     setEmptyComposerDismissed(false);
     setProviderRuntime(null);
     dispatchShellNavigation({ type: "workspace-generation-changed", generation });
@@ -294,24 +300,59 @@ function App() {
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
   const activeSession = sessions.find((session) => session.id === activeSessionId);
 
+  const saveNavigation = useCallback(async (surface: LastCentralSurface) => {
+    if (!workspaceSessionController.isAdmissionEnabled()) return;
+    const generation = workspaceLifecycleRef.current.generation;
+    try {
+      const result = await window.orkworks.completeWorkspaceNavigation(surface);
+      if (workspaceLifecycleRef.current.generation === generation) setNavigationDiagnostic(result.ok ? null : result.diagnostic);
+    } catch {
+      if (workspaceLifecycleRef.current.generation === generation) setNavigationDiagnostic("write_failed");
+    }
+  }, [workspaceSessionController]);
+  const rebuildNavigation = async () => {
+    if (navigationRebuildPending.current) return;
+    navigationRebuildPending.current = true;
+    const generation = workspaceLifecycleRef.current.generation;
+    setNavigationRebuilding(true);
+    try {
+      const result = await window.orkworks.rebuildWorkspaceNavigation();
+      if (workspaceLifecycleRef.current.generation !== generation) return;
+      if (result.ok) setNavigationDiagnostic(null);
+      else if (result.diagnostic !== "user_cancelled") setNavigationDiagnostic(result.diagnostic);
+    } catch {
+      if (workspaceLifecycleRef.current.generation === generation) setNavigationDiagnostic("restore_failed");
+    } finally {
+      navigationRebuildPending.current = false;
+      if (workspaceLifecycleRef.current.generation === generation) setNavigationRebuilding(false);
+    }
+  };
+
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     backendStatus === "connected" && !isSwitchingWorkspace && !!activeSession?.hasOpenablePlan,
     (document, persist) => {
-      if (workspaceLifecycleRef.current.generation !== document.generation) return;
+      if (workspaceLifecycleRef.current.generation !== document.generation
+        || ((persist || shellNavigationRef.current.centralSurface.kind !== "review")
+          && navigationIntent.current !== reviewLoadIntent.current)) return false;
       dispatchShellNavigation({ type: "review-opened", sessionId: document.sessionId,
         artifactId: document.artifactId, generation: document.generation });
-      if (persist) void window.orkworks.completeWorkspaceNavigation("review").catch(() => {});
+      if (persist) void saveNavigation("review");
+      return true;
     });
   const openReview = useCallback(() => {
-    ++navigationIntent.current;
+    reviewLoadIntent.current = ++navigationIntent.current;
     void review.load();
+  }, [review.load]);
+  const refreshReview = useCallback(() => {
+    reviewLoadIntent.current = ++navigationIntent.current;
+    void review.load(false);
   }, [review.load]);
   const closeReview = useCallback(() => {
     ++navigationIntent.current;
     review.close();
     dispatchShellNavigation({ type: "review-closed", generation: workspaceLifecycleRef.current.generation });
-    void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
-  }, [review.close]);
+    void saveNavigation("terminal");
+  }, [review.close, saveNavigation]);
   useEffect(() => {
     if (shellNavigation.centralSurface.kind === "review" && !activeSession?.hasOpenablePlan) {
       dispatchShellNavigation({ type: "target-missing", target: { kind: "artifact",
@@ -331,11 +372,15 @@ function App() {
     void window.orkworks.getWorkspaceNavigation().then(saved => {
       if (workspaceLifecycleRef.current.generation !== generation || navigationIntent.current !== intent
         || shellNavigationRef.current.activeSessionId !== sessionId) return;
+      setNavigationDiagnostic(saved.diagnostic);
+      if (saved.diagnostic) return;
       if (saved.lastCentralSurface === "review") {
-        if (activeSession.hasOpenablePlan) void review.load(false);
+        if (activeSession.hasOpenablePlan) { reviewLoadIntent.current = intent; void review.load(false); }
         else dispatchShellNavigation({ type: "preferences-restored", surface: "review", artifactId: null, generation });
       }
-    }).catch(() => {});
+    }).catch(() => {
+      if (workspaceLifecycleRef.current.generation === generation) setNavigationDiagnostic("restore_failed");
+    });
   }, [backendStatus, workspace, activeSession, shellNavigation.workspaceGeneration, review.load]);
 
   useEffect(() => {
@@ -478,9 +523,9 @@ function App() {
       sessionId: id,
       generation: workspaceLifecycleRef.current.generation,
     });
-    void window.orkworks.completeWorkspaceNavigation("terminal").catch(() => {});
+    void saveNavigation("terminal");
     setUnreadState((prev) => acknowledgeSession(clearUnread(prev, id), id));
-  }, [workspaceSessionController, review.close]);
+  }, [workspaceSessionController, review.close, saveNavigation]);
 
   const handleFixWithAi = useCallback((recommendation: WorkflowRecommendation) => {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
@@ -781,6 +826,13 @@ function App() {
       )}
       <ShellPreferencesNotice migrationNotice={shellMigrationNotice} needsRebuild={shellNeedsRebuild}
         dismissMigrationNotice={dismissMigrationNotice} onCommand={requestShellCommand} />
+      {navigationDiagnostic && <div className="shell-preferences-notice" role="alert">
+        <span>{navigationDiagnostic === "corrupt_record" || navigationDiagnostic === "unsupported_version"
+          ? "Saved navigation could not be read. The current view remains available; rebuild requires confirmation."
+          : "Navigation could not be saved or restored. The current view remains available."}</span>
+        {(navigationDiagnostic === "corrupt_record" || navigationDiagnostic === "unsupported_version") &&
+          <button type="button" data-rebuild-navigation disabled={navigationRebuilding} onClick={() => void rebuildNavigation()}>Rebuild navigation…</button>}
+      </div>}
       <ApplicationShell
         backendStatus={backendStatus}
         workspace={workspace}
@@ -807,7 +859,7 @@ function App() {
         reviewContent={activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}`}
           sessionId={activeSessionId} content={review.document?.content ?? null} loading={review.loading}
           error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && activeSession?.lifecycle === "alive"}
-          onRefresh={openReview} /> : null}
+          onRefresh={refreshReview} /> : null}
         workspaceGeneration={shellNavigation.workspaceGeneration}
         visibleSubjectId={shellNavigation.inspectedSubject && shellNavigation.inspectedSubject.kind !== "workspace"
           ? shellNavigation.inspectedSubject.sessionId

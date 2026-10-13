@@ -131,6 +131,13 @@ export default function ApplicationShell(props: Props) {
     props.onInspect(null);
     requestFocus("return");
   };
+  const closeReviewPage = () => {
+    invokerRef.current = reviewInvoker.current?.element ?? null;
+    invokerSelectorRef.current = reviewInvoker.current?.selector ?? "[data-shell-command=review]";
+    reviewInvoker.current = null;
+    props.onCloseReview?.();
+    requestFocus("return");
+  };
   const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
     props.onNavigate?.();
     const intent = ++navigationIntent.current;
@@ -299,11 +306,14 @@ export default function ApplicationShell(props: Props) {
   </>;
   return <div ref={rootRef} className="shell-layout" data-mode={layout.mode} data-density={props.preferences.density}
     onKeyDown={event => {
-      if (event.key !== "Escape" || (!showSessionsPage && !temporaryUtility)) return;
-      // This handler only owns temporary-page navigation, never terminal input or modal Escape.
+      if (event.key !== "Escape" || (!showSessionsPage && !temporaryUtility && !showReview)) return;
+      // This handler owns document/temporary-page return, never terminal input or modal Escape.
       if ((event.target as Element).closest("[role=dialog], [data-shell-region=terminal], .shell-navigation-menu")) return;
       if ((event.target as Element).closest(".workspace-history-dropdown")?.querySelector(".workspace-history-panel")) return;
-      event.preventDefault(); event.stopPropagation(); closePage();
+      if (showReview && !(event.target as Element).closest("[data-shell-region=review], .shell-toolbar")) return;
+      event.preventDefault(); event.stopPropagation();
+      if (showReview) closeReviewPage();
+      else closePage();
     }}>
     <div className="shell-grid" style={{ gridTemplateColumns: compact ? "minmax(0, 1fr)" : columns.join(" ") }}>
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
@@ -357,13 +367,7 @@ export default function ApplicationShell(props: Props) {
         {showReview && <section className="shell-region shell-region--central" aria-label="Review" data-shell-region="review">
           <header className="shell-region-header">
             <h2 data-shell-review-heading tabIndex={-1}>Review — {session?.label || "Selected session"}</h2>
-            <button type="button" data-review-return onClick={() => {
-              invokerRef.current = reviewInvoker.current?.element ?? null;
-              invokerSelectorRef.current = reviewInvoker.current?.selector ?? "[data-shell-command=review]";
-              reviewInvoker.current = null;
-              props.onCloseReview?.();
-              requestFocus("return");
-            }}>Back to Terminal</button>
+            <button type="button" data-review-return onClick={closeReviewPage}>Back to Terminal</button>
           </header>
           {props.reviewContent}
         </section>}

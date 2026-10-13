@@ -26,7 +26,7 @@ were using.
 | --- | --- | --- |
 | Remember where the shell was and which central view was open | [#778](https://github.com/Rambolarsen/orkworks/issues/778) | Delivered in [PR #784](https://github.com/Rambolarsen/orkworks/pull/784) |
 | Replace movable panels with a fixed, resizable shell | [#779](https://github.com/Rambolarsen/orkworks/issues/779) | Delivered in [PR #796](https://github.com/Rambolarsen/orkworks/pull/796); native validation remains tracked in #836 |
-| Open Review and return to the same terminal | [#780](https://github.com/Rambolarsen/orkworks/issues/780) | Open |
+| Open Review and return to the same terminal | [#780](https://github.com/Rambolarsen/orkworks/issues/780) | Implementation in [PR #849](https://github.com/Rambolarsen/orkworks/pull/849) |
 | See ordinary actions, separate counts, and the next item to inspect | [#805](https://github.com/Rambolarsen/orkworks/issues/805) | Open |
 
 The shell foundation in #779 comes first. After that, Review (#780) and Actions

@@ -93,13 +93,18 @@ In current source builds, select a session with an associated readable plan or
 specification, then choose **Review** in the content header or View menu, or
 **Review plan** in Details. The document replaces the terminal in the main work
 area. **Back to Terminal** returns to the same session's terminal or saved
-history, including in narrow windows.
+history, including in narrow windows. Escape also returns when focus is in the
+Review document or its navigation controls.
 
 Use **Refresh plan** to read the current document again. If it has moved or is
 unreadable, Review clears the old content and offers Retry. Opening, refreshing,
 closing or restoring Review sends no prompt. For a live session, the separate
 **Request independent review** button explicitly asks its coding tool to review
 the plan, delegating when supported.
+
+If saved navigation cannot be read, the shell explains the problem and offers
+**Rebuild navigation…** for a corrupt or unsupported record. Rebuilding requires
+native confirmation; cancelling keeps the saved record intact.
 
 Published installers may still use the earlier Review tab; these instructions
 describe current source behavior.

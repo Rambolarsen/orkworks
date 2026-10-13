@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { FileText, GitBranch, MessageCircle } from "lucide-react";
 import { getSessionWorkflowObservations, getSummaryLog } from "../api";
@@ -48,6 +48,7 @@ interface SessionDetailPanelProps {
 function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewPlan, onOpenRecommendation }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
+  const pendingReviews = useRef(new Set<string>());
   const [reviewingSessionId, setReviewingSessionId] = useState<string | null>(null);
   const [summaryLog, setSummaryLog] = useState<SummaryLogEntry[]>([]);
   const [summaryLogSessionId, setSummaryLogSessionId] = useState<string | null>(null);
@@ -202,11 +203,15 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, onResumeSes
                   className={`resume-option${reviewingSessionId === active.id ? " resume-option--unavailable" : ""}`}
                   disabled={reviewingSessionId === active.id}
                   onClick={() => {
-                    if (reviewingSessionId === active.id) return;
+                    if (pendingReviews.current.has(active.id)) return;
+                    pendingReviews.current.add(active.id);
                     setReviewingSessionId(active.id);
                     void window.orkworks.requestPlanReview(active.id)
                       .catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Couldn't request review."))
-                      .finally(() => setReviewingSessionId((id) => id === active.id ? null : id));
+                      .finally(() => {
+                        pendingReviews.current.delete(active.id);
+                        setReviewingSessionId((id) => id === active.id ? null : id);
+                      });
                   }}
                 >
                   <span className="resume-option-icon"><MessageCircle size={14} aria-hidden="true" /></span>
