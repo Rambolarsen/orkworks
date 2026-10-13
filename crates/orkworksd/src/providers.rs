@@ -6171,11 +6171,27 @@ done
         definition.default_args = vec![
             "-c".into(),
             format!(
-                "printf '%s|%s|%s' \"$1\" \"$2\" \"$3\" > '{}' && printf '%s' '{{\"observedStatus\":\"working\",\"confidence\":0.9}}'",
+                "cat >/dev/null && printf '%s|%s|%s' \"$1\" \"$2\" \"$3\" > '{}' && printf '%s' '{{\"observedStatus\":\"working\",\"confidence\":0.9}}'",
                 capture_path.display()
             ),
             "provider".into(),
         ];
+        // Exceed the pipe buffer so this fixture must read its prompt instead of
+        // succeeding only when the writer happens to beat an early child exit.
+        let input_probe = ProcessRunner.run(
+            "fixture",
+            &definition.command,
+            &definition.default_args,
+            &"x".repeat(2 * 1024 * 1024),
+            5,
+            None,
+        );
+        assert!(
+            input_probe.success,
+            "provider fixture must drain stdin before exit: {}",
+            input_probe.stderr
+        );
+
         let mut manager = ProviderManager::for_tests_with_registry(
             vec![definition],
             ProviderSettingsPayload::default(),
