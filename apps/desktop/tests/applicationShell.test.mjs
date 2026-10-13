@@ -6,7 +6,10 @@ if (process.versions.electron) {
   app.disableHardwareAcceleration();
   app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: false, width: 1280, height: 700 });
-    const evaluate = (source) => win.webContents.executeJavaScript(source);
+    const evaluate = async (source) => {
+      try { return await win.webContents.executeJavaScript(source); }
+      catch (error) { throw new Error(`Renderer evaluation failed: ${source}`, { cause: error }); }
+    };
     const waitFor = async (source) => {
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
