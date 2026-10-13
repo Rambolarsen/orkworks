@@ -81,6 +81,7 @@ jobs:
               - 'apps/desktop/tests/taskmasterSettings.test.ts'
               - 'apps/desktop/package.json'
               - 'apps/desktop/pnpm-lock.yaml'
+              - 'apps/desktop/pnpm-workspace.yaml'
               - 'apps/desktop/.npmrc'
               - 'apps/desktop/scripts/setup-electron.mjs'
               - 'tests/fixtures/taskmaster-knowledge/**'
