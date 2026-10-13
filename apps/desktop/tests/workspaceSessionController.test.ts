@@ -135,7 +135,7 @@ test("publishes a newly created session alongside the current snapshot before th
   await controller.refreshSessions();
   snapshots.length = 0;
 
-  await controller.createSession({} satisfies CreateSessionOptions);
+  assert.equal(await controller.createSession({} satisfies CreateSessionOptions), true);
 
   assert.equal(listCalls, 1);
   assert.deepEqual(snapshots.map((ids) => ids.sort()), [["created", "existing"]]);
@@ -390,5 +390,38 @@ test("foreground session submission returns stale after admission closes during 
   submission.resolve();
 
   assert.equal(await handoff, false);
+  controller.dispose();
+});
+
+test("failed session creation reports failure so the composer can preserve its draft", async () => {
+  const errors: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({ createSession: async () => { throw new Error("offline"); } }),
+    onError: error => errors.push(error.message),
+    scheduler: scheduler().scheduler,
+  });
+  assert.equal(await controller.createSession({}), false);
+  assert.equal(errors.length, 1);
+  controller.dispose();
+});
+
+test("leaving creation keeps the created session in history without changing the current selection", async () => {
+  const response = deferred<SessionInfo>();
+  const selected: Array<string | null> = [];
+  const snapshots: string[][] = [];
+  let stillCreating = true;
+  const controller = createWorkspaceSessionController({
+    deps: deps({ createSession: () => response.promise }),
+    onActiveSession: id => selected.push(id),
+    onSessions: sessions => snapshots.push(sessions.map(session => session.id)),
+    scheduler: scheduler().scheduler,
+  });
+  const creating = controller.createSession({}, () => stillCreating);
+  controller.selectSession("existing");
+  stillCreating = false;
+  response.resolve(session("created"));
+  assert.equal(await creating, true);
+  assert.deepEqual(selected, ["existing"]);
+  assert.deepEqual(snapshots, [["created"]]);
   controller.dispose();
 });

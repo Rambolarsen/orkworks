@@ -52,7 +52,7 @@ export interface WorkspaceSessionController {
   openWorkspace(path: string): Promise<void>;
   adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void>;
   refreshSessions(): Promise<readonly SessionInfo[] | null>;
-  createSession(options: CreateSessionOptions): Promise<void>;
+  createSession(options: CreateSessionOptions, shouldSelect?: () => boolean): Promise<boolean>;
   resumeSession(id: string): Promise<void>;
   submitActiveSession(id: string, admissionToken?: number | null): Promise<boolean>;
   selectSession(id: string): boolean;
@@ -213,21 +213,25 @@ export function createWorkspaceSessionController(
     }
   }
 
-  async function createSession(optionsForCreate: CreateSessionOptions): Promise<void> {
+  async function createSession(optionsForCreate: CreateSessionOptions, shouldSelect: () => boolean = () => true): Promise<boolean> {
     const admissionToken = requireAdmission();
     const token = ++foregroundGeneration;
     try {
       const baseUrl = await deps.getBackendUrl();
       const created = await deps.createSession(baseUrl, optionsForCreate);
-      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
+      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return false;
       pendingCreateIds = trackPendingCreate(pendingCreateIds, created.id);
       const [next, nextLastResortAt] = mergeSessionsById(sessions, [...sessions, created], lastResortAt, new Date());
       lastResortAt = nextLastResortAt;
       publishSessions(next);
-      activeSessionId = created.id;
-      options.onActiveSession?.(created.id);
+      if (shouldSelect()) {
+        activeSessionId = created.id;
+        options.onActiveSession?.(created.id);
+      }
+      return true;
     } catch {
       if (isCurrent(token)) publishError("create", "Couldn't start a new session.");
+      return false;
     }
   }
 

@@ -98,7 +98,7 @@ orkworks/
 - `nodeIntegration: false`, `contextIsolation: true`
 - Desktop UI uses fixed, resizable Sessions, Terminal, and inspector regions; Capacity is a non-Providers stub surface
 - The retained Review component renders Markdown via `react-markdown`/`remark-gfm`; its new shell destination is deferred to #780
-- New agent sessions can be launched with a selected coding tool, optional model override, and optional initial prompt; harness definitions resolve from embedded built-ins plus sparse versioned overrides in `~/.orkworks/harnesses.json`
+- Current source builds create agent sessions in the main pane, also used for empty workspaces, with a selected coding tool, optional model override, and optional initial prompt; harness definitions resolve from embedded built-ins plus sparse versioned overrides in `~/.orkworks/harnesses.json`
 - Antigravity CLI is the supported Google coding tool (`agy`); retired Gemini CLI records and settings remain readable for compatibility but cannot start new sessions
 - Session labels are stable topics, re-seeded only after a harness-declared fresh-conversation command; delayed old-topic inference cannot overwrite the reset placeholder (ADR 0040)
 - The installation remembers canonical workspace paths in path-only history; the last path is a startup hint, while repo-local session restore remains scoped to the one workspace adopted by that instance

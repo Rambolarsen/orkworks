@@ -8,7 +8,7 @@ import { canStartNewSession, detectedSelectableHarnesses, syncDraftWithHarnesses
 interface NewSessionDialogProps {
   harnesses: HarnessConfig[];
   providerRuntime: ProviderRuntimeResponse | null;
-  onConfirm: (opts: CreateSessionOptions) => void;
+  onConfirm: (opts: CreateSessionOptions) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -63,7 +63,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   const [initialPrompt, setInitialPrompt] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [confirmBusy, setConfirmBusy] = useState(false);
-  const harnessSelectRef = useRef<HTMLSelectElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const confirmationGeneration = useRef(0);
   const handleCancel = useCallback(() => {
     confirmationGeneration.current += 1;
@@ -102,19 +102,9 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
   }, [harnessesKey]);
 
   useEffect(() => {
-    harnessSelectRef.current?.focus();
+    promptRef.current?.focus();
+    return () => { confirmationGeneration.current += 1; };
   }, []);
-
-  useEffect(() => {
-    function onDocKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        handleCancel();
-      }
-    }
-    document.addEventListener("keydown", onDocKeyDown);
-    return () => document.removeEventListener("keydown", onDocKeyDown);
-  }, [handleCancel]);
 
   useEffect(() => {
     if (!detectionComplete) return;
@@ -177,7 +167,7 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
       if (harnessId) localStorage.setItem(LS_HARNESS_KEY, harnessId);
       if (model) localStorage.setItem(LS_MODEL_KEY, model);
       else localStorage.removeItem(LS_MODEL_KEY);
-      onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
+      await onConfirm({ harnessId, model, initialPrompt: initialPrompt.trim() || undefined });
     } finally {
       if (generation === confirmationGeneration.current) setConfirmBusy(false);
     }
@@ -192,89 +182,79 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
       }
       return;
     }
-    if (e.key === "Tab") {
-      const container = e.currentTarget as HTMLElement;
-      const focusable = container.querySelectorAll<HTMLElement>(
-        "select:not([disabled]), input:not([disabled]), textarea:not([disabled]), button:not([disabled])"
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      handleCancel();
     }
   }
 
   return (
-    <div className="new-session-backdrop" role="presentation" onKeyDown={handleKeyDown}>
-      <section className="new-session-dialog" role="dialog" aria-modal="true" aria-labelledby="new-session-title">
+    <section className="new-session-composer" aria-labelledby="new-session-title" onKeyDown={handleKeyDown}>
+      <div className="new-session-composer-card">
         <header className="new-session-header">
           <h2 id="new-session-title">New agent session</h2>
         </header>
 
         <div className="new-session-body">
-          <div className="new-session-row">
-            <label className="new-session-label" htmlFor="nsd-harness">Coding tool</label>
-            <select
-              ref={harnessSelectRef}
-              id="nsd-harness"
-              className="new-session-select"
-              value={draft.harnessId}
-              onChange={(e) => handleHarnessChange(e.target.value)}
-              disabled={confirmBusy || (selectable.length === 0 && !pendingHarness)}
-            >
-              {selectable.length === 0 && !pendingHarness ? (
-                <option value="">Default shell</option>
-              ) : (
-                <>
-                {pendingHarness && (
-                  <option value={pendingHarness.id} disabled>
-                    {pendingHarness.name} (checking availability…)
-                  </option>
-                )}
-                {selectable.map((h) => {
-                  const state = providerRuntime?.providers.find((p) => p.id === h.id)?.effectiveState;
-                  return <option key={h.id} value={h.id}>{harnessLabel(h.name, state)}</option>;
-                })}
-                </>
-              )}
-            </select>
-          </div>
-
-          <div className="new-session-row">
-            <label className="new-session-label" htmlFor="nsd-model">Model</label>
-            <input
-              key={draft.harnessId}
-              id="nsd-model"
-              className="new-session-input"
-              type="text"
-              list="nsd-model-suggestions"
-              defaultValue={draft.model}
-              onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
-              placeholder="default"
-            />
-            <datalist id="nsd-model-suggestions">
-              {models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </div>
-
           <div className="new-session-row new-session-row--prompt">
             <label className="new-session-label" htmlFor="nsd-prompt">Initial prompt</label>
             <textarea
+              ref={promptRef}
               id="nsd-prompt"
               className="new-session-textarea"
               value={initialPrompt}
               onChange={(e) => setInitialPrompt(e.target.value)}
               placeholder="Optional - sent when the agent session starts"
-              rows={3}
+              rows={7}
             />
+          </div>
+          <div className="new-session-controls">
+            <div className="new-session-row">
+              <label className="new-session-label" htmlFor="nsd-harness">Coding tool</label>
+              <select
+                id="nsd-harness"
+                className="new-session-select"
+                value={draft.harnessId}
+                onChange={(e) => handleHarnessChange(e.target.value)}
+                disabled={confirmBusy || (selectable.length === 0 && !pendingHarness)}
+              >
+                {selectable.length === 0 && !pendingHarness ? (
+                  <option value="">Default shell</option>
+                ) : (
+                  <>
+                  {pendingHarness && (
+                    <option value={pendingHarness.id} disabled>
+                      {pendingHarness.name} (checking availability…)
+                    </option>
+                  )}
+                  {selectable.map((h) => {
+                    const state = providerRuntime?.providers.find((p) => p.id === h.id)?.effectiveState;
+                    return <option key={h.id} value={h.id}>{harnessLabel(h.name, state)}</option>;
+                  })}
+                  </>
+                )}
+              </select>
+            </div>
+
+            <div className="new-session-row">
+              <label className="new-session-label" htmlFor="nsd-model">Model</label>
+              <input
+                key={draft.harnessId}
+                id="nsd-model"
+                className="new-session-input"
+                type="text"
+                list="nsd-model-suggestions"
+                defaultValue={draft.model}
+                onChange={(e) => setDraft((current) => ({ ...current, model: e.target.value }))}
+                placeholder="default"
+              />
+              <datalist id="nsd-model-suggestions">
+                {models.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </div>
           </div>
         </div>
 
@@ -286,10 +266,10 @@ export default function NewSessionDialog({ harnesses, providerRuntime, onConfirm
             onClick={handleConfirm}
             disabled={confirmBusy || !canStartNewSession(selectable, draft.harnessId, detectedHarnessIds)}
           >
-            Start
+            {confirmBusy ? "Starting…" : "Start"}
           </button>
         </footer>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }

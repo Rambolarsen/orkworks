@@ -71,12 +71,17 @@ menu keyboard shortcuts remain available while it is hidden.
 1. Open or add a workspace: a Git repository you want to work in.
 2. Open **Settings** and review **Coding tools**. Enable the tool you installed
    and check its detection status.
-3. Create a new session, choose the tool and working directory, and give it a
-   small task you can verify.
+3. Choose **New session**, enter a small task you can verify, select the coding
+   tool and optional model, then choose **Start**. The session uses the active
+   workspace.
 4. Work in the embedded terminal as usual. The sessions list and Details panel
    keep the session’s context nearby.
 5. To enable AI observation, configure a model provider and Peon selection in
    Settings. Check that the provider works before relying on its summaries.
+
+Current source builds show session creation in the main content pane, including
+when the workspace has no sessions. Published installers may still use a popup.
+**Cancel** returns to the previous view.
 
 Add another session when you have separate work. Select a session to focus
 its terminal; switching does not stop the others while the backend is alive.

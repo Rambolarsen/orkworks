@@ -23,7 +23,27 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario.startsWith('preferences-')) {
+      if (scenario === 'app-new-session') {
+        await waitFor('document.querySelector("[data-shell-region=new-session] textarea")');
+        assert.equal(await evaluate('fixture.posts'),0,'empty workspace never launches automatically');
+        assert.equal(await evaluate('!!document.querySelector("[role=dialog]")'),false);
+        await evaluate(`(()=>{const prompt=document.querySelector('#nsd-prompt');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(prompt,'My initial task');prompt.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await evaluate('fixture.failCreation=true;document.querySelector(".new-session-confirm").click()');
+        await waitFor('fixture.posts===1&&!document.querySelector(".new-session-confirm").disabled');
+        assert.equal(await evaluate('document.querySelector("#nsd-prompt").value'),'My initial task','failed creation retains the prompt');
+        await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/other",workspaceIdentity:"/tmp/other",lastActiveSessionId:null,activeHarnessIds:["generic-shell"]},historyDiagnostic:null})');
+        await waitFor('document.querySelector("#nsd-prompt").value===""');
+        await evaluate('document.querySelector(".new-session-cancel").click()');
+        await waitFor('!document.querySelector("[data-shell-region=new-session]")');
+        await evaluate('fixture.menu({action:"new-session"})');
+        await waitFor('document.querySelector("#nsd-prompt")');
+        await evaluate('fixture.failCreation=false;document.querySelector(".new-session-confirm").click()');
+        await waitFor('document.querySelector("[data-shell-region=terminal]")');
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        assert.equal(await evaluate('fixture.posts'),2);
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario.startsWith('preferences-')) {
         if (scenario === 'preferences-migration') {
           await waitFor('document.querySelector(".shell-preferences-notice [type=button]")');
           assert.match(await evaluate('document.querySelector("[role=status]").textContent'),/saved panel arrangement is retained/);
@@ -72,6 +92,59 @@ if (process.versions.electron) {
           await evaluate('fixture.setEmpty(true)');
           await waitFor('document.querySelector(".shell-context h1").textContent==="Terminal"');
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false);
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
+        } else if (scenario === 'new-session') {
+          await evaluate('fixture.originalRuntime=fixture.runtime();document.querySelector("[data-shell-create]").click()');
+          await waitFor('document.querySelector("[data-shell-region=new-session] textarea")');
+          assert.equal(await evaluate('!!document.querySelector("[role=dialog]")'),false);
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true);
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal]")'),false);
+          await waitFor('document.activeElement.id==="nsd-prompt"');
+          if (process.env.ORKWORKS_CAPTURE_COMPOSER) {
+            const {writeFileSync} = await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_COMPOSER+'-wide.png',(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('fixture.output("while composing\\r\\n")');
+          await evaluate('document.querySelector(".new-session-cancel").click()');
+          await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+          assert.equal(await evaluate('fixture.runtime()===fixture.originalRuntime'),true);
+          assert.equal(await evaluate('fixture.socketCount'),1);
+          await evaluate('document.querySelector("[data-shell-create]").click()');
+          await waitFor('document.querySelector("[data-shell-region=new-session]")');
+          await click('terminal');
+          await waitFor('document.querySelector("[data-shell-region=terminal]")');
+          await evaluate('document.querySelector("[data-shell-create]").click()');
+          await waitFor('document.querySelector("[data-shell-region=new-session]")');
+          await evaluate('document.querySelector(".new-session-confirm").click()');
+          await waitFor('fixture.submitted');
+          assert.equal(await evaluate('document.querySelector(".new-session-confirm").disabled'),true,'pending creation cannot be submitted twice');
+          await evaluate('fixture.resolveCreate()');
+          await waitFor('document.querySelector("[data-shell-region=terminal]")');
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await evaluate('document.querySelector("[data-shell-create]").click()');
+          await waitFor('document.querySelector("[data-shell-region=new-session]")&&!document.querySelector("[data-shell-region=inspector]")');
+          await evaluate('document.querySelector(".new-session-cancel").click()');
+          await waitFor('document.querySelector("[data-shell-region=inspector]")');
+          await click('details');
+          await evaluate('document.querySelector("[data-shell-create]").click()');
+          await waitFor('document.querySelector("[data-shell-region=new-session]")');
+          await evaluate(`(()=>{const prompt=document.querySelector('#nsd-prompt');const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;set.call(prompt,'Keep this draft');prompt.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await click('sessions');
+          await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await click('sessions');
+          await waitFor('document.querySelector("[data-shell-region=new-session]")?.getClientRects().length');
+          assert.equal(await evaluate('document.querySelector("#nsd-prompt").value'),'Keep this draft','compact session browsing preserves the draft');
+          const bounds = await evaluate(`(()=>{const prompt=document.querySelector('#nsd-prompt').getBoundingClientRect();const model=document.querySelector('#nsd-model').getBoundingClientRect();const start=document.querySelector('.new-session-confirm').getBoundingClientRect();return {promptRight:prompt.right,modelRight:model.right,startBottom:start.bottom,width:innerWidth,height:innerHeight};})()`);
+          assert.ok(bounds.promptRight<=bounds.width && bounds.modelRight<=bounds.width && bounds.startBottom<=bounds.height,'compact composer controls stay inside the viewport');
+          if (process.env.ORKWORKS_CAPTURE_COMPOSER) {
+            const {writeFileSync} = await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_COMPOSER+'-compact.png',(await win.webContents.capturePage()).toPNG());
+          }
+          await evaluate('fixture.advanceWorkspace()');
+          await waitFor('document.querySelector("#nsd-prompt").value===""');
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'sidebar-controls') {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions] [data-shell-command=capacity]")'),true,'workspace navigation belongs to the sidebar');
@@ -409,7 +482,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['resume-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -419,6 +492,8 @@ if (process.versions.electron) {
           import React, {useState} from 'react';
           import {createRoot} from 'react-dom/client';
           import ApplicationShell from './src/components/ApplicationShell';
+          import App from './src/App';
+          import NewSessionDialog from './src/components/NewSessionDialog';
           import {WorkspaceHistoryDropdown} from './src/components/WorkspaceHistoryDropdown';
           import ShellPreferencesNotice from './src/components/ShellPreferencesNotice';
           import {useShellPreferences} from './src/useShellPreferences';
@@ -449,11 +524,38 @@ if (process.versions.electron) {
             resetShellLayout:async()=>{fixture.resetCalls++;return {ok:false}},
             rebuildShellLayout:async()=>{fixture.rebuildCalls++;if(fixture.cancelRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.snapshot.diagnostic=null;return {ok:true}}
           });
+          if (${JSON.stringify(scenario)}==='app-new-session') {
+            fixture.posts=0;fixture.sessionList=[];
+            fixture.runtime=()=>getTerminal('created');
+            Object.assign(window.orkworks,{
+              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
+              onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
+              getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
+              getSettings:async()=>({debug:{showSessionIds:false,rendererHealthLogMs:0}}),
+              getProviderModels:async()=>({models:[]}),completeWorkspaceNavigation:async()=>({ok:true}),
+            });
+            window.fetch=async (url,options={})=>{
+              const path=new URL(url).pathname;
+              const response=value=>({ok:true,status:200,json:async()=>value});
+              if(path==='/sessions' && options.method==='POST'){
+                fixture.posts++;
+                if(fixture.failCreation)return {ok:false,status:500};
+                const created={id:'created',label:'created',harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none'};
+                fixture.sessionList=[created];return response(created);
+              }
+              if(path==='/sessions')return response(fixture.sessionList);
+              if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
+              if(path==='/providers')return response({providers:[],appliedRevision:null});
+              if(path==='/workspace/active-session')return response({});
+              throw new Error('Unexpected fixture request '+path);
+            };
+          }
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
             const [sessionState,setSessionState]=useState({});fixture.setSessionState=setSessionState;fixture.resumed??=[];
             const [inspector,setInspector]=useState(null);
+            const [creating,setCreating]=useState(false);fixture.setCreating=setCreating;
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
             const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>setGeneration(n=>n+1);
             const [backendStatus,setBackendStatus]=useState('connected');
@@ -465,17 +567,20 @@ if (process.versions.electron) {
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});
             return <ApplicationShell sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
-              workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>fixture.sessionsCreated++} activeSessionId={activeSessionId} workspaceGeneration={generation}
-              backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
+              workspace={{path:'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={()=>fixture.settingsOpened++} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
+              newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
+              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
               inspector={inspector} onInspect={setInspector} unreadIds={new Set()} acknowledgedIds={new Set()}
               onResumeSession={id=>fixture.resumed.push(id)} onSelectSession={id=>{fixture.selections++;setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
-          createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:<Harness/>);
+          createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}==='app-new-session'?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
         bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser',
         define: { 'process.env.NODE_ENV': '"development"' },
         plugins: [{ name: 'lifecycle-fixture', setup(builder) {
+          builder.onResolve({filter:/icon-dark\.svg\?no-inline$/},()=>({path:'icon',namespace:'fixture-icon'}));
+          builder.onLoad({filter:/.*/,namespace:'fixture-icon'},()=>({contents:'export default \"data:image/svg+xml,<svg/>\"',loader:'js'}));
           builder.onResolve({filter:/^@xterm\/addon-webgl$/},()=>({path:'webgl',namespace:'no-gpu'}));
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.

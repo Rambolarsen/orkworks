@@ -11,6 +11,15 @@ Start with one session, then add another when you have independent work to do.
 The sessions list keeps their coding tools and attention states visible while
 you work in one terminal at a time.
 
+## Create a session
+
+In current source builds, **New session** opens a composer in the main pane.
+Enter an optional initial prompt, choose a coding tool and optional model, then
+choose **Start** to open its terminal. Empty workspaces show the composer
+automatically; no session starts until you choose **Start**. **Cancel** returns
+to the previous view. Existing sessions keep running while you compose.
+Published installers may still show the earlier creation popup.
+
 ## Switch without stopping the work
 
 Select a session to return to its terminal. Switching away does not stop its

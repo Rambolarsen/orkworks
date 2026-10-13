@@ -673,6 +673,11 @@ The first useful MVP should include:
 - React + TypeScript UI
 - fixed, resizable shell with a compact Sessions sidebar, one central context,
   and an optional contextual inspector
+- New session uses a transient composer in the main content pane with a large
+  prompt and coding tool/model controls below it. Empty workspaces show this
+  composer. Cancel returns to previous content; Start opens the created terminal
+  only after successful creation. Existing sessions continue running. Creation
+  drafts are workspace-scoped presentation state and never restored as actions.
 - central context shows Terminal, the reusable Review surface, or Workflow when
   a validated and separately gated orchestration projection is available
 - no user-arranged panels, drag-and-drop docking, floating panels, or tab-based
