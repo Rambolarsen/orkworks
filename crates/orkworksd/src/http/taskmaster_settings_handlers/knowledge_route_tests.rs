@@ -39,6 +39,7 @@ async fn real_electron_client_maximum_activation_persists_through_authenticated_
     let port = url.rsplit(':').next().unwrap().to_owned();
     let output = tokio::task::spawn_blocking(move || {
         std::process::Command::new("node")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
             .args(["--experimental-strip-types", "--input-type=module", "-e", r#"
                 import { readFileSync } from 'node:fs';
                 import { pathToFileURL } from 'node:url';
@@ -208,6 +209,7 @@ async fn real_electron_synchronization_recovers_from_older_cache_but_refuses_equ
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/electron");
         let output = tokio::task::spawn_blocking(move || {
             std::process::Command::new("node")
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
                 .args(["--experimental-strip-types", "--input-type=module", "-e", r#"
                     import assert from 'node:assert/strict';
                     import { readFileSync } from 'node:fs';
