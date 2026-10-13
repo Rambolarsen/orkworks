@@ -716,8 +716,10 @@ Capacity above independently scrolling session history, with Settings and
 connection status anchored below. A compact header above the central content
 shows the selected session, Details, and a prominent Resume session action for
 an ended session with an available resume option while connected. The action uses
-the existing selected-session resume callback. When the sidebar is hidden, its
-Workspace menu keeps the sidebar controls reachable. The titlebar retains the product name
+the existing selected-session resume callback for the exact strategy; other
+strategies reveal Details so the chooser discloses fallback semantics. When the
+sidebar is hidden, its Workspace menu keeps the sidebar controls reachable.
+The titlebar retains the product name
 and native window dragging/controls; active-workspace history warnings remain
 visible there even when the sidebar is hidden. The no-workspace picker displays
 connection progress and recovery diagnostics above the shell. At short logical

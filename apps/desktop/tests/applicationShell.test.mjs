@@ -63,6 +63,10 @@ if (process.versions.electron) {
           await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
           await evaluate('document.querySelector("[data-shell-resume]").click()');
           assert.deepEqual(await evaluate('fixture.resumed'),['coding','other'],'resume follows selected identity');
+          await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"resumable",resumeStrategy:"latest_cwd",resumeOptions:[{strategy:"exact",available:false,label:"Exact",reason:"Missing ID"},{strategy:"latest_cwd",available:true,label:"Latest in folder",preferred:true}]})');
+          await evaluate('document.querySelector("[data-shell-resume]").click()');
+          await waitFor('document.querySelector("[data-shell-region=utility]")');
+          assert.deepEqual(await evaluate('fixture.resumed'),['coding','other'],'fallback opens its chooser instead of silently resuming another conversation');
           await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"unsupported",resumeStrategy:"none",resumeOptions:[{strategy:"exact",available:false,label:"Exact",reason:"Missing ID"}]})');
           await waitFor('!document.querySelector("[data-shell-resume]")');
           await evaluate('fixture.setEmpty(true)');

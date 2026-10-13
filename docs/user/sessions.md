@@ -22,9 +22,10 @@ different; live processes do not survive a backend restart.
 
 In current source builds, select an ended session and use **Resume session**
 beside its title above the terminal. The button appears while connected when
-the coding tool has an available resume option; you do not need to open Details.
-Resume support varies by coding tool. Published installers may still place
-resume actions inside Details.
+the coding tool has an available resume option. Exact resumes start directly;
+folder or repository fallbacks open Details so you can read which conversation
+will resume before choosing. Resume support varies by coding tool. Published
+installers may still place resume actions inside Details.
 
 ## Saved shell layout
 

@@ -288,7 +288,7 @@ export default function ApplicationShell(props: Props) {
           </details>}
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{session?.label || "Terminal"}</h1><span className="shell-context-scope">{session?.harness || "No session selected"}</span></div>
           {canResume && <button type="button" className="shell-resume-button" data-shell-resume
-            onClick={() => props.onResumeSession(session!.id)}><Play size={15} aria-hidden="true" />Resume session</button>}
+            onClick={() => session?.resumeStrategy === "exact" ? props.onResumeSession(session.id) : runCommand("details", true)}><Play size={15} aria-hidden="true" />Resume session</button>}
           {!showTerminal && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
         </nav>
