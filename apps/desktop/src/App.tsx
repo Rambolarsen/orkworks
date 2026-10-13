@@ -659,9 +659,7 @@ function App() {
       <ToastRack />
       <div className="titlebar">
         <div className="titlebar-left">
-          {window.orkworks.platform === "win32" && (
-            <img className="titlebar-icon" src={orkworksIcon} alt="" draggable={false} />
-          )}
+          <img className="titlebar-icon" src={orkworksIcon} alt="" draggable={false} />
           <span className="titlebar-text">OrkWorks</span>
         </div>
         {workspace && workspaceHistoryDiagnostic && (
