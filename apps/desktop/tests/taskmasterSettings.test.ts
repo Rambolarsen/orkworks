@@ -81,7 +81,7 @@ test("privileged transport rejects non-object success responses", async () => {
 test("privileged transport keeps per-resource byte limits and rejects invalid authority before fetch", async () => {
   let calls = 0;
   const fetcher = async () => { calls++; return new Response("{}"); };
-  for (const [resource, limit] of [["settings", 65536], ["knowledge", 2097152], ["inference", 8192], ["models", 65536]] as const) {
+  for (const [resource, limit] of [["settings", 65536], ["knowledge", 6291456], ["inference", 8192], ["models", 65536]] as const) {
     // JSON quotes consume two bytes; multibyte text must be counted as UTF-8.
     await taskmasterRequest(4321, "token", resource, "x".repeat(limit - 2), fetcher);
     const before = calls;

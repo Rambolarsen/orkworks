@@ -766,7 +766,7 @@ app.whenReady().then(async () => {
       const settings = status.settings as { automaticKnowledgeUpdates?: boolean };
       knowledgeUpdates.setEnabled(settings.automaticKnowledgeUpdates !== false);
       await synchronizeKnowledge(knowledgeUpdates,
-        (bundle) => taskmasterRequest(port, token, "knowledge", bundle), stillCurrent);
+        (activation) => taskmasterRequest(port, token, "knowledge", activation), stillCurrent);
     })().catch((error: unknown) => {
       console.warn("[taskmaster] knowledge unavailable:", error instanceof Error ? error.message : "unknown error");
     }).finally(() => {
