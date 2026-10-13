@@ -172,3 +172,99 @@ async fn production_authenticated_route_cannot_select_a_fixture_key() {
     assert!(!root.join("knowledge").exists());
     server.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_electron_synchronization_recovers_from_older_cache_but_refuses_equivocation_and_other_errors(
+) {
+    use crate::taskmaster::knowledge::test_support::{activation, bundle_value};
+    for mode in ["recover", "equivocation", "unauthorized"] {
+        let directory = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(directory.path());
+        let root = runtime_for(&state).root_path().to_path_buf();
+        let runtime = TaskmasterRuntime::open_with_test_key(root.clone(), TEST_PUBLIC_KEY);
+        let mut current = bundle_value("valid-activation.json");
+        current["sequence"] = serde_json::json!(2);
+        current["version"] = serde_json::json!("sidecar-2");
+        runtime
+            .activate_knowledge(&activation(current.clone(), false))
+            .unwrap();
+        let cached = if mode == "equivocation" {
+            current["pages"][0]["title"] = serde_json::json!("Conflicting same-sequence guidance");
+            activation(current, false)
+        } else {
+            fixture("valid-activation.json")
+        };
+        let mut feed = bundle_value("valid-activation.json");
+        feed["sequence"] = serde_json::json!(3);
+        feed["version"] = serde_json::json!("feed-3");
+        let starter_path = directory.path().join("starter.json");
+        let feed_path = directory.path().join("feed.json");
+        std::fs::write(&starter_path, cached).unwrap();
+        std::fs::write(&feed_path, activation(feed, false)).unwrap();
+        let cache_path = directory.path().join("electron-cache");
+        let (url, server) = server(state, true).await;
+        let port = url.rsplit(':').next().unwrap().to_owned();
+        let modules =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/electron");
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("node")
+                .args(["--experimental-strip-types", "--input-type=module", "-e", r#"
+                    import assert from 'node:assert/strict';
+                    import { readFileSync } from 'node:fs';
+                    import { join } from 'node:path';
+                    import { pathToFileURL } from 'node:url';
+                    const [modules, starterPath, feedPath, directory, port, mode, publicKey] = process.argv.slice(1);
+                    const { taskmasterRequest } = await import(pathToFileURL(join(modules, 'taskmasterSettings.ts')).href);
+                    const { KnowledgeUpdates, synchronizeKnowledge } = await import(pathToFileURL(join(modules, 'knowledgeUpdates.ts')).href);
+                    const feed = JSON.parse(readFileSync(feedPath, 'utf8'));
+                    let feedChecks = 0;
+                    const updates = new KnowledgeUpdates({ directory, starterPath, publicKey,
+                        feedUrl: 'https://example.test/knowledge/manifest.json',
+                        fetcher: async url => {
+                            feedChecks++;
+                            const field = url.endsWith('manifest.json') ? 'manifestEnvelopeBase64' : 'bundleEnvelopeBase64';
+                            return new Response(Buffer.from(feed[field], 'base64'));
+                        },
+                    });
+                    const attempted = [];
+                    let error;
+                    try {
+                        await synchronizeKnowledge(updates, async activation => {
+                            const envelope = JSON.parse(Buffer.from(activation.bundleEnvelopeBase64, 'base64'));
+                            attempted.push(JSON.parse(envelope.payload).sequence);
+                            return taskmasterRequest(Number(port), mode === 'unauthorized' ? 'wrong-token' : 'taskmaster-test-token', 'knowledge', activation);
+                        }, () => true);
+                    } catch (failure) { error = failure.message; }
+                    if (mode === 'recover') {
+                        assert.equal(error, undefined, `older cache must reach feed recovery: ${error}; checks=${feedChecks}`);
+                        assert.equal(feedChecks, 2);
+                        assert.deepEqual(attempted, [1, 3]);
+                        assert.equal(updates.status().version, 'feed-3');
+                    } else {
+                        assert.equal(feedChecks, 0, 'non-downgrade refusal must stop before checking the feed');
+                        assert.deepEqual(attempted, [mode === 'equivocation' ? 2 : 1]);
+                        assert.match(error, mode === 'equivocation' ? /equivocation/ : /Invalid Taskmaster response/);
+                    }
+                    process.stdout.write('verified');
+                "#])
+                .arg(modules).arg(starter_path).arg(feed_path).arg(cache_path).arg(port).arg(mode).arg(TEST_PUBLIC_KEY)
+                .output().expect("Node and host fs-ext are required for real synchronization coverage")
+        }).await.unwrap();
+        assert!(
+            output.status.success(),
+            "{mode} synchronization failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"verified");
+        let restarted = TaskmasterRuntime::open_with_test_key(root, TEST_PUBLIC_KEY);
+        assert_eq!(
+            restarted.status(None).knowledge_version.as_deref(),
+            Some(if mode == "recover" {
+                "feed-3"
+            } else {
+                "sidecar-2"
+            })
+        );
+        server.abort();
+    }
+}

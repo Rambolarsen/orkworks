@@ -684,8 +684,12 @@ impl TaskmasterRuntime {
             if verified.identity() == current.identity() {
                 return Ok(());
             }
-            if verified.identity().sequence <= current.identity().sequence {
-                return Err("knowledge sequence downgrade or equal-sequence equivocation".into());
+            if verified.identity().sequence < current.identity().sequence {
+                // Stable recoverable error consumed by Electron synchronization before its feed check.
+                return Err("knowledge bundle sequence is older than the active bundle".into());
+            }
+            if verified.identity().sequence == current.identity().sequence {
+                return Err("knowledge bundle sequence equivocation at the active sequence".into());
             }
         }
         data.ledger.generation = data
